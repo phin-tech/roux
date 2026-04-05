@@ -43,7 +43,17 @@ impl PtyManager {
             })
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
+        // Get the user's login shell PATH so we can find `claude`
+        let user_path = std::process::Command::new("/bin/bash")
+            .args(["-l", "-c", "echo $PATH"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+
         let mut cmd = CommandBuilder::new("claude");
+        cmd.env("PATH", &user_path);
         if let Some(m) = model {
             cmd.arg("--model");
             cmd.arg(m);
