@@ -10,7 +10,7 @@ pub struct TaskDefinition {
     pub description: String,
     pub runner: String,
     pub command: String,
-    pub keep_open: bool,
+    pub keep_open: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,7 +35,7 @@ impl TaskDiscoverer for NpmDiscoverer {
     }
 
     fn runner_name(&self) -> &str {
-        "npm"
+        "npm scripts"
     }
 
     fn discover(&self, dir: &Path) -> Option<TaskGroup> {
@@ -59,20 +59,78 @@ impl TaskDiscoverer for NpmDiscoverer {
                 description: String::new(),
                 runner: "npm".to_string(),
                 command: format!("npm run {}", name),
-                keep_open: false,
+                keep_open: "on-error".to_string(),
             })
             .collect();
 
         Some(TaskGroup {
             runner: self.runner_name().to_string(),
-            config_file: config_path.to_string_lossy().to_string(),
+            config_file: self.config_file().to_string(),
+            tasks,
+        })
+    }
+}
+
+pub struct TaskfileDiscoverer;
+
+impl TaskDiscoverer for TaskfileDiscoverer {
+    fn config_file(&self) -> &str {
+        "Taskfile.yml"
+    }
+
+    fn runner_name(&self) -> &str {
+        "Taskfile"
+    }
+
+    fn discover(&self, dir: &Path) -> Option<TaskGroup> {
+        let config_path = dir.join(self.config_file());
+        let content = std::fs::read_to_string(&config_path).ok()?;
+        let yaml: serde_yaml::Value = serde_yaml::from_str(&content).ok()?;
+
+        let tasks_map = yaml.get("tasks")?.as_mapping()?;
+        if tasks_map.is_empty() {
+            return None;
+        }
+
+        let mut task_entries: Vec<(String, String)> = tasks_map
+            .iter()
+            .filter_map(|(k, v)| {
+                let name = k.as_str()?.to_string();
+                let desc = v
+                    .get("desc")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Some((name, desc))
+            })
+            .collect();
+        task_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let tasks = task_entries
+            .into_iter()
+            .map(|(name, desc)| TaskDefinition {
+                id: format!("taskfile:{}", name),
+                name: name.clone(),
+                description: desc,
+                runner: "task".to_string(),
+                command: format!("task {}", name),
+                keep_open: "on-error".to_string(),
+            })
+            .collect();
+
+        Some(TaskGroup {
+            runner: self.runner_name().to_string(),
+            config_file: self.config_file().to_string(),
             tasks,
         })
     }
 }
 
 pub fn discover_tasks(dir: &Path) -> Vec<TaskGroup> {
-    let discoverers: Vec<Box<dyn TaskDiscoverer>> = vec![Box::new(NpmDiscoverer)];
+    let discoverers: Vec<Box<dyn TaskDiscoverer>> = vec![
+        Box::new(NpmDiscoverer),
+        Box::new(TaskfileDiscoverer),
+    ];
 
     discoverers.into_iter().filter_map(|d| d.discover(dir)).collect()
 }
@@ -98,14 +156,14 @@ mod tests {
         let discoverer = NpmDiscoverer;
         let group = discoverer.discover(dir.path()).unwrap();
 
-        assert_eq!(group.runner, "npm");
+        assert_eq!(group.runner, "npm scripts");
         assert_eq!(group.tasks.len(), 3);
 
         // Sorted by name: build, dev, test
         assert_eq!(group.tasks[0].name, "build");
         assert_eq!(group.tasks[0].command, "npm run build");
         assert_eq!(group.tasks[0].id, "npm:build");
-        assert_eq!(group.tasks[0].keep_open, false);
+        assert_eq!(group.tasks[0].keep_open, "on-error");
 
         assert_eq!(group.tasks[1].name, "dev");
         assert_eq!(group.tasks[2].name, "test");
@@ -145,7 +203,7 @@ mod tests {
 
         let groups = discover_tasks(dir.path());
         assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].runner, "npm");
+        assert_eq!(groups[0].runner, "npm scripts");
     }
 
     #[test]
@@ -153,5 +211,55 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let groups = discover_tasks(dir.path());
         assert!(groups.is_empty());
+    }
+
+    // ---- TaskfileDiscoverer tests ----
+
+    #[test]
+    fn taskfile_discovers_tasks_with_descriptions() {
+        let dir = tempfile::tempdir().unwrap();
+        let taskfile = r#"
+version: "3"
+tasks:
+  build:
+    desc: Compile the project
+    cmds:
+      - go build ./...
+  test:
+    desc: Run tests
+    cmds:
+      - go test ./...
+  lint:
+    cmds:
+      - golangci-lint run
+"#;
+        fs::write(dir.path().join("Taskfile.yml"), taskfile).unwrap();
+
+        let discoverer = TaskfileDiscoverer;
+        let group = discoverer.discover(dir.path()).unwrap();
+
+        assert_eq!(group.runner, "Taskfile");
+        assert_eq!(group.config_file, "Taskfile.yml");
+        assert_eq!(group.tasks.len(), 3);
+
+        // Sorted: build, lint, test
+        assert_eq!(group.tasks[0].name, "build");
+        assert_eq!(group.tasks[0].description, "Compile the project");
+        assert_eq!(group.tasks[0].command, "task build");
+        assert_eq!(group.tasks[0].id, "taskfile:build");
+        assert_eq!(group.tasks[0].keep_open, "on-error");
+
+        assert_eq!(group.tasks[1].name, "lint");
+        assert_eq!(group.tasks[1].description, "");
+
+        assert_eq!(group.tasks[2].name, "test");
+        assert_eq!(group.tasks[2].description, "Run tests");
+    }
+
+    #[test]
+    fn taskfile_returns_none_without_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let discoverer = TaskfileDiscoverer;
+        assert!(discoverer.discover(dir.path()).is_none());
     }
 }
