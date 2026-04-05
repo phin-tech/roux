@@ -29,10 +29,16 @@
     return [...groups.entries()];
   });
 
+  let inputEl: HTMLInputElement | undefined = $state();
+
   $effect(() => {
     if (open) {
       inputValue = "";
       stepStack = [];
+      // Focus the input after render
+      requestAnimationFrame(() => {
+        inputEl?.focus();
+      });
     }
   });
 
@@ -172,6 +178,7 @@
             >&#8592;</button>
           {/if}
           <Command.Input
+            bind:ref={inputEl}
             bind:value={inputValue}
             placeholder={inDrillStep ? `Search ${currentStep?.label}...` : "Type a command..."}
             class="flex-1 bg-transparent border-none outline-none text-sm text-text-primary placeholder-text-muted font-sans"
