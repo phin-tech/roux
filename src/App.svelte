@@ -86,12 +86,13 @@
   }
 
   onDestroy(() => {
-    window.removeEventListener("keydown", handleKeyDown);
+    window.removeEventListener("keydown", handleKeyDown, true);
   });
 
   onMount(async () => {
     registerCommands();
-    window.addEventListener("keydown", handleKeyDown);
+    // Use capture phase so we intercept before xterm.js swallows the event
+    window.addEventListener("keydown", handleKeyDown, true);
 
     // Listen for Tauri close-requested event (Cmd+W or red button)
     await listen("close-requested", () => handleCloseRequested());

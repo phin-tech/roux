@@ -29,15 +29,16 @@
     return [...groups.entries()];
   });
 
-  let inputEl: HTMLInputElement | undefined = $state();
+  let dialogEl: HTMLDivElement | undefined = $state();
 
   $effect(() => {
     if (open) {
       inputValue = "";
       stepStack = [];
-      // Focus the input after render
+      // Focus the input after render — find it in the DOM
       requestAnimationFrame(() => {
-        inputEl?.focus();
+        const input = dialogEl?.querySelector("input");
+        input?.focus();
       });
     }
   });
@@ -141,6 +142,7 @@
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
+      bind:this={dialogEl}
       class="w-[540px] max-h-[420px] bg-bg-surface border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
       onkeydown={handleKeyDown}
     >
@@ -178,7 +180,6 @@
             >&#8592;</button>
           {/if}
           <Command.Input
-            bind:ref={inputEl}
             bind:value={inputValue}
             placeholder={inDrillStep ? `Search ${currentStep?.label}...` : "Type a command..."}
             class="flex-1 bg-transparent border-none outline-none text-sm text-text-primary placeholder-text-muted font-sans"
