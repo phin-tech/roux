@@ -1,9 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod hooks;
 mod osc;
 mod pty;
 mod session;
 mod settings;
+mod status_watcher;
 mod worktree;
 
 use std::sync::Mutex;
@@ -188,6 +190,15 @@ fn main() {
             create_session,
             list_sessions,
         ])
+        .setup(|app| {
+            if let Err(e) = hooks::install_hooks() {
+                eprintln!("Warning: failed to install hooks: {}", e);
+            }
+            if let Err(e) = status_watcher::start_watching(app.handle().clone()) {
+                eprintln!("Warning: failed to start status watcher: {}", e);
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

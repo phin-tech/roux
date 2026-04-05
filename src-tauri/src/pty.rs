@@ -6,8 +6,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::Emitter;
 
-use crate::osc;
-
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
     #[allow(dead_code)]
@@ -96,13 +94,6 @@ impl PtyManager {
                             b64,
                         );
 
-                        // Parse OSC for status updates
-                        if let Some(status) = osc::parse_osc_status(data) {
-                            let _ = app_for_thread.emit(
-                                &format!("session-status:{}", id_for_thread),
-                                &status,
-                            );
-                        }
                     }
                     Err(_) => break,
                 }
