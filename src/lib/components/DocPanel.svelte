@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onDestroy } from "svelte";
   import { marked } from "marked";
   import { listDocs, readFile, type DocFile } from "$lib/tauri";
   import { activeSession } from "$lib/stores/sessions";
@@ -69,7 +69,7 @@
   // Refresh when active session changes
   $effect(() => {
     // Read the session to track it
-    const _session = $activeSession;
+    void $activeSession;
     if (visible) {
       selectedDoc = null;
       renderedHtml = "";

@@ -4,8 +4,9 @@ export type SplitDirection = "horizontal" | "vertical";
 
 export interface Pane {
   id: string;
-  type: "claude" | "shell";
+  type: "claude" | "shell" | "doc";
   ptyId: string;
+  docPath?: string;
 }
 
 export type SplitNode =

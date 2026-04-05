@@ -2,6 +2,7 @@
   import SplitPane from "./SplitPane.svelte";
   import Terminal from "./Terminal.svelte";
   import ShellTerminal from "./ShellTerminal.svelte";
+  import DocPane from "./DocPane.svelte";
   import { focusedPaneId, removePane, type SplitNode } from "$lib/stores/panes";
 
   interface Props {
@@ -25,6 +26,11 @@
     >
       {#if node.pane.type === "claude"}
         <Terminal sessionId={node.pane.ptyId} active={sessionActive} />
+      {:else if node.pane.type === "doc"}
+        <DocPane
+          docPath={node.pane.docPath ?? ""}
+          onClose={() => removePane(sessionId, node.pane.id)}
+        />
       {:else}
         <ShellTerminal
           ptyId={node.pane.ptyId}
