@@ -34,7 +34,15 @@
       "Bash(cargo build:*)",
       "Bash(find:*)",
       "Bash(printf '1\\\\n')",
-      "Bash(xxd)"
+      "Bash(xxd)",
+      "Bash(python3 -c \" import sys, json for line in sys.stdin: try: obj = json.loads\\(line\\) if obj.get\\('type'\\) == 'assistant': msg = obj.get\\('message', {}\\) content = msg.get\\('content', []\\) for block in content: if isinstance\\(block, dict\\) and block.get\\('type'\\) == 'text': text = block['text'][:200] print\\(f'--- TEXT BLOCK \\({len\\(block[\\\\\"text\\\\\"]\\)} chars\\) ---'\\) print\\(text\\) print\\(\\) break break except: pass \")",
+      "Bash(python3 -c \" import sys, json count = 0 for line in sys.stdin: try: obj = json.loads\\(line\\) if obj.get\\('type'\\) == 'assistant': msg = obj.get\\('message', {}\\) content = msg.get\\('content', []\\) for block in content if isinstance\\(content, list\\) else []: if isinstance\\(block, dict\\) and block.get\\('type'\\) == 'text' and len\\(block.get\\('text',''\\)\\) > 50: print\\(f'--- ASSISTANT \\({len\\(block[\\\\\"text\\\\\"]\\)} chars\\) ---'\\) print\\(block['text'][:300]\\) print\\(\\) count += 1 if count >= 3: break if count >= 3: break except Exception as e: pass print\\(f'Found {count} text blocks'\\) \")",
+      "Bash(git push:*)",
+      "WebFetch(domain:www.scape.work)",
+      "Bash(npm info:*)",
+      "Bash(npx svelte-check:*)",
+      "Bash(wc -l /Users/sphinizy/src/github.com/phin-tech/roux/src-tauri/src/*.rs)",
+      "Bash(npm test:*)"
     ]
   }
 }

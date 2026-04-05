@@ -25,7 +25,7 @@ export interface Command {
   getItems?: () => CommandItem[] | Promise<CommandItem[]>;
 }
 
-class CommandRegistry {
+export class CommandRegistry {
   private commands: Map<string, Command> = new Map();
 
   register(command: Command) {

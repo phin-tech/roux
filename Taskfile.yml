@@ -78,9 +78,25 @@ tasks:
       - cd src-tauri && cargo check
 
   test:
-    desc: "Run Rust tests"
+    desc: "Run all tests (Rust + frontend)"
     cmds:
       - cd src-tauri && cargo test
+      - npm test
+
+  test:rust:
+    desc: "Run Rust tests only"
+    cmds:
+      - cd src-tauri && cargo test
+
+  test:frontend:
+    desc: "Run frontend tests only"
+    cmds:
+      - npm test
+
+  test:watch:
+    desc: "Run frontend tests in watch mode"
+    cmds:
+      - npm run test:watch
 
   hooks:install:
     desc: "Manually re-install Claude Code hooks"
