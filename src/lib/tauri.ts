@@ -41,6 +41,10 @@ export async function resizeSession(
   return invoke("resize_session", { id, cols, rows });
 }
 
+export async function spawnShell(id: string, workingDir: string): Promise<void> {
+  return invoke("spawn_shell", { id, workingDir });
+}
+
 export async function listSessions(): Promise<Session[]> {
   return invoke("list_sessions");
 }

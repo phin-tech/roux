@@ -124,6 +124,93 @@ impl PtyManager {
         Ok(())
     }
 
+    pub fn spawn_shell(
+        &self,
+        id: &str,
+        working_dir: &str,
+        app: tauri::AppHandle,
+    ) -> Result<(), String> {
+        let pty_system = native_pty_system();
+
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+        let user_path = std::process::Command::new("/bin/bash")
+            .args(["-l", "-c", "echo $PATH"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+
+        let mut cmd = CommandBuilder::new(&shell);
+        cmd.env("PATH", &user_path);
+        cmd.cwd(working_dir);
+
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| format!("Failed to spawn shell: {}", e))?;
+
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
+
+        let id_for_thread = id.to_string();
+        let app_for_thread = app.clone();
+
+        thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => {
+                        let _ = app_for_thread.emit(
+                            &format!("pty-output:{}", id_for_thread),
+                            serde_json::json!({"closed": true}),
+                        );
+                        break;
+                    }
+                    Ok(n) => {
+                        let data = &buf[..n];
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(data);
+                        let _ = app_for_thread.emit(
+                            &format!("pty-output:{}", id_for_thread),
+                            b64,
+                        );
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        let session = PtySession {
+            master: pair.master,
+            child,
+            writer,
+        };
+
+        self.sessions
+            .lock()
+            .unwrap()
+            .insert(id.to_string(), session);
+
+        Ok(())
+    }
+
     pub fn write(&self, session_id: &str, data: &[u8]) -> Result<(), String> {
         let mut sessions = self.sessions.lock().unwrap();
         let session = sessions

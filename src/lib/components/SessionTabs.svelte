@@ -1,6 +1,7 @@
 <script lang="ts">
   import SessionCard from "./SessionCard.svelte";
   import { sessionState, setActiveSession, removeSession, addSession, renameSession } from "$lib/stores/sessions";
+  import { initSessionPanes } from "$lib/stores/panes";
   import { killSession, removeWorktree, createSession, writeToSession } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
 
@@ -74,6 +75,7 @@
       null
     );
     addSession(newSession);
+    initSessionPanes(newSession.id);
   }
 </script>
 

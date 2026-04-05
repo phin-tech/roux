@@ -2,6 +2,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { createSession, listWorktrees } from "$lib/tauri";
   import { addSession } from "$lib/stores/sessions";
+  import { initSessionPanes } from "$lib/stores/panes";
   import { settings } from "$lib/stores/settings";
   import type { Worktree } from "$lib/types";
 
@@ -66,6 +67,7 @@
       );
 
       addSession(session);
+      initSessionPanes(session.id);
       resetAndClose();
     } catch (e) {
       error = String(e);

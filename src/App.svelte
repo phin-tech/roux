@@ -1,22 +1,54 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
+  import { get } from "svelte/store";
   import Layout from "$lib/components/Layout.svelte";
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import { initSettings } from "$lib/stores/settings";
   import { addSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
-  import { listSessions, onRouxStatusUpdate } from "$lib/tauri";
+  import { initSessionPanes, addSplit, focusedPaneId } from "$lib/stores/panes";
+  import { listSessions, onRouxStatusUpdate, spawnShell } from "$lib/tauri";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
 
+  async function splitCurrentSession(direction: "horizontal" | "vertical") {
+    const state = get(sessionState);
+    if (!state.activeSessionId) return;
+    const session = state.sessions.find((s) => s.id === state.activeSessionId);
+    if (!session) return;
+
+    const paneId = crypto.randomUUID();
+    const ptyId = crypto.randomUUID();
+    await spawnShell(ptyId, session.worktreePath);
+    addSplit(state.activeSessionId, direction, { id: paneId, type: "shell", ptyId });
+  }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.metaKey && e.key === "d" && !e.shiftKey) {
+      e.preventDefault();
+      splitCurrentSession("horizontal");
+    }
+    if (e.metaKey && (e.key === "D" || (e.key === "d" && e.shiftKey))) {
+      e.preventDefault();
+      splitCurrentSession("vertical");
+    }
+  }
+
+  onDestroy(() => {
+    window.removeEventListener("keydown", handleKeyDown);
+  });
+
   onMount(async () => {
+    window.addEventListener("keydown", handleKeyDown);
+
     const loadedSettings = await initSettings();
     // Only restore sessions if setting is enabled
     if (loadedSettings.restoreSessionsOnLaunch) {
       const sessions = await listSessions();
       for (const s of sessions) {
         addSession(s);
+        initSessionPanes(s.id);
       }
     }
 

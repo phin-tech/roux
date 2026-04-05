@@ -75,6 +75,11 @@ fn resize_session(
 }
 
 #[tauri::command]
+fn spawn_shell(id: String, working_dir: String, state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
+    state.pty_manager.spawn_shell(&id, &working_dir, app.clone())
+}
+
+#[tauri::command]
 fn kill_session(id: String, state: tauri::State<AppState>) -> Result<(), String> {
     state.pty_manager.kill(&id)?;
     state.session_store.remove(&id);
@@ -87,6 +92,7 @@ fn create_session(
     name: String,
     worktree_path: Option<String>,
     branch: Option<String>,
+    extra_flags: Option<Vec<String>>,
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
@@ -111,12 +117,18 @@ fn create_session(
         (repo_path.clone(), br, false)
     };
 
+    // Merge settings flags with per-session extra flags
+    let mut all_flags = settings.additional_flags.clone();
+    if let Some(ef) = extra_flags {
+        all_flags.extend(ef);
+    }
+
     // Spawn PTY
     let spawn_result = state.pty_manager.spawn(
         &session_id,
         &work_dir,
         settings.default_model.as_deref(),
-        &settings.additional_flags,
+        &all_flags,
         app.clone(),
     );
 
@@ -186,6 +198,7 @@ fn main() {
             cmd_list_worktrees,
             write_to_session,
             resize_session,
+            spawn_shell,
             kill_session,
             create_session,
             list_sessions,

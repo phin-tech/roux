@@ -1,8 +1,9 @@
 <script lang="ts">
   import SessionTabs from "./SessionTabs.svelte";
-  import Terminal from "./Terminal.svelte";
+  import SplitPane from "./SplitPane.svelte";
   import StatusBar from "./StatusBar.svelte";
   import { sessionState } from "$lib/stores/sessions";
+  import { paneTrees } from "$lib/stores/panes";
   import { settings, updateSetting } from "$lib/stores/settings";
   import type { Snippet } from "svelte";
 
@@ -64,10 +65,12 @@
         </div>
       {:else}
         {#each $sessionState.sessions as session (session.id)}
-          <Terminal
-            sessionId={session.id}
-            active={session.id === $sessionState.activeSessionId}
-          />
+          {@const tree = $paneTrees.get(session.id)}
+          {#if tree}
+            <div class="flex-1 min-h-0 flex" class:hidden={session.id !== $sessionState.activeSessionId}>
+              <SplitPane node={tree} sessionId={session.id} sessionActive={session.id === $sessionState.activeSessionId} />
+            </div>
+          {/if}
         {/each}
       {/if}
 
