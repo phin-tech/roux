@@ -224,7 +224,7 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="group flex h-3 shrink-0 cursor-row-resize items-center px-2" onmousedown={handleDividerDown}>
         <div
-          class="h-px w-full rounded-full transition-all duration-150 {dragging ? 'bg-border opacity-100' : 'bg-border-subtle opacity-0 group-hover:opacity-100'}"
+          class="h-px w-full rounded-full transition-all duration-150 {dragging ? 'bg-white/20' : 'bg-white/10 opacity-0 group-hover:opacity-100'}"
         ></div>
       </div>
 

@@ -52,7 +52,7 @@
       onmousedown={onDragStart}
     >
       <div
-        class="my-3 w-px rounded-full transition-all duration-150 {dragging ? 'bg-border opacity-100' : 'bg-border-subtle opacity-0 group-hover:opacity-100'}"
+        class="my-3 w-px rounded-full transition-all duration-150 {dragging ? 'bg-white/20' : 'bg-white/10 opacity-0 group-hover:opacity-100'}"
       ></div>
     </div>
 

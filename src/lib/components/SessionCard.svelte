@@ -96,24 +96,6 @@
     attention: "bg-amber shadow-[0_0_8px_var(--color-amber-dim)]",
   };
 
-  const labelClasses: Record<Session["status"], string> = {
-    idle: "border border-green/15 bg-green/10 text-green",
-    thinking: "border border-amber/15 bg-amber/10 text-amber",
-    generating: "border border-blue/15 bg-blue/10 text-blue",
-    error: "border border-red/15 bg-red/10 text-red",
-    disconnected: "border border-gray/15 bg-gray/15 text-gray",
-    attention: "border border-amber/15 bg-amber/15 text-amber",
-  };
-
-  const labelText: Record<Session["status"], string> = {
-    idle: "idle",
-    thinking: "think",
-    generating: "gen",
-    error: "error",
-    disconnected: "disc",
-    attention: "wait",
-  };
-
   const railClasses: Record<Session["status"], string> = {
     idle: "bg-accent shadow-[0_0_6px_var(--color-blue-dim)]",
     thinking: "bg-accent shadow-[0_0_6px_var(--color-blue-dim)]",
@@ -183,9 +165,6 @@
       </span>
     {/if}
 
-    <span class="rounded-full px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.2em] {labelClasses[session.status]}">
-      {labelText[session.status]}
-    </span>
     {#if session.status === "disconnected"}
       <button
         class="cursor-pointer rounded-full border border-accent-dim/20 bg-accent-dim/15 px-1.5 py-0.5 text-[9px] font-medium text-accent hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
@@ -198,7 +177,7 @@
       </button>
     {/if}
     <button
-      class="cursor-pointer rounded-md border border-transparent bg-transparent p-0.5 text-sm text-text-muted opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-white/[0.05] hover:text-red focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      class="cursor-pointer flex h-4 w-4 items-center justify-center rounded bg-transparent text-[10px] leading-none text-text-muted opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-red focus-visible:opacity-100 focus-visible:outline-none"
       onclick={(e) => {
         e.stopPropagation();
         onclose();
