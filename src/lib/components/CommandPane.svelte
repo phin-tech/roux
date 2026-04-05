@@ -104,7 +104,13 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (status !== "running" && e.key === "r" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    // Only rerun on bare 'r' press, not inside the terminal
+    if (
+      status !== "running" &&
+      e.key === "r" &&
+      !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey &&
+      !(e.target instanceof HTMLElement && containerEl?.contains(e.target))
+    ) {
       e.preventDefault();
       void rerun();
     }
@@ -189,7 +195,9 @@
     {/if}
   </div>
 
-  <div bind:this={containerEl} class="flex-1 min-h-0"></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div bind:this={containerEl} class="flex-1 min-h-0" onclick={() => term?.focus()}></div>
 
   {#if hovering}
     <button

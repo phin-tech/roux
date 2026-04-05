@@ -58,21 +58,21 @@
   }
 
   const statusClasses: Record<Session["status"], string> = {
-    idle: "bg-green shadow-[0_0_6px_var(--color-green-dim)]",
-    thinking: "bg-amber shadow-[0_0_6px_var(--color-amber-dim)] animate-pulse",
-    generating: "bg-blue shadow-[0_0_6px_var(--color-blue-dim)] animate-[stream_1.5s_ease-in-out_infinite]",
+    idle: "bg-green shadow-[0_0_12px_var(--color-green-dim)]",
+    thinking: "bg-amber shadow-[0_0_14px_var(--color-amber-dim)]",
+    generating: "bg-blue shadow-[0_0_14px_var(--color-blue-dim)]",
     error: "bg-red shadow-[0_0_6px_var(--color-red-dim)]",
     disconnected: "bg-gray opacity-60",
-    attention: "bg-amber shadow-[0_0_8px_var(--color-amber-dim)] animate-pulse",
+    attention: "bg-amber shadow-[0_0_14px_var(--color-amber-dim)]",
   };
 
   const labelClasses: Record<Session["status"], string> = {
-    idle: "text-green bg-green/10",
-    thinking: "text-amber bg-amber/10",
-    generating: "text-blue bg-blue/10",
-    error: "text-red bg-red/10",
-    disconnected: "text-gray bg-gray/15",
-    attention: "text-amber bg-amber/15",
+    idle: "border border-green/15 text-green bg-green/10",
+    thinking: "border border-amber/15 text-amber bg-amber/10",
+    generating: "border border-blue/15 text-blue bg-blue/10",
+    error: "border border-red/15 text-red bg-red/10",
+    disconnected: "border border-gray/15 text-gray bg-gray/15",
+    attention: "border border-amber/15 text-amber bg-amber/15",
   };
 
   const labelText: Record<Session["status"], string> = {
@@ -83,96 +83,103 @@
     disconnected: "disc",
     attention: "wait",
   };
+
+  const pulsingStatuses: Session["status"][] = ["thinking", "generating", "attention"];
 </script>
 
 <!-- Use div, not button, to avoid invalid nested <button> for the close control -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="w-full text-left p-2.5 rounded-lg cursor-pointer transition-all duration-150 relative border group
+  class="group relative mb-2 w-full cursor-pointer rounded-2xl border p-3 text-left transition-all duration-150
     {active
-      ? 'bg-bg-active border-border'
-      : 'border-transparent hover:bg-bg-hover'}"
+      ? 'border-sky-400/30 bg-bg-active shadow-[0_18px_40px_rgba(2,6,23,0.32),inset_0_1px_0_rgba(255,255,255,0.04)]'
+      : 'border-transparent bg-white/[0.02] hover:border-white/8 hover:bg-bg-hover/70 hover:shadow-[0_12px_28px_rgba(2,6,23,0.22)]'}"
   onclick={onselect}
   title={session.worktreePath}
 >
   {#if active}
-    <div class="absolute left-0 top-2 bottom-2 w-0.5 bg-accent rounded-r"></div>
+    <div class="absolute inset-x-4 bottom-0 h-px bg-gradient-to-r from-transparent via-sky-300/80 to-transparent"></div>
   {/if}
 
-  <div class="flex items-center gap-2 mb-1">
-    <div class="w-2 h-2 rounded-full shrink-0 {statusClasses[session.status]}"></div>
+  <div class="mb-2 flex items-start gap-2">
+    <div class="relative mt-0.5 flex h-3 w-3 shrink-0 items-center justify-center">
+      {#if pulsingStatuses.includes(session.status)}
+        <span class="absolute inline-flex h-full w-full rounded-full {statusClasses[session.status]} animate-ping opacity-60"></span>
+      {/if}
+      <span class="relative inline-flex h-3 w-3 rounded-full {statusClasses[session.status]}"></span>
+    </div>
 
     {#if editing}
       <input
-        class="text-[13px] font-medium text-text-primary bg-bg-deep border border-accent-dim rounded px-1 py-0 flex-1 outline-none font-sans"
+        class="flex-1 rounded-lg border border-sky-400/30 bg-black/35 px-2 py-1 text-[13px] font-medium tracking-tight text-text-primary outline-none"
         bind:value={editName}
         onblur={commitRename}
-        onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { editing = false; } }}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); commitRename(); } if (e.key === 'Escape') { e.stopPropagation(); editing = false; } }}
       />
     {:else}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <span
-        class="text-[13px] font-medium text-text-primary truncate flex-1"
+        class="flex-1 truncate text-[13px] font-semibold tracking-tight text-text-primary"
         ondblclick={startEditing}
       >
         {session.name}
       </span>
     {/if}
 
-    <span class="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded {labelClasses[session.status]}">
+    <span class="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] {labelClasses[session.status]}">
       {labelText[session.status]}
     </span>
     {#if session.status === "disconnected"}
       <button
-        class="text-[10px] font-medium text-accent bg-accent/10 px-1.5 py-0.5 rounded cursor-pointer border-none hover:bg-accent/20"
+        class="rounded-full border border-sky-400/20 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-200 cursor-pointer hover:bg-sky-500/20"
         onclick={(e) => { e.stopPropagation(); onreconnect(); }}
       >
         reconnect
       </button>
     {/if}
     <button
-      class="opacity-0 group-hover:opacity-100 bg-transparent border-none text-text-muted hover:text-red hover:bg-bg-elevated text-sm p-0.5 rounded cursor-pointer transition-all duration-150"
+      class="rounded-lg border border-transparent bg-transparent p-1 text-sm text-text-muted opacity-0 transition-all duration-150 cursor-pointer group-hover:opacity-100 hover:border-white/8 hover:bg-bg-elevated hover:text-red"
       onclick={(e) => { e.stopPropagation(); onclose(); }}
     >
       &times;
     </button>
   </div>
 
-  <div class="flex items-center gap-2 pl-4">
-    <span class="font-mono text-[11px] text-accent flex items-center gap-1">
+  <div class="flex items-center gap-2 pl-5">
+    <span class="flex items-center gap-1 font-mono text-[11px] text-sky-200">
       <span class="text-[10px] opacity-70">&#9095;</span>
       {session.branch}
     </span>
-    <span class="font-mono text-[10px] text-text-secondary ml-auto">
+    <span class="ml-auto text-[10px] font-medium text-text-muted">
       {session.cost != null ? `$${session.cost.toFixed(2)}` : ""}
     </span>
   </div>
 
   {#if session.permissionInfo}
-    <div class="pl-4 mt-1.5">
+    <div class="mt-2 rounded-xl border border-amber/10 bg-amber/10 px-3 py-2">
       <span
-        class="block text-[11px] text-amber truncate font-mono"
+        class="block truncate font-mono text-[11px] text-amber"
         title={JSON.stringify(session.permissionInfo.toolInput, null, 2)}
       >
         {formatPermission(session.permissionInfo)}
       </span>
       {#if session.status === "attention"}
-        <div class="flex gap-1.5 mt-1">
+        <div class="mt-2 flex gap-1.5">
           <button
-            class="text-[10px] font-medium text-green bg-green/10 px-2 py-0.5 rounded cursor-pointer border-none hover:bg-green/25 transition-colors"
+            class="rounded-full bg-green/10 px-2.5 py-1 text-[10px] font-medium text-green cursor-pointer hover:bg-green/20 transition-colors"
             onclick={(e) => { e.stopPropagation(); onapprove(); }}
           >
             &#10003; Allow
           </button>
           <button
-            class="text-[10px] font-medium text-accent bg-accent/10 px-2 py-0.5 rounded cursor-pointer border-none hover:bg-accent/25 transition-colors"
+            class="rounded-full bg-sky-500/10 px-2.5 py-1 text-[10px] font-medium text-sky-200 cursor-pointer hover:bg-sky-500/20 transition-colors"
             onclick={(e) => { e.stopPropagation(); onalways(); }}
           >
             &#10003; Always
           </button>
           <button
-            class="text-[10px] font-medium text-red bg-red/10 px-2 py-0.5 rounded cursor-pointer border-none hover:bg-red/25 transition-colors"
+            class="rounded-full bg-red/10 px-2.5 py-1 text-[10px] font-medium text-red cursor-pointer hover:bg-red/20 transition-colors"
             onclick={(e) => { e.stopPropagation(); ondeny(); }}
           >
             &#10007; Deny

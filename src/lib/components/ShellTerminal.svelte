@@ -120,7 +120,9 @@
   onmouseenter={() => (hovering = true)}
   onmouseleave={() => (hovering = false)}
 >
-  <div bind:this={containerEl} class="w-full h-full"></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div bind:this={containerEl} class="w-full h-full" onclick={() => terminal?.focus()}></div>
   {#if hovering}
     <button
       class="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-white/8 bg-slate-900/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-slate-800 hover:text-text-primary"
