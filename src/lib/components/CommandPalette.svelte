@@ -265,8 +265,22 @@
   :global([data-cmdk-input]) {
     width: 100%;
   }
+  :global([data-cmdk-item]) {
+    padding: 8px 12px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.1s;
+  }
+  :global([data-cmdk-item]:hover) {
+    background: var(--color-bg-hover);
+  }
   :global([data-cmdk-item][data-selected="true"]) {
-    background: var(--color-bg-active);
+    background: var(--color-bg-active) !important;
+    outline: 1px solid var(--color-border);
   }
   :global([data-cmdk-group-heading]) {
     display: none; /* We render our own headings */
