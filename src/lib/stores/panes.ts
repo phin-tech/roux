@@ -83,3 +83,11 @@ export function removeSessionPanes(sessionId: string) {
     return new Map(trees);
   });
 }
+
+/** Returns true if the session has any split panes (more than just the main claude pane) */
+export function hasSplitPanes(sessionId: string): boolean {
+  const trees = get(paneTrees);
+  const tree = trees.get(sessionId);
+  if (!tree) return false;
+  return tree.kind === "split";
+}

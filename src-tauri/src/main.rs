@@ -212,6 +212,14 @@ fn main() {
             }
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Emit to frontend — it will decide whether to close a pane or the window
+                let app = window.app_handle();
+                let _ = app.emit("close-requested", ());
+                api.prevent_close();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

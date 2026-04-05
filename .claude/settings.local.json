@@ -25,7 +25,16 @@
       "Bash(python3 -c \"import sys,json; [print\\(json.dumps\\(json.loads\\(l\\), indent=2\\)[:300]\\) for l in sys.stdin]\")",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('hooks',{}\\), indent=2\\)\\)\")",
       "Bash(cat:*)",
-      "Bash(python3 -c \"import sys,json; [print\\(json.dumps\\(json.loads\\(l\\), indent=2\\)\\) for l in sys.stdin]\")"
+      "Bash(python3 -c \"import sys,json; [print\\(json.dumps\\(json.loads\\(l\\), indent=2\\)\\) for l in sys.stdin]\")",
+      "Bash(task check:*)",
+      "Bash(task test:*)",
+      "Bash(task build:*)",
+      "Bash(python3 -c \"import sys,json; h=json.load\\(sys.stdin\\).get\\('hooks',{}\\); print\\(json.dumps\\({k:v for k,v in h.items\\(\\) if 'roux' in str\\(v\\)}, indent=2\\)\\)\")",
+      "Bash(~/.config/roux/hook-handler.sh attention:*)",
+      "Bash(cargo build:*)",
+      "Bash(find:*)",
+      "Bash(printf '1\\\\n')",
+      "Bash(xxd)"
     ]
   }
 }

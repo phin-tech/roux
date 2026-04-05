@@ -1,5 +1,27 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+
+# Tauri / Rust
 src-tauri/target/
-.superpowers/
+src-tauri/gen/schemas/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Superpowers
+.superpowers/

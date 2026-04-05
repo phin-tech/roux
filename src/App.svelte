@@ -6,8 +6,10 @@
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import { initSettings } from "$lib/stores/settings";
   import { addSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
-  import { initSessionPanes, addSplit, focusedPaneId } from "$lib/stores/panes";
+  import { initSessionPanes, addSplit, focusedPaneId, removePane, paneTrees, hasSplitPanes } from "$lib/stores/panes";
   import { listSessions, onRouxStatusUpdate, spawnShell } from "$lib/tauri";
+  import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
@@ -24,6 +26,37 @@
     addSplit(state.activeSessionId, direction, { id: paneId, type: "shell", ptyId });
   }
 
+  /** Returns true if a pane was closed, false if there was nothing to close */
+  function closeFocusedPane(): boolean {
+    const state = get(sessionState);
+    if (!state.activeSessionId) return false;
+    const focused = get(focusedPaneId);
+    if (!focused) return false;
+    // Don't close the main claude pane
+    if (focused === state.activeSessionId + "-main") return false;
+
+    removePane(state.activeSessionId, focused);
+    return true;
+  }
+
+  function handleCloseRequested() {
+    const state = get(sessionState);
+    if (!state.activeSessionId) {
+      // No sessions — close the window
+      getCurrentWindow().destroy();
+      return;
+    }
+
+    // If there are split panes, close the focused one
+    if (hasSplitPanes(state.activeSessionId)) {
+      const closed = closeFocusedPane();
+      if (closed) return;
+    }
+
+    // No split panes to close — close the window
+    getCurrentWindow().destroy();
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.metaKey && e.key === "d" && !e.shiftKey) {
       e.preventDefault();
@@ -33,6 +66,10 @@
       e.preventDefault();
       splitCurrentSession("vertical");
     }
+    if (e.metaKey && e.key === "w") {
+      e.preventDefault();
+      closeFocusedPane();
+    }
   }
 
   onDestroy(() => {
@@ -41,6 +78,9 @@
 
   onMount(async () => {
     window.addEventListener("keydown", handleKeyDown);
+
+    // Listen for Tauri close-requested event (Cmd+W or red button)
+    await listen("close-requested", () => handleCloseRequested());
 
     const loadedSettings = await initSettings();
     // Only restore sessions if setting is enabled

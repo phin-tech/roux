@@ -50,6 +50,14 @@
         magenta: "#bb9af7",
         cyan: "#7dcfff",
         white: "#c8cad8",
+        brightBlack: "#444b6a",
+        brightRed: "#ff7a93",
+        brightGreen: "#b9f27c",
+        brightYellow: "#ff9e64",
+        brightBlue: "#7da6ff",
+        brightMagenta: "#c0a0ff",
+        brightCyan: "#0db9d7",
+        brightWhite: "#d5d6db",
       },
     });
 
