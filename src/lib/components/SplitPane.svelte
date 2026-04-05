@@ -20,9 +20,11 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      class="flex-1 min-h-0 min-w-0 relative"
-      class:ring-1={$focusedPaneId === node.pane.id}
-      class:ring-accent-dim={$focusedPaneId === node.pane.id}
+      class="relative flex-1 min-h-0 min-w-0 overflow-hidden rounded-[1.15rem] border border-white/6 bg-slate-950 shadow-[0_22px_48px_rgba(2,6,23,0.42)] transition-all"
+      class:ring-2={$focusedPaneId === node.pane.id}
+      class:ring-sky-500={$focusedPaneId === node.pane.id}
+      class:ring-offset-2={$focusedPaneId === node.pane.id}
+      class:ring-offset-black={$focusedPaneId === node.pane.id}
       onclick={() => focusedPaneId.set(node.pane.id)}
     >
       {#if node.pane.type === "claude"}
@@ -38,6 +40,7 @@
         <ShellTerminal
           ptyId={node.pane.ptyId}
           paneId={node.pane.id}
+          closeOnExit={!node.pane.id.startsWith("task-")}
           onClose={async () => {
             await closePane(sessionId, node.pane.id);
           }}
@@ -47,18 +50,11 @@
   {/key}
 {:else}
   <div
-    class="flex flex-1 min-h-0 min-w-0"
+    class="flex flex-1 min-h-0 min-w-0 gap-2"
     class:flex-row={node.direction === "horizontal"}
     class:flex-col={node.direction === "vertical"}
   >
-    {#each node.children as child, i}
-      {#if i > 0}
-        <div
-          class:w-px={node.direction === "horizontal"}
-          class:h-px={node.direction === "vertical"}
-          class="bg-border-subtle shrink-0"
-        ></div>
-      {/if}
+    {#each node.children as child}
       <SplitPane node={child} {sessionId} {sessionActive} />
     {/each}
   </div>

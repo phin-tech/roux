@@ -13,10 +13,11 @@
   interface Props {
     ptyId: string;
     paneId: string;
+    closeOnExit?: boolean;
     onClose: () => void | Promise<void>;
   }
 
-  let { ptyId, paneId, onClose }: Props = $props();
+  let { ptyId, paneId, closeOnExit = true, onClose }: Props = $props();
 
   let containerEl: HTMLDivElement;
   let terminal: Terminal | null = null;
@@ -72,9 +73,11 @@
         term.write(bytes);
       }));
 
-      instance.unlisteners.push(await onSessionExit(ptyId, () => {
-        void onClose();
-      }));
+      if (closeOnExit) {
+        instance.unlisteners.push(await onSessionExit(ptyId, () => {
+          void onClose();
+        }));
+      }
     } else {
       // Re-mount: move the existing terminal element into the new container
       containerEl.appendChild(term.element);

@@ -129,8 +129,8 @@
                 {/if}
               </button>
 
-              <!-- Inline output log -->
-              {#if run && run.outputLines.length > 0}
+              <!-- Inline output log (hidden when task is in a pane) -->
+              {#if run && run.outputLines.length > 0 && !run.paneId}
                 <div class="mx-3 mb-1.5 rounded border border-border-subtle bg-bg-deep overflow-hidden">
                   <div class="flex items-center justify-between px-2 py-1 border-b border-border-subtle">
                     <span class="text-[10px] text-text-muted font-mono">
