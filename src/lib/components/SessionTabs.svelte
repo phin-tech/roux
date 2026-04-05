@@ -236,13 +236,13 @@
 
   <div class="flex shrink-0 gap-1 border-t border-white/[0.05] p-2">
     <button
-      class="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-accent-dim/20 bg-accent-dim/15 py-2 text-xs text-accent cursor-pointer transition-all duration-150 hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      class="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-white/[0.04] py-1.5 text-[11px] text-text-secondary cursor-pointer transition-all duration-150 hover:bg-white/[0.07] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onNewSession}
     >
       <span class="text-sm">+</span> New
     </button>
     <button
-      class="flex items-center justify-center rounded-md border border-border-subtle bg-bg-surface px-3 py-2 text-xs text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      class="flex items-center justify-center rounded-md bg-white/[0.04] px-2.5 py-1.5 text-[11px] text-text-muted cursor-pointer transition-all duration-150 hover:bg-white/[0.07] hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onOpenSettings}
     >
       &#9881;
