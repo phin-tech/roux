@@ -11,9 +11,10 @@
     onapprove: () => void;
     onalways: () => void;
     ondeny: () => void;
+    oncontextmenu?: (e: MouseEvent) => void;
   }
 
-  let { session, active, onselect, onclose, onrename, onreconnect, onapprove, onalways, ondeny }: Props = $props();
+  let { session, active, onselect, onclose, onrename, onreconnect, onapprove, onalways, ondeny, oncontextmenu }: Props = $props();
 
   function formatPermission(info: PermissionInfo): string {
     if (info.toolName === "Bash" && info.toolInput?.command) {
@@ -96,6 +97,7 @@
       ? 'border-sky-400/30 bg-bg-active shadow-[0_18px_40px_rgba(2,6,23,0.32),inset_0_1px_0_rgba(255,255,255,0.04)]'
       : 'border-transparent bg-white/[0.02] hover:border-white/8 hover:bg-bg-hover/70 hover:shadow-[0_12px_28px_rgba(2,6,23,0.22)]'}"
   onclick={onselect}
+  oncontextmenu={(e) => { if (oncontextmenu) { e.preventDefault(); oncontextmenu(e); } }}
   title={session.worktreePath}
 >
   {#if active}

@@ -7,6 +7,16 @@
   import { focusedPaneId, type SplitNode } from "$lib/stores/panes";
   import { closePane } from "$lib/panes/actions";
 
+  function handlePaneMouseDown(e: MouseEvent, paneId: string) {
+    focusedPaneId.set(paneId);
+    const container = e.currentTarget as HTMLElement;
+    // Defer focus to after xterm's own mousedown handling completes
+    setTimeout(() => {
+      const textarea = container?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+      textarea?.focus();
+    }, 0);
+  }
+
   interface Props {
     node: SplitNode;
     sessionId: string;
@@ -26,7 +36,7 @@
       class:ring-sky-500={$focusedPaneId === node.pane.id}
       class:ring-offset-2={$focusedPaneId === node.pane.id}
       class:ring-offset-black={$focusedPaneId === node.pane.id}
-      onclick={() => focusedPaneId.set(node.pane.id)}
+      onmousedown={(e) => handlePaneMouseDown(e, node.pane.id)}
     >
       {#if node.pane.type === "claude"}
         <Terminal sessionId={node.pane.ptyId} active={sessionActive} />

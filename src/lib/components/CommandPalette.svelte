@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade, scale } from "svelte/transition";
   import { Command } from "bits-ui";
   import { registry, type Command as Cmd, type CommandItem as CmdItem } from "$lib/commands/registry";
 
@@ -136,17 +137,19 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-start justify-center pt-[20vh]"
+    class="fixed inset-0 z-50 flex items-start justify-center bg-black/65 pt-[18vh] backdrop-blur-md"
     onclick={(e) => { if (e.target === e.currentTarget) onclose(); }}
+    transition:fade={{ duration: 120 }}
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       bind:this={dialogEl}
-      class="w-[540px] max-h-[420px] bg-bg-surface border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+      class="flex max-h-[440px] w-[560px] flex-col overflow-hidden rounded-[1.4rem] border border-white/8 bg-slate-900/96 shadow-[0_24px_72px_rgba(2,6,23,0.58)]"
       onkeydown={handleKeyDown}
+      transition:scale={{ duration: 120, start: 0.985 }}
     >
       {#if inDrillStep}
-        <div class="px-4 pt-3 pb-0 flex items-center gap-1.5 text-[11px]">
+        <div class="flex items-center gap-1.5 px-5 pt-4 pb-0 text-[11px]">
           <button
             class="text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0 font-sans"
             onclick={goBack}
@@ -170,7 +173,7 @@
         loop={true}
         vimBindings={true}
       >
-        <div class="px-4 py-3 border-b border-border-subtle flex items-center gap-2">
+        <div class="flex items-center gap-2 border-b border-white/6 bg-slate-800/55 px-5 py-4">
           {#if inDrillStep}
             <button
               class="text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0 text-sm"
@@ -181,14 +184,14 @@
           <Command.Input
             bind:value={inputValue}
             placeholder={inDrillStep ? `Search ${currentStep?.label}...` : "Type a command..."}
-            class="flex-1 bg-transparent border-none outline-none text-sm text-text-primary placeholder-text-muted font-sans"
+            class="flex-1 border-none bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
           />
         </div>
 
         <Command.List
-          class="flex-1 overflow-y-auto px-2 py-2 max-h-[320px]"
+          class="app-scrollbar max-h-[340px] flex-1 overflow-y-auto px-3 py-3"
         >
-          <Command.Empty class="px-4 py-8 text-center text-text-muted text-sm">
+          <Command.Empty class="px-4 py-8 text-center text-sm text-text-muted">
             No results found
           </Command.Empty>
 
@@ -196,11 +199,11 @@
             {#each currentStep.items as item (item.id)}
               {@const matches = !inputValue || item.label.toLowerCase().includes(inputValue.toLowerCase()) || (item.description ?? "").toLowerCase().includes(inputValue.toLowerCase())}
               {#if matches}
-                <Command.Item
-                  value={item.label}
-                  keywords={item.description ? [item.description] : []}
-                  onSelect={() => handleItemSelect(item)}
-                  class="cmd-item"
+              <Command.Item
+                value={item.label}
+                keywords={item.description ? [item.description] : []}
+                onSelect={() => handleItemSelect(item)}
+                class="cmd-item"
                 >
                   <div class="flex-1 min-w-0">
                     <div class="text-text-primary text-sm">{item.label}</div>
@@ -217,7 +220,7 @@
           {:else}
             {#each availableCommands as [category, commands] (category)}
               <Command.Group>
-                <Command.GroupHeading class="px-3 py-1.5 text-[10px] uppercase tracking-wider text-text-muted font-semibold">
+                <Command.GroupHeading class="px-3 py-2 text-[10px] font-medium uppercase tracking-[0.22em] text-text-muted">
                   {category}
                 </Command.GroupHeading>
                 <Command.GroupItems>
@@ -252,20 +255,24 @@
 
 <style>
   :global(.cmd-item) {
-    padding: 8px 12px;
-    border-radius: 8px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid transparent;
     display: flex;
     align-items: center;
     gap: 12px;
     cursor: pointer;
     font-size: 14px;
-    transition: background 0.1s;
+    transition: background 0.1s, border-color 0.1s, transform 0.1s;
   }
   :global(.cmd-item:hover) {
-    background: var(--color-bg-hover);
+    background: rgba(36, 50, 68, 0.72);
+    border-color: rgba(148, 163, 184, 0.12);
   }
   :global(.cmd-item[data-selected]) {
-    background: var(--color-bg-active);
-    outline: 1px solid var(--color-border);
+    background: rgba(30, 41, 59, 0.88);
+    border-color: rgba(125, 211, 252, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    transform: translateY(-1px);
   }
 </style>

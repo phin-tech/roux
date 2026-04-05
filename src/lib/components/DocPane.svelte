@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { scale } from "svelte/transition";
   import { marked } from "marked";
   import { listDocs, readFile, type DocFile } from "$lib/tauri";
   import { activeSession } from "$lib/stores/sessions";
@@ -33,7 +34,11 @@
 
   async function refreshDocs() {
     const session = $activeSession;
-    if (!session) return;
+    if (!session) {
+      docs = [];
+      loading = false;
+      return;
+    }
     try {
       docs = await listDocs(session.worktreePath);
     } catch {
@@ -45,6 +50,12 @@
     currentPath = doc.path;
     showPicker = false;
     loading = true;
+  }
+
+  function selectFirstDoc() {
+    if (docs[0]) {
+      selectDoc(docs[0]);
+    }
   }
 
   function formatTime(epoch: number): string {
@@ -86,6 +97,12 @@
     void loadContent();
   });
 
+  $effect(() => {
+    if (!currentPath) {
+      loading = false;
+    }
+  });
+
   onDestroy(() => {
     if (refreshTimer) clearInterval(refreshTimer);
   });
@@ -93,37 +110,38 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="relative w-full h-full flex flex-col bg-bg-surface"
+  class="relative flex h-full w-full flex-col bg-bg-surface"
   onmouseenter={() => (hovering = true)}
   onmouseleave={() => (hovering = false)}
 >
   <!-- Header bar -->
-  <div class="px-3 py-2 border-b border-border-subtle flex items-center justify-between shrink-0">
+  <div class="flex shrink-0 items-center justify-between border-b border-white/6 bg-slate-800/50 px-4 py-3 backdrop-blur-sm">
     <div class="relative">
       <button
-        class="flex items-center gap-1.5 bg-bg-elevated border border-border-subtle rounded px-2 py-1 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover cursor-pointer font-mono transition-colors"
+        class="flex cursor-pointer items-center gap-2 rounded-xl border border-white/8 bg-slate-900/80 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
         onclick={() => { showPicker = !showPicker; if (showPicker) refreshDocs(); }}
       >
-        <span class="opacity-50">&#128196;</span>
-        <span class="truncate max-w-[200px]">{currentFileName()}</span>
-        <span class="text-[10px] text-text-muted ml-1">&#9662;</span>
+        <span class="opacity-60">&#128196;</span>
+        <span class="max-w-[220px] truncate {currentPath ? 'font-medium text-text-primary' : ''}">{currentFileName()}</span>
+        <span class="ml-1 text-[10px] text-text-muted">&#9662;</span>
       </button>
 
       {#if showPicker}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
-          class="absolute top-full left-0 mt-1 w-[320px] bg-bg-surface border border-border rounded-md shadow-xl z-20 max-h-[300px] overflow-y-auto scrollbar-thin"
+          class="app-scrollbar absolute left-0 top-full z-20 mt-2 max-h-[320px] w-[340px] overflow-y-auto rounded-2xl border border-white/8 bg-slate-900/96 p-1 shadow-[0_20px_48px_rgba(2,6,23,0.5)] backdrop-blur-md"
           onclick={(e) => e.stopPropagation()}
+          transition:scale={{ duration: 120, start: 0.98 }}
         >
           {#if docs.length === 0}
-            <div class="px-3 py-2 text-text-muted text-xs">No documents found</div>
+            <div class="px-3 py-3 text-xs text-text-muted">No documents found</div>
           {:else}
             {#each docs as doc (doc.path)}
               <button
-                class="w-full text-left px-3 py-2 flex items-center gap-2 text-xs border-none cursor-pointer transition-colors
+                class="flex w-full cursor-pointer items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs transition-colors
                   {currentPath === doc.path
-                    ? 'bg-bg-active text-text-primary'
-                    : 'bg-transparent text-text-secondary hover:bg-bg-hover hover:text-text-primary'}"
+                    ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                    : 'bg-transparent text-text-secondary hover:border-white/6 hover:bg-bg-hover hover:text-text-primary'}"
                 onclick={() => selectDoc(doc)}
               >
                 <span class="opacity-50">&#128196;</span>
@@ -138,7 +156,7 @@
 
     <div class="flex items-center gap-1">
       <button
-        class="bg-transparent border-none text-text-muted cursor-pointer text-xs p-1 rounded hover:text-text-primary hover:bg-bg-hover font-mono"
+        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-text-muted hover:border-white/8 hover:bg-bg-hover hover:text-text-primary"
         onclick={loadContent}
         title="Refresh"
       >&#8635;</button>
@@ -146,9 +164,38 @@
   </div>
 
   <!-- Content -->
-  <div class="flex-1 overflow-y-auto px-5 py-4 scrollbar-thin">
+  <div class="app-scrollbar flex-1 overflow-y-auto px-6 py-5">
     {#if loading}
-      <div class="text-text-muted text-xs">Loading...</div>
+      <div class="text-xs text-text-muted">Loading...</div>
+    {:else if !currentPath}
+      <div class="flex h-full flex-col items-center justify-center gap-4 text-center">
+        <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/8 bg-slate-900/80 text-sky-300 shadow-[0_18px_44px_rgba(2,6,23,0.35)]">
+          <svg viewBox="0 0 24 24" class="h-8 w-8 fill-none stroke-current stroke-[1.4]">
+            <path d="M7 4.75h7.5l4.5 4.5v10A1.75 1.75 0 0 1 17.25 21h-10.5A1.75 1.75 0 0 1 5 19.25v-12.5A1.75 1.75 0 0 1 6.75 5Z" />
+            <path d="M14.5 4.75v4.5H19" />
+            <path d="M8.5 13h7" />
+            <path d="M8.5 16.25h4.5" />
+          </svg>
+        </div>
+        <div class="space-y-1">
+          <p class="text-base font-semibold tracking-tight text-text-primary">Select a document to preview</p>
+          <p class="text-sm text-text-secondary">Choose a markdown file from this session to open the documentation pane.</p>
+        </div>
+        <button
+          class="rounded-full border border-sky-400/20 bg-sky-500/10 px-4 py-2 text-xs font-medium text-sky-200 transition-colors hover:bg-sky-500/20"
+          onclick={() => { refreshDocs(); showPicker = true; }}
+        >
+          Browse docs
+        </button>
+        {#if docs.length > 0}
+          <button
+            class="text-xs font-medium text-text-muted underline underline-offset-4 hover:text-text-primary"
+            onclick={selectFirstDoc}
+          >
+            Open latest available file
+          </button>
+        {/if}
+      </div>
     {:else}
       <div class="doc-prose">
         {@html renderedHtml}
@@ -159,7 +206,7 @@
   <!-- Close button on hover -->
   {#if hovering}
     <button
-      class="absolute top-1 right-1 z-10 w-5 h-5 flex items-center justify-center rounded bg-bg-surface/80 text-text-muted hover:text-text-primary hover:bg-bg-surface text-xs leading-none"
+      class="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-white/8 bg-slate-900/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-slate-800 hover:text-text-primary"
       onclick={onClose}
       title="Close pane"
     >

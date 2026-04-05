@@ -80,9 +80,7 @@ pub fn load_settings() -> RouxSettings {
     let path = settings_path();
     if path.exists() {
         let content = fs::read_to_string(&path).unwrap_or_default();
-        serde_json::from_str::<RouxSettings>(&content)
-            .unwrap_or_default()
-            .normalized()
+        serde_json::from_str::<RouxSettings>(&content).unwrap_or_default().normalized()
     } else {
         RouxSettings::default()
     }
@@ -91,6 +89,7 @@ pub fn load_settings() -> RouxSettings {
 pub fn save_settings(settings: &RouxSettings) -> Result<(), String> {
     let path = settings_path();
     fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    let json = serde_json::to_string_pretty(&settings.clone().normalized()).map_err(|e| e.to_string())?;
+    let json =
+        serde_json::to_string_pretty(&settings.clone().normalized()).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
 }

@@ -5,7 +5,7 @@
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
-  import { initSettings } from "$lib/stores/settings";
+  import { initSettings, settings } from "$lib/stores/settings";
   import { addSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
   import { initSessionPanes, hasSplitPanes } from "$lib/stores/panes";
   import { listSessions, onRouxStatusUpdate } from "$lib/tauri";
@@ -13,6 +13,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { registerCommands, registry } from "$lib/commands";
   import { closeFocusedPane } from "$lib/panes/actions";
+  import { normalizeTheme } from "$lib/themes";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
@@ -81,6 +82,12 @@
       if (cmd.execute) void cmd.execute();
     }
   }
+
+  $effect(() => {
+    const theme = normalizeTheme($settings.theme);
+    document.documentElement.dataset.theme = theme;
+    document.body.dataset.theme = theme;
+  });
 
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);

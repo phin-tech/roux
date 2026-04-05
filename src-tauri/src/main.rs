@@ -67,6 +67,15 @@ fn cmd_list_worktrees(repo_path: String) -> Result<Vec<worktree::Worktree>, Stri
     worktree::list_worktrees(&repo_path)
 }
 
+#[tauri::command]
+fn cmd_open_in_editor(path: String) -> Result<(), String> {
+    std::process::Command::new("code")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("Failed to open VS Code: {}", e))?;
+    Ok(())
+}
+
 // Note: spec says Vec<u8> but xterm.js onData sends UTF-8 strings.
 // We accept String and convert to bytes server-side for simplicity.
 #[tauri::command]
@@ -291,6 +300,7 @@ fn main() {
             list_sessions,
             read_file,
             list_docs,
+            cmd_open_in_editor,
             tasks::cmd_discover_tasks,
             tasks::cmd_load_task_overrides,
             tasks::cmd_save_task_overrides,

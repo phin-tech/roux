@@ -1,6 +1,7 @@
 <script lang="ts">
   import { settings, updateSetting } from "$lib/stores/settings";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { THEME_DEFINITIONS } from "$lib/themes";
 
   interface Props {
     visible: boolean;
@@ -21,18 +22,43 @@
 </script>
 
 <div
-  class="absolute top-0 right-0 bottom-0 w-[380px] bg-bg-surface border-l border-border z-50 flex flex-col shadow-[-8px_0_32px_rgba(0,0,0,0.3)] transition-transform duration-250
+  class="absolute top-0 right-0 bottom-0 z-50 flex w-[380px] flex-col border-l border-white/8 bg-bg-surface shadow-[-18px_0_48px_rgba(2,6,23,0.45)] transition-transform duration-250
     {visible ? 'translate-x-0' : 'translate-x-full'}"
 >
-  <div class="px-5 py-4 border-b border-border-subtle flex items-center justify-between">
-    <span class="text-sm font-semibold">Settings</span>
+  <div class="flex items-center justify-between border-b border-white/6 bg-slate-800/50 px-5 py-4 backdrop-blur-sm">
+    <span class="text-sm font-semibold tracking-tight">Settings</span>
     <button
-      class="bg-transparent border-none text-text-muted cursor-pointer text-base p-1 rounded hover:text-text-primary hover:bg-bg-hover"
+      class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-white/8 hover:bg-bg-hover hover:text-text-primary"
       onclick={onclose}
     >&times;</button>
   </div>
 
-  <div class="flex-1 overflow-y-auto px-5 py-4">
+  <div class="app-scrollbar flex-1 overflow-y-auto px-5 py-4">
+    <!-- Preferences -->
+    <section class="mb-6">
+      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Preferences</h3>
+      <div class="rounded-xl border border-white/6 bg-white/[0.02] p-3">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="text-[13px]">Theme</div>
+            <div class="text-[11px] text-text-muted mt-0.5">Choose the color preset for the app chrome and terminals</div>
+          </div>
+          <select
+            class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+            value={$settings.theme}
+            onchange={(e) => updateSetting("theme", e.currentTarget.value as typeof $settings.theme)}
+          >
+            {#each THEME_DEFINITIONS as theme}
+              <option value={theme.id}>{theme.label}</option>
+            {/each}
+          </select>
+        </div>
+        <p class="mt-2 text-[11px] text-text-muted">
+          {THEME_DEFINITIONS.find((theme) => theme.id === $settings.theme)?.description}
+        </p>
+      </div>
+    </section>
+
     <!-- Layout -->
     <section class="mb-6">
       <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Layout</h3>

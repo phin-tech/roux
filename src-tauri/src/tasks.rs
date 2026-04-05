@@ -97,11 +97,7 @@ impl TaskDiscoverer for TaskfileDiscoverer {
             .iter()
             .filter_map(|(k, v)| {
                 let name = k.as_str()?.to_string();
-                let desc = v
-                    .get("desc")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let desc = v.get("desc").and_then(|d| d.as_str()).unwrap_or("").to_string();
                 Some((name, desc))
             })
             .collect();

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade, scale } from "svelte/transition";
   import { open } from "@tauri-apps/plugin-dialog";
   import { createSession, listWorktrees } from "$lib/tauri";
   import { addSession } from "$lib/stores/sessions";
@@ -89,13 +90,17 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-md"
     onclick={(e) => { if (e.target === e.currentTarget) resetAndClose(); }}
+    transition:fade={{ duration: 120 }}
   >
-    <div class="bg-bg-surface border border-border rounded-xl w-[480px] shadow-2xl">
+    <div
+      class="w-[500px] rounded-[1.4rem] border border-white/8 bg-slate-900/96 shadow-[0_24px_72px_rgba(2,6,23,0.58)]"
+      transition:scale={{ duration: 120, start: 0.985 }}
+    >
       <!-- Header -->
-      <div class="px-6 pt-5 pb-4 border-b border-border-subtle">
-        <h2 class="text-base font-semibold text-text-primary mb-1">New Session</h2>
+      <div class="border-b border-white/6 bg-slate-800/50 px-6 pt-5 pb-4">
+        <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">New Session</h2>
         <p class="text-xs text-text-muted">Create a new Claude Code session in a git repository</p>
       </div>
 
@@ -129,17 +134,17 @@
         <!-- Mode toggle -->
         <fieldset class="flex flex-col gap-1.5">
           <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Mode</legend>
-          <div class="flex bg-bg-deep rounded-md p-0.5 border border-border-subtle">
+          <div class="flex rounded-xl border border-white/8 bg-black/35 p-1">
             <button
-              class="flex-1 py-1.5 px-3 border-none text-xs font-medium rounded cursor-pointer transition-all
-                {mode === 'new' ? 'bg-bg-active text-text-primary' : 'bg-transparent text-text-secondary'}"
+              class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
+                {mode === 'new' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary'}"
               onclick={() => (mode = "new")}
             >
               New Worktree
             </button>
             <button
-              class="flex-1 py-1.5 px-3 border-none text-xs font-medium rounded cursor-pointer transition-all
-                {mode === 'existing' ? 'bg-bg-active text-text-primary' : 'bg-transparent text-text-secondary'}"
+              class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
+                {mode === 'existing' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary'}"
               onclick={() => { mode = "existing"; loadWorktrees(); }}
             >
               Existing Directory
@@ -214,15 +219,15 @@
       </div>
 
       <!-- Footer -->
-      <div class="px-6 py-4 border-t border-border-subtle flex justify-end gap-2">
+      <div class="flex justify-end gap-2 border-t border-white/6 px-6 py-4">
         <button
-          class="px-5 py-2 bg-bg-elevated border border-border rounded-md text-text-secondary text-[13px] font-medium cursor-pointer hover:bg-bg-hover"
+          class="cursor-pointer rounded-xl border border-white/8 bg-bg-elevated px-5 py-2 text-[13px] font-medium text-text-secondary hover:bg-bg-hover"
           onclick={resetAndClose}
         >
           Cancel
         </button>
         <button
-          class="px-5 py-2 bg-accent border-none rounded-md text-bg-deep text-[13px] font-medium cursor-pointer hover:brightness-110 disabled:opacity-50"
+          class="cursor-pointer rounded-xl border-none bg-sky-400 px-5 py-2 text-[13px] font-medium text-slate-950 hover:brightness-110 disabled:opacity-50"
           onclick={handleCreate}
           disabled={creating}
         >

@@ -49,7 +49,15 @@
       "Bash(grep:*)",
       "Skill(code-review:code-review)",
       "Bash(RUSTFLAGS=\"-D warnings\" cargo check)",
-      "Bash(RUSTFLAGS=\"-D warnings\" cargo test:*)"
+      "Bash(RUSTFLAGS=\"-D warnings\" cargo test:*)",
+      "mcp__scape__list_projects",
+      "mcp__scape__list_notes",
+      "mcp__scape__search_notes",
+      "Bash(git:*)",
+      "Bash(npx vitest:*)",
+      "Bash(RUSTFLAGS=\"-D warnings\" cargo check --manifest-path src-tauri/Cargo.toml)",
+      "Bash(codex:*)",
+      "Bash(xargs basename:*)"
     ]
   }
 }

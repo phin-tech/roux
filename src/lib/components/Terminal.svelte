@@ -44,17 +44,24 @@
     const entry = getOrCreateTerminal();
     if (entry.unlisteners.length > 0) return;
 
-    entry.unlisteners.push(await onPtyOutput(sessionId, (b64data) => {
+    const sid = sessionId; // capture by value for callbacks
+    entry.unlisteners.push(await onPtyOutput(sid, (b64data) => {
       if (entry.terminal) {
         const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
         entry.terminal.write(bytes);
       }
     }));
 
-    entry.unlisteners.push(await onSessionExit(sessionId, (_code) => {
-      setSessionDisconnected(sessionId);
+    entry.unlisteners.push(await onSessionExit(sid, (_code) => {
+      setSessionDisconnected(sid);
     }));
   }
+
+  // Non-reactive copy of sessionId for use in xterm event callbacks.
+  // Reading the reactive prop inside xterm's synchronous focus/blur handlers
+  // can hit stale parent props and throw.
+  let capturedSessionId = "";
+  $effect.pre(() => { capturedSessionId = sessionId; });
 
   function attach() {
     if (!containerEl) return;
@@ -80,7 +87,7 @@
       terminal.loadAddon(new WebLinksAddon());
 
       entry.disposables.push(terminal.onData((data) => {
-        writeToSession(sessionId, data);
+        writeToSession(capturedSessionId, data);
       }));
     } else {
       // Re-attach existing terminal element
@@ -92,7 +99,7 @@
       terminal?.focus();
       const dims = fitAddon?.proposeDimensions();
       if (dims) {
-        resizeSession(sessionId, dims.cols, dims.rows);
+        resizeSession(capturedSessionId, dims.cols, dims.rows);
       }
     });
   }

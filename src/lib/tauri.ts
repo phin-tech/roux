@@ -83,6 +83,11 @@ export async function listWorktrees(
   return invoke("cmd_list_worktrees", { repoPath });
 }
 
+// Editor integration
+export async function openInEditor(path: string): Promise<void> {
+  return invoke("cmd_open_in_editor", { path });
+}
+
 // Document viewer commands
 export interface DocFile {
   path: string;
