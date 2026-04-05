@@ -1,9 +1,12 @@
 import { registry } from "./registry";
 import { queries } from "$lib/queries";
-import { setActiveSession } from "$lib/stores/sessions";
-import { addSplit } from "$lib/stores/panes";
-import { spawnShell, listDocs, writeToSession } from "$lib/tauri";
+import { addSession, setActiveSession, triggerRename } from "$lib/stores/sessions";
+import { settings, updateSetting } from "$lib/stores/settings";
+import { addSplit, initSessionPanes } from "$lib/stores/panes";
+import { spawnShell, listDocs, writeToSession, createSession, openInEditor } from "$lib/tauri";
 import { closeFocusedPane } from "$lib/panes/actions";
+import { closeSession } from "$lib/sessions/close";
+import { reconnectSession } from "$lib/sessions/reconnect";
 import { get } from "svelte/store";
 import { taskGroups } from "$lib/stores/tasks";
 import { listCommandPanes } from "$lib/panes/commandPaneRegistry";
@@ -189,6 +192,79 @@ export function registerCommands() {
         description: pane.getStatus() === "running" ? "Running — will stop and rerun" : `${pane.getStatus()} — rerun`,
         action: () => pane.triggerRerun(),
       }));
+    },
+  });
+
+  // -- Session actions --
+  registry.register({
+    id: "session.close",
+    label: "Close Session",
+    category: "Sessions",
+    available: () => !!queries.activeSession(),
+    execute: async () => {
+      const session = queries.activeSession();
+      if (session) await closeSession(session);
+    },
+  });
+
+  registry.register({
+    id: "session.reconnect",
+    label: "Reconnect Session",
+    category: "Sessions",
+    available: () => queries.activeSession()?.status === "disconnected",
+    execute: async () => {
+      const session = queries.activeSession();
+      if (session) await reconnectSession(session);
+    },
+  });
+
+  registry.register({
+    id: "session.rename",
+    label: "Rename Session",
+    category: "Sessions",
+    available: () => !!queries.activeSession(),
+    execute: () => triggerRename(),
+  });
+
+  registry.register({
+    id: "session.open-in-editor",
+    label: "Open in Editor",
+    category: "Sessions",
+    available: () => !!queries.activeSession(),
+    execute: async () => {
+      const session = queries.activeSession();
+      if (session) await openInEditor(session.worktreePath);
+    },
+  });
+
+  // -- Worktree --
+  registry.register({
+    id: "session.new-worktree",
+    label: "New Worktree",
+    category: "Sessions",
+    available: () => !!queries.activeSession(),
+    execute: async () => {
+      const session = queries.activeSession();
+      if (!session) return;
+      const branch = window.prompt("Branch name for new worktree:");
+      if (!branch?.trim()) return;
+      const repo = session.repoRoot;
+      const name = repo.split("/").pop() + "-" + branch.trim();
+      const newSession = await createSession(repo, name, null, branch.trim());
+      addSession(newSession);
+      initSessionPanes(newSession.id);
+    },
+  });
+
+  // -- UI --
+  registry.register({
+    id: "ui.toggle-task-panel",
+    label: "Toggle Task Panel",
+    category: "App",
+    available: () => !!queries.activeSessionId(),
+    execute: () => {
+      const current = get(settings);
+      updateSetting("taskPanelCollapsed", !current.taskPanelCollapsed);
     },
   });
 

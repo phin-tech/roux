@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { taskGroups, taskRuns, setKeepOpenOverride, getEffectiveKeepOpen } from "$lib/stores/tasks";
+  import {
+    taskGroups,
+    taskRuns,
+    setKeepOpenOverride,
+    getEffectiveKeepOpen,
+  } from "$lib/stores/tasks";
   import { sessionState } from "$lib/stores/sessions";
   import { runTask, expandTask } from "$lib/tasks/runner";
   import type { TaskDefinition } from "$lib/types/tasks";
@@ -54,7 +59,6 @@
     contextMenu = null;
   }
 
-  // Reactive map of taskId -> TaskRun for the active session
   const activeRuns = $derived.by(() => {
     const sessionId = $sessionState.activeSessionId;
     if (!sessionId) return new Map();
@@ -71,20 +75,27 @@
     if (s < 60) return `${s}s`;
     return `${Math.floor(s / 60)}m${s % 60}s`;
   }
+
+  function taskSubtitle(task: TaskDefinition): string {
+    return task.description || task.command;
+  }
 </script>
 
 <svelte:window onclick={handleClickOutside} />
 
-<div class="flex flex-col h-full">
-  <div class="px-4 pt-2.5 pb-2 flex items-center justify-between">
-    <span class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Tasks</span>
+<div class="flex h-full flex-col bg-transparent">
+  <div class="flex items-start justify-between px-4 pt-3 pb-2">
+    <div class="space-y-0.5">
+      <span class="block text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Tasks</span>
+      <span class="block text-[11px] text-zinc-600">Runnable workspace actions</span>
+    </div>
     <div class="flex items-center gap-1.5">
-      <span class="font-mono text-[10px] text-text-muted bg-bg-elevated px-1.5 py-0.5 rounded">
+      <span class="rounded-md bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
         {$taskGroups.reduce((n, g) => n + g.tasks.length, 0)}
       </span>
       {#if onCollapse}
         <button
-          class="text-[10px] text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0.5"
+          class="cursor-pointer bg-transparent p-0.5 text-[10px] text-zinc-600 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
           onclick={onCollapse}
           title="Collapse tasks panel"
         >&#9660;</button>
@@ -92,18 +103,18 @@
     </div>
   </div>
 
-  <div class="flex-1 overflow-y-auto px-2 scrollbar-thin">
+  <div class="app-scrollbar flex-1 overflow-y-auto px-2">
     {#if $taskGroups.length === 0}
-      <p class="text-xs text-text-muted text-center py-4">No tasks found</p>
+      <p class="py-4 text-center text-xs text-zinc-600">No tasks found</p>
     {:else}
       {#each $taskGroups as group (group.runner)}
         <button
-          class="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold text-text-secondary uppercase tracking-wide cursor-pointer bg-transparent border-none hover:text-text-primary"
+          class="flex w-full items-center gap-1.5 bg-transparent px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500 cursor-pointer hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
           onclick={() => toggleGroup(group.runner)}
         >
           <span class="text-[10px] transition-transform {collapsedGroups.has(group.runner) ? '' : 'rotate-90'}">&#9654;</span>
           {group.runner}
-          <span class="font-mono text-[10px] text-text-muted font-normal normal-case tracking-normal ml-auto">{group.tasks.length}</span>
+          <span class="ml-auto font-mono text-[10px] font-normal normal-case tracking-normal text-zinc-600">{group.tasks.length}</span>
         </button>
 
         {#if !collapsedGroups.has(group.runner)}
@@ -111,40 +122,57 @@
             {@const run = activeRuns.get(task.id) ?? null}
             <div>
               <button
-                class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary bg-transparent border-none cursor-pointer rounded hover:bg-bg-hover hover:text-text-primary group"
+                class="group flex w-full items-start gap-3 rounded-xl bg-transparent px-3 py-2 text-left cursor-pointer transition-colors hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
                 onclick={() => handleRun(task)}
                 oncontextmenu={(e) => handleContextMenu(e, task)}
                 title={task.description || task.command}
               >
-                <span class="flex-1 text-left truncate font-mono text-[12px]">{task.name}</span>
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-[12px] font-medium text-zinc-100">{task.name}</div>
+                  <div class="mt-0.5 truncate font-mono text-[10px] text-zinc-600">{taskSubtitle(task)}</div>
+                </div>
                 {#if run?.status === "running"}
-                  <span class="text-[10px] text-text-muted font-mono">{elapsed(run.startedAt)}</span>
-                  <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0"></span>
+                  <div class="flex shrink-0 items-center gap-2 pt-0.5">
+                    <span class="font-mono text-[10px] text-zinc-500">{elapsed(run.startedAt)}</span>
+                    <span class="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-sky-200">
+                      <span class="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+                      live
+                    </span>
+                  </div>
                 {:else if run?.status === "succeeded"}
-                  <span class="w-2 h-2 rounded-full bg-green-400 shrink-0"></span>
+                  <span class="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-emerald-200">
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                    done
+                  </span>
                 {:else if run?.status === "failed"}
-                  <span class="w-2 h-2 rounded-full bg-red-400 shrink-0"></span>
+                  <span class="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-rose-200">
+                    <span class="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
+                    error
+                  </span>
                 {:else}
-                  <span class="text-text-muted opacity-0 group-hover:opacity-100 text-[10px] shrink-0">&#9654;</span>
+                  <span class="shrink-0 pt-1 text-[10px] text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100">&#9654;</span>
                 {/if}
               </button>
 
-              <!-- Inline output log (hidden when task is in a pane) -->
-              {#if run && run.outputLines.length > 0 && !run.paneId}
-                <div class="mx-3 mb-1.5 rounded border border-border-subtle bg-bg-deep overflow-hidden">
-                  <div class="flex items-center justify-between px-2 py-1 border-b border-border-subtle">
-                    <span class="text-[10px] text-text-muted font-mono">
-                      {run.status === "running" ? "running..." : run.status === "succeeded" ? "exit 0" : `exit ${run.exitCode ?? "?"}`}
+              {#if run && run.outputLines.length > 0}
+                <div class="mx-3 mb-2 overflow-hidden rounded-xl border border-zinc-800/50 bg-zinc-950/90">
+                  <div class="flex items-center justify-between border-b border-zinc-800/50 px-2.5 py-1.5">
+                    <span class="font-mono text-[10px] text-zinc-500">
+                      {run.status === "running"
+                        ? "running..."
+                        : run.status === "succeeded"
+                          ? "exit 0"
+                          : `exit ${run.exitCode ?? "?"}`}
                     </span>
                     {#if !run.paneId}
                       <button
-                        class="text-[10px] text-text-muted hover:text-accent bg-transparent border-none cursor-pointer px-1"
+                        class="cursor-pointer bg-transparent px-1 text-[10px] text-zinc-600 hover:text-sky-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
                         onclick={(e) => handleExpand(e, run.ptyId)}
                         title="Expand to terminal pane"
                       >&#8599;</button>
                     {/if}
                   </div>
-                  <pre class="px-2 py-1.5 text-[11px] font-mono text-text-secondary leading-tight max-h-24 overflow-y-auto whitespace-pre-wrap break-all m-0">{run.outputLines.slice(-15).join("\n")}</pre>
+                  <pre class="m-0 max-h-24 overflow-y-auto whitespace-pre-wrap break-all px-2.5 py-2 text-[11px] leading-tight text-zinc-300">{run.outputLines.slice(-15).join("\n")}</pre>
                 </div>
               {/if}
             </div>
@@ -157,17 +185,17 @@
 
 {#if contextMenu}
   <div
-    class="fixed z-50 bg-bg-elevated border border-border rounded-md shadow-lg py-1 min-w-40"
+    class="fixed z-50 min-w-40 rounded-md border border-zinc-800/70 bg-zinc-900 py-1 shadow-lg"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
   >
-    <div class="px-3 py-1.5 text-[11px] text-text-muted uppercase tracking-wide">Keep open</div>
+    <div class="px-3 py-1.5 text-[11px] uppercase tracking-wide text-zinc-500">Keep open</div>
     {#each [["always", "Always"], ["on-error", "On Error"], ["never", "Never"]] as [value, label]}
       {@const current = getEffectiveKeepOpen(contextMenu.repoRoot, contextMenu.task.id, contextMenu.task.keepOpen)}
       <button
-        class="w-full text-left px-3 py-1.5 text-xs bg-transparent border-none cursor-pointer hover:bg-bg-hover text-text-secondary hover:text-text-primary flex items-center gap-2"
+        class="flex w-full items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-zinc-300 cursor-pointer hover:bg-white/[0.05] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
         onclick={() => setKeepOpen(value as "always" | "on-error" | "never")}
       >
-        <span class="w-3 text-accent text-[10px]">{current === value ? "✓" : ""}</span>
+        <span class="w-3 text-[10px] text-sky-300">{current === value ? "✓" : ""}</span>
         {label}
       </button>
     {/each}

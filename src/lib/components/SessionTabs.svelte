@@ -1,13 +1,21 @@
 <script lang="ts">
   import SessionCard from "./SessionCard.svelte";
   import TaskPanel from "./TaskPanel.svelte";
-  import { sessionState, setActiveSession, removeSession, renameSession, addSession } from "$lib/stores/sessions";
-  import { removeSessionPanes, initSessionPanes } from "$lib/stores/panes";
-  import { killSession, removeWorktree, writeToSession, createSession, openInEditor } from "$lib/tauri";
+  import {
+    sessionState,
+    setActiveSession,
+    renameSession,
+    addSession,
+  } from "$lib/stores/sessions";
+  import { initSessionPanes } from "$lib/stores/panes";
+  import {
+    writeToSession,
+    createSession,
+    openInEditor,
+  } from "$lib/tauri";
   import { settings, updateSetting } from "$lib/stores/settings";
-  import { closeAuxiliaryPanes } from "$lib/panes/actions";
-  import { disposeClaudeTerminal } from "$lib/panes/terminalRegistry";
   import { reconnectSession } from "$lib/sessions/reconnect";
+  import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
   import type { Session } from "$lib/types";
 
@@ -22,13 +30,17 @@
   let containerEl: HTMLDivElement | undefined = $state();
   let collapsedGroups = $state(new Set<string>());
 
-  // Group sessions by repoRoot, sorted by most recent createdAt in each group
   let grouped = $derived.by(() => {
     const map = new Map<string, { name: string; repoRoot: string; sessions: Session[]; latest: number }>();
     for (const s of $sessionState.sessions) {
       let group = map.get(s.repoRoot);
       if (!group) {
-        group = { name: s.repoRoot.split("/").pop() || s.repoRoot, repoRoot: s.repoRoot, sessions: [], latest: 0 };
+        group = {
+          name: s.repoRoot.split("/").pop() || s.repoRoot,
+          repoRoot: s.repoRoot,
+          sessions: [],
+          latest: 0,
+        };
         map.set(s.repoRoot, group);
       }
       group.sessions.push(s);
@@ -46,7 +58,6 @@
     collapsedGroups = next;
   }
 
-  // Context menu state
   let contextMenu = $state<{ x: number; y: number; session: Session } | null>(null);
   let worktreeInput = $state(false);
   let branchName = $state("");
@@ -96,7 +107,6 @@
     closeContextMenu();
   }
 
-  // Refresh tasks when active session changes
   $effect(() => {
     const session = $sessionState.sessions.find((s) => s.id === $sessionState.activeSessionId);
     if (session) {
@@ -104,7 +114,6 @@
     }
   });
 
-  // Load overrides on mount
   $effect(() => {
     void initTaskOverrides();
   });
@@ -112,36 +121,7 @@
   async function handleClose(id: string) {
     const session = $sessionState.sessions.find((s) => s.id === id);
     if (!session) return;
-
-    if (
-      $settings.confirmOnClose &&
-      (session.status === "thinking" || session.status === "generating")
-    ) {
-      const confirmed = window.confirm(
-        `"${session.name}" is currently ${session.status}. Close it?`
-      );
-      if (!confirmed) return;
-    }
-
-    await closeAuxiliaryPanes(id);
-    await disposeClaudeTerminal(id);
-    await killSession(id);
-
-    if (session.isWorktree) {
-      if ($settings.cleanupWorktreesOnClose) {
-        await removeWorktree(session.worktreePath).catch(() => {});
-      } else {
-        const remove = window.confirm(
-          `Also remove the worktree at ${session.worktreePath}?`
-        );
-        if (remove) {
-          await removeWorktree(session.worktreePath).catch(() => {});
-        }
-      }
-    }
-
-    removeSessionPanes(id);
-    removeSession(id);
+    await closeSession(session);
   }
 
   async function handleApprove(id: string) {
@@ -187,28 +167,34 @@
 
 <svelte:window onclick={closeContextMenu} />
 
-<div class="h-full flex flex-col bg-bg-base border-r border-border-subtle" bind:this={containerEl}>
-  <div class="px-4 pt-3.5 pb-2.5 flex items-center justify-between">
-    <span class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Sessions</span>
-    <span class="font-mono text-[10px] text-text-muted bg-bg-elevated px-1.5 py-0.5 rounded">
+<div class="flex h-full flex-col border-r border-zinc-800/50 bg-zinc-950/95" bind:this={containerEl}>
+  <div class="flex items-center justify-between px-4 pt-4 pb-2.5">
+    <div class="space-y-0.5">
+      <span class="block text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Sessions</span>
+      <span class="block text-[11px] text-zinc-600">Command center activity</span>
+    </div>
+    <span class="rounded-md bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
       {$sessionState.sessions.length}
     </span>
   </div>
 
-  <div class="overflow-y-auto px-2 scrollbar-thin" style="flex: {!$settings.taskPanelCollapsed && $sessionState.activeSessionId ? 1 - $settings.taskPanelSplit : 1};">
+  <div
+    class="app-scrollbar overflow-y-auto px-2"
+    style="flex: {!$settings.taskPanelCollapsed && $sessionState.activeSessionId ? 1 - $settings.taskPanelSplit : 1};"
+  >
     {#each grouped as group (group.repoRoot)}
       {#if showGroupHeaders}
         <button
-          class="w-full flex items-center gap-1.5 px-1.5 py-1.5 bg-transparent border-none cursor-pointer text-left group mt-1 first:mt-0"
+          class="group mt-1 flex w-full cursor-pointer items-center gap-1.5 bg-transparent px-1.5 py-2 text-left first:mt-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
           onclick={() => toggleGroup(group.repoRoot)}
           title={group.repoRoot}
         >
-          <span class="text-[9px] text-text-muted transition-transform duration-150 {collapsedGroups.has(group.repoRoot) ? '' : 'rotate-90'}">&#9654;</span>
-          <span class="text-[11px] font-medium text-text-secondary truncate">{group.name}</span>
+          <span class="text-[9px] text-zinc-600 transition-transform duration-150 {collapsedGroups.has(group.repoRoot) ? '' : 'rotate-90'}">&#9654;</span>
+          <span class="truncate text-[11px] font-medium text-zinc-400">{group.name}</span>
         </button>
       {/if}
       {#if !collapsedGroups.has(group.repoRoot)}
-        <div class={showGroupHeaders ? 'pl-1' : ''}>
+        <div class={showGroupHeaders ? "pl-1" : ""}>
           {#each group.sessions as session (session.id)}
             <SessionCard
               {session}
@@ -231,18 +217,19 @@
   {#if $sessionState.activeSessionId}
     {#if $settings.taskPanelCollapsed}
       <button
-        class="shrink-0 px-4 py-1.5 border-t border-border-subtle flex items-center gap-1.5 bg-transparent border-x-0 border-b-0 cursor-pointer hover:bg-bg-hover w-full text-left"
+        class="shrink-0 flex w-full items-center gap-1.5 border-t border-zinc-800/50 bg-transparent px-4 py-2 text-left cursor-pointer hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
         onclick={() => updateSetting("taskPanelCollapsed", false)}
       >
-        <span class="text-[10px] text-text-muted">&#9654;</span>
-        <span class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Tasks</span>
+        <span class="text-[10px] text-zinc-600">&#9654;</span>
+        <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Tasks</span>
       </button>
     {:else}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="h-px bg-border-subtle cursor-row-resize hover:bg-accent-dim transition-colors shrink-0 {dragging ? 'bg-accent' : ''}"
-        onmousedown={handleDividerDown}
-      ></div>
+      <div class="group flex h-3 shrink-0 cursor-row-resize items-center px-2" onmousedown={handleDividerDown}>
+        <div
+          class="h-px w-full rounded-full transition-all duration-150 {dragging ? 'bg-zinc-700/70 opacity-100' : 'bg-zinc-800/20 opacity-0 group-hover:opacity-100'}"
+        ></div>
+      </div>
 
       <div style="flex: {$settings.taskPanelSplit}; min-height: 0;">
         <TaskPanel onCollapse={() => updateSetting("taskPanelCollapsed", true)} />
@@ -250,15 +237,15 @@
     {/if}
   {/if}
 
-  <div class="p-2 border-t border-border-subtle flex gap-1 shrink-0">
+  <div class="flex shrink-0 gap-1 border-t border-zinc-800/50 p-2">
     <button
-      class="flex-1 py-2 bg-accent-dim border-none rounded-md text-accent text-xs font-sans cursor-pointer flex items-center justify-center gap-1.5 transition-all duration-150 hover:bg-accent hover:text-bg-deep"
+      class="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-sky-500/12 py-2 text-xs text-sky-200 cursor-pointer transition-all duration-150 hover:bg-sky-500/22 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
       onclick={onNewSession}
     >
       <span class="text-sm">+</span> New
     </button>
     <button
-      class="py-2 px-3 bg-bg-elevated border border-border-subtle rounded-md text-text-secondary text-xs cursor-pointer flex items-center justify-center transition-all duration-150 hover:bg-bg-hover hover:text-text-primary"
+      class="flex items-center justify-center rounded-md border border-zinc-800/70 bg-zinc-900 px-3 py-2 text-xs text-zinc-400 cursor-pointer transition-all duration-150 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
       onclick={onOpenSettings}
     >
       &#9881;
@@ -270,20 +257,20 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="fixed z-50 bg-bg-elevated border border-border rounded-lg shadow-[0_12px_32px_rgba(0,0,0,0.5)] py-1 min-w-48"
+    class="fixed z-50 min-w-48 rounded-lg border border-zinc-800/70 bg-zinc-900 py-1 shadow-[0_12px_32px_rgba(0,0,0,0.5)]"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
     onclick={(e) => e.stopPropagation()}
   >
     {#if !worktreeInput}
       <button
-        class="w-full text-left px-3 py-2 text-xs bg-transparent border-none cursor-pointer hover:bg-bg-hover text-text-secondary hover:text-text-primary flex items-center gap-2"
+        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900"
         onclick={showWorktreeInput}
       >
         <span class="text-[10px] opacity-70">&#9095;</span>
         New Worktree
       </button>
       <button
-        class="w-full text-left px-3 py-2 text-xs bg-transparent border-none cursor-pointer hover:bg-bg-hover text-text-secondary hover:text-text-primary flex items-center gap-2"
+        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900"
         onclick={handleOpenInCode}
       >
         <span class="text-[10px] opacity-70">&#9998;</span>
@@ -291,21 +278,24 @@
       </button>
     {:else}
       <div class="px-3 py-2">
-        <div class="text-[11px] text-text-muted mb-1.5">Branch name</div>
+        <div class="mb-1.5 text-[11px] text-zinc-500">Branch name</div>
         <form
-          onsubmit={(e) => { e.preventDefault(); handleCreateWorktree(); }}
+          onsubmit={(e) => {
+            e.preventDefault();
+            handleCreateWorktree();
+          }}
           class="flex gap-1.5"
         >
           <!-- svelte-ignore a11y_autofocus -->
           <input
-            class="flex-1 bg-bg-deep border border-border rounded-md px-2 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-accent-dim min-w-0"
+            class="min-w-0 flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-[12px] text-zinc-100 outline-none focus:border-sky-500/50"
             bind:value={branchName}
             placeholder="feature/my-branch"
             disabled={creatingWorktree}
             autofocus
           />
           <button
-            class="px-2.5 py-1.5 bg-accent-dim border-none rounded-md text-accent text-[11px] font-medium cursor-pointer hover:bg-accent hover:text-bg-deep disabled:opacity-50"
+            class="cursor-pointer rounded-md bg-sky-500/12 px-2.5 py-1.5 text-[11px] font-medium text-sky-200 hover:bg-sky-500/22 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900"
             type="submit"
             disabled={creatingWorktree || !branchName.trim()}
           >
@@ -313,7 +303,7 @@
           </button>
         </form>
         {#if worktreeError}
-          <div class="text-[10px] text-red mt-1 truncate" title={worktreeError}>{worktreeError}</div>
+          <div class="mt-1 truncate text-[10px] text-red" title={worktreeError}>{worktreeError}</div>
         {/if}
       </div>
     {/if}

@@ -149,8 +149,14 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-  bind:this={containerEl}
-  class="flex-1 w-full h-full bg-black"
+  class="flex h-full w-full p-2"
   class:hidden={!active}
-  onclick={() => terminal?.focus()}
-></div>
+>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div
+    bind:this={containerEl}
+    class="h-full w-full overflow-hidden rounded-[0.95rem] bg-[#0a0a0a] shadow-[inset_0_0_0_1px_rgba(39,39,42,0.9),inset_0_18px_36px_rgba(255,255,255,0.02)]"
+    onclick={() => terminal?.focus()}
+  ></div>
+</div>

@@ -36,50 +36,56 @@
   }
 </script>
 
-<div class="h-screen flex flex-col bg-bg-deep text-text-primary">
-  <!-- Main area -->
-  <div class="flex flex-1 min-h-0"
+<div class="flex h-screen flex-col bg-[#050607] text-text-primary">
+  <div
+    class="flex min-h-0 flex-1"
     class:flex-row={$settings.tabPosition === "left"}
     class:flex-row-reverse={$settings.tabPosition === "right"}
   >
-    <!-- Sidebar -->
     <div style="width: {sidebarWidth}px" class="shrink-0">
       <SessionTabs {onNewSession} {onOpenSettings} />
     </div>
 
-    <!-- Resize handle -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="w-2 cursor-col-resize bg-transparent hover:bg-white/8 transition-colors shrink-0"
-      class:bg-accent-dim={dragging}
+      class="group relative flex w-3 shrink-0 cursor-col-resize items-stretch justify-center"
       onmousedown={onDragStart}
-    ></div>
+    >
+      <div
+        class="my-3 w-px rounded-full transition-all duration-150 {dragging ? 'bg-zinc-700/70 opacity-100' : 'bg-zinc-800/20 opacity-0 group-hover:opacity-100'}"
+      ></div>
+    </div>
 
-    <!-- Terminal area -->
-    <div class="flex-1 relative flex flex-col min-w-0 bg-black p-2">
+    <div class="relative flex min-w-0 flex-1 flex-col bg-[#050607] p-3">
       {#if $sessionState.sessions.length === 0}
-        <div class="flex-1 flex flex-col items-center justify-center gap-4 rounded-[1.25rem] border border-white/6 bg-slate-950 text-center text-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-          <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-800/70 bg-slate-900/80 text-sky-300 shadow-[0_18px_40px_rgba(2,6,23,0.45)]">
+        <div class="flex flex-1 flex-col items-center justify-center gap-4 rounded-[1.25rem] border border-zinc-800/50 bg-zinc-950/85 text-center text-zinc-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-zinc-800/70 bg-zinc-900/80 text-sky-300 shadow-[0_18px_40px_rgba(2,6,23,0.45)]">
             <span class="text-3xl">&#9095;</span>
           </div>
           <div class="space-y-1">
-            <p class="text-base font-semibold tracking-tight text-text-primary">No active sessions</p>
-            <p class="text-sm text-text-secondary">Start a new session to open a terminal workspace.</p>
+            <p class="text-base font-semibold tracking-tight text-zinc-100">No active sessions</p>
+            <p class="text-sm text-zinc-500">Start a new session to open a terminal workspace.</p>
           </div>
-          <p class="text-[11px] font-medium uppercase tracking-[0.24em] text-text-muted">Click "New" in the sidebar</p>
+          <p class="text-[11px] font-medium uppercase tracking-[0.24em] text-zinc-600">Click "New" in the sidebar</p>
         </div>
       {:else}
         {#each $sessionState.sessions as session (session.id)}
           {@const tree = $paneTrees.get(session.id)}
           {#if tree}
-            <div class="flex-1 min-h-0 flex rounded-[1.25rem] bg-black" class:hidden={session.id !== $sessionState.activeSessionId}>
-              <SplitPane node={tree} sessionId={session.id} sessionActive={session.id === $sessionState.activeSessionId} />
+            <div
+              class="flex min-h-0 flex-1 rounded-[1.25rem] bg-[#050607]"
+              class:hidden={session.id !== $sessionState.activeSessionId}
+            >
+              <SplitPane
+                node={tree}
+                sessionId={session.id}
+                sessionActive={session.id === $sessionState.activeSessionId}
+              />
             </div>
           {/if}
         {/each}
       {/if}
 
-      <!-- Settings panel slot -->
       {#if settingsPanel}
         {@render settingsPanel()}
       {/if}

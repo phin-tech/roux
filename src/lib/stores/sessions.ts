@@ -75,6 +75,12 @@ export function setSessionDisconnected(id: string) {
   updateSessionStatus(id, "disconnected");
 }
 
+/** Signal to trigger rename editing on the active session card */
+export const renameSignal = writable(0);
+export function triggerRename() {
+  renameSignal.update((n) => n + 1);
+}
+
 export function renameSession(id: string, newName: string) {
   sessionState.update((state) => ({
     ...state,
