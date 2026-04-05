@@ -3,32 +3,36 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
-const HOOK_HANDLER_SCRIPT: &str = r#"#!/bin/bash
-# Roux hook handler — receives Claude Code hook events and writes status files
-STATUS="$1"
-INPUT=$(cat)
-eval "$(echo "$INPUT" | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-print(f'SID=\"{d.get(\"session_id\",\"\")}\"')
-print(f'CWD=\"{d.get(\"cwd\",\"\")}\"')
-# Escape double quotes and newlines for JSON safety
-import re
-tn=d.get('tool_name','')
-ti=json.dumps(d.get('tool_input',{}))
-msg=d.get('message','').replace('\"','\\\\\"')
-print(f'TOOL_NAME=\"{tn}\"')
-print(f'TOOL_INPUT={ti}')
-print(f'MSG=\"{msg}\"')
-" 2>/dev/null)"
-if [ -n "$SID" ]; then
-    mkdir -p ~/.config/roux/status
-    if [ "$STATUS" = "attention" ]; then
-        echo "{\"status\":\"$STATUS\",\"claude_session_id\":\"$SID\",\"cwd\":\"$CWD\",\"tool_name\":\"$TOOL_NAME\",\"tool_input\":$TOOL_INPUT,\"message\":\"$MSG\",\"timestamp\":$(date +%s)}" > ~/.config/roux/status/$SID.json
-    else
-        echo "{\"status\":\"$STATUS\",\"claude_session_id\":\"$SID\",\"cwd\":\"$CWD\",\"timestamp\":$(date +%s)}" > ~/.config/roux/status/$SID.json
-    fi
-fi
+const HOOK_HANDLER_SCRIPT: &str = r#"#!/usr/bin/env python3
+"""Roux hook handler — receives Claude Code hook events and writes status files."""
+import json, os, sys, time
+
+status = sys.argv[1] if len(sys.argv) > 1 else ""
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+
+sid = data.get("session_id", "")
+if not sid:
+    sys.exit(0)
+
+out = {
+    "status": status,
+    "claude_session_id": sid,
+    "cwd": data.get("cwd", ""),
+    "timestamp": int(time.time()),
+}
+
+if status == "attention":
+    out["tool_name"] = data.get("tool_name", "")
+    out["tool_input"] = data.get("tool_input", {})
+    out["message"] = data.get("message", "")
+
+status_dir = os.path.expanduser("~/.config/roux/status")
+os.makedirs(status_dir, exist_ok=True)
+with open(os.path.join(status_dir, f"{sid}.json"), "w") as f:
+    json.dump(out, f)
 "#;
 
 const ROUX_HOOK_MARKER: &str = "roux/hook-handler.sh";
