@@ -11,10 +11,13 @@
   let showSettings = $state(false);
 
   onMount(async () => {
-    await initSettings();
-    const sessions = await listSessions();
-    for (const s of sessions) {
-      addSession(s);
+    const loadedSettings = await initSettings();
+    // Only restore sessions if setting is enabled
+    if (loadedSettings.restoreSessionsOnLaunch) {
+      const sessions = await listSessions();
+      for (const s of sessions) {
+        addSession(s);
+      }
     }
   });
 </script>

@@ -1,7 +1,8 @@
 <script lang="ts">
   import SessionCard from "./SessionCard.svelte";
-  import { sessionState, setActiveSession, removeSession, renameSession } from "$lib/stores/sessions";
-  import { killSession } from "$lib/tauri";
+  import { sessionState, setActiveSession, removeSession, addSession, renameSession } from "$lib/stores/sessions";
+  import { killSession, removeWorktree, createSession } from "$lib/tauri";
+  import { settings } from "$lib/stores/settings";
 
   interface Props {
     onNewSession: () => void;
@@ -11,8 +12,52 @@
   let { onNewSession, onOpenSettings }: Props = $props();
 
   async function handleClose(id: string) {
+    const session = $sessionState.sessions.find((s) => s.id === id);
+    if (!session) return;
+
+    // Confirm if session is active (thinking/generating)
+    if (
+      $settings.confirmOnClose &&
+      (session.status === "thinking" || session.status === "generating")
+    ) {
+      const confirmed = window.confirm(
+        `"${session.name}" is currently ${session.status}. Close it?`
+      );
+      if (!confirmed) return;
+    }
+
     await killSession(id);
+
+    // Worktree cleanup
+    if (session.isWorktree) {
+      if ($settings.cleanupWorktreesOnClose) {
+        await removeWorktree(session.worktreePath).catch(() => {});
+      } else {
+        const remove = window.confirm(
+          `Also remove the worktree at ${session.worktreePath}?`
+        );
+        if (remove) {
+          await removeWorktree(session.worktreePath).catch(() => {});
+        }
+      }
+    }
+
     removeSession(id);
+  }
+
+  async function handleReconnect(id: string) {
+    const session = $sessionState.sessions.find((s) => s.id === id);
+    if (!session) return;
+    // Remove the old disconnected session
+    removeSession(id);
+    // Create a fresh session in the same directory (new ID, fresh PTY)
+    const newSession = await createSession(
+      session.repoRoot,
+      session.name,
+      session.worktreePath !== session.repoRoot ? session.worktreePath : null,
+      null
+    );
+    addSession(newSession);
   }
 </script>
 
@@ -32,6 +77,7 @@
         onselect={() => setActiveSession(session.id)}
         onclose={() => handleClose(session.id)}
         onrename={(newName) => renameSession(session.id, newName)}
+        onreconnect={() => handleReconnect(session.id)}
       />
     {/each}
   </div>

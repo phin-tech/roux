@@ -1,5 +1,6 @@
 <script lang="ts">
   import { settings, updateSetting } from "$lib/stores/settings";
+  import { open } from "@tauri-apps/plugin-dialog";
 
   interface Props {
     visible: boolean;
@@ -7,6 +8,16 @@
   }
 
   let { visible, onclose }: Props = $props();
+
+  async function browseWorktreeBase() {
+    const selected = await open({ directory: true, title: "Select Worktree Base Directory" });
+    if (selected) updateSetting("worktreeBasePath", selected as string);
+  }
+
+  async function browseDefaultProject() {
+    const selected = await open({ directory: true, title: "Select Default Project Directory" });
+    if (selected) updateSetting("defaultProjectPath", selected as string);
+  }
 </script>
 
 <div
@@ -46,12 +57,18 @@
           <div class="text-[13px]">Base path</div>
           <div class="text-[11px] text-text-muted mt-0.5">Where to create new worktrees</div>
         </div>
-        <input
-          class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-35 text-right focus:border-accent-dim"
-          value={$settings.worktreeBasePath ?? ""}
-          oninput={(e) => updateSetting("worktreeBasePath", e.currentTarget.value || null)}
-          placeholder="~/worktrees"
-        />
+        <div class="flex gap-1">
+          <input
+            class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-28 text-right focus:border-accent-dim"
+            value={$settings.worktreeBasePath ?? ""}
+            oninput={(e) => updateSetting("worktreeBasePath", e.currentTarget.value || null)}
+            placeholder="~/worktrees"
+          />
+          <button
+            class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+            onclick={browseWorktreeBase}
+          >...</button>
+        </div>
       </div>
       <div class="flex items-center justify-between py-2">
         <div>
@@ -145,12 +162,18 @@
       </div>
       <div class="flex items-center justify-between py-2">
         <span class="text-[13px]">Default project path</span>
-        <input
-          class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-35 text-right focus:border-accent-dim"
-          value={$settings.defaultProjectPath ?? ""}
-          oninput={(e) => updateSetting("defaultProjectPath", e.currentTarget.value || null)}
-          placeholder="~/src"
-        />
+        <div class="flex gap-1">
+          <input
+            class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-28 text-right focus:border-accent-dim"
+            value={$settings.defaultProjectPath ?? ""}
+            oninput={(e) => updateSetting("defaultProjectPath", e.currentTarget.value || null)}
+            placeholder="~/src"
+          />
+          <button
+            class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+            onclick={browseDefaultProject}
+          >...</button>
+        </div>
       </div>
     </section>
 

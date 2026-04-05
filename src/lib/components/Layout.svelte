@@ -3,7 +3,7 @@
   import Terminal from "./Terminal.svelte";
   import StatusBar from "./StatusBar.svelte";
   import { sessionState } from "$lib/stores/sessions";
-  import { settings } from "$lib/stores/settings";
+  import { settings, updateSetting } from "$lib/stores/settings";
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -13,6 +13,26 @@
   }
 
   let { onNewSession, onOpenSettings, settingsPanel }: Props = $props();
+
+  let dragging = $state(false);
+  let sidebarWidth = $derived($settings.tabWidth);
+
+  function onDragStart(e: MouseEvent) {
+    dragging = true;
+    e.preventDefault();
+    const onMove = (ev: MouseEvent) => {
+      const w = $settings.tabPosition === "left" ? ev.clientX : window.innerWidth - ev.clientX;
+      const clamped = Math.max(180, Math.min(500, w));
+      updateSetting("tabWidth", clamped);
+    };
+    const onUp = () => {
+      dragging = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
 </script>
 
 <div class="h-screen flex flex-col bg-bg-deep text-text-primary">
@@ -22,12 +42,17 @@
     class:flex-row-reverse={$settings.tabPosition === "right"}
   >
     <!-- Sidebar -->
-    <div style="width: {$settings.tabWidth}px" class="shrink-0">
+    <div style="width: {sidebarWidth}px" class="shrink-0">
       <SessionTabs {onNewSession} {onOpenSettings} />
     </div>
 
     <!-- Resize handle -->
-    <div class="w-1 cursor-col-resize bg-transparent hover:bg-accent-dim transition-colors shrink-0"></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="w-1 cursor-col-resize bg-transparent hover:bg-accent-dim transition-colors shrink-0"
+      class:bg-accent-dim={dragging}
+      onmousedown={onDragStart}
+    ></div>
 
     <!-- Terminal area -->
     <div class="flex-1 relative flex flex-col min-w-0">

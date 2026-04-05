@@ -11,7 +11,7 @@ export const settings = writable<RouxSettings>(DEFAULT_SETTINGS);
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-export async function initSettings() {
+export async function initSettings(): Promise<RouxSettings> {
   const loaded = await getSettings();
   settings.set(loaded);
 
@@ -19,6 +19,8 @@ export async function initSettings() {
   await onSettingsChanged((updated) => {
     settings.set(updated);
   });
+
+  return loaded;
 }
 
 export function updateSetting<K extends keyof RouxSettings>(

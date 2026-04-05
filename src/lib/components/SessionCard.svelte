@@ -7,9 +7,10 @@
     onselect: () => void;
     onclose: () => void;
     onrename: (newName: string) => void;
+    onreconnect: () => void;
   }
 
-  let { session, active, onselect, onclose, onrename }: Props = $props();
+  let { session, active, onselect, onclose, onrename, onreconnect }: Props = $props();
 
   let editing = $state(false);
   let editName = $state(session.name);
@@ -91,6 +92,14 @@
     <span class="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded {labelClasses[session.status]}">
       {labelText[session.status]}
     </span>
+    {#if session.status === "disconnected"}
+      <button
+        class="text-[10px] font-medium text-accent bg-accent/10 px-1.5 py-0.5 rounded cursor-pointer border-none hover:bg-accent/20"
+        onclick={(e) => { e.stopPropagation(); onreconnect(); }}
+      >
+        reconnect
+      </button>
+    {/if}
     <button
       class="opacity-0 group-hover:opacity-100 bg-transparent border-none text-text-muted hover:text-red hover:bg-bg-elevated text-sm p-0.5 rounded cursor-pointer transition-all duration-150"
       onclick={(e) => { e.stopPropagation(); onclose(); }}
