@@ -10,10 +10,12 @@
   interface Props {
     onNewSession: () => void;
     onOpenSettings: () => void;
+    onOpenDocs: () => void;
     settingsPanel?: Snippet;
+    docsPanel?: Snippet;
   }
 
-  let { onNewSession, onOpenSettings, settingsPanel }: Props = $props();
+  let { onNewSession, onOpenSettings, onOpenDocs, settingsPanel, docsPanel }: Props = $props();
 
   let dragging = $state(false);
   let sidebarWidth = $derived($settings.tabWidth);
@@ -44,7 +46,7 @@
   >
     <!-- Sidebar -->
     <div style="width: {sidebarWidth}px" class="shrink-0">
-      <SessionTabs {onNewSession} {onOpenSettings} />
+      <SessionTabs {onNewSession} {onOpenSettings} {onOpenDocs} />
     </div>
 
     <!-- Resize handle -->
@@ -77,6 +79,11 @@
       <!-- Settings panel slot -->
       {#if settingsPanel}
         {@render settingsPanel()}
+      {/if}
+
+      <!-- Docs panel slot -->
+      {#if docsPanel}
+        {@render docsPanel()}
       {/if}
     </div>
   </div>

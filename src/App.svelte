@@ -4,6 +4,7 @@
   import Layout from "$lib/components/Layout.svelte";
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
+  import DocPanel from "$lib/components/DocPanel.svelte";
   import { initSettings } from "$lib/stores/settings";
   import { addSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
   import { initSessionPanes, addSplit, focusedPaneId, removePane, paneTrees, hasSplitPanes } from "$lib/stores/panes";
@@ -13,6 +14,7 @@
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
+  let showDocs = $state(false);
 
   async function splitCurrentSession(direction: "horizontal" | "vertical") {
     const state = get(sessionState);
@@ -65,6 +67,10 @@
     if (e.metaKey && (e.key === "D" || (e.key === "d" && e.shiftKey))) {
       e.preventDefault();
       splitCurrentSession("vertical");
+    }
+    if (e.metaKey && e.key === "b") {
+      e.preventDefault();
+      showDocs = !showDocs;
     }
     if (e.metaKey && e.key === "w") {
       e.preventDefault();
@@ -129,9 +135,13 @@
 <Layout
   onNewSession={() => (showNewSessionDialog = true)}
   onOpenSettings={() => (showSettings = !showSettings)}
+  onOpenDocs={() => (showDocs = !showDocs)}
 >
   {#snippet settingsPanel()}
     <SettingsPanel visible={showSettings} onclose={() => (showSettings = false)} />
+  {/snippet}
+  {#snippet docsPanel()}
+    <DocPanel visible={showDocs} onclose={() => (showDocs = false)} />
   {/snippet}
 </Layout>
 

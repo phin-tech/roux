@@ -8,9 +8,10 @@
   interface Props {
     onNewSession: () => void;
     onOpenSettings: () => void;
+    onOpenDocs: () => void;
   }
 
-  let { onNewSession, onOpenSettings }: Props = $props();
+  let { onNewSession, onOpenSettings, onOpenDocs }: Props = $props();
 
   async function handleClose(id: string) {
     const session = $sessionState.sessions.find((s) => s.id === id);
@@ -109,6 +110,13 @@
       onclick={onNewSession}
     >
       <span class="text-sm">+</span> New
+    </button>
+    <button
+      class="py-2 px-3 bg-bg-elevated border border-border-subtle rounded-md text-text-secondary text-xs cursor-pointer flex items-center justify-center transition-all duration-150 hover:bg-bg-hover hover:text-text-primary"
+      onclick={onOpenDocs}
+      title="Documents (Cmd+B)"
+    >
+      &#128196;
     </button>
     <button
       class="py-2 px-3 bg-bg-elevated border border-border-subtle rounded-md text-text-secondary text-xs cursor-pointer flex items-center justify-center transition-all duration-150 hover:bg-bg-hover hover:text-text-primary"

@@ -78,6 +78,22 @@ export async function listWorktrees(
   return invoke("cmd_list_worktrees", { repoPath });
 }
 
+// Document viewer commands
+export interface DocFile {
+  path: string;
+  name: string;
+  relativePath: string;
+  modified: number;
+}
+
+export async function readFile(path: string): Promise<string> {
+  return invoke("read_file", { path });
+}
+
+export async function listDocs(dir: string): Promise<DocFile[]> {
+  return invoke("list_docs", { dir });
+}
+
 // Events (backend → frontend)
 export function onPtyOutput(
   sessionId: string,
