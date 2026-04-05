@@ -40,12 +40,13 @@ export function updateTaskRun(sessionId: string, ptyId: string, exitCode: number
   taskRuns.update((map) => {
     const runs = map.get(sessionId);
     if (!runs) return map;
-    const run = runs.find((r) => r.ptyId === ptyId);
-    if (run) {
-      run.exitCode = exitCode;
-      run.status = exitCode === 0 ? "succeeded" : "failed";
-    }
-    return new Map(map);
+    const idx = runs.findIndex((r) => r.ptyId === ptyId);
+    if (idx === -1) return map;
+    const updated = [...runs];
+    updated[idx] = { ...runs[idx], exitCode, status: exitCode === 0 ? "succeeded" : "failed" };
+    const next = new Map(map);
+    next.set(sessionId, updated);
+    return next;
   });
 }
 
@@ -91,15 +92,19 @@ export function appendTaskOutput(sessionId: string, ptyId: string, text: string)
   taskRuns.update((map) => {
     const runs = map.get(sessionId);
     if (!runs) return map;
-    const run = runs.find((r) => r.ptyId === ptyId);
-    if (!run) return map;
-    // Split incoming text into lines, append, trim to max
+    const idx = runs.findIndex((r) => r.ptyId === ptyId);
+    if (idx === -1) return map;
+    const run = runs[idx];
     const newLines = text.split("\n");
-    run.outputLines.push(...newLines);
-    if (run.outputLines.length > MAX_OUTPUT_LINES) {
-      run.outputLines.splice(0, run.outputLines.length - MAX_OUTPUT_LINES);
+    let lines = [...run.outputLines, ...newLines];
+    if (lines.length > MAX_OUTPUT_LINES) {
+      lines = lines.slice(lines.length - MAX_OUTPUT_LINES);
     }
-    return new Map(map);
+    const updated = [...runs];
+    updated[idx] = { ...run, outputLines: lines };
+    const next = new Map(map);
+    next.set(sessionId, updated);
+    return next;
   });
 }
 
