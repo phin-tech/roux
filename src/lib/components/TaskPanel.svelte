@@ -155,7 +155,7 @@
                       ? 'bg-red/6 hover:bg-red/10'
                       : run?.status === 'succeeded'
                         ? 'bg-green/6 hover:bg-green/10'
-                        : 'bg-white/[0.02] hover:bg-white/[0.04]'}"
+                        : 'bg-transparent hover:bg-bg-active/40'}"
                 onclick={() => handleRun(task)}
                 oncontextmenu={(e) => handleContextMenu(e, task)}
                 title={task.description || task.command}
@@ -228,7 +228,7 @@
     {#each [["always", "Always"], ["on-error", "On Error"], ["never", "Never"]] as [value, label]}
       {@const current = getEffectiveKeepOpen(contextMenu.repoRoot, contextMenu.task.id, contextMenu.task.keepOpen)}
       <button
-        class="flex w-full items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary cursor-pointer hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+        class="flex w-full items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary cursor-pointer hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={() => setKeepOpen(value as "always" | "on-error" | "never")}
       >
         <span class="w-3 text-[10px] text-accent">{current === value ? "✓" : ""}</span>

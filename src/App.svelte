@@ -13,7 +13,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { registerCommands, registry } from "$lib/commands";
   import { closeFocusedPane } from "$lib/panes/actions";
-  import { normalizeTheme } from "$lib/themes";
+  import { normalizeTheme, isLightTheme } from "$lib/themes";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
@@ -88,6 +88,7 @@
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
     document.documentElement.style.setProperty("--font-sans", $settings.uiFontFamily);
+    document.documentElement.style.colorScheme = isLightTheme(theme) ? "light" : "dark";
   });
 
   onDestroy(() => {

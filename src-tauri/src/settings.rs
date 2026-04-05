@@ -11,7 +11,8 @@ fn default_ui_font_family() -> String {
 fn normalize_theme(theme: &str) -> String {
     match theme {
         "dark" | "deep-blue" => DEFAULT_THEME.to_string(),
-        "steel-amber" | "slate-emerald" | "graphite-rose" => theme.to_string(),
+        "steel-amber" | "slate-emerald" | "graphite-rose" | "nordic-night" | "cyber-audit"
+        | "mocha-soft" | "paper-ink" | "github-day" => theme.to_string(),
         _ => DEFAULT_THEME.to_string(),
     }
 }

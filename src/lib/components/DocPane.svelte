@@ -127,7 +127,7 @@
   onmouseleave={() => (hovering = false)}
 >
   <!-- Header bar -->
-  <div class="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.05] bg-bg-surface/30 px-3">
+  <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
     <div class="relative">
       <button
         class="flex cursor-pointer items-start gap-2 rounded-xl border border-border-subtle bg-bg-surface/85 px-3 py-2 text-left transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
@@ -156,7 +156,7 @@
                 class="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-transparent px-3 py-2 text-left transition-colors
                   {currentPath === doc.path
                     ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-                    : 'bg-transparent text-text-secondary hover:bg-white/[0.05] hover:text-text-primary'}"
+                    : 'bg-transparent text-text-secondary hover:bg-bg-hover hover:text-text-primary'}"
                 onclick={() => selectDoc(doc)}
               >
                 <span class="pt-0.5 opacity-45">&#128196;</span>
@@ -174,7 +174,7 @@
 
     <div class="flex items-center gap-1">
       <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-text-muted hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-text-muted hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={loadContent}
         title="Refresh"
       >&#8635;</button>

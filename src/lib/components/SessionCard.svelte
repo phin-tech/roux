@@ -114,8 +114,8 @@
 <div
   class="group relative mb-1 w-full cursor-pointer overflow-hidden rounded-lg px-3 py-2 text-left transition-colors duration-150
     {active
-      ? 'bg-white/[0.05] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-      : 'bg-transparent hover:bg-white/[0.02]'}"
+      ? 'bg-bg-active shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+      : 'bg-transparent hover:bg-bg-active/40'}"
   onclick={onselect}
   oncontextmenu={(e) => {
     if (oncontextmenu) {
@@ -177,7 +177,7 @@
       </button>
     {/if}
     <button
-      class="cursor-pointer flex h-4 w-4 items-center justify-center rounded bg-transparent text-[10px] leading-none text-text-muted opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-red focus-visible:opacity-100 focus-visible:outline-none"
+      class="cursor-pointer flex h-4 w-4 items-center justify-center rounded bg-transparent text-[10px] leading-none text-text-muted opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-bg-hover hover:text-red focus-visible:opacity-100 focus-visible:outline-none"
       onclick={(e) => {
         e.stopPropagation();
         onclose();

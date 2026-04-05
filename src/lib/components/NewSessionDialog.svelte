@@ -128,7 +128,7 @@
       transition:scale={{ duration: 150, start: 0.96 }}
     >
       <!-- Header -->
-      <div class="border-b border-white/[0.05] bg-bg-surface/30 px-6 pt-5 pb-4">
+      <div class="border-b border-hairline bg-bg-surface/30 px-6 pt-5 pb-4">
         <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">New Session</h2>
         <p class="text-xs text-text-muted">Create a new Claude Code session in a git repository</p>
       </div>
@@ -287,7 +287,7 @@
       </div>
 
       <!-- Footer -->
-      <div class="flex justify-end gap-2 border-t border-white/[0.05] px-6 py-4">
+      <div class="flex justify-end gap-2 border-t border-hairline px-6 py-4">
         <button
           class="cursor-pointer rounded-xl border border-border-subtle bg-bg-surface px-5 py-2 text-[13px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
           onclick={resetAndClose}

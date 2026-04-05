@@ -88,10 +88,10 @@
 </script>
 
 <div
-  class="absolute top-0 right-0 bottom-0 z-50 flex w-[480px] flex-col border-l border-white/[0.05] bg-bg-deep shadow-[-18px_0_48px_rgba(2,6,23,0.45)] transition-transform duration-250
+  class="absolute top-0 right-0 bottom-0 z-50 flex w-[480px] flex-col border-l border-hairline bg-bg-deep shadow-[-18px_0_48px_rgba(2,6,23,0.45)] transition-transform duration-250
     {visible ? 'translate-x-0' : 'translate-x-full'}"
 >
-  <div class="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.05] bg-bg-surface/30 px-3">
+  <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
     <div class="space-y-0.5">
       <div class="flex items-center gap-2">
         <span class="text-[10px] font-bold uppercase tracking-widest text-text-muted">Documentation</span>
@@ -103,12 +103,12 @@
     </div>
     <div class="flex items-center gap-2">
       <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-text-muted hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-text-muted hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={refreshDocs}
         title="Refresh"
       >&#8635;</button>
       <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={onclose}
       >&times;</button>
     </div>
@@ -119,7 +119,7 @@
       No active session
     </div>
   {:else}
-    <div class="app-scrollbar max-h-[240px] overflow-y-auto border-b border-white/[0.05]">
+    <div class="app-scrollbar max-h-[240px] overflow-y-auto border-b border-hairline">
       {#if docs.length === 0}
         <div class="px-5 py-4 text-xs text-text-muted">
           No markdown files found in project
@@ -130,7 +130,7 @@
             class="flex w-full cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors
               {selectedDoc?.path === doc.path
                 ? 'bg-bg-active text-text-primary'
-                : 'bg-transparent text-text-secondary hover:bg-white/[0.04] hover:text-text-primary'}"
+                : 'bg-transparent text-text-secondary hover:bg-bg-active/50 hover:text-text-primary'}"
             onclick={() => selectDoc(doc)}
           >
             <span class="pt-0.5 opacity-40">&#128196;</span>

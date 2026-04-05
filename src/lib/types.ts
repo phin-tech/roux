@@ -1,4 +1,13 @@
-export type ThemePreset = "deep-blue" | "steel-amber" | "slate-emerald" | "graphite-rose";
+export type ThemePreset =
+  | "deep-blue"
+  | "steel-amber"
+  | "slate-emerald"
+  | "graphite-rose"
+  | "nordic-night"
+  | "cyber-audit"
+  | "mocha-soft"
+  | "paper-ink"
+  | "github-day";
 
 export interface PermissionInfo {
   toolName: string;

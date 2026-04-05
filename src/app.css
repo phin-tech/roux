@@ -26,6 +26,7 @@
   --color-blue: #38bdf8;
   --color-blue-dim: #0369a1;
   --color-gray: #71717a;
+  --color-hairline: rgba(255, 255, 255, 0.05);
   --font-mono: "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", monospace;
   --font-sans: "Geist", "Inter", "SF Pro Display", "Segoe UI", sans-serif;
 }
@@ -68,6 +69,17 @@
     background: rgba(56, 189, 248, 0.28);
     color: var(--color-text-primary);
   }
+
+  :root[data-theme="paper-ink"] body,
+  :root[data-theme="github-day"] body {
+    background: var(--color-bg-deep);
+  }
+
+  :root[data-theme="paper-ink"] ::selection,
+  :root[data-theme="github-day"] ::selection {
+    background: rgba(37, 99, 235, 0.2);
+    color: var(--color-text-primary);
+  }
 }
 
 @layer base {
@@ -98,6 +110,7 @@
     --color-blue: #cbd5e1;
     --color-blue-dim: #64748b;
     --color-gray: #78716c;
+    --color-hairline: rgba(255, 255, 255, 0.05);
   }
 
   :root[data-theme="slate-emerald"],
@@ -127,6 +140,7 @@
     --color-blue: #5eead4;
     --color-blue-dim: #0f766e;
     --color-gray: #5a6e66;
+    --color-hairline: rgba(255, 255, 255, 0.05);
   }
 
   :root[data-theme="graphite-rose"],
@@ -156,6 +170,164 @@
     --color-blue: #c4b5fd;
     --color-blue-dim: #8b5cf6;
     --color-gray: #6e6478;
+    --color-hairline: rgba(255, 255, 255, 0.05);
+  }
+
+  /* Nordic Night — cool blue-grays with teal accents */
+  :root[data-theme="nordic-night"],
+  body[data-theme="nordic-night"] {
+    --app-bg-start: #0c0e14;
+    --app-bg-end: #0a0c12;
+    --app-glow: rgba(45, 212, 191, 0.04);
+    --color-bg-deep: #0a0c12;
+    --color-bg-base: #0f1119;
+    --color-bg-surface: #1a1d28;
+    --color-bg-elevated: #242836;
+    --color-bg-hover: #2e3444;
+    --color-bg-active: rgba(46, 52, 68, 0.72);
+    --color-border: rgba(136, 192, 208, 0.15);
+    --color-border-subtle: rgba(76, 86, 106, 0.2);
+    --color-text-primary: #d8dee9;
+    --color-text-secondary: #81a1c1;
+    --color-text-muted: #4c566a;
+    --color-accent: #2dd4bf;
+    --color-accent-dim: #0d9488;
+    --color-green: #a3be8c;
+    --color-green-dim: #3b5323;
+    --color-amber: #ebcb8b;
+    --color-amber-dim: #8b6914;
+    --color-red: #bf616a;
+    --color-red-dim: #7c2d2d;
+    --color-blue: #81a1c1;
+    --color-blue-dim: #3b5f8a;
+    --color-gray: #4c566a;
+    --color-hairline: rgba(255, 255, 255, 0.05);
+  }
+
+  /* Cyber Audit — high contrast black with lime accents */
+  :root[data-theme="cyber-audit"],
+  body[data-theme="cyber-audit"] {
+    --app-bg-start: #000000;
+    --app-bg-end: #000000;
+    --app-glow: rgba(163, 230, 53, 0.03);
+    --color-bg-deep: #000000;
+    --color-bg-base: #0a0a0a;
+    --color-bg-surface: #141414;
+    --color-bg-elevated: #1f1f1f;
+    --color-bg-hover: #292929;
+    --color-bg-active: rgba(31, 31, 31, 0.8);
+    --color-border: rgba(163, 230, 53, 0.12);
+    --color-border-subtle: rgba(82, 82, 91, 0.2);
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #a1a1aa;
+    --color-text-muted: #52525b;
+    --color-accent: #a3e635;
+    --color-accent-dim: #65a30d;
+    --color-green: #a3e635;
+    --color-green-dim: #365314;
+    --color-amber: #facc15;
+    --color-amber-dim: #854d0e;
+    --color-red: #e11d48;
+    --color-red-dim: #881337;
+    --color-blue: #38bdf8;
+    --color-blue-dim: #0369a1;
+    --color-gray: #52525b;
+    --color-hairline: rgba(255, 255, 255, 0.06);
+  }
+
+  /* Mocha Soft — warm Catppuccin-inspired palette */
+  :root[data-theme="mocha-soft"],
+  body[data-theme="mocha-soft"] {
+    --app-bg-start: #1e1e2e;
+    --app-bg-end: #181825;
+    --app-glow: rgba(137, 180, 250, 0.04);
+    --color-bg-deep: #181825;
+    --color-bg-base: #1e1e2e;
+    --color-bg-surface: #313244;
+    --color-bg-elevated: #45475a;
+    --color-bg-hover: #505264;
+    --color-bg-active: rgba(69, 71, 90, 0.72);
+    --color-border: rgba(108, 112, 134, 0.3);
+    --color-border-subtle: rgba(88, 91, 112, 0.2);
+    --color-text-primary: #cdd6f4;
+    --color-text-secondary: #bac2de;
+    --color-text-muted: #6c7086;
+    --color-accent: #89b4fa;
+    --color-accent-dim: #5c8ee6;
+    --color-green: #a6e3a1;
+    --color-green-dim: #2d6630;
+    --color-amber: #f9e2af;
+    --color-amber-dim: #b48a2c;
+    --color-red: #f38ba8;
+    --color-red-dim: #b4364f;
+    --color-blue: #89b4fa;
+    --color-blue-dim: #3e6cb8;
+    --color-gray: #585b70;
+    --color-hairline: rgba(255, 255, 255, 0.06);
+  }
+
+  /* Paper & Ink — clean light theme */
+  :root[data-theme="paper-ink"],
+  body[data-theme="paper-ink"] {
+    color-scheme: light;
+    --app-bg-start: #ffffff;
+    --app-bg-end: #fafafa;
+    --app-glow: rgba(37, 99, 235, 0.03);
+    --color-bg-deep: #ffffff;
+    --color-bg-base: #f9fafb;
+    --color-bg-surface: #f4f4f5;
+    --color-bg-elevated: #e4e4e7;
+    --color-bg-hover: #d4d4d8;
+    --color-bg-active: rgba(228, 228, 231, 0.6);
+    --color-border: rgba(0, 0, 0, 0.12);
+    --color-border-subtle: rgba(0, 0, 0, 0.06);
+    --color-text-primary: #18181b;
+    --color-text-secondary: #52525b;
+    --color-text-muted: #a1a1aa;
+    --color-accent: #2563eb;
+    --color-accent-dim: #1d4ed8;
+    --color-green: #16a34a;
+    --color-green-dim: #b6f5c8;
+    --color-amber: #ca8a04;
+    --color-amber-dim: #fef3c7;
+    --color-red: #dc2626;
+    --color-red-dim: #fee2e2;
+    --color-blue: #2563eb;
+    --color-blue-dim: #dbeafe;
+    --color-gray: #a1a1aa;
+    --color-hairline: rgba(0, 0, 0, 0.08);
+  }
+
+  /* GitHub Day — light UI with dark terminal */
+  :root[data-theme="github-day"],
+  body[data-theme="github-day"] {
+    color-scheme: light;
+    --app-bg-start: #ffffff;
+    --app-bg-end: #f6f8fa;
+    --app-glow: rgba(9, 105, 218, 0.03);
+    --color-bg-deep: #ffffff;
+    --color-bg-base: #f6f8fa;
+    --color-bg-surface: #eaeef2;
+    --color-bg-elevated: #d0d7de;
+    --color-bg-hover: #c5cdd5;
+    --color-bg-active: rgba(208, 215, 222, 0.5);
+    --color-border: rgba(31, 35, 40, 0.12);
+    --color-border-subtle: rgba(31, 35, 40, 0.06);
+    --color-text-primary: #1f2328;
+    --color-text-secondary: #656d76;
+    --color-text-muted: #8b949e;
+    --color-accent: #0969da;
+    --color-accent-dim: #0550ae;
+    --color-green: #1a7f37;
+    --color-green-dim: #dafbe1;
+    --color-amber: #9a6700;
+    --color-amber-dim: #fff8c5;
+    --color-red: #cf222e;
+    --color-red-dim: #ffebe9;
+    --color-blue: #0969da;
+    --color-blue-dim: #ddf4ff;
+    --color-gray: #8b949e;
+    --color-hairline: rgba(0, 0, 0, 0.08);
   }
 }
 
@@ -183,6 +355,35 @@
     box-shadow:
       inset 0 1px 0 0 rgba(255, 255, 255, 0.04),
       inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  }
+
+  /* Light theme overrides */
+  :root[data-theme="paper-ink"] .ui-panel,
+  :root[data-theme="github-day"] .ui-panel {
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border-subtle);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+
+  :root[data-theme="paper-ink"] .ui-dialog,
+  :root[data-theme="github-day"] .ui-dialog {
+    background: var(--color-bg-deep);
+    border: 1px solid var(--color-border);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--color-border-subtle);
+  }
+
+  :root[data-theme="paper-ink"] .ui-terminal-frame {
+    background: #1c1c1c;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  :root[data-theme="github-day"] .ui-terminal-frame {
+    background: #0d1117;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
   }
 
   .app-scrollbar {
@@ -215,5 +416,15 @@
 
   .app-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.18);
+  }
+
+  :root[data-theme="paper-ink"] .app-scrollbar:hover::-webkit-scrollbar-thumb,
+  :root[data-theme="github-day"] .app-scrollbar:hover::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+  }
+
+  :root[data-theme="paper-ink"] .app-scrollbar::-webkit-scrollbar-thumb:hover,
+  :root[data-theme="github-day"] .app-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.25);
   }
 }

@@ -178,7 +178,7 @@
   onmouseleave={() => (hovering = false)}
 >
   <!-- Command header bar -->
-  <div class="flex h-9 shrink-0 select-none items-center gap-2 border-b border-white/[0.05] bg-bg-surface/30 px-3">
+  <div class="flex h-9 shrink-0 select-none items-center gap-2 border-b border-hairline bg-bg-surface/30 px-3">
     <span class="font-mono text-[11px] text-text-secondary truncate flex-1">{command}</span>
     <span class="text-[10px] text-text-muted font-mono">{elapsed}</span>
     {#if status === "running"}

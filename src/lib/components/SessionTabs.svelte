@@ -167,7 +167,7 @@
 
 <svelte:window onclick={closeContextMenu} />
 
-<div class="flex h-full flex-col border-r border-white/[0.05] bg-bg-deep/95" bind:this={containerEl}>
+<div class="flex h-full flex-col border-r border-hairline bg-bg-deep/95" bind:this={containerEl}>
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
     <span class="text-[10px] font-bold uppercase tracking-widest text-text-muted">Sessions</span>
     <span class="rounded-md border border-border-subtle bg-bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
@@ -214,7 +214,7 @@
   {#if $sessionState.activeSessionId}
     {#if $settings.taskPanelCollapsed}
       <button
-        class="shrink-0 flex w-full items-center gap-1.5 border-t border-white/[0.05] bg-transparent px-3 py-2 text-left cursor-pointer hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+        class="shrink-0 flex w-full items-center gap-1.5 border-t border-hairline bg-transparent px-3 py-2 text-left cursor-pointer hover:bg-bg-active/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={() => updateSetting("taskPanelCollapsed", false)}
       >
         <span class="text-[10px] text-text-muted">&#9654;</span>
@@ -234,15 +234,15 @@
     {/if}
   {/if}
 
-  <div class="flex shrink-0 gap-1 border-t border-white/[0.05] p-2">
+  <div class="flex shrink-0 gap-1 border-t border-hairline p-2">
     <button
-      class="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-white/[0.04] py-1.5 text-[11px] text-text-secondary cursor-pointer transition-all duration-150 hover:bg-white/[0.07] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      class="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-bg-active/50 py-1.5 text-[11px] text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onNewSession}
     >
       <span class="text-sm">+</span> New
     </button>
     <button
-      class="flex items-center justify-center rounded-md bg-white/[0.04] px-2.5 py-1.5 text-[11px] text-text-muted cursor-pointer transition-all duration-150 hover:bg-white/[0.07] hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      class="flex items-center justify-center rounded-md bg-bg-active/50 px-2.5 py-1.5 text-[11px] text-text-muted cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onOpenSettings}
     >
       &#9881;
@@ -260,14 +260,14 @@
   >
     {#if !worktreeInput}
       <button
-        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
+        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
         onclick={showWorktreeInput}
       >
         <span class="text-[10px] opacity-70">&#9095;</span>
         New Worktree
       </button>
       <button
-        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
+        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
         onclick={handleOpenInCode}
       >
         <span class="text-[10px] opacity-70">&#9998;</span>

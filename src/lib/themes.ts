@@ -5,30 +5,62 @@ export interface ThemeDefinition {
   id: ThemePreset;
   label: string;
   description: string;
+  light?: boolean;
 }
 
 export const THEME_DEFINITIONS: ThemeDefinition[] = [
   {
     id: "deep-blue",
-    label: "Deep Blue",
-    description: "Cool slate and sky accents. Closest to the current look.",
+    label: "Refined Zinc",
+    description: "Neutral industrial grays with sky accents. The default.",
   },
   {
     id: "steel-amber",
     label: "Steel Amber",
-    description: "Neutral chrome with warm highlights and a less blue bias.",
+    description: "Warm chrome with amber highlights.",
   },
   {
     id: "slate-emerald",
     label: "Slate Emerald",
-    description: "Dark slate surfaces with calmer green accents.",
+    description: "Dark slate with calmer green accents.",
   },
   {
     id: "graphite-rose",
     label: "Graphite Rose",
-    description: "Graphite UI with rose accents for a less conventional feel.",
+    description: "Graphite UI with rose and violet accents.",
+  },
+  {
+    id: "nordic-night",
+    label: "Nordic Night",
+    description: "Cool blue-grays with teal accents. Inspired by Nord.",
+  },
+  {
+    id: "cyber-audit",
+    label: "Cyber Audit",
+    description: "High contrast black with lime accents.",
+  },
+  {
+    id: "mocha-soft",
+    label: "Mocha Soft",
+    description: "Warm dark palette inspired by Catppuccin.",
+  },
+  {
+    id: "paper-ink",
+    label: "Paper & Ink",
+    description: "Clean light theme with a recessed dark terminal.",
+    light: true,
+  },
+  {
+    id: "github-day",
+    label: "GitHub Day",
+    description: "Light UI with a dark terminal workspace.",
+    light: true,
   },
 ];
+
+export const LIGHT_THEMES: Set<ThemePreset> = new Set(
+  THEME_DEFINITIONS.filter((t) => t.light).map((t) => t.id),
+);
 
 const DEFAULT_THEME: ThemePreset = "deep-blue";
 
@@ -38,8 +70,12 @@ export function normalizeTheme(theme: string | null | undefined): ThemePreset {
   }
 
   return THEME_DEFINITIONS.some((definition) => definition.id === theme)
-    ? theme as ThemePreset
+    ? (theme as ThemePreset)
     : DEFAULT_THEME;
+}
+
+export function isLightTheme(theme: ThemePreset): boolean {
+  return LIGHT_THEMES.has(theme);
 }
 
 const XTERM_THEMES: Record<ThemePreset, ITheme> = {
@@ -88,11 +124,11 @@ const XTERM_THEMES: Record<ThemePreset, ITheme> = {
     brightWhite: "#fafaf9",
   },
   "slate-emerald": {
-    background: "#07110f",
+    background: "#09090b",
     foreground: "#e7f7f2",
     cursor: "#34d399",
     selectionBackground: "#15332ccc",
-    black: "#07110f",
+    black: "#09090b",
     red: "#fb7185",
     green: "#34d399",
     yellow: "#fbbf24",
@@ -110,11 +146,11 @@ const XTERM_THEMES: Record<ThemePreset, ITheme> = {
     brightWhite: "#f0fdfa",
   },
   "graphite-rose": {
-    background: "#0b0a0f",
+    background: "#09090b",
     foreground: "#f5f2f8",
     cursor: "#fb7185",
     selectionBackground: "#2b1830cc",
-    black: "#0b0a0f",
+    black: "#09090b",
     red: "#fb7185",
     green: "#4ade80",
     yellow: "#fbbf24",
@@ -130,6 +166,117 @@ const XTERM_THEMES: Record<ThemePreset, ITheme> = {
     brightMagenta: "#f9a8d4",
     brightCyan: "#cbd5e1",
     brightWhite: "#faf5ff",
+  },
+  "nordic-night": {
+    background: "#0c0e14",
+    foreground: "#d8dee9",
+    cursor: "#2dd4bf",
+    selectionBackground: "#2e344088",
+    black: "#0c0e14",
+    red: "#bf616a",
+    green: "#a3be8c",
+    yellow: "#ebcb8b",
+    blue: "#81a1c1",
+    magenta: "#b48ead",
+    cyan: "#88c0d0",
+    white: "#d8dee9",
+    brightBlack: "#4c566a",
+    brightRed: "#d08770",
+    brightGreen: "#a3be8c",
+    brightYellow: "#ebcb8b",
+    brightBlue: "#5e81ac",
+    brightMagenta: "#b48ead",
+    brightCyan: "#8fbcbb",
+    brightWhite: "#eceff4",
+  },
+  "cyber-audit": {
+    background: "#000000",
+    foreground: "#ffffff",
+    cursor: "#a3e635",
+    selectionBackground: "#27272a88",
+    black: "#000000",
+    red: "#e11d48",
+    green: "#a3e635",
+    yellow: "#facc15",
+    blue: "#38bdf8",
+    magenta: "#d946ef",
+    cyan: "#22d3ee",
+    white: "#ffffff",
+    brightBlack: "#52525b",
+    brightRed: "#fb7185",
+    brightGreen: "#bef264",
+    brightYellow: "#fde68a",
+    brightBlue: "#7dd3fc",
+    brightMagenta: "#e879f9",
+    brightCyan: "#67e8f9",
+    brightWhite: "#ffffff",
+  },
+  "mocha-soft": {
+    background: "#1e1e2e",
+    foreground: "#cdd6f4",
+    cursor: "#89b4fa",
+    selectionBackground: "#31324488",
+    black: "#45475a",
+    red: "#f38ba8",
+    green: "#a6e3a1",
+    yellow: "#f9e2af",
+    blue: "#89b4fa",
+    magenta: "#cba6f7",
+    cyan: "#94e2d5",
+    white: "#bac2de",
+    brightBlack: "#585b70",
+    brightRed: "#f38ba8",
+    brightGreen: "#a6e3a1",
+    brightYellow: "#f9e2af",
+    brightBlue: "#89b4fa",
+    brightMagenta: "#cba6f7",
+    brightCyan: "#94e2d5",
+    brightWhite: "#a6adc8",
+  },
+  // Light themes use a dark terminal
+  "paper-ink": {
+    background: "#1c1c1c",
+    foreground: "#e4e4e4",
+    cursor: "#2563eb",
+    selectionBackground: "#3b3b3b88",
+    black: "#1c1c1c",
+    red: "#dc2626",
+    green: "#16a34a",
+    yellow: "#ca8a04",
+    blue: "#2563eb",
+    magenta: "#9333ea",
+    cyan: "#0891b2",
+    white: "#e4e4e4",
+    brightBlack: "#525252",
+    brightRed: "#ef4444",
+    brightGreen: "#22c55e",
+    brightYellow: "#eab308",
+    brightBlue: "#3b82f6",
+    brightMagenta: "#a855f7",
+    brightCyan: "#06b6d4",
+    brightWhite: "#fafafa",
+  },
+  "github-day": {
+    background: "#0d1117",
+    foreground: "#e6edf3",
+    cursor: "#58a6ff",
+    selectionBackground: "#26384888",
+    black: "#0d1117",
+    red: "#ff7b72",
+    green: "#7ee787",
+    yellow: "#d29922",
+    blue: "#58a6ff",
+    magenta: "#bc8cff",
+    cyan: "#39d353",
+    white: "#e6edf3",
+    brightBlack: "#484f58",
+    brightRed: "#ffa198",
+    brightGreen: "#56d364",
+    brightYellow: "#e3b341",
+    brightBlue: "#79c0ff",
+    brightMagenta: "#d2a8ff",
+    brightCyan: "#56d364",
+    brightWhite: "#f0f6fc",
   },
 };
 
