@@ -126,10 +126,99 @@ impl TaskDiscoverer for TaskfileDiscoverer {
     }
 }
 
+pub struct MakeDiscoverer;
+
+impl TaskDiscoverer for MakeDiscoverer {
+    fn config_file(&self) -> &str {
+        "Makefile"
+    }
+
+    fn runner_name(&self) -> &str {
+        "Makefile"
+    }
+
+    fn discover(&self, dir: &Path) -> Option<TaskGroup> {
+        let config_path = dir.join(self.config_file());
+        let content = std::fs::read_to_string(&config_path).ok()?;
+
+        let lines: Vec<&str> = content.lines().collect();
+        let mut task_entries: Vec<(String, String)> = Vec::new();
+
+        for (i, line) in lines.iter().enumerate() {
+            // Must contain `:` and not be indented
+            let colon_pos = match line.find(':') {
+                Some(pos) => pos,
+                None => continue,
+            };
+
+            let target = &line[..colon_pos];
+
+            // Skip if target is empty
+            if target.is_empty() {
+                continue;
+            }
+
+            // Skip targets starting with `.` or `_`
+            if target.starts_with('.') || target.starts_with('_') {
+                continue;
+            }
+
+            // Skip if target contains `$`, `%`, or spaces
+            if target.contains('$') || target.contains('%') || target.contains(' ') {
+                continue;
+            }
+
+            // Target must be valid identifier-like characters only
+            if !target.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+                continue;
+            }
+
+            // Look for `## comment` on the immediately preceding line
+            let desc = if i > 0 {
+                let prev = lines[i - 1].trim();
+                if let Some(stripped) = prev.strip_prefix("##") {
+                    stripped.trim().to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+
+            task_entries.push((target.to_string(), desc));
+        }
+
+        if task_entries.is_empty() {
+            return None;
+        }
+
+        task_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let tasks = task_entries
+            .into_iter()
+            .map(|(name, desc)| TaskDefinition {
+                id: format!("make:{}", name),
+                name: name.clone(),
+                description: desc,
+                runner: "make".to_string(),
+                command: format!("make {}", name),
+                keep_open: "on-error".to_string(),
+            })
+            .collect();
+
+        Some(TaskGroup {
+            runner: self.runner_name().to_string(),
+            config_file: self.config_file().to_string(),
+            tasks,
+        })
+    }
+}
+
 pub fn discover_tasks(dir: &Path) -> Vec<TaskGroup> {
     let discoverers: Vec<Box<dyn TaskDiscoverer>> = vec![
         Box::new(NpmDiscoverer),
         Box::new(TaskfileDiscoverer),
+        Box::new(MakeDiscoverer),
     ];
 
     discoverers.into_iter().filter_map(|d| d.discover(dir)).collect()
@@ -260,6 +349,76 @@ tasks:
     fn taskfile_returns_none_without_file() {
         let dir = tempfile::tempdir().unwrap();
         let discoverer = TaskfileDiscoverer;
+        assert!(discoverer.discover(dir.path()).is_none());
+    }
+
+    // ---- MakeDiscoverer tests ----
+
+    #[test]
+    fn make_discovers_targets_with_descriptions() {
+        let dir = tempfile::tempdir().unwrap();
+        let makefile = r#".PHONY: build test lint
+
+## Build the project
+build:
+	go build ./...
+
+## Run tests
+test:
+	go test ./...
+
+lint:
+	golangci-lint run
+
+_internal:
+	echo "skip me"
+"#;
+        fs::write(dir.path().join("Makefile"), makefile).unwrap();
+
+        let discoverer = MakeDiscoverer;
+        let group = discoverer.discover(dir.path()).unwrap();
+
+        assert_eq!(group.runner, "Makefile");
+        assert_eq!(group.config_file, "Makefile");
+
+        // .PHONY and _internal should be skipped; build, test, lint remain
+        assert_eq!(group.tasks.len(), 3);
+
+        // Sorted: build, lint, test
+        assert_eq!(group.tasks[0].name, "build");
+        assert_eq!(group.tasks[0].description, "Build the project");
+        assert_eq!(group.tasks[0].command, "make build");
+        assert_eq!(group.tasks[0].id, "make:build");
+        assert_eq!(group.tasks[0].keep_open, "on-error");
+
+        assert_eq!(group.tasks[1].name, "lint");
+        assert_eq!(group.tasks[1].description, "");
+
+        assert_eq!(group.tasks[2].name, "test");
+        assert_eq!(group.tasks[2].description, "Run tests");
+    }
+
+    #[test]
+    fn make_skips_dot_and_underscore_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        let makefile = r#".PHONY: all
+_helper:
+	echo helper
+all:
+	echo all
+"#;
+        fs::write(dir.path().join("Makefile"), makefile).unwrap();
+
+        let discoverer = MakeDiscoverer;
+        let group = discoverer.discover(dir.path()).unwrap();
+        assert_eq!(group.tasks.len(), 1);
+        assert_eq!(group.tasks[0].name, "all");
+    }
+
+    #[test]
+    fn make_returns_none_without_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let discoverer = MakeDiscoverer;
         assert!(discoverer.discover(dir.path()).is_none());
     }
 }
