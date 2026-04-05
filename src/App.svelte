@@ -1,6 +1,24 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import Layout from "$lib/components/Layout.svelte";
+  import { initSettings } from "$lib/stores/settings";
+  import { addSession } from "$lib/stores/sessions";
+  import { listSessions } from "$lib/tauri";
+
+  let showNewSessionDialog = $state(false);
+  let showSettings = $state(false);
+
+  onMount(async () => {
+    await initSettings();
+    // Load persisted sessions
+    const sessions = await listSessions();
+    for (const s of sessions) {
+      addSession(s);
+    }
+  });
 </script>
 
-<main class="h-screen flex flex-col bg-bg-deep text-text-primary">
-  <p class="m-auto font-mono text-text-muted">roux — loading...</p>
-</main>
+<Layout
+  onNewSession={() => (showNewSessionDialog = true)}
+  onOpenSettings={() => (showSettings = !showSettings)}
+/>
