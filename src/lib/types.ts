@@ -37,6 +37,8 @@ export interface RouxSettings {
   theme: ThemePreset;
   defaultModel: string | null;
   additionalFlags: string[];
+  taskPanelSplit: number;
+  taskPanelCollapsed: boolean;
 }
 
 export interface Worktree {
@@ -68,6 +70,8 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   theme: "deep-blue",
   defaultModel: null,
   additionalFlags: [],
+  taskPanelSplit: 0.4,
+  taskPanelCollapsed: false,
 };
 
 export type { KeepOpen, TaskDefinition, TaskGroup, TaskRun } from "./types/tasks";
