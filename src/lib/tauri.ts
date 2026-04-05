@@ -5,6 +5,7 @@ import type {
   RouxSettings,
   Worktree,
   SessionStatusPayload,
+  TaskGroup,
 } from "./types";
 
 // Commands (frontend → backend)
@@ -92,6 +93,21 @@ export async function readFile(path: string): Promise<string> {
 
 export async function listDocs(dir: string): Promise<DocFile[]> {
   return invoke("list_docs", { dir });
+}
+
+// Task discovery
+export async function discoverTasks(dir: string): Promise<TaskGroup[]> {
+  return invoke("cmd_discover_tasks", { dir });
+}
+
+export async function loadTaskOverrides(): Promise<Record<string, Record<string, string>>> {
+  return invoke("cmd_load_task_overrides");
+}
+
+export async function saveTaskOverrides(
+  overrides: Record<string, Record<string, string>>
+): Promise<void> {
+  return invoke("cmd_save_task_overrides", { overrides });
 }
 
 // Events (backend → frontend)

@@ -1,3 +1,5 @@
+export type ThemePreset = "deep-blue" | "steel-amber" | "slate-emerald" | "graphite-rose";
+
 export interface PermissionInfo {
   toolName: string;
   toolInput: Record<string, any>;
@@ -32,7 +34,7 @@ export interface RouxSettings {
   restoreSessionsOnLaunch: boolean;
   worktreeBasePath: string | null;
   cleanupWorktreesOnClose: boolean;
-  theme: "dark";
+  theme: ThemePreset;
   defaultModel: string | null;
   additionalFlags: string[];
 }
@@ -53,7 +55,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   tabPosition: "left",
   tabWidth: 260,
   fontSize: 14,
-  fontFamily: "IBM Plex Mono, monospace",
+  fontFamily: "JetBrains Mono, IBM Plex Mono, SFMono-Regular, monospace",
   lineHeight: 1.2,
   scrollback: 5000,
   cursorStyle: "block",
@@ -63,7 +65,9 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   restoreSessionsOnLaunch: true,
   worktreeBasePath: null,
   cleanupWorktreesOnClose: false,
-  theme: "dark",
+  theme: "deep-blue",
   defaultModel: null,
   additionalFlags: [],
 };
+
+export type { KeepOpen, TaskDefinition, TaskGroup, TaskRun } from "./types/tasks";
