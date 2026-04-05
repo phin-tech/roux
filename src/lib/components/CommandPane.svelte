@@ -9,6 +9,7 @@
   import { settings } from "$lib/stores/settings";
   import { getXtermTheme } from "$lib/themes";
   import type { UnlistenFn } from "@tauri-apps/api/event";
+  import { registerCommandPane, unregisterCommandPane } from "$lib/panes/commandPaneRegistry";
 
   interface Props {
     command: string;
@@ -103,21 +104,15 @@
     await spawnTask(newPtyId, command, workingDir);
   }
 
-  function handleKeyDown(e: KeyboardEvent) {
-    // Only rerun on bare 'r' press, not inside the terminal
-    if (
-      status !== "running" &&
-      e.key === "r" &&
-      !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey &&
-      !(e.target instanceof HTMLElement && containerEl?.contains(e.target))
-    ) {
-      e.preventDefault();
-      void rerun();
-    }
-  }
 
   onMount(async () => {
     currentPtyId = initialPtyId;
+    registerCommandPane({
+      paneId,
+      command,
+      getStatus: () => status,
+      triggerRerun: () => void rerun(),
+    });
     term = createTerminal();
     term.open(containerEl);
 
@@ -149,6 +144,7 @@
   });
 
   onDestroy(() => {
+    unregisterCommandPane(paneId);
     resizeObserver?.disconnect();
     if (elapsedTimer) clearInterval(elapsedTimer);
     cleanupListeners();
@@ -168,7 +164,6 @@
   class="relative w-full h-full bg-black flex flex-col"
   onmouseenter={() => (hovering = true)}
   onmouseleave={() => (hovering = false)}
-  onkeydown={handleKeyDown}
 >
   <!-- Command header bar -->
   <div class="flex items-center gap-2 px-3 py-1.5 bg-[#111118] border-b border-white/6 shrink-0 select-none">

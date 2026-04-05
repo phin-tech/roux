@@ -6,6 +6,7 @@ import { spawnShell, listDocs, writeToSession } from "$lib/tauri";
 import { closeFocusedPane } from "$lib/panes/actions";
 import { get } from "svelte/store";
 import { taskGroups } from "$lib/stores/tasks";
+import { listCommandPanes } from "$lib/panes/commandPaneRegistry";
 import { runTask } from "$lib/tasks/runner";
 
 export function registerCommands() {
@@ -173,6 +174,21 @@ export function registerCommands() {
           },
         }))
       );
+    },
+  });
+
+  registry.register({
+    id: "task.rerun",
+    label: "Rerun Command",
+    category: "Tasks",
+    available: () => listCommandPanes().length > 0,
+    getItems: () => {
+      return listCommandPanes().map((pane) => ({
+        id: pane.paneId,
+        label: pane.command,
+        description: pane.getStatus() === "running" ? "Running — will stop and rerun" : `${pane.getStatus()} — rerun`,
+        action: () => pane.triggerRerun(),
+      }));
     },
   });
 
