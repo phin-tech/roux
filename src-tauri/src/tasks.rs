@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -324,6 +325,39 @@ pub fn discover_tasks(dir: &Path) -> Vec<TaskGroup> {
     ];
 
     discoverers.into_iter().filter_map(|d| d.discover(dir)).collect()
+}
+
+fn overrides_path() -> std::path::PathBuf {
+    let base = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    base.join("roux").join("task-overrides.json")
+}
+
+#[tauri::command]
+pub fn cmd_discover_tasks(dir: String) -> Vec<TaskGroup> {
+    discover_tasks(Path::new(&dir))
+}
+
+#[tauri::command]
+pub fn cmd_load_task_overrides() -> HashMap<String, HashMap<String, String>> {
+    let path = overrides_path();
+    if path.exists() {
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        HashMap::new()
+    }
+}
+
+#[tauri::command]
+pub fn cmd_save_task_overrides(
+    overrides: HashMap<String, HashMap<String, String>>,
+) -> Result<(), String> {
+    let path = overrides_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(&overrides).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

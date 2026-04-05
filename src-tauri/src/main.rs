@@ -40,6 +40,7 @@ fn update_settings(
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    let settings = settings.normalized();
     settings::save_settings(&settings)?;
     *state.settings.lock().unwrap() = settings.clone();
     app.emit("settings-changed", &settings).map_err(|e| e.to_string())
@@ -278,6 +279,9 @@ fn main() {
             list_sessions,
             read_file,
             list_docs,
+            tasks::cmd_discover_tasks,
+            tasks::cmd_load_task_overrides,
+            tasks::cmd_save_task_overrides,
         ])
         .setup(|app| {
             if let Err(e) = hooks::install_hooks() {
