@@ -219,10 +219,9 @@ impl PtyManager {
             .try_clone_reader()
             .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
 
-        let event_name = format!("pty-output:{}", id);
         let tx = spawn_flusher(
-            event_name.clone(),
-            Some((event_name, serde_json::json!({"closed": true}))),
+            format!("pty-output:{}", id),
+            Some((format!("session-exit:{}", id), serde_json::json!({"code": null}))),
             app.clone(),
         );
         spawn_reader(reader, tx);
