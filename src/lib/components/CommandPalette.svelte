@@ -72,7 +72,10 @@
     if (cmd.id === "app.command-palette") return;
 
     if (cmd.execute) {
+      stepStack = [];
+      inputValue = "";
       onclose();
+      await new Promise(r => setTimeout(r, 50));
       await cmd.execute();
     }
   }
@@ -86,7 +89,12 @@
     }
 
     if (item.action) {
+      // Close first, then execute
+      stepStack = [];
+      inputValue = "";
       onclose();
+      // Small delay to ensure UI closes before action runs
+      await new Promise(r => setTimeout(r, 50));
       await item.action();
     }
   }
@@ -100,11 +108,13 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
       if (inDrillStep) {
-        e.preventDefault();
-        e.stopPropagation();
         goBack();
       } else {
+        stepStack = [];
+        inputValue = "";
         onclose();
       }
       return;
