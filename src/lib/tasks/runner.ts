@@ -45,10 +45,13 @@ export async function runTask(
   await outputReady;
   await exitReady;
 
+  const keepOpen = getEffectiveKeepOpen(repoRoot, task.id, task.keepOpen);
+  const spawnInPane = keepOpen === "always";
+
   addTaskRun(sessionId, {
     taskId: task.id,
     ptyId,
-    paneId: null,
+    paneId: spawnInPane ? ptyId : null,
     status: "running",
     exitCode: null,
     outputLines: [],
@@ -57,6 +60,16 @@ export async function runTask(
 
   // Spawn one-shot command — PTY exits when command finishes, with real exit code
   await spawnTask(ptyId, task.command, repoRoot);
+
+  // If keepOpen is "always", immediately show in a terminal pane
+  if (spawnInPane) {
+    focusedPaneId.set(`${sessionId}-main`);
+    addSplit(sessionId, "horizontal", {
+      id: ptyId,
+      type: "shell",
+      ptyId,
+    });
+  }
 }
 
 /** Promote a background task to a visible shell pane */
