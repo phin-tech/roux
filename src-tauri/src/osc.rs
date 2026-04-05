@@ -10,6 +10,13 @@ pub struct SessionStatus {
 
 /// Scans a byte buffer for OSC title-set sequences (\x1b]0;...\x07 or \x1b]0;...\x1b\\)
 /// and extracts Claude Code status information from the title string.
+///
+/// Claude Code uses emoji prefixes in the terminal title:
+/// - "✳ Claude Code" or "✳ session-name" = idle
+/// - "· Claude Code" or "· session-name" = working (thinking/generating)
+///
+/// Model and cost are NOT available from the title — they're rendered in the
+/// status line inside the TUI. We set those to None here.
 pub fn parse_osc_status(buf: &[u8]) -> Option<SessionStatus> {
     let text = String::from_utf8_lossy(buf);
     let mut last_title: Option<&str> = None;
@@ -36,10 +43,35 @@ pub fn parse_osc_status(buf: &[u8]) -> Option<SessionStatus> {
 
     let title = last_title?;
 
-    // Parse Claude Code title format
-    // Typical: "Thinking | ~/project | personal | Opus 4.6 (1M) | 2m | $0.16 | 5%"
-    // Or: "Generating | ~/project | ..."
-    // Or: "Idle | ~/project | ..."
+    // Claude Code title format uses emoji prefixes:
+    // "✳ ..." = idle (eight-spoked asterisk, U+2733)
+    // "· ..." = working/thinking/generating (middle dot, U+00B7)
+    //
+    // We also support the legacy pipe-delimited format for forward compatibility:
+    // "Thinking | ~/project | ..." etc.
+    let trimmed = title.trim();
+
+    // Check for emoji prefix format (current Claude Code behavior)
+    if trimmed.starts_with('✳') {
+        return Some(SessionStatus {
+            status: "idle".to_string(),
+            model: None,
+            cost: None,
+        });
+    }
+
+    if trimmed.starts_with('·') || trimmed.starts_with("●") {
+        // Working state — we can't distinguish thinking vs generating from the title alone.
+        // Default to "generating" since that's the more active state.
+        return Some(SessionStatus {
+            status: "generating".to_string(),
+            model: None,
+            cost: None,
+        });
+    }
+
+    // Legacy/fallback: pipe-delimited format
+    // "Thinking | ~/project | personal | Opus 4.6 (1M) | 2m | $0.16 | 5%"
     let parts: Vec<&str> = title.split(" | ").collect();
     if parts.is_empty() {
         return None;
@@ -82,21 +114,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_thinking_status() {
-        let buf = b"\x1b]0;Thinking | ~/project | personal | Opus 4.6 (1M) | 2m | $0.16 | 5%\x07";
-        let result = parse_osc_status(buf).unwrap();
-        assert_eq!(result.status, "thinking");
-        assert_eq!(result.model, Some("Opus 4.6 (1M)".to_string()));
-        assert_eq!(result.cost, Some(0.16));
+    fn test_parse_idle_emoji_prefix() {
+        // Current Claude Code format: ✳ prefix = idle
+        let title = "✳ Claude Code";
+        let buf = format!("\x1b]0;{}\x07", title);
+        let result = parse_osc_status(buf.as_bytes()).unwrap();
+        assert_eq!(result.status, "idle");
+        assert_eq!(result.model, None);
+        assert_eq!(result.cost, None);
     }
 
     #[test]
-    fn test_parse_idle_status() {
-        let buf = b"\x1b]0;Idle | ~/project | personal | Sonnet 4.6 | 0m | $0.00 | 0%\x07";
-        let result = parse_osc_status(buf).unwrap();
+    fn test_parse_working_emoji_prefix() {
+        // Current Claude Code format: · prefix = working
+        let title = "· Claude Code";
+        let buf = format!("\x1b]0;{}\x07", title);
+        let result = parse_osc_status(buf.as_bytes()).unwrap();
+        assert_eq!(result.status, "generating");
+    }
+
+    #[test]
+    fn test_parse_idle_with_session_name() {
+        let title = "✳ my-project";
+        let buf = format!("\x1b]0;{}\x07", title);
+        let result = parse_osc_status(buf.as_bytes()).unwrap();
         assert_eq!(result.status, "idle");
-        assert_eq!(result.model, Some("Sonnet 4.6".to_string()));
-        assert_eq!(result.cost, Some(0.0));
     }
 
     #[test]
@@ -106,10 +148,36 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_generating_with_st_terminator() {
-        let buf = b"\x1b]0;Generating | ~/project | Opus 4.6 (1M) | $1.23\x1b\\";
+    fn test_unknown_title_returns_none() {
+        // A title without recognized prefixes or pipe format
+        let buf = b"\x1b]0;Some Random Title\x07";
+        assert!(parse_osc_status(buf).is_none());
+    }
+
+    #[test]
+    fn test_legacy_pipe_format_thinking() {
+        // Legacy fallback format
+        let buf = b"\x1b]0;Thinking | ~/project | personal | Opus 4.6 (1M) | 2m | $0.16 | 5%\x07";
         let result = parse_osc_status(buf).unwrap();
-        assert_eq!(result.status, "generating");
-        assert_eq!(result.cost, Some(1.23));
+        assert_eq!(result.status, "thinking");
+        assert_eq!(result.model, Some("Opus 4.6 (1M)".to_string()));
+        assert_eq!(result.cost, Some(0.16));
+    }
+
+    #[test]
+    fn test_legacy_pipe_format_idle() {
+        let buf = b"\x1b]0;Idle | ~/project | personal | Sonnet 4.6 | 0m | $0.00 | 0%\x07";
+        let result = parse_osc_status(buf).unwrap();
+        assert_eq!(result.status, "idle");
+        assert_eq!(result.model, Some("Sonnet 4.6".to_string()));
+        assert_eq!(result.cost, Some(0.0));
+    }
+
+    #[test]
+    fn test_st_terminator() {
+        let title = "✳ Claude Code";
+        let buf = format!("\x1b]0;{}\x1b\\", title);
+        let result = parse_osc_status(buf.as_bytes()).unwrap();
+        assert_eq!(result.status, "idle");
     }
 }
