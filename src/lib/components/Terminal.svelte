@@ -9,6 +9,7 @@
   import { setSessionDisconnected } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { ensureClaudeTerminal } from "$lib/panes/terminalRegistry";
+  import { getXtermTheme } from "$lib/themes";
 
   interface Props {
     sessionId: string;
@@ -31,28 +32,7 @@
         scrollback: $settings.scrollback,
         cursorStyle: $settings.cursorStyle as "block" | "underline" | "bar",
         cursorBlink: $settings.cursorBlink,
-        theme: {
-          background: "#0a0a0c",
-          foreground: "#c8cad8",
-          cursor: "#7aa2f7",
-          selectionBackground: "#282b40",
-          black: "#0a0a0c",
-          red: "#f7768e",
-          green: "#9ece6a",
-          yellow: "#e0af68",
-          blue: "#7aa2f7",
-          magenta: "#bb9af7",
-          cyan: "#7dcfff",
-          white: "#c8cad8",
-          brightBlack: "#444b6a",
-          brightRed: "#ff7a93",
-          brightGreen: "#b9f27c",
-          brightYellow: "#ff9e64",
-          brightBlue: "#7da6ff",
-          brightMagenta: "#c0a0ff",
-          brightCyan: "#0db9d7",
-          brightWhite: "#d5d6db",
-        },
+        theme: getXtermTheme($settings.theme),
       }),
       fitAddon: null,
       unlisteners: [],
@@ -109,6 +89,7 @@
 
     requestAnimationFrame(() => {
       fitAddon?.fit();
+      terminal?.focus();
       const dims = fitAddon?.proposeDimensions();
       if (dims) {
         resizeSession(sessionId, dims.cols, dims.rows);
@@ -151,10 +132,18 @@
       detach();
     }
   });
+
+  $effect(() => {
+    terminal = getOrCreateTerminal().terminal;
+    terminal.options.theme = getXtermTheme($settings.theme);
+  });
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   bind:this={containerEl}
-  class="flex-1 w-full h-full"
+  class="flex-1 w-full h-full bg-black"
   class:hidden={!active}
+  onclick={() => terminal?.focus()}
 ></div>
