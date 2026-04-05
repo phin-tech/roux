@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { taskGroups, taskRuns, getTaskRun, setKeepOpenOverride, getEffectiveKeepOpen } from "$lib/stores/tasks";
+  import { taskGroups, taskRuns, setKeepOpenOverride, getEffectiveKeepOpen } from "$lib/stores/tasks";
   import { sessionState } from "$lib/stores/sessions";
   import { runTask, expandTask } from "$lib/tasks/runner";
   import type { TaskDefinition } from "$lib/types/tasks";
@@ -52,12 +52,17 @@
     contextMenu = null;
   }
 
-  function getRunForTask(taskId: string) {
-    if (!$sessionState.activeSessionId) return null;
-    // Force reactivity on taskRuns
-    $taskRuns;
-    return getTaskRun($sessionState.activeSessionId, taskId) ?? null;
-  }
+  // Reactive map of taskId -> TaskRun for the active session
+  const activeRuns = $derived.by(() => {
+    const sessionId = $sessionState.activeSessionId;
+    if (!sessionId) return new Map();
+    const runs = $taskRuns.get(sessionId) ?? [];
+    const map = new Map();
+    for (const run of runs) {
+      map.set(run.taskId, run);
+    }
+    return map;
+  });
 
   function elapsed(startedAt: number): string {
     const s = Math.floor((Date.now() - startedAt) / 1000);
@@ -101,7 +106,7 @@
 
         {#if !collapsedGroups.has(group.runner)}
           {#each group.tasks as task (task.id)}
-            {@const run = getRunForTask(task.id)}
+            {@const run = activeRuns.get(task.id) ?? null}
             <div>
               <button
                 class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary bg-transparent border-none cursor-pointer rounded hover:bg-bg-hover hover:text-text-primary group"
