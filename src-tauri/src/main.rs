@@ -1,14 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod osc;
+mod pty;
 mod settings;
 mod worktree;
 
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
+use crate::pty::PtyManager;
+
 struct AppState {
     settings: Mutex<settings::RouxSettings>,
+    pty_manager: PtyManager,
 }
 
 #[tauri::command]
@@ -48,12 +52,35 @@ fn cmd_list_worktrees(repo_path: String) -> Result<Vec<worktree::Worktree>, Stri
     worktree::list_worktrees(&repo_path)
 }
 
+// Note: spec says Vec<u8> but xterm.js onData sends UTF-8 strings.
+// We accept String and convert to bytes server-side for simplicity.
+#[tauri::command]
+fn write_to_session(id: String, data: String, state: tauri::State<AppState>) -> Result<(), String> {
+    state.pty_manager.write(&id, data.as_bytes())
+}
+
+#[tauri::command]
+fn resize_session(
+    id: String,
+    cols: u16,
+    rows: u16,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    state.pty_manager.resize(&id, cols, rows)
+}
+
+#[tauri::command]
+fn kill_session(id: String, state: tauri::State<AppState>) -> Result<(), String> {
+    state.pty_manager.kill(&id)
+}
+
 fn main() {
     let initial_settings = settings::load_settings();
 
     tauri::Builder::default()
         .manage(AppState {
             settings: Mutex::new(initial_settings),
+            pty_manager: PtyManager::new(),
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
@@ -61,6 +88,9 @@ fn main() {
             cmd_create_worktree,
             cmd_remove_worktree,
             cmd_list_worktrees,
+            write_to_session,
+            resize_session,
+            kill_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
