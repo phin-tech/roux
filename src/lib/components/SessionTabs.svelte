@@ -46,15 +46,19 @@
   }
 
   async function handleApprove(id: string) {
-    await writeToSession(id, "1\n");
+    // Permission dialog cursor is on "Yes" by default — just press Enter
+    await writeToSession(id, "\r");
   }
 
   async function handleAlways(id: string) {
-    await writeToSession(id, "2\n");
+    // Shift+Tab selects "allow during this session"
+    await writeToSession(id, "\x1b[Z");
   }
 
   async function handleDeny(id: string) {
-    await writeToSession(id, "3\n");
+    // Move down twice to "No", then Enter
+    // Down arrow = \x1b[B
+    await writeToSession(id, "\x1b[B\x1b[B\r");
   }
 
   async function handleReconnect(id: string) {
