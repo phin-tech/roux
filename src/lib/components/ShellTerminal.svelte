@@ -5,9 +5,10 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { onPtyOutput, writeToSession, resizeSession } from "$lib/tauri";
+  import { onPtyOutput, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
   import { ensureShellTerminal } from "$lib/panes/terminalRegistry";
+  import { getXtermTheme } from "$lib/themes";
 
   interface Props {
     ptyId: string;
@@ -33,28 +34,7 @@
         scrollback: $settings.scrollback,
         cursorStyle: $settings.cursorStyle as "block" | "underline" | "bar",
         cursorBlink: $settings.cursorBlink,
-        theme: {
-          background: "#0a0a0c",
-          foreground: "#c8cad8",
-          cursor: "#7aa2f7",
-          selectionBackground: "#282b40",
-          black: "#0a0a0c",
-          red: "#f7768e",
-          green: "#9ece6a",
-          yellow: "#e0af68",
-          blue: "#7aa2f7",
-          magenta: "#bb9af7",
-          cyan: "#7dcfff",
-          white: "#c8cad8",
-          brightBlack: "#444b6a",
-          brightRed: "#ff7a93",
-          brightGreen: "#b9f27c",
-          brightYellow: "#ff9e64",
-          brightBlue: "#7da6ff",
-          brightMagenta: "#c0a0ff",
-          brightCyan: "#0db9d7",
-          brightWhite: "#d5d6db",
-        },
+        theme: getXtermTheme($settings.theme),
       }),
       fitAddon: null,
       unlisteners: [],
@@ -91,6 +71,10 @@
         const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
         term.write(bytes);
       }));
+
+      instance.unlisteners.push(await onSessionExit(ptyId, () => {
+        void onClose();
+      }));
     } else {
       // Re-mount: move the existing terminal element into the new container
       containerEl.appendChild(term.element);
@@ -120,18 +104,23 @@
   function handleClose() {
     void onClose();
   }
+
+  $effect(() => {
+    terminal = getOrCreateTerminal().terminal;
+    terminal.options.theme = getXtermTheme($settings.theme);
+  });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="relative w-full h-full"
+  class="relative w-full h-full bg-black"
   onmouseenter={() => (hovering = true)}
   onmouseleave={() => (hovering = false)}
 >
   <div bind:this={containerEl} class="w-full h-full"></div>
   {#if hovering}
     <button
-      class="absolute top-1 right-1 z-10 w-5 h-5 flex items-center justify-center rounded bg-bg-surface/80 text-text-muted hover:text-text-primary hover:bg-bg-surface text-xs leading-none"
+      class="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-white/8 bg-slate-900/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-slate-800 hover:text-text-primary"
       onclick={handleClose}
       title="Close pane"
     >
