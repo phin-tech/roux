@@ -1,45 +1,91 @@
 use serde_json::{json, Value};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
-const HOOK_HANDLER_SCRIPT: &str = r#"#!/usr/bin/env python3
-"""Roux hook handler — receives Claude Code hook events and writes status files."""
-import json, os, sys, time
+const ROUX_HOOK_MARKER: &str = "roux-cli hook";
 
-status = sys.argv[1] if len(sys.argv) > 1 else ""
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
+fn roux_cli_path() -> Result<String, String> {
+    // Look for roux-cli in common locations
+    let candidates = [
+        // Primary install location
+        dirs::home_dir().map(|h| h.join(".local").join("bin").join("roux-cli")),
+        // Next to the main roux binary (dev builds)
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("roux-cli"))),
+        // Installed via cargo install
+        dirs::home_dir().map(|h| h.join(".cargo").join("bin").join("roux-cli")),
+    ];
 
-sid = data.get("session_id", "")
-if not sid:
-    sys.exit(0)
+    for candidate in candidates.iter().flatten() {
+        if candidate.exists() {
+            return Ok(candidate.to_string_lossy().to_string());
+        }
+    }
 
-out = {
-    "status": status,
-    "claude_session_id": sid,
-    "cwd": data.get("cwd", ""),
-    "timestamp": int(time.time()),
+    // Try PATH
+    if let Ok(output) = std::process::Command::new("which")
+        .arg("roux-cli")
+        .output()
+    {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Ok(path);
+            }
+        }
+    }
+
+    Err("roux-cli binary not found. Run 'cargo install --path src-tauri' or copy roux-cli to ~/.local/bin/".to_string())
 }
 
-if status == "attention":
-    out["tool_name"] = data.get("tool_name", "")
-    out["tool_input"] = data.get("tool_input", {})
-    out["message"] = data.get("message", "")
+/// Install roux-cli to ~/.local/bin/ on first app load
+pub fn install_cli_binary() -> Result<String, String> {
+    let bin_dir = dirs::home_dir()
+        .ok_or("Could not determine home directory")?
+        .join(".local")
+        .join("bin");
+    fs::create_dir_all(&bin_dir).map_err(|e| format!("Failed to create ~/.local/bin: {}", e))?;
 
-status_dir = os.path.expanduser("~/.config/roux/status")
-os.makedirs(status_dir, exist_ok=True)
-with open(os.path.join(status_dir, f"{sid}.json"), "w") as f:
-    json.dump(out, f)
-"#;
+    let target = bin_dir.join("roux-cli");
 
-const ROUX_HOOK_MARKER: &str = "roux/hook-handler.sh";
+    // Find the source binary (next to the running roux binary)
+    let source = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("roux-cli")))
+        .ok_or("Could not find roux-cli next to roux binary")?;
 
-fn roux_config_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
-    Ok(home.join(".config").join("roux"))
+    if source.exists() {
+        // Only copy if source is newer or target doesn't exist
+        let should_copy = if target.exists() {
+            let src_modified = fs::metadata(&source).and_then(|m| m.modified()).ok();
+            let tgt_modified = fs::metadata(&target).and_then(|m| m.modified()).ok();
+            match (src_modified, tgt_modified) {
+                (Some(s), Some(t)) => s > t,
+                _ => true,
+            }
+        } else {
+            true
+        };
+
+        if should_copy {
+            fs::copy(&source, &target).map_err(|e| format!("Failed to copy roux-cli: {}", e))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = fs::metadata(&target)
+                    .map_err(|e| e.to_string())?
+                    .permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(&target, perms).map_err(|e| e.to_string())?;
+            }
+            eprintln!("Installed roux-cli to {}", target.display());
+        }
+        return Ok(target.to_string_lossy().to_string());
+    }
+
+    // Fallback: try to find it anywhere
+    roux_cli_path()
 }
 
 fn claude_settings_path() -> Result<PathBuf, String> {
@@ -47,25 +93,10 @@ fn claude_settings_path() -> Result<PathBuf, String> {
     Ok(home.join(".claude").join("settings.json"))
 }
 
-fn write_hook_handler() -> Result<(), String> {
-    let config_dir = roux_config_dir()?;
-    fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
-
-    let script_path = config_dir.join("hook-handler.sh");
-    fs::write(&script_path, HOOK_HANDLER_SCRIPT)
-        .map_err(|e| format!("Failed to write hook handler: {}", e))?;
-
-    let mut perms = fs::metadata(&script_path)
-        .map_err(|e| format!("Failed to read metadata: {}", e))?
-        .permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&script_path, perms)
-        .map_err(|e| format!("Failed to set permissions: {}", e))?;
-
-    // Also ensure status directory exists
-    fs::create_dir_all(config_dir.join("status"))
-        .map_err(|e| format!("Failed to create status dir: {}", e))?;
-
+fn status_dir() -> Result<(), String> {
+    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+    let dir = home.join(".config").join("roux").join("status");
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create status dir: {}", e))?;
     Ok(())
 }
 
@@ -85,7 +116,7 @@ fn is_roux_hook_entry(entry: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn roux_hooks_config() -> Value {
+fn roux_hooks_config(cli_path: &str) -> Value {
     json!({
         "hooks": {
             "UserPromptSubmit": [
@@ -93,7 +124,7 @@ fn roux_hooks_config() -> Value {
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "~/.config/roux/hook-handler.sh working"
+                            "command": format!("{} hook working", cli_path)
                         }
                     ]
                 }
@@ -103,7 +134,7 @@ fn roux_hooks_config() -> Value {
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "~/.config/roux/hook-handler.sh idle"
+                            "command": format!("{} hook idle", cli_path)
                         }
                     ]
                 }
@@ -113,7 +144,27 @@ fn roux_hooks_config() -> Value {
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "~/.config/roux/hook-handler.sh attention"
+                            "command": format!("{} hook attention", cli_path)
+                        }
+                    ]
+                }
+            ],
+            "StopFailure": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": format!("{} hook error", cli_path)
+                        }
+                    ]
+                }
+            ],
+            "SessionEnd": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": format!("{} hook disconnected", cli_path)
                         }
                     ]
                 }
@@ -124,7 +175,7 @@ fn roux_hooks_config() -> Value {
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "~/.config/roux/hook-handler.sh attention"
+                            "command": format!("{} hook attention", cli_path)
                         }
                     ]
                 },
@@ -133,7 +184,7 @@ fn roux_hooks_config() -> Value {
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "~/.config/roux/hook-handler.sh idle"
+                            "command": format!("{} hook idle", cli_path)
                         }
                     ]
                 }
@@ -142,11 +193,10 @@ fn roux_hooks_config() -> Value {
     })
 }
 
-fn merge_hooks(settings: &mut Value) -> Result<(), String> {
-    let roux = roux_hooks_config();
+fn merge_hooks(settings: &mut Value, cli_path: &str) -> Result<(), String> {
+    let roux = roux_hooks_config(cli_path);
     let roux_hooks = roux.get("hooks").unwrap().as_object().unwrap();
 
-    // Ensure settings has a "hooks" object
     if settings.get("hooks").is_none() || !settings["hooks"].is_object() {
         settings["hooks"] = json!({});
     }
@@ -160,15 +210,28 @@ fn merge_hooks(settings: &mut Value) -> Result<(), String> {
             .cloned()
             .unwrap_or_default();
 
-        // Filter out old Roux hooks
+        // Filter out old Roux hooks (matches both old python script and new cli)
         let mut filtered: Vec<Value> = existing
             .into_iter()
             .filter(|entry| !is_roux_hook_entry(entry))
+            // Also filter old python-based hooks
+            .filter(|entry| {
+                !entry
+                    .get("hooks")
+                    .and_then(|h| h.as_array())
+                    .map(|hooks| {
+                        hooks.iter().any(|h| {
+                            h.get("command")
+                                .and_then(|c| c.as_str())
+                                .map(|c| c.contains("roux/hook-handler.sh"))
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false)
+            })
             .collect();
 
-        // Append new Roux hooks
         filtered.extend(roux_entries.iter().cloned());
-
         settings["hooks"][event_name] = Value::Array(filtered);
     }
 
@@ -176,8 +239,9 @@ fn merge_hooks(settings: &mut Value) -> Result<(), String> {
 }
 
 pub fn install_hooks() -> Result<(), String> {
-    write_hook_handler()?;
+    status_dir()?;
 
+    let cli_path = install_cli_binary().or_else(|_| roux_cli_path())?;
     let settings_path = claude_settings_path()?;
 
     let mut settings: Value = if settings_path.exists() {
@@ -186,7 +250,6 @@ pub fn install_hooks() -> Result<(), String> {
         serde_json::from_str(&content)
             .map_err(|e| format!("Failed to parse settings: {}", e))?
     } else {
-        // Create the directory if needed
         if let Some(parent) = settings_path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create .claude dir: {}", e))?;
@@ -194,12 +257,13 @@ pub fn install_hooks() -> Result<(), String> {
         json!({})
     };
 
-    merge_hooks(&mut settings)?;
+    merge_hooks(&mut settings, &cli_path)?;
 
     let output = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
     fs::write(&settings_path, output)
         .map_err(|e| format!("Failed to write settings: {}", e))?;
 
+    eprintln!("Roux hooks installed (using {})", cli_path);
     Ok(())
 }

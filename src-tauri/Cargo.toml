@@ -14,10 +14,15 @@ path = "src/lib.rs"
 name = "roux"
 path = "src/main.rs"
 
+[[bin]]
+name = "roux-cli"
+path = "src/cli.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
