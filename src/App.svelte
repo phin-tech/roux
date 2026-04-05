@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Layout from "$lib/components/Layout.svelte";
+  import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
   import { initSettings } from "$lib/stores/settings";
   import { addSession } from "$lib/stores/sessions";
   import { listSessions } from "$lib/tauri";
@@ -10,7 +11,6 @@
 
   onMount(async () => {
     await initSettings();
-    // Load persisted sessions
     const sessions = await listSessions();
     for (const s of sessions) {
       addSession(s);
@@ -21,4 +21,9 @@
 <Layout
   onNewSession={() => (showNewSessionDialog = true)}
   onOpenSettings={() => (showSettings = !showSettings)}
+/>
+
+<NewSessionDialog
+  visible={showNewSessionDialog}
+  onclose={() => (showNewSessionDialog = false)}
 />

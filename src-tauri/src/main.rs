@@ -170,6 +170,7 @@ fn main() {
     let initial_settings = settings::load_settings();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             settings: Mutex::new(initial_settings),
             pty_manager: PtyManager::new(),

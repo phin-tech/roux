@@ -26,3 +26,4 @@ uuid = { version = "1", features = ["v4"] }
 portable-pty = "0.9"
 base64 = "0.22"
 dirs = "6"
+tauri-plugin-dialog = "2"
