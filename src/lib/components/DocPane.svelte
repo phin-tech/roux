@@ -65,12 +65,26 @@
   }
 
   onMount(() => {
-    loadContent();
-    refreshDocs();
-    // Auto-refresh content every 3 seconds
-    refreshTimer = setInterval(() => {
+    // Ensure currentPath is set from prop
+    if (!currentPath && docPath) {
+      currentPath = docPath;
+    }
+    if (currentPath) {
       loadContent();
+    }
+    refreshDocs();
+    refreshTimer = setInterval(() => {
+      if (currentPath) loadContent();
     }, 3000);
+  });
+
+  // React to docPath prop changes
+  $effect(() => {
+    if (docPath && docPath !== currentPath) {
+      currentPath = docPath;
+      loading = true;
+      loadContent();
+    }
   });
 
   onDestroy(() => {

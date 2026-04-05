@@ -20,10 +20,11 @@
   let containerEl: HTMLDivElement;
   let terminal: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
-  let unlisteners: UnlistenFn[] = [];
   let resizeObserver: ResizeObserver | null = null;
 
+  // Global maps — survive component destroy/recreate during split tree changes
   const terminalInstances = new Map<string, Terminal>();
+  const listenersAttached = new Set<string>();
 
   function getOrCreateTerminal(): Terminal {
     if (terminalInstances.has(sessionId)) {
@@ -66,18 +67,21 @@
   }
 
   async function attachListeners() {
-    const outputUnlisten = await onPtyOutput(sessionId, (b64data) => {
-      const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
-      terminal?.write(bytes);
+    // Only attach once per sessionId — listeners are global, not per component instance
+    if (listenersAttached.has(sessionId)) return;
+    listenersAttached.add(sessionId);
+
+    await onPtyOutput(sessionId, (b64data) => {
+      const term = terminalInstances.get(sessionId);
+      if (term) {
+        const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
+        term.write(bytes);
+      }
     });
-    unlisteners.push(outputUnlisten);
 
-    // Status is now handled globally in App.svelte via hooks-based detection
-
-    const exitUnlisten = await onSessionExit(sessionId, (_code) => {
+    await onSessionExit(sessionId, (_code) => {
       setSessionDisconnected(sessionId);
     });
-    unlisteners.push(exitUnlisten);
   }
 
   function attach() {
@@ -141,16 +145,11 @@
   });
 
   onDestroy(() => {
-    for (const unlisten of unlisteners) unlisten();
+    // DON'T dispose terminal or kill PTY here — the component may be re-mounting
+    // due to split tree restructuring. Only detach DOM and resize observer.
+    // Terminal instances live in the global map and survive re-renders.
     resizeObserver?.disconnect();
     detach();
-    // Safe to dispose here: Terminal components stay mounted across tab switches
-    // (Layout.svelte uses class:hidden, not conditional rendering).
-    // onDestroy only fires when the session is actually removed from the list.
-    if (terminal) {
-      terminal.dispose();
-      terminalInstances.delete(sessionId);
-    }
   });
 
   $effect(() => {
