@@ -214,11 +214,113 @@ impl TaskDiscoverer for MakeDiscoverer {
     }
 }
 
+pub struct JustDiscoverer;
+
+impl TaskDiscoverer for JustDiscoverer {
+    fn config_file(&self) -> &str {
+        "justfile"
+    }
+
+    fn runner_name(&self) -> &str {
+        "Justfile"
+    }
+
+    fn discover(&self, dir: &Path) -> Option<TaskGroup> {
+        // Case-insensitive: try `justfile` then `Justfile`
+        let config_path = if dir.join("justfile").exists() {
+            dir.join("justfile")
+        } else if dir.join("Justfile").exists() {
+            dir.join("Justfile")
+        } else {
+            return None;
+        };
+
+        let content = std::fs::read_to_string(&config_path).ok()?;
+        let lines: Vec<&str> = content.lines().collect();
+        let mut task_entries: Vec<(String, String)> = Vec::new();
+
+        for (i, line) in lines.iter().enumerate() {
+            // Skip empty lines and comment lines
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            // Recipe lines are non-indented (no leading whitespace) and contain `:`
+            if line.starts_with(' ') || line.starts_with('\t') {
+                continue;
+            }
+
+            let colon_pos = match line.find(':') {
+                Some(pos) => pos,
+                None => continue,
+            };
+
+            let before_colon = &line[..colon_pos];
+            // First word before colon is the recipe name
+            let first_word = before_colon.split_whitespace().next().unwrap_or("");
+            if first_word.is_empty() {
+                continue;
+            }
+
+            // Strip leading `@` from silent recipes
+            let name = first_word.trim_start_matches('@').to_string();
+            if name.is_empty() {
+                continue;
+            }
+
+            // Skip lines that look like variable assignments (name contains `=`)
+            if name.contains('=') {
+                continue;
+            }
+
+            // Description from `# comment` on preceding line
+            let desc = if i > 0 {
+                let prev = lines[i - 1].trim();
+                if let Some(stripped) = prev.strip_prefix('#') {
+                    stripped.trim().to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+
+            task_entries.push((name, desc));
+        }
+
+        if task_entries.is_empty() {
+            return None;
+        }
+
+        task_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let tasks = task_entries
+            .into_iter()
+            .map(|(name, desc)| TaskDefinition {
+                id: format!("just:{}", name),
+                name: name.clone(),
+                description: desc,
+                runner: "just".to_string(),
+                command: format!("just {}", name),
+                keep_open: "on-error".to_string(),
+            })
+            .collect();
+
+        Some(TaskGroup {
+            runner: self.runner_name().to_string(),
+            config_file: "justfile".to_string(),
+            tasks,
+        })
+    }
+}
+
 pub fn discover_tasks(dir: &Path) -> Vec<TaskGroup> {
     let discoverers: Vec<Box<dyn TaskDiscoverer>> = vec![
         Box::new(NpmDiscoverer),
         Box::new(TaskfileDiscoverer),
         Box::new(MakeDiscoverer),
+        Box::new(JustDiscoverer),
     ];
 
     discoverers.into_iter().filter_map(|d| d.discover(dir)).collect()
@@ -420,5 +522,111 @@ all:
         let dir = tempfile::tempdir().unwrap();
         let discoverer = MakeDiscoverer;
         assert!(discoverer.discover(dir.path()).is_none());
+    }
+
+    // ---- JustDiscoverer tests ----
+
+    #[test]
+    fn just_discovers_recipes_with_descriptions() {
+        let dir = tempfile::tempdir().unwrap();
+        let justfile = r#"# Build the project
+build:
+    cargo build
+
+# Run tests
+test:
+    cargo test
+
+lint:
+    cargo clippy
+"#;
+        fs::write(dir.path().join("justfile"), justfile).unwrap();
+
+        let discoverer = JustDiscoverer;
+        let group = discoverer.discover(dir.path()).unwrap();
+
+        assert_eq!(group.runner, "Justfile");
+        assert_eq!(group.config_file, "justfile");
+        assert_eq!(group.tasks.len(), 3);
+
+        // Sorted: build, lint, test
+        assert_eq!(group.tasks[0].name, "build");
+        assert_eq!(group.tasks[0].description, "Build the project");
+        assert_eq!(group.tasks[0].command, "just build");
+        assert_eq!(group.tasks[0].id, "just:build");
+        assert_eq!(group.tasks[0].keep_open, "on-error");
+
+        assert_eq!(group.tasks[1].name, "lint");
+        assert_eq!(group.tasks[1].description, "");
+
+        assert_eq!(group.tasks[2].name, "test");
+        assert_eq!(group.tasks[2].description, "Run tests");
+    }
+
+    #[test]
+    fn just_discovers_case_insensitive_justfile() {
+        let dir = tempfile::tempdir().unwrap();
+        let justfile = r#"build:
+    cargo build
+"#;
+        // Write with capital J
+        fs::write(dir.path().join("Justfile"), justfile).unwrap();
+
+        let discoverer = JustDiscoverer;
+        let group = discoverer.discover(dir.path()).unwrap();
+        assert_eq!(group.tasks.len(), 1);
+        assert_eq!(group.tasks[0].name, "build");
+    }
+
+    #[test]
+    fn just_strips_at_sign_from_silent_recipes() {
+        let dir = tempfile::tempdir().unwrap();
+        let justfile = r#"@build:
+    cargo build
+"#;
+        fs::write(dir.path().join("justfile"), justfile).unwrap();
+
+        let discoverer = JustDiscoverer;
+        let group = discoverer.discover(dir.path()).unwrap();
+        assert_eq!(group.tasks.len(), 1);
+        assert_eq!(group.tasks[0].name, "build");
+        assert_eq!(group.tasks[0].command, "just build");
+    }
+
+    #[test]
+    fn just_returns_none_without_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let discoverer = JustDiscoverer;
+        assert!(discoverer.discover(dir.path()).is_none());
+    }
+
+    // ---- Integration test ----
+
+    #[test]
+    fn discover_tasks_finds_multiple_runners() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Write package.json with scripts
+        let package_json = serde_json::json!({
+            "name": "test-project",
+            "scripts": {
+                "start": "node index.js"
+            }
+        });
+        fs::write(dir.path().join("package.json"), package_json.to_string()).unwrap();
+
+        // Write Makefile with a target
+        let makefile = r#"## Start the server
+start:
+	node index.js
+"#;
+        fs::write(dir.path().join("Makefile"), makefile).unwrap();
+
+        let groups = discover_tasks(dir.path());
+        assert_eq!(groups.len(), 2);
+
+        let runners: Vec<&str> = groups.iter().map(|g| g.runner.as_str()).collect();
+        assert!(runners.contains(&"npm scripts"));
+        assert!(runners.contains(&"Makefile"));
     }
 }
