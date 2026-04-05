@@ -14,24 +14,26 @@
 </script>
 
 {#if node.kind === "pane"}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div
-    class="flex-1 min-h-0 min-w-0 relative"
-    class:ring-1={$focusedPaneId === node.pane.id}
-    class:ring-accent-dim={$focusedPaneId === node.pane.id}
-    onclick={() => focusedPaneId.set(node.pane.id)}
-  >
-    {#if node.pane.type === "claude"}
-      <Terminal sessionId={node.pane.ptyId} active={sessionActive} />
-    {:else}
-      <ShellTerminal
-        ptyId={node.pane.ptyId}
-        paneId={node.pane.id}
-        onClose={() => removePane(sessionId, node.pane.id)}
-      />
-    {/if}
-  </div>
+  {#key node.pane.id}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      class="flex-1 min-h-0 min-w-0 relative"
+      class:ring-1={$focusedPaneId === node.pane.id}
+      class:ring-accent-dim={$focusedPaneId === node.pane.id}
+      onclick={() => focusedPaneId.set(node.pane.id)}
+    >
+      {#if node.pane.type === "claude"}
+        <Terminal sessionId={node.pane.ptyId} active={sessionActive} />
+      {:else}
+        <ShellTerminal
+          ptyId={node.pane.ptyId}
+          paneId={node.pane.id}
+          onClose={() => removePane(sessionId, node.pane.id)}
+        />
+      {/if}
+    </div>
+  {/key}
 {:else}
   <div
     class="flex flex-1 min-h-0 min-w-0"

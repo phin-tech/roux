@@ -18,14 +18,19 @@
   let { ptyId, paneId, onClose }: Props = $props();
 
   let containerEl: HTMLDivElement;
-  let terminal: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
-  let unlisteners: UnlistenFn[] = [];
   let resizeObserver: ResizeObserver | null = null;
   let hovering = $state(false);
 
-  onMount(async () => {
-    terminal = new Terminal({
+  // Global map to keep terminal instances alive across re-renders
+  const shellInstances = new Map<string, { terminal: Terminal; fitAddon: FitAddon; unlisteners: UnlistenFn[] }>();
+
+  function getOrCreateTerminal(): { terminal: Terminal; fitAddon: FitAddon; unlisteners: UnlistenFn[] } {
+    if (shellInstances.has(paneId)) {
+      return shellInstances.get(paneId)!;
+    }
+
+    const terminal = new Terminal({
       fontSize: $settings.fontSize,
       fontFamily: $settings.fontFamily,
       lineHeight: $settings.lineHeight,
@@ -56,36 +61,41 @@
       },
     });
 
-    terminal.open(containerEl);
+    const fa = new FitAddon();
+    const instance = { terminal, fitAddon: fa, unlisteners: [] as UnlistenFn[] };
+    shellInstances.set(paneId, instance);
+    return instance;
+  }
 
-    fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
+  onMount(async () => {
+    const instance = getOrCreateTerminal();
+    const terminal = instance.terminal;
+    fitAddon = instance.fitAddon;
 
-    try {
-      terminal.loadAddon(new WebglAddon());
-    } catch {
-      // WebGL not available
+    if (!terminal.element) {
+      // First time — open into container
+      terminal.open(containerEl);
+      terminal.loadAddon(fitAddon);
+      try { terminal.loadAddon(new WebglAddon()); } catch {}
+      terminal.loadAddon(new WebLinksAddon());
+
+      terminal.onData((data) => writeToSession(ptyId, data));
+
+      const outputUnlisten = await onPtyOutput(ptyId, (b64data) => {
+        const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
+        terminal.write(bytes);
+      });
+      instance.unlisteners.push(outputUnlisten);
+    } else {
+      // Re-mount: move the existing terminal element into the new container
+      containerEl.appendChild(terminal.element);
     }
-
-    terminal.loadAddon(new WebLinksAddon());
-
-    terminal.onData((data) => {
-      writeToSession(ptyId, data);
-    });
-
-    const outputUnlisten = await onPtyOutput(ptyId, (b64data) => {
-      const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
-      terminal?.write(bytes);
-    });
-    unlisteners.push(outputUnlisten);
 
     resizeObserver = new ResizeObserver(() => {
       if (fitAddon) {
         fitAddon.fit();
         const dims = fitAddon.proposeDimensions();
-        if (dims) {
-          resizeSession(ptyId, dims.cols, dims.rows);
-        }
+        if (dims) resizeSession(ptyId, dims.cols, dims.rows);
       }
     });
     resizeObserver.observe(containerEl);
@@ -93,18 +103,27 @@
     requestAnimationFrame(() => {
       fitAddon?.fit();
       const dims = fitAddon?.proposeDimensions();
-      if (dims) {
-        resizeSession(ptyId, dims.cols, dims.rows);
-      }
+      if (dims) resizeSession(ptyId, dims.cols, dims.rows);
     });
   });
 
   onDestroy(() => {
-    for (const unlisten of unlisteners) unlisten();
+    // DON'T dispose terminal or kill PTY here — the component may be re-mounting
+    // due to tree restructuring. Only detach the resize observer.
     resizeObserver?.disconnect();
-    terminal?.dispose();
-    killSession(ptyId).catch(() => {});
   });
+
+  // Call this when the pane is actually being closed (via the X button)
+  function handleClose() {
+    const instance = shellInstances.get(paneId);
+    if (instance) {
+      for (const unlisten of instance.unlisteners) unlisten();
+      instance.terminal.dispose();
+      shellInstances.delete(paneId);
+    }
+    killSession(ptyId).catch(() => {});
+    onClose();
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -117,7 +136,7 @@
   {#if hovering}
     <button
       class="absolute top-1 right-1 z-10 w-5 h-5 flex items-center justify-center rounded bg-bg-surface/80 text-text-muted hover:text-text-primary hover:bg-bg-surface text-xs leading-none"
-      onclick={onClose}
+      onclick={handleClose}
       title="Close pane"
     >
       &times;
