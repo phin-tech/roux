@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
 
 vi.mock("$lib/tauri", () => ({
+  spawnTask: vi.fn().mockResolvedValue(undefined),
   spawnShell: vi.fn().mockResolvedValue(undefined),
   writeToSession: vi.fn().mockResolvedValue(undefined),
   onSessionExit: vi.fn().mockResolvedValue(() => {}),
@@ -12,7 +13,7 @@ vi.mock("$lib/tauri", () => ({
 }));
 
 import { runTask, expandTask } from "../runner";
-import { spawnShell, writeToSession, onSessionExit, onPtyOutput } from "$lib/tauri";
+import { spawnTask, onSessionExit, onPtyOutput } from "$lib/tauri";
 import { taskRuns } from "$lib/stores/tasks";
 import { paneTrees, focusedPaneId, initSessionPanes } from "$lib/stores/panes";
 import type { TaskDefinition } from "$lib/types/tasks";
@@ -22,8 +23,7 @@ describe("runTask", () => {
     taskRuns.set(new Map());
     paneTrees.set(new Map());
     focusedPaneId.set(null);
-    vi.mocked(spawnShell).mockClear();
-    vi.mocked(writeToSession).mockClear();
+    vi.mocked(spawnTask).mockClear();
     vi.mocked(onSessionExit).mockClear();
     vi.mocked(onPtyOutput).mockClear();
   });
@@ -37,13 +37,14 @@ describe("runTask", () => {
     keepOpen: "on-error",
   };
 
-  it("spawns a shell and writes the command without creating a pane", async () => {
+  it("spawns a task command without creating a pane", async () => {
     await runTask("session-1", "/repo", task);
 
-    expect(spawnShell).toHaveBeenCalledTimes(1);
-    const ptyId = vi.mocked(spawnShell).mock.calls[0][0];
-    expect(ptyId).toContain("task-session-1-npm:build-");
-    expect(writeToSession).toHaveBeenCalledWith(ptyId, "npm run build\n");
+    expect(spawnTask).toHaveBeenCalledTimes(1);
+    const [ptyId, command, workingDir] = vi.mocked(spawnTask).mock.calls[0];
+    expect(ptyId).toContain("task-session-1-npm-build-");
+    expect(command).toBe("npm run build");
+    expect(workingDir).toBe("/repo");
 
     // No pane should be created
     const tree = get(paneTrees).get("session-1");

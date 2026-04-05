@@ -1,4 +1,4 @@
-import { spawnShell, writeToSession, onSessionExit, onPtyOutput } from "$lib/tauri";
+import { spawnTask, onSessionExit, onPtyOutput } from "$lib/tauri";
 import { addSplit } from "$lib/stores/panes";
 import {
   addTaskRun,
@@ -8,6 +8,7 @@ import {
   setTaskPaneId,
   getEffectiveKeepOpen,
 } from "$lib/stores/tasks";
+import { focusedPaneId } from "$lib/stores/panes";
 import type { TaskDefinition } from "$lib/types/tasks";
 
 /** Simple ANSI escape code stripper for inline display */
@@ -20,11 +21,29 @@ export async function runTask(
   repoRoot: string,
   task: TaskDefinition
 ): Promise<void> {
-  const ptyId = `task-${sessionId}-${task.id}-${Date.now()}`;
+  const safeId = task.id.replace(/:/g, "-");
+  const ptyId = `task-${sessionId}-${safeId}-${Date.now()}`;
 
-  // Spawn PTY but don't create a pane
-  await spawnShell(ptyId, repoRoot);
-  await writeToSession(ptyId, task.command + "\n");
+  // Subscribe to output BEFORE spawning so we don't miss anything
+  const outputReady = onPtyOutput(ptyId, (b64data) => {
+    const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
+    const text = new TextDecoder().decode(bytes);
+    appendTaskOutput(sessionId, ptyId, stripAnsi(text));
+  });
+
+  const exitReady = onSessionExit(ptyId, (code) => {
+    updateTaskRun(sessionId, ptyId, code);
+    const keepOpen = getEffectiveKeepOpen(repoRoot, task.id, task.keepOpen);
+    if (keepOpen === "never" || (keepOpen === "on-error" && code === 0)) {
+      setTimeout(() => {
+        removeTaskRun(sessionId, ptyId);
+      }, 3000);
+    }
+  });
+
+  // Wait for listeners to be registered before spawning
+  await outputReady;
+  await exitReady;
 
   addTaskRun(sessionId, {
     taskId: task.id,
@@ -36,27 +55,15 @@ export async function runTask(
     startedAt: Date.now(),
   });
 
-  // Buffer PTY output into the task run store
-  await onPtyOutput(ptyId, (b64data) => {
-    const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
-    const text = new TextDecoder().decode(bytes);
-    appendTaskOutput(sessionId, ptyId, stripAnsi(text));
-  });
-
-  await onSessionExit(ptyId, (code) => {
-    updateTaskRun(sessionId, ptyId, code);
-    const keepOpen = getEffectiveKeepOpen(repoRoot, task.id, task.keepOpen);
-    if (keepOpen === "never" || (keepOpen === "on-error" && code === 0)) {
-      setTimeout(() => {
-        removeTaskRun(sessionId, ptyId);
-      }, 3000);
-    }
-  });
+  // Spawn one-shot command — PTY exits when command finishes, with real exit code
+  await spawnTask(ptyId, task.command, repoRoot);
 }
 
 /** Promote a background task to a visible shell pane */
 export function expandTask(sessionId: string, ptyId: string) {
   const paneId = ptyId;
+  // Ensure focus is on the session's main pane so addSplit can find a target
+  focusedPaneId.set(`${sessionId}-main`);
   addSplit(sessionId, "horizontal", {
     id: paneId,
     type: "shell",

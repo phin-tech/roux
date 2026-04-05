@@ -46,6 +46,10 @@ export async function spawnShell(id: string, workingDir: string): Promise<void> 
   return invoke("spawn_shell", { id, workingDir });
 }
 
+export async function spawnTask(id: string, command: string, workingDir: string): Promise<void> {
+  return invoke("spawn_task", { id, command, workingDir });
+}
+
 export async function listSessions(): Promise<Session[]> {
   return invoke("list_sessions");
 }

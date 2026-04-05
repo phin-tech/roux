@@ -31,7 +31,9 @@
     void runTask($sessionState.activeSessionId, activeSession.worktreePath, task);
   }
 
-  function handleExpand(ptyId: string) {
+  function handleExpand(e: MouseEvent, ptyId: string) {
+    e.stopPropagation();
+    e.preventDefault();
     if (!$sessionState.activeSessionId) return;
     expandTask($sessionState.activeSessionId, ptyId);
   }
@@ -137,7 +139,7 @@
                     {#if !run.paneId}
                       <button
                         class="text-[10px] text-text-muted hover:text-accent bg-transparent border-none cursor-pointer px-1"
-                        onclick={(e) => { e.stopPropagation(); handleExpand(run.ptyId); }}
+                        onclick={(e) => handleExpand(e, run.ptyId)}
                         title="Expand to terminal pane"
                       >&#8599;</button>
                     {/if}

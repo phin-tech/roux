@@ -95,6 +95,17 @@ fn spawn_shell(
 }
 
 #[tauri::command]
+fn spawn_task(
+    id: String,
+    command: String,
+    working_dir: String,
+    state: tauri::State<AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    state.pty_manager.spawn_task(&id, &command, &working_dir, app.clone())
+}
+
+#[tauri::command]
 fn kill_session(id: String, state: tauri::State<AppState>) -> Result<(), String> {
     state.pty_manager.kill(&id)?;
     state.session_store.remove(&id);
@@ -274,6 +285,7 @@ fn main() {
             write_to_session,
             resize_session,
             spawn_shell,
+            spawn_task,
             kill_session,
             create_session,
             list_sessions,
