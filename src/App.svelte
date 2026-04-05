@@ -4,7 +4,7 @@
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import { initSettings } from "$lib/stores/settings";
-  import { addSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
+  import { addSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
   import { listSessions, onRouxStatusUpdate } from "$lib/tauri";
 
   let showNewSessionDialog = $state(false);
@@ -28,12 +28,16 @@
         (s) => s.worktreePath === update.cwd || s.repoRoot === update.cwd
       );
       if (match) {
-        updateSessionStatus(
-          match.id,
-          update.status as any,
-          null,
-          null
-        );
+        updateSessionStatus(match.id, update.status as any, null, null);
+        if (update.status === "attention" && update.toolName) {
+          updateSessionPermission(match.id, {
+            toolName: update.toolName,
+            toolInput: update.toolInput ?? {},
+            message: update.message ?? "",
+          });
+        } else {
+          updateSessionPermission(match.id, null);
+        }
       }
     });
   });

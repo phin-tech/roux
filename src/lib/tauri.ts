@@ -120,6 +120,9 @@ export interface StatusUpdate {
   status: string;
   cwd: string;
   claudeSessionId: string;
+  toolName: string | null;
+  toolInput: Record<string, any> | null;
+  message: string | null;
 }
 
 export function onRouxStatusUpdate(

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
+  import type { Session, PermissionInfo } from "$lib/types";
 
   interface Props {
     session: Session;
@@ -8,9 +8,31 @@
     onclose: () => void;
     onrename: (newName: string) => void;
     onreconnect: () => void;
+    onapprove: () => void;
+    onalways: () => void;
+    ondeny: () => void;
   }
 
-  let { session, active, onselect, onclose, onrename, onreconnect }: Props = $props();
+  let { session, active, onselect, onclose, onrename, onreconnect, onapprove, onalways, ondeny }: Props = $props();
+
+  function formatPermission(info: PermissionInfo): string {
+    if (info.toolName === "Bash" && info.toolInput?.command) {
+      return `Bash: ${info.toolInput.command}`;
+    }
+    if (info.toolName === "Read" && info.toolInput?.file_path) {
+      return `Read: ${info.toolInput.file_path}`;
+    }
+    if (info.toolName === "Write" && info.toolInput?.file_path) {
+      return `Write: ${info.toolInput.file_path}`;
+    }
+    if (info.toolName === "Edit" && info.toolInput?.file_path) {
+      return `Edit: ${info.toolInput.file_path}`;
+    }
+    if (info.message) {
+      return info.message;
+    }
+    return info.toolName || "Permission needed";
+  }
 
   let editing = $state(false);
   let editName = $state(session.name);
@@ -120,6 +142,39 @@
       {session.cost != null ? `$${session.cost.toFixed(2)}` : ""}
     </span>
   </div>
+
+  {#if session.permissionInfo}
+    <div class="pl-4 mt-1.5">
+      <span
+        class="block text-[11px] text-amber truncate font-mono"
+        title={JSON.stringify(session.permissionInfo.toolInput, null, 2)}
+      >
+        {formatPermission(session.permissionInfo)}
+      </span>
+      {#if session.status === "attention"}
+        <div class="flex gap-1.5 mt-1">
+          <button
+            class="text-[10px] font-medium text-green bg-green/10 px-2 py-0.5 rounded cursor-pointer border-none hover:bg-green/25 transition-colors"
+            onclick={(e) => { e.stopPropagation(); onapprove(); }}
+          >
+            &#10003; Allow
+          </button>
+          <button
+            class="text-[10px] font-medium text-accent bg-accent/10 px-2 py-0.5 rounded cursor-pointer border-none hover:bg-accent/25 transition-colors"
+            onclick={(e) => { e.stopPropagation(); onalways(); }}
+          >
+            &#10003; Always
+          </button>
+          <button
+            class="text-[10px] font-medium text-red bg-red/10 px-2 py-0.5 rounded cursor-pointer border-none hover:bg-red/25 transition-colors"
+            onclick={(e) => { e.stopPropagation(); ondeny(); }}
+          >
+            &#10007; Deny
+          </button>
+        </div>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>

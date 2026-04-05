@@ -1,7 +1,7 @@
 <script lang="ts">
   import SessionCard from "./SessionCard.svelte";
   import { sessionState, setActiveSession, removeSession, addSession, renameSession } from "$lib/stores/sessions";
-  import { killSession, removeWorktree, createSession } from "$lib/tauri";
+  import { killSession, removeWorktree, createSession, writeToSession } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
 
   interface Props {
@@ -45,6 +45,18 @@
     removeSession(id);
   }
 
+  async function handleApprove(id: string) {
+    await writeToSession(id, "1\n");
+  }
+
+  async function handleAlways(id: string) {
+    await writeToSession(id, "2\n");
+  }
+
+  async function handleDeny(id: string) {
+    await writeToSession(id, "3\n");
+  }
+
   async function handleReconnect(id: string) {
     const session = $sessionState.sessions.find((s) => s.id === id);
     if (!session) return;
@@ -78,6 +90,9 @@
         onclose={() => handleClose(session.id)}
         onrename={(newName) => renameSession(session.id, newName)}
         onreconnect={() => handleReconnect(session.id)}
+        onapprove={() => handleApprove(session.id)}
+        onalways={() => handleAlways(session.id)}
+        ondeny={() => handleDeny(session.id)}
       />
     {/each}
   </div>

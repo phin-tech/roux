@@ -1,3 +1,9 @@
+export interface PermissionInfo {
+  toolName: string;
+  toolInput: Record<string, any>;
+  message: string;
+}
+
 export interface Session {
   id: string;
   name: string;
@@ -8,6 +14,7 @@ export interface Session {
   status: "idle" | "thinking" | "generating" | "error" | "disconnected" | "attention";
   model: string | null;
   cost: number | null;
+  permissionInfo: PermissionInfo | null;
   createdAt: number;
 }
 

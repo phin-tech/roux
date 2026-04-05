@@ -12,10 +12,22 @@ import sys,json
 d=json.load(sys.stdin)
 print(f'SID=\"{d.get(\"session_id\",\"\")}\"')
 print(f'CWD=\"{d.get(\"cwd\",\"\")}\"')
+# Escape double quotes and newlines for JSON safety
+import re
+tn=d.get('tool_name','')
+ti=json.dumps(d.get('tool_input',{}))
+msg=d.get('message','').replace('\"','\\\\\"')
+print(f'TOOL_NAME=\"{tn}\"')
+print(f'TOOL_INPUT={ti}')
+print(f'MSG=\"{msg}\"')
 " 2>/dev/null)"
 if [ -n "$SID" ]; then
     mkdir -p ~/.config/roux/status
-    echo "{\"status\":\"$STATUS\",\"claude_session_id\":\"$SID\",\"cwd\":\"$CWD\",\"timestamp\":$(date +%s)}" > ~/.config/roux/status/$SID.json
+    if [ "$STATUS" = "attention" ]; then
+        echo "{\"status\":\"$STATUS\",\"claude_session_id\":\"$SID\",\"cwd\":\"$CWD\",\"tool_name\":\"$TOOL_NAME\",\"tool_input\":$TOOL_INPUT,\"message\":\"$MSG\",\"timestamp\":$(date +%s)}" > ~/.config/roux/status/$SID.json
+    else
+        echo "{\"status\":\"$STATUS\",\"claude_session_id\":\"$SID\",\"cwd\":\"$CWD\",\"timestamp\":$(date +%s)}" > ~/.config/roux/status/$SID.json
+    fi
 fi
 "#;
 
@@ -88,6 +100,16 @@ fn roux_hooks_config() -> Value {
                         {
                             "type": "command",
                             "command": "~/.config/roux/hook-handler.sh idle"
+                        }
+                    ]
+                }
+            ],
+            "PermissionRequest": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "~/.config/roux/hook-handler.sh attention"
                         }
                     ]
                 }

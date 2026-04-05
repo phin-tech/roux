@@ -13,6 +13,9 @@ struct StatusUpdate {
     status: String,
     cwd: String,
     claude_session_id: String,
+    tool_name: Option<String>,
+    tool_input: Option<serde_json::Value>,
+    message: Option<String>,
 }
 
 fn status_dir() -> Result<PathBuf, String> {
@@ -95,6 +98,20 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
                     .unwrap_or("")
                     .to_string();
 
+                let tool_name = parsed
+                    .get("tool_name")
+                    .and_then(|s| s.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+
+                let tool_input = parsed.get("tool_input").cloned().filter(|v| !v.is_null());
+
+                let message = parsed
+                    .get("message")
+                    .and_then(|s| s.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+
                 let mapped = map_status(&raw_status);
 
                 // Emit a global event with cwd so frontend can match to the right session
@@ -102,6 +119,9 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
                     status: mapped.to_string(),
                     cwd,
                     claude_session_id: claude_sid,
+                    tool_name,
+                    tool_input,
+                    message,
                 };
 
                 let _ = app.emit("roux-status-update", &update);
