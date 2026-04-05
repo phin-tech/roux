@@ -5,6 +5,7 @@ mod pty;
 mod session;
 mod settings;
 mod status_watcher;
+mod tasks;
 mod worktree;
 
 use std::sync::Mutex;
