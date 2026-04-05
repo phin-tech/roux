@@ -4,6 +4,9 @@ import { setActiveSession } from "$lib/stores/sessions";
 import { addSplit } from "$lib/stores/panes";
 import { spawnShell, listDocs, writeToSession } from "$lib/tauri";
 import { closeFocusedPane } from "$lib/panes/actions";
+import { get } from "svelte/store";
+import { taskGroups } from "$lib/stores/tasks";
+import { runTask } from "$lib/tasks/runner";
 
 export function registerCommands() {
   // -- Panes --
@@ -146,6 +149,30 @@ export function registerCommands() {
             },
           ],
         }));
+    },
+  });
+
+  // -- Tasks --
+  registry.register({
+    id: "task.run",
+    label: "Run Task",
+    category: "Tasks",
+    available: () => get(taskGroups).length > 0,
+    getItems: () => {
+      const session = queries.activeSession();
+      if (!session) return [];
+      const groups = get(taskGroups);
+      return groups.flatMap((group) =>
+        group.tasks.map((task) => ({
+          id: task.id,
+          label: task.name,
+          description: `${group.runner} — ${task.description || task.command}`,
+          action: () => {
+            const activeId = queries.activeSessionId();
+            if (activeId) void runTask(activeId, session.worktreePath, task);
+          },
+        }))
+      );
     },
   });
 
