@@ -4,6 +4,12 @@
   import { runTask } from "$lib/tasks/runner";
   import type { TaskDefinition } from "$lib/types/tasks";
 
+  interface Props {
+    onCollapse?: () => void;
+  }
+
+  let { onCollapse }: Props = $props();
+
   let collapsedGroups = $state(new Set<string>());
   let contextMenu = $state<{ x: number; y: number; task: TaskDefinition; repoRoot: string } | null>(null);
 
@@ -53,9 +59,18 @@
 <div class="flex flex-col h-full">
   <div class="px-4 pt-2.5 pb-2 flex items-center justify-between">
     <span class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Tasks</span>
-    <span class="font-mono text-[10px] text-text-muted bg-bg-elevated px-1.5 py-0.5 rounded">
-      {$taskGroups.reduce((n, g) => n + g.tasks.length, 0)}
-    </span>
+    <div class="flex items-center gap-1.5">
+      <span class="font-mono text-[10px] text-text-muted bg-bg-elevated px-1.5 py-0.5 rounded">
+        {$taskGroups.reduce((n, g) => n + g.tasks.length, 0)}
+      </span>
+      {#if onCollapse}
+        <button
+          class="text-[10px] text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0.5"
+          onclick={onCollapse}
+          title="Collapse tasks panel"
+        >&#9660;</button>
+      {/if}
+    </div>
   </div>
 
   <div class="flex-1 overflow-y-auto px-2 scrollbar-thin">

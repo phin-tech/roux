@@ -117,7 +117,7 @@
     </span>
   </div>
 
-  <div class="overflow-y-auto px-2 scrollbar-thin" style="flex: {1 - $settings.taskPanelSplit};">
+  <div class="overflow-y-auto px-2 scrollbar-thin" style="flex: {!$settings.taskPanelCollapsed && $sessionState.activeSessionId ? 1 - $settings.taskPanelSplit : 1};">
     {#each $sessionState.sessions as session (session.id)}
       <SessionCard
         {session}
@@ -133,16 +133,26 @@
     {/each}
   </div>
 
-  {#if !$settings.taskPanelCollapsed}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="h-px bg-border-subtle cursor-row-resize hover:bg-accent-dim transition-colors shrink-0 {dragging ? 'bg-accent' : ''}"
-      onmousedown={handleDividerDown}
-    ></div>
+  {#if $sessionState.activeSessionId}
+    {#if $settings.taskPanelCollapsed}
+      <button
+        class="shrink-0 px-4 py-1.5 border-t border-border-subtle flex items-center gap-1.5 bg-transparent border-x-0 border-b-0 cursor-pointer hover:bg-bg-hover w-full text-left"
+        onclick={() => updateSetting("taskPanelCollapsed", false)}
+      >
+        <span class="text-[10px] text-text-muted">&#9654;</span>
+        <span class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Tasks</span>
+      </button>
+    {:else}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="h-px bg-border-subtle cursor-row-resize hover:bg-accent-dim transition-colors shrink-0 {dragging ? 'bg-accent' : ''}"
+        onmousedown={handleDividerDown}
+      ></div>
 
-    <div style="flex: {$settings.taskPanelSplit}; min-height: 0;">
-      <TaskPanel />
-    </div>
+      <div style="flex: {$settings.taskPanelSplit}; min-height: 0;">
+        <TaskPanel onCollapse={() => updateSetting("taskPanelCollapsed", true)} />
+      </div>
+    {/if}
   {/if}
 
   <div class="p-2 border-t border-border-subtle flex gap-1 shrink-0">
