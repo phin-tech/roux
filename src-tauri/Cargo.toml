@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A multi-session Claude Code terminal manager"
 authors = ["phin-tech"]
 edition = "2021"
+default-run = "roux"
 
 [lib]
 name = "roux_lib"

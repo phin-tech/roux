@@ -2,8 +2,9 @@ version: "3"
 
 tasks:
   dev:
-    desc: "Run Tauri in development mode"
+    desc: "Run Tauri in development mode (also rebuilds roux-cli)"
     cmds:
+      - task: cli:install
       - npm run tauri dev
 
   dev:up:
@@ -11,6 +12,7 @@ tasks:
     cmds:
       - npm install
       - cd src-tauri && cargo check
+      - task: cli:install
 
   dev:clean:
     desc: "Remove installed desktop app"
@@ -24,11 +26,28 @@ tasks:
           echo "No installed app found at $APP"
         fi
 
+  cli:install:
+    desc: "Build and install roux-cli to ~/.local/bin"
+    cmds:
+      - cd src-tauri && cargo build --bin roux-cli
+      - |
+        mkdir -p ~/.local/bin
+        cp src-tauri/target/debug/roux-cli ~/.local/bin/roux-cli
+        chmod +x ~/.local/bin/roux-cli
+        echo "Installed roux-cli to ~/.local/bin/roux-cli"
+
   dev:install:
-    desc: "Build and install the desktop app locally"
+    desc: "Build and install the desktop app and CLI locally"
     cmds:
       - npm run tauri build
       - |
+        # Install roux-cli (release build)
+        mkdir -p ~/.local/bin
+        cp src-tauri/target/release/roux-cli ~/.local/bin/roux-cli
+        chmod +x ~/.local/bin/roux-cli
+        echo "Installed roux-cli to ~/.local/bin/roux-cli"
+      - |
+        # Install desktop app
         APP="/Applications/Roux.app"
         if [ -d "$APP" ]; then
           echo "Removing existing $APP"
