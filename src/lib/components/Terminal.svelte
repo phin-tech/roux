@@ -5,11 +5,15 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { onPtyOutput, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
-  import { setSessionDisconnected } from "$lib/stores/sessions";
+  import { onPtyOutput, onSessionExit, writeToSession, resizeSession, createSession } from "$lib/tauri";
+  import { sessionState, setSessionDisconnected, addSession, removeSession } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
-  import { ensureClaudeTerminal } from "$lib/panes/terminalRegistry";
+  import { ensureClaudeTerminal, disposeClaudeTerminal } from "$lib/panes/terminalRegistry";
+  import { initSessionPanes, removeSessionPanes } from "$lib/stores/panes";
+  import { closeAuxiliaryPanes } from "$lib/panes/actions";
+  import { killSession } from "$lib/tauri";
   import { getXtermTheme } from "$lib/themes";
+  import SessionPicker from "./SessionPicker.svelte";
 
   interface Props {
     sessionId: string;
@@ -18,10 +22,50 @@
 
   let { sessionId, active }: Props = $props();
 
-  let containerEl: HTMLDivElement;
+  let containerEl: HTMLDivElement | undefined = $state();
   let terminal: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
   let resizeObserver: ResizeObserver | null = null;
+
+  const session = $derived($sessionState.sessions.find((s) => s.id === sessionId));
+  const isDisconnected = $derived(session?.status === "disconnected");
+
+  async function handleResume(claudeSessionId: string) {
+    if (!session) return;
+    await closeAuxiliaryPanes(sessionId);
+    await disposeClaudeTerminal(sessionId);
+    await killSession(sessionId).catch(() => {});
+    removeSessionPanes(sessionId);
+    removeSession(sessionId);
+
+    const newSession = await createSession(
+      session.repoRoot,
+      session.name,
+      session.worktreePath !== session.repoRoot ? session.worktreePath : null,
+      null,
+      ["--resume", claudeSessionId],
+    );
+    addSession(newSession);
+    initSessionPanes(newSession.id);
+  }
+
+  async function handleNew() {
+    if (!session) return;
+    await closeAuxiliaryPanes(sessionId);
+    await disposeClaudeTerminal(sessionId);
+    await killSession(sessionId).catch(() => {});
+    removeSessionPanes(sessionId);
+    removeSession(sessionId);
+
+    const newSession = await createSession(
+      session.repoRoot,
+      session.name,
+      session.worktreePath !== session.repoRoot ? session.worktreePath : null,
+      null,
+    );
+    addSession(newSession);
+    initSessionPanes(newSession.id);
+  }
 
   function getOrCreateTerminal() {
     return ensureClaudeTerminal(sessionId, () => ({
@@ -122,7 +166,9 @@
         }
       }
     });
-    resizeObserver.observe(containerEl);
+    if (containerEl) {
+      resizeObserver.observe(containerEl);
+    }
 
     if (active) attach();
   });
@@ -146,17 +192,27 @@
   });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<div
-  class="flex h-full w-full p-2"
-  class:hidden={!active}
->
+{#if isDisconnected && session}
+  <div class="ui-terminal-frame h-full w-full overflow-hidden rounded-[0.95rem]">
+    <SessionPicker
+      cwd={session.worktreePath}
+      onResume={handleResume}
+      onNew={handleNew}
+    />
+  </div>
+{:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    bind:this={containerEl}
-    class="h-full w-full overflow-hidden rounded-[0.95rem] bg-[#0a0a0a] shadow-[inset_0_0_0_1px_rgba(39,39,42,0.9),inset_0_18px_36px_rgba(255,255,255,0.02)]"
-    onclick={() => terminal?.focus()}
-  ></div>
-</div>
+    class="flex h-full w-full p-2"
+    class:hidden={!active}
+  >
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      bind:this={containerEl}
+      class="ui-terminal-frame h-full w-full overflow-hidden rounded-[0.95rem]"
+      onclick={() => terminal?.focus()}
+    ></div>
+  </div>
+{/if}

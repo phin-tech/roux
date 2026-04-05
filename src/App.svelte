@@ -87,6 +87,7 @@
     const theme = normalizeTheme($settings.theme);
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
+    document.documentElement.style.setProperty("--font-sans", $settings.uiFontFamily);
   });
 
   onDestroy(() => {

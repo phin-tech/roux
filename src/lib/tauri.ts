@@ -6,6 +6,7 @@ import type {
   Worktree,
   SessionStatusPayload,
   TaskGroup,
+  ClaudeSession,
 } from "./types";
 
 // Commands (frontend → backend)
@@ -13,13 +14,17 @@ export async function createSession(
   repoPath: string,
   name: string,
   worktreePath: string | null,
-  branch: string | null
+  branch: string | null,
+  extraFlags?: string[],
+  nonoProfile?: string | null,
 ): Promise<Session> {
   return invoke("create_session", {
     repoPath,
     name,
     worktreePath,
     branch,
+    extraFlags: extraFlags ?? null,
+    nonoProfile: nonoProfile ?? null,
   });
 }
 
@@ -81,6 +86,25 @@ export async function listWorktrees(
   repoPath: string
 ): Promise<Worktree[]> {
   return invoke("cmd_list_worktrees", { repoPath });
+}
+
+// Claude sessions
+export async function listClaudeSessions(cwd: string): Promise<ClaudeSession[]> {
+  return invoke("list_claude_sessions", { cwd });
+}
+
+// Git
+export async function listBranches(repoPath: string): Promise<string[]> {
+  return invoke("cmd_list_branches", { repoPath });
+}
+
+// Nono sandbox integration
+export async function checkNonoInstalled(): Promise<boolean> {
+  return invoke("check_nono_installed");
+}
+
+export async function listNonoProfiles(): Promise<string[]> {
+  return invoke("list_nono_profiles");
 }
 
 // Editor integration

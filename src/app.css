@@ -1,20 +1,20 @@
 @import "tailwindcss";
 
 @theme {
-  --app-bg-start: #08111f;
-  --app-bg-end: #020617;
-  --app-glow: rgba(14, 165, 233, 0.1);
-  --color-bg-deep: #020617;
-  --color-bg-base: #0f172a;
-  --color-bg-surface: #111827;
-  --color-bg-elevated: #1e293b;
-  --color-bg-hover: #243244;
-  --color-bg-active: rgba(30, 41, 59, 0.72);
-  --color-border: rgba(71, 85, 105, 0.8);
-  --color-border-subtle: rgba(51, 65, 85, 0.45);
-  --color-text-primary: #e5edf8;
-  --color-text-secondary: #b7c2d6;
-  --color-text-muted: #7f8ba3;
+  --app-bg-start: #0a0a0b;
+  --app-bg-end: #09090b;
+  --app-glow: rgba(14, 165, 233, 0.06);
+  --color-bg-deep: #09090b;
+  --color-bg-base: #0f0f11;
+  --color-bg-surface: #18181b;
+  --color-bg-elevated: #27272a;
+  --color-bg-hover: #2e2e32;
+  --color-bg-active: rgba(39, 39, 42, 0.72);
+  --color-border: rgba(113, 113, 122, 0.4);
+  --color-border-subtle: rgba(82, 82, 91, 0.25);
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #52525b;
   --color-accent: #7dd3fc;
   --color-accent-dim: #0ea5e9;
   --color-green: #4ade80;
@@ -25,7 +25,7 @@
   --color-red-dim: #9f1239;
   --color-blue: #38bdf8;
   --color-blue-dim: #0369a1;
-  --color-gray: #64748b;
+  --color-gray: #71717a;
   --font-mono: "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", monospace;
   --font-sans: "Geist", "Inter", "SF Pro Display", "Segoe UI", sans-serif;
 }
@@ -42,7 +42,7 @@
   body {
     font-family: var(--font-sans);
     background:
-      radial-gradient(circle at top, var(--app-glow), transparent 34%),
+      radial-gradient(circle at top, var(--app-glow), transparent 50%),
       linear-gradient(180deg, var(--app-bg-start) 0%, var(--app-bg-end) 100%);
     color: var(--color-text-primary);
     height: 100vh;
@@ -73,20 +73,20 @@
 @layer base {
   :root[data-theme="steel-amber"],
   body[data-theme="steel-amber"] {
-    --app-bg-start: #16110a;
+    --app-bg-start: #0c0a08;
     --app-bg-end: #09090b;
-    --app-glow: rgba(245, 158, 11, 0.12);
+    --app-glow: rgba(245, 158, 11, 0.06);
     --color-bg-deep: #09090b;
-    --color-bg-base: #18181b;
-    --color-bg-surface: #27272a;
-    --color-bg-elevated: #3f3f46;
-    --color-bg-hover: #45454d;
-    --color-bg-active: rgba(63, 63, 70, 0.72);
-    --color-border: rgba(161, 161, 170, 0.7);
-    --color-border-subtle: rgba(113, 113, 122, 0.4);
+    --color-bg-base: #0f0f11;
+    --color-bg-surface: #1c1a17;
+    --color-bg-elevated: #2a2825;
+    --color-bg-hover: #33312d;
+    --color-bg-active: rgba(42, 40, 37, 0.72);
+    --color-border: rgba(161, 161, 170, 0.35);
+    --color-border-subtle: rgba(113, 113, 122, 0.2);
     --color-text-primary: #fafaf9;
-    --color-text-secondary: #e4e4e7;
-    --color-text-muted: #a1a1aa;
+    --color-text-secondary: #a8a29e;
+    --color-text-muted: #57534e;
     --color-accent: #fbbf24;
     --color-accent-dim: #f59e0b;
     --color-green: #86efac;
@@ -97,25 +97,25 @@
     --color-red-dim: #9f1239;
     --color-blue: #cbd5e1;
     --color-blue-dim: #64748b;
-    --color-gray: #a1a1aa;
+    --color-gray: #78716c;
   }
 
   :root[data-theme="slate-emerald"],
   body[data-theme="slate-emerald"] {
-    --app-bg-start: #081512;
-    --app-bg-end: #07110f;
-    --app-glow: rgba(52, 211, 153, 0.11);
-    --color-bg-deep: #07110f;
-    --color-bg-base: #0f1f1a;
-    --color-bg-surface: #132923;
-    --color-bg-elevated: #1c3a31;
-    --color-bg-hover: #24493d;
-    --color-bg-active: rgba(28, 58, 49, 0.72);
-    --color-border: rgba(110, 231, 183, 0.32);
-    --color-border-subtle: rgba(52, 211, 153, 0.16);
+    --app-bg-start: #080b0a;
+    --app-bg-end: #09090b;
+    --app-glow: rgba(52, 211, 153, 0.05);
+    --color-bg-deep: #09090b;
+    --color-bg-base: #0d100f;
+    --color-bg-surface: #151a18;
+    --color-bg-elevated: #1f2724;
+    --color-bg-hover: #28302d;
+    --color-bg-active: rgba(31, 39, 36, 0.72);
+    --color-border: rgba(110, 231, 183, 0.18);
+    --color-border-subtle: rgba(52, 211, 153, 0.09);
     --color-text-primary: #f0fdfa;
-    --color-text-secondary: #d1fae5;
-    --color-text-muted: #86a89d;
+    --color-text-secondary: #94a3b8;
+    --color-text-muted: #4b5e56;
     --color-accent: #34d399;
     --color-accent-dim: #10b981;
     --color-green: #34d399;
@@ -126,25 +126,25 @@
     --color-red-dim: #9f1239;
     --color-blue: #5eead4;
     --color-blue-dim: #0f766e;
-    --color-gray: #6b8f84;
+    --color-gray: #5a6e66;
   }
 
   :root[data-theme="graphite-rose"],
   body[data-theme="graphite-rose"] {
-    --app-bg-start: #16101a;
-    --app-bg-end: #0b0a0f;
-    --app-glow: rgba(244, 114, 182, 0.12);
-    --color-bg-deep: #0b0a0f;
-    --color-bg-base: #15131c;
-    --color-bg-surface: #201c29;
-    --color-bg-elevated: #2d2639;
-    --color-bg-hover: #3a3148;
-    --color-bg-active: rgba(45, 38, 57, 0.76);
-    --color-border: rgba(217, 70, 239, 0.24);
-    --color-border-subtle: rgba(244, 114, 182, 0.14);
-    --color-text-primary: #faf5ff;
-    --color-text-secondary: #f5dff1;
-    --color-text-muted: #b4a4b8;
+    --app-bg-start: #0b0a0c;
+    --app-bg-end: #09090b;
+    --app-glow: rgba(244, 114, 182, 0.05);
+    --color-bg-deep: #09090b;
+    --color-bg-base: #0f0e11;
+    --color-bg-surface: #1a181e;
+    --color-bg-elevated: #252229;
+    --color-bg-hover: #2e2a33;
+    --color-bg-active: rgba(37, 34, 41, 0.76);
+    --color-border: rgba(217, 70, 239, 0.14);
+    --color-border-subtle: rgba(244, 114, 182, 0.08);
+    --color-text-primary: #fafafa;
+    --color-text-secondary: #a1a1aa;
+    --color-text-muted: #5c5465;
     --color-accent: #fb7185;
     --color-accent-dim: #f472b6;
     --color-green: #4ade80;
@@ -155,19 +155,47 @@
     --color-red-dim: #9f1239;
     --color-blue: #c4b5fd;
     --color-blue-dim: #8b5cf6;
-    --color-gray: #8f8399;
+    --color-gray: #6e6478;
   }
 }
 
 @layer utilities {
+  .ui-panel {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.012) 0%, rgba(255, 255, 255, 0) 22%),
+      var(--color-bg-deep);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  }
+
+  .ui-dialog {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.015) 0%, rgba(255, 255, 255, 0) 18%),
+      var(--color-bg-base);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 24px 72px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .ui-terminal-frame {
+    background: var(--color-bg-deep);
+    border: none;
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.04),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  }
+
   .app-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(71, 85, 105, 0.9) transparent;
+    scrollbar-color: transparent transparent;
+  }
+
+  .app-scrollbar:hover {
+    scrollbar-color: var(--color-border) transparent;
   }
 
   .app-scrollbar::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   .app-scrollbar::-webkit-scrollbar-track {
@@ -175,14 +203,16 @@
   }
 
   .app-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(71, 85, 105, 0.8);
+    background: transparent;
     border-radius: 9999px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
+    transition: background 0.15s;
+  }
+
+  .app-scrollbar:hover::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
   }
 
   .app-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(100, 116, 139, 0.95);
-    background-clip: padding-box;
+    background: rgba(255, 255, 255, 0.18);
   }
 }

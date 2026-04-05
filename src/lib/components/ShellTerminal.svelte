@@ -13,11 +13,12 @@
   interface Props {
     ptyId: string;
     paneId: string;
+    active?: boolean;
     closeOnExit?: boolean;
     onClose: () => void | Promise<void>;
   }
 
-  let { ptyId, paneId, closeOnExit = true, onClose }: Props = $props();
+  let { ptyId, paneId, active = true, closeOnExit = true, onClose }: Props = $props();
 
   let containerEl: HTMLDivElement;
   let terminal: Terminal | null = null;
@@ -112,6 +113,17 @@
     terminal = getOrCreateTerminal().terminal;
     terminal.options.theme = getXtermTheme($settings.theme);
   });
+
+  // Refit when session becomes active (container goes from display:none to visible)
+  $effect(() => {
+    if (active && fitAddon) {
+      requestAnimationFrame(() => {
+        fitAddon?.fit();
+        const dims = fitAddon?.proposeDimensions();
+        if (dims) resizeSession(ptyId, dims.cols, dims.rows);
+      });
+    }
+  });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -124,12 +136,12 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     bind:this={containerEl}
-    class="h-full w-full overflow-hidden rounded-[0.95rem] bg-[#0a0a0a] shadow-[inset_0_0_0_1px_rgba(39,39,42,0.9),inset_0_18px_36px_rgba(255,255,255,0.02)]"
+    class="ui-terminal-frame h-full w-full overflow-hidden rounded-[0.95rem]"
     onclick={() => terminal?.focus()}
   ></div>
   {#if hovering}
     <button
-      class="absolute right-4 top-4 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-zinc-800/70 bg-zinc-900/85 text-xs leading-none text-zinc-500 backdrop-blur-sm hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+      class="absolute right-4 top-4 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-border-subtle bg-bg-surface/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={handleClose}
       title="Close pane"
     >

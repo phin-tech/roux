@@ -25,6 +25,7 @@ export interface RouxSettings {
   tabWidth: number;
   fontSize: number;
   fontFamily: string;
+  uiFontFamily: string;
   lineHeight: number;
   scrollback: number;
   cursorStyle: "block" | "underline" | "bar";
@@ -58,6 +59,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   tabWidth: 260,
   fontSize: 14,
   fontFamily: "JetBrains Mono, IBM Plex Mono, SFMono-Regular, monospace",
+  uiFontFamily: "Geist, Inter, SF Pro Display, Segoe UI, sans-serif",
   lineHeight: 1.2,
   scrollback: 5000,
   cursorStyle: "block",
@@ -73,5 +75,11 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   taskPanelSplit: 0.4,
   taskPanelCollapsed: false,
 };
+
+export interface ClaudeSession {
+  sessionId: string;
+  summary: string;
+  modifiedAt: number;
+}
 
 export type { KeepOpen, TaskDefinition, TaskGroup, TaskRun } from "./types/tasks";

@@ -68,6 +68,24 @@ fn cmd_list_worktrees(repo_path: String) -> Result<Vec<worktree::Worktree>, Stri
 }
 
 #[tauri::command]
+fn cmd_list_branches(repo_path: String) -> Result<Vec<String>, String> {
+    let output = std::process::Command::new("git")
+        .args(["branch", "--format=%(refname:short)"])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("Failed to list branches: {}", e))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    let branches = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    Ok(branches)
+}
+
+#[tauri::command]
 fn cmd_open_in_editor(path: String) -> Result<(), String> {
     std::process::Command::new("code")
         .arg(&path)
@@ -128,6 +146,7 @@ fn create_session(
     worktree_path: Option<String>,
     branch: Option<String>,
     extra_flags: Option<Vec<String>>,
+    nono_profile: Option<String>,
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
@@ -163,6 +182,7 @@ fn create_session(
         &work_dir,
         settings.default_model.as_deref(),
         &all_flags,
+        nono_profile.as_deref(),
         app.clone(),
     );
 
@@ -191,6 +211,133 @@ fn create_session(
 
     state.session_store.add(session.clone());
     Ok(session)
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeSession {
+    session_id: String,
+    summary: String,
+    modified_at: u64,
+}
+
+#[tauri::command]
+fn list_claude_sessions(cwd: String) -> Result<Vec<ClaudeSession>, String> {
+    use std::io::BufRead;
+
+    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
+    let projects_dir = home.join(".claude").join("projects");
+
+    // Claude encodes the path by replacing / with -
+    let encoded = cwd.replace('/', "-");
+    let project_dir = projects_dir.join(&encoded);
+
+    if !project_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut sessions = Vec::new();
+
+    for entry in std::fs::read_dir(&project_dir).map_err(|e| e.to_string())? {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        let ext = path.extension().and_then(|e| e.to_str());
+        if ext != Some("jsonl") {
+            continue;
+        }
+        let session_id = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+
+        let modified_at = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // Read first user message as summary
+        let summary = (|| -> Option<String> {
+            let file = std::fs::File::open(&path).ok()?;
+            let reader = std::io::BufReader::new(file);
+            for line in reader.lines() {
+                let line = line.ok()?;
+                if !line.contains("\"type\":\"user\"") {
+                    continue;
+                }
+                let val: serde_json::Value = serde_json::from_str(&line).ok()?;
+                let content = val.get("message")?.get("content")?;
+                if let Some(s) = content.as_str() {
+                    return Some(s.chars().take(120).collect());
+                }
+                if let Some(arr) = content.as_array() {
+                    for item in arr {
+                        if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                                return Some(text.chars().take(120).collect());
+                            }
+                        }
+                    }
+                }
+                return None;
+            }
+            None
+        })()
+        .unwrap_or_default();
+
+        sessions.push(ClaudeSession { session_id, summary, modified_at });
+    }
+
+    sessions.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+    Ok(sessions)
+}
+
+#[tauri::command]
+fn check_nono_installed() -> bool {
+    // Check if `nono` is on the user's PATH
+    let user_path = std::process::Command::new("/bin/bash")
+        .args(["-l", "-c", "echo $PATH"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+
+    std::process::Command::new("/bin/bash")
+        .args(["-c", "command -v nono"])
+        .env("PATH", &user_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+fn list_nono_profiles() -> Vec<String> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    let profiles_dir = home.join(".config").join("nono").join("profiles");
+    if !profiles_dir.is_dir() {
+        return Vec::new();
+    }
+    let mut profiles = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&profiles_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // Use file stem (without extension) as the profile name
+            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                profiles.push(name.to_string());
+            }
+        }
+    }
+    profiles.sort();
+    profiles
 }
 
 fn get_current_branch(repo_path: &str) -> Option<String> {
@@ -298,9 +445,13 @@ fn main() {
             kill_session,
             create_session,
             list_sessions,
+            list_claude_sessions,
             read_file,
             list_docs,
             cmd_open_in_editor,
+            cmd_list_branches,
+            check_nono_installed,
+            list_nono_profiles,
             tasks::cmd_discover_tasks,
             tasks::cmd_load_task_overrides,
             tasks::cmd_save_task_overrides,

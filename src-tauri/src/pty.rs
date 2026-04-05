@@ -150,6 +150,7 @@ impl PtyManager {
         working_dir: &str,
         model: Option<&str>,
         additional_flags: &[String],
+        nono_profile: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), String> {
         let pty_system = native_pty_system();
@@ -158,7 +159,7 @@ impl PtyManager {
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-        // Get the user's login shell PATH so we can find `claude`
+        // Get the user's login shell PATH so we can find `claude` / `nono`
         let user_path = std::process::Command::new("/bin/bash")
             .args(["-l", "-c", "echo $PATH"])
             .output()
@@ -167,7 +168,19 @@ impl PtyManager {
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
 
-        let mut cmd = CommandBuilder::new("claude");
+        let mut cmd = if let Some(profile) = nono_profile {
+            // Wrap with nono: nono run --profile <profile> --allow-cwd -- claude [args]
+            let mut c = CommandBuilder::new("nono");
+            c.arg("run");
+            c.arg("--profile");
+            c.arg(profile);
+            c.arg("--allow-cwd");
+            c.arg("--");
+            c.arg("claude");
+            c
+        } else {
+            CommandBuilder::new("claude")
+        };
         cmd.env("PATH", &user_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");

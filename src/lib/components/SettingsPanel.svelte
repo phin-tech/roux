@@ -22,13 +22,13 @@
 </script>
 
 <div
-  class="absolute top-0 right-0 bottom-0 z-50 flex w-[380px] flex-col border-l border-white/8 bg-bg-surface shadow-[-18px_0_48px_rgba(2,6,23,0.45)] transition-transform duration-250
+  class="absolute top-0 right-0 bottom-0 z-50 flex w-[380px] flex-col border-l border-white/[0.05] bg-bg-deep shadow-[-18px_0_48px_rgba(2,6,23,0.45)] transition-transform duration-250
     {visible ? 'translate-x-0' : 'translate-x-full'}"
 >
-  <div class="flex items-center justify-between border-b border-white/6 bg-slate-800/50 px-5 py-4 backdrop-blur-sm">
+  <div class="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.05] bg-bg-surface/30 px-3">
     <span class="text-sm font-semibold tracking-tight">Settings</span>
     <button
-      class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-white/8 hover:bg-bg-hover hover:text-text-primary"
+      class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
       onclick={onclose}
     >&times;</button>
   </div>
@@ -37,7 +37,7 @@
     <!-- Preferences -->
     <section class="mb-6">
       <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Preferences</h3>
-      <div class="rounded-xl border border-white/6 bg-white/[0.02] p-3">
+      <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
         <div class="flex items-start justify-between gap-3">
           <div>
             <div class="text-[13px]">Theme</div>
@@ -130,11 +130,19 @@
         />
       </div>
       <div class="flex items-center justify-between py-2">
-        <span class="text-[13px]">Font family</span>
+        <span class="text-[13px]">Terminal font</span>
         <input
           class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-35 text-right focus:border-accent-dim"
           value={$settings.fontFamily}
           oninput={(e) => updateSetting("fontFamily", e.currentTarget.value)}
+        />
+      </div>
+      <div class="flex items-center justify-between py-2">
+        <span class="text-[13px]">UI font</span>
+        <input
+          class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-35 text-right focus:border-accent-dim"
+          value={$settings.uiFontFamily}
+          oninput={(e) => updateSetting("uiFontFamily", e.currentTarget.value)}
         />
       </div>
       <div class="flex items-center justify-between py-2">

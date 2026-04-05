@@ -3,7 +3,7 @@ import { queries } from "$lib/queries";
 import { addSession, setActiveSession, triggerRename } from "$lib/stores/sessions";
 import { settings, updateSetting } from "$lib/stores/settings";
 import { addSplit, initSessionPanes } from "$lib/stores/panes";
-import { spawnShell, listDocs, writeToSession, createSession, openInEditor } from "$lib/tauri";
+import { spawnShell, spawnTask, listDocs, writeToSession, createSession, openInEditor, listBranches } from "$lib/tauri";
 import { closeFocusedPane } from "$lib/panes/actions";
 import { closeSession } from "$lib/sessions/close";
 import { reconnectSession } from "$lib/sessions/reconnect";
@@ -243,16 +243,56 @@ export function registerCommands() {
     label: "New Worktree",
     category: "Sessions",
     available: () => !!queries.activeSession(),
-    execute: async () => {
+    inputPlaceholder: "Branch name (pick existing or type new)...",
+    getItems: async () => {
+      const session = queries.activeSession();
+      if (!session) return [];
+      const branches = await listBranches(session.repoRoot).catch(() => [] as string[]);
+      return branches.map((branch) => ({
+        id: branch,
+        label: branch,
+        action: async () => {
+          const repo = session.repoRoot;
+          const name = repo.split("/").pop() + "-" + branch;
+          const newSession = await createSession(repo, name, null, branch);
+          addSession(newSession);
+          initSessionPanes(newSession.id);
+        },
+      }));
+    },
+    onInput: async (branch: string) => {
       const session = queries.activeSession();
       if (!session) return;
-      const branch = window.prompt("Branch name for new worktree:");
-      if (!branch?.trim()) return;
       const repo = session.repoRoot;
-      const name = repo.split("/").pop() + "-" + branch.trim();
-      const newSession = await createSession(repo, name, null, branch.trim());
+      const name = repo.split("/").pop() + "-" + branch;
+      const newSession = await createSession(repo, name, null, branch);
       addSession(newSession);
       initSessionPanes(newSession.id);
+    },
+  });
+
+  // -- Spawn command pane --
+  registry.register({
+    id: "pane.run-command",
+    label: "Run Command",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    inputPlaceholder: "Enter command to run...",
+    getItems: () => [],
+    onInput: async (command: string) => {
+      const session = queries.activeSession();
+      const activeId = queries.activeSessionId();
+      if (!session || !activeId) return;
+      const paneId = `cmd-${crypto.randomUUID()}`;
+      const ptyId = `${paneId}-${Date.now()}`;
+      await spawnTask(ptyId, command, session.worktreePath);
+      addSplit(activeId, "horizontal", {
+        id: paneId,
+        type: "command",
+        ptyId,
+        command,
+        workingDir: session.worktreePath,
+      });
     },
   });
 

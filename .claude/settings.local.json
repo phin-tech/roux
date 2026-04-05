@@ -57,7 +57,12 @@
       "Bash(npx vitest:*)",
       "Bash(RUSTFLAGS=\"-D warnings\" cargo check --manifest-path src-tauri/Cargo.toml)",
       "Bash(codex:*)",
-      "Bash(xargs basename:*)"
+      "Bash(xargs basename:*)",
+      "WebFetch(domain:nono.sh)",
+      "WebFetch(domain:docs.nono.sh)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:www.alwaysfurther.ai)",
+      "Bash(npx vite:*)"
     ]
   }
 }

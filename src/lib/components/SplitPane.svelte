@@ -31,12 +31,9 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      class="relative flex-1 min-h-0 min-w-0 overflow-hidden rounded-[1.15rem] shadow-[0_22px_48px_rgba(2,6,23,0.42)] transition-colors ring-1 ring-inset {$focusedPaneId === node.pane.id ? 'bg-zinc-900/80 ring-zinc-700/60' : 'bg-zinc-950/92 ring-zinc-800/50'} focus-within:ring-sky-500/50"
+      class="relative flex-1 min-h-0 min-w-0 overflow-hidden rounded-xl transition-colors {$focusedPaneId === node.pane.id ? 'bg-bg-surface/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-bg-deep shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]'}"
       onmousedown={(e) => handlePaneMouseDown(e, node.pane.id)}
     >
-      {#if $focusedPaneId === node.pane.id}
-        <div class="absolute left-0 top-3 bottom-3 z-10 w-[2px] rounded-full bg-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.45)]"></div>
-      {/if}
       {#if node.pane.type === "claude"}
         <Terminal sessionId={node.pane.ptyId} active={sessionActive} />
       {:else if node.pane.type === "doc"}
@@ -52,6 +49,7 @@
           workingDir={node.pane.workingDir ?? ""}
           paneId={node.pane.id}
           initialPtyId={node.pane.ptyId}
+          active={sessionActive}
           onClose={async () => {
             await closePane(sessionId, node.pane.id);
           }}
@@ -60,6 +58,7 @@
         <ShellTerminal
           ptyId={node.pane.ptyId}
           paneId={node.pane.id}
+          active={sessionActive}
           closeOnExit={!node.pane.id.startsWith("task-")}
           onClose={async () => {
             await closePane(sessionId, node.pane.id);
@@ -70,7 +69,7 @@
   {/key}
 {:else}
   <div
-    class="flex flex-1 min-h-0 min-w-0 gap-3"
+    class="flex flex-1 min-h-0 min-w-0 gap-2"
     class:flex-row={node.direction === "horizontal"}
     class:flex-col={node.direction === "vertical"}
   >

@@ -12,7 +12,7 @@
 
   let { open, onclose, onNewSession, onSettings }: Props = $props();
 
-  let stepStack = $state<{ label: string; items: CmdItem[] }[]>([]);
+  let stepStack = $state<{ label: string; items: CmdItem[]; sourceCmd?: Cmd }[]>([]);
   let inputValue = $state("");
 
   let inDrillStep = $derived(stepStack.length > 0);
@@ -61,7 +61,7 @@
   async function handleCommandSelect(cmd: Cmd) {
     if (cmd.getItems) {
       const items = await cmd.getItems();
-      stepStack = [...stepStack, { label: cmd.label, items }];
+      stepStack = [...stepStack, { label: cmd.label, items, sourceCmd: cmd }];
       inputValue = "";
       return;
     }
@@ -113,6 +113,18 @@
     }
   }
 
+  async function handleInputSubmit() {
+    if (!inDrillStep || !inputValue.trim()) return;
+    const cmd = currentStep?.sourceCmd;
+    if (!cmd?.onInput) return;
+    const text = inputValue.trim();
+    stepStack = [];
+    inputValue = "";
+    onclose();
+    await new Promise(r => setTimeout(r, 50));
+    await cmd.onInput(text);
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -124,6 +136,12 @@
         inputValue = "";
         onclose();
       }
+      return;
+    }
+    if (e.key === "Enter" && inDrillStep && inputValue.trim() && currentStep?.sourceCmd?.onInput) {
+      e.preventDefault();
+      e.stopPropagation();
+      void handleInputSubmit();
       return;
     }
     if (e.key === "Backspace" && inputValue === "" && inDrillStep) {
@@ -144,7 +162,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       bind:this={dialogEl}
-      class="flex max-h-[440px] w-[560px] flex-col overflow-hidden rounded-[1.4rem] border border-white/8 bg-slate-900/96 shadow-[0_24px_72px_rgba(2,6,23,0.58)]"
+      class="ui-dialog flex max-h-[440px] w-[560px] flex-col overflow-hidden rounded-[1.4rem]"
       onkeydown={handleKeyDown}
       transition:scale={{ duration: 120, start: 0.985 }}
     >
@@ -173,7 +191,7 @@
         loop={true}
         vimBindings={true}
       >
-        <div class="flex items-center gap-2 border-b border-white/6 bg-slate-800/55 px-5 py-4">
+        <div class="flex items-center gap-2 border-b border-border-subtle bg-bg-surface/55 px-5 py-4">
           {#if inDrillStep}
             <button
               class="text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0 text-sm"
@@ -183,7 +201,7 @@
           {/if}
           <Command.Input
             bind:value={inputValue}
-            placeholder={inDrillStep ? `Search ${currentStep?.label}...` : "Type a command..."}
+            placeholder={inDrillStep ? (currentStep?.sourceCmd?.inputPlaceholder ?? `Search ${currentStep?.label}...`) : "Type a command..."}
             class="flex-1 border-none bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
           />
         </div>
@@ -266,12 +284,12 @@
     transition: background 0.1s, border-color 0.1s, transform 0.1s;
   }
   :global(.cmd-item:hover) {
-    background: rgba(36, 50, 68, 0.72);
-    border-color: rgba(148, 163, 184, 0.12);
+    background: color-mix(in srgb, var(--color-bg-hover) 82%, transparent);
+    border-color: var(--color-border-subtle);
   }
   :global(.cmd-item[data-selected]) {
-    background: rgba(30, 41, 59, 0.88);
-    border-color: rgba(125, 211, 252, 0.28);
+    background: var(--color-bg-active);
+    border-color: var(--color-border);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
     transform: translateY(-1px);
   }

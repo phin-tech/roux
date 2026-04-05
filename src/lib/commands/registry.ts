@@ -23,6 +23,10 @@ export interface Command {
    * When an item has action, it executes and closes.
    */
   getItems?: () => CommandItem[] | Promise<CommandItem[]>;
+  /** Placeholder text shown in the input when drilled into this command */
+  inputPlaceholder?: string;
+  /** Called when user presses Enter with text that doesn't match any item */
+  onInput?: (text: string) => void | Promise<void>;
 }
 
 export class CommandRegistry {

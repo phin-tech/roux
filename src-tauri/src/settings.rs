@@ -4,6 +4,10 @@ use std::path::PathBuf;
 
 const DEFAULT_THEME: &str = "deep-blue";
 
+fn default_ui_font_family() -> String {
+    "Geist, Inter, SF Pro Display, Segoe UI, sans-serif".to_string()
+}
+
 fn normalize_theme(theme: &str) -> String {
     match theme {
         "dark" | "deep-blue" => DEFAULT_THEME.to_string(),
@@ -19,6 +23,8 @@ pub struct RouxSettings {
     pub tab_width: u32,
     pub font_size: u32,
     pub font_family: String,
+    #[serde(default = "default_ui_font_family")]
+    pub ui_font_family: String,
     pub line_height: f64,
     pub scrollback: u32,
     pub cursor_style: String,
@@ -42,6 +48,7 @@ impl Default for RouxSettings {
             tab_width: 260,
             font_size: 14,
             font_family: "JetBrains Mono, IBM Plex Mono, SFMono-Regular, monospace".to_string(),
+            ui_font_family: default_ui_font_family(),
             line_height: 1.2,
             scrollback: 5000,
             cursor_style: "block".to_string(),

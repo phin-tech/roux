@@ -88,12 +88,12 @@
   }
 
   const statusClasses: Record<Session["status"], string> = {
-    idle: "bg-green shadow-[0_0_12px_var(--color-green-dim)]",
-    thinking: "bg-amber shadow-[0_0_14px_var(--color-amber-dim)]",
-    generating: "bg-blue shadow-[0_0_14px_var(--color-blue-dim)]",
-    error: "bg-red shadow-[0_0_6px_var(--color-red-dim)]",
-    disconnected: "bg-gray opacity-60",
-    attention: "bg-amber shadow-[0_0_14px_var(--color-amber-dim)]",
+    idle: "bg-green shadow-[0_0_6px_var(--color-green-dim)]",
+    thinking: "bg-amber shadow-[0_0_8px_var(--color-amber-dim)]",
+    generating: "bg-blue shadow-[0_0_8px_var(--color-blue-dim)]",
+    error: "bg-red shadow-[0_0_4px_var(--color-red-dim)]",
+    disconnected: "bg-gray opacity-40",
+    attention: "bg-amber shadow-[0_0_8px_var(--color-amber-dim)]",
   };
 
   const labelClasses: Record<Session["status"], string> = {
@@ -115,12 +115,12 @@
   };
 
   const railClasses: Record<Session["status"], string> = {
-    idle: "bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.25)]",
-    thinking: "bg-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.45)]",
-    generating: "bg-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.45)]",
-    error: "bg-rose-400 shadow-[0_0_12px_rgba(251,113,133,0.4)]",
-    disconnected: "bg-zinc-600",
-    attention: "bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.38)]",
+    idle: "bg-accent shadow-[0_0_6px_var(--color-blue-dim)]",
+    thinking: "bg-accent shadow-[0_0_6px_var(--color-blue-dim)]",
+    generating: "bg-accent shadow-[0_0_6px_var(--color-blue-dim)]",
+    error: "bg-red shadow-[0_0_6px_var(--color-red-dim)]",
+    disconnected: "bg-gray",
+    attention: "bg-amber shadow-[0_0_6px_var(--color-amber-dim)]",
   };
 
   const pulsingStatuses: Session["status"][] = ["thinking", "generating", "attention"];
@@ -130,10 +130,10 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="group relative mb-2 w-full cursor-pointer overflow-hidden rounded-2xl px-3 py-3 text-left transition-colors duration-150
+  class="group relative mb-1 w-full cursor-pointer overflow-hidden rounded-lg px-3 py-2 text-left transition-colors duration-150
     {active
-      ? 'bg-white/[0.05] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_16px_32px_rgba(0,0,0,0.22)]'
-      : 'bg-transparent hover:bg-white/[0.03]'}"
+      ? 'bg-white/[0.05] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+      : 'bg-transparent hover:bg-white/[0.02]'}"
   onclick={onselect}
   oncontextmenu={(e) => {
     if (oncontextmenu) {
@@ -145,21 +145,21 @@
 >
   {#if active || pulsingStatuses.includes(session.status) || session.status === "error"}
     <div
-      class="absolute left-0 top-2 bottom-2 w-[2px] rounded-full {active ? 'bg-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.45)]' : railClasses[session.status]}"
+      class="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full {active ? 'bg-accent shadow-[0_0_6px_var(--color-blue-dim)]' : railClasses[session.status]}"
     ></div>
   {/if}
 
-  <div class="mb-2 flex items-start gap-2">
-    <div class="relative mt-0.5 flex h-3 w-3 shrink-0 items-center justify-center">
+  <div class="mb-1 flex items-start gap-2">
+    <div class="relative mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
       {#if pulsingStatuses.includes(session.status)}
-        <span class="absolute inline-flex h-full w-full rounded-full {statusClasses[session.status]} animate-ping opacity-60"></span>
+        <span class="absolute inline-flex h-2 w-2 rounded-full {statusClasses[session.status]} animate-ping opacity-50"></span>
       {/if}
-      <span class="relative inline-flex h-3 w-3 rounded-full {statusClasses[session.status]}"></span>
+      <span class="relative inline-flex h-2 w-2 rounded-full {statusClasses[session.status]}"></span>
     </div>
 
     {#if editing}
       <input
-        class="flex-1 rounded-lg border border-sky-400/30 bg-black/35 px-2 py-1 text-[13px] font-medium tracking-tight text-zinc-100 outline-none"
+        class="flex-1 rounded-md border border-accent-dim/30 bg-bg-deep px-2 py-1 text-[12px] font-medium tracking-tight text-text-primary outline-none"
         bind:value={editName}
         onblur={commitRename}
         onkeydown={(e) => {
@@ -176,19 +176,19 @@
     {:else}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <span
-        class="flex-1 truncate text-[13px] font-semibold tracking-tight text-zinc-100"
+        class="flex-1 truncate text-[12px] font-medium tracking-tight {active ? 'text-text-primary' : 'text-text-secondary'}"
         ondblclick={startEditing}
       >
         {session.name}
       </span>
     {/if}
 
-    <span class="rounded-full px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.22em] {labelClasses[session.status]}">
+    <span class="rounded-full px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.2em] {labelClasses[session.status]}">
       {labelText[session.status]}
     </span>
     {#if session.status === "disconnected"}
       <button
-        class="cursor-pointer rounded-full border border-sky-400/20 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-200 hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+        class="cursor-pointer rounded-full border border-accent-dim/20 bg-accent-dim/15 px-1.5 py-0.5 text-[9px] font-medium text-accent hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={(e) => {
           e.stopPropagation();
           onreconnect();
@@ -198,7 +198,7 @@
       </button>
     {/if}
     <button
-      class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1 text-sm text-zinc-600 opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-white/[0.05] hover:text-rose-300 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+      class="cursor-pointer rounded-md border border-transparent bg-transparent p-0.5 text-sm text-text-muted opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-white/[0.05] hover:text-red focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={(e) => {
         e.stopPropagation();
         onclose();
@@ -208,29 +208,29 @@
     </button>
   </div>
 
-  <div class="flex items-center gap-2 pl-5">
-    <span class="flex items-center gap-1 font-mono text-[11px] text-zinc-300">
-      <span class="text-[10px] opacity-70">&#9095;</span>
+  <div class="flex items-center gap-1.5 pl-4">
+    <span class="flex items-center gap-1 font-mono text-[10px] {active ? 'text-text-secondary' : 'text-text-muted'}">
+      <span class="text-[9px] opacity-60">&#9095;</span>
       {session.branch}
     </span>
-    <span class="truncate text-[10px] text-zinc-600">{pathLabel(session.worktreePath)}</span>
-    <span class="ml-auto text-[10px] font-medium text-zinc-600">
+    <span class="truncate text-[9px] text-text-muted">{pathLabel(session.worktreePath)}</span>
+    <span class="ml-auto text-[9px] font-medium text-text-muted">
       {session.cost != null ? `$${session.cost.toFixed(2)}` : ""}
     </span>
   </div>
 
   {#if session.permissionInfo}
-    <div class="mt-2 rounded-xl border border-amber/10 bg-amber/10 px-3 py-2">
+    <div class="mt-1.5 rounded-lg border border-amber/10 bg-amber/10 px-2.5 py-1.5">
       <span
-        class="block truncate font-mono text-[11px] text-amber"
+        class="block truncate font-mono text-[10px] text-amber"
         title={JSON.stringify(session.permissionInfo.toolInput, null, 2)}
       >
         {formatPermission(session.permissionInfo)}
       </span>
       {#if session.status === "attention"}
-        <div class="mt-2 flex gap-1.5">
+        <div class="mt-1.5 flex gap-1">
           <button
-            class="cursor-pointer rounded-full bg-green/10 px-2.5 py-1 text-[10px] font-medium text-green transition-colors hover:bg-green/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+            class="cursor-pointer rounded-full bg-green/10 px-2 py-0.5 text-[9px] font-medium text-green transition-colors hover:bg-green/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
             onclick={(e) => {
               e.stopPropagation();
               onapprove();
@@ -239,7 +239,7 @@
             &#10003; Allow
           </button>
           <button
-            class="cursor-pointer rounded-full bg-sky-500/10 px-2.5 py-1 text-[10px] font-medium text-sky-200 transition-colors hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+            class="cursor-pointer rounded-full bg-accent-dim/15 px-2 py-0.5 text-[9px] font-medium text-accent transition-colors hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
             onclick={(e) => {
               e.stopPropagation();
               onalways();
@@ -248,7 +248,7 @@
             &#10003; Always
           </button>
           <button
-            class="cursor-pointer rounded-full bg-red/10 px-2.5 py-1 text-[10px] font-medium text-red transition-colors hover:bg-red/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+            class="cursor-pointer rounded-full bg-red/10 px-2 py-0.5 text-[9px] font-medium text-red transition-colors hover:bg-red/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
             onclick={(e) => {
               e.stopPropagation();
               ondeny();

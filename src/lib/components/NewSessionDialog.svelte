@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { createSession, listWorktrees } from "$lib/tauri";
+  import { createSession, listWorktrees, checkNonoInstalled, listNonoProfiles } from "$lib/tauri";
   import { addSession } from "$lib/stores/sessions";
   import { initSessionPanes } from "$lib/stores/panes";
   import { settings } from "$lib/stores/settings";
@@ -22,6 +22,26 @@
   let selectedWorktree = $state<Worktree | null>(null);
   let error = $state("");
   let creating = $state(false);
+
+  // Nono sandbox integration
+  let nonoInstalled = $state(false);
+  let nonoProfiles = $state<string[]>([]);
+  let selectedNonoProfile = $state<string | null>(null);
+  let skipPermissions = $state(false);
+
+  // Check for nono on mount
+  $effect(() => {
+    if (visible) {
+      checkNonoInstalled().then((installed) => {
+        nonoInstalled = installed;
+        if (installed) {
+          listNonoProfiles().then((profiles) => {
+            nonoProfiles = profiles;
+          });
+        }
+      });
+    }
+  });
 
   async function pickRepo() {
     const selected = await open({ directory: true, title: "Select Git Repository" });
@@ -60,11 +80,18 @@
           "-" +
           (mode === "new" ? branchName : selectedWorktree?.branch ?? "main");
 
+      const extraFlags: string[] = [];
+      if (skipPermissions) {
+        extraFlags.push("--dangerously-skip-permissions");
+      }
+
       const session = await createSession(
         repoPath,
         name,
         mode === "existing" ? selectedWorktree?.path ?? null : null,
-        mode === "new" ? branchName.trim() : null
+        mode === "new" ? branchName.trim() : null,
+        extraFlags.length > 0 ? extraFlags : undefined,
+        selectedNonoProfile,
       );
 
       addSession(session);
@@ -82,6 +109,8 @@
     sessionName = "";
     mode = "new";
     error = "";
+    selectedNonoProfile = null;
+    skipPermissions = false;
     onclose();
   }
 </script>
@@ -92,14 +121,14 @@
   <div
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-md"
     onclick={(e) => { if (e.target === e.currentTarget) resetAndClose(); }}
-    transition:fade={{ duration: 120 }}
+    transition:fade={{ duration: 150 }}
   >
     <div
-      class="w-[500px] rounded-[1.4rem] border border-white/8 bg-slate-900/96 shadow-[0_24px_72px_rgba(2,6,23,0.58)]"
-      transition:scale={{ duration: 120, start: 0.985 }}
+      class="ui-dialog w-[480px] rounded-2xl"
+      transition:scale={{ duration: 150, start: 0.96 }}
     >
       <!-- Header -->
-      <div class="border-b border-white/6 bg-slate-800/50 px-6 pt-5 pb-4">
+      <div class="border-b border-white/[0.05] bg-bg-surface/30 px-6 pt-5 pb-4">
         <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">New Session</h2>
         <p class="text-xs text-text-muted">Create a new Claude Code session in a git repository</p>
       </div>
@@ -117,13 +146,13 @@
           <div class="flex gap-2">
             <input
               id="new-session-repo"
-              class="flex-1 bg-bg-deep border border-border rounded-md px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
+              class="flex-1 rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
               value={repoPath}
               oninput={(e) => (repoPath = e.currentTarget.value)}
               placeholder="~/src/my-project"
             />
             <button
-              class="px-3 py-2 bg-bg-elevated border border-border rounded-md text-text-secondary text-xs cursor-pointer hover:bg-bg-hover"
+              class="cursor-pointer rounded-md border border-border-subtle bg-bg-surface px-3 py-2 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
               onclick={pickRepo}
             >
               Browse
@@ -134,17 +163,17 @@
         <!-- Mode toggle -->
         <fieldset class="flex flex-col gap-1.5">
           <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Mode</legend>
-          <div class="flex rounded-xl border border-white/8 bg-black/35 p-1">
+          <div class="flex rounded-xl border border-border-subtle bg-bg-deep/80 p-1">
             <button
               class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
-                {mode === 'new' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary'}"
+                {mode === 'new' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary hover:text-text-primary'}"
               onclick={() => (mode = "new")}
             >
               New Worktree
             </button>
             <button
               class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
-                {mode === 'existing' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary'}"
+                {mode === 'existing' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary hover:text-text-primary'}"
               onclick={() => { mode = "existing"; loadWorktrees(); }}
             >
               Existing Directory
@@ -163,7 +192,7 @@
             </label>
             <input
               id="new-session-branch"
-              class="bg-bg-deep border border-border rounded-md px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
+              class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
               bind:value={branchName}
               placeholder="feature/my-feature"
             />
@@ -177,10 +206,10 @@
             <div class="flex flex-col gap-1 max-h-30 overflow-y-auto">
               {#each worktrees as wt}
                 <button
-                  class="flex items-center gap-2 px-2.5 py-2 rounded-md cursor-pointer transition-colors border text-left
+                  class="flex items-center gap-2 rounded-md border px-2.5 py-2 text-left cursor-pointer transition-colors
                     {selectedWorktree?.path === wt.path
-                      ? 'bg-bg-active border-accent-dim'
-                      : 'border-transparent hover:bg-bg-hover'}"
+                      ? 'bg-bg-active border-border'
+                      : 'border-border-subtle bg-bg-surface/50 hover:bg-bg-hover'}"
                   onclick={() => (selectedWorktree = wt)}
                 >
                   {#if wt.isMain}
@@ -197,6 +226,45 @@
           </fieldset>
         {/if}
 
+        <!-- Nono sandbox profile -->
+        {#if nonoInstalled}
+          <div class="flex flex-col gap-1.5">
+            <label
+              for="new-session-nono"
+              class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+            >
+              Sandbox Profile
+              <span class="font-normal normal-case tracking-normal">(nono.sh)</span>
+            </label>
+            <select
+              id="new-session-nono"
+              class="bg-bg-deep border border-border rounded-md px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim appearance-none cursor-pointer"
+              onchange={(e) => {
+                const val = e.currentTarget.value;
+                selectedNonoProfile = val === "" ? null : val;
+              }}
+            >
+              <option value="">None (bare claude)</option>
+              {#each nonoProfiles as profile}
+                <option value={profile} selected={selectedNonoProfile === profile}>{profile}</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
+
+        <!-- Skip permissions checkbox -->
+        <label class="flex items-center gap-2.5 cursor-pointer group">
+          <input
+            type="checkbox"
+            bind:checked={skipPermissions}
+            class="w-4 h-4 rounded border border-border bg-bg-deep accent-amber-500 cursor-pointer"
+          />
+          <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">
+            Skip permission prompts
+          </span>
+          <span class="text-[10px] text-amber-400/70 font-mono">--dangerously-skip-permissions</span>
+        </label>
+
         <!-- Session name -->
         <div class="flex flex-col gap-1.5">
           <label
@@ -207,7 +275,7 @@
           </label>
           <input
             id="new-session-name"
-            class="bg-bg-deep border border-border rounded-md px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
+            class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
             bind:value={sessionName}
             placeholder="roux-my-feature"
           />
@@ -219,15 +287,15 @@
       </div>
 
       <!-- Footer -->
-      <div class="flex justify-end gap-2 border-t border-white/6 px-6 py-4">
+      <div class="flex justify-end gap-2 border-t border-white/[0.05] px-6 py-4">
         <button
-          class="cursor-pointer rounded-xl border border-white/8 bg-bg-elevated px-5 py-2 text-[13px] font-medium text-text-secondary hover:bg-bg-hover"
+          class="cursor-pointer rounded-xl border border-border-subtle bg-bg-surface px-5 py-2 text-[13px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
           onclick={resetAndClose}
         >
           Cancel
         </button>
         <button
-          class="cursor-pointer rounded-xl border-none bg-sky-400 px-5 py-2 text-[13px] font-medium text-slate-950 hover:brightness-110 disabled:opacity-50"
+          class="cursor-pointer rounded-xl border border-accent-dim/20 bg-accent-dim/15 px-5 py-2 text-[13px] font-medium text-accent hover:bg-accent-dim/24 disabled:opacity-50"
           onclick={handleCreate}
           disabled={creating}
         >

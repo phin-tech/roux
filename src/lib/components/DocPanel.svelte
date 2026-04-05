@@ -88,40 +88,40 @@
 </script>
 
 <div
-  class="absolute top-0 right-0 bottom-0 z-50 flex w-[480px] flex-col border-l border-zinc-800/50 bg-zinc-950/96 shadow-[-18px_0_48px_rgba(2,6,23,0.45)] transition-transform duration-250
+  class="absolute top-0 right-0 bottom-0 z-50 flex w-[480px] flex-col border-l border-white/[0.05] bg-bg-deep shadow-[-18px_0_48px_rgba(2,6,23,0.45)] transition-transform duration-250
     {visible ? 'translate-x-0' : 'translate-x-full'}"
 >
-  <div class="flex items-start justify-between border-b border-zinc-800/50 bg-zinc-950/90 px-5 py-4 backdrop-blur-sm">
+  <div class="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.05] bg-bg-surface/30 px-3">
     <div class="space-y-0.5">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-semibold tracking-tight text-zinc-100">Documentation</span>
-        <span class="rounded-full border border-zinc-800/70 bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
+        <span class="text-[10px] font-bold uppercase tracking-widest text-text-muted">Documentation</span>
+        <span class="rounded-full border border-border-subtle bg-bg-surface px-2 py-0.5 text-[10px] font-medium text-text-muted">
           {docs.length}
         </span>
       </div>
-      <p class="text-[11px] text-zinc-600">Session markdown, notes, and specs</p>
+      <p class="text-[11px] text-text-muted">Session markdown, notes, and specs</p>
     </div>
     <div class="flex items-center gap-2">
       <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-zinc-600 hover:bg-white/[0.05] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-text-muted hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={refreshDocs}
         title="Refresh"
       >&#8635;</button>
       <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-zinc-600 hover:bg-white/[0.05] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={onclose}
       >&times;</button>
     </div>
   </div>
 
   {#if !$activeSession}
-    <div class="flex flex-1 items-center justify-center text-sm text-zinc-600">
+    <div class="flex flex-1 items-center justify-center text-sm text-text-muted">
       No active session
     </div>
   {:else}
-    <div class="app-scrollbar max-h-[240px] overflow-y-auto border-b border-zinc-800/50">
+    <div class="app-scrollbar max-h-[240px] overflow-y-auto border-b border-white/[0.05]">
       {#if docs.length === 0}
-        <div class="px-5 py-4 text-xs text-zinc-600">
+        <div class="px-5 py-4 text-xs text-text-muted">
           No markdown files found in project
         </div>
       {:else}
@@ -129,16 +129,16 @@
           <button
             class="flex w-full cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors
               {selectedDoc?.path === doc.path
-                ? 'bg-white/[0.05] text-zinc-100'
-                : 'bg-transparent text-zinc-300 hover:bg-white/[0.04] hover:text-zinc-100'}"
+                ? 'bg-bg-active text-text-primary'
+                : 'bg-transparent text-text-secondary hover:bg-white/[0.04] hover:text-text-primary'}"
             onclick={() => selectDoc(doc)}
           >
             <span class="pt-0.5 opacity-40">&#128196;</span>
             <div class="min-w-0 flex-1">
-              <div class="truncate text-[12px] font-medium text-zinc-100">{fileName(doc.relativePath)}</div>
-              <div class="mt-0.5 truncate font-mono text-[10px] text-zinc-600">{fileDirectory(doc.relativePath)}</div>
+              <div class="truncate text-[12px] font-medium text-text-primary">{fileName(doc.relativePath)}</div>
+              <div class="mt-0.5 truncate font-mono text-[10px] text-text-muted">{fileDirectory(doc.relativePath)}</div>
             </div>
-            <span class="shrink-0 pt-0.5 text-[10px] text-zinc-600">{formatTime(doc.modified)}</span>
+            <span class="shrink-0 pt-0.5 text-[10px] text-text-muted">{formatTime(doc.modified)}</span>
           </button>
         {/each}
       {/if}
@@ -146,17 +146,17 @@
 
     <div class="app-scrollbar flex-1 overflow-y-auto px-6 py-5">
       {#if loading}
-        <div class="text-xs text-zinc-600">Loading...</div>
+        <div class="text-xs text-text-muted">Loading...</div>
       {:else if !selectedDoc}
-        <div class="flex h-full flex-col items-center justify-center gap-4 text-center text-zinc-500">
-          <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-zinc-800/70 bg-zinc-900/80 text-sky-300 shadow-[0_18px_44px_rgba(2,6,23,0.35)]">
+        <div class="flex h-full flex-col items-center justify-center gap-4 text-center text-text-secondary">
+          <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_18px_44px_rgba(2,6,23,0.35)]">
             <span class="text-3xl">&#128196;</span>
           </div>
           <div class="space-y-1">
-            <p class="text-base font-semibold tracking-tight text-zinc-100">Select a session document</p>
-            <p class="text-sm text-zinc-500">Preview markdown notes, specs, and scratch files beside the terminal.</p>
+            <p class="text-base font-semibold tracking-tight text-text-primary">Select a session document</p>
+            <p class="text-sm text-text-secondary">Preview markdown notes, specs, and scratch files beside the terminal.</p>
           </div>
-          <span class="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-600">Cmd+B to toggle</span>
+          <span class="text-[11px] font-medium uppercase tracking-[0.22em] text-text-muted">Cmd+B to toggle</span>
         </div>
       {:else}
         <div class="doc-prose">

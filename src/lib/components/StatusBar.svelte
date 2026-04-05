@@ -11,7 +11,7 @@
   };
 </script>
 
-<div class="flex h-8 items-center gap-4 border-t border-white/6 bg-bg-base/95 px-4 text-[11px] text-text-secondary backdrop-blur-sm">
+<div class="flex h-7 items-center gap-3 border-t border-white/[0.05] bg-bg-base/95 px-4 text-[11px] text-text-secondary backdrop-blur-sm">
   {#if $activeSession}
     <div class="flex items-center gap-1.5">
       <div class="w-1.5 h-1.5 rounded-full {statusDotClass[$activeSession.status] ?? 'bg-gray'}"></div>

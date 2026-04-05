@@ -167,13 +167,10 @@
 
 <svelte:window onclick={closeContextMenu} />
 
-<div class="flex h-full flex-col border-r border-zinc-800/50 bg-zinc-950/95" bind:this={containerEl}>
-  <div class="flex items-center justify-between px-4 pt-4 pb-2.5">
-    <div class="space-y-0.5">
-      <span class="block text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Sessions</span>
-      <span class="block text-[11px] text-zinc-600">Command center activity</span>
-    </div>
-    <span class="rounded-md bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
+<div class="flex h-full flex-col border-r border-white/[0.05] bg-bg-deep/95" bind:this={containerEl}>
+  <div class="flex h-9 shrink-0 items-center justify-between px-3">
+    <span class="text-[10px] font-bold uppercase tracking-widest text-text-muted">Sessions</span>
+    <span class="rounded-md border border-border-subtle bg-bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
       {$sessionState.sessions.length}
     </span>
   </div>
@@ -185,12 +182,12 @@
     {#each grouped as group (group.repoRoot)}
       {#if showGroupHeaders}
         <button
-          class="group mt-1 flex w-full cursor-pointer items-center gap-1.5 bg-transparent px-1.5 py-2 text-left first:mt-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+          class="group mt-1 flex w-full cursor-pointer items-center gap-1.5 bg-transparent px-1.5 py-2 text-left first:mt-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
           onclick={() => toggleGroup(group.repoRoot)}
           title={group.repoRoot}
         >
-          <span class="text-[9px] text-zinc-600 transition-transform duration-150 {collapsedGroups.has(group.repoRoot) ? '' : 'rotate-90'}">&#9654;</span>
-          <span class="truncate text-[11px] font-medium text-zinc-400">{group.name}</span>
+          <span class="text-[9px] text-text-muted transition-transform duration-150 {collapsedGroups.has(group.repoRoot) ? '' : 'rotate-90'}">&#9654;</span>
+          <span class="truncate text-[10px] font-medium text-text-muted">{group.name}</span>
         </button>
       {/if}
       {#if !collapsedGroups.has(group.repoRoot)}
@@ -217,17 +214,17 @@
   {#if $sessionState.activeSessionId}
     {#if $settings.taskPanelCollapsed}
       <button
-        class="shrink-0 flex w-full items-center gap-1.5 border-t border-zinc-800/50 bg-transparent px-4 py-2 text-left cursor-pointer hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+        class="shrink-0 flex w-full items-center gap-1.5 border-t border-white/[0.05] bg-transparent px-3 py-2 text-left cursor-pointer hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={() => updateSetting("taskPanelCollapsed", false)}
       >
-        <span class="text-[10px] text-zinc-600">&#9654;</span>
-        <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Tasks</span>
+        <span class="text-[10px] text-text-muted">&#9654;</span>
+        <span class="text-[10px] font-bold uppercase tracking-widest text-text-muted">Tasks</span>
       </button>
     {:else}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="group flex h-3 shrink-0 cursor-row-resize items-center px-2" onmousedown={handleDividerDown}>
         <div
-          class="h-px w-full rounded-full transition-all duration-150 {dragging ? 'bg-zinc-700/70 opacity-100' : 'bg-zinc-800/20 opacity-0 group-hover:opacity-100'}"
+          class="h-px w-full rounded-full transition-all duration-150 {dragging ? 'bg-border opacity-100' : 'bg-border-subtle opacity-0 group-hover:opacity-100'}"
         ></div>
       </div>
 
@@ -237,15 +234,15 @@
     {/if}
   {/if}
 
-  <div class="flex shrink-0 gap-1 border-t border-zinc-800/50 p-2">
+  <div class="flex shrink-0 gap-1 border-t border-white/[0.05] p-2">
     <button
-      class="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-sky-500/12 py-2 text-xs text-sky-200 cursor-pointer transition-all duration-150 hover:bg-sky-500/22 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+      class="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-accent-dim/20 bg-accent-dim/15 py-2 text-xs text-accent cursor-pointer transition-all duration-150 hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onNewSession}
     >
       <span class="text-sm">+</span> New
     </button>
     <button
-      class="flex items-center justify-center rounded-md border border-zinc-800/70 bg-zinc-900 px-3 py-2 text-xs text-zinc-400 cursor-pointer transition-all duration-150 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+      class="flex items-center justify-center rounded-md border border-border-subtle bg-bg-surface px-3 py-2 text-xs text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onOpenSettings}
     >
       &#9881;
@@ -257,20 +254,20 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="fixed z-50 min-w-48 rounded-lg border border-zinc-800/70 bg-zinc-900 py-1 shadow-[0_12px_32px_rgba(0,0,0,0.5)]"
+    class="ui-dialog fixed z-50 min-w-48 rounded-lg py-1"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
     onclick={(e) => e.stopPropagation()}
   >
     {#if !worktreeInput}
       <button
-        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900"
+        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
         onclick={showWorktreeInput}
       >
         <span class="text-[10px] opacity-70">&#9095;</span>
         New Worktree
       </button>
       <button
-        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900"
+        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
         onclick={handleOpenInCode}
       >
         <span class="text-[10px] opacity-70">&#9998;</span>
@@ -278,7 +275,7 @@
       </button>
     {:else}
       <div class="px-3 py-2">
-        <div class="mb-1.5 text-[11px] text-zinc-500">Branch name</div>
+        <div class="mb-1.5 text-[11px] text-text-muted">Branch name</div>
         <form
           onsubmit={(e) => {
             e.preventDefault();
@@ -288,14 +285,14 @@
         >
           <!-- svelte-ignore a11y_autofocus -->
           <input
-            class="min-w-0 flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-[12px] text-zinc-100 outline-none focus:border-sky-500/50"
+            class="min-w-0 flex-1 rounded-md border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-accent-dim/50"
             bind:value={branchName}
             placeholder="feature/my-branch"
             disabled={creatingWorktree}
             autofocus
           />
           <button
-            class="cursor-pointer rounded-md bg-sky-500/12 px-2.5 py-1.5 text-[11px] font-medium text-sky-200 hover:bg-sky-500/22 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900"
+            class="cursor-pointer rounded-md border border-accent-dim/20 bg-accent-dim/15 px-2.5 py-1.5 text-[11px] font-medium text-accent hover:bg-accent-dim/24 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
             type="submit"
             disabled={creatingWorktree || !branchName.trim()}
           >

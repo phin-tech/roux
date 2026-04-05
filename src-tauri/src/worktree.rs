@@ -68,6 +68,13 @@ pub fn create_worktree(
     branch: &str,
     base_path: Option<&str>,
 ) -> Result<String, String> {
+    // Check if the branch is already checked out in an existing worktree
+    if let Ok(worktrees) = list_worktrees(repo_path) {
+        if let Some(wt) = worktrees.iter().find(|wt| wt.branch == branch) {
+            return Ok(wt.path.clone());
+        }
+    }
+
     let target = resolve_worktree_path(repo_path, branch, base_path);
     let target_str = target.to_string_lossy().to_string();
 

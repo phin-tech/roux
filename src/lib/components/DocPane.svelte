@@ -122,49 +122,49 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="relative flex h-full w-full flex-col bg-zinc-950/96"
+  class="relative flex h-full w-full flex-col bg-bg-deep"
   onmouseenter={() => (hovering = true)}
   onmouseleave={() => (hovering = false)}
 >
   <!-- Header bar -->
-  <div class="flex shrink-0 items-start justify-between border-b border-zinc-800/50 bg-zinc-950/90 px-4 py-3 backdrop-blur-sm">
+  <div class="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.05] bg-bg-surface/30 px-3">
     <div class="relative">
       <button
-        class="flex cursor-pointer items-start gap-2 rounded-xl border border-zinc-800/70 bg-zinc-900/80 px-3 py-2 text-left transition-colors hover:bg-white/[0.05] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+        class="flex cursor-pointer items-start gap-2 rounded-xl border border-border-subtle bg-bg-surface/85 px-3 py-2 text-left transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={() => { showPicker = !showPicker; if (showPicker) refreshDocs(); }}
       >
         <span class="pt-0.5 opacity-45">&#128196;</span>
         <span class="min-w-0 flex-1">
-          <span class="block max-w-[220px] truncate text-[12px] font-medium {currentPath ? 'text-zinc-100' : 'text-zinc-500'}">{currentFileName()}</span>
-          <span class="mt-0.5 block max-w-[220px] truncate font-mono text-[10px] text-zinc-600">{currentPath ? fileDirectory(currentPath) : "Select a document"}</span>
+          <span class="block max-w-[220px] truncate text-[12px] font-medium {currentPath ? 'text-text-primary' : 'text-text-muted'}">{currentFileName()}</span>
+          <span class="mt-0.5 block max-w-[220px] truncate font-mono text-[10px] text-text-muted">{currentPath ? fileDirectory(currentPath) : "Select a document"}</span>
         </span>
-        <span class="ml-1 pt-1 text-[10px] text-zinc-600">&#9662;</span>
+        <span class="ml-1 pt-1 text-[10px] text-text-muted">&#9662;</span>
       </button>
 
       {#if showPicker}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
-          class="app-scrollbar absolute left-0 top-full z-20 mt-2 max-h-[320px] w-[340px] overflow-y-auto rounded-2xl border border-zinc-800/70 bg-zinc-950/96 p-1 shadow-[0_20px_48px_rgba(2,6,23,0.5)] backdrop-blur-md"
+          class="app-scrollbar ui-dialog absolute left-0 top-full z-20 mt-2 max-h-[320px] w-[340px] overflow-y-auto rounded-2xl p-1 backdrop-blur-md"
           onclick={(e) => e.stopPropagation()}
           transition:scale={{ duration: 120, start: 0.98 }}
         >
           {#if docs.length === 0}
-            <div class="px-3 py-3 text-xs text-zinc-600">No documents found</div>
+            <div class="px-3 py-3 text-xs text-text-muted">No documents found</div>
           {:else}
             {#each docs as doc (doc.path)}
               <button
                 class="flex w-full cursor-pointer items-start gap-3 rounded-xl border border-transparent px-3 py-2 text-left transition-colors
                   {currentPath === doc.path
-                    ? 'bg-white/[0.05] text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-                    : 'bg-transparent text-zinc-300 hover:bg-white/[0.05] hover:text-zinc-100'}"
+                    ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                    : 'bg-transparent text-text-secondary hover:bg-white/[0.05] hover:text-text-primary'}"
                 onclick={() => selectDoc(doc)}
               >
                 <span class="pt-0.5 opacity-45">&#128196;</span>
                 <div class="min-w-0 flex-1">
-                  <div class="truncate text-[12px] font-medium text-zinc-100">{doc.relativePath.split("/").pop() ?? doc.relativePath}</div>
-                  <div class="mt-0.5 truncate font-mono text-[10px] text-zinc-600">{fileDirectory(doc.path)}</div>
+                  <div class="truncate text-[12px] font-medium text-text-primary">{doc.relativePath.split("/").pop() ?? doc.relativePath}</div>
+                  <div class="mt-0.5 truncate font-mono text-[10px] text-text-muted">{fileDirectory(doc.path)}</div>
                 </div>
-                <span class="shrink-0 pt-0.5 text-[10px] text-zinc-600">{formatTime(doc.modified)}</span>
+                <span class="shrink-0 pt-0.5 text-[10px] text-text-muted">{formatTime(doc.modified)}</span>
               </button>
             {/each}
           {/if}
@@ -174,7 +174,7 @@
 
     <div class="flex items-center gap-1">
       <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-zinc-600 hover:bg-white/[0.05] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-text-muted hover:bg-white/[0.05] hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={loadContent}
         title="Refresh"
       >&#8635;</button>
@@ -184,10 +184,10 @@
   <!-- Content -->
   <div class="app-scrollbar flex-1 overflow-y-auto px-6 py-5">
     {#if loading}
-      <div class="text-xs text-zinc-600">Loading...</div>
+      <div class="text-xs text-text-muted">Loading...</div>
     {:else if !currentPath}
       <div class="flex h-full flex-col items-center justify-center gap-4 text-center">
-        <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-zinc-800/70 bg-zinc-900/80 text-sky-300 shadow-[0_18px_44px_rgba(2,6,23,0.35)]">
+        <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_18px_44px_rgba(2,6,23,0.35)]">
           <svg viewBox="0 0 24 24" class="h-8 w-8 fill-none stroke-current stroke-[1.4]">
             <path d="M7 4.75h7.5l4.5 4.5v10A1.75 1.75 0 0 1 17.25 21h-10.5A1.75 1.75 0 0 1 5 19.25v-12.5A1.75 1.75 0 0 1 6.75 5Z" />
             <path d="M14.5 4.75v4.5H19" />
@@ -196,18 +196,18 @@
           </svg>
         </div>
         <div class="space-y-1">
-          <p class="text-base font-semibold tracking-tight text-zinc-100">Select a document to preview</p>
-          <p class="text-sm text-zinc-500">Choose a markdown file from this session to open the documentation pane.</p>
+          <p class="text-base font-semibold tracking-tight text-text-primary">Select a document to preview</p>
+          <p class="text-sm text-text-secondary">Choose a markdown file from this session to open the documentation pane.</p>
         </div>
         <button
-          class="rounded-full border border-sky-400/20 bg-sky-500/10 px-4 py-2 text-xs font-medium text-sky-200 transition-colors hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+          class="rounded-full border border-accent-dim/20 bg-accent-dim/15 px-4 py-2 text-xs font-medium text-accent transition-colors hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
           onclick={() => { refreshDocs(); showPicker = true; }}
         >
           Browse docs
         </button>
         {#if docs.length > 0}
           <button
-            class="text-xs font-medium text-zinc-600 underline underline-offset-4 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+            class="text-xs font-medium text-text-muted underline underline-offset-4 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
             onclick={selectFirstDoc}
           >
             Open latest available file
@@ -224,7 +224,7 @@
   <!-- Close button on hover -->
   {#if hovering}
     <button
-      class="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-zinc-800/70 bg-zinc-900/85 text-xs leading-none text-zinc-500 backdrop-blur-sm hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950"
+      class="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-border-subtle bg-bg-surface/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onClose}
       title="Close pane"
     >

@@ -16,10 +16,11 @@
     workingDir: string;
     paneId: string;
     initialPtyId: string;
+    active?: boolean;
     onClose: () => void | Promise<void>;
   }
 
-  let { command, workingDir, paneId, initialPtyId, onClose }: Props = $props();
+  let { command, workingDir, paneId, initialPtyId, active = true, onClose }: Props = $props();
 
   let containerEl: HTMLDivElement;
   let term: Terminal | null = null;
@@ -157,33 +158,44 @@
   $effect(() => {
     if (term) term.options.theme = getXtermTheme($settings.theme);
   });
+
+  // Refit when session becomes active (container goes from display:none to visible)
+  $effect(() => {
+    if (active && fitAddon) {
+      requestAnimationFrame(() => {
+        fitAddon?.fit();
+        const dims = fitAddon?.proposeDimensions();
+        if (dims) resizeSession(currentPtyId, dims.cols, dims.rows);
+      });
+    }
+  });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="relative w-full h-full bg-black flex flex-col"
+  class="relative flex h-full w-full flex-col bg-bg-deep"
   onmouseenter={() => (hovering = true)}
   onmouseleave={() => (hovering = false)}
 >
   <!-- Command header bar -->
-  <div class="flex items-center gap-2 px-3 py-1.5 bg-[#111118] border-b border-white/6 shrink-0 select-none">
+  <div class="flex h-9 shrink-0 select-none items-center gap-2 border-b border-white/[0.05] bg-bg-surface/30 px-3">
     <span class="font-mono text-[11px] text-text-secondary truncate flex-1">{command}</span>
     <span class="text-[10px] text-text-muted font-mono">{elapsed}</span>
     {#if status === "running"}
-      <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0"></span>
+      <span class="h-2 w-2 shrink-0 rounded-full bg-accent animate-pulse"></span>
       <button
-        class="text-[10px] text-text-muted hover:text-red-400 bg-transparent border-none cursor-pointer px-1 font-mono"
+        class="bg-transparent px-1 font-mono text-[10px] text-text-muted border-none cursor-pointer hover:text-red"
         onclick={() => { void killSession(currentPtyId).catch(() => {}); }}
         title="Stop"
       >&#9632;</button>
     {:else}
       {#if status === "succeeded"}
-        <span class="text-[10px] text-green-400 font-mono">exit 0</span>
+        <span class="text-[10px] text-green font-mono">exit 0</span>
       {:else}
-        <span class="text-[10px] text-red-400 font-mono">exit {exitCode ?? "?"}</span>
+        <span class="text-[10px] text-red font-mono">exit {exitCode ?? "?"}</span>
       {/if}
       <button
-        class="text-[10px] text-text-muted hover:text-accent bg-transparent border-none cursor-pointer px-1 font-mono"
+        class="bg-transparent px-1 font-mono text-[10px] text-text-muted border-none cursor-pointer hover:text-accent"
         onclick={() => void rerun()}
         title="Rerun (r)"
       >&#8635;</button>
@@ -192,11 +204,11 @@
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div bind:this={containerEl} class="flex-1 min-h-0" onclick={() => term?.focus()}></div>
+  <div bind:this={containerEl} class="ui-terminal-frame min-h-0 flex-1" onclick={() => term?.focus()}></div>
 
   {#if hovering}
     <button
-      class="absolute right-2 top-10 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-white/8 bg-slate-900/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-slate-800 hover:text-text-primary"
+      class="absolute right-2 top-10 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-border-subtle bg-bg-surface/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-bg-hover hover:text-text-primary"
       onclick={() => void onClose()}
       title="Close pane"
     >
