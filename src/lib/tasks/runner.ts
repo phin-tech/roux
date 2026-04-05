@@ -61,13 +61,15 @@ export async function runTask(
   // Spawn one-shot command — PTY exits when command finishes, with real exit code
   await spawnTask(ptyId, task.command, repoRoot);
 
-  // If keepOpen is "always", immediately show in a terminal pane
+  // If keepOpen is "always", show in a command pane with rerun support
   if (spawnInPane) {
     focusedPaneId.set(`${sessionId}-main`);
     addSplit(sessionId, "horizontal", {
       id: ptyId,
-      type: "shell",
+      type: "command",
       ptyId,
+      command: task.command,
+      workingDir: repoRoot,
     });
   }
 }

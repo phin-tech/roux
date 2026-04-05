@@ -2,6 +2,7 @@
   import SplitPane from "./SplitPane.svelte";
   import Terminal from "./Terminal.svelte";
   import ShellTerminal from "./ShellTerminal.svelte";
+  import CommandPane from "./CommandPane.svelte";
   import DocPane from "./DocPane.svelte";
   import { focusedPaneId, type SplitNode } from "$lib/stores/panes";
   import { closePane } from "$lib/panes/actions";
@@ -32,6 +33,16 @@
       {:else if node.pane.type === "doc"}
         <DocPane
           docPath={node.pane.docPath ?? ""}
+          onClose={async () => {
+            await closePane(sessionId, node.pane.id);
+          }}
+        />
+      {:else if node.pane.type === "command"}
+        <CommandPane
+          command={node.pane.command ?? ""}
+          workingDir={node.pane.workingDir ?? ""}
+          paneId={node.pane.id}
+          initialPtyId={node.pane.ptyId}
           onClose={async () => {
             await closePane(sessionId, node.pane.id);
           }}
