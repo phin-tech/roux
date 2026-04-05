@@ -5,7 +5,7 @@ export interface Session {
   worktreePath: string;
   branch: string;
   isWorktree: boolean;
-  status: "idle" | "thinking" | "generating" | "error" | "disconnected";
+  status: "idle" | "thinking" | "generating" | "error" | "disconnected" | "attention";
   model: string | null;
   cost: number | null;
   createdAt: number;

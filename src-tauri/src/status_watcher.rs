@@ -26,7 +26,7 @@ fn map_status(raw: &str) -> &str {
     match raw {
         "working" => "generating",
         "idle" => "idle",
-        "attention" => "error",
+        "attention" => "attention",
         "error" => "error",
         "disconnected" => "disconnected",
         _ => raw,

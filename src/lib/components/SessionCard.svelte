@@ -35,6 +35,7 @@
     generating: "bg-blue shadow-[0_0_6px_var(--color-blue-dim)] animate-[stream_1.5s_ease-in-out_infinite]",
     error: "bg-red shadow-[0_0_6px_var(--color-red-dim)]",
     disconnected: "bg-gray opacity-60",
+    attention: "bg-amber shadow-[0_0_8px_var(--color-amber-dim)] animate-pulse",
   };
 
   const labelClasses: Record<Session["status"], string> = {
@@ -43,6 +44,7 @@
     generating: "text-blue bg-blue/10",
     error: "text-red bg-red/10",
     disconnected: "text-gray bg-gray/15",
+    attention: "text-amber bg-amber/15",
   };
 
   const labelText: Record<Session["status"], string> = {
@@ -51,6 +53,7 @@
     generating: "gen",
     error: "error",
     disconnected: "disc",
+    attention: "wait",
   };
 </script>
 

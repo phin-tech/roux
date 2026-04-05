@@ -7,6 +7,7 @@
     generating: "bg-blue",
     error: "bg-red",
     disconnected: "bg-gray",
+    attention: "bg-amber animate-pulse",
   };
 </script>
 
