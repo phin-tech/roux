@@ -2,10 +2,106 @@ use base64::Engine;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::Read;
+use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
+
+enum PtyChunk {
+    Data(Vec<u8>),
+    Eof,
+    Error,
+}
+
+/// Spawn a flusher thread that batches chunks from the reader and emits to the frontend
+/// at ~16ms intervals. Returns the sender for the reader thread to push data into.
+fn spawn_flusher(
+    event_name: String,
+    exit_event: Option<(String, serde_json::Value)>,
+    app: tauri::AppHandle,
+) -> mpsc::Sender<PtyChunk> {
+    let (tx, rx) = mpsc::channel::<PtyChunk>();
+
+    thread::spawn(move || {
+        let flush_interval = Duration::from_millis(16);
+        let mut batch = Vec::with_capacity(8192);
+        let mut last_flush = Instant::now();
+
+        loop {
+            // If batch is empty, block until data arrives
+            // If batch has data, use timeout to ensure timely flush
+            let chunk = if batch.is_empty() {
+                match rx.recv() {
+                    Ok(c) => c,
+                    Err(_) => break,
+                }
+            } else {
+                let remaining = flush_interval.saturating_sub(last_flush.elapsed());
+                match rx.recv_timeout(remaining) {
+                    Ok(c) => c,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        // Flush what we have
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
+                        let _ = app.emit(&event_name, b64);
+                        batch.clear();
+                        last_flush = Instant::now();
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            };
+
+            match chunk {
+                PtyChunk::Data(data) => {
+                    batch.extend_from_slice(&data);
+                    if last_flush.elapsed() >= flush_interval || batch.len() >= 32768 {
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
+                        let _ = app.emit(&event_name, b64);
+                        batch.clear();
+                        last_flush = Instant::now();
+                    }
+                }
+                PtyChunk::Eof | PtyChunk::Error => {
+                    if !batch.is_empty() {
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
+                        let _ = app.emit(&event_name, b64);
+                    }
+                    if let Some((evt, payload)) = &exit_event {
+                        let _ = app.emit(evt, payload.clone());
+                    }
+                    break;
+                }
+            }
+        }
+    });
+
+    tx
+}
+
+/// Spawn a reader thread that blocks on PTY reads and sends chunks to the flusher.
+fn spawn_reader(mut reader: Box<dyn Read + Send>, tx: mpsc::Sender<PtyChunk>) {
+    thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => {
+                    let _ = tx.send(PtyChunk::Eof);
+                    break;
+                }
+                Ok(n) => {
+                    if tx.send(PtyChunk::Data(buf[..n].to_vec())).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    let _ = tx.send(PtyChunk::Error);
+                    break;
+                }
+            }
+        }
+    });
+}
 
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
@@ -74,67 +170,20 @@ impl PtyManager {
             .take_writer()
             .map_err(|e| format!("Failed to get PTY writer: {}", e))?;
 
-        let mut reader = pair
+        let reader = pair
             .master
             .try_clone_reader()
             .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
 
-        let id_for_thread = session_id.to_string();
-        let app_for_thread = app.clone();
-
-        // Reader thread: reads PTY output, batches at ~16ms intervals to avoid IPC flooding
-        thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            let mut batch = Vec::with_capacity(8192);
-            let flush_interval = Duration::from_millis(16);
-            let mut last_flush = Instant::now();
-
-            // Set read timeout so we can flush periodically even during slow output
-            // We use non-blocking polling via a short read + batch approach
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) => {
-                        // Flush any remaining data before exit
-                        if !batch.is_empty() {
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
-                            let _ = app_for_thread.emit(
-                                &format!("pty-output:{}", id_for_thread),
-                                b64,
-                            );
-                        }
-                        let _ = app_for_thread.emit(
-                            &format!("session-exit:{}", id_for_thread),
-                            serde_json::json!({"code": null}),
-                        );
-                        break;
-                    }
-                    Ok(n) => {
-                        batch.extend_from_slice(&buf[..n]);
-
-                        // Flush if enough time has elapsed or buffer is large
-                        if last_flush.elapsed() >= flush_interval || batch.len() >= 32768 {
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
-                            let _ = app_for_thread.emit(
-                                &format!("pty-output:{}", id_for_thread),
-                                b64,
-                            );
-                            batch.clear();
-                            last_flush = Instant::now();
-                        }
-                    }
-                    Err(_) => {
-                        if !batch.is_empty() {
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
-                            let _ = app_for_thread.emit(
-                                &format!("pty-output:{}", id_for_thread),
-                                b64,
-                            );
-                        }
-                        break;
-                    }
-                }
-            }
-        });
+        let tx = spawn_flusher(
+            format!("pty-output:{}", session_id),
+            Some((
+                format!("session-exit:{}", session_id),
+                serde_json::json!({"code": null}),
+            )),
+            app.clone(),
+        );
+        spawn_reader(reader, tx);
 
         let session = PtySession {
             master: pair.master,
@@ -191,62 +240,18 @@ impl PtyManager {
             .take_writer()
             .map_err(|e| format!("Failed to get PTY writer: {}", e))?;
 
-        let mut reader = pair
+        let reader = pair
             .master
             .try_clone_reader()
             .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
 
-        let id_for_thread = id.to_string();
-        let app_for_thread = app.clone();
-
-        thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            let mut batch = Vec::with_capacity(8192);
-            let flush_interval = Duration::from_millis(16);
-            let mut last_flush = Instant::now();
-
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) => {
-                        if !batch.is_empty() {
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
-                            let _ = app_for_thread.emit(
-                                &format!("pty-output:{}", id_for_thread),
-                                b64,
-                            );
-                        }
-                        let _ = app_for_thread.emit(
-                            &format!("pty-output:{}", id_for_thread),
-                            serde_json::json!({"closed": true}),
-                        );
-                        break;
-                    }
-                    Ok(n) => {
-                        batch.extend_from_slice(&buf[..n]);
-
-                        if last_flush.elapsed() >= flush_interval || batch.len() >= 32768 {
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
-                            let _ = app_for_thread.emit(
-                                &format!("pty-output:{}", id_for_thread),
-                                b64,
-                            );
-                            batch.clear();
-                            last_flush = Instant::now();
-                        }
-                    }
-                    Err(_) => {
-                        if !batch.is_empty() {
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
-                            let _ = app_for_thread.emit(
-                                &format!("pty-output:{}", id_for_thread),
-                                b64,
-                            );
-                        }
-                        break;
-                    }
-                }
-            }
-        });
+        let event_name = format!("pty-output:{}", id);
+        let tx = spawn_flusher(
+            event_name.clone(),
+            Some((event_name, serde_json::json!({"closed": true}))),
+            app.clone(),
+        );
+        spawn_reader(reader, tx);
 
         let session = PtySession {
             master: pair.master,

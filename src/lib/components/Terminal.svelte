@@ -144,7 +144,9 @@
     for (const unlisten of unlisteners) unlisten();
     resizeObserver?.disconnect();
     detach();
-    // Dispose the terminal to free WebGL contexts and scrollback buffers
+    // Safe to dispose here: Terminal components stay mounted across tab switches
+    // (Layout.svelte uses class:hidden, not conditional rendering).
+    // onDestroy only fires when the session is actually removed from the list.
     if (terminal) {
       terminal.dispose();
       terminalInstances.delete(sessionId);
