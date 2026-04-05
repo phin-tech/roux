@@ -1,10 +1,12 @@
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 use tauri::Emitter;
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,25 +54,42 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
         // Keep watcher alive for the lifetime of this thread
         let _watcher = watcher;
 
-        for result in rx {
-            let event = match result {
-                Ok(e) => e,
-                Err(_) => continue,
+        // Debounce: collect changed paths, then process after a short quiet period
+        let debounce_duration = Duration::from_millis(50);
+
+        loop {
+            // Block until the first event arrives
+            let first = match rx.recv() {
+                Ok(Ok(event)) => event,
+                Ok(Err(_)) => continue,
+                Err(_) => break, // channel closed
             };
 
-            match event.kind {
-                EventKind::Create(_) | EventKind::Modify(_) => {}
-                _ => continue,
+            // Collect this event's paths and drain any more that arrive within the debounce window
+            let mut changed_paths = HashSet::new();
+            for path in first.paths {
+                if matches!(first.kind, EventKind::Create(_) | EventKind::Modify(_)) {
+                    if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                        changed_paths.insert(path);
+                    }
+                }
             }
 
-            for path in &event.paths {
-                if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                    continue;
+            // Drain additional events within the debounce window
+            while let Ok(result) = rx.recv_timeout(debounce_duration) {
+                if let Ok(event) = result {
+                    if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) {
+                        for path in event.paths {
+                            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                                changed_paths.insert(path);
+                            }
+                        }
+                    }
                 }
+            }
 
-                // Small delay to ensure file is fully written
-                thread::sleep(std::time::Duration::from_millis(10));
-
+            // Process each unique path once
+            for path in &changed_paths {
                 let content = match fs::read_to_string(path) {
                     Ok(c) => c,
                     Err(_) => continue,
@@ -114,7 +133,6 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
 
                 let mapped = map_status(&raw_status);
 
-                // Emit a global event with cwd so frontend can match to the right session
                 let update = StatusUpdate {
                     status: mapped.to_string(),
                     cwd,

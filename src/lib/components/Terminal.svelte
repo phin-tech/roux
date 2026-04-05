@@ -144,6 +144,11 @@
     for (const unlisten of unlisteners) unlisten();
     resizeObserver?.disconnect();
     detach();
+    // Dispose the terminal to free WebGL contexts and scrollback buffers
+    if (terminal) {
+      terminal.dispose();
+      terminalInstances.delete(sessionId);
+    }
   });
 
   $effect(() => {

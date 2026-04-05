@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,14 +22,18 @@ pub struct Session {
 }
 
 pub struct SessionStore {
-    sessions: Mutex<Vec<Session>>,
+    sessions: Arc<Mutex<Vec<Session>>>,
+    dirty: Arc<AtomicBool>,
 }
 
 impl SessionStore {
     pub fn new() -> Self {
-        Self {
-            sessions: Mutex::new(Vec::new()),
-        }
+        let store = Self {
+            sessions: Arc::new(Mutex::new(Vec::new())),
+            dirty: Arc::new(AtomicBool::new(false)),
+        };
+        store.start_persist_thread();
+        store
     }
 
     pub fn load_persisted() -> Self {
@@ -43,21 +50,42 @@ impl SessionStore {
         } else {
             Vec::new()
         };
-        Self {
-            sessions: Mutex::new(sessions),
-        }
+        let store = Self {
+            sessions: Arc::new(Mutex::new(sessions)),
+            dirty: Arc::new(AtomicBool::new(true)),
+        };
+        store.start_persist_thread();
+        store
+    }
+
+    /// Background thread that writes to disk at most every 500ms when dirty.
+    fn start_persist_thread(&self) {
+        let sessions = Arc::clone(&self.sessions);
+        let dirty = Arc::clone(&self.dirty);
+        thread::spawn(move || {
+            loop {
+                thread::sleep(Duration::from_millis(500));
+                if dirty.swap(false, Ordering::AcqRel) {
+                    let snapshot = {
+                        let guard = sessions.lock().unwrap();
+                        guard.clone()
+                    };
+                    Self::write_to_disk(&snapshot);
+                }
+            }
+        });
     }
 
     pub fn add(&self, session: Session) {
         let mut sessions = self.sessions.lock().unwrap();
         sessions.push(session);
-        Self::persist(&sessions);
+        self.dirty.store(true, Ordering::Release);
     }
 
     pub fn remove(&self, id: &str) {
         let mut sessions = self.sessions.lock().unwrap();
         sessions.retain(|s| s.id != id);
-        Self::persist(&sessions);
+        self.dirty.store(true, Ordering::Release);
     }
 
     pub fn list(&self) -> Vec<Session> {
@@ -75,7 +103,7 @@ impl SessionStore {
                 session.cost = Some(c);
             }
         }
-        Self::persist(&sessions);
+        self.dirty.store(true, Ordering::Release);
     }
 
     fn persistence_path() -> PathBuf {
@@ -83,7 +111,7 @@ impl SessionStore {
         base.join("roux").join("sessions.json")
     }
 
-    fn persist(sessions: &[Session]) {
+    fn write_to_disk(sessions: &[Session]) {
         let path = Self::persistence_path();
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);

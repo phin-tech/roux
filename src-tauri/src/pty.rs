@@ -2,8 +2,9 @@ use base64::Engine;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::thread;
+use std::time::{Duration, Instant};
 use tauri::Emitter;
 
 struct PtySession {
@@ -81,13 +82,26 @@ impl PtyManager {
         let id_for_thread = session_id.to_string();
         let app_for_thread = app.clone();
 
-        // Reader thread: reads PTY output, emits to frontend, parses OSC
+        // Reader thread: reads PTY output, batches at ~16ms intervals to avoid IPC flooding
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
+            let mut batch = Vec::with_capacity(8192);
+            let flush_interval = Duration::from_millis(16);
+            let mut last_flush = Instant::now();
+
+            // Set read timeout so we can flush periodically even during slow output
+            // We use non-blocking polling via a short read + batch approach
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => {
-                        // PTY closed
+                        // Flush any remaining data before exit
+                        if !batch.is_empty() {
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
+                            let _ = app_for_thread.emit(
+                                &format!("pty-output:{}", id_for_thread),
+                                b64,
+                            );
+                        }
                         let _ = app_for_thread.emit(
                             &format!("session-exit:{}", id_for_thread),
                             serde_json::json!({"code": null}),
@@ -95,17 +109,29 @@ impl PtyManager {
                         break;
                     }
                     Ok(n) => {
-                        let data = &buf[..n];
+                        batch.extend_from_slice(&buf[..n]);
 
-                        // Emit raw output as base64
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(data);
-                        let _ = app_for_thread.emit(
-                            &format!("pty-output:{}", id_for_thread),
-                            b64,
-                        );
-
+                        // Flush if enough time has elapsed or buffer is large
+                        if last_flush.elapsed() >= flush_interval || batch.len() >= 32768 {
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
+                            let _ = app_for_thread.emit(
+                                &format!("pty-output:{}", id_for_thread),
+                                b64,
+                            );
+                            batch.clear();
+                            last_flush = Instant::now();
+                        }
                     }
-                    Err(_) => break,
+                    Err(_) => {
+                        if !batch.is_empty() {
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
+                            let _ = app_for_thread.emit(
+                                &format!("pty-output:{}", id_for_thread),
+                                b64,
+                            );
+                        }
+                        break;
+                    }
                 }
             }
         });
@@ -175,9 +201,20 @@ impl PtyManager {
 
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
+            let mut batch = Vec::with_capacity(8192);
+            let flush_interval = Duration::from_millis(16);
+            let mut last_flush = Instant::now();
+
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => {
+                        if !batch.is_empty() {
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
+                            let _ = app_for_thread.emit(
+                                &format!("pty-output:{}", id_for_thread),
+                                b64,
+                            );
+                        }
                         let _ = app_for_thread.emit(
                             &format!("pty-output:{}", id_for_thread),
                             serde_json::json!({"closed": true}),
@@ -185,14 +222,28 @@ impl PtyManager {
                         break;
                     }
                     Ok(n) => {
-                        let data = &buf[..n];
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(data);
-                        let _ = app_for_thread.emit(
-                            &format!("pty-output:{}", id_for_thread),
-                            b64,
-                        );
+                        batch.extend_from_slice(&buf[..n]);
+
+                        if last_flush.elapsed() >= flush_interval || batch.len() >= 32768 {
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
+                            let _ = app_for_thread.emit(
+                                &format!("pty-output:{}", id_for_thread),
+                                b64,
+                            );
+                            batch.clear();
+                            last_flush = Instant::now();
+                        }
                     }
-                    Err(_) => break,
+                    Err(_) => {
+                        if !batch.is_empty() {
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
+                            let _ = app_for_thread.emit(
+                                &format!("pty-output:{}", id_for_thread),
+                                b64,
+                            );
+                        }
+                        break;
+                    }
                 }
             }
         });
