@@ -1,0 +1,187 @@
+version: "3"
+
+tasks:
+  dev:
+    desc: "Run Tauri in development mode"
+    cmds:
+      - npm run tauri dev
+
+  dev:up:
+    desc: "Install all dependencies (frontend + Rust)"
+    cmds:
+      - npm install
+      - cd src-tauri && cargo check
+
+  dev:clean:
+    desc: "Remove installed desktop app"
+    cmds:
+      - |
+        APP="/Applications/Roux.app"
+        if [ -d "$APP" ]; then
+          rm -rf "$APP"
+          echo "Removed $APP"
+        else
+          echo "No installed app found at $APP"
+        fi
+
+  dev:install:
+    desc: "Build and install the desktop app locally"
+    cmds:
+      - npm run tauri build
+      - |
+        APP="/Applications/Roux.app"
+        if [ -d "$APP" ]; then
+          echo "Removing existing $APP"
+          rm -rf "$APP"
+        fi
+        cp -R src-tauri/target/release/bundle/macos/Roux.app /Applications/
+        echo "Installed Roux.app to /Applications"
+
+  build:
+    desc: "Build the app for production"
+    cmds:
+      - npm run tauri build
+
+  build:frontend:
+    desc: "Build frontend only"
+    cmds:
+      - npm run build
+
+  check:
+    desc: "Check both frontend and Rust compile"
+    cmds:
+      - npm run build
+      - cd src-tauri && cargo check
+
+  check:rust:
+    desc: "Check Rust compiles"
+    cmds:
+      - cd src-tauri && cargo check
+
+  test:
+    desc: "Run Rust tests"
+    cmds:
+      - cd src-tauri && cargo test
+
+  hooks:install:
+    desc: "Manually re-install Claude Code hooks"
+    cmds:
+      - |
+        echo "Hooks are auto-installed on app startup."
+        echo "To force reinstall, delete ~/.config/roux/hook-handler.sh and restart Roux."
+        cat ~/.claude/settings.json | python3 -c "import sys,json; h=json.load(sys.stdin).get('hooks',{}); [print(f'  {k}: {len(v)} hook(s)') for k,v in h.items() if any('roux' in str(e) for e in v)]"
+
+  hooks:status:
+    desc: "Show current session status files"
+    cmds:
+      - |
+        DIR=~/.config/roux/status
+        if [ -d "$DIR" ] && ls "$DIR"/*.json 1>/dev/null 2>&1; then
+          for f in "$DIR"/*.json; do
+            echo "$(basename $f):"
+            cat "$f" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  status={d.get(\"status\")} cwd={d.get(\"cwd\",\"?\")}')"
+          done
+        else
+          echo "No status files found"
+        fi
+
+  clean:status:
+    desc: "Clear all session status files"
+    cmds:
+      - rm -f ~/.config/roux/status/*.json
+      - echo "Cleared status files"
+
+  sign:
+    desc: "Sign and notarize the already-built app bundle"
+    dotenv: [".env.signing"]
+    cmds:
+      - |
+        codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" \
+          "src-tauri/target/release/bundle/macos/Roux.app"
+        echo "Signed Roux.app"
+      - |
+        VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+        xcrun notarytool submit "src-tauri/target/release/bundle/dmg/Roux_${VERSION}_aarch64.dmg" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait
+        echo "Notarized"
+      - |
+        VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+        xcrun stapler staple "src-tauri/target/release/bundle/dmg/Roux_${VERSION}_aarch64.dmg"
+        echo "Stapled"
+
+  build:signed:
+    desc: "Build and sign the app"
+    dotenv: [".env.signing"]
+    cmds:
+      - npm run tauri build
+      - task: sign
+
+  release:
+    desc: "Bump version, commit, tag, push. Usage: task release BUMP=patch|minor|major"
+    requires:
+      vars: [BUMP]
+    preconditions:
+      - sh: '[ "{{.BUMP}}" = "patch" ] || [ "{{.BUMP}}" = "minor" ] || [ "{{.BUMP}}" = "major" ]'
+        msg: "BUMP must be one of: patch, minor, major"
+      - sh: "git diff --quiet && git diff --cached --quiet"
+        msg: "Working tree must be clean before releasing"
+    cmds:
+      - |
+        TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+        if [ -z "$TAG" ]; then
+          CURRENT="0.1.0"
+        else
+          CURRENT=$(echo "$TAG" | sed 's/^v//')
+        fi
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+        case "{{.BUMP}}" in
+          major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+          minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+          patch) PATCH=$((PATCH + 1)) ;;
+        esac
+
+        NEW="${MAJOR}.${MINOR}.${PATCH}"
+        echo "Bumping version: ${CURRENT} -> ${NEW}"
+
+        # Update package.json
+        sed -i '' "s/\"version\": \".*\"/\"version\": \"${NEW}\"/" package.json
+
+        # Update tauri.conf.json
+        python3 -c "
+        import json
+        with open('src-tauri/tauri.conf.json') as f:
+            d = json.load(f)
+        d['version'] = '${NEW}'
+        with open('src-tauri/tauri.conf.json', 'w') as f:
+            json.dump(d, f, indent=2)
+        "
+
+        # Update Cargo.toml
+        sed -i '' "s/^version = \".*\"/version = \"${NEW}\"/" src-tauri/Cargo.toml
+
+        git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+        git commit -m "release: v${NEW}"
+        git tag "v${NEW}"
+        git push origin main
+        git push origin "v${NEW}"
+
+        echo "Released v${NEW}"
+
+  release:upload:
+    desc: "Upload signed DMG to GitHub release"
+    cmds:
+      - |
+        VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+        TAG="v${VERSION}"
+        if ! gh release view "$TAG" &>/dev/null; then
+          gh release create "$TAG" --title "$TAG" --notes ""
+          echo "Created release $TAG"
+        fi
+
+        DMG="src-tauri/target/release/bundle/dmg/Roux_${VERSION}_aarch64.dmg"
+        gh release upload "$TAG" "$DMG" --clobber
+        echo "Uploaded $DMG to $TAG"
