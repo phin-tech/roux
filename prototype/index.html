@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roux — Terminal Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0a0c;
+    --bg-base: #0f1014;
+    --bg-surface: #161821;
+    --bg-elevated: #1c1e2a;
+    --bg-hover: #222436;
+    --bg-active: #282b40;
+    --border: #2a2d3e;
+    --border-subtle: #1e2030;
+    --text-primary: #c8cad8;
+    --text-secondary: #6e7191;
+    --text-muted: #464960;
+    --accent: #7aa2f7;
+    --accent-dim: #3d5a9e;
+    --green: #9ece6a;
+    --green-dim: #3a5a1e;
+    --amber: #e0af68;
+    --amber-dim: #6e5530;
+    --red: #f7768e;
+    --red-dim: #6e2a36;
+    --blue: #7dcfff;
+    --blue-dim: #2a5a6e;
+    --gray: #545878;
+    --sidebar-width: 260px;
+    --statusbar-height: 32px;
+    --titlebar-height: 38px;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --font-sans: 'Outfit', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ─── TITLEBAR ─── */
+  .titlebar {
+    height: var(--titlebar-height);
+    background: var(--bg-base);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  .traffic-lights {
+    display: flex;
+    gap: 8px;
+    padding-right: 8px;
+  }
+
+  .traffic-light {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+
+  .tl-close { background: #ff5f57; }
+  .tl-minimize { background: #febc2e; }
+  .tl-maximize { background: #28c840; }
+
+  .titlebar-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+
+  .titlebar-session {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  /* ─── MAIN LAYOUT ─── */
+  .layout {
+    display: flex;
+    height: calc(100vh - var(--titlebar-height) - var(--statusbar-height));
+  }
+
+  /* ─── SIDEBAR ─── */
+  .sidebar {
+    width: var(--sidebar-width);
+    background: var(--bg-base);
+    border-right: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .sidebar-header {
+    padding: 14px 16px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .sidebar-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+  }
+
+  .session-count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-elevated);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .sessions-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 8px;
+  }
+
+  .sessions-list::-webkit-scrollbar { width: 4px; }
+  .sessions-list::-webkit-scrollbar-track { background: transparent; }
+  .sessions-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ─── SESSION CARD ─── */
+  .session-card {
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-bottom: 2px;
+    position: relative;
+    border: 1px solid transparent;
+  }
+
+  .session-card:hover {
+    background: var(--bg-hover);
+  }
+
+  .session-card:hover .session-close {
+    opacity: 1;
+  }
+
+  .session-card.active {
+    background: var(--bg-active);
+    border-color: var(--border);
+  }
+
+  .session-card.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+
+  .session-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-idle {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green-dim);
+  }
+
+  .status-thinking {
+    background: var(--amber);
+    box-shadow: 0 0 6px var(--amber-dim);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .status-generating {
+    background: var(--blue);
+    box-shadow: 0 0 6px var(--blue-dim);
+    animation: stream 1.5s ease-in-out infinite;
+  }
+
+  .status-error {
+    background: var(--red);
+    box-shadow: 0 0 6px var(--red-dim);
+  }
+
+  .status-disconnected {
+    background: var(--gray);
+    opacity: 0.6;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+
+  @keyframes stream {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .session-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .session-close {
+    opacity: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .session-close:hover {
+    color: var(--red);
+    background: var(--bg-elevated);
+  }
+
+  .session-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 16px;
+  }
+
+  .session-branch {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .session-branch .branch-icon {
+    font-size: 10px;
+    opacity: 0.7;
+  }
+
+  .session-model {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  .session-cost {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+  }
+
+  .session-status-label {
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: auto;
+  }
+
+  .label-thinking {
+    color: var(--amber);
+    background: rgba(224, 175, 104, 0.1);
+  }
+
+  .label-generating {
+    color: var(--blue);
+    background: rgba(125, 207, 255, 0.1);
+  }
+
+  .label-idle {
+    color: var(--green);
+    background: rgba(158, 206, 106, 0.1);
+  }
+
+  .label-error {
+    color: var(--red);
+    background: rgba(247, 118, 142, 0.1);
+  }
+
+  .label-disconnected {
+    color: var(--gray);
+    background: rgba(84, 88, 120, 0.15);
+  }
+
+  /* ─── SIDEBAR FOOTER ─── */
+  .sidebar-footer {
+    padding: 8px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    gap: 4px;
+  }
+
+  .sidebar-btn {
+    flex: 1;
+    padding: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+  }
+
+  .sidebar-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--border);
+  }
+
+  .sidebar-btn.primary {
+    background: var(--accent-dim);
+    border-color: transparent;
+    color: var(--accent);
+  }
+
+  .sidebar-btn.primary:hover {
+    background: var(--accent);
+    color: var(--bg-deep);
+  }
+
+  .btn-icon {
+    font-size: 14px;
+  }
+
+  /* ─── RESIZE HANDLE ─── */
+  .resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+
+  .resize-handle:hover {
+    background: var(--accent-dim);
+  }
+
+  /* ─── TERMINAL AREA ─── */
+  .terminal-area {
+    flex: 1;
+    background: var(--bg-deep);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .terminal-content {
+    flex: 1;
+    padding: 16px 20px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-y: auto;
+    color: var(--text-primary);
+  }
+
+  .terminal-content::-webkit-scrollbar { width: 6px; }
+  .terminal-content::-webkit-scrollbar-track { background: transparent; }
+  .terminal-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .term-line { margin-bottom: 2px; }
+  .term-prompt { color: var(--green); }
+  .term-dim { color: var(--text-muted); }
+  .term-accent { color: var(--accent); }
+  .term-amber { color: var(--amber); }
+  .term-blue { color: var(--blue); }
+  .term-red { color: var(--red); }
+  .term-green { color: var(--green); }
+  .term-bold { font-weight: 600; }
+  .term-separator { border-top: 1px solid var(--border-subtle); margin: 12px 0; }
+
+  .cursor-block {
+    display: inline-block;
+    width: 8px;
+    height: 15px;
+    background: var(--accent);
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+    margin-left: 2px;
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
+  .thinking-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--amber);
+    font-size: 12px;
+    padding: 8px 0;
+  }
+
+  .thinking-dots {
+    display: flex;
+    gap: 3px;
+  }
+
+  .thinking-dots span {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--amber);
+    animation: thinking-dot 1.4s ease-in-out infinite;
+  }
+
+  .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes thinking-dot {
+    0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+    40% { opacity: 1; transform: scale(1); }
+  }
+
+  /* ─── INPUT LINE ─── */
+  .terminal-input-area {
+    padding: 8px 20px 12px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .input-prompt {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .input-mode {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-elevated);
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: auto;
+  }
+
+  /* ─── STATUS BAR ─── */
+  .statusbar {
+    height: var(--statusbar-height);
+    background: var(--bg-base);
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .status-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .status-separator {
+    color: var(--text-muted);
+    font-size: 8px;
+  }
+
+  .status-branch {
+    color: var(--accent);
+  }
+
+  .status-model {
+    color: var(--text-secondary);
+  }
+
+  .status-cost {
+    color: var(--green);
+  }
+
+  .status-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .status-context {
+    color: var(--text-muted);
+  }
+
+  /* ─── NEW SESSION DIALOG ─── */
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s ease;
+  }
+
+  .dialog-overlay.open {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .dialog {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 480px;
+    max-height: 80vh;
+    overflow: hidden;
+    transform: translateY(8px) scale(0.98);
+    transition: transform 0.2s ease;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  }
+
+  .dialog-overlay.open .dialog {
+    transform: translateY(0) scale(1);
+  }
+
+  .dialog-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .dialog-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .dialog-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .dialog-body {
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .field-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+
+  .field-input {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .field-input:focus {
+    border-color: var(--accent-dim);
+  }
+
+  .field-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .field-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .field-row .field { flex: 1; }
+
+  .mode-toggle {
+    display: flex;
+    background: var(--bg-deep);
+    border-radius: 6px;
+    padding: 3px;
+    border: 1px solid var(--border-subtle);
+  }
+
+  .mode-option {
+    flex: 1;
+    padding: 6px 12px;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .mode-option.active {
+    background: var(--bg-active);
+    color: var(--text-primary);
+  }
+
+  .worktree-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  .worktree-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border: 1px solid transparent;
+  }
+
+  .worktree-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .worktree-item.selected {
+    background: var(--bg-active);
+    border-color: var(--accent-dim);
+  }
+
+  .worktree-item .wt-branch {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  .worktree-item .wt-path {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  .worktree-item .wt-badge {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(158, 206, 106, 0.1);
+    color: var(--green);
+  }
+
+  .dialog-footer {
+    padding: 16px 24px 20px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .dialog-btn {
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .dialog-btn.cancel {
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+  }
+
+  .dialog-btn.cancel:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .dialog-btn.create {
+    background: var(--accent);
+    color: var(--bg-deep);
+    border-color: transparent;
+  }
+
+  .dialog-btn.create:hover {
+    filter: brightness(1.1);
+  }
+
+  /* ─── SETTINGS PANEL ─── */
+  .settings-overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 380px;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border);
+    z-index: 50;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.3);
+  }
+
+  .settings-overlay.open {
+    transform: translateX(0);
+  }
+
+  .settings-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .settings-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .settings-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px;
+    border-radius: 4px;
+  }
+
+  .settings-close:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+
+  .settings-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+  }
+
+  .settings-section {
+    margin-bottom: 24px;
+  }
+
+  .settings-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+  }
+
+  .setting-label {
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+
+  .setting-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .toggle {
+    width: 36px;
+    height: 20px;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .toggle.on {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+  }
+
+  .toggle::after {
+    content: '';
+    width: 14px;
+    height: 14px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: all 0.2s;
+  }
+
+  .toggle.on::after {
+    left: 18px;
+    background: var(--accent);
+  }
+
+  .setting-input {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    width: 120px;
+    outline: none;
+    text-align: right;
+  }
+
+  .setting-input:focus {
+    border-color: var(--accent-dim);
+  }
+
+  .setting-select {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    padding-right: 24px;
+    background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236e7191' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+  }
+
+  /* ─── UTILITY ─── */
+  .icon-sm { font-size: 14px; }
+
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  /* ─── PROGRESS BAR for generating ─── */
+  .progress-bar-container {
+    height: 2px;
+    background: var(--bg-elevated);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--blue));
+    width: 40%;
+    animation: progress-slide 2s ease-in-out infinite;
+    border-radius: 1px;
+  }
+
+  @keyframes progress-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+
+  /* ─── EMPTY STATE ─── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 16px;
+    color: var(--text-muted);
+  }
+
+  .empty-state-icon {
+    font-size: 48px;
+    opacity: 0.3;
+  }
+
+  .empty-state-text {
+    font-size: 14px;
+  }
+
+  .empty-state-hint {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    opacity: 0.6;
+  }
+</style>
+</head>
+<body>
+
+<!-- TITLEBAR -->
+<div class="titlebar">
+  <div class="traffic-lights">
+    <div class="traffic-light tl-close"></div>
+    <div class="traffic-light tl-minimize"></div>
+    <div class="traffic-light tl-maximize"></div>
+  </div>
+  <span class="titlebar-text">roux</span>
+  <span class="titlebar-session">roux-api &mdash; feature-auth &mdash; Opus 4.6 (1M)</span>
+</div>
+
+<!-- MAIN LAYOUT -->
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Sessions</span>
+      <span class="session-count">4</span>
+    </div>
+
+    <div class="sessions-list">
+
+      <!-- Session 1 — Active, Generating -->
+      <div class="session-card active" onclick="selectSession(this)">
+        <div class="session-card-header">
+          <div class="status-dot status-generating"></div>
+          <span class="session-name">roux-api</span>
+          <span class="session-status-label label-generating">gen</span>
+          <button class="session-close">&times;</button>
+        </div>
+        <div class="session-meta">
+          <span class="session-branch"><span class="branch-icon">&#9095;</span> feature-auth</span>
+          <span class="session-cost">$0.16</span>
+        </div>
+      </div>
+
+      <!-- Session 2 — Thinking -->
+      <div class="session-card" onclick="selectSession(this)">
+        <div class="session-card-header">
+          <div class="status-dot status-thinking"></div>
+          <span class="session-name">roux-web</span>
+          <span class="session-status-label label-thinking">think</span>
+          <button class="session-close">&times;</button>
+        </div>
+        <div class="session-meta">
+          <span class="session-branch"><span class="branch-icon">&#9095;</span> main</span>
+          <span class="session-cost">$0.42</span>
+        </div>
+      </div>
+
+      <!-- Session 3 — Idle -->
+      <div class="session-card" onclick="selectSession(this)">
+        <div class="session-card-header">
+          <div class="status-dot status-idle"></div>
+          <span class="session-name">roux-docs</span>
+          <span class="session-status-label label-idle">idle</span>
+          <button class="session-close">&times;</button>
+        </div>
+        <div class="session-meta">
+          <span class="session-branch"><span class="branch-icon">&#9095;</span> docs-update</span>
+          <span class="session-cost">$0.03</span>
+        </div>
+      </div>
+
+      <!-- Session 4 — Disconnected -->
+      <div class="session-card" onclick="selectSession(this)">
+        <div class="session-card-header">
+          <div class="status-dot status-disconnected"></div>
+          <span class="session-name">roux-cli</span>
+          <span class="session-status-label label-disconnected">disc</span>
+          <button class="session-close">&times;</button>
+        </div>
+        <div class="session-meta">
+          <span class="session-branch"><span class="branch-icon">&#9095;</span> cli-refactor</span>
+          <span class="session-cost">$0.08</span>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="sidebar-btn primary" onclick="toggleDialog()">
+        <span class="btn-icon">+</span> New
+      </button>
+      <button class="sidebar-btn" onclick="toggleSettings()">
+        <span class="btn-icon">&#9881;</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="resize-handle"></div>
+
+  <!-- TERMINAL AREA -->
+  <div class="terminal-area" style="position: relative;">
+
+    <!-- Progress bar for generating state -->
+    <div class="progress-bar-container">
+      <div class="progress-bar"></div>
+    </div>
+
+    <div class="terminal-content">
+      <div class="term-line"><span class="term-bold" style="color: var(--accent);">Claude Code</span> <span class="term-dim">v2.1.92</span></div>
+      <div class="term-line"><span class="term-dim">Opus 4.6 (1M context)</span></div>
+      <div class="term-line"><span class="term-dim">~/src/github.com/phin-tech/roux</span></div>
+      <div class="term-line">&nbsp;</div>
+      <div class="term-line"><span class="term-green term-bold">&gt;</span> <span class="term-primary">implement the authentication middleware for the API routes</span></div>
+      <div class="term-line">&nbsp;</div>
+      <div class="term-line"><span class="term-dim">I'll implement the auth middleware. Let me start by examining the existing route structure.</span></div>
+      <div class="term-line">&nbsp;</div>
+
+      <div class="term-line"><span class="term-amber">Read</span> <span class="term-dim">src-tauri/src/ipc.rs</span></div>
+      <div class="term-line"><span class="term-amber">Read</span> <span class="term-dim">src-tauri/src/session.rs</span></div>
+      <div class="term-line">&nbsp;</div>
+
+      <div class="term-line"><span class="term-dim">I can see the existing IPC command handlers. I'll add authentication middleware that validates session tokens before allowing access to protected commands.</span></div>
+      <div class="term-line">&nbsp;</div>
+
+      <div class="term-line"><span class="term-blue">Write</span> <span class="term-dim">src-tauri/src/auth.rs</span></div>
+      <div class="term-line">&nbsp;</div>
+
+      <div class="term-line" style="background: rgba(122, 162, 247, 0.06); margin: 0 -20px; padding: 8px 20px; border-left: 2px solid var(--accent-dim);">
+        <span class="term-dim">  1</span>  <span class="term-red">use</span> <span class="term-primary">tauri::State;</span><br>
+        <span class="term-dim">  2</span>  <span class="term-red">use</span> <span class="term-primary">serde::{Deserialize, Serialize};</span><br>
+        <span class="term-dim">  3</span>  <br>
+        <span class="term-dim">  4</span>  <span class="term-accent">#[derive(Debug, Serialize, Deserialize)]</span><br>
+        <span class="term-dim">  5</span>  <span class="term-red">pub struct</span> <span class="term-amber">AuthToken</span> {<br>
+        <span class="term-dim">  6</span>  &nbsp;&nbsp;&nbsp;&nbsp;<span class="term-red">pub</span> token: <span class="term-green">String</span>,<br>
+        <span class="term-dim">  7</span>  &nbsp;&nbsp;&nbsp;&nbsp;<span class="term-red">pub</span> expires_at: <span class="term-green">u64</span>,<br>
+        <span class="term-dim">  8</span>  }<br>
+      </div>
+      <div class="term-line">&nbsp;</div>
+
+      <div class="thinking-indicator">
+        <div class="thinking-dots">
+          <span></span><span></span><span></span>
+        </div>
+        Thinking...
+      </div>
+    </div>
+
+    <div class="terminal-input-area">
+      <span class="input-prompt">&#10095;</span>
+      <span style="font-family: var(--font-mono); font-size: 13px; color: var(--text-muted);">Type a message...</span>
+      <span class="input-mode">INSERT</span>
+    </div>
+
+    <!-- SETTINGS PANEL (slides in from right) -->
+    <div class="settings-overlay" id="settingsPanel">
+      <div class="settings-header">
+        <span class="settings-title">Settings</span>
+        <button class="settings-close" onclick="toggleSettings()">&times;</button>
+      </div>
+      <div class="settings-body">
+
+        <div class="settings-section">
+          <div class="settings-section-title">Layout</div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Tab position</div>
+            </div>
+            <select class="setting-select">
+              <option selected>Left</option>
+              <option>Right</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Worktrees</div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Base path</div>
+              <div class="setting-desc">Where to create new worktrees</div>
+            </div>
+            <input class="setting-input" value="~/worktrees" style="width: 140px;">
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Cleanup on close</div>
+              <div class="setting-desc">Auto-remove worktrees when closing sessions</div>
+            </div>
+            <div class="toggle" onclick="this.classList.toggle('on')"></div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Terminal</div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Font size</div>
+            </div>
+            <input class="setting-input" type="number" value="14" style="width: 60px;">
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Font family</div>
+            </div>
+            <input class="setting-input" value="IBM Plex Mono" style="width: 140px;">
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Scrollback lines</div>
+            </div>
+            <input class="setting-input" type="number" value="5000" style="width: 80px;">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Sessions</div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Confirm on close</div>
+              <div class="setting-desc">Prompt before closing active sessions</div>
+            </div>
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Restore on launch</div>
+              <div class="setting-desc">Show previous sessions on startup</div>
+            </div>
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Default project path</div>
+            </div>
+            <input class="setting-input" value="~/src" style="width: 140px;">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Claude</div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Default model</div>
+            </div>
+            <input class="setting-input" value="opus" style="width: 100px;">
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Additional flags</div>
+            </div>
+            <input class="setting-input" placeholder="--verbose" style="width: 140px;">
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="statusbar">
+  <div class="status-item">
+    <div class="status-dot status-generating" style="width: 6px; height: 6px;"></div>
+    <span>roux-api</span>
+  </div>
+  <span class="status-separator">&bull;</span>
+  <div class="status-item">
+    <span class="status-branch">&#9095; feature-auth</span>
+  </div>
+  <span class="status-separator">&bull;</span>
+  <div class="status-item">
+    <span class="status-model">Opus 4.6 (1M)</span>
+  </div>
+  <span class="status-separator">&bull;</span>
+  <div class="status-item">
+    <span class="status-cost">$0.16</span>
+  </div>
+  <div class="status-right">
+    <span class="status-context">2% context</span>
+    <span class="status-separator">&bull;</span>
+    <span style="color: var(--text-muted);">0m</span>
+  </div>
+</div>
+
+<!-- NEW SESSION DIALOG -->
+<div class="dialog-overlay" id="dialogOverlay" onclick="if(event.target===this)toggleDialog()">
+  <div class="dialog">
+    <div class="dialog-header">
+      <div class="dialog-title">New Session</div>
+      <div class="dialog-subtitle">Create a new Claude Code session in a git repository</div>
+    </div>
+    <div class="dialog-body">
+
+      <div class="field">
+        <label class="field-label">Repository</label>
+        <div style="display: flex; gap: 8px;">
+          <input class="field-input" style="flex: 1;" value="~/src/github.com/phin-tech/roux" readonly>
+          <button class="dialog-btn cancel" style="padding: 8px 12px; font-size: 12px;">Browse</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Mode</label>
+        <div class="mode-toggle">
+          <button class="mode-option active" onclick="setMode(this, 'new')">New Worktree</button>
+          <button class="mode-option" onclick="setMode(this, 'existing')">Existing Directory</button>
+        </div>
+      </div>
+
+      <!-- New worktree fields -->
+      <div class="field" id="newWorktreeField">
+        <label class="field-label">Branch name</label>
+        <input class="field-input" placeholder="feature/my-feature">
+      </div>
+
+      <!-- Existing worktree list (hidden by default) -->
+      <div class="field" id="existingWorktreeField" style="display: none;">
+        <label class="field-label">Select worktree</label>
+        <div class="worktree-list">
+          <div class="worktree-item selected">
+            <span class="wt-badge">main</span>
+            <span class="wt-branch">main</span>
+            <span class="wt-path">~/src/.../roux</span>
+          </div>
+          <div class="worktree-item">
+            <span class="wt-branch">feature-auth</span>
+            <span class="wt-path">~/worktrees/roux-feature-auth</span>
+          </div>
+          <div class="worktree-item">
+            <span class="wt-branch">docs-update</span>
+            <span class="wt-path">~/worktrees/roux-docs-update</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Session name <span style="font-weight: 400; text-transform: none; letter-spacing: 0;">(optional)</span></label>
+        <input class="field-input" placeholder="roux-my-feature">
+      </div>
+
+    </div>
+    <div class="dialog-footer">
+      <button class="dialog-btn cancel" onclick="toggleDialog()">Cancel</button>
+      <button class="dialog-btn create" onclick="toggleDialog()">Create Session</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function selectSession(el) {
+  document.querySelectorAll('.session-card').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function toggleDialog() {
+  document.getElementById('dialogOverlay').classList.toggle('open');
+}
+
+function toggleSettings() {
+  document.getElementById('settingsPanel').classList.toggle('open');
+}
+
+function setMode(el, mode) {
+  el.parentElement.querySelectorAll('.mode-option').forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('newWorktreeField').style.display = mode === 'new' ? '' : 'none';
+  document.getElementById('existingWorktreeField').style.display = mode === 'existing' ? '' : 'none';
+}
+</script>
+
+</body>
+</html>
