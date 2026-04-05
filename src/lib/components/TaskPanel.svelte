@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { taskGroups, getTaskRun, setKeepOpenOverride, getEffectiveKeepOpen } from "$lib/stores/tasks";
+  import { taskGroups, taskRuns, getTaskRun, setKeepOpenOverride, getEffectiveKeepOpen } from "$lib/stores/tasks";
   import { sessionState } from "$lib/stores/sessions";
-  import { runTask } from "$lib/tasks/runner";
+  import { runTask, expandTask } from "$lib/tasks/runner";
   import type { TaskDefinition } from "$lib/types/tasks";
 
   interface Props {
@@ -31,6 +31,11 @@
     void runTask($sessionState.activeSessionId, activeSession.worktreePath, task);
   }
 
+  function handleExpand(ptyId: string) {
+    if (!$sessionState.activeSessionId) return;
+    expandTask($sessionState.activeSessionId, ptyId);
+  }
+
   function handleContextMenu(e: MouseEvent, task: TaskDefinition) {
     e.preventDefault();
     if (!activeSession) return;
@@ -47,10 +52,17 @@
     contextMenu = null;
   }
 
-  function getRunStatus(taskId: string): "running" | "succeeded" | "failed" | null {
+  function getRunForTask(taskId: string) {
     if (!$sessionState.activeSessionId) return null;
-    const run = getTaskRun($sessionState.activeSessionId, taskId);
-    return run?.status ?? null;
+    // Force reactivity on taskRuns
+    $taskRuns;
+    return getTaskRun($sessionState.activeSessionId, taskId) ?? null;
+  }
+
+  function elapsed(startedAt: number): string {
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m${s % 60}s`;
   }
 </script>
 
@@ -89,24 +101,46 @@
 
         {#if !collapsedGroups.has(group.runner)}
           {#each group.tasks as task (task.id)}
-            {@const status = getRunStatus(task.id)}
-            <button
-              class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary bg-transparent border-none cursor-pointer rounded hover:bg-bg-hover hover:text-text-primary group"
-              onclick={() => handleRun(task)}
-              oncontextmenu={(e) => handleContextMenu(e, task)}
-              title={task.description || task.command}
-            >
-              <span class="flex-1 text-left truncate font-mono text-[12px]">{task.name}</span>
-              {#if status === "running"}
-                <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0"></span>
-              {:else if status === "succeeded"}
-                <span class="w-2 h-2 rounded-full bg-green-400 shrink-0"></span>
-              {:else if status === "failed"}
-                <span class="w-2 h-2 rounded-full bg-red-400 shrink-0"></span>
-              {:else}
-                <span class="text-text-muted opacity-0 group-hover:opacity-100 text-[10px] shrink-0">&#9654;</span>
+            {@const run = getRunForTask(task.id)}
+            <div>
+              <button
+                class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary bg-transparent border-none cursor-pointer rounded hover:bg-bg-hover hover:text-text-primary group"
+                onclick={() => handleRun(task)}
+                oncontextmenu={(e) => handleContextMenu(e, task)}
+                title={task.description || task.command}
+              >
+                <span class="flex-1 text-left truncate font-mono text-[12px]">{task.name}</span>
+                {#if run?.status === "running"}
+                  <span class="text-[10px] text-text-muted font-mono">{elapsed(run.startedAt)}</span>
+                  <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0"></span>
+                {:else if run?.status === "succeeded"}
+                  <span class="w-2 h-2 rounded-full bg-green-400 shrink-0"></span>
+                {:else if run?.status === "failed"}
+                  <span class="w-2 h-2 rounded-full bg-red-400 shrink-0"></span>
+                {:else}
+                  <span class="text-text-muted opacity-0 group-hover:opacity-100 text-[10px] shrink-0">&#9654;</span>
+                {/if}
+              </button>
+
+              <!-- Inline output log -->
+              {#if run && run.outputLines.length > 0}
+                <div class="mx-3 mb-1.5 rounded border border-border-subtle bg-bg-deep overflow-hidden">
+                  <div class="flex items-center justify-between px-2 py-1 border-b border-border-subtle">
+                    <span class="text-[10px] text-text-muted font-mono">
+                      {run.status === "running" ? "running..." : run.status === "succeeded" ? "exit 0" : `exit ${run.exitCode ?? "?"}`}
+                    </span>
+                    {#if !run.paneId}
+                      <button
+                        class="text-[10px] text-text-muted hover:text-accent bg-transparent border-none cursor-pointer px-1"
+                        onclick={(e) => { e.stopPropagation(); handleExpand(run.ptyId); }}
+                        title="Expand to terminal pane"
+                      >&#8599;</button>
+                    {/if}
+                  </div>
+                  <pre class="px-2 py-1.5 text-[11px] font-mono text-text-secondary leading-tight max-h-24 overflow-y-auto whitespace-pre-wrap break-all m-0">{run.outputLines.slice(-15).join("\n")}</pre>
+                </div>
               {/if}
-            </button>
+            </div>
           {/each}
         {/if}
       {/each}

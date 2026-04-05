@@ -85,7 +85,35 @@ export function setKeepOpenOverride(repoRoot: string, taskId: string, keepOpen: 
   saveTaskOverrides(current).catch(() => {});
 }
 
+const MAX_OUTPUT_LINES = 200;
+
+export function appendTaskOutput(sessionId: string, ptyId: string, text: string) {
+  taskRuns.update((map) => {
+    const runs = map.get(sessionId);
+    if (!runs) return map;
+    const run = runs.find((r) => r.ptyId === ptyId);
+    if (!run) return map;
+    // Split incoming text into lines, append, trim to max
+    const newLines = text.split("\n");
+    run.outputLines.push(...newLines);
+    if (run.outputLines.length > MAX_OUTPUT_LINES) {
+      run.outputLines.splice(0, run.outputLines.length - MAX_OUTPUT_LINES);
+    }
+    return new Map(map);
+  });
+}
+
+export function setTaskPaneId(sessionId: string, ptyId: string, paneId: string) {
+  taskRuns.update((map) => {
+    const runs = map.get(sessionId);
+    if (!runs) return map;
+    const run = runs.find((r) => r.ptyId === ptyId);
+    if (run) run.paneId = paneId;
+    return new Map(map);
+  });
+}
+
 export function getTaskRun(sessionId: string, taskId: string): TaskRun | undefined {
   const runs = get(taskRuns).get(sessionId);
-  return runs?.find((r) => r.taskId === taskId && r.status === "running");
+  return runs?.find((r) => r.taskId === taskId);
 }

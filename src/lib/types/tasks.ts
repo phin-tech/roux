@@ -17,9 +17,10 @@ export interface TaskGroup {
 
 export interface TaskRun {
   taskId: string;
-  paneId: string;
   ptyId: string;
+  paneId: string | null;
   status: "running" | "succeeded" | "failed";
   exitCode: number | null;
+  outputLines: string[];
   startedAt: number;
 }

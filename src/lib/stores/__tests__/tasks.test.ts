@@ -80,10 +80,11 @@ describe("task stores", () => {
     it("adds and retrieves a task run", () => {
       const run: TaskRun = {
         taskId: "npm:build",
-        paneId: "pane-1",
+        paneId: null,
         ptyId: "pty-1",
         status: "running",
         exitCode: null,
+        outputLines: [],
         startedAt: 1000,
       };
       addTaskRun("session-1", run);
@@ -95,10 +96,11 @@ describe("task stores", () => {
     it("updates a task run status", () => {
       addTaskRun("session-1", {
         taskId: "npm:build",
-        paneId: "pane-1",
+        paneId: null,
         ptyId: "pty-1",
         status: "running",
         exitCode: null,
+        outputLines: [],
         startedAt: 1000,
       });
 
@@ -112,10 +114,11 @@ describe("task stores", () => {
     it("marks nonzero exit as failed", () => {
       addTaskRun("session-1", {
         taskId: "npm:test",
-        paneId: "pane-1",
+        paneId: null,
         ptyId: "pty-1",
         status: "running",
         exitCode: null,
+        outputLines: [],
         startedAt: 1000,
       });
 
@@ -128,10 +131,11 @@ describe("task stores", () => {
     it("removes a task run", () => {
       addTaskRun("session-1", {
         taskId: "npm:build",
-        paneId: "pane-1",
+        paneId: null,
         ptyId: "pty-1",
         status: "running",
         exitCode: null,
+        outputLines: [],
         startedAt: 1000,
       });
       removeTaskRun("session-1", "pty-1");
