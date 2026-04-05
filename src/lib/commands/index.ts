@@ -61,8 +61,7 @@ export function registerCommands() {
     id: "pane.open-doc",
     label: "Open Document",
     shortcut: "cmd+shift+b",
-    category: "Panes",
-    available: () => queries.canSplitPane(),
+    category: "Documents",
     getItems: async () => {
       const session = queries.activeSession();
       if (!session) return [];
