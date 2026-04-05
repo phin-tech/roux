@@ -29,12 +29,23 @@
       );
       if (match) {
         updateSessionStatus(match.id, update.status as any, null, null);
-        if (update.status === "attention" && update.toolName) {
-          updateSessionPermission(match.id, {
-            toolName: update.toolName,
-            toolInput: update.toolInput ?? {},
-            message: update.message ?? "",
-          });
+        if (update.status === "attention") {
+          // Only update permission info if this event has tool details
+          // (PermissionRequest has toolName; Notification may not — don't overwrite)
+          if (update.toolName) {
+            updateSessionPermission(match.id, {
+              toolName: update.toolName,
+              toolInput: update.toolInput ?? {},
+              message: update.message ?? "",
+            });
+          } else if (update.message && !match.permissionInfo) {
+            // Notification with message but no tool — use message as fallback
+            updateSessionPermission(match.id, {
+              toolName: "",
+              toolInput: {},
+              message: update.message,
+            });
+          }
         } else {
           updateSessionPermission(match.id, null);
         }
