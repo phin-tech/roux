@@ -7,10 +7,15 @@ const HOOK_HANDLER_SCRIPT: &str = r#"#!/bin/bash
 # Roux hook handler — receives Claude Code hook events and writes status files
 STATUS="$1"
 INPUT=$(cat)
-SID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
+eval "$(echo "$INPUT" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+print(f'SID=\"{d.get(\"session_id\",\"\")}\"')
+print(f'CWD=\"{d.get(\"cwd\",\"\")}\"')
+" 2>/dev/null)"
 if [ -n "$SID" ]; then
     mkdir -p ~/.config/roux/status
-    echo "{\"status\":\"$STATUS\",\"session_id\":\"$SID\",\"timestamp\":$(date +%s)}" > ~/.config/roux/status/$SID.json
+    echo "{\"status\":\"$STATUS\",\"claude_session_id\":\"$SID\",\"cwd\":\"$CWD\",\"timestamp\":$(date +%s)}" > ~/.config/roux/status/$SID.json
 fi
 "#;
 

@@ -1,10 +1,19 @@
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::Serialize;
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use tauri::Emitter;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StatusUpdate {
+    status: String,
+    cwd: String,
+    claude_session_id: String,
+}
 
 fn status_dir() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("Could not determine home directory")?;
@@ -18,6 +27,8 @@ fn map_status(raw: &str) -> &str {
         "working" => "generating",
         "idle" => "idle",
         "attention" => "error",
+        "error" => "error",
+        "disconnected" => "disconnected",
         _ => raw,
     }
 }
@@ -54,11 +65,6 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
                     continue;
                 }
 
-                let session_id = match path.file_stem().and_then(|s| s.to_str()) {
-                    Some(id) => id.to_string(),
-                    None => continue,
-                };
-
                 // Small delay to ensure file is fully written
                 thread::sleep(std::time::Duration::from_millis(10));
 
@@ -77,11 +83,28 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
                     None => continue,
                 };
 
+                let cwd = parsed
+                    .get("cwd")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let claude_sid = parsed
+                    .get("claude_session_id")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
                 let mapped = map_status(&raw_status);
-                let _ = app.emit(
-                    &format!("session-status:{}", session_id),
-                    mapped,
-                );
+
+                // Emit a global event with cwd so frontend can match to the right session
+                let update = StatusUpdate {
+                    status: mapped.to_string(),
+                    cwd,
+                    claude_session_id: claude_sid,
+                };
+
+                let _ = app.emit("roux-status-update", &update);
             }
         }
     });

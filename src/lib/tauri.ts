@@ -115,3 +115,17 @@ export function onSettingsChanged(
     callback(event.payload);
   });
 }
+
+export interface StatusUpdate {
+  status: string;
+  cwd: string;
+  claudeSessionId: string;
+}
+
+export function onRouxStatusUpdate(
+  callback: (payload: StatusUpdate) => void
+): Promise<UnlistenFn> {
+  return listen<StatusUpdate>("roux-status-update", (event) => {
+    callback(event.payload);
+  });
+}

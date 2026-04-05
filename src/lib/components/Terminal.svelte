@@ -5,8 +5,8 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { onPtyOutput, onSessionStatus, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
-  import { updateSessionStatus, setSessionDisconnected } from "$lib/stores/sessions";
+  import { onPtyOutput, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
+  import { setSessionDisconnected } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -64,15 +64,7 @@
     });
     unlisteners.push(outputUnlisten);
 
-    const statusUnlisten = await onSessionStatus(sessionId, (payload) => {
-      updateSessionStatus(
-        sessionId,
-        payload.status as any,
-        payload.model,
-        payload.cost
-      );
-    });
-    unlisteners.push(statusUnlisten);
+    // Status is now handled globally in App.svelte via hooks-based detection
 
     const exitUnlisten = await onSessionExit(sessionId, (_code) => {
       setSessionDisconnected(sessionId);

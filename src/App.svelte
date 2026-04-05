@@ -4,8 +4,8 @@
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import { initSettings } from "$lib/stores/settings";
-  import { addSession } from "$lib/stores/sessions";
-  import { listSessions } from "$lib/tauri";
+  import { addSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
+  import { listSessions, onRouxStatusUpdate } from "$lib/tauri";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
@@ -19,6 +19,23 @@
         addSession(s);
       }
     }
+
+    // Listen for global status updates from hooks and match by cwd
+    await onRouxStatusUpdate((update) => {
+      const sessions = $sessionState.sessions;
+      // Match by worktreePath (where claude is actually running)
+      const match = sessions.find(
+        (s) => s.worktreePath === update.cwd || s.repoRoot === update.cwd
+      );
+      if (match) {
+        updateSessionStatus(
+          match.id,
+          update.status as any,
+          null,
+          null
+        );
+      }
+    });
   });
 </script>
 
