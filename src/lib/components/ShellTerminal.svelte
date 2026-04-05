@@ -5,90 +5,95 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { onPtyOutput, writeToSession, resizeSession, killSession } from "$lib/tauri";
+  import { onPtyOutput, writeToSession, resizeSession } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
-  import type { UnlistenFn } from "@tauri-apps/api/event";
+  import { ensureShellTerminal } from "$lib/panes/terminalRegistry";
 
   interface Props {
     ptyId: string;
     paneId: string;
-    onClose: () => void;
+    onClose: () => void | Promise<void>;
   }
 
   let { ptyId, paneId, onClose }: Props = $props();
 
   let containerEl: HTMLDivElement;
+  let terminal: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let hovering = $state(false);
 
-  // Global map to keep terminal instances alive across re-renders
-  const shellInstances = new Map<string, { terminal: Terminal; fitAddon: FitAddon; unlisteners: UnlistenFn[] }>();
+  function getOrCreateTerminal() {
+    return ensureShellTerminal(paneId, () => ({
+      ptyId,
+      terminal: new Terminal({
+        fontSize: $settings.fontSize,
+        fontFamily: $settings.fontFamily,
+        lineHeight: $settings.lineHeight,
+        scrollback: $settings.scrollback,
+        cursorStyle: $settings.cursorStyle as "block" | "underline" | "bar",
+        cursorBlink: $settings.cursorBlink,
+        theme: {
+          background: "#0a0a0c",
+          foreground: "#c8cad8",
+          cursor: "#7aa2f7",
+          selectionBackground: "#282b40",
+          black: "#0a0a0c",
+          red: "#f7768e",
+          green: "#9ece6a",
+          yellow: "#e0af68",
+          blue: "#7aa2f7",
+          magenta: "#bb9af7",
+          cyan: "#7dcfff",
+          white: "#c8cad8",
+          brightBlack: "#444b6a",
+          brightRed: "#ff7a93",
+          brightGreen: "#b9f27c",
+          brightYellow: "#ff9e64",
+          brightBlue: "#7da6ff",
+          brightMagenta: "#c0a0ff",
+          brightCyan: "#0db9d7",
+          brightWhite: "#d5d6db",
+        },
+      }),
+      fitAddon: null,
+      unlisteners: [],
+      disposables: [],
+    }));
+  }
 
-  function getOrCreateTerminal(): { terminal: Terminal; fitAddon: FitAddon; unlisteners: UnlistenFn[] } {
-    if (shellInstances.has(paneId)) {
-      return shellInstances.get(paneId)!;
+  function detach() {
+    if (terminal?.element && containerEl?.contains(terminal.element)) {
+      containerEl.removeChild(terminal.element);
     }
-
-    const terminal = new Terminal({
-      fontSize: $settings.fontSize,
-      fontFamily: $settings.fontFamily,
-      lineHeight: $settings.lineHeight,
-      scrollback: $settings.scrollback,
-      cursorStyle: $settings.cursorStyle as "block" | "underline" | "bar",
-      cursorBlink: $settings.cursorBlink,
-      theme: {
-        background: "#0a0a0c",
-        foreground: "#c8cad8",
-        cursor: "#7aa2f7",
-        selectionBackground: "#282b40",
-        black: "#0a0a0c",
-        red: "#f7768e",
-        green: "#9ece6a",
-        yellow: "#e0af68",
-        blue: "#7aa2f7",
-        magenta: "#bb9af7",
-        cyan: "#7dcfff",
-        white: "#c8cad8",
-        brightBlack: "#444b6a",
-        brightRed: "#ff7a93",
-        brightGreen: "#b9f27c",
-        brightYellow: "#ff9e64",
-        brightBlue: "#7da6ff",
-        brightMagenta: "#c0a0ff",
-        brightCyan: "#0db9d7",
-        brightWhite: "#d5d6db",
-      },
-    });
-
-    const fa = new FitAddon();
-    const instance = { terminal, fitAddon: fa, unlisteners: [] as UnlistenFn[] };
-    shellInstances.set(paneId, instance);
-    return instance;
   }
 
   onMount(async () => {
     const instance = getOrCreateTerminal();
-    const terminal = instance.terminal;
+    const term = instance.terminal;
+    terminal = term;
     fitAddon = instance.fitAddon;
 
-    if (!terminal.element) {
+    if (!term.element) {
       // First time — open into container
-      terminal.open(containerEl);
-      terminal.loadAddon(fitAddon);
-      try { terminal.loadAddon(new WebglAddon()); } catch {}
-      terminal.loadAddon(new WebLinksAddon());
+      term.open(containerEl);
+      if (!fitAddon) {
+        fitAddon = new FitAddon();
+        instance.fitAddon = fitAddon;
+      }
+      term.loadAddon(fitAddon);
+      try { term.loadAddon(new WebglAddon()); } catch {}
+      term.loadAddon(new WebLinksAddon());
 
-      terminal.onData((data) => writeToSession(ptyId, data));
+      instance.disposables.push(term.onData((data) => writeToSession(ptyId, data)));
 
-      const outputUnlisten = await onPtyOutput(ptyId, (b64data) => {
+      instance.unlisteners.push(await onPtyOutput(ptyId, (b64data) => {
         const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
-        terminal.write(bytes);
-      });
-      instance.unlisteners.push(outputUnlisten);
+        term.write(bytes);
+      }));
     } else {
       // Re-mount: move the existing terminal element into the new container
-      containerEl.appendChild(terminal.element);
+      containerEl.appendChild(term.element);
     }
 
     resizeObserver = new ResizeObserver(() => {
@@ -108,21 +113,12 @@
   });
 
   onDestroy(() => {
-    // DON'T dispose terminal or kill PTY here — the component may be re-mounting
-    // due to tree restructuring. Only detach the resize observer.
     resizeObserver?.disconnect();
+    detach();
   });
 
-  // Call this when the pane is actually being closed (via the X button)
   function handleClose() {
-    const instance = shellInstances.get(paneId);
-    if (instance) {
-      for (const unlisten of instance.unlisteners) unlisten();
-      instance.terminal.dispose();
-      shellInstances.delete(paneId);
-    }
-    killSession(ptyId).catch(() => {});
-    onClose();
+    void onClose();
   }
 </script>
 

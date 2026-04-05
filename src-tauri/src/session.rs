@@ -27,21 +27,11 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    pub fn new() -> Self {
-        let store = Self {
-            sessions: Arc::new(Mutex::new(Vec::new())),
-            dirty: Arc::new(AtomicBool::new(false)),
-        };
-        store.start_persist_thread();
-        store
-    }
-
     pub fn load_persisted() -> Self {
         let path = Self::persistence_path();
         let sessions = if path.exists() {
             let content = fs::read_to_string(&path).unwrap_or_default();
-            let mut sessions: Vec<Session> =
-                serde_json::from_str(&content).unwrap_or_default();
+            let mut sessions: Vec<Session> = serde_json::from_str(&content).unwrap_or_default();
             // Mark all restored sessions as disconnected
             for s in &mut sessions {
                 s.status = "disconnected".to_string();
@@ -62,16 +52,14 @@ impl SessionStore {
     fn start_persist_thread(&self) {
         let sessions = Arc::clone(&self.sessions);
         let dirty = Arc::clone(&self.dirty);
-        thread::spawn(move || {
-            loop {
-                thread::sleep(Duration::from_millis(500));
-                if dirty.swap(false, Ordering::AcqRel) {
-                    let snapshot = {
-                        let guard = sessions.lock().unwrap();
-                        guard.clone()
-                    };
-                    Self::write_to_disk(&snapshot);
-                }
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_millis(500));
+            if dirty.swap(false, Ordering::AcqRel) {
+                let snapshot = {
+                    let guard = sessions.lock().unwrap();
+                    guard.clone()
+                };
+                Self::write_to_disk(&snapshot);
             }
         });
     }
@@ -90,20 +78,6 @@ impl SessionStore {
 
     pub fn list(&self) -> Vec<Session> {
         self.sessions.lock().unwrap().clone()
-    }
-
-    pub fn update_status(&self, id: &str, status: &str, model: Option<String>, cost: Option<f64>) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.iter_mut().find(|s| s.id == id) {
-            session.status = status.to_string();
-            if let Some(m) = model {
-                session.model = Some(m);
-            }
-            if let Some(c) = cost {
-                session.cost = Some(c);
-            }
-        }
-        self.dirty.store(true, Ordering::Release);
     }
 
     fn persistence_path() -> PathBuf {

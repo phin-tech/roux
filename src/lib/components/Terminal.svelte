@@ -8,7 +8,7 @@
   import { onPtyOutput, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
   import { setSessionDisconnected } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
-  import type { UnlistenFn } from "@tauri-apps/api/event";
+  import { ensureClaudeTerminal } from "$lib/panes/terminalRegistry";
 
   interface Props {
     sessionId: string;
@@ -22,78 +22,73 @@
   let fitAddon: FitAddon | null = null;
   let resizeObserver: ResizeObserver | null = null;
 
-  // Global maps — survive component destroy/recreate during split tree changes
-  const terminalInstances = new Map<string, Terminal>();
-  const listenersAttached = new Set<string>();
-
-  function getOrCreateTerminal(): Terminal {
-    if (terminalInstances.has(sessionId)) {
-      return terminalInstances.get(sessionId)!;
-    }
-
-    const term = new Terminal({
-      fontSize: $settings.fontSize,
-      fontFamily: $settings.fontFamily,
-      lineHeight: $settings.lineHeight,
-      scrollback: $settings.scrollback,
-      cursorStyle: $settings.cursorStyle as "block" | "underline" | "bar",
-      cursorBlink: $settings.cursorBlink,
-      theme: {
-        background: "#0a0a0c",
-        foreground: "#c8cad8",
-        cursor: "#7aa2f7",
-        selectionBackground: "#282b40",
-        black: "#0a0a0c",
-        red: "#f7768e",
-        green: "#9ece6a",
-        yellow: "#e0af68",
-        blue: "#7aa2f7",
-        magenta: "#bb9af7",
-        cyan: "#7dcfff",
-        white: "#c8cad8",
-        brightBlack: "#444b6a",
-        brightRed: "#ff7a93",
-        brightGreen: "#b9f27c",
-        brightYellow: "#ff9e64",
-        brightBlue: "#7da6ff",
-        brightMagenta: "#c0a0ff",
-        brightCyan: "#0db9d7",
-        brightWhite: "#d5d6db",
-      },
-    });
-
-    terminalInstances.set(sessionId, term);
-    return term;
+  function getOrCreateTerminal() {
+    return ensureClaudeTerminal(sessionId, () => ({
+      terminal: new Terminal({
+        fontSize: $settings.fontSize,
+        fontFamily: $settings.fontFamily,
+        lineHeight: $settings.lineHeight,
+        scrollback: $settings.scrollback,
+        cursorStyle: $settings.cursorStyle as "block" | "underline" | "bar",
+        cursorBlink: $settings.cursorBlink,
+        theme: {
+          background: "#0a0a0c",
+          foreground: "#c8cad8",
+          cursor: "#7aa2f7",
+          selectionBackground: "#282b40",
+          black: "#0a0a0c",
+          red: "#f7768e",
+          green: "#9ece6a",
+          yellow: "#e0af68",
+          blue: "#7aa2f7",
+          magenta: "#bb9af7",
+          cyan: "#7dcfff",
+          white: "#c8cad8",
+          brightBlack: "#444b6a",
+          brightRed: "#ff7a93",
+          brightGreen: "#b9f27c",
+          brightYellow: "#ff9e64",
+          brightBlue: "#7da6ff",
+          brightMagenta: "#c0a0ff",
+          brightCyan: "#0db9d7",
+          brightWhite: "#d5d6db",
+        },
+      }),
+      fitAddon: null,
+      unlisteners: [],
+      disposables: [],
+    }));
   }
 
   async function attachListeners() {
-    // Only attach once per sessionId — listeners are global, not per component instance
-    if (listenersAttached.has(sessionId)) return;
-    listenersAttached.add(sessionId);
+    const entry = getOrCreateTerminal();
+    if (entry.unlisteners.length > 0) return;
 
-    await onPtyOutput(sessionId, (b64data) => {
-      const term = terminalInstances.get(sessionId);
-      if (term) {
+    entry.unlisteners.push(await onPtyOutput(sessionId, (b64data) => {
+      if (entry.terminal) {
         const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
-        term.write(bytes);
+        entry.terminal.write(bytes);
       }
-    });
+    }));
 
-    await onSessionExit(sessionId, (_code) => {
+    entry.unlisteners.push(await onSessionExit(sessionId, (_code) => {
       setSessionDisconnected(sessionId);
-    });
+    }));
   }
 
   function attach() {
     if (!containerEl) return;
 
-    terminal = getOrCreateTerminal();
+    const entry = getOrCreateTerminal();
+    terminal = entry.terminal;
+    fitAddon = entry.fitAddon;
 
     if (!terminal.element) {
       // First time — open into the container
       terminal.open(containerEl);
 
       fitAddon = new FitAddon();
+      entry.fitAddon = fitAddon;
       terminal.loadAddon(fitAddon);
 
       try {
@@ -104,9 +99,9 @@
 
       terminal.loadAddon(new WebLinksAddon());
 
-      terminal.onData((data) => {
+      entry.disposables.push(terminal.onData((data) => {
         writeToSession(sessionId, data);
-      });
+      }));
     } else {
       // Re-attach existing terminal element
       containerEl.appendChild(terminal.element);
@@ -145,9 +140,6 @@
   });
 
   onDestroy(() => {
-    // DON'T dispose terminal or kill PTY here — the component may be re-mounting
-    // due to split tree restructuring. Only detach DOM and resize observer.
-    // Terminal instances live in the global map and survive re-renders.
     resizeObserver?.disconnect();
     detach();
   });

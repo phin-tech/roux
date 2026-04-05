@@ -1,9 +1,12 @@
-<script lang="ts">
+  <script lang="ts">
   import SessionCard from "./SessionCard.svelte";
-  import { sessionState, setActiveSession, removeSession, addSession, renameSession } from "$lib/stores/sessions";
-  import { initSessionPanes } from "$lib/stores/panes";
-  import { killSession, removeWorktree, createSession, writeToSession } from "$lib/tauri";
+  import { sessionState, setActiveSession, removeSession, renameSession } from "$lib/stores/sessions";
+  import { removeSessionPanes } from "$lib/stores/panes";
+  import { killSession, removeWorktree, writeToSession } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
+  import { closeAuxiliaryPanes } from "$lib/panes/actions";
+  import { disposeClaudeTerminal } from "$lib/panes/terminalRegistry";
+  import { reconnectSession } from "$lib/sessions/reconnect";
 
   interface Props {
     onNewSession: () => void;
@@ -27,6 +30,8 @@
       if (!confirmed) return;
     }
 
+    await closeAuxiliaryPanes(id);
+    await disposeClaudeTerminal(id);
     await killSession(id);
 
     // Worktree cleanup
@@ -43,6 +48,7 @@
       }
     }
 
+    removeSessionPanes(id);
     removeSession(id);
   }
 
@@ -65,17 +71,7 @@
   async function handleReconnect(id: string) {
     const session = $sessionState.sessions.find((s) => s.id === id);
     if (!session) return;
-    // Remove the old disconnected session
-    removeSession(id);
-    // Create a fresh session in the same directory (new ID, fresh PTY)
-    const newSession = await createSession(
-      session.repoRoot,
-      session.name,
-      session.worktreePath !== session.repoRoot ? session.worktreePath : null,
-      null
-    );
-    addSession(newSession);
-    initSessionPanes(newSession.id);
+    await reconnectSession(session);
   }
 </script>
 

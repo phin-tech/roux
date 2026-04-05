@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod hooks;
-mod osc;
 mod pty;
 mod session;
 mod settings;
@@ -84,7 +83,12 @@ fn resize_session(
 }
 
 #[tauri::command]
-fn spawn_shell(id: String, working_dir: String, state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
+fn spawn_shell(
+    id: String,
+    working_dir: String,
+    state: tauri::State<AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     state.pty_manager.spawn_shell(&id, &working_dir, app.clone())
 }
 
@@ -111,9 +115,8 @@ fn create_session(
     // Determine working directory
     let (work_dir, actual_branch, is_wt) = if let Some(wt_path) = worktree_path {
         // Use provided worktree path — detect branch from the directory
-        let br = branch
-            .or_else(|| get_current_branch(&wt_path))
-            .unwrap_or_else(|| "main".to_string());
+        let br =
+            branch.or_else(|| get_current_branch(&wt_path)).unwrap_or_else(|| "main".to_string());
         (wt_path, br, false)
     } else if let Some(br) = branch {
         // Create new worktree
@@ -149,10 +152,7 @@ fn create_session(
         return Err(e);
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
     let session = Session {
         id: session_id,
@@ -234,17 +234,10 @@ fn list_docs(dir: String) -> Result<Vec<DocFile>, String> {
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
 
-                let relative = path
-                    .strip_prefix(base)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .to_string();
+                let relative =
+                    path.strip_prefix(base).unwrap_or(&path).to_string_lossy().to_string();
 
-                let name = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
+                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
                 docs.push(DocFile {
                     path: path.to_string_lossy().to_string(),

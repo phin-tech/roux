@@ -3,7 +3,8 @@
   import Terminal from "./Terminal.svelte";
   import ShellTerminal from "./ShellTerminal.svelte";
   import DocPane from "./DocPane.svelte";
-  import { focusedPaneId, removePane, type SplitNode } from "$lib/stores/panes";
+  import { focusedPaneId, type SplitNode } from "$lib/stores/panes";
+  import { closePane } from "$lib/panes/actions";
 
   interface Props {
     node: SplitNode;
@@ -29,13 +30,17 @@
       {:else if node.pane.type === "doc"}
         <DocPane
           docPath={node.pane.docPath ?? ""}
-          onClose={() => removePane(sessionId, node.pane.id)}
+          onClose={async () => {
+            await closePane(sessionId, node.pane.id);
+          }}
         />
       {:else}
         <ShellTerminal
           ptyId={node.pane.ptyId}
           paneId={node.pane.id}
-          onClose={() => removePane(sessionId, node.pane.id)}
+          onClose={async () => {
+            await closePane(sessionId, node.pane.id);
+          }}
         />
       {/if}
     </div>

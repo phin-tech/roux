@@ -25,11 +25,7 @@ fn repo_name(repo_path: &str) -> String {
         .unwrap_or_else(|| "repo".to_string())
 }
 
-fn resolve_worktree_path(
-    repo_path: &str,
-    branch: &str,
-    base_path: Option<&str>,
-) -> PathBuf {
+fn resolve_worktree_path(repo_path: &str, branch: &str, base_path: Option<&str>) -> PathBuf {
     let sanitized = sanitize_branch_for_path(branch);
     let name = repo_name(repo_path);
     let dir_name = format!("{}-{}", name, sanitized);
@@ -136,26 +132,16 @@ pub fn list_worktrees(repo_path: &str) -> Result<Vec<Worktree>, String> {
             is_bare = false;
         } else if let Some(branch_ref) = line.strip_prefix("branch ") {
             // branch refs/heads/main -> main
-            current_branch = Some(
-                branch_ref
-                    .strip_prefix("refs/heads/")
-                    .unwrap_or(branch_ref)
-                    .to_string(),
-            );
+            current_branch =
+                Some(branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref).to_string());
         } else if line == "bare" {
             is_bare = true;
         } else if line.is_empty() {
             if let Some(path) = current_path.take() {
                 if !is_bare {
-                    let branch = current_branch
-                        .take()
-                        .unwrap_or_else(|| "HEAD".to_string());
+                    let branch = current_branch.take().unwrap_or_else(|| "HEAD".to_string());
                     let is_main = worktrees.is_empty(); // first entry is main worktree
-                    worktrees.push(Worktree {
-                        path,
-                        branch,
-                        is_main,
-                    });
+                    worktrees.push(Worktree { path, branch, is_main });
                 }
             }
             current_branch = None;
@@ -168,11 +154,7 @@ pub fn list_worktrees(repo_path: &str) -> Result<Vec<Worktree>, String> {
         if !is_bare {
             let branch = current_branch.unwrap_or_else(|| "HEAD".to_string());
             let is_main = worktrees.is_empty();
-            worktrees.push(Worktree {
-                path,
-                branch,
-                is_main,
-            });
+            worktrees.push(Worktree { path, branch, is_main });
         }
     }
 
@@ -195,10 +177,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_nested_slashes() {
-        assert_eq!(
-            sanitize_branch_for_path("feature/auth/oauth2"),
-            "feature-auth-oauth2"
-        );
+        assert_eq!(sanitize_branch_for_path("feature/auth/oauth2"), "feature-auth-oauth2");
     }
 
     #[test]
@@ -276,7 +255,8 @@ mod tests {
 
     #[test]
     fn test_parse_porcelain_bare_repo() {
-        let porcelain = "worktree /home/dev/repo.git\nbare\n\nworktree /tmp/wt\nbranch refs/heads/main\n\n";
+        let porcelain =
+            "worktree /home/dev/repo.git\nbare\n\nworktree /tmp/wt\nbranch refs/heads/main\n\n";
         let worktrees = parse_porcelain(porcelain);
         assert_eq!(worktrees.len(), 1);
         assert_eq!(worktrees[0].path, "/tmp/wt");
@@ -302,26 +282,16 @@ mod tests {
                 current_branch = None;
                 is_bare = false;
             } else if let Some(branch_ref) = line.strip_prefix("branch ") {
-                current_branch = Some(
-                    branch_ref
-                        .strip_prefix("refs/heads/")
-                        .unwrap_or(branch_ref)
-                        .to_string(),
-                );
+                current_branch =
+                    Some(branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref).to_string());
             } else if line == "bare" {
                 is_bare = true;
             } else if line.is_empty() {
                 if let Some(path) = current_path.take() {
                     if !is_bare {
-                        let branch = current_branch
-                            .take()
-                            .unwrap_or_else(|| "HEAD".to_string());
+                        let branch = current_branch.take().unwrap_or_else(|| "HEAD".to_string());
                         let is_main = worktrees.is_empty();
-                        worktrees.push(Worktree {
-                            path,
-                            branch,
-                            is_main,
-                        });
+                        worktrees.push(Worktree { path, branch, is_main });
                     }
                 }
                 current_branch = None;
@@ -333,11 +303,7 @@ mod tests {
             if !is_bare {
                 let branch = current_branch.unwrap_or_else(|| "HEAD".to_string());
                 let is_main = worktrees.is_empty();
-                worktrees.push(Worktree {
-                    path,
-                    branch,
-                    is_main,
-                });
+                worktrees.push(Worktree { path, branch, is_main });
             }
         }
 

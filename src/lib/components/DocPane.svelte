@@ -12,12 +12,13 @@
   let { docPath, onClose }: Props = $props();
 
   let docs = $state<DocFile[]>([]);
-  let currentPath = $state(docPath);
+  let currentPath = $state("");
   let renderedHtml = $state("");
   let loading = $state(true);
   let hovering = $state(false);
   let showPicker = $state(false);
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
+  let lastPropPath = $state("");
 
   async function loadContent() {
     if (!currentPath) return;
@@ -44,7 +45,6 @@
     currentPath = doc.path;
     showPicker = false;
     loading = true;
-    loadContent();
   }
 
   function formatTime(epoch: number): string {
@@ -65,26 +65,25 @@
   }
 
   onMount(() => {
-    // Ensure currentPath is set from prop
-    if (!currentPath && docPath) {
-      currentPath = docPath;
-    }
-    if (currentPath) {
-      loadContent();
-    }
     refreshDocs();
     refreshTimer = setInterval(() => {
-      if (currentPath) loadContent();
+      if (currentPath) void loadContent();
     }, 3000);
   });
 
   // React to docPath prop changes
   $effect(() => {
-    if (docPath && docPath !== currentPath) {
+    if (docPath && docPath !== lastPropPath) {
+      lastPropPath = docPath;
       currentPath = docPath;
       loading = true;
-      loadContent();
     }
+  });
+
+  $effect(() => {
+    if (!currentPath) return;
+    loading = true;
+    void loadContent();
   });
 
   onDestroy(() => {

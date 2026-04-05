@@ -46,16 +46,9 @@ fn handle_hook(status: &str) {
         _ => return,
     };
 
-    let cwd = data
-        .get("cwd")
-        .and_then(|s| s.as_str())
-        .unwrap_or("")
-        .to_string();
+    let cwd = data.get("cwd").and_then(|s| s.as_str()).unwrap_or("").to_string();
 
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
     let mut out = serde_json::json!({
         "status": status,
@@ -102,12 +95,7 @@ fn show_status() {
     let mut entries: Vec<_> = fs::read_dir(&dir)
         .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext == "json")
-                .unwrap_or(false)
-        })
+        .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
         .collect();
 
     if entries.is_empty() {
@@ -122,12 +110,7 @@ fn show_status() {
         if let Ok(data) = serde_json::from_str::<Value>(&content) {
             let status = data.get("status").and_then(|s| s.as_str()).unwrap_or("?");
             let cwd = data.get("cwd").and_then(|s| s.as_str()).unwrap_or("?");
-            let sid = entry
-                .path()
-                .file_stem()
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
+            let sid = entry.path().file_stem().unwrap().to_string_lossy().to_string();
             println!("{sid}  status={status}  cwd={cwd}");
         }
     }
@@ -138,12 +121,7 @@ fn clear_status() {
     if let Ok(entries) = fs::read_dir(&dir) {
         let mut count = 0;
         for entry in entries.flatten() {
-            if entry
-                .path()
-                .extension()
-                .map(|e| e == "json")
-                .unwrap_or(false)
-            {
+            if entry.path().extension().map(|e| e == "json").unwrap_or(false) {
                 let _ = fs::remove_file(entry.path());
                 count += 1;
             }

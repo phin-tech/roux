@@ -44,7 +44,12 @@
       "Bash(wc -l /Users/sphinizy/src/github.com/phin-tech/roux/src-tauri/src/*.rs)",
       "Bash(npm test:*)",
       "WebFetch(domain:bits-ui.com)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(grep -E \"\\\\.\\(css|html\\)$\")",
+      "Bash(grep:*)",
+      "Skill(code-review:code-review)",
+      "Bash(RUSTFLAGS=\"-D warnings\" cargo check)",
+      "Bash(RUSTFLAGS=\"-D warnings\" cargo test:*)"
     ]
   }
 }

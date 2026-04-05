@@ -1,7 +1,6 @@
 <script lang="ts">
   import { Command } from "bits-ui";
   import { registry, type Command as Cmd, type CommandItem as CmdItem } from "$lib/commands/registry";
-  import { tick } from "svelte";
 
   interface Props {
     open: boolean;

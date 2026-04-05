@@ -103,9 +103,15 @@
       <div class="px-6 py-5 flex flex-col gap-4">
         <!-- Repo picker -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Repository</label>
+          <label
+            for="new-session-repo"
+            class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+          >
+            Repository
+          </label>
           <div class="flex gap-2">
             <input
+              id="new-session-repo"
               class="flex-1 bg-bg-deep border border-border rounded-md px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
               value={repoPath}
               oninput={(e) => (repoPath = e.currentTarget.value)}
@@ -121,8 +127,8 @@
         </div>
 
         <!-- Mode toggle -->
-        <div class="flex flex-col gap-1.5">
-          <label class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Mode</label>
+        <fieldset class="flex flex-col gap-1.5">
+          <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Mode</legend>
           <div class="flex bg-bg-deep rounded-md p-0.5 border border-border-subtle">
             <button
               class="flex-1 py-1.5 px-3 border-none text-xs font-medium rounded cursor-pointer transition-all
@@ -139,13 +145,19 @@
               Existing Directory
             </button>
           </div>
-        </div>
+        </fieldset>
 
         <!-- New worktree: branch input -->
         {#if mode === "new"}
           <div class="flex flex-col gap-1.5">
-            <label class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Branch name</label>
+            <label
+              for="new-session-branch"
+              class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+            >
+              Branch name
+            </label>
             <input
+              id="new-session-branch"
               class="bg-bg-deep border border-border rounded-md px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
               bind:value={branchName}
               placeholder="feature/my-feature"
@@ -155,8 +167,8 @@
 
         <!-- Existing worktree: picker -->
         {#if mode === "existing"}
-          <div class="flex flex-col gap-1.5">
-            <label class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Select worktree</label>
+          <fieldset class="flex flex-col gap-1.5">
+            <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Select worktree</legend>
             <div class="flex flex-col gap-1 max-h-30 overflow-y-auto">
               {#each worktrees as wt}
                 <button
@@ -177,15 +189,19 @@
                 <p class="text-xs text-text-muted py-2 text-center">No worktrees found. Select a git repository first.</p>
               {/if}
             </div>
-          </div>
+          </fieldset>
         {/if}
 
         <!-- Session name -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+          <label
+            for="new-session-name"
+            class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+          >
             Session name <span class="font-normal normal-case tracking-normal">(optional)</span>
           </label>
           <input
+            id="new-session-name"
             class="bg-bg-deep border border-border rounded-md px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
             bind:value={sessionName}
             placeholder="roux-my-feature"

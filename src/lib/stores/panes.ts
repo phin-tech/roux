@@ -16,6 +16,32 @@ export type SplitNode =
 export const paneTrees = writable<Map<string, SplitNode>>(new Map());
 export const focusedPaneId = writable<string | null>(null);
 
+function findPaneInTree(node: SplitNode, paneId: string): Pane | null {
+  if (node.kind === "pane") {
+    return node.pane.id === paneId ? node.pane : null;
+  }
+  for (const child of node.children) {
+    const pane = findPaneInTree(child, paneId);
+    if (pane) return pane;
+  }
+  return null;
+}
+
+function collectPanes(node: SplitNode, panes: Pane[]) {
+  if (node.kind === "pane") {
+    panes.push(node.pane);
+    return;
+  }
+  for (const child of node.children) {
+    collectPanes(child, panes);
+  }
+}
+
+function firstPaneId(node: SplitNode): string {
+  if (node.kind === "pane") return node.pane.id;
+  return firstPaneId(node.children[0]);
+}
+
 export function initSessionPanes(sessionId: string) {
   paneTrees.update((trees) => {
     if (!trees.has(sessionId)) {
@@ -57,13 +83,30 @@ function splitAtPane(node: SplitNode, targetId: string | null, direction: SplitD
 }
 
 export function removePane(sessionId: string, paneId: string) {
+  const currentFocus = get(focusedPaneId);
+  let nextFocus = currentFocus;
+
   paneTrees.update((trees) => {
     const current = trees.get(sessionId);
     if (!current) return trees;
     const result = removePaneFromTree(current, paneId);
-    if (result) trees.set(sessionId, result);
+    if (result) {
+      trees.set(sessionId, result);
+      if (currentFocus === paneId) {
+        nextFocus = firstPaneId(result);
+      }
+    } else {
+      trees.delete(sessionId);
+      if (currentFocus === paneId) {
+        nextFocus = null;
+      }
+    }
     return new Map(trees);
   });
+
+  if (currentFocus === paneId) {
+    focusedPaneId.set(nextFocus);
+  }
 }
 
 function removePaneFromTree(node: SplitNode, paneId: string): SplitNode | null {
@@ -79,10 +122,17 @@ function removePaneFromTree(node: SplitNode, paneId: string): SplitNode | null {
 }
 
 export function removeSessionPanes(sessionId: string) {
+  const focused = get(focusedPaneId);
+  const sessionPaneIds = new Set(listPanes(sessionId).map((pane) => pane.id));
+
   paneTrees.update((trees) => {
     trees.delete(sessionId);
     return new Map(trees);
   });
+
+  if (focused && sessionPaneIds.has(focused)) {
+    focusedPaneId.set(null);
+  }
 }
 
 /** Returns true if the session has any split panes (more than just the main claude pane) */
@@ -91,4 +141,18 @@ export function hasSplitPanes(sessionId: string): boolean {
   const tree = trees.get(sessionId);
   if (!tree) return false;
   return tree.kind === "split";
+}
+
+export function getPane(sessionId: string, paneId: string): Pane | null {
+  const tree = get(paneTrees).get(sessionId);
+  if (!tree) return null;
+  return findPaneInTree(tree, paneId);
+}
+
+export function listPanes(sessionId: string): Pane[] {
+  const tree = get(paneTrees).get(sessionId);
+  if (!tree) return [];
+  const panes: Pane[] = [];
+  collectPanes(tree, panes);
+  return panes;
 }

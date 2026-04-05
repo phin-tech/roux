@@ -68,10 +68,10 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
             // Collect this event's paths and drain any more that arrive within the debounce window
             let mut changed_paths = HashSet::new();
             for path in first.paths {
-                if matches!(first.kind, EventKind::Create(_) | EventKind::Modify(_)) {
-                    if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                        changed_paths.insert(path);
-                    }
+                if matches!(first.kind, EventKind::Create(_) | EventKind::Modify(_))
+                    && path.extension().and_then(|e| e.to_str()) == Some("json")
+                {
+                    changed_paths.insert(path);
                 }
             }
 
@@ -105,11 +105,7 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
                     None => continue,
                 };
 
-                let cwd = parsed
-                    .get("cwd")
-                    .and_then(|s| s.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let cwd = parsed.get("cwd").and_then(|s| s.as_str()).unwrap_or("").to_string();
 
                 let claude_sid = parsed
                     .get("claude_session_id")

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { CommandRegistry, type Command } from "../registry";
+import { CommandRegistry } from "../registry";
 
 describe("CommandRegistry", () => {
   let registry: CommandRegistry;

@@ -10,9 +10,7 @@ fn roux_cli_path() -> Result<String, String> {
         // Primary install location
         dirs::home_dir().map(|h| h.join(".local").join("bin").join("roux-cli")),
         // Next to the main roux binary (dev builds)
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("roux-cli"))),
+        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("roux-cli"))),
         // Installed via cargo install
         dirs::home_dir().map(|h| h.join(".cargo").join("bin").join("roux-cli")),
     ];
@@ -24,10 +22,7 @@ fn roux_cli_path() -> Result<String, String> {
     }
 
     // Try PATH
-    if let Ok(output) = std::process::Command::new("which")
-        .arg("roux-cli")
-        .output()
-    {
+    if let Ok(output) = std::process::Command::new("which").arg("roux-cli").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
@@ -41,10 +36,8 @@ fn roux_cli_path() -> Result<String, String> {
 
 /// Install roux-cli to ~/.local/bin/ on first app load
 pub fn install_cli_binary() -> Result<String, String> {
-    let bin_dir = dirs::home_dir()
-        .ok_or("Could not determine home directory")?
-        .join(".local")
-        .join("bin");
+    let bin_dir =
+        dirs::home_dir().ok_or("Could not determine home directory")?.join(".local").join("bin");
     fs::create_dir_all(&bin_dir).map_err(|e| format!("Failed to create ~/.local/bin: {}", e))?;
 
     let target = bin_dir.join("roux-cli");
@@ -73,9 +66,7 @@ pub fn install_cli_binary() -> Result<String, String> {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let mut perms = fs::metadata(&target)
-                    .map_err(|e| e.to_string())?
-                    .permissions();
+                let mut perms = fs::metadata(&target).map_err(|e| e.to_string())?.permissions();
                 perms.set_mode(0o755);
                 fs::set_permissions(&target, perms).map_err(|e| e.to_string())?;
             }
@@ -247,8 +238,7 @@ pub fn install_hooks() -> Result<(), String> {
     let mut settings: Value = if settings_path.exists() {
         let content = fs::read_to_string(&settings_path)
             .map_err(|e| format!("Failed to read settings: {}", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse settings: {}", e))?
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))?
     } else {
         if let Some(parent) = settings_path.parent() {
             fs::create_dir_all(parent)
@@ -261,8 +251,7 @@ pub fn install_hooks() -> Result<(), String> {
 
     let output = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    fs::write(&settings_path, output)
-        .map_err(|e| format!("Failed to write settings: {}", e))?;
+    fs::write(&settings_path, output).map_err(|e| format!("Failed to write settings: {}", e))?;
 
     eprintln!("Roux hooks installed (using {})", cli_path);
     Ok(())

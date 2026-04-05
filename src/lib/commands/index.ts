@@ -1,8 +1,9 @@
 import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { setActiveSession } from "$lib/stores/sessions";
-import { addSplit, removePane } from "$lib/stores/panes";
+import { addSplit } from "$lib/stores/panes";
 import { spawnShell, listDocs, writeToSession } from "$lib/tauri";
+import { closeFocusedPane } from "$lib/panes/actions";
 
 export function registerCommands() {
   // -- Panes --
@@ -49,10 +50,11 @@ export function registerCommands() {
     shortcut: "cmd+w",
     category: "Panes",
     available: () => queries.canClosePane(),
-    execute: () => {
+    execute: async () => {
       const activeId = queries.activeSessionId();
-      const focused = queries.focusedPaneId();
-      if (activeId && focused) removePane(activeId, focused);
+      if (activeId) {
+        await closeFocusedPane(activeId);
+      }
     },
   });
 

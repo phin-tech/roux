@@ -7,11 +7,12 @@
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import { initSettings } from "$lib/stores/settings";
   import { addSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
-  import { initSessionPanes, hasSplitPanes, focusedPaneId, removePane } from "$lib/stores/panes";
+  import { initSessionPanes, hasSplitPanes } from "$lib/stores/panes";
   import { listSessions, onRouxStatusUpdate } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { registerCommands, registry } from "$lib/commands";
+  import { closeFocusedPane } from "$lib/panes/actions";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
@@ -28,24 +29,20 @@
   }
 
   /** Returns true if a pane was closed, false if there was nothing to close */
-  function closeFocusedPane(): boolean {
+  async function closeCurrentFocusedPane(): Promise<boolean> {
     const state = get(sessionState);
     if (!state.activeSessionId) return false;
-    const focused = get(focusedPaneId);
-    if (!focused) return false;
-    if (focused === state.activeSessionId + "-main") return false;
-    removePane(state.activeSessionId, focused);
-    return true;
+    return closeFocusedPane(state.activeSessionId);
   }
 
-  function handleCloseRequested() {
+  async function handleCloseRequested() {
     const state = get(sessionState);
     if (!state.activeSessionId) {
       getCurrentWindow().destroy();
       return;
     }
     if (hasSplitPanes(state.activeSessionId)) {
-      const closed = closeFocusedPane();
+      const closed = await closeCurrentFocusedPane();
       if (closed) return;
     }
     getCurrentWindow().destroy();
@@ -81,7 +78,7 @@
         return;
       }
 
-      if (cmd.execute) cmd.execute();
+      if (cmd.execute) void cmd.execute();
     }
   }
 
@@ -95,7 +92,7 @@
     window.addEventListener("keydown", handleKeyDown, true);
 
     // Listen for Tauri close-requested event (Cmd+W or red button)
-    await listen("close-requested", () => handleCloseRequested());
+    await listen("close-requested", () => void handleCloseRequested());
 
     const loadedSettings = await initSettings();
     if (loadedSettings.restoreSessionsOnLaunch) {

@@ -76,6 +76,7 @@
           <div class="text-[11px] text-text-muted mt-0.5">Auto-remove worktrees when closing sessions</div>
         </div>
         <button
+          aria-label="Toggle cleanup worktrees on close"
           class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
             {$settings.cleanupWorktreesOnClose
               ? 'bg-accent-dim border-accent'
@@ -130,6 +131,7 @@
           <div class="text-[11px] text-text-muted mt-0.5">Prompt before closing active sessions</div>
         </div>
         <button
+          aria-label="Toggle confirm on close"
           class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
             {$settings.confirmOnClose
               ? 'bg-accent-dim border-accent'
@@ -148,6 +150,7 @@
           <div class="text-[11px] text-text-muted mt-0.5">Show previous sessions on startup</div>
         </div>
         <button
+          aria-label="Toggle restore sessions on launch"
           class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
             {$settings.restoreSessionsOnLaunch
               ? 'bg-accent-dim border-accent'

@@ -35,7 +35,13 @@
   }
 
   let editing = $state(false);
-  let editName = $state(session.name);
+  let editName = $state("");
+
+  $effect(() => {
+    if (!editing) {
+      editName = session.name;
+    }
+  });
 
   function startEditing(e: MouseEvent) {
     e.stopPropagation();

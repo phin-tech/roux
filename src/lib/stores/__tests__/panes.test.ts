@@ -8,7 +8,6 @@ import {
   removePane,
   removeSessionPanes,
   hasSplitPanes,
-  type SplitNode,
   type Pane,
 } from "../panes";
 
@@ -116,6 +115,28 @@ describe("panes store", () => {
     if (tree.kind === "pane") {
       expect(tree.pane.id).toBe("s1-main");
     }
+  });
+
+  it("moves focus to a remaining pane when the focused pane is removed", () => {
+    initSessionPanes("s1");
+    addSplit("s1", "horizontal", { id: "shell-1", type: "shell", ptyId: "pty-1" });
+
+    expect(get(focusedPaneId)).toBe("shell-1");
+
+    removePane("s1", "shell-1");
+
+    expect(get(focusedPaneId)).toBe("s1-main");
+  });
+
+  it("preserves focus when removing a different pane", () => {
+    initSessionPanes("s1");
+    addSplit("s1", "horizontal", { id: "shell-1", type: "shell", ptyId: "pty-1" });
+    addSplit("s1", "vertical", { id: "shell-2", type: "shell", ptyId: "pty-2" });
+    focusedPaneId.set("shell-2");
+
+    removePane("s1", "shell-1");
+
+    expect(get(focusedPaneId)).toBe("shell-2");
   });
 
   it("removes a nested pane correctly", () => {
