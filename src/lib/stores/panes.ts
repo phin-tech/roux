@@ -14,7 +14,8 @@ export interface Pane {
 
 export type SplitNode =
   | { kind: "pane"; pane: Pane }
-  | { kind: "split"; direction: SplitDirection; children: SplitNode[] };
+  | { kind: "split"; direction: SplitDirection; children: SplitNode[];
+      stacked?: boolean; activeIndex?: number };
 
 export const paneTrees = writable<Map<string, SplitNode>>(new Map());
 export const focusedPaneId = writable<string | null>(null);
