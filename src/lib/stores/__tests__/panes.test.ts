@@ -183,11 +183,11 @@ describe("panes store", () => {
     expect(hasSplitPanes("s1")).toBe(false);
   });
 
-  it("supports doc pane type", () => {
+  it("supports markdown pane type", () => {
     initSessionPanes("s1");
     addSplit("s1", "horizontal", {
       id: "doc-1",
-      type: "doc",
+      type: "markdown",
       ptyId: "",
       docPath: "/tmp/plan.md",
     });
@@ -196,7 +196,7 @@ describe("panes store", () => {
     if (tree.kind === "split") {
       const docPane = tree.children[1];
       if (docPane.kind === "pane") {
-        expect(docPane.pane.type).toBe("doc");
+        expect(docPane.pane.type).toBe("markdown");
         expect(docPane.pane.docPath).toBe("/tmp/plan.md");
       }
     }

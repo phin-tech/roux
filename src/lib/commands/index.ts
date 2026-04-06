@@ -2,7 +2,7 @@ import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { addSession, setActiveSession, triggerRename } from "$lib/stores/sessions";
 import { settings, updateSetting } from "$lib/stores/settings";
-import { addSplit, initSessionPanes } from "$lib/stores/panes";
+import { addSplit, initSessionPanes, navigatePane } from "$lib/stores/panes";
 import { spawnShell, spawnTask, listDocs, writeToSession, createSession, openInEditor, listBranches } from "$lib/tauri";
 import { closeFocusedPane } from "$lib/panes/actions";
 import { closeSession } from "$lib/sessions/close";
@@ -52,6 +52,54 @@ export function registerCommands() {
   });
 
   registry.register({
+    id: "pane.focus-left",
+    label: "Focus Pane Left",
+    shortcut: "alt+h",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) navigatePane(activeId, "left");
+    },
+  });
+
+  registry.register({
+    id: "pane.focus-down",
+    label: "Focus Pane Down",
+    shortcut: "alt+j",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) navigatePane(activeId, "down");
+    },
+  });
+
+  registry.register({
+    id: "pane.focus-up",
+    label: "Focus Pane Up",
+    shortcut: "alt+k",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) navigatePane(activeId, "up");
+    },
+  });
+
+  registry.register({
+    id: "pane.focus-right",
+    label: "Focus Pane Right",
+    shortcut: "alt+l",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) navigatePane(activeId, "right");
+    },
+  });
+
+  registry.register({
     id: "pane.close",
     label: "Close Pane",
     shortcut: "cmd+w",
@@ -85,7 +133,7 @@ export function registerCommands() {
             const paneId = crypto.randomUUID();
             addSplit(activeId, "horizontal", {
               id: paneId,
-              type: "doc",
+              type: "markdown",
               ptyId: "",
               docPath: doc.path,
             });

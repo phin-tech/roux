@@ -4,7 +4,7 @@ export type SplitDirection = "horizontal" | "vertical";
 
 export interface Pane {
   id: string;
-  type: "claude" | "shell" | "doc" | "command";
+  type: "claude" | "shell" | "markdown" | "command";
   ptyId: string;
   docPath?: string;
   command?: string;
@@ -157,4 +157,57 @@ export function listPanes(sessionId: string): Pane[] {
   const panes: Pane[] = [];
   collectPanes(tree, panes);
   return panes;
+}
+
+export type Direction = "left" | "right" | "up" | "down";
+
+type PathEntry = { parent: SplitNode & { kind: "split" }; childIndex: number };
+
+function buildPath(node: SplitNode, targetId: string, path: PathEntry[]): boolean {
+  if (node.kind === "pane") return node.pane.id === targetId;
+  for (let i = 0; i < node.children.length; i++) {
+    path.push({ parent: node, childIndex: i });
+    if (buildPath(node.children[i], targetId, path)) return true;
+    path.pop();
+  }
+  return false;
+}
+
+function lastPaneId(node: SplitNode): string {
+  if (node.kind === "pane") return node.pane.id;
+  return lastPaneId(node.children[node.children.length - 1]);
+}
+
+const directionAxis: Record<Direction, SplitDirection> = {
+  left: "horizontal", right: "horizontal",
+  up: "vertical", down: "vertical",
+};
+const directionStep: Record<Direction, number> = {
+  left: -1, right: 1, up: -1, down: 1,
+};
+
+export function navigatePane(sessionId: string, direction: Direction) {
+  const tree = get(paneTrees).get(sessionId);
+  if (!tree) return;
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  const path: PathEntry[] = [];
+  if (!buildPath(tree, focused, path)) return;
+
+  const axis = directionAxis[direction];
+  const step = directionStep[direction];
+
+  // Walk up the path to find a split on the matching axis where we can move
+  for (let i = path.length - 1; i >= 0; i--) {
+    const { parent, childIndex } = path[i];
+    if (parent.direction !== axis) continue;
+    const nextIndex = childIndex + step;
+    if (nextIndex < 0 || nextIndex >= parent.children.length) continue;
+    // Found a valid move — descend into the target child, picking the near edge
+    const target = parent.children[nextIndex];
+    const newFocus = step > 0 ? firstPaneId(target) : lastPaneId(target);
+    focusedPaneId.set(newFocus);
+    return;
+  }
 }

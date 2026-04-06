@@ -35,11 +35,11 @@ describe("pane close actions", () => {
     expect(get(focusedPaneId)).toBe("s1-main");
   });
 
-  it("removes document panes without invoking shell cleanup", async () => {
+  it("removes markdown panes without invoking shell cleanup", async () => {
     initSessionPanes("s1");
     addSplit("s1", "horizontal", {
       id: "doc-1",
-      type: "doc",
+      type: "markdown",
       ptyId: "",
       docPath: "/tmp/note.md",
     });
