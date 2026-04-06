@@ -121,8 +121,15 @@ function removePaneFromTree(node: SplitNode, paneId: string): SplitNode | null {
     .map((c) => removePaneFromTree(c, paneId))
     .filter((c): c is SplitNode => c !== null);
   if (remaining.length === 0) return null;
-  if (remaining.length === 1) return remaining[0];
-  return { ...node, children: remaining };
+  if (remaining.length === 1) {
+    // Auto-unstack: collapsing to 1 child means the split dissolves
+    return remaining[0];
+  }
+  // Clamp activeIndex if this is a stacked split
+  const activeIndex = node.stacked
+    ? Math.min(node.activeIndex ?? 0, remaining.length - 1)
+    : node.activeIndex;
+  return { ...node, children: remaining, activeIndex };
 }
 
 export function removeSessionPanes(sessionId: string) {
@@ -181,6 +188,16 @@ export function renamePane(sessionId: string, paneId: string, name: string) {
     trees.set(sessionId, setPaneNameInTree(tree, paneId, name || undefined));
     return new Map(trees);
   });
+}
+
+/** Generate a display label for a SplitNode (used for collapsed stack tabs). */
+export function getStackLabel(node: SplitNode): string {
+  if (node.kind === "pane") {
+    return node.pane.name ?? node.pane.type;
+  }
+  const panes: Pane[] = [];
+  collectPanes(node, panes);
+  return panes.map((p) => p.name ?? p.type).join(" | ");
 }
 
 // ── Stacked panes ──────────────────────────────────────────
