@@ -76,6 +76,18 @@ impl SessionStore {
         self.dirty.store(true, Ordering::Release);
     }
 
+    pub fn get(&self, id: &str) -> Option<Session> {
+        self.sessions.lock().unwrap().iter().find(|s| s.id == id).cloned()
+    }
+
+    pub fn update_status(&self, id: &str, status: &str) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+            s.status = status.to_string();
+        }
+        self.dirty.store(true, std::sync::atomic::Ordering::Release);
+    }
+
     pub fn list(&self) -> Vec<Session> {
         self.sessions.lock().unwrap().clone()
     }

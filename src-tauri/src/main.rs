@@ -232,6 +232,51 @@ fn create_session(
     Ok(session)
 }
 
+#[tauri::command]
+fn reconnect_session(
+    id: String,
+    extra_flags: Option<Vec<String>>,
+    state: tauri::State<AppState>,
+    app: tauri::AppHandle,
+) -> Result<Session, String> {
+    let session = state.session_store.get(&id)
+        .ok_or_else(|| format!("Session {} not found", id))?;
+
+    let settings = state.settings.lock().unwrap().clone();
+
+    // Kill existing PTY (ignore errors — it may already be dead)
+    let _ = state.pty_manager.kill(&id);
+
+    // Merge settings flags with per-call extra flags
+    let mut all_flags = settings.additional_flags.clone();
+    if let Some(ef) = extra_flags {
+        all_flags.extend(ef);
+    }
+
+    rlog!("Reconnecting session '{}' (id={}) in '{}'", session.name, id, session.worktree_path);
+
+    // Spawn new Claude PTY under the same session ID
+    state.pty_manager.spawn(
+        &id,
+        &session.worktree_path,
+        settings.default_model.as_deref(),
+        &all_flags,
+        None,
+        settings.claude_binary_path.as_deref(),
+        app.clone(),
+    )?;
+
+    // Update status to idle
+    state.session_store.update_status(&id, "idle");
+
+    rlog!("Session '{}' reconnected successfully", id);
+
+    // Return the session with updated status
+    let mut updated = session;
+    updated.status = "idle".to_string();
+    Ok(updated)
+}
+
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct ClaudeSession {
@@ -481,6 +526,7 @@ fn main() {
             spawn_task,
             kill_session,
             create_session,
+            reconnect_session,
             list_sessions,
             list_claude_sessions,
             read_file,
