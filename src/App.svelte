@@ -9,7 +9,7 @@
   import { initSettings, settings } from "$lib/stores/settings";
   import { addSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
   import { initSessionPanes, hasSplitPanes } from "$lib/stores/panes";
-  import { listSessions, checkSetupNeeded, onRouxStatusUpdate } from "$lib/tauri";
+  import { listSessions, checkSetupNeeded, onRouxStatusUpdate, spawnShell } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { registerCommands, registry } from "$lib/commands";
@@ -123,7 +123,11 @@
       const sessions = await listSessions();
       for (const s of sessions) {
         addSession(s);
-        initSessionPanes(s.id);
+        const shellPanes = initSessionPanes(s.id);
+        // Spawn fresh shell PTYs for restored layout
+        for (const pane of shellPanes) {
+          spawnShell(pane.ptyId, s.worktreePath).catch(() => {});
+        }
       }
     }
 

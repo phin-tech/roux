@@ -122,7 +122,7 @@
     </div>
   {/key}
 {:else if node.stacked}
-  <!-- Stacked view: collapsed title bars + one expanded child -->
+  <!-- Stacked view: Zellij-style with collapsed tabs and expanded active pane -->
   <!-- All children stay mounted (hidden via CSS) so terminals keep their state -->
   <div class="flex flex-col flex-1 min-h-0 min-w-0">
     {#each node.children as child, i}
@@ -135,7 +135,7 @@
         <span class="text-[10px] text-text-muted/60 shrink-0">{i === (node.activeIndex ?? 0) ? '\u25BE' : '\u25B8'}</span>
         <span class="text-[11px] font-mono truncate {i === (node.activeIndex ?? 0) ? 'text-text-secondary' : 'text-text-muted'}">{getStackLabel(child)}</span>
       </div>
-      <div class="min-h-0 min-w-0 {i === (node.activeIndex ?? 0) ? 'flex-1' : 'hidden'}">
+      <div class="min-h-0 min-w-0 flex flex-col {i === (node.activeIndex ?? 0) ? 'flex-1' : 'hidden'}">
         <SplitPane node={child} {sessionId} {sessionActive} visible={visible && i === (node.activeIndex ?? 0)} />
       </div>
     {/each}

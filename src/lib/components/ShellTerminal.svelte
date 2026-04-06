@@ -23,6 +23,12 @@
 
   let { ptyId, paneId, active = true, isFocused = false, visible = true, focusRequestVersion = 0, closeOnExit = true, onClose }: Props = $props();
 
+  // Non-reactive copy of ptyId for use in xterm event callbacks.
+  // Reading the reactive prop inside xterm's synchronous handlers
+  // can hit stale parent props and throw.
+  let capturedPtyId = "";
+  $effect.pre(() => { capturedPtyId = ptyId; });
+
   let containerEl: HTMLDivElement;
   let terminal: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
@@ -31,7 +37,7 @@
 
   function getOrCreateTerminal() {
     return ensureShellTerminal(paneId, () => ({
-      ptyId,
+      ptyId: capturedPtyId,
       terminal: new Terminal({
         fontSize: $settings.fontSize,
         fontFamily: $settings.fontFamily,
@@ -70,15 +76,15 @@
       try { term.loadAddon(new WebglAddon()); } catch {}
       term.loadAddon(new WebLinksAddon());
 
-      instance.disposables.push(term.onData((data) => writeToSession(ptyId, data)));
+      instance.disposables.push(term.onData((data) => writeToSession(capturedPtyId, data)));
 
-      instance.unlisteners.push(await onPtyOutput(ptyId, (b64data) => {
+      instance.unlisteners.push(await onPtyOutput(capturedPtyId, (b64data) => {
         const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
         term.write(bytes);
       }));
 
       if (closeOnExit) {
-        instance.unlisteners.push(await onSessionExit(ptyId, () => {
+        instance.unlisteners.push(await onSessionExit(capturedPtyId, () => {
           void onClose();
         }));
       }
@@ -91,7 +97,7 @@
       if (fitAddon) {
         fitAddon.fit();
         const dims = fitAddon.proposeDimensions();
-        if (dims) resizeSession(ptyId, dims.cols, dims.rows);
+        if (dims) resizeSession(capturedPtyId, dims.cols, dims.rows);
       }
     });
     resizeObserver.observe(containerEl);
@@ -99,7 +105,7 @@
     requestAnimationFrame(() => {
       fitAddon?.fit();
       const dims = fitAddon?.proposeDimensions();
-      if (dims) resizeSession(ptyId, dims.cols, dims.rows);
+      if (dims) resizeSession(capturedPtyId, dims.cols, dims.rows);
     });
   });
 
@@ -123,7 +129,7 @@
       requestAnimationFrame(() => {
         fitAddon?.fit();
         const dims = fitAddon?.proposeDimensions();
-        if (dims) resizeSession(ptyId, dims.cols, dims.rows);
+        if (dims) resizeSession(capturedPtyId, dims.cols, dims.rows);
       });
     }
   });

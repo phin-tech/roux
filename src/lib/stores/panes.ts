@@ -20,6 +20,75 @@ export type SplitNode =
 export const paneTrees = writable<Map<string, SplitNode>>(new Map());
 export const focusedPaneId = writable<string | null>(null);
 
+// ── Layout persistence ────────────────────────────────────
+
+const LAYOUT_STORAGE_KEY = "roux:pane-layouts";
+
+function loadSavedLayouts(): Record<string, SplitNode> {
+  try {
+    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLayouts(trees: Map<string, SplitNode>) {
+  try {
+    const obj: Record<string, SplitNode> = {};
+    for (const [id, tree] of trees) obj[id] = tree;
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(obj));
+  } catch { /* localStorage full or unavailable */ }
+}
+
+export function clearSavedLayout(sessionId: string) {
+  try {
+    const layouts = loadSavedLayouts();
+    delete layouts[sessionId];
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layouts));
+  } catch { /* ignore */ }
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+paneTrees.subscribe((trees) => {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveLayouts(trees), 500);
+});
+
+/** Strip command panes from a restored tree (their processes are gone). */
+function stripCommandPanes(node: SplitNode): SplitNode | null {
+  if (node.kind === "pane") {
+    return node.pane.type === "command" ? null : node;
+  }
+  const remaining = node.children
+    .map((c) => stripCommandPanes(c))
+    .filter((c): c is SplitNode => c !== null);
+  if (remaining.length === 0) return null;
+  if (remaining.length === 1) return remaining[0];
+  return { ...node, children: remaining };
+}
+
+/** Collect shell panes that need new PTYs spawned. */
+function collectShellPanes(node: SplitNode, out: Pane[]) {
+  if (node.kind === "pane") {
+    if (node.pane.type === "shell") out.push(node.pane);
+    return;
+  }
+  for (const child of node.children) collectShellPanes(child, out);
+}
+
+/** Assign fresh ptyIds to shell panes so they get new PTY processes. */
+function refreshShellPtyIds(node: SplitNode): SplitNode {
+  if (node.kind === "pane") {
+    if (node.pane.type === "shell") {
+      return { kind: "pane", pane: { ...node.pane, ptyId: crypto.randomUUID() } };
+    }
+    return node;
+  }
+  return { ...node, children: node.children.map((c) => refreshShellPtyIds(c)) };
+}
+
 function findPaneInTree(node: SplitNode, paneId: string): Pane | null {
   if (node.kind === "pane") {
     return node.pane.id === paneId ? node.pane : null;
@@ -46,16 +115,37 @@ function firstPaneId(node: SplitNode): string {
   return firstPaneId(node.children[0]);
 }
 
-export function initSessionPanes(sessionId: string) {
+/**
+ * Initialize pane tree for a session. If a saved layout exists, restore it
+ * (stripping dead command panes and assigning fresh shell PTY IDs).
+ * Returns shell panes that need PTYs spawned by the caller.
+ */
+export function initSessionPanes(sessionId: string): Pane[] {
+  const shellPanesToSpawn: Pane[] = [];
+
   paneTrees.update((trees) => {
-    if (!trees.has(sessionId)) {
-      trees.set(sessionId, {
-        kind: "pane",
-        pane: { id: sessionId + "-main", type: "claude", ptyId: sessionId },
-      });
+    if (trees.has(sessionId)) return trees;
+
+    const saved = loadSavedLayouts()[sessionId];
+    if (saved) {
+      let restored = stripCommandPanes(saved);
+      if (restored) {
+        restored = refreshShellPtyIds(restored);
+        collectShellPanes(restored, shellPanesToSpawn);
+        trees.set(sessionId, restored);
+        return new Map(trees);
+      }
     }
+
+    // No saved layout or it collapsed to nothing — start fresh
+    trees.set(sessionId, {
+      kind: "pane",
+      pane: { id: sessionId + "-main", type: "claude", ptyId: sessionId },
+    });
     return new Map(trees);
   });
+
+  return shellPanesToSpawn;
 }
 
 export function addSplit(sessionId: string, direction: SplitDirection, newPane: Pane) {
@@ -282,18 +372,6 @@ function setStackedAtDepth(
   return { ...node, children: newChildren };
 }
 
-/** Apply multiple stacked changes to the tree. */
-function applyStackChanges(
-  root: SplitNode,
-  path: number[],
-  changes: { depth: number; stacked: boolean; activeIndex: number | undefined }[]
-): SplitNode {
-  let result = root;
-  for (const change of changes) {
-    result = setStackedAtDepth(result, path, change.depth, 0, change.stacked, change.activeIndex);
-  }
-  return result;
-}
 
 /** Toggle stacking on the tree, cycling through ancestor splits. */
 function toggleStackInTree(root: SplitNode, focusedId: string): SplitNode {
@@ -319,18 +397,9 @@ function toggleStackInTree(root: SplitNode, focusedId: string): SplitNode {
     const depth = splitDepths[splitDepths.length - 1];
     const split = splitAtPath(root, path, depth);
     return setStackedAtDepth(root, path, depth, 0, true, childIndexContaining(split, focusedId));
-  } else if (lowestStackedDepthIdx > 0) {
-    // Something is stacked but there's a higher ancestor — unstack current, stack higher
-    const unstackDepth = splitDepths[lowestStackedDepthIdx];
-    const stackDepth = splitDepths[lowestStackedDepthIdx - 1];
-    const higherSplit = splitAtPath(root, path, stackDepth);
-    return applyStackChanges(root, path, [
-      { depth: unstackDepth, stacked: false, activeIndex: undefined },
-      { depth: stackDepth, stacked: true, activeIndex: childIndexContaining(higherSplit, focusedId) },
-    ]);
   } else {
-    // Already stacked at root level — unstack everything
-    return setStackedAtDepth(root, path, splitDepths[0], 0, false, undefined);
+    // Already stacked — unstack
+    return setStackedAtDepth(root, path, splitDepths[lowestStackedDepthIdx], 0, false, undefined);
   }
 }
 
