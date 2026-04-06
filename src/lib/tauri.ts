@@ -32,6 +32,13 @@ export async function killSession(id: string): Promise<void> {
   return invoke("kill_session", { id });
 }
 
+export async function reconnectSessionPty(
+  id: string,
+  extraFlags?: string[],
+): Promise<Session> {
+  return invoke("reconnect_session", { id, extraFlags: extraFlags ?? null });
+}
+
 export async function writeToSession(
   id: string,
   data: string
