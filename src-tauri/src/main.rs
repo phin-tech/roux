@@ -32,8 +32,8 @@ struct AppState {
 }
 
 #[tauri::command]
-fn get_log_path() -> Option<String> {
-    logging::log_path().map(|p| p.to_string_lossy().to_string())
+fn get_log_path() -> String {
+    logging::log_path().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
 }
 
 #[tauri::command]
@@ -53,6 +53,7 @@ fn update_settings(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let settings = settings.normalized();
+    logging::set_enabled(settings.enable_logging);
     settings::save_settings(&settings)?;
     *state.settings.lock().unwrap() = settings.clone();
     app.emit("settings-changed", &settings).map_err(|e| e.to_string())
@@ -450,9 +451,8 @@ fn list_docs(dir: String) -> Result<Vec<DocFile>, String> {
 }
 
 fn main() {
-    logging::init();
-
     let initial_settings = settings::load_settings();
+    logging::init(initial_settings.enable_logging);
     rlog!("Settings loaded from {:?}", dirs::config_dir().map(|d| d.join("roux/settings.json")));
     if let Some(ref p) = initial_settings.claude_binary_path {
         rlog!("Claude binary path (from settings): {}", p);

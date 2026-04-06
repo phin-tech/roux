@@ -2,8 +2,10 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 static LOG_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
+static ENABLED: AtomicBool = AtomicBool::new(false);
 
 fn log_dir() -> PathBuf {
     let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -11,7 +13,13 @@ fn log_dir() -> PathBuf {
 }
 
 /// Initialize logging. Call once at startup.
-pub fn init() {
+pub fn init(enabled: bool) {
+    ENABLED.store(enabled, Ordering::Relaxed);
+
+    if !enabled {
+        return;
+    }
+
     let dir = log_dir();
     let _ = fs::create_dir_all(&dir);
 
@@ -33,20 +41,35 @@ pub fn init() {
     log(&format!("SHELL: {}", std::env::var("SHELL").unwrap_or_else(|_| "(unset)".into())));
 }
 
+/// Enable or disable logging at runtime (e.g. when settings change).
+pub fn set_enabled(enabled: bool) {
+    let was_enabled = ENABLED.swap(enabled, Ordering::Relaxed);
+    if enabled && !was_enabled {
+        // Turning on — initialize the log file if not already done
+        let guard = LOG_FILE.lock().unwrap();
+        if guard.is_none() {
+            drop(guard);
+            init(true);
+        }
+    }
+}
+
 fn chrono_now() -> String {
     let dur = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let secs = dur.as_secs();
-    // Simple UTC timestamp without pulling in chrono crate
     let hours = (secs % 86400) / 3600;
     let mins = (secs % 3600) / 60;
     let s = secs % 60;
     format!("{:02}:{:02}:{:02}", hours, mins, s)
 }
 
-/// Write a line to the log file.
+/// Write a line to the log file (no-op if logging is disabled).
 pub fn log(msg: &str) {
+    if !ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
     let guard = LOG_FILE.lock().unwrap();
     if let Some(path) = guard.as_ref() {
         if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
@@ -59,7 +82,13 @@ pub fn log(msg: &str) {
 
 /// Return the path to the current log file.
 pub fn log_path() -> Option<PathBuf> {
-    LOG_FILE.lock().unwrap().clone()
+    let path = log_dir().join("roux.log");
+    Some(path)
+}
+
+/// Return whether logging is currently enabled.
+pub fn is_enabled() -> bool {
+    ENABLED.load(Ordering::Relaxed)
 }
 
 /// Convenience macro for formatted logging.

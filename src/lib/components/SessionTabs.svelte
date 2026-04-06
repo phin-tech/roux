@@ -17,6 +17,7 @@
   import { reconnectSession } from "$lib/sessions/reconnect";
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
+  import { log, logError } from "$lib/logging";
   import type { Session } from "$lib/types";
 
   interface Props {
@@ -90,11 +91,14 @@
       const repo = contextMenu.session.repoRoot;
       const branch = branchName.trim();
       const name = repo.split("/").pop() + "-" + branch;
+      log(`Creating worktree session: repo=${repo}, branch=${branch}`);
       const session = await createSession(repo, name, null, branch);
+      log(`Worktree session created: ${session.id}`);
       addSession(session);
       initSessionPanes(session.id);
       closeContextMenu();
     } catch (e) {
+      logError("Failed to create worktree session", e);
       worktreeError = String(e);
     } finally {
       creatingWorktree = false;

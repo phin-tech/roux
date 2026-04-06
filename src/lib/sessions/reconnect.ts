@@ -4,8 +4,10 @@ import { initSessionPanes, removeSessionPanes } from "$lib/stores/panes";
 import { createSession, killSession } from "$lib/tauri";
 import { closeAuxiliaryPanes } from "$lib/panes/actions";
 import { disposeClaudeTerminal } from "$lib/panes/terminalRegistry";
+import { log } from "$lib/logging";
 
 export async function reconnectSession(session: Session): Promise<Session> {
+  log(`Reconnecting session ${session.id} (${session.name})`);
   await closeAuxiliaryPanes(session.id);
   await disposeClaudeTerminal(session.id);
   await killSession(session.id);
@@ -20,6 +22,7 @@ export async function reconnectSession(session: Session): Promise<Session> {
     null
   );
 
+  log(`Reconnected session: ${newSession.id}`);
   addSession(newSession);
   initSessionPanes(newSession.id);
   return newSession;

@@ -13,6 +13,7 @@
   import { closeAuxiliaryPanes } from "$lib/panes/actions";
   import { killSession } from "$lib/tauri";
   import { getXtermTheme } from "$lib/themes";
+  import { log, logError } from "$lib/logging";
   import SessionPicker from "./SessionPicker.svelte";
 
   interface Props {
@@ -35,7 +36,7 @@
 
   async function handleResume(claudeSessionId: string) {
     if (!session) return;
-    // Capture session data before removing, since $derived updates synchronously
+    log(`Resuming claude session ${claudeSessionId} (old session: ${sessionId})`);
     const { repoRoot, name, worktreePath } = session;
     await closeAuxiliaryPanes(sessionId);
     await disposeClaudeTerminal(sessionId);
@@ -43,20 +44,25 @@
     removeSessionPanes(sessionId);
     removeSession(sessionId);
 
-    const newSession = await createSession(
-      repoRoot,
-      name,
-      worktreePath !== repoRoot ? worktreePath : null,
-      null,
-      ["--resume", claudeSessionId],
-    );
-    addSession(newSession);
-    initSessionPanes(newSession.id);
+    try {
+      const newSession = await createSession(
+        repoRoot,
+        name,
+        worktreePath !== repoRoot ? worktreePath : null,
+        null,
+        ["--resume", claudeSessionId],
+      );
+      log(`Resumed session created: ${newSession.id}`);
+      addSession(newSession);
+      initSessionPanes(newSession.id);
+    } catch (e) {
+      logError("Failed to resume session", e);
+    }
   }
 
   async function handleNew() {
     if (!session) return;
-    // Capture session data before removing, since $derived updates synchronously
+    log(`Creating new session to replace ${sessionId}`);
     const { repoRoot, name, worktreePath } = session;
     await closeAuxiliaryPanes(sessionId);
     await disposeClaudeTerminal(sessionId);
@@ -64,14 +70,19 @@
     removeSessionPanes(sessionId);
     removeSession(sessionId);
 
-    const newSession = await createSession(
-      repoRoot,
-      name,
-      worktreePath !== repoRoot ? worktreePath : null,
-      null,
-    );
-    addSession(newSession);
-    initSessionPanes(newSession.id);
+    try {
+      const newSession = await createSession(
+        repoRoot,
+        name,
+        worktreePath !== repoRoot ? worktreePath : null,
+        null,
+      );
+      log(`New session created: ${newSession.id}`);
+      addSession(newSession);
+      initSessionPanes(newSession.id);
+    } catch (e) {
+      logError("Failed to create new session", e);
+    }
   }
 
   function getOrCreateTerminal() {
@@ -104,6 +115,7 @@
     }));
 
     entry.unlisteners.push(await onSessionExit(sid, (_code) => {
+      log(`Session ${sid} exited (code=${_code})`);
       setSessionDisconnected(sid);
     }));
   }

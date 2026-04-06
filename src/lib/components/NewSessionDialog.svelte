@@ -6,6 +6,7 @@
   import { initSessionPanes } from "$lib/stores/panes";
   import { settings } from "$lib/stores/settings";
   import type { Worktree } from "$lib/types";
+  import { log, logError } from "$lib/logging";
 
   interface Props {
     visible: boolean;
@@ -85,6 +86,7 @@
         extraFlags.push("--dangerously-skip-permissions");
       }
 
+      log(`Creating new session: repo=${repoPath}, mode=${mode}, name=${name}`);
       const session = await createSession(
         repoPath,
         name,
@@ -94,10 +96,12 @@
         selectedNonoProfile,
       );
 
+      log(`Session created: ${session.id}`);
       addSession(session);
       initSessionPanes(session.id);
       resetAndClose();
     } catch (e) {
+      logError("Failed to create session", e);
       error = String(e);
     } finally {
       creating = false;

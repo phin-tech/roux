@@ -50,6 +50,7 @@ export interface RouxSettings {
   additionalFlags: string[];
   taskPanelSplit: number;
   taskPanelCollapsed: boolean;
+  enableLogging: boolean;
 }
 
 export interface Worktree {
@@ -85,6 +86,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   additionalFlags: [],
   taskPanelSplit: 0.4,
   taskPanelCollapsed: false,
+  enableLogging: false,
 };
 
 export interface ClaudeSession {

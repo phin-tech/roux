@@ -105,9 +105,6 @@
   });
 
   onMount(async () => {
-    await initLogging();
-    log("App mounting");
-
     registerCommands();
     // Use capture phase so we intercept before xterm.js swallows the event
     window.addEventListener("keydown", handleKeyDown, true);
@@ -116,6 +113,7 @@
     await listen("close-requested", () => void handleCloseRequested());
 
     const loadedSettings = await initSettings();
+    await initLogging(loadedSettings.enableLogging);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
 
     // Check if first-time CLI setup is needed

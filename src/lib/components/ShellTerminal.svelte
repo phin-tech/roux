@@ -9,6 +9,7 @@
   import { settings } from "$lib/stores/settings";
   import { ensureShellTerminal } from "$lib/panes/terminalRegistry";
   import { getXtermTheme } from "$lib/themes";
+  import { log } from "$lib/logging";
 
   interface Props {
     ptyId: string;
@@ -60,6 +61,7 @@
   }
 
   onMount(async () => {
+    log(`ShellTerminal mounting: pane=${paneId} pty=${capturedPtyId}`);
     const instance = getOrCreateTerminal();
     const term = instance.terminal;
     terminal = term;
@@ -85,6 +87,7 @@
 
       if (closeOnExit) {
         instance.unlisteners.push(await onSessionExit(capturedPtyId, () => {
+          log(`Shell pane ${paneId} exited`);
           void onClose();
         }));
       }

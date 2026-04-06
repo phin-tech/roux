@@ -2,6 +2,7 @@
   import { settings, updateSetting } from "$lib/stores/settings";
   import { open } from "@tauri-apps/plugin-dialog";
   import { THEME_DEFINITIONS } from "$lib/themes";
+  import { getLogPath, setLoggingEnabled } from "$lib/logging";
 
   interface Props {
     visible: boolean;
@@ -258,6 +259,37 @@
           placeholder="--verbose"
         />
       </div>
+    </section>
+
+    <!-- Debug -->
+    <section class="mb-6">
+      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Debug</h3>
+      <div class="flex items-center justify-between py-2">
+        <div>
+          <div class="text-[13px]">Enable logging</div>
+          <div class="text-[11px] text-text-muted mt-0.5">Write logs to disk for debugging</div>
+        </div>
+        <button
+          aria-label="Toggle logging"
+          class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+            {$settings.enableLogging
+              ? 'bg-accent-dim border-accent'
+              : 'bg-bg-deep border-border'}"
+          onclick={() => {
+            const next = !$settings.enableLogging;
+            setLoggingEnabled(next);
+            updateSetting("enableLogging", next);
+          }}
+        >
+          <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+            {$settings.enableLogging
+              ? 'left-[18px] bg-accent'
+              : 'left-0.5 bg-text-secondary'}"></div>
+        </button>
+      </div>
+      {#if $settings.enableLogging}
+        <div class="text-[11px] text-text-muted font-mono mt-1 break-all">{getLogPath()}</div>
+      {/if}
     </section>
   </div>
 </div>

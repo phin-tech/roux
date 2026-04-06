@@ -8,6 +8,7 @@ import { closeFocusedPane } from "$lib/panes/actions";
 import { closeSession } from "$lib/sessions/close";
 import { reconnectSession } from "$lib/sessions/reconnect";
 import { get } from "svelte/store";
+import { log, logError } from "$lib/logging";
 import { taskGroups } from "$lib/stores/tasks";
 import { listCommandPanes } from "$lib/panes/commandPaneRegistry";
 import { runTask } from "$lib/tasks/runner";
@@ -26,7 +27,13 @@ export function registerCommands() {
       if (!session) return;
       const paneId = crypto.randomUUID();
       const ptyId = crypto.randomUUID();
-      await spawnShell(ptyId, session.worktreePath);
+      log(`Split horizontal: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
+      try {
+        await spawnShell(ptyId, session.worktreePath);
+      } catch (e) {
+        logError("Failed to spawn shell for horizontal split", e);
+        return;
+      }
       const activeId = queries.activeSessionId();
       if (activeId)
         addSplit(activeId, "horizontal", { id: paneId, type: "shell", ptyId });
@@ -44,7 +51,13 @@ export function registerCommands() {
       if (!session) return;
       const paneId = crypto.randomUUID();
       const ptyId = crypto.randomUUID();
-      await spawnShell(ptyId, session.worktreePath);
+      log(`Split vertical: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
+      try {
+        await spawnShell(ptyId, session.worktreePath);
+      } catch (e) {
+        logError("Failed to spawn shell for vertical split", e);
+        return;
+      }
       const activeId = queries.activeSessionId();
       if (activeId)
         addSplit(activeId, "vertical", { id: paneId, type: "shell", ptyId });

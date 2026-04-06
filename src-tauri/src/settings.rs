@@ -42,6 +42,8 @@ pub struct RouxSettings {
     pub additional_flags: Vec<String>,
     pub task_panel_split: f64,
     pub task_panel_collapsed: bool,
+    #[serde(default)]
+    pub enable_logging: bool,
 }
 
 impl Default for RouxSettings {
@@ -67,6 +69,7 @@ impl Default for RouxSettings {
             additional_flags: vec![],
             task_panel_split: 0.4,
             task_panel_collapsed: false,
+            enable_logging: false,
         }
     }
 }
