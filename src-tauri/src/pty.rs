@@ -361,9 +361,16 @@ impl PtyManager {
 /// instead of hardcoding /bin/bash. This ensures paths added in .zshrc etc. are found.
 pub fn get_user_path() -> String {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    rlog!("Resolving PATH via login shell: {} -l -c 'echo $PATH'", shell);
+    // Fish outputs $PATH as a space-separated list; other shells use colons.
+    // Use fish's `string join` to get colon-separated output.
+    let path_cmd = if shell.contains("fish") {
+        "string join : $PATH"
+    } else {
+        "echo $PATH"
+    };
+    rlog!("Resolving PATH via login shell: {} -l -c '{}'", shell, path_cmd);
     let result = std::process::Command::new(&shell)
-        .args(["-l", "-c", "echo $PATH"])
+        .args(["-l", "-c", path_cmd])
         .output();
     match &result {
         Ok(o) => {
