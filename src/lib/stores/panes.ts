@@ -6,6 +6,7 @@ export interface Pane {
   id: string;
   type: "claude" | "shell" | "markdown" | "command";
   ptyId: string;
+  name?: string;
   docPath?: string;
   command?: string;
   workingDir?: string;
@@ -157,6 +158,94 @@ export function listPanes(sessionId: string): Pane[] {
   const panes: Pane[] = [];
   collectPanes(tree, panes);
   return panes;
+}
+
+function setPaneNameInTree(node: SplitNode, paneId: string, name: string | undefined): SplitNode {
+  if (node.kind === "pane") {
+    if (node.pane.id === paneId) {
+      return { kind: "pane", pane: { ...node.pane, name } };
+    }
+    return node;
+  }
+  return {
+    ...node,
+    children: node.children.map((child) => setPaneNameInTree(child, paneId, name)),
+  };
+}
+
+export function renamePane(sessionId: string, paneId: string, name: string) {
+  paneTrees.update((trees) => {
+    const tree = trees.get(sessionId);
+    if (!tree) return trees;
+    trees.set(sessionId, setPaneNameInTree(tree, paneId, name || undefined));
+    return new Map(trees);
+  });
+}
+
+// ── Pane drag-and-drop ─────────────────────────────────────
+
+export type DropSide = "left" | "right" | "top" | "bottom";
+
+const dropSideToDirection: Record<DropSide, SplitDirection> = {
+  left: "horizontal",
+  right: "horizontal",
+  top: "vertical",
+  bottom: "vertical",
+};
+
+/** Move a pane from its current position to a new position next to a target pane. */
+export function movePane(sessionId: string, paneId: string, targetPaneId: string, side: DropSide) {
+  if (paneId === targetPaneId) return;
+
+  paneTrees.update((trees) => {
+    let tree = trees.get(sessionId);
+    if (!tree) return trees;
+
+    // 1. Extract the pane data before removing
+    const pane = findPaneInTree(tree, paneId);
+    if (!pane) return trees;
+    const paneCopy = { ...pane };
+
+    // 2. Remove from current position
+    const afterRemove = removePaneFromTree(tree, paneId);
+    if (!afterRemove) return trees; // was the only pane
+
+    // 3. Verify target still exists after removal
+    if (!findPaneInTree(afterRemove, targetPaneId)) return trees;
+
+    // 4. Insert at new position next to the target
+    const direction = dropSideToDirection[side];
+    const insertBefore = side === "left" || side === "top";
+    const newNode: SplitNode = { kind: "pane", pane: paneCopy };
+
+    const afterInsert = insertPaneAtTarget(afterRemove, targetPaneId, direction, newNode, insertBefore);
+    trees.set(sessionId, afterInsert);
+    return new Map(trees);
+  });
+
+  focusedPaneId.set(paneId);
+}
+
+function insertPaneAtTarget(
+  node: SplitNode,
+  targetId: string,
+  direction: SplitDirection,
+  newNode: SplitNode,
+  insertBefore: boolean,
+): SplitNode {
+  if (node.kind === "pane") {
+    if (node.pane.id === targetId) {
+      const children = insertBefore ? [newNode, node] : [node, newNode];
+      return { kind: "split", direction, children };
+    }
+    return node;
+  }
+  return {
+    ...node,
+    children: node.children.map((child) =>
+      insertPaneAtTarget(child, targetId, direction, newNode, insertBefore),
+    ),
+  };
 }
 
 export type Direction = "left" | "right" | "up" | "down";

@@ -151,6 +151,7 @@ impl PtyManager {
         model: Option<&str>,
         additional_flags: &[String],
         nono_profile: Option<&str>,
+        claude_binary_path: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), String> {
         let pty_system = native_pty_system();
@@ -159,14 +160,8 @@ impl PtyManager {
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-        // Get the user's login shell PATH so we can find `claude` / `nono`
-        let user_path = std::process::Command::new("/bin/bash")
-            .args(["-l", "-c", "echo $PATH"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+        let user_path = get_user_path();
+        let claude_cmd = resolve_claude_command(claude_binary_path);
 
         let mut cmd = if let Some(profile) = nono_profile {
             // Wrap with nono: nono run --profile <profile> --allow-cwd -- claude [args]
@@ -176,10 +171,10 @@ impl PtyManager {
             c.arg(profile);
             c.arg("--allow-cwd");
             c.arg("--");
-            c.arg("claude");
+            c.arg(&claude_cmd);
             c
         } else {
-            CommandBuilder::new("claude")
+            CommandBuilder::new(&claude_cmd)
         };
         cmd.env("PATH", &user_path);
         cmd.env("TERM", "xterm-256color");
@@ -231,14 +226,7 @@ impl PtyManager {
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-
-        let user_path = std::process::Command::new("/bin/bash")
-            .args(["-l", "-c", "echo $PATH"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+        let user_path = get_user_path();
 
         let mut cmd = CommandBuilder::new(&shell);
         cmd.env("PATH", &user_path);
@@ -287,14 +275,7 @@ impl PtyManager {
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-
-        let user_path = std::process::Command::new("/bin/bash")
-            .args(["-l", "-c", "echo $PATH"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+        let user_path = get_user_path();
 
         let mut cmd = CommandBuilder::new(&shell);
         cmd.args(["-c", command]);
@@ -367,5 +348,65 @@ impl PtyManager {
             let _ = session.child.kill();
         }
         Ok(())
+    }
+}
+
+/// Get the user's login shell PATH by invoking their actual shell (from $SHELL)
+/// instead of hardcoding /bin/bash. This ensures paths added in .zshrc etc. are found.
+pub fn get_user_path() -> String {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    std::process::Command::new(&shell)
+        .args(["-l", "-c", "echo $PATH"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default())
+}
+
+/// Resolve the claude binary command. If a custom path is configured, use it directly.
+/// Otherwise fall back to "claude" (resolved via PATH).
+pub fn resolve_claude_command(custom_path: Option<&str>) -> String {
+    match custom_path {
+        Some(p) if !p.is_empty() => p.to_string(),
+        _ => "claude".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_claude_command_uses_custom_path_when_set() {
+        let result = resolve_claude_command(Some("/usr/local/bin/claude"));
+        assert_eq!(result, "/usr/local/bin/claude");
+    }
+
+    #[test]
+    fn resolve_claude_command_uses_custom_path_with_home_dir() {
+        let result = resolve_claude_command(Some("/Users/sam/.node_modules/bin/claude"));
+        assert_eq!(result, "/Users/sam/.node_modules/bin/claude");
+    }
+
+    #[test]
+    fn resolve_claude_command_falls_back_to_claude_when_none() {
+        let result = resolve_claude_command(None);
+        assert_eq!(result, "claude");
+    }
+
+    #[test]
+    fn resolve_claude_command_falls_back_to_claude_when_empty() {
+        let result = resolve_claude_command(Some(""));
+        assert_eq!(result, "claude");
+    }
+
+    #[test]
+    fn get_user_path_returns_nonempty_string() {
+        let path = get_user_path();
+        assert!(!path.is_empty(), "PATH should not be empty");
+        // Should contain at least /usr/bin which is always on PATH
+        assert!(path.contains("/usr/bin") || path.contains("/bin"),
+            "PATH should contain standard bin directories, got: {}", path);
     }
 }

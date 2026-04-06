@@ -10,6 +10,11 @@
 
   let { visible, onclose }: Props = $props();
 
+  async function browseClaudeBinary() {
+    const selected = await open({ directory: false, title: "Select Claude Binary" });
+    if (selected) updateSetting("claudeBinaryPath", selected as string);
+  }
+
   async function browseWorktreeBase() {
     const selected = await open({ directory: true, title: "Select Worktree Base Directory" });
     if (selected) updateSetting("worktreeBasePath", selected as string);
@@ -217,6 +222,24 @@
     <!-- Claude -->
     <section class="mb-6">
       <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Claude</h3>
+      <div class="flex items-center justify-between py-2">
+        <div>
+          <div class="text-[13px]">Binary path</div>
+          <div class="text-[11px] text-text-muted mt-0.5">Leave blank to auto-detect from PATH</div>
+        </div>
+        <div class="flex gap-1">
+          <input
+            class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-28 text-right focus:border-accent-dim"
+            value={$settings.claudeBinaryPath ?? ""}
+            oninput={(e) => updateSetting("claudeBinaryPath", e.currentTarget.value || null)}
+            placeholder="/usr/local/bin/claude"
+          />
+          <button
+            class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+            onclick={browseClaudeBinary}
+          >...</button>
+        </div>
+      </div>
       <div class="flex items-center justify-between py-2">
         <span class="text-[13px]">Default model</span>
         <input

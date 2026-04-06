@@ -56,7 +56,7 @@
       ></div>
     </div>
 
-    <div class="relative flex min-w-0 flex-1 flex-col bg-bg-deep p-2">
+    <div class="relative flex min-w-0 flex-1 flex-col bg-bg-deep p-1">
       {#if $sessionState.sessions.length === 0}
         <div class="ui-panel flex flex-1 flex-col items-center justify-center gap-4 rounded-[1.25rem] text-center text-text-secondary">
           <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_18px_40px_rgba(2,6,23,0.45)]">
@@ -73,7 +73,7 @@
           {@const tree = $paneTrees.get(session.id)}
           {#if tree}
             <div
-              class="flex min-h-0 flex-1 rounded-[1.25rem] bg-bg-deep"
+              class="flex min-h-0 flex-1 rounded-lg bg-bg-deep"
               class:hidden={session.id !== $sessionState.activeSessionId}
             >
               <SplitPane

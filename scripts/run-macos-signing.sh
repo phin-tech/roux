@@ -8,12 +8,8 @@ fi
 
 missing=()
 
-if [[ -z "${APPLE_CERTIFICATE:-}" && -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
-  missing+=("APPLE_CERTIFICATE or APPLE_SIGNING_IDENTITY")
-fi
-
-if [[ -n "${APPLE_CERTIFICATE:-}" && -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
-  missing+=("APPLE_CERTIFICATE_PASSWORD")
+if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  missing+=("APPLE_SIGNING_IDENTITY")
 fi
 
 has_apple_id_auth=false

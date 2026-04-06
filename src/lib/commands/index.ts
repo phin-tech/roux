@@ -2,7 +2,7 @@ import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { addSession, setActiveSession, triggerRename } from "$lib/stores/sessions";
 import { settings, updateSetting } from "$lib/stores/settings";
-import { addSplit, initSessionPanes, navigatePane } from "$lib/stores/panes";
+import { addSplit, initSessionPanes, navigatePane, renamePane } from "$lib/stores/panes";
 import { spawnShell, spawnTask, listDocs, writeToSession, createSession, openInEditor, listBranches } from "$lib/tauri";
 import { closeFocusedPane } from "$lib/panes/actions";
 import { closeSession } from "$lib/sessions/close";
@@ -109,6 +109,22 @@ export function registerCommands() {
       const activeId = queries.activeSessionId();
       if (activeId) {
         await closeFocusedPane(activeId);
+      }
+    },
+  });
+
+  registry.register({
+    id: "pane.rename",
+    label: "Rename Pane",
+    category: "Panes",
+    available: () => !!queries.focusedPaneId(),
+    inputPlaceholder: "Enter pane name...",
+    getItems: () => [],
+    onInput: (name: string) => {
+      const activeId = queries.activeSessionId();
+      const paneId = queries.focusedPaneId();
+      if (activeId && paneId) {
+        renamePane(activeId, paneId, name);
       }
     },
   });

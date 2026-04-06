@@ -46,6 +46,7 @@ export interface RouxSettings {
   cleanupWorktreesOnClose: boolean;
   theme: ThemePreset;
   defaultModel: string | null;
+  claudeBinaryPath: string | null;
   additionalFlags: string[];
   taskPanelSplit: number;
   taskPanelCollapsed: boolean;
@@ -80,6 +81,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   cleanupWorktreesOnClose: false,
   theme: "deep-blue",
   defaultModel: null,
+  claudeBinaryPath: null,
   additionalFlags: [],
   taskPanelSplit: 0.4,
   taskPanelCollapsed: false,

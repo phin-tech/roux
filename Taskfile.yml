@@ -183,6 +183,79 @@ tasks:
           xcrun stapler validate "${DMG}"
         fi
 
+  macos:staple-dmg:
+    desc: "Staple the latest signed macOS DMG"
+    cmds:
+      - |
+        set -euo pipefail
+        TARGET_ROOT="src-tauri/target"
+        if [ -n "${TAURI_TARGET:-}" ]; then
+          TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
+        fi
+
+        DMG_DIR="${TARGET_ROOT}/release/bundle/dmg"
+        DMG="$(find "${DMG_DIR}" -maxdepth 1 -name 'Roux_*.dmg' | sort | tail -n 1)"
+
+        if [ -n "${DMG}" ]; then
+          xcrun stapler staple "${DMG}"
+        fi
+
+  macos:zip-app:
+    desc: "Zip the latest signed macOS app bundle"
+    cmds:
+      - |
+        set -euo pipefail
+        TARGET_ROOT="src-tauri/target"
+        if [ -n "${TAURI_TARGET:-}" ]; then
+          TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
+        fi
+
+        VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+        APP="${TARGET_ROOT}/release/bundle/macos/Roux.app"
+        APP_ZIP="${TARGET_ROOT}/release/bundle/macos/Roux_${VERSION}.app.zip"
+
+        rm -f "${APP_ZIP}"
+        ditto -c -k --sequesterRsrc --keepParent "${APP}" "${APP_ZIP}"
+        echo "Prepared ${APP_ZIP}"
+
+  macos:notarize-dmg:
+    desc: "Notarize the latest signed macOS DMG"
+    cmds:
+      - |
+        set -euo pipefail
+        TARGET_ROOT="src-tauri/target"
+        if [ -n "${TAURI_TARGET:-}" ]; then
+          TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
+        fi
+
+        DMG_DIR="${TARGET_ROOT}/release/bundle/dmg"
+        DMG="$(find "${DMG_DIR}" -maxdepth 1 -name 'Roux_*.dmg' | sort | tail -n 1)"
+
+        if [ -z "${DMG}" ]; then
+          echo "No DMG found to notarize"
+          exit 0
+        fi
+
+        export DMG
+        ./scripts/run-macos-signing.sh sh -c '
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            xcrun notarytool submit "$DMG" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+          elif [ -n "${APPLE_API_KEY:-}" ] && [ -n "${APPLE_API_ISSUER:-}" ] && [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+            xcrun notarytool submit "$DMG" \
+              --key "$APPLE_API_KEY" \
+              --issuer "$APPLE_API_ISSUER" \
+              --key-path "$APPLE_API_KEY_PATH" \
+              --wait
+          else
+            echo "Missing notarization credentials for DMG submission" >&2
+            exit 1
+          fi
+        '
+
   sign:
     desc: "Build, sign, notarize, and staple the macOS app"
     cmds:
@@ -190,6 +263,8 @@ tasks:
       - |
         set -euo pipefail
         ./scripts/run-macos-signing.sh npm run tauri build -- ${TAURI_BUILD_ARGS:-}
+      - task: macos:notarize-dmg
+      - task: macos:staple-dmg
       - task: macos:verify
 
   sign:op:
@@ -213,8 +288,45 @@ tasks:
     cmds:
       - task: sign:op
 
-  release:
-    desc: "Bump version, commit, tag, push. Usage: task release BUMP=patch|minor|major"
+  publish:
+    desc: "Create or update the GitHub release for the current version and upload the signed app zip and DMG"
+    preconditions:
+      - sh: "command -v gh >/dev/null 2>&1"
+        msg: "GitHub CLI 'gh' is required"
+    cmds:
+      - task: macos:zip-app
+      - |
+        set -euo pipefail
+        TARGET_ROOT="src-tauri/target"
+        if [ -n "${TAURI_TARGET:-}" ]; then
+          TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
+        fi
+
+        VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+        TAG="v${VERSION}"
+        APP_ZIP="${TARGET_ROOT}/release/bundle/macos/Roux_${VERSION}.app.zip"
+
+        if ! gh release view "$TAG" &>/dev/null; then
+          gh release create "$TAG" --title "$TAG" --notes ""
+          echo "Created release $TAG"
+        fi
+
+        gh release upload "$TAG" "$APP_ZIP" --clobber
+        echo "Uploaded $APP_ZIP to $TAG"
+
+        find "${TARGET_ROOT}" -path "*/release/bundle/dmg/Roux_${VERSION}_*.dmg" -print | while read -r DMG; do
+          gh release upload "$TAG" "$DMG" --clobber
+          echo "Uploaded $DMG to $TAG"
+        done
+
+  publish:op:
+    desc: "Sign with 1Password-backed secrets, then publish the current version"
+    cmds:
+      - task: sign:op
+      - task: publish
+
+  version:
+    desc: "Bump version, commit, tag, push. Usage: task version BUMP=patch|minor|major"
     requires:
       vars: [BUMP]
     preconditions:
@@ -264,19 +376,3 @@ tasks:
         git push origin "v${NEW}"
 
         echo "Released v${NEW}"
-
-  release:upload:
-    desc: "Upload signed DMG to GitHub release"
-    cmds:
-      - |
-        VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
-        TAG="v${VERSION}"
-        if ! gh release view "$TAG" &>/dev/null; then
-          gh release create "$TAG" --title "$TAG" --notes ""
-          echo "Created release $TAG"
-        fi
-
-        find src-tauri/target -path "*/release/bundle/dmg/Roux_${VERSION}_*.dmg" -print | while read -r DMG; do
-          gh release upload "$TAG" "$DMG" --clobber
-          echo "Uploaded $DMG to $TAG"
-        done

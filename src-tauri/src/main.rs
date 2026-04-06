@@ -183,6 +183,7 @@ fn create_session(
         settings.default_model.as_deref(),
         &all_flags,
         nono_profile.as_deref(),
+        settings.claude_binary_path.as_deref(),
         app.clone(),
     );
 
@@ -228,8 +229,8 @@ fn list_claude_sessions(cwd: String) -> Result<Vec<ClaudeSession>, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     let projects_dir = home.join(".claude").join("projects");
 
-    // Claude encodes the path by replacing / with -
-    let encoded = cwd.replace('/', "-");
+    // Claude encodes the path by replacing / and . with -
+    let encoded = cwd.replace('/', "-").replace('.', "-");
     let project_dir = projects_dir.join(&encoded);
 
     if !project_dir.is_dir() {
@@ -309,16 +310,10 @@ fn run_setup() -> Result<(), String> {
 
 #[tauri::command]
 fn check_nono_installed() -> bool {
-    // Check if `nono` is on the user's PATH
-    let user_path = std::process::Command::new("/bin/bash")
-        .args(["-l", "-c", "echo $PATH"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+    let user_path = pty::get_user_path();
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
-    std::process::Command::new("/bin/bash")
+    std::process::Command::new(&shell)
         .args(["-c", "command -v nono"])
         .env("PATH", &user_path)
         .output()

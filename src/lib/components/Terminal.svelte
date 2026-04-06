@@ -32,6 +32,8 @@
 
   async function handleResume(claudeSessionId: string) {
     if (!session) return;
+    // Capture session data before removing, since $derived updates synchronously
+    const { repoRoot, name, worktreePath } = session;
     await closeAuxiliaryPanes(sessionId);
     await disposeClaudeTerminal(sessionId);
     await killSession(sessionId).catch(() => {});
@@ -39,9 +41,9 @@
     removeSession(sessionId);
 
     const newSession = await createSession(
-      session.repoRoot,
-      session.name,
-      session.worktreePath !== session.repoRoot ? session.worktreePath : null,
+      repoRoot,
+      name,
+      worktreePath !== repoRoot ? worktreePath : null,
       null,
       ["--resume", claudeSessionId],
     );
@@ -51,6 +53,8 @@
 
   async function handleNew() {
     if (!session) return;
+    // Capture session data before removing, since $derived updates synchronously
+    const { repoRoot, name, worktreePath } = session;
     await closeAuxiliaryPanes(sessionId);
     await disposeClaudeTerminal(sessionId);
     await killSession(sessionId).catch(() => {});
@@ -58,9 +62,9 @@
     removeSession(sessionId);
 
     const newSession = await createSession(
-      session.repoRoot,
-      session.name,
-      session.worktreePath !== session.repoRoot ? session.worktreePath : null,
+      repoRoot,
+      name,
+      worktreePath !== repoRoot ? worktreePath : null,
       null,
     );
     addSession(newSession);
