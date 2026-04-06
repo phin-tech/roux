@@ -98,6 +98,15 @@ export async function listBranches(repoPath: string): Promise<string[]> {
   return invoke("cmd_list_branches", { repoPath });
 }
 
+// Setup / CLI install
+export async function checkSetupNeeded(): Promise<boolean> {
+  return invoke("check_setup_needed");
+}
+
+export async function runSetup(): Promise<void> {
+  return invoke("run_setup");
+}
+
 // Nono sandbox integration
 export async function checkNonoInstalled(): Promise<boolean> {
   return invoke("check_nono_installed");
@@ -122,6 +131,10 @@ export interface DocFile {
 
 export async function readFile(path: string): Promise<string> {
   return invoke("read_file", { path });
+}
+
+export async function writeFile(path: string, contents: string): Promise<void> {
+  return invoke("write_file", { path, contents });
 }
 
 export async function listDocs(dir: string): Promise<DocFile[]> {

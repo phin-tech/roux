@@ -298,6 +298,16 @@ fn list_claude_sessions(cwd: String) -> Result<Vec<ClaudeSession>, String> {
 }
 
 #[tauri::command]
+fn check_setup_needed() -> bool {
+    !hooks::cli_is_installed()
+}
+
+#[tauri::command]
+fn run_setup() -> Result<(), String> {
+    hooks::install_hooks()
+}
+
+#[tauri::command]
 fn check_nono_installed() -> bool {
     // Check if `nono` is on the user's PATH
     let user_path = std::process::Command::new("/bin/bash")
@@ -361,6 +371,11 @@ fn list_sessions(state: tauri::State<AppState>) -> Vec<Session> {
 #[tauri::command]
 fn read_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
+}
+
+#[tauri::command]
+fn write_file(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, &contents).map_err(|e| format!("Failed to write file: {}", e))
 }
 
 #[tauri::command]
@@ -447,9 +462,12 @@ fn main() {
             list_sessions,
             list_claude_sessions,
             read_file,
+            write_file,
             list_docs,
             cmd_open_in_editor,
             cmd_list_branches,
+            check_setup_needed,
+            run_setup,
             check_nono_installed,
             list_nono_profiles,
             tasks::cmd_discover_tasks,
@@ -457,8 +475,12 @@ fn main() {
             tasks::cmd_save_task_overrides,
         ])
         .setup(|app| {
-            if let Err(e) = hooks::install_hooks() {
-                eprintln!("Warning: failed to install hooks: {}", e);
+            // Only auto-update hooks if CLI is already installed (not first run).
+            // First-run install is handled by the frontend setup prompt.
+            if hooks::cli_is_installed() {
+                if let Err(e) = hooks::install_hooks() {
+                    eprintln!("Warning: failed to install hooks: {}", e);
+                }
             }
             if let Err(e) = status_watcher::start_watching(app.handle().clone()) {
                 eprintln!("Warning: failed to start status watcher: {}", e);
