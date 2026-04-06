@@ -1,29 +1,24 @@
 import type { Session } from "$lib/types";
-import { addSession, removeSession } from "$lib/stores/sessions";
-import { initSessionPanes, removeSessionPanes } from "$lib/stores/panes";
-import { createSession, killSession } from "$lib/tauri";
-import { closeAuxiliaryPanes } from "$lib/panes/actions";
+import { updateSessionStatus } from "$lib/stores/sessions";
+import { reconnectSessionPty } from "$lib/tauri";
 import { disposeClaudeTerminal } from "$lib/panes/terminalRegistry";
-import { log } from "$lib/logging";
+import { log, logError } from "$lib/logging";
 
-export async function reconnectSession(session: Session): Promise<Session> {
-  log(`Reconnecting session ${session.id} (${session.name})`);
-  await closeAuxiliaryPanes(session.id);
+export async function reconnectSession(
+  session: Session,
+  extraFlags?: string[],
+): Promise<Session> {
+  log(`Reconnecting session ${session.id} (${session.name})${extraFlags ? ` with flags: ${extraFlags.join(" ")}` : ""}`);
+
+  // Dispose the old xterm terminal so a fresh one is created on re-attach
   await disposeClaudeTerminal(session.id);
-  await killSession(session.id);
 
-  removeSessionPanes(session.id);
-  removeSession(session.id);
+  // Call the Rust command that kills old PTY + spawns new one under same ID
+  const updated = await reconnectSessionPty(session.id, extraFlags);
 
-  const newSession = await createSession(
-    session.repoRoot,
-    session.name,
-    session.worktreePath !== session.repoRoot ? session.worktreePath : null,
-    null
-  );
+  // Update session status in the Svelte store
+  updateSessionStatus(session.id, updated.status as Session["status"]);
 
-  log(`Reconnected session: ${newSession.id}`);
-  addSession(newSession);
-  initSessionPanes(newSession.id);
-  return newSession;
+  log(`Session ${session.id} reconnected`);
+  return updated;
 }
