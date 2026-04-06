@@ -9,6 +9,7 @@ import {
   toggleStack,
   setActiveStackIndex,
   getStackLabel,
+  navigatePane,
   type SplitNode,
   type Pane,
 } from "../panes";
@@ -162,6 +163,72 @@ describe("stacked panes", () => {
         ],
       };
       expect(getStackLabel(node)).toBe("P1 | claude");
+    });
+  });
+
+  describe("navigation in stacks", () => {
+    it("alt+j (down) cycles to next tab in a stacked split", () => {
+      initSessionPanes("s1");
+      focusedPaneId.set("s1-main");
+      addSplit("s1", "horizontal", { id: "shell-1", type: "shell", ptyId: "pty-1" });
+      addSplit("s1", "horizontal", { id: "shell-2", type: "shell", ptyId: "pty-2" });
+      focusedPaneId.set("s1-main");
+      toggleStack("s1");
+
+      // activeIndex is 0 (s1-main). Navigate down should go to index 1
+      navigatePane("s1", "down");
+
+      const tree = asSplit(getTree("s1"));
+      expect(tree.activeIndex).toBe(1);
+      expect(get(focusedPaneId)).toBe("shell-1");
+    });
+
+    it("alt+k (up) cycles to previous tab in a stacked split", () => {
+      initSessionPanes("s1");
+      focusedPaneId.set("s1-main");
+      addSplit("s1", "horizontal", { id: "shell-1", type: "shell", ptyId: "pty-1" });
+      focusedPaneId.set("s1-main");
+      toggleStack("s1");
+
+      setActiveStackIndex("s1", 1);
+      focusedPaneId.set("shell-1");
+
+      navigatePane("s1", "up");
+
+      const tree = asSplit(getTree("s1"));
+      expect(tree.activeIndex).toBe(0);
+      expect(get(focusedPaneId)).toBe("s1-main");
+    });
+
+    it("does not cycle past the last tab", () => {
+      initSessionPanes("s1");
+      focusedPaneId.set("s1-main");
+      addSplit("s1", "horizontal", { id: "shell-1", type: "shell", ptyId: "pty-1" });
+      focusedPaneId.set("shell-1");
+      toggleStack("s1");
+
+      // Already at last tab (index 1), navigate down should do nothing
+      navigatePane("s1", "down");
+
+      const tree = asSplit(getTree("s1"));
+      expect(tree.activeIndex).toBe(1);
+    });
+
+    it("alt+h/alt+l navigate out of the stack spatially", () => {
+      // Build: root horizontal -> [claude pane, stacked vertical -> [shell-1, shell-2]]
+      initSessionPanes("s1");
+      focusedPaneId.set("s1-main");
+      addSplit("s1", "horizontal", { id: "shell-1", type: "shell", ptyId: "pty-1" });
+      focusedPaneId.set("shell-1");
+      addSplit("s1", "vertical", { id: "shell-2", type: "shell", ptyId: "pty-2" });
+
+      // Stack the vertical split (shell-1's parent)
+      focusedPaneId.set("shell-1");
+      toggleStack("s1");
+
+      // Navigate left should go to the claude pane (spatial, not tab)
+      navigatePane("s1", "left");
+      expect(get(focusedPaneId)).toBe("s1-main");
     });
   });
 

@@ -457,6 +457,17 @@ const directionStep: Record<Direction, number> = {
   left: -1, right: 1, up: -1, down: 1,
 };
 
+/** Immutable update: replace a split node found by reference with a modified copy. */
+function updateSplitByRef(node: SplitNode, target: SplitNode & { kind: "split" }, patch: Partial<SplitNode & { kind: "split" }>): SplitNode {
+  if (node === target) {
+    return { ...node, ...patch } as SplitNode;
+  }
+  if (node.kind === "pane") return node;
+  const newChildren = node.children.map((c) => updateSplitByRef(c, target, patch));
+  if (newChildren.every((c, i) => c === node.children[i])) return node;
+  return { ...node, children: newChildren };
+}
+
 export function navigatePane(sessionId: string, direction: Direction) {
   const tree = get(paneTrees).get(sessionId);
   if (!tree) return;
@@ -469,13 +480,35 @@ export function navigatePane(sessionId: string, direction: Direction) {
   const axis = directionAxis[direction];
   const step = directionStep[direction];
 
-  // Walk up the path to find a split on the matching axis where we can move
+  // Check for stacked ancestor — up/down navigates tabs within stacks
+  for (let i = path.length - 1; i >= 0; i--) {
+    const { parent } = path[i];
+    if (!parent.stacked) continue;
+
+    // Only up/down cycles stack tabs
+    if (axis !== "vertical") continue;
+
+    const nextIndex = (parent.activeIndex ?? 0) + step;
+    if (nextIndex < 0 || nextIndex >= parent.children.length) return;
+
+    // Update activeIndex and focus the first pane in the new active child
+    paneTrees.update((trees) => {
+      const root = trees.get(sessionId);
+      if (!root) return trees;
+      trees.set(sessionId, updateSplitByRef(root, parent, { activeIndex: nextIndex }));
+      return new Map(trees);
+    });
+    const target = parent.children[nextIndex];
+    focusedPaneId.set(firstPaneId(target));
+    return;
+  }
+
+  // No stacked ancestor matched — fall through to normal spatial navigation
   for (let i = path.length - 1; i >= 0; i--) {
     const { parent, childIndex } = path[i];
     if (parent.direction !== axis) continue;
     const nextIndex = childIndex + step;
     if (nextIndex < 0 || nextIndex >= parent.children.length) continue;
-    // Found a valid move — descend into the target child, picking the near edge
     const target = parent.children[nextIndex];
     const newFocus = step > 0 ? firstPaneId(target) : lastPaneId(target);
     focusedPaneId.set(newFocus);
