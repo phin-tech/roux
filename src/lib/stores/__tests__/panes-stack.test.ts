@@ -95,22 +95,19 @@ describe("stacked panes", () => {
     });
 
     it("sets activeIndex to the child containing the focused pane", () => {
-      // Build: root split(h) [pane(s1-main), split(h) [pane(shell-1), pane(shell-2)]]
+      // With flattening: split(h) [s1-main, shell-1, shell-2]
       initSessionPanes("s1");
       focusedPaneId.set("s1-main");
       addSplit("s1", "horizontal", { id: "shell-1", type: "shell", ptyId: "pty-1" });
-      // focus is now on shell-1; second split nests under shell-1's parent
       addSplit("s1", "horizontal", { id: "shell-2", type: "shell", ptyId: "pty-2" });
       focusedPaneId.set("shell-1");
 
       toggleStack("s1");
 
-      // shell-1's immediate parent is the inner split [shell-1, shell-2]
+      // Flat split is stacked, shell-1 is child index 1
       const root = asSplit(getTree("s1"));
-      const innerSplit = asSplit(root.children[1]);
-      expect(innerSplit.stacked).toBe(true);
-      // shell-1 is child index 0 in the inner split
-      expect(innerSplit.activeIndex).toBe(0);
+      expect(root.stacked).toBe(true);
+      expect(root.activeIndex).toBe(1);
     });
   });
 
@@ -249,23 +246,21 @@ describe("stacked panes", () => {
     });
 
     it("clamps activeIndex when removing a child from a stacked split", () => {
-      // Build: root split(h) [pane(s1-main), split(h) [pane(shell-1), pane(shell-2)]]
+      // With flattening: split(h) [s1-main, shell-1, shell-2] — 3 flat children
       initSessionPanes("s1");
       focusedPaneId.set("s1-main");
       addSplit("s1", "horizontal", { id: "shell-1", type: "shell", ptyId: "pty-1" });
       addSplit("s1", "horizontal", { id: "shell-2", type: "shell", ptyId: "pty-2" });
 
-      // Stack the root split with activeIndex pointing to child 1 (inner split)
-      focusedPaneId.set("shell-1");
-      toggleStack("s1"); // stacks inner split [shell-1, shell-2]
-      toggleStack("s1"); // stacks root split [s1-main, inner-split]
+      // Focus last child and stack
+      focusedPaneId.set("shell-2");
+      toggleStack("s1");
 
       const rootBefore = asSplit(getTree("s1"));
       expect(rootBefore.stacked).toBe(true);
-      // activeIndex should be 1 (the inner split containing shell-1)
-      expect(rootBefore.activeIndex).toBe(1);
+      expect(rootBefore.activeIndex).toBe(2); // shell-2 is index 2
 
-      // Remove shell-2 — inner split collapses to shell-1, root still has 2 children
+      // Remove shell-2 — activeIndex should clamp from 2 to 1
       removePane("s1", "shell-2");
 
       const tree = asSplit(getTree("s1"));

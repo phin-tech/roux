@@ -80,6 +80,18 @@ function splitAtPane(node: SplitNode, targetId: string | null, direction: SplitD
     }
     return node;
   }
+  // Flatten same-direction splits: if this split matches the requested direction
+  // and the target pane is a direct child, insert as a sibling instead of nesting
+  if (node.direction === direction) {
+    const targetIndex = node.children.findIndex(
+      (child) => child.kind === "pane" && (child.pane.id === targetId || !targetId)
+    );
+    if (targetIndex !== -1) {
+      const newChildren = [...node.children];
+      newChildren.splice(targetIndex + 1, 0, { kind: "pane", pane: newPane });
+      return { ...node, children: newChildren };
+    }
+  }
   return {
     ...node,
     children: node.children.map((child) => splitAtPane(child, targetId, direction, newPane)),
