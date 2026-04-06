@@ -162,6 +162,8 @@ impl PtyManager {
 
         let user_path = get_user_path();
         let claude_cmd = resolve_claude_command(claude_binary_path);
+        rlog!("Spawning claude session '{}' in '{}' with cmd='{}'", session_id, working_dir, claude_cmd);
+        rlog!("  PATH: {}", user_path);
 
         let mut cmd = if let Some(profile) = nono_profile {
             // Wrap with nono: nono run --profile <profile> --allow-cwd -- claude [args]
@@ -227,6 +229,7 @@ impl PtyManager {
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let user_path = get_user_path();
+        rlog!("Spawning shell '{}' for pane '{}' in '{}'", shell, id, working_dir);
 
         let mut cmd = CommandBuilder::new(&shell);
         cmd.env("PATH", &user_path);
@@ -235,7 +238,10 @@ impl PtyManager {
         cmd.cwd(working_dir);
 
         let child =
-            pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn shell: {}", e))?;
+            pair.slave.spawn_command(cmd).map_err(|e| {
+                rlog!("Failed to spawn shell: {}", e);
+                format!("Failed to spawn shell: {}", e)
+            })?;
 
         let writer =
             pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
@@ -355,13 +361,29 @@ impl PtyManager {
 /// instead of hardcoding /bin/bash. This ensures paths added in .zshrc etc. are found.
 pub fn get_user_path() -> String {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    std::process::Command::new(&shell)
+    rlog!("Resolving PATH via login shell: {} -l -c 'echo $PATH'", shell);
+    let result = std::process::Command::new(&shell)
         .args(["-l", "-c", "echo $PATH"])
-        .output()
+        .output();
+    match &result {
+        Ok(o) => {
+            if !o.status.success() {
+                rlog!("  shell exited with status: {}", o.status);
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                if !stderr.is_empty() {
+                    rlog!("  stderr: {}", stderr.chars().take(500).collect::<String>());
+                }
+            }
+        }
+        Err(e) => rlog!("  failed to run shell: {}", e),
+    }
+    let path = result
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default())
+        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+    rlog!("  resolved PATH: {}", path);
+    path
 }
 
 /// Resolve the claude binary command. If a custom path is configured, use it directly.

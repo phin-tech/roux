@@ -15,6 +15,7 @@
   import { registerCommands, registry } from "$lib/commands";
   import { closeFocusedPane } from "$lib/panes/actions";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
+  import { initLogging, log, logError } from "$lib/logging";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
@@ -104,6 +105,9 @@
   });
 
   onMount(async () => {
+    await initLogging();
+    log("App mounting");
+
     registerCommands();
     // Use capture phase so we intercept before xterm.js swallows the event
     window.addEventListener("keydown", handleKeyDown, true);
@@ -112,21 +116,27 @@
     await listen("close-requested", () => void handleCloseRequested());
 
     const loadedSettings = await initSettings();
+    log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
 
     // Check if first-time CLI setup is needed
     const needsSetup = await checkSetupNeeded();
     if (needsSetup) {
+      log("First-time setup needed");
       showSetupPrompt = true;
     }
 
     if (loadedSettings.restoreSessionsOnLaunch) {
       const sessions = await listSessions();
+      log(`Restoring ${sessions.length} session(s)`);
       for (const s of sessions) {
         addSession(s);
         const shellPanes = initSessionPanes(s.id);
+        log(`  Session '${s.name}' (${s.id}): restored ${shellPanes.length} shell pane(s)`);
         // Spawn fresh shell PTYs for restored layout
         for (const pane of shellPanes) {
-          spawnShell(pane.ptyId, s.worktreePath).catch(() => {});
+          spawnShell(pane.ptyId, s.worktreePath).catch((e) => {
+            logError(`Failed to spawn shell for pane ${pane.id}`, e);
+          });
         }
       }
     }

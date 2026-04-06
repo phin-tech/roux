@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod hooks;
+#[macro_use]
+mod logging;
 mod pty;
 mod session;
 mod settings;
@@ -27,6 +29,16 @@ struct AppState {
     settings: Mutex<settings::RouxSettings>,
     pty_manager: PtyManager,
     session_store: SessionStore,
+}
+
+#[tauri::command]
+fn get_log_path() -> Option<String> {
+    logging::log_path().map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn frontend_log(message: String) {
+    logging::log(&format!("[frontend] {}", message));
 }
 
 #[tauri::command]
@@ -176,6 +188,9 @@ fn create_session(
         all_flags.extend(ef);
     }
 
+    rlog!("Creating session '{}' (id={}) in '{}'", name, session_id, work_dir);
+    rlog!("  branch={}, flags={:?}, claude_binary={:?}", actual_branch, all_flags, settings.claude_binary_path);
+
     // Spawn PTY
     let spawn_result = state.pty_manager.spawn(
         &session_id,
@@ -188,12 +203,14 @@ fn create_session(
     );
 
     // Rollback worktree on spawn failure
-    if let Err(e) = spawn_result {
+    if let Err(ref e) = spawn_result {
+        rlog!("Session spawn failed: {}", e);
         if is_wt {
             let _ = worktree::remove_worktree(&work_dir);
         }
-        return Err(e);
+        return Err(e.clone());
     }
+    rlog!("Session '{}' spawned successfully", session_id);
 
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
@@ -433,7 +450,15 @@ fn list_docs(dir: String) -> Result<Vec<DocFile>, String> {
 }
 
 fn main() {
+    logging::init();
+
     let initial_settings = settings::load_settings();
+    rlog!("Settings loaded from {:?}", dirs::config_dir().map(|d| d.join("roux/settings.json")));
+    if let Some(ref p) = initial_settings.claude_binary_path {
+        rlog!("Claude binary path (from settings): {}", p);
+    } else {
+        rlog!("Claude binary path: (default, resolved via PATH)");
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -443,6 +468,8 @@ fn main() {
             session_store: SessionStore::load_persisted(),
         })
         .invoke_handler(tauri::generate_handler![
+            get_log_path,
+            frontend_log,
             get_settings,
             update_settings,
             cmd_create_worktree,
