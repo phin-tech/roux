@@ -334,16 +334,13 @@ function toggleStackInTree(root: SplitNode, focusedId: string): SplitNode {
   }
 }
 
-/** Force the focus effect to re-trigger by bumping focusedPaneId after a tick. */
+/** Incremented to force the focus $effect in SplitPane to re-run. */
+export const focusTick = writable(0);
+
+/** Set focusedPaneId and bump focusTick to ensure the focus effect fires. */
 function refocusPane(paneId: string) {
   focusedPaneId.set(paneId);
-  // Re-set after a frame to ensure the $effect fires even if the value was already this pane
-  requestAnimationFrame(() => {
-    if (get(focusedPaneId) === paneId) {
-      focusedPaneId.set(null);
-      focusedPaneId.set(paneId);
-    }
-  });
+  focusTick.update((n) => n + 1);
 }
 
 export function toggleStack(sessionId: string) {

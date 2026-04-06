@@ -4,7 +4,7 @@
   import ShellTerminal from "./ShellTerminal.svelte";
   import CommandPane from "./CommandPane.svelte";
   import MarkdownPane from "./MarkdownPane.svelte";
-  import { focusedPaneId, renamePane, setActiveStackIndex, getStackLabel, type SplitNode } from "$lib/stores/panes";
+  import { focusedPaneId, focusTick, renamePane, setActiveStackIndex, getStackLabel, type SplitNode } from "$lib/stores/panes";
   import { closePane } from "$lib/panes/actions";
 
   let editingName = $state(false);
@@ -51,8 +51,10 @@
   let { node, sessionId, sessionActive }: Props = $props();
   let paneContainer: HTMLElement | undefined = $state();
 
-  // Focus terminal when this pane becomes focused via keyboard navigation
+  // Focus terminal when this pane becomes focused via keyboard navigation or stack switch.
+  // Reading $focusTick ensures this re-fires after stack operations even when focusedPaneId is unchanged.
   $effect(() => {
+    const _tick = $focusTick;
     if (node.kind === "pane" && $focusedPaneId === node.pane.id && paneContainer) {
       focusTerminal(paneContainer);
     }
