@@ -334,6 +334,18 @@ function toggleStackInTree(root: SplitNode, focusedId: string): SplitNode {
   }
 }
 
+/** Force the focus effect to re-trigger by bumping focusedPaneId after a tick. */
+function refocusPane(paneId: string) {
+  focusedPaneId.set(paneId);
+  // Re-set after a frame to ensure the $effect fires even if the value was already this pane
+  requestAnimationFrame(() => {
+    if (get(focusedPaneId) === paneId) {
+      focusedPaneId.set(null);
+      focusedPaneId.set(paneId);
+    }
+  });
+}
+
 export function toggleStack(sessionId: string) {
   const focused = get(focusedPaneId);
   if (!focused) return;
@@ -344,6 +356,8 @@ export function toggleStack(sessionId: string) {
     trees.set(sessionId, toggleStackInTree(tree, focused));
     return new Map(trees);
   });
+
+  refocusPane(focused);
 }
 
 export function setActiveStackIndex(sessionId: string, index: number) {
@@ -379,7 +393,7 @@ export function setActiveStackIndex(sessionId: string, index: number) {
   });
 
   if (newFocusTarget) {
-    focusedPaneId.set(firstPaneId(newFocusTarget));
+    refocusPane(firstPaneId(newFocusTarget));
   }
 }
 
@@ -518,7 +532,7 @@ export function navigatePane(sessionId: string, direction: Direction) {
       return new Map(trees);
     });
     const target = parent.children[nextIndex];
-    focusedPaneId.set(firstPaneId(target));
+    refocusPane(firstPaneId(target));
     return;
   }
 
