@@ -183,6 +183,170 @@ export function renamePane(sessionId: string, paneId: string, name: string) {
   });
 }
 
+// ── Stacked panes ──────────────────────────────────────────
+
+/** Build the path of child indices from root to the split containing targetId. */
+function buildSplitPath(
+  node: SplitNode,
+  targetId: string,
+  path: number[]
+): boolean {
+  if (node.kind === "pane") return node.pane.id === targetId;
+  for (let i = 0; i < node.children.length; i++) {
+    path.push(i);
+    if (buildSplitPath(node.children[i], targetId, path)) return true;
+    path.pop();
+  }
+  return false;
+}
+
+/** Resolve a split node at the given path of child indices. */
+function splitAtPath(root: SplitNode, path: number[], depth: number): SplitNode & { kind: "split" } {
+  let node = root;
+  for (let i = 0; i < depth; i++) {
+    if (node.kind !== "split") throw new Error("Expected split");
+    node = node.children[path[i]];
+  }
+  if (node.kind !== "split") throw new Error("Expected split at path");
+  return node;
+}
+
+/** Collect the depth of each ancestor split from the path (depths 0..path.length-1 are splits). */
+function ancestorSplitDepths(root: SplitNode, path: number[]): number[] {
+  const depths: number[] = [];
+  let node = root;
+  for (let i = 0; i < path.length; i++) {
+    if (node.kind === "split") {
+      depths.push(i);
+      node = node.children[path[i]];
+    }
+  }
+  return depths;
+}
+
+/** Find which child index of a split contains the given pane ID. */
+function childIndexContaining(split: SplitNode & { kind: "split" }, paneId: string): number {
+  for (let i = 0; i < split.children.length; i++) {
+    if (findPaneInTree(split.children[i], paneId)) return i;
+  }
+  return 0;
+}
+
+/** Set stacked/activeIndex on the split node at the given depth in the path. */
+function setStackedAtDepth(
+  node: SplitNode,
+  path: number[],
+  targetDepth: number,
+  currentDepth: number,
+  stacked: boolean,
+  activeIndex: number | undefined
+): SplitNode {
+  if (node.kind === "pane") return node;
+  if (currentDepth === targetDepth) {
+    return { ...node, stacked: stacked || undefined, activeIndex: stacked ? (activeIndex ?? 0) : undefined };
+  }
+  const childIdx = path[currentDepth];
+  const newChildren = node.children.map((c, i) =>
+    i === childIdx ? setStackedAtDepth(c, path, targetDepth, currentDepth + 1, stacked, activeIndex) : c
+  );
+  if (newChildren.every((c, i) => c === node.children[i])) return node;
+  return { ...node, children: newChildren };
+}
+
+/** Apply multiple stacked changes to the tree. */
+function applyStackChanges(
+  root: SplitNode,
+  path: number[],
+  changes: { depth: number; stacked: boolean; activeIndex: number | undefined }[]
+): SplitNode {
+  let result = root;
+  for (const change of changes) {
+    result = setStackedAtDepth(result, path, change.depth, 0, change.stacked, change.activeIndex);
+  }
+  return result;
+}
+
+/** Toggle stacking on the tree, cycling through ancestor splits. */
+function toggleStackInTree(root: SplitNode, focusedId: string): SplitNode {
+  const path: number[] = [];
+  if (!buildSplitPath(root, focusedId, path)) return root;
+
+  // Collect ancestor split depths
+  const splitDepths = ancestorSplitDepths(root, path);
+  if (splitDepths.length === 0) return root; // focused pane is the root, no split to stack
+
+  // Find the lowest (deepest) stacked ancestor
+  let lowestStackedDepthIdx = -1;
+  for (let i = splitDepths.length - 1; i >= 0; i--) {
+    const split = splitAtPath(root, path, splitDepths[i]);
+    if (split.stacked) {
+      lowestStackedDepthIdx = i;
+      break;
+    }
+  }
+
+  if (lowestStackedDepthIdx === -1) {
+    // Nothing stacked yet — stack the immediate parent (last split depth)
+    const depth = splitDepths[splitDepths.length - 1];
+    const split = splitAtPath(root, path, depth);
+    return setStackedAtDepth(root, path, depth, 0, true, childIndexContaining(split, focusedId));
+  } else if (lowestStackedDepthIdx > 0) {
+    // Something is stacked but there's a higher ancestor — unstack current, stack higher
+    const unstackDepth = splitDepths[lowestStackedDepthIdx];
+    const stackDepth = splitDepths[lowestStackedDepthIdx - 1];
+    const higherSplit = splitAtPath(root, path, stackDepth);
+    return applyStackChanges(root, path, [
+      { depth: unstackDepth, stacked: false, activeIndex: undefined },
+      { depth: stackDepth, stacked: true, activeIndex: childIndexContaining(higherSplit, focusedId) },
+    ]);
+  } else {
+    // Already stacked at root level — unstack everything
+    return setStackedAtDepth(root, path, splitDepths[0], 0, false, undefined);
+  }
+}
+
+export function toggleStack(sessionId: string) {
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  paneTrees.update((trees) => {
+    const tree = trees.get(sessionId);
+    if (!tree) return trees;
+    trees.set(sessionId, toggleStackInTree(tree, focused));
+    return new Map(trees);
+  });
+}
+
+export function setActiveStackIndex(sessionId: string, index: number) {
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  paneTrees.update((trees) => {
+    const tree = trees.get(sessionId);
+    if (!tree) return trees;
+
+    const path: number[] = [];
+    if (!buildSplitPath(tree, focused, path)) return trees;
+
+    // Find nearest stacked ancestor
+    const splitDepths = ancestorSplitDepths(tree, path);
+    let stackedDepth = -1;
+    for (let i = splitDepths.length - 1; i >= 0; i--) {
+      const split = splitAtPath(tree, path, splitDepths[i]);
+      if (split.stacked) {
+        stackedDepth = splitDepths[i];
+        break;
+      }
+    }
+    if (stackedDepth === -1) return trees;
+
+    const split = splitAtPath(tree, path, stackedDepth);
+    const clamped = Math.max(0, Math.min(index, split.children.length - 1));
+    trees.set(sessionId, setStackedAtDepth(tree, path, stackedDepth, 0, true, clamped));
+    return new Map(trees);
+  });
+}
+
 // ── Pane drag-and-drop ─────────────────────────────────────
 
 export type DropSide = "left" | "right" | "top" | "bottom";
