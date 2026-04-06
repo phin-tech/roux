@@ -17,10 +17,13 @@
     paneId: string;
     initialPtyId: string;
     active?: boolean;
+    isFocused?: boolean;
+    visible?: boolean;
+    focusRequestVersion?: number;
     onClose: () => void | Promise<void>;
   }
 
-  let { command, workingDir, paneId, initialPtyId, active = true, onClose }: Props = $props();
+  let { command, workingDir, paneId, initialPtyId, active = true, isFocused = false, visible = true, focusRequestVersion = 0, onClose }: Props = $props();
 
   let containerEl: HTMLDivElement;
   let term: Terminal | null = null;
@@ -106,10 +109,6 @@
   }
 
 
-  function handlePaneFocus() {
-    term?.focus();
-  }
-
   onMount(async () => {
     currentPtyId = initialPtyId;
     registerCommandPane({
@@ -140,7 +139,6 @@
       }
     });
     resizeObserver.observe(containerEl);
-    containerEl.addEventListener("pane-focus", handlePaneFocus);
 
     requestAnimationFrame(() => {
       fitAddon?.fit();
@@ -152,7 +150,6 @@
   onDestroy(() => {
     unregisterCommandPane(paneId);
     resizeObserver?.disconnect();
-    containerEl?.removeEventListener("pane-focus", handlePaneFocus);
     if (elapsedTimer) clearInterval(elapsedTimer);
     cleanupListeners();
     if (term?.element && containerEl?.contains(term.element)) {
@@ -172,6 +169,17 @@
         fitAddon?.fit();
         const dims = fitAddon?.proposeDimensions();
         if (dims) resizeSession(currentPtyId, dims.cols, dims.rows);
+      });
+    }
+  });
+
+  // Focus terminal when this pane is focused, visible, or a focus request is made
+  $effect(() => {
+    const _version = focusRequestVersion;
+    if (isFocused && visible && term) {
+      requestAnimationFrame(() => {
+        fitAddon?.fit();
+        term?.focus();
       });
     }
   });

@@ -32,33 +32,19 @@
 
   function handlePaneMouseDown(e: MouseEvent, paneId: string) {
     focusedPaneId.set(paneId);
-    const container = e.currentTarget as HTMLElement;
-    focusTerminal(container);
-  }
-
-  function focusTerminal(container: HTMLElement) {
-    setTimeout(() => {
-      container.dispatchEvent(new CustomEvent("pane-focus", { bubbles: true }));
-    }, 0);
+    focusTick.update((n) => n + 1);
   }
 
   interface Props {
     node: SplitNode;
     sessionId: string;
     sessionActive: boolean;
+    visible?: boolean;
   }
 
-  let { node, sessionId, sessionActive }: Props = $props();
-  let paneContainer: HTMLElement | undefined = $state();
+  let { node, sessionId, sessionActive, visible = true }: Props = $props();
 
-  // Focus terminal when this pane becomes focused via keyboard navigation or stack switch.
-  // Reading $focusTick ensures this re-fires after stack operations even when focusedPaneId is unchanged.
-  $effect(() => {
-    const _tick = $focusTick;
-    if (node.kind === "pane" && $focusedPaneId === node.pane.id && paneContainer) {
-      focusTerminal(paneContainer);
-    }
-  });
+  const isFocused = $derived(node.kind === "pane" && $focusedPaneId === node.pane.id);
 </script>
 
 {#if node.kind === "pane"}
@@ -66,8 +52,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      bind:this={paneContainer}
-      class="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden rounded-lg transition-colors {$focusedPaneId === node.pane.id ? 'bg-bg-surface/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-bg-deep shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]'}"
+      class="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden rounded-lg transition-colors {isFocused ? 'bg-bg-surface/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-bg-deep shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]'}"
       onmousedown={(e) => handlePaneMouseDown(e, node.pane.id)}
     >
       <!-- Mini title bar -->
@@ -97,7 +82,7 @@
 
       <div class="flex-1 min-h-0 min-w-0">
         {#if node.pane.type === "claude"}
-          <Terminal sessionId={node.pane.ptyId} active={sessionActive} />
+          <Terminal sessionId={node.pane.ptyId} active={sessionActive} {isFocused} {visible} focusRequestVersion={$focusTick} />
         {:else if node.pane.type === "markdown"}
           <MarkdownPane
             docPath={node.pane.docPath ?? ""}
@@ -112,6 +97,9 @@
             paneId={node.pane.id}
             initialPtyId={node.pane.ptyId}
             active={sessionActive}
+            {isFocused}
+            {visible}
+            focusRequestVersion={$focusTick}
             onClose={async () => {
               await closePane(sessionId, node.pane.id);
             }}
@@ -121,6 +109,9 @@
             ptyId={node.pane.ptyId}
             paneId={node.pane.id}
             active={sessionActive}
+            {isFocused}
+            {visible}
+            focusRequestVersion={$focusTick}
             closeOnExit={!node.pane.id.startsWith("task-")}
             onClose={async () => {
               await closePane(sessionId, node.pane.id);
@@ -145,7 +136,7 @@
         <span class="text-[11px] font-mono truncate {i === (node.activeIndex ?? 0) ? 'text-text-secondary' : 'text-text-muted'}">{getStackLabel(child)}</span>
       </div>
       <div class="min-h-0 min-w-0 {i === (node.activeIndex ?? 0) ? 'flex-1' : 'hidden'}">
-        <SplitPane node={child} {sessionId} {sessionActive} />
+        <SplitPane node={child} {sessionId} {sessionActive} visible={visible && i === (node.activeIndex ?? 0)} />
       </div>
     {/each}
   </div>
@@ -156,7 +147,7 @@
     class:flex-col={node.direction === "vertical"}
   >
     {#each node.children as child}
-      <SplitPane node={child} {sessionId} {sessionActive} />
+      <SplitPane node={child} {sessionId} {sessionActive} {visible} />
     {/each}
   </div>
 {/if}

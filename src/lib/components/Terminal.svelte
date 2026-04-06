@@ -18,9 +18,12 @@
   interface Props {
     sessionId: string;
     active: boolean;
+    isFocused?: boolean;
+    visible?: boolean;
+    focusRequestVersion?: number;
   }
 
-  let { sessionId, active }: Props = $props();
+  let { sessionId, active, isFocused = false, visible = true, focusRequestVersion = 0 }: Props = $props();
 
   let containerEl: HTMLDivElement | undefined = $state();
   let terminal: Terminal | null = null;
@@ -158,10 +161,6 @@
     }
   }
 
-  function handlePaneFocus() {
-    terminal?.focus();
-  }
-
   onMount(async () => {
     await attachListeners();
 
@@ -176,7 +175,6 @@
     });
     if (containerEl) {
       resizeObserver.observe(containerEl);
-      containerEl.addEventListener("pane-focus", handlePaneFocus);
     }
 
     if (active) attach();
@@ -184,7 +182,6 @@
 
   onDestroy(() => {
     resizeObserver?.disconnect();
-    containerEl?.removeEventListener("pane-focus", handlePaneFocus);
     detach();
   });
 
@@ -199,6 +196,17 @@
   $effect(() => {
     terminal = getOrCreateTerminal().terminal;
     terminal.options.theme = getXtermTheme($settings.theme);
+  });
+
+  // Focus terminal when this pane is focused, visible, or a focus request is made
+  $effect(() => {
+    const _version = focusRequestVersion;
+    if (isFocused && visible && terminal) {
+      requestAnimationFrame(() => {
+        fitAddon?.fit();
+        terminal?.focus();
+      });
+    }
   });
 </script>
 
