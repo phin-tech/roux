@@ -4,7 +4,7 @@
   import ShellTerminal from "./ShellTerminal.svelte";
   import CommandPane from "./CommandPane.svelte";
   import MarkdownPane from "./MarkdownPane.svelte";
-  import { focusedPaneId, renamePane, type SplitNode } from "$lib/stores/panes";
+  import { focusedPaneId, renamePane, setActiveStackIndex, getStackLabel, type SplitNode } from "$lib/stores/panes";
   import { closePane } from "$lib/panes/actions";
 
   let editingName = $state(false);
@@ -128,6 +128,38 @@
       </div>
     </div>
   {/key}
+{:else if node.stacked}
+  <!-- Stacked view: collapsed title bars + one expanded child -->
+  <div class="flex flex-col flex-1 min-h-0 min-w-0">
+    {#each node.children as child, i}
+      {#if i === (node.activeIndex ?? 0)}
+        <!-- Active child: clickable title bar + full content -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div
+          class="flex items-center h-7 shrink-0 select-none border-b border-hairline/50 px-2.5 gap-2 cursor-pointer bg-bg-surface/60"
+          onclick={() => setActiveStackIndex(sessionId, i)}
+        >
+          <span class="text-[10px] text-text-muted/60 shrink-0">&#x25BE;</span>
+          <span class="text-[11px] text-text-secondary font-mono truncate">{getStackLabel(child)}</span>
+        </div>
+        <div class="flex-1 min-h-0 min-w-0">
+          <SplitPane node={child} {sessionId} {sessionActive} />
+        </div>
+      {:else}
+        <!-- Collapsed child: just a title bar -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div
+          class="flex items-center h-7 shrink-0 select-none border-b border-hairline/50 px-2.5 gap-2 cursor-pointer hover:bg-bg-surface/30 transition-colors"
+          onclick={() => setActiveStackIndex(sessionId, i)}
+        >
+          <span class="text-[10px] text-text-muted/60 shrink-0">&#x25B8;</span>
+          <span class="text-[11px] text-text-muted font-mono truncate">{getStackLabel(child)}</span>
+        </div>
+      {/if}
+    {/each}
+  </div>
 {:else}
   <div
     class="flex flex-1 min-h-0 min-w-0 gap-1"

@@ -338,6 +338,8 @@ export function setActiveStackIndex(sessionId: string, index: number) {
   const focused = get(focusedPaneId);
   if (!focused) return;
 
+  let newFocusTarget: SplitNode | null = null;
+
   paneTrees.update((trees) => {
     const tree = trees.get(sessionId);
     if (!tree) return trees;
@@ -359,9 +361,14 @@ export function setActiveStackIndex(sessionId: string, index: number) {
 
     const split = splitAtPath(tree, path, stackedDepth);
     const clamped = Math.max(0, Math.min(index, split.children.length - 1));
+    newFocusTarget = split.children[clamped];
     trees.set(sessionId, setStackedAtDepth(tree, path, stackedDepth, 0, true, clamped));
     return new Map(trees);
   });
+
+  if (newFocusTarget) {
+    focusedPaneId.set(firstPaneId(newFocusTarget));
+  }
 }
 
 // ── Pane drag-and-drop ─────────────────────────────────────

@@ -2,7 +2,7 @@ import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { addSession, setActiveSession, triggerRename } from "$lib/stores/sessions";
 import { settings, updateSetting } from "$lib/stores/settings";
-import { addSplit, initSessionPanes, navigatePane, renamePane } from "$lib/stores/panes";
+import { addSplit, initSessionPanes, navigatePane, renamePane, toggleStack } from "$lib/stores/panes";
 import { spawnShell, spawnTask, listDocs, writeToSession, createSession, openInEditor, listBranches } from "$lib/tauri";
 import { closeFocusedPane } from "$lib/panes/actions";
 import { closeSession } from "$lib/sessions/close";
@@ -110,6 +110,18 @@ export function registerCommands() {
       if (activeId) {
         await closeFocusedPane(activeId);
       }
+    },
+  });
+
+  registry.register({
+    id: "pane.toggle-stack",
+    label: "Toggle Stack",
+    shortcut: "cmd+shift+s",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) toggleStack(activeId);
     },
   });
 
