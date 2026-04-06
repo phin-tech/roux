@@ -50,6 +50,10 @@
     }
   }
 
+  function handlePaneFocus() {
+    terminal?.focus();
+  }
+
   onMount(async () => {
     const instance = getOrCreateTerminal();
     const term = instance.terminal;
@@ -92,6 +96,7 @@
       }
     });
     resizeObserver.observe(containerEl);
+    containerEl.addEventListener("pane-focus", handlePaneFocus);
 
     requestAnimationFrame(() => {
       fitAddon?.fit();
@@ -102,6 +107,7 @@
 
   onDestroy(() => {
     resizeObserver?.disconnect();
+    containerEl?.removeEventListener("pane-focus", handlePaneFocus);
     detach();
   });
 

@@ -34,6 +34,13 @@ fn roux_cli_path() -> Result<String, String> {
     Err("roux-cli binary not found. Run 'cargo install --path src-tauri' or copy roux-cli to ~/.local/bin/".to_string())
 }
 
+/// Check if roux-cli is already installed at ~/.local/bin/
+pub fn cli_is_installed() -> bool {
+    dirs::home_dir()
+        .map(|h| h.join(".local").join("bin").join("roux-cli").exists())
+        .unwrap_or(false)
+}
+
 /// Install roux-cli to ~/.local/bin/ on first app load
 pub fn install_cli_binary() -> Result<String, String> {
     let bin_dir =

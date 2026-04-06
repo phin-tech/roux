@@ -40,13 +40,8 @@ tasks:
   dev:install:
     desc: "Build and install the desktop app and CLI locally"
     cmds:
+      - task: macos:prepare-cli
       - npm run tauri build
-      - |
-        # Install roux-cli (release build)
-        mkdir -p ~/.local/bin
-        cp src-tauri/target/release/roux-cli ~/.local/bin/roux-cli
-        chmod +x ~/.local/bin/roux-cli
-        echo "Installed roux-cli to ~/.local/bin/roux-cli"
       - |
         # Install desktop app
         APP="/Applications/Roux.app"
@@ -60,6 +55,7 @@ tasks:
   build:
     desc: "Build the app for production"
     cmds:
+      - task: macos:prepare-cli
       - npm run tauri build
 
   build:frontend:
@@ -149,33 +145,73 @@ tasks:
       - rm -f ~/.config/roux/status/*.json
       - echo "Cleared status files"
 
-  sign:
-    desc: "Sign and notarize the already-built app bundle"
-    dotenv: [".env.signing"]
+  macos:prepare-cli:
+    desc: "Build roux-cli and stage it for macOS bundling"
     cmds:
       - |
-        codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" \
-          "src-tauri/target/release/bundle/macos/Roux.app"
-        echo "Signed Roux.app"
+        set -euo pipefail
+        if [ -n "${TAURI_TARGET:-}" ]; then
+          cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli --target "${TAURI_TARGET}"
+          SOURCE="src-tauri/target/${TAURI_TARGET}/release/roux-cli"
+        else
+          cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli
+          SOURCE="src-tauri/target/release/roux-cli"
+        fi
+        mkdir -p src-tauri/binaries
+        cp "${SOURCE}" src-tauri/binaries/roux-cli
+        chmod +x src-tauri/binaries/roux-cli
+        echo "Prepared bundled roux-cli from ${SOURCE}"
+
+  macos:verify:
+    desc: "Verify the latest signed macOS artifacts"
+    cmds:
       - |
-        VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
-        xcrun notarytool submit "src-tauri/target/release/bundle/dmg/Roux_${VERSION}_aarch64.dmg" \
-          --apple-id "$APPLE_ID" \
-          --password "$APPLE_PASSWORD" \
-          --team-id "$APPLE_TEAM_ID" \
-          --wait
-        echo "Notarized"
+        set -euo pipefail
+        TARGET_ROOT="src-tauri/target"
+        if [ -n "${TAURI_TARGET:-}" ]; then
+          TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
+        fi
+
+        APP="${TARGET_ROOT}/release/bundle/macos/Roux.app"
+        DMG_DIR="${TARGET_ROOT}/release/bundle/dmg"
+        DMG="$(find "${DMG_DIR}" -maxdepth 1 -name 'Roux_*.dmg' | sort | tail -n 1)"
+
+        codesign --verify --deep --strict --verbose=2 "${APP}"
+        spctl --assess --type execute --verbose=4 "${APP}"
+
+        if [ -n "${DMG}" ]; then
+          xcrun stapler validate "${DMG}"
+        fi
+
+  sign:
+    desc: "Build, sign, notarize, and staple the macOS app"
+    cmds:
+      - task: macos:prepare-cli
       - |
-        VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
-        xcrun stapler staple "src-tauri/target/release/bundle/dmg/Roux_${VERSION}_aarch64.dmg"
-        echo "Stapled"
+        set -euo pipefail
+        ./scripts/run-macos-signing.sh npm run tauri build -- ${TAURI_BUILD_ARGS:-}
+      - task: macos:verify
+
+  sign:op:
+    desc: "Run the signing workflow with secrets loaded from 1Password"
+    preconditions:
+      - sh: "command -v op >/dev/null 2>&1"
+        msg: "1Password CLI 'op' is required"
+      - sh: '[ -f ".env.signing" ]'
+        msg: ".env.signing is required"
+    cmds:
+      - |
+        op run --env-file=.env.signing -- task sign
 
   build:signed:
-    desc: "Build and sign the app"
-    dotenv: [".env.signing"]
+    desc: "Alias for the macOS signing flow"
     cmds:
-      - npm run tauri build
       - task: sign
+
+  build:signed:op:
+    desc: "Alias for the 1Password-backed macOS signing flow"
+    cmds:
+      - task: sign:op
 
   release:
     desc: "Bump version, commit, tag, push. Usage: task release BUMP=patch|minor|major"
@@ -240,6 +276,7 @@ tasks:
           echo "Created release $TAG"
         fi
 
-        DMG="src-tauri/target/release/bundle/dmg/Roux_${VERSION}_aarch64.dmg"
-        gh release upload "$TAG" "$DMG" --clobber
-        echo "Uploaded $DMG to $TAG"
+        find src-tauri/target -path "*/release/bundle/dmg/Roux_${VERSION}_*.dmg" -print | while read -r DMG; do
+          gh release upload "$TAG" "$DMG" --clobber
+          echo "Uploaded $DMG to $TAG"
+        done

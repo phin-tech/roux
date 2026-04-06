@@ -3,12 +3,13 @@
   import { get } from "svelte/store";
   import Layout from "$lib/components/Layout.svelte";
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
+  import SetupPrompt from "$lib/components/SetupPrompt.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import { initSettings, settings } from "$lib/stores/settings";
   import { addSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
   import { initSessionPanes, hasSplitPanes } from "$lib/stores/panes";
-  import { listSessions, onRouxStatusUpdate } from "$lib/tauri";
+  import { listSessions, checkSetupNeeded, onRouxStatusUpdate } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { registerCommands, registry } from "$lib/commands";
@@ -18,6 +19,7 @@
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
   let showPalette = $state(false);
+  let showSetupPrompt = $state(false);
 
   function buildShortcutString(e: KeyboardEvent): string {
     const parts: string[] = [];
@@ -25,7 +27,13 @@
     if (e.shiftKey) parts.push("shift");
     if (e.altKey) parts.push("alt");
     if (e.ctrlKey) parts.push("ctrl");
-    parts.push(e.key.toLowerCase());
+    // On macOS, Alt produces special characters (e.g. Alt+h → ˙).
+    // Use the physical key (e.code) when Alt is held so shortcuts work.
+    let key = e.key.toLowerCase();
+    if (e.altKey && e.code.startsWith("Key")) {
+      key = e.code.slice(3).toLowerCase();
+    }
+    parts.push(key);
     return parts.join("+");
   }
 
@@ -104,6 +112,13 @@
     await listen("close-requested", () => void handleCloseRequested());
 
     const loadedSettings = await initSettings();
+
+    // Check if first-time CLI setup is needed
+    const needsSetup = await checkSetupNeeded();
+    if (needsSetup) {
+      showSetupPrompt = true;
+    }
+
     if (loadedSettings.restoreSessionsOnLaunch) {
       const sessions = await listSessions();
       for (const s of sessions) {
@@ -161,4 +176,9 @@
   onclose={() => (showPalette = false)}
   onNewSession={() => (showNewSessionDialog = true)}
   onSettings={() => (showSettings = !showSettings)}
+/>
+
+<SetupPrompt
+  visible={showSetupPrompt}
+  ondone={() => (showSetupPrompt = false)}
 />

@@ -106,6 +106,10 @@
   }
 
 
+  function handlePaneFocus() {
+    term?.focus();
+  }
+
   onMount(async () => {
     currentPtyId = initialPtyId;
     registerCommandPane({
@@ -136,6 +140,7 @@
       }
     });
     resizeObserver.observe(containerEl);
+    containerEl.addEventListener("pane-focus", handlePaneFocus);
 
     requestAnimationFrame(() => {
       fitAddon?.fit();
@@ -147,6 +152,7 @@
   onDestroy(() => {
     unregisterCommandPane(paneId);
     resizeObserver?.disconnect();
+    containerEl?.removeEventListener("pane-focus", handlePaneFocus);
     if (elapsedTimer) clearInterval(elapsedTimer);
     cleanupListeners();
     if (term?.element && containerEl?.contains(term.element)) {

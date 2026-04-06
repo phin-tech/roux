@@ -154,6 +154,10 @@
     }
   }
 
+  function handlePaneFocus() {
+    terminal?.focus();
+  }
+
   onMount(async () => {
     await attachListeners();
 
@@ -168,6 +172,7 @@
     });
     if (containerEl) {
       resizeObserver.observe(containerEl);
+      containerEl.addEventListener("pane-focus", handlePaneFocus);
     }
 
     if (active) attach();
@@ -175,6 +180,7 @@
 
   onDestroy(() => {
     resizeObserver?.disconnect();
+    containerEl?.removeEventListener("pane-focus", handlePaneFocus);
     detach();
   });
 

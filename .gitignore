@@ -7,6 +7,7 @@ dist/
 # Tauri / Rust
 src-tauri/target/
 src-tauri/gen/schemas/
+src-tauri/binaries/
 
 # IDE
 .vscode/
@@ -22,6 +23,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+!.env.signing.example
 
 # Superpowers
 .superpowers/

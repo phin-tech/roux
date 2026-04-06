@@ -62,7 +62,13 @@
       "WebFetch(domain:docs.nono.sh)",
       "WebFetch(domain:dev.to)",
       "WebFetch(domain:www.alwaysfurther.ai)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(ls:*)",
+      "Bash(sips -g pixelWidth -g pixelHeight ~/Downloads/roux_logo.png)",
+      "Bash(python3:*)",
+      "Bash(magick identify:*)",
+      "Bash(npm ls:*)",
+      "Bash(node:*)"
     ]
   }
 }
