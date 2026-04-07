@@ -306,9 +306,20 @@ tasks:
         TAG="v${VERSION}"
         APP_ZIP="${TARGET_ROOT}/release/bundle/macos/Roux_${VERSION}.app.zip"
 
+        # Build changelog from commits since last tag
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        if [ -n "$PREV_TAG" ]; then
+          CHANGELOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" --no-merges | grep -v "^- release:" || true)
+        else
+          CHANGELOG=$(git log --pretty=format:"- %s" --no-merges | grep -v "^- release:" || true)
+        fi
+
         if ! gh release view "$TAG" &>/dev/null; then
-          gh release create "$TAG" --title "$TAG" --notes ""
+          gh release create "$TAG" --title "$TAG" --notes "$CHANGELOG"
           echo "Created release $TAG"
+        else
+          gh release edit "$TAG" --notes "$CHANGELOG"
+          echo "Updated release notes for $TAG"
         fi
 
         gh release upload "$TAG" "$APP_ZIP" --clobber
