@@ -33,7 +33,9 @@
     getFitAddon: () => fitAddon,
     getPtyId: () => sessionId,
     onResize: (ptyId, cols, rows) => {
-      void resizeSession(ptyId, cols, rows);
+      resizeSession(ptyId, cols, rows).catch((e) => {
+        log(`Resize failed for ${ptyId}: ${e}`);
+      });
     },
   });
 
@@ -150,7 +152,10 @@
       terminal.loadAddon(new WebLinksAddon());
 
       entry.disposables.push(terminal.onData((data) => {
-        writeToSession(capturedSessionId, data);
+        writeToSession(capturedSessionId, data).catch((e) => {
+          log(`Write failed for ${capturedSessionId}: ${e}`);
+          setSessionDisconnected(capturedSessionId);
+        });
       }));
     } else {
       // Re-attach existing terminal element

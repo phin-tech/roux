@@ -41,7 +41,9 @@
     getFitAddon: () => fitAddon,
     getPtyId: () => capturedPtyId || ptyId,
     onResize: (nextPtyId, cols, rows) => {
-      void resizeSession(nextPtyId, cols, rows);
+      resizeSession(nextPtyId, cols, rows).catch((e) => {
+        log(`Resize failed for ${nextPtyId}: ${e}`);
+      });
     },
   });
 
@@ -94,7 +96,11 @@
         return false;
       });
 
-      instance.disposables.push(terminal.onData((data) => writeToSession(capturedPtyId, data)));
+      instance.disposables.push(terminal.onData((data) => {
+        writeToSession(capturedPtyId, data).catch((e) => {
+          log(`Write failed for ${capturedPtyId}: ${e}`);
+        });
+      }));
     } else if (!containerEl.contains(terminal.element)) {
       containerEl.appendChild(terminal.element);
     }

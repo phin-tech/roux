@@ -12,6 +12,7 @@
   import type { Channel } from "@tauri-apps/api/core";
   import { registerCommandPane, unregisterCommandPane } from "$lib/panes/commandPaneRegistry";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
+  import { log } from "$lib/logging";
 
   interface Props {
     command: string;
@@ -45,7 +46,9 @@
     getFitAddon: () => fitAddon,
     getPtyId: () => currentPtyId,
     onResize: (ptyId, cols, rows) => {
-      void resizeSession(ptyId, cols, rows);
+      resizeSession(ptyId, cols, rows).catch((e) => {
+        log(`Resize failed for ${ptyId}: ${e}`);
+      });
     },
   });
 
