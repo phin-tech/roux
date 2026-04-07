@@ -64,7 +64,11 @@
       await reconnectSession(session, extraFlags);
       // Re-attach listeners for the new PTY
       await attachListeners();
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.message?.includes("already in progress")) {
+        log(`Reconnect for ${sessionId} skipped — already in progress`);
+        return;
+      }
       logError("Failed to reconnect session", e);
     }
   }
