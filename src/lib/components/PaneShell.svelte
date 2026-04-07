@@ -268,12 +268,12 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden rounded-lg transition-colors {isFocused ? 'bg-bg-surface/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-bg-deep shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]'}"
+    class="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-colors bg-bg-deep"
     onmousedown={handleMouseDown}
   >
     <!-- Mini title bar -->
     <div
-      class="flex h-7 shrink-0 select-none items-center border-b border-hairline/50 px-2.5 gap-2"
+      class="flex h-6 shrink-0 select-none items-center border-b border-hairline px-2 gap-1.5"
       ondblclick={() => startRenaming(instance.name ?? "")}
     >
       <span class="text-[10px] uppercase tracking-wider text-text-muted/60 shrink-0">{paneTypeLabel(instance.type)}</span>
@@ -312,7 +312,7 @@
 
     <div class="flex-1 min-h-0 min-w-0">
       {#if instance.type === "claude" && isDisconnected && session}
-        <div class="ui-terminal-frame h-full w-full overflow-hidden rounded-[0.95rem]">
+        <div class="ui-terminal-frame h-full w-full overflow-hidden">
           <SessionPicker
             cwd={session.worktreePath}
             onContinue={handleContinue}
@@ -360,13 +360,11 @@
         <!-- claude or shell: just a terminal container -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="flex h-full w-full p-2">
-          <div
-            bind:this={containerEl}
-            class="ui-terminal-frame h-full w-full overflow-hidden rounded-[0.95rem]"
-            onclick={() => instance?.terminal?.focus()}
-          ></div>
-        </div>
+        <div
+          bind:this={containerEl}
+          class="ui-terminal-frame h-full w-full overflow-hidden"
+          onclick={() => instance?.terminal?.focus()}
+        ></div>
       {/if}
     </div>
   </div>

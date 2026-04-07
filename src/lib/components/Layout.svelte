@@ -48,17 +48,17 @@
 
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="group relative flex w-2 shrink-0 cursor-col-resize items-stretch justify-center"
+      class="group relative flex w-1 shrink-0 cursor-col-resize items-stretch justify-center"
       onmousedown={onDragStart}
     >
       <div
-        class="my-3 w-px rounded-full transition-all duration-150 {dragging ? 'bg-white/20' : 'bg-white/10 opacity-0 group-hover:opacity-100'}"
+        class="my-2 w-px rounded-full transition-all duration-150 {dragging ? 'bg-white/30' : 'bg-white/20 group-hover:bg-white/40'}"
       ></div>
     </div>
 
-    <div class="relative flex min-w-0 flex-1 flex-col bg-bg-deep p-1">
+    <div class="relative flex min-w-0 flex-1 flex-col bg-bg-deep">
       {#if $sessionState.sessions.length === 0}
-        <div class="ui-panel flex flex-1 flex-col items-center justify-center gap-4 rounded-[1.25rem] text-center text-text-secondary">
+        <div class="flex flex-1 flex-col items-center justify-center gap-4 text-center text-text-secondary">
           <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_18px_40px_rgba(2,6,23,0.45)]">
             <span class="text-3xl">&#9095;</span>
           </div>
@@ -73,7 +73,7 @@
           {@const tree = $sessionLayouts.get(session.id)}
           {#if tree}
             <div
-              class="flex min-h-0 flex-1 rounded-lg bg-bg-deep"
+              class="flex min-h-0 flex-1 bg-bg-deep"
               class:hidden={session.id !== $sessionState.activeSessionId}
             >
               <SplitPane

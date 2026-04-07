@@ -23,7 +23,7 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
-        class="flex items-center h-7 shrink-0 select-none border-b border-hairline/50 px-2.5 gap-2 cursor-pointer {i === (node.activeIndex ?? 0) ? 'bg-bg-surface/60' : 'hover:bg-bg-surface/30 transition-colors'}"
+        class="flex items-center h-6 shrink-0 select-none border-b border-hairline px-2 gap-1.5 cursor-pointer {i === (node.activeIndex ?? 0) ? 'bg-bg-surface/60' : 'hover:bg-bg-surface/30 transition-colors'}"
         onclick={() => setActiveStackIndex(sessionId, i)}
       >
         <span class="text-[10px] text-text-muted/60 shrink-0">{i === (node.activeIndex ?? 0) ? '\u25BE' : '\u25B8'}</span>
@@ -36,7 +36,7 @@
   </div>
 {:else}
   <div
-    class="flex flex-1 min-h-0 min-w-0 gap-1"
+    class="flex flex-1 min-h-0 min-w-0 gap-px bg-hairline"
     class:flex-row={node.direction === "h"}
     class:flex-col={node.direction === "v"}
   >

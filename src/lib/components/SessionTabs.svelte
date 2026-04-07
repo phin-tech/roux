@@ -245,7 +245,7 @@
 
 <svelte:window onclick={closeContextMenu} />
 
-<div class="flex h-full flex-col border-r border-hairline bg-bg-deep/95" bind:this={containerEl}>
+<div class="flex h-full flex-col border-r border-border-subtle bg-bg-deep" bind:this={containerEl}>
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
     <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Sessions</span>
     <div class="flex items-center gap-1.5">
