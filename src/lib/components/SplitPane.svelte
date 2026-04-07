@@ -3,7 +3,7 @@
   import Terminal from "./Terminal.svelte";
   import ShellTerminal from "./ShellTerminal.svelte";
   import CommandPane from "./CommandPane.svelte";
-  import MarkdownPane from "./MarkdownPane.svelte";
+  import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
   import { focusedPaneId, focusTick, fullscreenPaneId, renamePane, setActiveStackIndex, getStackLabel, containsPaneId, type SplitNode } from "$lib/stores/panes";
   import { closePane } from "$lib/panes/actions";
 
@@ -33,6 +33,10 @@
   function handlePaneMouseDown(paneId: string) {
     focusedPaneId.set(paneId);
     focusTick.update((n) => n + 1);
+  }
+
+  function canClosePane(paneId: string, paneType: string) {
+    return !(paneType === "claude" && paneId === `${sessionId}-main`);
   }
 
   interface Props {
@@ -65,7 +69,7 @@
           <!-- svelte-ignore a11y_autofocus -->
           <input
             type="text"
-            class="flex-1 min-w-0 bg-transparent text-[11px] text-text-primary font-mono outline-none placeholder:text-text-muted/40"
+            class="min-w-0 flex-1 bg-transparent text-[11px] text-text-primary font-mono outline-none placeholder:text-text-muted/40"
             placeholder="name this pane..."
             bind:value={nameInput}
             autofocus
@@ -76,7 +80,21 @@
             }}
           />
         {:else if node.pane.name}
-          <span class="text-[11px] text-text-secondary font-mono truncate">{node.pane.name}</span>
+          <span class="min-w-0 flex-1 truncate text-[11px] text-text-secondary font-mono">{node.pane.name}</span>
+        {:else}
+          <span class="flex-1"></span>
+        {/if}
+        {#if canClosePane(node.pane.id, node.pane.type)}
+          <button
+            class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[12px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            onclick={(e) => {
+              e.stopPropagation();
+              void closePane(sessionId, node.pane.id);
+            }}
+            title="Close pane"
+          >
+            &times;
+          </button>
         {/if}
       </div>
 
@@ -84,12 +102,7 @@
         {#if node.pane.type === "claude"}
           <Terminal sessionId={node.pane.ptyId} active={sessionActive} {isFocused} {visible} focusRequestVersion={$focusTick} />
         {:else if node.pane.type === "markdown"}
-          <MarkdownPane
-            docPath={node.pane.docPath ?? ""}
-            onClose={async () => {
-              await closePane(sessionId, node.pane.id);
-            }}
-          />
+          <LazyMarkdownPane docPath={node.pane.docPath ?? ""} />
         {:else if node.pane.type === "command"}
           <CommandPane
             command={node.pane.command ?? ""}
@@ -100,9 +113,6 @@
             {isFocused}
             {visible}
             focusRequestVersion={$focusTick}
-            onClose={async () => {
-              await closePane(sessionId, node.pane.id);
-            }}
           />
         {:else}
           <ShellTerminal

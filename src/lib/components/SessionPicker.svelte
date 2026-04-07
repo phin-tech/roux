@@ -47,7 +47,7 @@
         <span class="text-xl">&#9095;</span>
       </div>
       <p class="pt-3 text-sm font-semibold tracking-tight text-text-primary">Resume or start new</p>
-      <p class="text-xs text-text-secondary">{cwd.split("/").pop()}</p>
+      <p class="text-sm font-medium text-text-secondary">{cwd.split("/").pop()}</p>
     </div>
 
     {#if loading}
@@ -72,7 +72,7 @@
       {#if sessions.length > 0}
         {#if sessions.length > 5}
           <input
-            class="w-full rounded-lg border border-border-subtle bg-bg-surface/80 px-2.5 py-1.5 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-border"
+            class="w-full rounded-lg border border-border-subtle bg-bg-surface/80 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted outline-none focus:border-border"
             placeholder="Filter sessions..."
             bind:value={filter}
           />
@@ -85,15 +85,15 @@
               onclick={() => onResume(cs.sessionId)}
             >
               <div class="min-w-0 flex-1">
-                <div class="truncate text-[12px] font-medium text-text-primary">
+                <div class="truncate text-[13px] font-semibold text-text-primary">
                   {cs.summary || "Empty session"}
                 </div>
                 <div class="mt-0.5 flex items-center gap-2">
-                  <span class="font-mono text-[10px] text-text-secondary">{cs.sessionId.slice(0, 8)}</span>
-                  <span class="text-[10px] text-text-muted">{timeAgo(cs.modifiedAt)}</span>
+                  <span class="font-mono text-[11px] text-text-secondary">{cs.sessionId.slice(0, 8)}</span>
+                  <span class="text-[11px] text-text-muted">{timeAgo(cs.modifiedAt)}</span>
                 </div>
               </div>
-              <span class="shrink-0 pt-1 text-[10px] text-text-secondary opacity-0 transition-opacity group-hover:opacity-100">&#8594;</span>
+              <span class="shrink-0 pt-1 text-[11px] text-text-secondary opacity-80 transition-opacity group-hover:opacity-100">&#8594;</span>
             </button>
           {/each}
         </div>

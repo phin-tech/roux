@@ -19,6 +19,8 @@ pub struct Session {
     pub model: Option<String>,
     pub cost: Option<f64>,
     pub created_at: u64,
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 pub struct SessionStore {
@@ -86,6 +88,14 @@ impl SessionStore {
             s.status = status.to_string();
         }
         self.dirty.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn set_project(&self, id: &str, project_id: Option<String>) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+            s.project_id = project_id;
+        }
+        self.dirty.store(true, Ordering::Release);
     }
 
     pub fn list(&self) -> Vec<Session> {

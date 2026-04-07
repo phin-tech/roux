@@ -30,6 +30,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     cost: null,
     permissionInfo: null,
     createdAt: 1,
+    projectId: null,
     ...overrides,
   };
 }

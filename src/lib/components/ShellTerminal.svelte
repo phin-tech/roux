@@ -8,6 +8,7 @@
   import { attachPtyOutput, createPtyOutputChannel, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
   import { ensureShellTerminal } from "$lib/panes/terminalRegistry";
+  import { createResizeScheduler } from "$lib/panes/resizeScheduler";
   import { updatePaneWorkingDir } from "$lib/stores/panes";
   import { getXtermTheme } from "$lib/themes";
   import { log } from "$lib/logging";
@@ -36,7 +37,13 @@
   let terminal: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
   let resizeObserver: ResizeObserver | null = null;
-  let hovering = $state(false);
+  const resizeScheduler = createResizeScheduler({
+    getFitAddon: () => fitAddon,
+    getPtyId: () => capturedPtyId || ptyId,
+    onResize: (nextPtyId, cols, rows) => {
+      void resizeSession(nextPtyId, cols, rows);
+    },
+  });
 
   function getOrCreateTerminal() {
     return ensureShellTerminal(paneId, () => ({
@@ -91,11 +98,10 @@
       containerEl.appendChild(terminal.element);
     }
 
-    requestAnimationFrame(() => {
-      fitAddon?.fit();
-      const dims = fitAddon?.proposeDimensions();
-      if (dims) resizeSession(capturedPtyId, dims.cols, dims.rows);
-      if (isFocused) terminal?.focus();
+    resizeScheduler.schedule({
+      afterFit: () => {
+        if (isFocused) terminal?.focus();
+      },
     });
   }
 
@@ -127,9 +133,7 @@
 
     resizeObserver = new ResizeObserver(() => {
       if (active && visible && fitAddon) {
-        fitAddon.fit();
-        const dims = fitAddon.proposeDimensions();
-        if (dims) resizeSession(capturedPtyId, dims.cols, dims.rows);
+        resizeScheduler.schedule();
       }
     });
     resizeObserver.observe(containerEl);
@@ -138,13 +142,10 @@
   });
 
   onDestroy(() => {
+    resizeScheduler.cancel();
     resizeObserver?.disconnect();
     detach();
   });
-
-  function handleClose() {
-    void onClose();
-  }
 
   $effect(() => {
     terminal = getOrCreateTerminal().terminal;
@@ -162,11 +163,7 @@
   // Refit when session becomes active (container goes from display:none to visible)
   $effect(() => {
     if (active && visible && fitAddon) {
-      requestAnimationFrame(() => {
-        fitAddon?.fit();
-        const dims = fitAddon?.proposeDimensions();
-        if (dims) resizeSession(capturedPtyId, dims.cols, dims.rows);
-      });
+      resizeScheduler.schedule();
     }
   });
 
@@ -174,20 +171,17 @@
   $effect(() => {
     void focusRequestVersion;
     if (isFocused && visible && terminal) {
-      requestAnimationFrame(() => {
-        fitAddon?.fit();
-        terminal?.focus();
+      resizeScheduler.schedule({
+        afterFit: () => {
+          terminal?.focus();
+        },
       });
     }
   });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="relative h-full w-full p-2"
-  onmouseenter={() => (hovering = true)}
-  onmouseleave={() => (hovering = false)}
->
+<div class="relative h-full w-full p-2">
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
@@ -195,13 +189,4 @@
     class="ui-terminal-frame h-full w-full overflow-hidden rounded-[0.95rem]"
     onclick={() => terminal?.focus()}
   ></div>
-  {#if hovering}
-    <button
-      class="absolute right-4 top-4 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-border-subtle bg-bg-surface/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-      onclick={handleClose}
-      title="Close pane"
-    >
-      &times;
-    </button>
-  {/if}
 </div>

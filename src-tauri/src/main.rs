@@ -3,9 +3,11 @@
 mod hooks;
 #[macro_use]
 mod logging;
+mod projects;
 mod pty;
 mod session;
 mod settings;
+mod socket;
 mod status_watcher;
 mod tasks;
 mod worktree;
@@ -13,6 +15,7 @@ mod worktree;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
+use crate::projects::{Project, ProjectStore};
 use crate::pty::PtyManager;
 use crate::session::{Session, SessionStore};
 
@@ -29,6 +32,7 @@ struct AppState {
     settings: Mutex<settings::RouxSettings>,
     pty_manager: PtyManager,
     session_store: SessionStore,
+    project_store: ProjectStore,
 }
 
 #[tauri::command]
@@ -140,7 +144,7 @@ fn spawn_shell(
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    state.pty_manager.spawn_shell(&id, &working_dir, app.clone())
+    state.pty_manager.spawn_shell(&id, &working_dir, None, app.clone())
 }
 
 #[tauri::command]
@@ -151,7 +155,7 @@ fn spawn_task(
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    state.pty_manager.spawn_task(&id, &command, &working_dir, app.clone())
+    state.pty_manager.spawn_task(&id, &command, &working_dir, None, app.clone())
 }
 
 #[tauri::command]
@@ -235,6 +239,7 @@ fn create_session(
         model: None,
         cost: None,
         created_at: now,
+        project_id: None,
     };
 
     state.session_store.add(session.clone());
@@ -436,6 +441,64 @@ fn list_sessions(state: tauri::State<AppState>) -> Vec<Session> {
 }
 
 #[tauri::command]
+fn list_projects(state: tauri::State<AppState>) -> Vec<Project> {
+    state.project_store.list()
+}
+
+#[tauri::command]
+fn create_project(name: String, state: tauri::State<AppState>) -> Project {
+    let project = Project {
+        id: uuid::Uuid::new_v4().to_string(),
+        name,
+    };
+    state.project_store.add(project.clone());
+    project
+}
+
+#[tauri::command]
+fn remove_project(id: String, state: tauri::State<AppState>) {
+    state.project_store.remove(&id);
+}
+
+#[tauri::command]
+fn rename_project(id: String, name: String, state: tauri::State<AppState>) {
+    state.project_store.rename(&id, &name);
+}
+
+#[tauri::command]
+fn set_session_project(
+    session_id: String,
+    project_id: Option<String>,
+    state: tauri::State<AppState>,
+) {
+    state.session_store.set_project(&session_id, project_id);
+}
+
+#[tauri::command]
+fn get_project_notes(project_id: String) -> Result<String, String> {
+    let path = notes_path(&project_id);
+    if path.exists() {
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read notes: {}", e))
+    } else {
+        Ok(String::new())
+    }
+}
+
+#[tauri::command]
+fn set_project_notes(project_id: String, content: String) -> Result<(), String> {
+    let path = notes_path(&project_id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create notes dir: {}", e))?;
+    }
+    std::fs::write(&path, &content).map_err(|e| format!("Failed to write notes: {}", e))
+}
+
+fn notes_path(project_id: &str) -> std::path::PathBuf {
+    let base = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    base.join("roux").join("notes").join(format!("{}.txt", project_id))
+}
+
+#[tauri::command]
 fn read_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
 }
@@ -520,6 +583,7 @@ fn main() {
             settings: Mutex::new(initial_settings),
             pty_manager: PtyManager::new(),
             session_store: SessionStore::load_persisted(),
+            project_store: ProjectStore::load_persisted(),
         })
         .invoke_handler(tauri::generate_handler![
             get_log_path,
@@ -551,6 +615,13 @@ fn main() {
             tasks::cmd_discover_tasks,
             tasks::cmd_load_task_overrides,
             tasks::cmd_save_task_overrides,
+            list_projects,
+            create_project,
+            remove_project,
+            rename_project,
+            set_session_project,
+            get_project_notes,
+            set_project_notes,
         ])
         .setup(|app| {
             // Only auto-update hooks if CLI is already installed (not first run).
@@ -563,6 +634,7 @@ fn main() {
             if let Err(e) = status_watcher::start_watching(app.handle().clone()) {
                 eprintln!("Warning: failed to start status watcher: {}", e);
             }
+            socket::start_socket_server(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -26,6 +26,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     cost: null,
     permissionInfo: null,
     createdAt: Date.now(),
+    projectId: null,
     ...overrides,
   };
 }

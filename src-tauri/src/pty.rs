@@ -263,6 +263,10 @@ impl PtyManager {
         cmd.env("PATH", &user_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        cmd.env("ROUX_SESSION", "1");
+        cmd.env("ROUX_SOCKET", socket_path_str());
+        cmd.env("ROUX_SESSION_ID", session_id);
+        cmd.env("ROUX_PANE_ID", format!("{}-main", session_id));
         if let Some(m) = model {
             cmd.arg("--model");
             cmd.arg(m);
@@ -304,6 +308,7 @@ impl PtyManager {
         &self,
         id: &str,
         working_dir: &str,
+        session_id: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), String> {
         let pty_system = native_pty_system();
@@ -320,6 +325,11 @@ impl PtyManager {
         cmd.env("PATH", &user_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        cmd.env("ROUX_SESSION", "1");
+        cmd.env("ROUX_SOCKET", socket_path_str());
+        if let Some(sid) = session_id {
+            cmd.env("ROUX_SESSION_ID", sid);
+        }
         cmd.cwd(working_dir);
 
         let child =
@@ -360,6 +370,7 @@ impl PtyManager {
         id: &str,
         command: &str,
         working_dir: &str,
+        session_id: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), String> {
         let pty_system = native_pty_system();
@@ -376,6 +387,11 @@ impl PtyManager {
         cmd.env("PATH", &user_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        cmd.env("ROUX_SESSION", "1");
+        cmd.env("ROUX_SOCKET", socket_path_str());
+        if let Some(sid) = session_id {
+            cmd.env("ROUX_SESSION_ID", sid);
+        }
         cmd.cwd(working_dir);
 
         let mut child =
@@ -474,6 +490,12 @@ impl PtyManager {
         }
         Ok(())
     }
+}
+
+/// Get the socket path as a string for setting env vars.
+fn socket_path_str() -> String {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    home.join(".config").join("roux").join("roux.sock").to_string_lossy().to_string()
 }
 
 /// Get the user's login shell PATH by invoking their actual shell (from $SHELL)

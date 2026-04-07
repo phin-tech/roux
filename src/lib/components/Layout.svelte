@@ -66,7 +66,7 @@
             <p class="text-base font-semibold tracking-tight text-text-primary">No active sessions</p>
             <p class="text-sm text-text-secondary">Start a new session to open a terminal workspace.</p>
           </div>
-          <p class="text-[11px] font-medium uppercase tracking-[0.24em] text-text-muted">Click "New" in the sidebar</p>
+          <p class="text-[12px] font-semibold uppercase tracking-[0.2em] text-text-secondary">Click "New" in the sidebar</p>
         </div>
       {:else}
         {#each $sessionState.sessions as session (session.id)}

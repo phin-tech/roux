@@ -13,8 +13,8 @@
   --color-border: rgba(113, 113, 122, 0.4);
   --color-border-subtle: rgba(82, 82, 91, 0.25);
   --color-text-primary: #fafafa;
-  --color-text-secondary: #a1a1aa;
-  --color-text-muted: #52525b;
+  --color-text-secondary: #d4d4d8;
+  --color-text-muted: #b5b5bd;
   --color-accent: #7dd3fc;
   --color-accent-dim: #0ea5e9;
   --color-green: #4ade80;
@@ -25,7 +25,7 @@
   --color-red-dim: #9f1239;
   --color-blue: #38bdf8;
   --color-blue-dim: #0369a1;
-  --color-gray: #71717a;
+  --color-gray: #b5b5bd;
   --color-hairline: rgba(255, 255, 255, 0.05);
   --font-mono: "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", monospace;
   --font-sans: "Geist", "Inter", "SF Pro Display", "Segoe UI", sans-serif;
@@ -97,8 +97,8 @@
     --color-border: rgba(161, 161, 170, 0.35);
     --color-border-subtle: rgba(113, 113, 122, 0.2);
     --color-text-primary: #fafaf9;
-    --color-text-secondary: #a8a29e;
-    --color-text-muted: #57534e;
+    --color-text-secondary: #ddd6cf;
+    --color-text-muted: #b9b0a7;
     --color-accent: #fbbf24;
     --color-accent-dim: #f59e0b;
     --color-green: #86efac;
@@ -109,7 +109,7 @@
     --color-red-dim: #9f1239;
     --color-blue: #cbd5e1;
     --color-blue-dim: #64748b;
-    --color-gray: #78716c;
+    --color-gray: #b9b0a7;
     --color-hairline: rgba(255, 255, 255, 0.05);
   }
 
@@ -127,8 +127,8 @@
     --color-border: rgba(110, 231, 183, 0.18);
     --color-border-subtle: rgba(52, 211, 153, 0.09);
     --color-text-primary: #f0fdfa;
-    --color-text-secondary: #94a3b8;
-    --color-text-muted: #4b5e56;
+    --color-text-secondary: #c6d7cf;
+    --color-text-muted: #a8bbb2;
     --color-accent: #34d399;
     --color-accent-dim: #10b981;
     --color-green: #34d399;
@@ -139,7 +139,7 @@
     --color-red-dim: #9f1239;
     --color-blue: #5eead4;
     --color-blue-dim: #0f766e;
-    --color-gray: #5a6e66;
+    --color-gray: #a8bbb2;
     --color-hairline: rgba(255, 255, 255, 0.05);
   }
 
@@ -157,8 +157,8 @@
     --color-border: rgba(217, 70, 239, 0.14);
     --color-border-subtle: rgba(244, 114, 182, 0.08);
     --color-text-primary: #fafafa;
-    --color-text-secondary: #a1a1aa;
-    --color-text-muted: #5c5465;
+    --color-text-secondary: #d8d2dd;
+    --color-text-muted: #b7afbe;
     --color-accent: #fb7185;
     --color-accent-dim: #f472b6;
     --color-green: #4ade80;
@@ -169,7 +169,7 @@
     --color-red-dim: #9f1239;
     --color-blue: #c4b5fd;
     --color-blue-dim: #8b5cf6;
-    --color-gray: #6e6478;
+    --color-gray: #b7afbe;
     --color-hairline: rgba(255, 255, 255, 0.05);
   }
 
@@ -188,8 +188,8 @@
     --color-border: rgba(136, 192, 208, 0.15);
     --color-border-subtle: rgba(76, 86, 106, 0.2);
     --color-text-primary: #d8dee9;
-    --color-text-secondary: #81a1c1;
-    --color-text-muted: #4c566a;
+    --color-text-secondary: #b9c8da;
+    --color-text-muted: #9bacbf;
     --color-accent: #2dd4bf;
     --color-accent-dim: #0d9488;
     --color-green: #a3be8c;
@@ -200,7 +200,7 @@
     --color-red-dim: #7c2d2d;
     --color-blue: #81a1c1;
     --color-blue-dim: #3b5f8a;
-    --color-gray: #4c566a;
+    --color-gray: #9bacbf;
     --color-hairline: rgba(255, 255, 255, 0.05);
   }
 
@@ -219,8 +219,8 @@
     --color-border: rgba(163, 230, 53, 0.12);
     --color-border-subtle: rgba(82, 82, 91, 0.2);
     --color-text-primary: #ffffff;
-    --color-text-secondary: #a1a1aa;
-    --color-text-muted: #52525b;
+    --color-text-secondary: #d4d4d8;
+    --color-text-muted: #b7b7c0;
     --color-accent: #a3e635;
     --color-accent-dim: #65a30d;
     --color-green: #a3e635;
@@ -231,7 +231,7 @@
     --color-red-dim: #881337;
     --color-blue: #38bdf8;
     --color-blue-dim: #0369a1;
-    --color-gray: #52525b;
+    --color-gray: #b7b7c0;
     --color-hairline: rgba(255, 255, 255, 0.06);
   }
 
@@ -250,8 +250,8 @@
     --color-border: rgba(108, 112, 134, 0.3);
     --color-border-subtle: rgba(88, 91, 112, 0.2);
     --color-text-primary: #cdd6f4;
-    --color-text-secondary: #bac2de;
-    --color-text-muted: #6c7086;
+    --color-text-secondary: #d5dbf4;
+    --color-text-muted: #b4bcda;
     --color-accent: #89b4fa;
     --color-accent-dim: #5c8ee6;
     --color-green: #a6e3a1;
@@ -262,7 +262,7 @@
     --color-red-dim: #b4364f;
     --color-blue: #89b4fa;
     --color-blue-dim: #3e6cb8;
-    --color-gray: #585b70;
+    --color-gray: #b4bcda;
     --color-hairline: rgba(255, 255, 255, 0.06);
   }
 
@@ -282,8 +282,8 @@
     --color-border: rgba(0, 0, 0, 0.12);
     --color-border-subtle: rgba(0, 0, 0, 0.06);
     --color-text-primary: #18181b;
-    --color-text-secondary: #52525b;
-    --color-text-muted: #a1a1aa;
+    --color-text-secondary: #3f3f46;
+    --color-text-muted: #5f5f67;
     --color-accent: #2563eb;
     --color-accent-dim: #1d4ed8;
     --color-green: #16a34a;
@@ -294,7 +294,7 @@
     --color-red-dim: #fee2e2;
     --color-blue: #2563eb;
     --color-blue-dim: #dbeafe;
-    --color-gray: #a1a1aa;
+    --color-gray: #5f5f67;
     --color-hairline: rgba(0, 0, 0, 0.08);
   }
 
@@ -314,8 +314,8 @@
     --color-border: rgba(31, 35, 40, 0.12);
     --color-border-subtle: rgba(31, 35, 40, 0.06);
     --color-text-primary: #1f2328;
-    --color-text-secondary: #656d76;
-    --color-text-muted: #8b949e;
+    --color-text-secondary: #57606a;
+    --color-text-muted: #6e7781;
     --color-accent: #0969da;
     --color-accent-dim: #0550ae;
     --color-green: #1a7f37;
@@ -326,7 +326,7 @@
     --color-red-dim: #ffebe9;
     --color-blue: #0969da;
     --color-blue-dim: #ddf4ff;
-    --color-gray: #8b949e;
+    --color-gray: #6e7781;
     --color-hairline: rgba(0, 0, 0, 0.08);
   }
 }

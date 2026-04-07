@@ -5,11 +5,14 @@
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
   import SetupPrompt from "$lib/components/SetupPrompt.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
+  import NotesPanel from "$lib/components/NotesPanel.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import { initSettings, settings } from "$lib/stores/settings";
-  import { addSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
-  import { initSessionPanes, hasSplitPanes } from "$lib/stores/panes";
-  import { listSessions, checkSetupNeeded, onRouxStatusUpdate, spawnShell } from "$lib/tauri";
+  import { projects } from "$lib/stores/projects";
+  import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
+  import { addSplit, initSessionPanes, hasSplitPanes, focusedPaneId } from "$lib/stores/panes";
+  import { listSessions, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell } from "$lib/tauri";
+  import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { registerCommands, registry } from "$lib/commands";
@@ -19,6 +22,7 @@
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
+  let showNotes = $state(false);
   let showPalette = $state(false);
   let showSetupPrompt = $state(false);
 
@@ -81,6 +85,12 @@
       }
       if (cmd.id === "app.settings") {
         showSettings = !showSettings;
+        if (showSettings) showNotes = false;
+        return;
+      }
+      if (cmd.id === "ui.toggle-notes") {
+        showNotes = !showNotes;
+        if (showNotes) showSettings = false;
         return;
       }
       if (cmd.id === "app.command-palette") {
@@ -123,6 +133,10 @@
       showSetupPrompt = true;
     }
 
+    // Load projects (global, independent of session restore)
+    const { loadProjects } = await import("$lib/stores/projects");
+    await loadProjects();
+
     if (loadedSettings.restoreSessionsOnLaunch) {
       const sessions = await listSessions();
       log(`Restoring ${sessions.length} session(s)`);
@@ -138,6 +152,64 @@
         }
       }
     }
+
+    // Listen for commands from roux-cli via socket server
+    await onRouxCommand((cmd: RouxCommand) => {
+      log(`roux-command: ${JSON.stringify(cmd)}`);
+      switch (cmd.action) {
+        case "split": {
+          const sessionId = cmd.sessionId;
+          if (!sessionId) break;
+          const paneId = crypto.randomUUID();
+          const ptyId = crypto.randomUUID();
+          const session = $sessionState.sessions.find((s) => s.id === sessionId);
+          if (!session) break;
+          spawnShell(ptyId, session.worktreePath).then(() => {
+            const direction = (cmd.direction === "vertical" ? "vertical" : "horizontal") as "horizontal" | "vertical";
+            addSplit(sessionId, direction, { id: paneId, type: "shell", ptyId });
+          }).catch((e) => logError("Failed to spawn shell for socket split", e));
+          break;
+        }
+        case "session-created": {
+          // Reload sessions to pick up the newly created one
+          listSessions().then((sessions) => {
+            const newSession = sessions.find((s) => s.id === cmd.sessionId);
+            if (newSession) {
+              addSession(newSession);
+              initSessionPanes(newSession.id);
+            }
+          });
+          break;
+        }
+        case "shell-opened": {
+          const sessionId = cmd.sessionId;
+          if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
+          addSplit(sessionId, "horizontal", { id: cmd.paneId, type: "shell", ptyId: cmd.ptyId });
+          break;
+        }
+        case "command-opened": {
+          const sessionId = cmd.sessionId;
+          if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
+          addSplit(sessionId, "horizontal", {
+            id: cmd.paneId,
+            type: "command",
+            ptyId: cmd.ptyId,
+            command: cmd.command,
+            workingDir: cmd.workingDir,
+          });
+          break;
+        }
+        case "focus": {
+          if (cmd.sessionId) {
+            setActiveSession(cmd.sessionId);
+          }
+          if (cmd.paneId) {
+            focusedPaneId.set(cmd.paneId);
+          }
+          break;
+        }
+      }
+    });
 
     // Listen for global status updates from hooks and match by cwd
     await onRouxStatusUpdate((update) => {
@@ -175,6 +247,13 @@
 >
   {#snippet settingsPanel()}
     <SettingsPanel visible={showSettings} onclose={() => (showSettings = false)} />
+    {@const activeSession = $sessionState.sessions.find(s => s.id === $sessionState.activeSessionId)}
+    <NotesPanel
+      visible={showNotes}
+      projectId={activeSession?.projectId ?? null}
+      projectName={$projects.find(p => p.id === activeSession?.projectId)?.name ?? null}
+      onclose={() => (showNotes = false)}
+    />
   {/snippet}
 </Layout>
 

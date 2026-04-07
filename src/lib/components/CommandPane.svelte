@@ -11,6 +11,7 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import type { Channel } from "@tauri-apps/api/core";
   import { registerCommandPane, unregisterCommandPane } from "$lib/panes/commandPaneRegistry";
+  import { createResizeScheduler } from "$lib/panes/resizeScheduler";
 
   interface Props {
     command: string;
@@ -21,10 +22,9 @@
     isFocused?: boolean;
     visible?: boolean;
     focusRequestVersion?: number;
-    onClose: () => void | Promise<void>;
   }
 
-  let { command, workingDir, paneId, initialPtyId, active = true, isFocused = false, visible = true, focusRequestVersion = 0, onClose }: Props = $props();
+  let { command, workingDir, paneId, initialPtyId, active = true, isFocused = false, visible = true, focusRequestVersion = 0 }: Props = $props();
 
   let containerEl: HTMLDivElement;
   let term: Terminal | null = null;
@@ -35,12 +35,18 @@
   let status = $state<"running" | "succeeded" | "failed">("running");
   let exitCode = $state<number | null>(null);
   let startedAt = $state(Date.now());
-  let hovering = $state(false);
   let elapsed = $state("0s");
 
   let unlisteners: UnlistenFn[] = [];
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let outputChannel: Channel<ArrayBuffer | Uint8Array | number[]> | null = null;
+  const resizeScheduler = createResizeScheduler({
+    getFitAddon: () => fitAddon,
+    getPtyId: () => currentPtyId,
+    onResize: (ptyId, cols, rows) => {
+      void resizeSession(ptyId, cols, rows);
+    },
+  });
 
   function updateElapsed() {
     const s = Math.floor((Date.now() - startedAt) / 1000);
@@ -96,11 +102,10 @@
       containerEl.appendChild(term.element);
     }
 
-    requestAnimationFrame(() => {
-      fitAddon?.fit();
-      const dims = fitAddon?.proposeDimensions();
-      if (dims) resizeSession(currentPtyId, dims.cols, dims.rows);
-      if (isFocused) term?.focus();
+    resizeScheduler.schedule({
+      afterFit: () => {
+        if (isFocused) term?.focus();
+      },
     });
   }
 
@@ -161,9 +166,7 @@
 
     resizeObserver = new ResizeObserver(() => {
       if (active && visible && fitAddon) {
-        fitAddon.fit();
-        const dims = fitAddon.proposeDimensions();
-        if (dims) resizeSession(currentPtyId, dims.cols, dims.rows);
+        resizeScheduler.schedule();
       }
     });
     resizeObserver.observe(containerEl);
@@ -173,6 +176,7 @@
 
   onDestroy(() => {
     unregisterCommandPane(paneId);
+    resizeScheduler.cancel();
     resizeObserver?.disconnect();
     if (elapsedTimer) clearInterval(elapsedTimer);
     cleanupListeners();
@@ -187,11 +191,7 @@
   // Refit when session becomes active (container goes from display:none to visible)
   $effect(() => {
     if (active && visible && fitAddon) {
-      requestAnimationFrame(() => {
-        fitAddon?.fit();
-        const dims = fitAddon?.proposeDimensions();
-        if (dims) resizeSession(currentPtyId, dims.cols, dims.rows);
-      });
+      resizeScheduler.schedule();
     }
   });
 
@@ -207,20 +207,17 @@
   $effect(() => {
     void focusRequestVersion;
     if (isFocused && visible && term) {
-      requestAnimationFrame(() => {
-        fitAddon?.fit();
-        term?.focus();
+      resizeScheduler.schedule({
+        afterFit: () => {
+          term?.focus();
+        },
       });
     }
   });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="relative flex h-full w-full flex-col bg-bg-deep"
-  onmouseenter={() => (hovering = true)}
-  onmouseleave={() => (hovering = false)}
->
+<div class="relative flex h-full w-full flex-col bg-bg-deep">
   <!-- Command header bar -->
   <div class="flex h-9 shrink-0 select-none items-center gap-2 border-b border-hairline bg-bg-surface/30 px-3">
     <span class="font-mono text-[11px] text-text-secondary truncate flex-1">{command}</span>
@@ -249,14 +246,4 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div bind:this={containerEl} class="ui-terminal-frame min-h-0 flex-1" onclick={() => term?.focus()}></div>
-
-  {#if hovering}
-    <button
-      class="absolute right-2 top-10 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-border-subtle bg-bg-surface/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-bg-hover hover:text-text-primary"
-      onclick={() => void onClose()}
-      title="Close pane"
-    >
-      &times;
-    </button>
-  {/if}
 </div>

@@ -102,14 +102,14 @@
 
 <div class="flex h-full flex-col bg-transparent">
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
-    <span class="text-[10px] font-bold uppercase tracking-widest text-text-muted">Tasks</span>
+    <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Tasks</span>
     <div class="flex items-center gap-1.5">
-      <span class="rounded-md border border-border-subtle bg-bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
+      <span class="rounded-md border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
         {filteredGroups.reduce((n, g) => n + g.tasks.length, 0)}
       </span>
       {#if onCollapse}
         <button
-          class="cursor-pointer bg-transparent p-0.5 text-[10px] text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+          class="cursor-pointer bg-transparent p-1 text-[12px] font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
           onclick={onCollapse}
           title="Collapse tasks panel"
         >&#9660;</button>
@@ -120,7 +120,7 @@
   {#if $taskGroups.length > 0}
     <div class="px-3 pb-2">
       <input
-        class="w-full rounded-lg border border-border-subtle bg-bg-surface/80 px-2.5 py-1.5 text-[11px] text-text-primary placeholder:text-text-muted outline-none transition-colors focus:border-border focus:bg-bg-surface"
+        class="w-full rounded-lg border border-border-subtle bg-bg-surface/80 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted outline-none transition-colors focus:border-border focus:bg-bg-surface"
         placeholder="Filter tasks..."
         bind:value={filter}
       />
@@ -135,12 +135,12 @@
     {:else}
       {#each filteredGroups as group (group.runner)}
         <button
-          class="flex w-full items-center gap-1.5 bg-transparent px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-text-muted cursor-pointer hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+          class="flex w-full items-center gap-1.5 bg-transparent px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary cursor-pointer hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
           onclick={() => toggleGroup(group.runner)}
         >
-          <span class="text-[10px] text-text-muted transition-transform {collapsedGroups.has(group.runner) ? '' : 'rotate-90'}">&#9654;</span>
+          <span class="text-[11px] text-text-secondary transition-transform {collapsedGroups.has(group.runner) ? '' : 'rotate-90'}">&#9654;</span>
           {group.runner}
-          <span class="ml-auto rounded border border-border-subtle bg-bg-surface px-1.5 py-0.5 font-mono text-[10px] font-normal normal-case tracking-normal text-text-muted">{group.tasks.length}</span>
+          <span class="ml-auto rounded border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[11px] font-medium normal-case tracking-normal text-text-secondary">{group.tasks.length}</span>
         </button>
 
         {#if !collapsedGroups.has(group.runner)}
@@ -164,12 +164,12 @@
                   <div class="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-accent shadow-[0_0_10px_var(--color-blue-dim)]"></div>
                 {/if}
                 <div class="min-w-0 flex-1">
-                  <div class="truncate text-[11px] font-medium text-text-secondary group-hover:text-text-primary transition-colors">{task.name}</div>
-                  <div class="mt-0.5 truncate font-mono text-[10px] text-text-muted">{taskSubtitle(task)}</div>
+                  <div class="truncate text-[13px] font-semibold text-text-secondary group-hover:text-text-primary transition-colors">{task.name}</div>
+                  <div class="mt-0.5 truncate font-mono text-[11px] text-text-muted">{taskSubtitle(task)}</div>
                 </div>
                 {#if run?.status === "running"}
                   <div class="flex shrink-0 items-center gap-2 pt-0.5">
-                    <span class="font-mono text-[10px] text-text-secondary">{elapsed(run.startedAt)}</span>
+                    <span class="font-mono text-[11px] text-text-secondary">{elapsed(run.startedAt)}</span>
                     <span class="inline-flex items-center gap-1 rounded-full border border-accent-dim/20 bg-accent-dim/15 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-accent">
                       <span class="h-1.5 w-1.5 rounded-full bg-accent animate-pulse"></span>
                       live
@@ -186,7 +186,7 @@
                     error
                   </span>
                 {:else}
-                  <span class="shrink-0 pt-1 text-[10px] text-text-secondary opacity-0 transition-opacity group-hover:opacity-100">&#9654;</span>
+                  <span class="shrink-0 pt-1 text-[11px] text-text-secondary opacity-80 transition-opacity group-hover:opacity-100">&#9654;</span>
                 {/if}
               </button>
 
@@ -202,7 +202,7 @@
                     </span>
                     {#if !run.paneId}
                       <button
-                        class="cursor-pointer bg-transparent px-1 text-[10px] text-text-muted hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+                        class="cursor-pointer bg-transparent px-1 text-[11px] font-medium text-text-secondary hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
                         onclick={(e) => handleExpand(e, run.ptyId)}
                         title="Expand to terminal pane"
                       >&#8599;</button>

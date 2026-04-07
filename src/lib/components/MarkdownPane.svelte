@@ -13,10 +13,9 @@
 
   interface Props {
     docPath?: string;
-    onClose: () => void;
   }
 
-  let { docPath = "", onClose }: Props = $props();
+  let { docPath = "" }: Props = $props();
 
   interface EditorTab {
     id: string;
@@ -30,7 +29,6 @@
   let editorContainer: HTMLElement | undefined = $state();
   let editorView: EditorView | null = null;
   let vimEnabled = $state(false);
-  let hovering = $state(false);
 
   function createTab(filePath: string | null, content: string): EditorTab {
     return {
@@ -237,11 +235,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="relative flex h-full w-full flex-col bg-bg-deep"
-  onmouseenter={() => (hovering = true)}
-  onmouseleave={() => (hovering = false)}
->
+<div class="relative flex h-full w-full flex-col bg-bg-deep">
   <!-- Tab bar -->
   <div class="flex h-9 shrink-0 items-center gap-0 border-b border-hairline bg-bg-surface/30 px-1">
     <div class="flex min-w-0 flex-1 items-center gap-0 overflow-x-auto">
@@ -290,15 +284,4 @@
 
   <!-- Editor -->
   <div class="flex-1 overflow-hidden" bind:this={editorContainer}></div>
-
-  <!-- Close button on hover -->
-  {#if hovering}
-    <button
-      class="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-border-subtle bg-bg-surface/85 text-xs leading-none text-text-muted backdrop-blur-sm hover:bg-bg-hover hover:text-text-primary"
-      onclick={onClose}
-      title="Close pane"
-    >
-      &times;
-    </button>
-  {/if}
 </div>

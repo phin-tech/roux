@@ -44,6 +44,12 @@ pub struct RouxSettings {
     pub task_panel_collapsed: bool,
     #[serde(default)]
     pub enable_logging: bool,
+    #[serde(default = "default_group_by")]
+    pub group_by: String,
+}
+
+fn default_group_by() -> String {
+    "repo".to_string()
 }
 
 impl Default for RouxSettings {
@@ -70,6 +76,7 @@ impl Default for RouxSettings {
             task_panel_split: 0.4,
             task_panel_collapsed: false,
             enable_logging: false,
+            group_by: default_group_by(),
         }
     }
 }

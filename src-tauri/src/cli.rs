@@ -23,11 +23,141 @@ enum Commands {
     Status,
     /// Clear all session status files
     Clear,
+
+    // ── Socket commands ──────────────────────────────────────
+    /// Split the current pane
+    Split {
+        /// Direction: horizontal or vertical
+        #[arg(short, long, default_value = "horizontal")]
+        direction: String,
+    },
+    /// Create a new Claude session
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
+    /// Open a shell pane
+    Shell {
+        /// Working directory
+        #[arg(short, long)]
+        working_dir: Option<String>,
+    },
+    /// Focus a pane or session
+    Focus {
+        /// Pane ID to focus
+        #[arg(short, long)]
+        pane: Option<String>,
+        /// Session ID to focus
+        #[arg(short, long)]
+        session: Option<String>,
+    },
+    /// Run a command in a new pane
+    Run {
+        /// The command to run
+        command: String,
+        /// Working directory
+        #[arg(short, long)]
+        working_dir: Option<String>,
+    },
+    /// Send text to the active Claude pane
+    Send {
+        /// The text to send
+        text: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SessionAction {
+    /// Create a new session
+    Create {
+        /// Session name
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Working directory
+        #[arg(short, long)]
+        working_dir: Option<String>,
+    },
 }
 
 fn status_dir() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     home.join(".config").join("roux").join("status")
+}
+
+fn socket_path() -> PathBuf {
+    if let Ok(path) = std::env::var("ROUX_SOCKET") {
+        return PathBuf::from(path);
+    }
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    home.join(".config").join("roux").join("roux.sock")
+}
+
+fn send_socket_command(request: Value) -> Result<Value, String> {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
+    let path = socket_path();
+    let stream = UnixStream::connect(&path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound || e.kind() == std::io::ErrorKind::ConnectionRefused {
+            "Roux is not running".to_string()
+        } else {
+            format!("Failed to connect to Roux: {}", e)
+        }
+    })?;
+
+    stream.set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| format!("Failed to set timeout: {}", e))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| format!("Failed to set timeout: {}", e))?;
+
+    let json = serde_json::to_string(&request).unwrap();
+    let mut stream_ref = &stream;
+    stream_ref.write_all(json.as_bytes())
+        .map_err(|e| format!("Failed to send command: {}", e))?;
+    stream_ref.write_all(b"\n")
+        .map_err(|e| format!("Failed to send command: {}", e))?;
+    stream.shutdown(std::net::Shutdown::Write)
+        .map_err(|e| format!("Failed to shutdown write: {}", e))?;
+
+    let mut response = String::new();
+    let mut reader = std::io::BufReader::new(&stream);
+    reader.read_to_string(&mut response)
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    serde_json::from_str(&response)
+        .map_err(|e| format!("Invalid response: {}", e))
+}
+
+fn get_session_id() -> Option<String> {
+    std::env::var("ROUX_SESSION_ID").ok()
+}
+
+fn get_pane_id() -> Option<String> {
+    std::env::var("ROUX_PANE_ID").ok()
+}
+
+fn run_socket_command(request: Value) {
+    match send_socket_command(request) {
+        Ok(response) => {
+            let ok = response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            if ok {
+                if let Some(data) = response.get("data") {
+                    println!("{}", serde_json::to_string_pretty(data).unwrap());
+                }
+            } else {
+                let error = response.get("error")
+                    .and_then(|e| e.as_str())
+                    .unwrap_or("unknown error");
+                eprintln!("Error: {}", error);
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn handle_hook(status: &str) {
@@ -138,5 +268,75 @@ fn main() {
         Commands::Hook { status } => handle_hook(&status),
         Commands::Status => show_status(),
         Commands::Clear => clear_status(),
+
+        Commands::Split { direction } => {
+            run_socket_command(serde_json::json!({
+                "command": "split",
+                "session_id": get_session_id(),
+                "pane_id": get_pane_id(),
+                "args": { "direction": direction },
+            }));
+        }
+
+        Commands::Session { action } => match action {
+            SessionAction::Create { name, working_dir } => {
+                let mut args = serde_json::Map::new();
+                if let Some(n) = name {
+                    args.insert("name".into(), Value::String(n));
+                }
+                if let Some(d) = working_dir {
+                    args.insert("working_dir".into(), Value::String(d));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "session-create",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": args,
+                }));
+            }
+        },
+
+        Commands::Shell { working_dir } => {
+            let mut args = serde_json::Map::new();
+            if let Some(d) = working_dir {
+                args.insert("working_dir".into(), Value::String(d));
+            }
+            run_socket_command(serde_json::json!({
+                "command": "shell",
+                "session_id": get_session_id(),
+                "pane_id": get_pane_id(),
+                "args": args,
+            }));
+        }
+
+        Commands::Focus { pane, session } => {
+            run_socket_command(serde_json::json!({
+                "command": "focus",
+                "session_id": session.or_else(get_session_id),
+                "pane_id": pane.or_else(get_pane_id),
+            }));
+        }
+
+        Commands::Run { command, working_dir } => {
+            let mut args = serde_json::json!({ "command": command });
+            if let Some(d) = working_dir {
+                args["working_dir"] = Value::String(d);
+            }
+            run_socket_command(serde_json::json!({
+                "command": "run",
+                "session_id": get_session_id(),
+                "pane_id": get_pane_id(),
+                "args": args,
+            }));
+        }
+
+        Commands::Send { text } => {
+            run_socket_command(serde_json::json!({
+                "command": "send",
+                "session_id": get_session_id(),
+                "pane_id": get_pane_id(),
+                "args": { "text": text },
+            }));
+        }
     }
 }

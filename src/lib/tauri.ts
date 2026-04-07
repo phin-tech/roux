@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   Session,
+  Project,
   RouxSettings,
   Worktree,
   SessionStatusPayload,
@@ -142,6 +143,39 @@ export async function listNonoProfiles(): Promise<string[]> {
   return invoke("list_nono_profiles");
 }
 
+// Projects
+export async function listProjects(): Promise<Project[]> {
+  return invoke("list_projects");
+}
+
+export async function createProject(name: string): Promise<Project> {
+  return invoke("create_project", { name });
+}
+
+export async function removeProject(id: string): Promise<void> {
+  return invoke("remove_project", { id });
+}
+
+export async function renameProject(id: string, name: string): Promise<void> {
+  return invoke("rename_project", { id, name });
+}
+
+export async function setSessionProject(
+  sessionId: string,
+  projectId: string | null,
+): Promise<void> {
+  return invoke("set_session_project", { sessionId, projectId });
+}
+
+// Project notes
+export async function getProjectNotes(projectId: string): Promise<string> {
+  return invoke("get_project_notes", { projectId });
+}
+
+export async function setProjectNotes(projectId: string, content: string): Promise<void> {
+  return invoke("set_project_notes", { projectId, content });
+}
+
 // Editor integration
 export async function openInEditor(path: string): Promise<void> {
   return invoke("cmd_open_in_editor", { path });
@@ -228,6 +262,24 @@ export function onRouxStatusUpdate(
   callback: (payload: StatusUpdate) => void
 ): Promise<UnlistenFn> {
   return listen<StatusUpdate>("roux-status-update", (event) => {
+    callback(event.payload);
+  });
+}
+
+export interface RouxCommand {
+  action: string;
+  sessionId?: string;
+  paneId?: string;
+  ptyId?: string;
+  direction?: string;
+  command?: string;
+  workingDir?: string;
+}
+
+export function onRouxCommand(
+  callback: (payload: RouxCommand) => void
+): Promise<UnlistenFn> {
+  return listen<RouxCommand>("roux-command", (event) => {
     callback(event.payload);
   });
 }

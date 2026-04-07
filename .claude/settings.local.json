@@ -69,7 +69,9 @@
       "Bash(magick identify:*)",
       "Bash(npm ls:*)",
       "Bash(node:*)",
-      "WebFetch(domain:zellij.dev)"
+      "WebFetch(domain:zellij.dev)",
+      "Bash(cargo update:*)",
+      "Bash(/Users/sphinizy/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/scripts/start-server.sh:*)"
     ]
   }
 }

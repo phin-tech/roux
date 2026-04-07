@@ -1,9 +1,9 @@
 import { registry } from "./registry";
 import { queries } from "$lib/queries";
-import { addSession, setActiveSession, triggerRename } from "$lib/stores/sessions";
+import { addSession, setActiveSession, triggerRename, setSessionProject } from "$lib/stores/sessions";
 import { settings, updateSetting } from "$lib/stores/settings";
 import { addSplit, initSessionPanes, movePaneInDirection, navigatePane, renamePane, resizePane, toggleFullscreen, toggleStack } from "$lib/stores/panes";
-import { spawnShell, spawnTask, listDocs, writeToSession, createSession, openInEditor, listBranches } from "$lib/tauri";
+import { spawnShell, spawnTask, listDocs, writeToSession, createSession, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
 import { closeFocusedPane } from "$lib/panes/actions";
 import { closeSession } from "$lib/sessions/close";
 import { reconnectSession } from "$lib/sessions/reconnect";
@@ -421,6 +421,51 @@ export function registerCommands() {
   });
 
   registry.register({
+    id: "session.set-project",
+    label: "Set Project",
+    category: "Sessions",
+    available: () => !!queries.activeSession(),
+    inputPlaceholder: "Pick a project or type to create...",
+    getItems: async () => {
+      const projectList = await listProjects();
+      const session = queries.activeSession();
+      const items: { id: string; label: string; description?: string; action: () => void }[] = [];
+      if (session?.projectId) {
+        items.push({
+          id: "__remove__",
+          label: "Remove Project",
+          description: "Unassign project from this session",
+          action: async () => {
+            setSessionProject(session.id, null);
+            await tauriSetSessionProject(session.id, null);
+          },
+        });
+      }
+      for (const p of projectList) {
+        items.push({
+          id: p.id,
+          label: p.name,
+          description: session?.projectId === p.id ? "current" : undefined,
+          action: async () => {
+            if (!session) return;
+            setSessionProject(session.id, p.id);
+            await tauriSetSessionProject(session.id, p.id);
+          },
+        });
+      }
+      return items;
+    },
+    onInput: async (name: string) => {
+      const session = queries.activeSession();
+      if (!session) return;
+      const { createProject } = await import("$lib/stores/projects");
+      const project = await createProject(name);
+      setSessionProject(session.id, project.id);
+      await tauriSetSessionProject(session.id, project.id);
+    },
+  });
+
+  registry.register({
     id: "session.open-in-editor",
     label: "Open in Editor",
     category: "Sessions",
@@ -491,6 +536,37 @@ export function registerCommands() {
   });
 
   // -- UI --
+  registry.register({
+    id: "ui.group-by",
+    label: "Group Sessions By",
+    category: "App",
+    getItems: () => {
+      const current = get(settings).groupBy;
+      return [
+        {
+          id: "repo",
+          label: "Repository",
+          description: current === "repo" ? "current" : undefined,
+          action: () => updateSetting("groupBy", "repo"),
+        },
+        {
+          id: "project",
+          label: "Project",
+          description: current === "project" ? "current" : undefined,
+          action: () => updateSetting("groupBy", "project"),
+        },
+      ];
+    },
+  });
+
+  registry.register({
+    id: "ui.toggle-notes",
+    label: "Toggle Notes",
+    shortcut: "cmd+b",
+    category: "App",
+    available: () => !!queries.activeSession(),
+  });
+
   registry.register({
     id: "ui.toggle-task-panel",
     label: "Toggle Task Panel",

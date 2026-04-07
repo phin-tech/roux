@@ -9,6 +9,7 @@
   import { sessionState, setSessionDisconnected } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { ensureClaudeTerminal } from "$lib/panes/terminalRegistry";
+  import { createResizeScheduler } from "$lib/panes/resizeScheduler";
   import { getXtermTheme } from "$lib/themes";
   import { log, logError } from "$lib/logging";
   import { reconnectSession } from "$lib/sessions/reconnect";
@@ -28,6 +29,13 @@
   let terminal: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
   let resizeObserver: ResizeObserver | null = null;
+  const resizeScheduler = createResizeScheduler({
+    getFitAddon: () => fitAddon,
+    getPtyId: () => sessionId,
+    onResize: (ptyId, cols, rows) => {
+      void resizeSession(ptyId, cols, rows);
+    },
+  });
 
   const session = $derived($sessionState.sessions.find((s) => s.id === sessionId));
   const isDisconnected = $derived(session?.status === "disconnected");
@@ -134,13 +142,10 @@
       containerEl.appendChild(terminal.element);
     }
 
-    requestAnimationFrame(() => {
-      fitAddon?.fit();
-      terminal?.focus();
-      const dims = fitAddon?.proposeDimensions();
-      if (dims) {
-        resizeSession(capturedSessionId, dims.cols, dims.rows);
-      }
+    resizeScheduler.schedule({
+      afterFit: () => {
+        terminal?.focus();
+      },
     });
   }
 
@@ -155,11 +160,7 @@
 
     resizeObserver = new ResizeObserver(() => {
       if (active && visible && fitAddon) {
-        fitAddon.fit();
-        const dims = fitAddon.proposeDimensions();
-        if (dims) {
-          resizeSession(sessionId, dims.cols, dims.rows);
-        }
+        resizeScheduler.schedule();
       }
     });
     if (containerEl) {
@@ -170,6 +171,7 @@
   });
 
   onDestroy(() => {
+    resizeScheduler.cancel();
     resizeObserver?.disconnect();
     detach();
   });
@@ -191,9 +193,10 @@
   $effect(() => {
     void focusRequestVersion;
     if (isFocused && visible && terminal) {
-      requestAnimationFrame(() => {
-        fitAddon?.fit();
-        terminal?.focus();
+      resizeScheduler.schedule({
+        afterFit: () => {
+          terminal?.focus();
+        },
       });
     }
   });

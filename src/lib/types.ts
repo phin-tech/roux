@@ -27,6 +27,12 @@ export interface Session {
   cost: number | null;
   permissionInfo: PermissionInfo | null;
   createdAt: number;
+  projectId: string | null;
+}
+
+export interface Project {
+  id: string;
+  name: string;
 }
 
 export interface RouxSettings {
@@ -51,6 +57,7 @@ export interface RouxSettings {
   taskPanelSplit: number;
   taskPanelCollapsed: boolean;
   enableLogging: boolean;
+  groupBy: "repo" | "project";
 }
 
 export interface Worktree {
@@ -87,6 +94,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   taskPanelSplit: 0.4,
   taskPanelCollapsed: false,
   enableLogging: false,
+  groupBy: "repo",
 };
 
 export interface ClaudeSession {
