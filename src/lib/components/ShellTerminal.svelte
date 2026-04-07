@@ -8,10 +8,12 @@
   import { onPtyOutput, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
   import { ensureShellTerminal } from "$lib/panes/terminalRegistry";
+  import { updatePaneWorkingDir } from "$lib/stores/panes";
   import { getXtermTheme } from "$lib/themes";
   import { log } from "$lib/logging";
 
   interface Props {
+    sessionId: string;
     ptyId: string;
     paneId: string;
     active?: boolean;
@@ -22,7 +24,7 @@
     onClose: () => void | Promise<void>;
   }
 
-  let { ptyId, paneId, active = true, isFocused = false, visible = true, focusRequestVersion = 0, closeOnExit = true, onClose }: Props = $props();
+  let { sessionId, ptyId, paneId, active = true, isFocused = false, visible = true, focusRequestVersion = 0, closeOnExit = true, onClose }: Props = $props();
 
   // Non-reactive copy of ptyId for use in xterm event callbacks.
   // Reading the reactive prop inside xterm's synchronous handlers
@@ -77,6 +79,19 @@
       term.loadAddon(fitAddon);
       try { term.loadAddon(new WebglAddon()); } catch {}
       term.loadAddon(new WebLinksAddon());
+
+      // Track cwd via OSC 7 (emitted by modern shells on directory change)
+      term.parser.registerOscHandler(7, (data) => {
+        try {
+          const url = new URL(data);
+          updatePaneWorkingDir(sessionId, paneId, decodeURIComponent(url.pathname));
+        } catch {
+          if (data.startsWith("/")) {
+            updatePaneWorkingDir(sessionId, paneId, data);
+          }
+        }
+        return false;
+      });
 
       instance.disposables.push(term.onData((data) => writeToSession(capturedPtyId, data)));
 

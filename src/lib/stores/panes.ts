@@ -292,6 +292,29 @@ export function renamePane(sessionId: string, paneId: string, name: string) {
   });
 }
 
+function updatePaneFieldsInTree(node: SplitNode, paneId: string, fields: Partial<Pane>): SplitNode {
+  if (node.kind === "pane") {
+    if (node.pane.id === paneId) {
+      return { kind: "pane", pane: { ...node.pane, ...fields } };
+    }
+    return node;
+  }
+  return {
+    ...node,
+    children: node.children.map((child) => updatePaneFieldsInTree(child, paneId, fields)),
+  };
+}
+
+export function updatePaneWorkingDir(sessionId: string, paneId: string, cwd: string) {
+  const dirName = cwd.split("/").pop() || cwd;
+  paneTrees.update((trees) => {
+    const tree = trees.get(sessionId);
+    if (!tree) return trees;
+    trees.set(sessionId, updatePaneFieldsInTree(tree, paneId, { workingDir: cwd, name: dirName }));
+    return new Map(trees);
+  });
+}
+
 /** Generate a display label for a SplitNode (used for collapsed stack tabs). */
 export function getStackLabel(node: SplitNode): string {
   if (node.kind === "pane") {

@@ -132,7 +132,7 @@
         log(`  Session '${s.name}' (${s.id}): restored ${shellPanes.length} shell pane(s)`);
         // Spawn fresh shell PTYs for restored layout
         for (const pane of shellPanes) {
-          spawnShell(pane.ptyId, s.worktreePath).catch((e) => {
+          spawnShell(pane.ptyId, pane.workingDir ?? s.worktreePath).catch((e) => {
             logError(`Failed to spawn shell for pane ${pane.id}`, e);
           });
         }

@@ -106,6 +106,7 @@
           />
         {:else}
           <ShellTerminal
+            {sessionId}
             ptyId={node.pane.ptyId}
             paneId={node.pane.id}
             active={sessionActive}
