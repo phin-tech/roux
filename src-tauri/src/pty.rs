@@ -1,12 +1,11 @@
-use base64::Engine;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::Emitter;
+use tauri::{ipc::{Channel, Response}, Emitter};
 
 enum PtyChunk {
     Data(Vec<u8>),
@@ -14,10 +13,86 @@ enum PtyChunk {
     Error,
 }
 
-/// Spawn a flusher thread that batches chunks from the reader and emits to the frontend
+const PTY_BACKLOG_LIMIT_BYTES: usize = 256 * 1024;
+
+struct PtyOutputState {
+    channel: Option<Channel<Response>>,
+    backlog: VecDeque<Vec<u8>>,
+    backlog_bytes: usize,
+}
+
+impl PtyOutputState {
+    fn new() -> Self {
+        Self {
+            channel: None,
+            backlog: VecDeque::new(),
+            backlog_bytes: 0,
+        }
+    }
+
+    fn buffer(&mut self, bytes: Vec<u8>) {
+        self.backlog_bytes += bytes.len();
+        self.backlog.push_back(bytes);
+        while self.backlog_bytes > PTY_BACKLOG_LIMIT_BYTES {
+            let Some(removed) = self.backlog.pop_front() else {
+                break;
+            };
+            self.backlog_bytes = self.backlog_bytes.saturating_sub(removed.len());
+        }
+    }
+
+    fn send_or_buffer(&mut self, bytes: Vec<u8>) {
+        if let Some(channel) = &self.channel {
+            if channel.send(Response::new(bytes.clone())).is_ok() {
+                return;
+            }
+            self.channel = None;
+        }
+        self.buffer(bytes);
+    }
+
+    fn attach(&mut self, channel: Channel<Response>) {
+        self.channel = Some(channel);
+        while let Some(bytes) = self.backlog.pop_front() {
+            self.backlog_bytes = self.backlog_bytes.saturating_sub(bytes.len());
+            let Some(channel) = &self.channel else {
+                self.buffer(bytes);
+                break;
+            };
+            if channel.send(Response::new(bytes.clone())).is_err() {
+                self.channel = None;
+                self.buffer(bytes);
+                break;
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+struct PtyOutput {
+    state: Arc<Mutex<PtyOutputState>>,
+}
+
+impl PtyOutput {
+    fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(PtyOutputState::new())),
+        }
+    }
+
+    fn send(&self, bytes: Vec<u8>) {
+        self.state.lock().unwrap().send_or_buffer(bytes);
+    }
+
+    fn attach(&self, channel: Channel<Response>) {
+        self.state.lock().unwrap().attach(channel);
+    }
+}
+
+/// Spawn a flusher thread that batches chunks from the reader and sends them to the frontend
 /// at ~16ms intervals. Returns the sender for the reader thread to push data into.
 fn spawn_flusher(
-    event_name: String,
+    output: PtyOutput,
     exit_event: Option<(String, serde_json::Value)>,
     app: tauri::AppHandle,
 ) -> mpsc::Sender<PtyChunk> {
@@ -42,8 +117,7 @@ fn spawn_flusher(
                     Ok(c) => c,
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         // Flush what we have
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
-                        let _ = app.emit(&event_name, b64);
+                        output.send(std::mem::take(&mut batch));
                         batch.clear();
                         last_flush = Instant::now();
                         continue;
@@ -56,16 +130,13 @@ fn spawn_flusher(
                 PtyChunk::Data(data) => {
                     batch.extend_from_slice(&data);
                     if last_flush.elapsed() >= flush_interval || batch.len() >= 32768 {
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
-                        let _ = app.emit(&event_name, b64);
-                        batch.clear();
+                        output.send(std::mem::take(&mut batch));
                         last_flush = Instant::now();
                     }
                 }
                 PtyChunk::Eof | PtyChunk::Error => {
                     if !batch.is_empty() {
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(&batch);
-                        let _ = app.emit(&event_name, b64);
+                        output.send(std::mem::take(&mut batch));
                     }
                     if let Some((evt, payload)) = &exit_event {
                         let _ = app.emit(evt, payload.clone());
@@ -133,15 +204,26 @@ struct PtySession {
     #[allow(dead_code)]
     child: Box<dyn portable_pty::Child + Send>,
     writer: Box<dyn std::io::Write + Send>,
+    output: PtyOutput,
 }
 
 pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
+    pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
 }
 
 impl PtyManager {
     pub fn new() -> Self {
-        Self { sessions: Mutex::new(HashMap::new()) }
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+            pending_outputs: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn attach_pending_output(&self, session_id: &str, output: &PtyOutput) {
+        if let Some(channel) = self.pending_outputs.lock().unwrap().remove(session_id) {
+            output.attach(channel);
+        }
     }
 
     pub fn spawn(
@@ -201,14 +283,17 @@ impl PtyManager {
             .try_clone_reader()
             .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
 
+        let output = PtyOutput::new();
+        self.attach_pending_output(session_id, &output);
+
         let tx = spawn_flusher(
-            format!("pty-output:{}", session_id),
+            output.clone(),
             Some((format!("session-exit:{}", session_id), serde_json::json!({"code": null}))),
             app.clone(),
         );
         spawn_reader(reader, tx);
 
-        let session = PtySession { master: pair.master, child, writer };
+        let session = PtySession { master: pair.master, child, writer, output };
 
         self.sessions.lock().unwrap().insert(session_id.to_string(), session);
 
@@ -251,14 +336,17 @@ impl PtyManager {
             .try_clone_reader()
             .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
 
+        let output = PtyOutput::new();
+        self.attach_pending_output(id, &output);
+
         let tx = spawn_flusher(
-            format!("pty-output:{}", id),
+            output.clone(),
             Some((format!("session-exit:{}", id), serde_json::json!({"code": null}))),
             app.clone(),
         );
         spawn_reader(reader, tx);
 
-        let session = PtySession { master: pair.master, child, writer };
+        let session = PtySession { master: pair.master, child, writer, output };
 
         self.sessions.lock().unwrap().insert(id.to_string(), session);
 
@@ -301,9 +389,12 @@ impl PtyManager {
             .try_clone_reader()
             .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
 
+        let output = PtyOutput::new();
         // Flusher without built-in exit event — we'll emit it ourselves after waiting on the child
+        self.attach_pending_output(id, &output);
+
         let tx = spawn_flusher(
-            format!("pty-output:{}", id),
+            output.clone(),
             None,
             app.clone(),
         );
@@ -319,10 +410,37 @@ impl PtyManager {
             let _ = app.emit(&exit_event_name, serde_json::json!({ "code": code }));
         });
 
-        let session = PtySession { master: pair.master, child: Box::new(WaitedChild), writer };
+        let session = PtySession {
+            master: pair.master,
+            child: Box::new(WaitedChild),
+            writer,
+            output,
+        };
 
         self.sessions.lock().unwrap().insert(id.to_string(), session);
 
+        Ok(())
+    }
+
+    pub fn attach_output_channel(
+        &self,
+        session_id: &str,
+        channel: Channel<Response>,
+    ) -> Result<(), String> {
+        let output = self
+            .sessions
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .map(|session| session.output.clone());
+        if let Some(output) = output {
+            output.attach(channel);
+        } else {
+            self.pending_outputs
+                .lock()
+                .unwrap()
+                .insert(session_id.to_string(), channel);
+        }
         Ok(())
     }
 
@@ -350,6 +468,7 @@ impl PtyManager {
 
     pub fn kill(&self, session_id: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().unwrap();
+        self.pending_outputs.lock().unwrap().remove(session_id);
         if let Some(mut session) = sessions.remove(session_id) {
             let _ = session.child.kill();
         }
@@ -405,6 +524,61 @@ pub fn resolve_claude_command(custom_path: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+    use tauri::ipc::{Channel, InvokeResponseBody, Response};
+
+    fn raw_channel(store: Arc<Mutex<Vec<Vec<u8>>>>) -> Channel<Response> {
+        Channel::new(move |body| {
+            if let InvokeResponseBody::Raw(bytes) = body {
+                store.lock().unwrap().push(bytes);
+                Ok(())
+            } else {
+                panic!("expected raw bytes");
+            }
+        })
+    }
+
+    #[test]
+    fn buffers_output_until_channel_attaches() {
+        let output = PtyOutput::new();
+        output.send(vec![1, 2, 3]);
+        output.send(vec![4, 5, 6]);
+
+        let received = Arc::new(Mutex::new(Vec::new()));
+        output.attach(raw_channel(received.clone()));
+
+        assert_eq!(
+            *received.lock().unwrap(),
+            vec![vec![1, 2, 3], vec![4, 5, 6]]
+        );
+    }
+
+    #[test]
+    fn trims_oldest_backlog_when_limit_is_exceeded() {
+        let output = PtyOutput::new();
+        output.send(vec![1; PTY_BACKLOG_LIMIT_BYTES / 2]);
+        output.send(vec![2; PTY_BACKLOG_LIMIT_BYTES / 2]);
+        output.send(vec![3; PTY_BACKLOG_LIMIT_BYTES / 2]);
+
+        let received = Arc::new(Mutex::new(Vec::new()));
+        output.attach(raw_channel(received.clone()));
+
+        assert_eq!(
+            *received.lock().unwrap(),
+            vec![vec![2; PTY_BACKLOG_LIMIT_BYTES / 2], vec![3; PTY_BACKLOG_LIMIT_BYTES / 2]]
+        );
+    }
+
+    #[test]
+    fn sends_directly_once_channel_is_attached() {
+        let output = PtyOutput::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        output.attach(raw_channel(received.clone()));
+
+        output.send(vec![9, 8, 7]);
+
+        assert_eq!(*received.lock().unwrap(), vec![vec![9, 8, 7]]);
+    }
 
     #[test]
     fn resolve_claude_command_uses_custom_path_when_set() {

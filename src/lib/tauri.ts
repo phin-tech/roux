@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   Session,
@@ -8,6 +8,8 @@ import type {
   TaskGroup,
   ClaudeSession,
 } from "./types";
+import { ptyOutputPayloadToBytes, type PtyOutputPayload } from "./ptyOutput";
+export type { PtyOutputPayload } from "./ptyOutput";
 
 // Commands (frontend → backend)
 export async function createSession(
@@ -52,6 +54,23 @@ export async function resizeSession(
   rows: number
 ): Promise<void> {
   return invoke("resize_session", { id, cols, rows });
+}
+
+export function createPtyOutputChannel(
+  callback: (data: Uint8Array) => void
+): Channel<PtyOutputPayload> {
+  const channel = new Channel<PtyOutputPayload>();
+  channel.onmessage = (payload) => {
+    callback(ptyOutputPayloadToBytes(payload));
+  };
+  return channel;
+}
+
+export async function attachPtyOutput(
+  id: string,
+  onEvent: Channel<PtyOutputPayload>
+): Promise<void> {
+  return invoke("attach_pty_output", { id, onEvent });
 }
 
 export async function spawnShell(id: string, workingDir: string): Promise<void> {
@@ -164,15 +183,6 @@ export async function saveTaskOverrides(
 }
 
 // Events (backend → frontend)
-export function onPtyOutput(
-  sessionId: string,
-  callback: (data: string) => void
-): Promise<UnlistenFn> {
-  return listen<string>(`pty-output:${sessionId}`, (event) => {
-    callback(event.payload);
-  });
-}
-
 export function onSessionStatus(
   sessionId: string,
   callback: (payload: SessionStatusPayload) => void

@@ -5,7 +5,7 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { onPtyOutput, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
+  import { attachPtyOutput, createPtyOutputChannel, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
   import { sessionState, setSessionDisconnected } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { ensureClaudeTerminal } from "$lib/panes/terminalRegistry";
@@ -75,20 +75,21 @@
       fitAddon: null,
       unlisteners: [],
       disposables: [],
+      outputChannel: null,
     }));
   }
 
   async function attachListeners() {
     const entry = getOrCreateTerminal();
-    if (entry.unlisteners.length > 0) return;
-
     const sid = sessionId; // capture by value for callbacks
-    entry.unlisteners.push(await onPtyOutput(sid, (b64data) => {
-      if (entry.terminal) {
-        const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
+    if (!entry.outputChannel) {
+      entry.outputChannel = createPtyOutputChannel((bytes) => {
         entry.terminal.write(bytes);
-      }
-    }));
+      });
+    }
+    await attachPtyOutput(sid, entry.outputChannel);
+
+    if (entry.unlisteners.length > 0) return;
 
     entry.unlisteners.push(await onSessionExit(sid, (_code) => {
       log(`Session ${sid} exited (code=${_code})`);
@@ -153,7 +154,7 @@
     await attachListeners();
 
     resizeObserver = new ResizeObserver(() => {
-      if (active && fitAddon) {
+      if (active && visible && fitAddon) {
         fitAddon.fit();
         const dims = fitAddon.proposeDimensions();
         if (dims) {
@@ -165,7 +166,7 @@
       resizeObserver.observe(containerEl);
     }
 
-    if (active) attach();
+    if (active && visible) attach();
   });
 
   onDestroy(() => {
@@ -174,7 +175,7 @@
   });
 
   $effect(() => {
-    if (active) {
+    if (active && visible) {
       attach();
     } else {
       detach();
@@ -188,7 +189,7 @@
 
   // Focus terminal when this pane is focused, visible, or a focus request is made
   $effect(() => {
-    const _version = focusRequestVersion;
+    void focusRequestVersion;
     if (isFocused && visible && terminal) {
       requestAnimationFrame(() => {
         fitAddon?.fit();

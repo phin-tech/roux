@@ -1,13 +1,15 @@
+import type { Channel } from "@tauri-apps/api/core";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal, IDisposable } from "@xterm/xterm";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { killSession } from "$lib/tauri";
+import { killSession, type PtyOutputPayload } from "$lib/tauri";
 
 interface BaseTerminalEntry {
   terminal: Terminal;
   fitAddon: FitAddon | null;
   unlisteners: UnlistenFn[];
   disposables: IDisposable[];
+  outputChannel: Channel<PtyOutputPayload> | null;
 }
 
 export interface ClaudeTerminalEntry extends BaseTerminalEntry {}
@@ -48,6 +50,7 @@ function disposeEntry(entry: BaseTerminalEntry) {
   for (const disposable of entry.disposables.splice(0)) {
     disposable.dispose();
   }
+  entry.outputChannel = null;
   entry.terminal.dispose();
   entry.fitAddon = null;
 }

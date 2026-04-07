@@ -11,7 +11,6 @@ import {
   getStackLabel,
   navigatePane,
   type SplitNode,
-  type Pane,
 } from "../panes";
 
 function getTree(sessionId: string): SplitNode {

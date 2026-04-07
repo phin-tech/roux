@@ -68,7 +68,8 @@
       "Bash(python3:*)",
       "Bash(magick identify:*)",
       "Bash(npm ls:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "WebFetch(domain:zellij.dev)"
     ]
   }
 }

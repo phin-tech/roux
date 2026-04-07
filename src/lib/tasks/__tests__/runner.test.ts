@@ -6,14 +6,15 @@ vi.mock("$lib/tauri", () => ({
   spawnShell: vi.fn().mockResolvedValue(undefined),
   writeToSession: vi.fn().mockResolvedValue(undefined),
   onSessionExit: vi.fn().mockResolvedValue(() => {}),
-  onPtyOutput: vi.fn().mockResolvedValue(() => {}),
+  attachPtyOutput: vi.fn().mockResolvedValue(undefined),
+  createPtyOutputChannel: vi.fn((callback: (data: Uint8Array) => void) => ({ callback })),
   discoverTasks: vi.fn().mockResolvedValue([]),
   loadTaskOverrides: vi.fn().mockResolvedValue({}),
   saveTaskOverrides: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { runTask, expandTask } from "../runner";
-import { spawnTask, onSessionExit, onPtyOutput } from "$lib/tauri";
+import { spawnTask, onSessionExit, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
 import { taskRuns } from "$lib/stores/tasks";
 import { paneTrees, focusedPaneId, initSessionPanes } from "$lib/stores/panes";
 import type { TaskDefinition } from "$lib/types/tasks";
@@ -25,7 +26,8 @@ describe("runTask", () => {
     focusedPaneId.set(null);
     vi.mocked(spawnTask).mockClear();
     vi.mocked(onSessionExit).mockClear();
-    vi.mocked(onPtyOutput).mockClear();
+    vi.mocked(attachPtyOutput).mockClear();
+    vi.mocked(createPtyOutputChannel).mockClear();
   });
 
   const task: TaskDefinition = {
@@ -62,10 +64,11 @@ describe("runTask", () => {
     expect(runs![0].outputLines).toEqual([]);
   });
 
-  it("subscribes to PTY output and session exit", async () => {
+  it("attaches PTY output and session exit", async () => {
     await runTask("session-1", "/repo", task);
 
-    expect(onPtyOutput).toHaveBeenCalledTimes(1);
+    expect(createPtyOutputChannel).toHaveBeenCalledTimes(1);
+    expect(attachPtyOutput).toHaveBeenCalledTimes(1);
     expect(onSessionExit).toHaveBeenCalledTimes(1);
   });
 });

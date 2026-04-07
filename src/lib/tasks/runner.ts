@@ -1,4 +1,4 @@
-import { spawnTask, onSessionExit, onPtyOutput } from "$lib/tauri";
+import { attachPtyOutput, createPtyOutputChannel, spawnTask, onSessionExit } from "$lib/tauri";
 import { addSplit } from "$lib/stores/panes";
 import {
   addTaskRun,
@@ -24,9 +24,7 @@ export async function runTask(
   const safeId = task.id.replace(/:/g, "-");
   const ptyId = `task-${sessionId}-${safeId}-${Date.now()}`;
 
-  // Subscribe to output BEFORE spawning so we don't miss anything
-  const outputReady = onPtyOutput(ptyId, (b64data) => {
-    const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
+  const outputChannel = createPtyOutputChannel((bytes) => {
     const text = new TextDecoder().decode(bytes);
     appendTaskOutput(sessionId, ptyId, stripAnsi(text));
   });
@@ -41,8 +39,6 @@ export async function runTask(
     }
   });
 
-  // Wait for listeners to be registered before spawning
-  await outputReady;
   await exitReady;
 
   const keepOpen = getEffectiveKeepOpen(repoRoot, task.id, task.keepOpen);
@@ -60,6 +56,7 @@ export async function runTask(
 
   // Spawn one-shot command — PTY exits when command finishes, with real exit code
   await spawnTask(ptyId, task.command, repoRoot);
+  await attachPtyOutput(ptyId, outputChannel);
 
   // If keepOpen is "always", show in a command pane with rerun support
   if (spawnInPane) {

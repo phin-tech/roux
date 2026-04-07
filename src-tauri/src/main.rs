@@ -125,6 +125,15 @@ fn resize_session(
 }
 
 #[tauri::command]
+fn attach_pty_output(
+    id: String,
+    on_event: tauri::ipc::Channel<tauri::ipc::Response>,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    state.pty_manager.attach_output_channel(&id, on_event)
+}
+
+#[tauri::command]
 fn spawn_shell(
     id: String,
     working_dir: String,
@@ -522,6 +531,7 @@ fn main() {
             cmd_list_worktrees,
             write_to_session,
             resize_session,
+            attach_pty_output,
             spawn_shell,
             spawn_task,
             kill_session,
