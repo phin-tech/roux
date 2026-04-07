@@ -3,6 +3,7 @@ import { get } from "svelte/store";
 import {
   paneTrees,
   focusedPaneId,
+  focusTick,
   initSessionPanes,
   addSplit,
   movePane,
@@ -27,6 +28,7 @@ describe("movePane", () => {
   beforeEach(() => {
     paneTrees.set(new Map());
     focusedPaneId.set(null);
+    focusTick.set(0);
   });
 
   // ── Basic moves ───────────────────────────────────────────
@@ -134,6 +136,16 @@ describe("movePane", () => {
     movePane("s1", "sh1", "s1-main", "left");
 
     expect(get(focusedPaneId)).toBe("sh1");
+  });
+
+  it("bumps focusTick so moved terminals refocus", () => {
+    initSessionPanes("s1");
+    addSplit("s1", "horizontal", shell("sh1"));
+    focusedPaneId.set("s1-main");
+
+    movePane("s1", "sh1", "s1-main", "left");
+
+    expect(get(focusTick)).toBe(1);
   });
 
   // ── Three-pane layouts ────────────────────────────────────

@@ -538,7 +538,7 @@ export function movePane(sessionId: string, paneId: string, targetPaneId: string
     return new Map(trees);
   });
 
-  focusedPaneId.set(paneId);
+  refocusPane(paneId);
 }
 
 function insertPaneAtTarget(
