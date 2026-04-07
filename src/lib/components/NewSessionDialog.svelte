@@ -3,7 +3,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { createSession, listWorktrees, checkNonoInstalled, listNonoProfiles } from "$lib/tauri";
   import { addSession } from "$lib/stores/sessions";
-  import { initSessionPanes } from "$lib/stores/panes";
+  import { initSession as initSessionPanes } from "$lib/panes/actions";
   import { settings } from "$lib/stores/settings";
   import type { Worktree } from "$lib/types";
   import { log, logError } from "$lib/logging";

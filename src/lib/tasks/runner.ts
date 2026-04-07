@@ -1,5 +1,6 @@
 import { attachPtyOutput, createPtyOutputChannel, spawnTask, onSessionExit, type SessionExitPayload } from "$lib/tauri";
-import { addSplit } from "$lib/stores/panes";
+import { splitPane } from "$lib/panes/actions";
+import { focusedPaneId } from "$lib/panes/focus";
 import {
   addTaskRun,
   updateTaskRun,
@@ -8,7 +9,6 @@ import {
   setTaskPaneId,
   getEffectiveKeepOpen,
 } from "$lib/stores/tasks";
-import { focusedPaneId } from "$lib/stores/panes";
 import type { TaskDefinition } from "$lib/types/tasks";
 
 /** Simple ANSI escape code stripper for inline display */
@@ -61,8 +61,7 @@ export async function runTask(
   // If keepOpen is "always", show in a command pane with rerun support
   if (spawnInPane) {
     focusedPaneId.set(`${sessionId}-main`);
-    addSplit(sessionId, "horizontal", {
-      id: ptyId,
+    splitPane(sessionId, "h", {
       type: "command",
       ptyId,
       command: task.command,
@@ -73,13 +72,13 @@ export async function runTask(
 
 /** Promote a background task to a visible shell pane */
 export function expandTask(sessionId: string, ptyId: string) {
-  const paneId = ptyId;
-  // Ensure focus is on the session's main pane so addSplit can find a target
+  // Ensure focus is on the session's main pane so splitPane can find a target
   focusedPaneId.set(`${sessionId}-main`);
-  addSplit(sessionId, "horizontal", {
-    id: paneId,
+  const newPaneId = splitPane(sessionId, "h", {
     type: "shell",
     ptyId,
   });
-  setTaskPaneId(sessionId, ptyId, paneId);
+  if (newPaneId) {
+    setTaskPaneId(sessionId, ptyId, newPaneId);
+  }
 }

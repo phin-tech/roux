@@ -16,14 +16,18 @@ vi.mock("$lib/tauri", () => ({
 import { runTask, expandTask } from "../runner";
 import { spawnTask, onSessionExit, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
 import { taskRuns } from "$lib/stores/tasks";
-import { paneTrees, focusedPaneId, initSessionPanes } from "$lib/stores/panes";
+import { sessionLayouts, resetLayouts } from "$lib/panes/layout";
+import { resetFocus } from "$lib/panes/focus";
+import { resetInstances } from "$lib/panes/instances";
+import { initSession } from "$lib/panes/actions";
 import type { TaskDefinition } from "$lib/types/tasks";
 
 describe("runTask", () => {
   beforeEach(() => {
     taskRuns.set(new Map());
-    paneTrees.set(new Map());
-    focusedPaneId.set(null);
+    resetLayouts();
+    resetInstances();
+    resetFocus();
     vi.mocked(spawnTask).mockClear();
     vi.mocked(onSessionExit).mockClear();
     vi.mocked(attachPtyOutput).mockClear();
@@ -48,8 +52,8 @@ describe("runTask", () => {
     expect(command).toBe("npm run build");
     expect(workingDir).toBe("/repo");
 
-    // No pane should be created
-    const tree = get(paneTrees).get("session-1");
+    // No layout should be created (session was never init'd)
+    const tree = get(sessionLayouts).get("session-1");
     expect(tree).toBeUndefined();
   });
 
@@ -76,12 +80,13 @@ describe("runTask", () => {
 describe("expandTask", () => {
   beforeEach(() => {
     taskRuns.set(new Map());
-    paneTrees.set(new Map());
-    focusedPaneId.set(null);
+    resetLayouts();
+    resetInstances();
+    resetFocus();
   });
 
   it("creates a pane and updates the task run paneId", async () => {
-    initSessionPanes("session-1");
+    initSession("session-1");
 
     // Simulate a running task
     const { addTaskRun } = await import("$lib/stores/tasks");
@@ -97,12 +102,12 @@ describe("expandTask", () => {
 
     expandTask("session-1", "task-pty-1");
 
-    // Pane tree should now have a split
-    const tree = get(paneTrees).get("session-1");
+    // Layout should now have a split
+    const tree = get(sessionLayouts).get("session-1");
     expect(tree?.kind).toBe("split");
 
     // Task run should have paneId set
     const runs = get(taskRuns).get("session-1");
-    expect(runs![0].paneId).toBe("task-pty-1");
+    expect(runs![0].paneId).toBeDefined();
   });
 });

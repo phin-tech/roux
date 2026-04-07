@@ -1,6 +1,8 @@
 import { get } from "svelte/store";
 import { sessionState } from "$lib/stores/sessions";
-import { paneTrees, focusedPaneId, hasSplitPanes, getPane } from "$lib/stores/panes";
+import { sessionLayouts, hasSplitPanes } from "$lib/panes/layout";
+import { focusedPaneId } from "$lib/panes/focus";
+import { getInstance } from "$lib/panes/instances";
 
 export const queries = {
   activeSession() {
@@ -19,7 +21,7 @@ export const queries = {
   activePaneTree() {
     const id = this.activeSessionId();
     if (!id) return null;
-    return get(paneTrees).get(id) ?? null;
+    return get(sessionLayouts).get(id) ?? null;
   },
 
   focusedPaneId() {
@@ -39,10 +41,9 @@ export const queries = {
   },
 
   focusedPane() {
-    const sessionId = this.activeSessionId();
     const paneId = this.focusedPaneId();
-    if (!sessionId || !paneId) return null;
-    return getPane(sessionId, paneId);
+    if (!paneId) return null;
+    return getInstance(paneId) ?? null;
   },
 
   hasAttentionSession() {

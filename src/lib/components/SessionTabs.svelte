@@ -7,7 +7,7 @@
     renameSession,
     addSession,
   } from "$lib/stores/sessions";
-  import { initSessionPanes } from "$lib/stores/panes";
+  import { initSession as initSessionPanes } from "$lib/panes/actions";
   import {
     writeToSession,
     createSession,

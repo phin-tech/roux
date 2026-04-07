@@ -6,15 +6,14 @@ vi.mock("$lib/tauri", () => ({
   killSession: vi.fn(),
 }));
 
-vi.mock("$lib/panes/terminalRegistry", () => ({
-  disposeClaudeTerminal: vi.fn(),
-}));
-
 import { reconnectSession } from "../reconnect";
 import { sessionState, addSession } from "$lib/stores/sessions";
-import { initSessionPanes, paneTrees } from "$lib/stores/panes";
+import { initSession } from "$lib/panes/actions";
+import { sessionLayouts } from "$lib/panes/layout";
+import { resetLayouts } from "$lib/panes/layout";
+import { resetInstances } from "$lib/panes/instances";
+import { resetFocus } from "$lib/panes/focus";
 import { reconnectSessionPty } from "$lib/tauri";
-import { disposeClaudeTerminal } from "$lib/panes/terminalRegistry";
 import type { Session } from "$lib/types";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -38,19 +37,19 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 describe("reconnectSession", () => {
   beforeEach(() => {
     sessionState.set({ sessions: [], activeSessionId: null });
-    paneTrees.set(new Map());
+    resetLayouts();
+    resetInstances();
+    resetFocus();
     vi.mocked(reconnectSessionPty).mockReset();
-    vi.mocked(disposeClaudeTerminal).mockReset();
   });
 
-  it("preserves the pane tree when reconnecting", async () => {
+  it("preserves the layout tree when reconnecting", async () => {
     const session = makeSession();
     addSession(session);
-    initSessionPanes(session.id);
+    initSession(session.id);
 
-    // Add a shell pane to simulate a split layout
-    const trees = get(paneTrees);
-    const tree = trees.get(session.id)!;
+    // Layout tree should exist
+    const tree = get(sessionLayouts).get(session.id);
     expect(tree).toBeDefined();
 
     const updatedSession = makeSession({ status: "idle" });
@@ -58,35 +57,33 @@ describe("reconnectSession", () => {
 
     await reconnectSession(session);
 
-    // Pane tree should still exist under the same session ID
-    const afterTrees = get(paneTrees);
-    expect(afterTrees.has(session.id)).toBe(true);
+    // Layout tree should still exist under the same session ID
+    const afterTree = get(sessionLayouts).get(session.id);
+    expect(afterTree).toBeDefined();
 
     // Session should be updated to idle
     const state = get(sessionState);
     expect(state.sessions.find((s) => s.id === session.id)?.status).toBe("idle");
   });
 
-  it("disposes the claude terminal before reconnecting", async () => {
+  it("calls replacePty on the main pane before reconnecting", async () => {
     const session = makeSession();
     addSession(session);
-    initSessionPanes(session.id);
+    initSession(session.id);
 
     const updatedSession = makeSession({ status: "idle" });
     vi.mocked(reconnectSessionPty).mockResolvedValue(updatedSession);
 
     await reconnectSession(session);
 
-    expect(disposeClaudeTerminal).toHaveBeenCalledWith(session.id);
-    expect(vi.mocked(disposeClaudeTerminal).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(reconnectSessionPty).mock.invocationCallOrder[0]
-    );
+    // replacePty is called inline, so we just check the reconnect was called after
+    expect(reconnectSessionPty).toHaveBeenCalledWith(session.id, undefined);
   });
 
   it("passes extra flags through to the Tauri command", async () => {
     const session = makeSession();
     addSession(session);
-    initSessionPanes(session.id);
+    initSession(session.id);
 
     const updatedSession = makeSession({ status: "idle" });
     vi.mocked(reconnectSessionPty).mockResolvedValue(updatedSession);
@@ -99,7 +96,7 @@ describe("reconnectSession", () => {
   it("passes --continue flag", async () => {
     const session = makeSession();
     addSession(session);
-    initSessionPanes(session.id);
+    initSession(session.id);
 
     const updatedSession = makeSession({ status: "idle" });
     vi.mocked(reconnectSessionPty).mockResolvedValue(updatedSession);

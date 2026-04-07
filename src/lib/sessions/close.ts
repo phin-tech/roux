@@ -1,9 +1,7 @@
 import { get } from "svelte/store";
 import { removeSession } from "$lib/stores/sessions";
-import { removeSessionPanes } from "$lib/stores/panes";
+import { closeSessionPanes } from "$lib/panes/actions";
 import { killSession, removeWorktree } from "$lib/tauri";
-import { closeAuxiliaryPanes } from "$lib/panes/actions";
-import { disposeClaudeTerminal } from "$lib/panes/terminalRegistry";
 import { settings } from "$lib/stores/settings";
 import type { Session } from "$lib/types";
 
@@ -20,8 +18,8 @@ export async function closeSession(session: Session): Promise<boolean> {
     if (!confirmed) return false;
   }
 
-  await closeAuxiliaryPanes(session.id);
-  await disposeClaudeTerminal(session.id);
+  // closeSessionPanes disposes all instances (terminals, listeners) and removes the layout
+  closeSessionPanes(session.id);
   await killSession(session.id);
 
   if (session.isWorktree) {
@@ -37,7 +35,6 @@ export async function closeSession(session: Session): Promise<boolean> {
     }
   }
 
-  removeSessionPanes(session.id);
   removeSession(session.id);
   return true;
 }

@@ -3,7 +3,7 @@
   import SplitPane from "./SplitPane.svelte";
   import StatusBar from "./StatusBar.svelte";
   import { sessionState } from "$lib/stores/sessions";
-  import { paneTrees } from "$lib/stores/panes";
+  import { sessionLayouts } from "$lib/panes/layout";
   import { settings, updateSetting } from "$lib/stores/settings";
   import type { Snippet } from "svelte";
 
@@ -70,7 +70,7 @@
         </div>
       {:else}
         {#each $sessionState.sessions as session (session.id)}
-          {@const tree = $paneTrees.get(session.id)}
+          {@const tree = $sessionLayouts.get(session.id)}
           {#if tree}
             <div
               class="flex min-h-0 flex-1 rounded-lg bg-bg-deep"
@@ -79,7 +79,6 @@
               <SplitPane
                 node={tree}
                 sessionId={session.id}
-                sessionActive={session.id === $sessionState.activeSessionId}
               />
             </div>
           {/if}

@@ -34,7 +34,7 @@ export function splitPane(
     const tree = m.get(sessionId);
     if (!tree) return m;
     const focused = get(focusedPaneId);
-    m.set(sessionId, insertLeaf(tree, focused, direction, newPaneId));
+    m.set(sessionId, insertLeaf(tree, focused ?? "", direction, newPaneId));
     inserted = true;
     return new Map(m);
   });

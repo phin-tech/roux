@@ -14,14 +14,10 @@ import {
   getLayout,
   navigatePane,
   toggleStack,
-  setActiveStackIndex,
   getStackLabel,
-  movePaneInDirection,
   movePane,
   resizePane,
   type LayoutNode,
-  type Direction,
-  type DropSide,
 } from "../layout";
 import { focusedPaneId, setLogicalFocus, resetFocus } from "../focus";
 import { createPane, resetInstances } from "../instances";

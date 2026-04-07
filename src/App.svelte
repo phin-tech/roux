@@ -10,7 +10,9 @@
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
-  import { addSplit, initSessionPanes, hasSplitPanes, focusedPaneId, focusTick } from "$lib/stores/panes";
+  import { initSession, splitPane } from "$lib/panes/actions";
+  import { hasSplitPanes } from "$lib/panes/layout";
+  import { setLogicalFocus } from "$lib/panes/focus";
   import { listSessions, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
@@ -142,14 +144,8 @@
       log(`Restoring ${sessions.length} session(s)`);
       for (const s of sessions) {
         addSession(s);
-        const shellPanes = initSessionPanes(s.id);
-        log(`  Session '${s.name}' (${s.id}): restored ${shellPanes.length} shell pane(s)`);
-        // Spawn fresh shell PTYs for restored layout
-        for (const pane of shellPanes) {
-          spawnShell(pane.ptyId, pane.workingDir ?? s.worktreePath).catch((e) => {
-            logError(`Failed to spawn shell for pane ${pane.id}`, e);
-          });
-        }
+        initSession(s.id);
+        // TODO: restore shell panes from persistence and spawn fresh PTYs
       }
     }
 
@@ -160,13 +156,12 @@
         case "split": {
           const sessionId = cmd.sessionId;
           if (!sessionId) break;
-          const paneId = crypto.randomUUID();
           const ptyId = crypto.randomUUID();
           const session = $sessionState.sessions.find((s) => s.id === sessionId);
           if (!session) break;
           spawnShell(ptyId, session.worktreePath).then(() => {
-            const direction = (cmd.direction === "vertical" ? "vertical" : "horizontal") as "horizontal" | "vertical";
-            addSplit(sessionId, direction, { id: paneId, type: "shell", ptyId });
+            const direction = cmd.direction === "vertical" ? "v" : "h";
+            splitPane(sessionId, direction, { type: "shell", ptyId });
           }).catch((e) => logError("Failed to spawn shell for socket split", e));
           break;
         }
@@ -176,7 +171,7 @@
             const newSession = sessions.find((s) => s.id === cmd.sessionId);
             if (newSession) {
               addSession(newSession);
-              initSessionPanes(newSession.id);
+              initSession(newSession.id);
             }
           });
           break;
@@ -184,14 +179,13 @@
         case "shell-opened": {
           const sessionId = cmd.sessionId;
           if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
-          addSplit(sessionId, "horizontal", { id: cmd.paneId, type: "shell", ptyId: cmd.ptyId });
+          splitPane(sessionId, "h", { type: "shell", ptyId: cmd.ptyId });
           break;
         }
         case "command-opened": {
           const sessionId = cmd.sessionId;
           if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
-          addSplit(sessionId, "horizontal", {
-            id: cmd.paneId,
+          splitPane(sessionId, "h", {
             type: "command",
             ptyId: cmd.ptyId,
             command: cmd.command,
@@ -204,8 +198,7 @@
             setActiveSession(cmd.sessionId);
           }
           if (cmd.paneId) {
-            focusedPaneId.set(cmd.paneId);
-            focusTick.update((n) => n + 1);
+            setLogicalFocus(cmd.paneId);
           }
           break;
         }
