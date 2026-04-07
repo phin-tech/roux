@@ -2,7 +2,7 @@ import type { Session } from "$lib/types";
 import { updateSessionStatus } from "$lib/stores/sessions";
 import { reconnectSessionPty } from "$lib/tauri";
 import { disposeClaudeTerminal } from "$lib/panes/terminalRegistry";
-import { log, logError } from "$lib/logging";
+import { log } from "$lib/logging";
 
 export async function reconnectSession(
   session: Session,
