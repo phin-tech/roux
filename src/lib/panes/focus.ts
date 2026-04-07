@@ -6,8 +6,9 @@ export const fullscreenPaneId = writable<string | null>(null);
 
 /**
  * Set logical focus: which pane owns keyboard input.
- * Updates disableStdin on all terminals. Does NOT call terminal.focus() —
- * that must only happen from pointer event handlers via requestDomFocus().
+ * Updates disableStdin on all terminals and moves DOM focus to the target
+ * terminal so keyboard input is routed correctly after programmatic
+ * navigation (e.g. Alt+H/J/K/L).
  */
 export function setLogicalFocus(paneId: string | null) {
   focusedPaneId.set(paneId);
@@ -15,6 +16,9 @@ export function setLogicalFocus(paneId: string | null) {
   for (const [id, instance] of instances) {
     if (!instance.terminal) continue;
     instance.terminal.options.disableStdin = id !== paneId;
+  }
+  if (paneId) {
+    instances.get(paneId)?.terminal?.focus();
   }
 }
 

@@ -1,6 +1,8 @@
 import { attachPtyOutput, createPtyOutputChannel, spawnTask, onSessionExit, type SessionExitPayload } from "$lib/tauri";
 import { splitPane } from "$lib/panes/actions";
+import { updateInstance, getInstance } from "$lib/panes/instances";
 import { focusedPaneId } from "$lib/panes/focus";
+import { log } from "$lib/logging";
 import {
   addTaskRun,
   updateTaskRun,
@@ -23,11 +25,6 @@ export async function runTask(
 ): Promise<void> {
   const safeId = task.id.replace(/:/g, "-");
   const ptyId = `task-${sessionId}-${safeId}-${Date.now()}`;
-
-  const outputChannel = createPtyOutputChannel((bytes) => {
-    const text = new TextDecoder().decode(bytes);
-    appendTaskOutput(sessionId, ptyId, stripAnsi(text));
-  });
 
   const exitReady = onSessionExit(ptyId, (payload: SessionExitPayload) => {
     updateTaskRun(sessionId, ptyId, payload.code);
@@ -54,19 +51,57 @@ export async function runTask(
     startedAt: Date.now(),
   });
 
-  // Spawn one-shot command — PTY exits when command finishes, with real exit code
+  // Spawn one-shot command — output buffers in Rust backlog until channel attaches
+  log(`runTask: spawning ptyId=${ptyId} cmd="${task.command}" keepOpen=${keepOpen} spawnInPane=${spawnInPane}`);
   await spawnTask(ptyId, task.command, repoRoot);
-  await attachPtyOutput(ptyId, outputChannel);
 
-  // If keepOpen is "always", show in a command pane with rerun support
+  // If keepOpen is "always", show in a command pane with full terminal
   if (spawnInPane) {
     focusedPaneId.set(`${sessionId}-main`);
-    splitPane(sessionId, "h", {
+    const newPaneId = splitPane(sessionId, "h", {
       type: "command",
       ptyId,
       command: task.command,
       workingDir: repoRoot,
     });
+
+    if (newPaneId) {
+      const { initTerminal } = await import("$lib/panes/terminals");
+      initTerminal(newPaneId);
+      updateInstance(newPaneId, {
+        commandStatus: "running",
+        commandStartedAt: Date.now(),
+      });
+
+      // Create output channel that feeds both the inline task panel and the terminal.
+      // We attach it ourselves (not via attachPtyListeners) to avoid a double-attach
+      // that invalidates the Tauri callback ID.
+      const outputChannel = createPtyOutputChannel((bytes) => {
+        const text = new TextDecoder().decode(bytes);
+        appendTaskOutput(sessionId, ptyId, stripAnsi(text));
+        getInstance(newPaneId)?.terminal?.write(bytes);
+      });
+      updateInstance(newPaneId, { outputChannel });
+      await attachPtyOutput(ptyId, outputChannel);
+
+      // Set up exit listener for the pane's command status display
+      const unlisten = await onSessionExit(ptyId, (payload) => {
+        const status = payload.code === 0 ? "success" : "error";
+        updateInstance(newPaneId, {
+          commandStatus: status as "success" | "error",
+          commandExitCode: payload.code,
+        });
+      });
+      const inst = getInstance(newPaneId);
+      if (inst) inst.unlisteners.push(unlisten);
+    }
+  } else {
+    // Background mode: inline output only
+    const outputChannel = createPtyOutputChannel((bytes) => {
+      const text = new TextDecoder().decode(bytes);
+      appendTaskOutput(sessionId, ptyId, stripAnsi(text));
+    });
+    await attachPtyOutput(ptyId, outputChannel);
   }
 }
 

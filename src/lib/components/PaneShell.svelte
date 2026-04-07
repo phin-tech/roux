@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import "@xterm/xterm/css/xterm.css";
   import { paneInstances, attachToContainer, updateInstance } from "$lib/panes/instances";
-  import { focusedPaneId, setLogicalFocus, requestDomFocus } from "$lib/panes/focus";
+  import { focusedPaneId, setLogicalFocus } from "$lib/panes/focus";
   import { closePane } from "$lib/panes/actions";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
   import { resizeSession, killSession, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
@@ -84,7 +84,6 @@
 
   function handleMouseDown() {
     setLogicalFocus(paneId);
-    requestDomFocus(paneId);
   }
 
   // Reconnect handlers for claude pane SessionPicker
@@ -189,14 +188,18 @@
   }
 
   function doAttach() {
-    if (!containerEl || !instance?.terminal) return;
+    if (!containerEl || !instance?.terminal) {
+      log(`PaneShell.doAttach(${paneId}): skipped (container=${!!containerEl}, terminal=${!!instance?.terminal}, type=${instance?.type})`);
+      return;
+    }
     if (!instance.terminal.element) {
+      log(`PaneShell.doAttach(${paneId}): opening terminal in container`);
       attachToContainer(paneId, containerEl);
     } else if (!containerEl.contains(instance.terminal.element)) {
+      log(`PaneShell.doAttach(${paneId}): re-parenting terminal element`);
       containerEl.appendChild(instance.terminal.element);
     }
-    // Only schedule refit — never call terminal.focus() from non-pointer paths.
-    // DOM focus is only set by requestDomFocus via pointer event handlers.
+    // Only schedule refit — setLogicalFocus handles DOM focus.
     resizeScheduler.schedule();
   }
 
@@ -248,8 +251,7 @@
   });
 
   // Focus effect: refit when gaining logical focus (disableStdin just changed,
-  // terminal may need resize). Never call terminal.focus() here — DOM focus
-  // is only driven by pointer events via requestDomFocus.
+  // terminal may need resize).
   $effect(() => {
     if (isFocused && visible && instance?.terminal) {
       resizeScheduler.schedule();
@@ -268,12 +270,13 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-colors bg-bg-deep"
+    class="pane-shell relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden bg-bg-deep"
+    data-focused={isFocused}
     onmousedown={handleMouseDown}
   >
     <!-- Mini title bar -->
     <div
-      class="flex h-6 shrink-0 select-none items-center border-b border-hairline px-2 gap-1.5"
+      class="pane-shell__titlebar flex h-6 shrink-0 select-none items-center border-b border-hairline px-2 gap-1.5"
       ondblclick={() => startRenaming(instance.name ?? "")}
     >
       <span class="text-[10px] uppercase tracking-wider text-text-muted/60 shrink-0">{paneTypeLabel(instance.type)}</span>

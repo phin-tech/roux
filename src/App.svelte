@@ -12,7 +12,8 @@
   import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
   import { initSession, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
-  import { setLogicalFocus } from "$lib/panes/focus";
+  import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
+  import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, loadLayout, clearLayout } from "$lib/panes/persistence";
   import { listSessions, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
@@ -75,6 +76,16 @@
 
     // Don't intercept shortcuts when palette is open
     if (showPalette) return;
+
+    // Prevent WebKit from blurring xterm's hidden textarea on Escape.
+    // Without this, pressing Escape (e.g. to leave vim insert mode) causes
+    // the terminal to lose DOM focus and stop accepting keyboard input.
+    if (e.key === "Escape") {
+      const focused = get(focusedPaneId);
+      if (focused && get(paneInstances).get(focused)?.terminal) {
+        e.preventDefault();
+      }
+    }
 
     const shortcut = buildShortcutString(e);
     const cmd = registry.getByShortcut(shortcut);
@@ -214,7 +225,11 @@
         }
         case "command-opened": {
           const sessionId = cmd.sessionId;
-          if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
+          if (!sessionId || !cmd.paneId || !cmd.ptyId) {
+            log(`command-opened: missing fields session=${cmd.sessionId} pane=${cmd.paneId} pty=${cmd.ptyId}`);
+            break;
+          }
+          log(`command-opened: session=${sessionId} pane=${cmd.paneId} pty=${cmd.ptyId} cmd=${cmd.command}`);
           // Use the backend-provided paneId so socket focus commands can target it
           const newPaneId = splitPane(sessionId, "h", {
             id: cmd.paneId,
@@ -223,10 +238,17 @@
             command: cmd.command,
             workingDir: cmd.workingDir,
           });
+          log(`command-opened: splitPane returned ${newPaneId}`);
           if (newPaneId) {
             const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
             initTerminal(newPaneId);
+            const { updateInstance } = await import("$lib/panes/instances");
+            updateInstance(newPaneId, {
+              commandStatus: "running" as const,
+              commandStartedAt: Date.now(),
+            });
             await attachPtyListeners(newPaneId);
+            log(`command-opened: terminal and listeners attached for ${newPaneId}`);
           }
           break;
         }

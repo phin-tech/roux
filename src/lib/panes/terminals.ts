@@ -32,7 +32,11 @@ import { log } from "$lib/logging";
  */
 export function initTerminal(paneId: string): void {
   const instance = getInstance(paneId);
-  if (!instance || instance.terminal || instance.type === "markdown") return;
+  if (!instance || instance.terminal || instance.type === "markdown") {
+    log(`initTerminal(${paneId}): skipped (exists=${!!instance}, hasTerm=${!!instance?.terminal}, type=${instance?.type})`);
+    return;
+  }
+  log(`initTerminal(${paneId}): creating terminal for type=${instance.type} ptyId=${instance.ptyId}`);
 
   const s = get(settings);
   const terminal = new Terminal({
@@ -85,7 +89,11 @@ export async function attachPtyListeners(
   onExit?: (payload: SessionExitPayload) => void,
 ): Promise<void> {
   const instance = getInstance(paneId);
-  if (!instance) return;
+  if (!instance) {
+    log(`attachPtyListeners(${paneId}): no instance found, bailing`);
+    return;
+  }
+  log(`attachPtyListeners(${paneId}): ptyId=${instance.ptyId} hasChannel=${!!instance.outputChannel} hasTerm=${!!instance.terminal}`);
 
   // Capture the ptyId we're attaching to — if it changes between awaits,
   // a replacePty/rerun happened and we should bail.

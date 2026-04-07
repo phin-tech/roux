@@ -27,6 +27,10 @@
   --color-blue-dim: #0369a1;
   --color-gray: #b5b5bd;
   --color-hairline: rgba(255, 255, 255, 0.18);
+  --pane-active-brightness: 1.05;
+  --pane-inactive-brightness: 0.9;
+  --pane-inactive-opacity: 0.92;
+  --pane-radius: 4px;
   --font-mono: "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", monospace;
   --font-sans: "Geist", "Inter", "SF Pro Display", "Segoe UI", sans-serif;
 }
@@ -296,6 +300,9 @@
     --color-blue-dim: #dbeafe;
     --color-gray: #5f5f67;
     --color-hairline: rgba(0, 0, 0, 0.22);
+    --pane-active-brightness: 1.02;
+    --pane-inactive-brightness: 0.96;
+    --pane-inactive-opacity: 0.95;
   }
 
   /* GitHub Day — light UI with dark terminal */
@@ -328,10 +335,39 @@
     --color-blue-dim: #ddf4ff;
     --color-gray: #6e7781;
     --color-hairline: rgba(0, 0, 0, 0.22);
+    --pane-active-brightness: 1.02;
+    --pane-inactive-brightness: 0.96;
+    --pane-inactive-opacity: 0.95;
   }
 }
 
 @layer utilities {
+  .pane-shell {
+    border-radius: var(--pane-radius);
+    opacity: var(--pane-inactive-opacity);
+    filter: saturate(0.96) brightness(var(--pane-inactive-brightness));
+    box-shadow: inset 0 0 0 1px transparent;
+    transition:
+      filter 140ms ease,
+      opacity 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  .pane-shell[data-focused="true"] {
+    opacity: 1;
+    filter: saturate(1.02) brightness(var(--pane-active-brightness));
+    box-shadow: inset 0 0 0 1px var(--color-border-subtle);
+  }
+
+  .pane-shell__titlebar {
+    background: transparent;
+    transition: background-color 140ms ease;
+  }
+
+  .pane-shell[data-focused="true"] .pane-shell__titlebar {
+    background: var(--color-bg-active);
+  }
+
   .ui-panel {
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.012) 0%, rgba(255, 255, 255, 0) 22%),
