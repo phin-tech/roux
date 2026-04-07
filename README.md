@@ -1,5 +1,7 @@
 # Roux
 
+![Roux screenshot](docs/images/screenshot.jpg)
+
 A desktop terminal multiplexer for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), built with Tauri and Svelte.
 
 Roux lets you run multiple Claude Code sessions side-by-side with split panes, stacked tabs, shell terminals, and persistent layouts -- all in a single native window.
