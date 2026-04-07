@@ -213,7 +213,7 @@ struct PtySession {
     master: Box<dyn MasterPty + Send>,
     #[allow(dead_code)]
     child: Box<dyn portable_pty::Child + Send>,
-    writer: Box<dyn std::io::Write + Send>,
+    writer: Arc<Mutex<Box<dyn std::io::Write + Send>>>,
     output: PtyOutput,
     generation: u64,
 }
@@ -303,7 +303,7 @@ impl PtyManager {
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
-        let session = PtySession { master: pair.master, child, writer, output: output.clone(), generation: gen };
+        let session = PtySession { master: pair.master, child, writer: Arc::new(Mutex::new(writer)), output: output.clone(), generation: gen };
         self.sessions.lock().unwrap().insert(session_id.to_string(), session);
         self.attach_pending_output(session_id, &output);
 
@@ -362,7 +362,7 @@ impl PtyManager {
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
-        let session = PtySession { master: pair.master, child, writer, output: output.clone(), generation: gen };
+        let session = PtySession { master: pair.master, child, writer: Arc::new(Mutex::new(writer)), output: output.clone(), generation: gen };
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
@@ -425,7 +425,7 @@ impl PtyManager {
         let session = PtySession {
             master: pair.master,
             child: Box::new(WaitedChild),
-            writer,
+            writer: Arc::new(Mutex::new(writer)),
             output: output.clone(),
             generation: gen,
         };
@@ -476,25 +476,34 @@ impl PtyManager {
     }
 
     pub fn write(&self, session_id: &str, data: &[u8]) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().unwrap();
-        let session = sessions
-            .get_mut(session_id)
-            .ok_or_else(|| format!("Session {} not found", session_id))?;
-
+        let writer = {
+            let sessions = self.sessions.lock().unwrap();
+            let session = sessions
+                .get(session_id)
+                .ok_or_else(|| format!("Session {} not found", session_id))?;
+            Arc::clone(&session.writer)
+        };
+        // Global lock released — only per-session writer lock held
+        let mut writer = writer.lock().unwrap();
         use std::io::Write;
-        session.writer.write_all(data).map_err(|e| format!("Write failed: {}", e))?;
-        session.writer.flush().map_err(|e| format!("Flush failed: {}", e))
+        writer.write_all(data).map_err(|e| format!("Write failed: {}", e))?;
+        writer.flush().map_err(|e| format!("Flush failed: {}", e))
     }
 
     pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), String> {
-        let sessions = self.sessions.lock().unwrap();
-        let session =
-            sessions.get(session_id).ok_or_else(|| format!("Session {} not found", session_id))?;
-
-        session
-            .master
-            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("Resize failed: {}", e))
+        let master = {
+            let sessions = self.sessions.lock().unwrap();
+            let session = sessions
+                .get(session_id)
+                .ok_or_else(|| format!("Session {} not found", session_id))?;
+            // MasterPty doesn't impl Clone, so we need to keep the lock for resize.
+            // However, we can at least use try_lock to avoid blocking other sessions.
+            session
+                .master
+                .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+                .map_err(|e| format!("Resize failed: {}", e))
+        };
+        master
     }
 
     fn cleanup_stale_pending(&self) {
