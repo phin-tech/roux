@@ -4,7 +4,7 @@
   import ShellTerminal from "./ShellTerminal.svelte";
   import CommandPane from "./CommandPane.svelte";
   import MarkdownPane from "./MarkdownPane.svelte";
-  import { focusedPaneId, focusTick, renamePane, setActiveStackIndex, getStackLabel, type SplitNode } from "$lib/stores/panes";
+  import { focusedPaneId, focusTick, fullscreenPaneId, renamePane, setActiveStackIndex, getStackLabel, containsPaneId, type SplitNode } from "$lib/stores/panes";
   import { closePane } from "$lib/panes/actions";
 
   let editingName = $state(false);
@@ -30,7 +30,7 @@
     }
   }
 
-  function handlePaneMouseDown(e: MouseEvent, paneId: string) {
+  function handlePaneMouseDown(paneId: string) {
     focusedPaneId.set(paneId);
     focusTick.update((n) => n + 1);
   }
@@ -53,7 +53,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden rounded-lg transition-colors {isFocused ? 'bg-bg-surface/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-bg-deep shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]'}"
-      onmousedown={(e) => handlePaneMouseDown(e, node.pane.id)}
+      onmousedown={() => handlePaneMouseDown(node.pane.id)}
     >
       <!-- Mini title bar -->
       <div
@@ -147,8 +147,18 @@
     class:flex-row={node.direction === "horizontal"}
     class:flex-col={node.direction === "vertical"}
   >
-    {#each node.children as child}
-      <SplitPane node={child} {sessionId} {sessionActive} {visible} />
+    {#each node.children as child, i}
+      {@const fsId = $fullscreenPaneId}
+      {@const isFullscreenActive = !!fsId}
+      {@const childHasFullscreen = fsId ? containsPaneId(child, fsId) : false}
+      {@const childVisible = !isFullscreenActive || childHasFullscreen}
+      {@const size = node.sizes?.[i]}
+      <div
+        class="flex flex-col min-h-0 min-w-0 {childVisible ? '' : 'hidden'}"
+        style={childVisible ? `flex: ${size ?? 1}` : ''}
+      >
+        <SplitPane node={child} {sessionId} {sessionActive} visible={visible && childVisible} />
+      </div>
     {/each}
   </div>
 {/if}

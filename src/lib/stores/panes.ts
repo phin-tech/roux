@@ -15,10 +15,11 @@ export interface Pane {
 export type SplitNode =
   | { kind: "pane"; pane: Pane }
   | { kind: "split"; direction: SplitDirection; children: SplitNode[];
-      stacked?: boolean; activeIndex?: number };
+      stacked?: boolean; activeIndex?: number; sizes?: number[] };
 
 export const paneTrees = writable<Map<string, SplitNode>>(new Map());
 export const focusedPaneId = writable<string | null>(null);
+export const fullscreenPaneId = writable<string | null>(null);
 
 // ── Layout persistence ────────────────────────────────────
 
@@ -213,15 +214,18 @@ export function removePane(sessionId: string, paneId: string) {
   if (currentFocus === paneId) {
     focusedPaneId.set(nextFocus);
   }
+  // Clear fullscreen if the fullscreen pane was removed
+  if (get(fullscreenPaneId) === paneId) {
+    fullscreenPaneId.set(null);
+  }
 }
 
 function removePaneFromTree(node: SplitNode, paneId: string): SplitNode | null {
   if (node.kind === "pane") {
     return node.pane.id === paneId ? null : node;
   }
-  const remaining = node.children
-    .map((c) => removePaneFromTree(c, paneId))
-    .filter((c): c is SplitNode => c !== null);
+  const mapped = node.children.map((c) => removePaneFromTree(c, paneId));
+  const remaining = mapped.filter((c): c is SplitNode => c !== null);
   if (remaining.length === 0) return null;
   if (remaining.length === 1) {
     // Auto-unstack: collapsing to 1 child means the split dissolves
@@ -231,7 +235,14 @@ function removePaneFromTree(node: SplitNode, paneId: string): SplitNode | null {
   const activeIndex = node.stacked
     ? Math.min(node.activeIndex ?? 0, remaining.length - 1)
     : node.activeIndex;
-  return { ...node, children: remaining, activeIndex };
+  // Adjust sizes array: remove entries for removed children, renormalize
+  let sizes = node.sizes;
+  if (sizes && sizes.length === node.children.length) {
+    const kept = sizes.filter((_, i) => mapped[i] !== null);
+    const total = kept.reduce((a, b) => a + b, 0);
+    sizes = total > 0 ? kept.map((s) => s / total) : undefined;
+  }
+  return { ...node, children: remaining, activeIndex, sizes };
 }
 
 export function removeSessionPanes(sessionId: string) {
@@ -590,6 +601,129 @@ function updateSplitByRef(node: SplitNode, target: SplitNode & { kind: "split" }
   return { ...node, children: newChildren };
 }
 
+// ── Directional pane movement (Zellij-style) ──────────────
+
+/** Move the focused pane in the given direction within the tree.
+ *  - Swap: if the neighbor in that direction is a pane, swap positions.
+ *  - Enter: if the neighbor is a split, remove pane and insert into that split.
+ *  - Extract: if at the edge of current parent, move out to the ancestor split. */
+export function movePaneInDirection(sessionId: string, direction: Direction) {
+  const tree = get(paneTrees).get(sessionId);
+  if (!tree) return;
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  const result = movePaneInTree(tree, focused, direction);
+  if (!result) return;
+
+  paneTrees.update((trees) => {
+    trees.set(sessionId, result);
+    return new Map(trees);
+  });
+  refocusPane(focused);
+}
+
+function movePaneInTree(root: SplitNode, paneId: string, direction: Direction): SplitNode | null {
+  const path: PathEntry[] = [];
+  if (!buildPath(root, paneId, path)) return null;
+
+  const axis = directionAxis[direction];
+  const step = directionStep[direction];
+
+  // Walk up from the focused pane to find the nearest ancestor in the matching axis
+  for (let i = path.length - 1; i >= 0; i--) {
+    const { parent, childIndex } = path[i];
+    if (parent.direction !== axis) continue;
+
+    const targetIndex = childIndex + step;
+    if (targetIndex < 0 || targetIndex >= parent.children.length) {
+      // At the edge of this parent — continue walking up to extract
+      continue;
+    }
+
+    const isDirectChild = i === path.length - 1;
+    const targetSibling = parent.children[targetIndex];
+
+    if (isDirectChild && targetSibling.kind === "pane") {
+      // Case 1: SWAP — swap the focused pane with the adjacent pane
+      const newChildren = [...parent.children];
+      newChildren[childIndex] = parent.children[targetIndex];
+      newChildren[targetIndex] = parent.children[childIndex];
+      return replaceSplitInTree(root, parent, { ...parent, children: newChildren });
+    }
+
+    if (isDirectChild && targetSibling.kind === "split") {
+      // Case 2: ENTER — remove pane from parent, insert into target split
+      const focusedNode = parent.children[childIndex];
+      const insertIdx = step > 0 ? 0 : targetSibling.children.length;
+      const newTargetChildren = [...targetSibling.children];
+      newTargetChildren.splice(insertIdx, 0, focusedNode);
+      const updatedTarget: SplitNode = { ...targetSibling, children: newTargetChildren };
+
+      // Build new parent children: remove focused pane, update target split
+      const newChildren = parent.children
+        .map((c, j) => {
+          if (j === childIndex) return null;
+          if (j === targetIndex) return updatedTarget;
+          return c;
+        })
+        .filter((c): c is SplitNode => c !== null);
+
+      // Auto-collapse parent if only one child remains
+      if (newChildren.length === 1) {
+        return replaceSplitInTree(root, parent, newChildren[0]);
+      }
+      return replaceSplitInTree(root, parent, { ...parent, children: newChildren });
+    }
+
+    if (!isDirectChild) {
+      // Case 3: EXTRACT — remove from nested split, insert into ancestor
+      const focusedPaneData = findPaneInTree(root, paneId);
+      if (!focusedPaneData) return null;
+      const paneNode: SplitNode = { kind: "pane", pane: { ...focusedPaneData } };
+
+      // Remove the pane from the subtree at childIndex
+      const subtree = parent.children[childIndex];
+      const subtreeAfterRemove = removePaneFromTree(subtree, paneId);
+
+      // Build new parent children
+      const newChildren: SplitNode[] = [];
+      let subtreePos = -1;
+      for (let j = 0; j < parent.children.length; j++) {
+        if (j === childIndex) {
+          subtreePos = newChildren.length;
+          if (subtreeAfterRemove) newChildren.push(subtreeAfterRemove);
+        } else {
+          newChildren.push(parent.children[j]);
+        }
+      }
+
+      // Insert the pane adjacent to where the subtree is
+      const insertPos = step > 0
+        ? (subtreeAfterRemove ? subtreePos + 1 : subtreePos)
+        : subtreePos;
+      newChildren.splice(insertPos, 0, paneNode);
+
+      return replaceSplitInTree(root, parent, { ...parent, children: newChildren });
+    }
+  }
+
+  return null;
+}
+
+/** Replace a split node found by reference with an arbitrary replacement node. */
+function replaceSplitInTree(
+  root: SplitNode,
+  target: SplitNode & { kind: "split" },
+  replacement: SplitNode,
+): SplitNode {
+  if (root === target) return replacement;
+  if (root.kind === "pane") return root;
+  const mapped = root.children.map((c) => replaceSplitInTree(c, target, replacement));
+  if (mapped.every((c, i) => c === root.children[i])) return root;
+  return { ...root, children: mapped };
+}
+
 export function navigatePane(sessionId: string, direction: Direction) {
   const tree = get(paneTrees).get(sessionId);
   if (!tree) return;
@@ -634,6 +768,72 @@ export function navigatePane(sessionId: string, direction: Direction) {
     const target = parent.children[nextIndex];
     const newFocus = step > 0 ? firstPaneId(target) : lastPaneId(target);
     focusedPaneId.set(newFocus);
+    return;
+  }
+}
+
+// ── Fullscreen ────────────────────────────────────────────
+
+/** Check if a subtree contains a pane with the given ID. */
+export function containsPaneId(node: SplitNode, paneId: string): boolean {
+  if (node.kind === "pane") return node.pane.id === paneId;
+  return node.children.some((c) => containsPaneId(c, paneId));
+}
+
+/** Toggle fullscreen for the focused pane. */
+export function toggleFullscreen() {
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+  const current = get(fullscreenPaneId);
+  fullscreenPaneId.set(current === focused ? null : focused);
+}
+
+// ── Pane resize ───────────────────────────────────────────
+
+/** Resize the focused pane in the given direction by a step amount.
+ *  Grows the focused pane and shrinks the adjacent one. */
+export function resizePane(sessionId: string, direction: Direction, step: number) {
+  const tree = get(paneTrees).get(sessionId);
+  if (!tree) return;
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  const path: PathEntry[] = [];
+  if (!buildPath(tree, focused, path)) return;
+
+  const axis = directionAxis[direction];
+  const grow = directionStep[direction] * step; // positive = grow in that direction
+
+  // Find the nearest ancestor split matching the axis
+  for (let i = path.length - 1; i >= 0; i--) {
+    const { parent, childIndex } = path[i];
+    if (parent.direction !== axis) continue;
+
+    const neighborIndex = grow > 0 ? childIndex + 1 : childIndex - 1;
+    if (neighborIndex < 0 || neighborIndex >= parent.children.length) continue;
+
+    // Initialize sizes if not set (equal distribution)
+    const count = parent.children.length;
+    const currentSizes = parent.sizes ?? Array(count).fill(1 / count);
+    const newSizes = [...currentSizes];
+
+    const delta = Math.abs(step);
+    const MIN_SIZE = 0.05;
+
+    // Grow focused pane, shrink neighbor
+    newSizes[childIndex] = Math.min(1 - MIN_SIZE * (count - 1), newSizes[childIndex] + delta);
+    newSizes[neighborIndex] = Math.max(MIN_SIZE, newSizes[neighborIndex] - delta);
+
+    // Normalize to sum to 1
+    const total = newSizes.reduce((a, b) => a + b, 0);
+    for (let j = 0; j < newSizes.length; j++) newSizes[j] /= total;
+
+    paneTrees.update((trees) => {
+      const root = trees.get(sessionId);
+      if (!root) return trees;
+      trees.set(sessionId, updateSplitByRef(root, parent, { sizes: newSizes }));
+      return new Map(trees);
+    });
     return;
   }
 }

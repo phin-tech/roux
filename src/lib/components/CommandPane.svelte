@@ -5,10 +5,11 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { spawnTask, killSession, onPtyOutput, onSessionExit, resizeSession } from "$lib/tauri";
+  import { attachPtyOutput, createPtyOutputChannel, spawnTask, killSession, onSessionExit, resizeSession } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
   import { getXtermTheme } from "$lib/themes";
   import type { UnlistenFn } from "@tauri-apps/api/event";
+  import type { Channel } from "@tauri-apps/api/core";
   import { registerCommandPane, unregisterCommandPane } from "$lib/panes/commandPaneRegistry";
 
   interface Props {
@@ -39,6 +40,7 @@
 
   let unlisteners: UnlistenFn[] = [];
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+  let outputChannel: Channel<ArrayBuffer | Uint8Array | number[]> | null = null;
 
   function updateElapsed() {
     const s = Math.floor((Date.now() - startedAt) / 1000);
@@ -65,17 +67,47 @@
   async function attachToPty(ptyId: string) {
     await cleanupListeners();
 
-    unlisteners.push(await onPtyOutput(ptyId, (b64data) => {
-      const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
-      term?.write(bytes);
-    }));
-
     unlisteners.push(await onSessionExit(ptyId, (code) => {
       exitCode = code;
       status = code === 0 ? "succeeded" : "failed";
       if (elapsedTimer) clearInterval(elapsedTimer);
       updateElapsed();
     }));
+  }
+
+  async function attachOutput(ptyId: string) {
+    if (!outputChannel) {
+      outputChannel = createPtyOutputChannel((bytes) => {
+        term?.write(bytes);
+      });
+    }
+    await attachPtyOutput(ptyId, outputChannel);
+  }
+
+  function attach() {
+    if (!containerEl || !term) return;
+    if (!term.element) {
+      term.open(containerEl);
+      fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      try { term.loadAddon(new WebglAddon()); } catch {}
+      term.loadAddon(new WebLinksAddon());
+    } else if (!containerEl.contains(term.element)) {
+      containerEl.appendChild(term.element);
+    }
+
+    requestAnimationFrame(() => {
+      fitAddon?.fit();
+      const dims = fitAddon?.proposeDimensions();
+      if (dims) resizeSession(currentPtyId, dims.cols, dims.rows);
+      if (isFocused) term?.focus();
+    });
+  }
+
+  function detach() {
+    if (term?.element && containerEl?.contains(term.element)) {
+      containerEl.removeChild(term.element);
+    }
   }
 
   async function rerun() {
@@ -106,6 +138,7 @@
 
     // Spawn new command
     await spawnTask(newPtyId, command, workingDir);
+    await attachOutput(newPtyId);
   }
 
 
@@ -118,21 +151,16 @@
       triggerRerun: () => void rerun(),
     });
     term = createTerminal();
-    term.open(containerEl);
-
-    fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    try { term.loadAddon(new WebglAddon()); } catch {}
-    term.loadAddon(new WebLinksAddon());
 
     // Attach to the initial PTY
     await attachToPty(currentPtyId);
+    await attachOutput(currentPtyId);
 
     // Start elapsed timer
     elapsedTimer = setInterval(updateElapsed, 1000);
 
     resizeObserver = new ResizeObserver(() => {
-      if (fitAddon) {
+      if (active && visible && fitAddon) {
         fitAddon.fit();
         const dims = fitAddon.proposeDimensions();
         if (dims) resizeSession(currentPtyId, dims.cols, dims.rows);
@@ -140,11 +168,7 @@
     });
     resizeObserver.observe(containerEl);
 
-    requestAnimationFrame(() => {
-      fitAddon?.fit();
-      const dims = fitAddon?.proposeDimensions();
-      if (dims) resizeSession(currentPtyId, dims.cols, dims.rows);
-    });
+    if (active && visible) attach();
   });
 
   onDestroy(() => {
@@ -152,9 +176,7 @@
     resizeObserver?.disconnect();
     if (elapsedTimer) clearInterval(elapsedTimer);
     cleanupListeners();
-    if (term?.element && containerEl?.contains(term.element)) {
-      containerEl.removeChild(term.element);
-    }
+    detach();
     term?.dispose();
   });
 
@@ -164,7 +186,7 @@
 
   // Refit when session becomes active (container goes from display:none to visible)
   $effect(() => {
-    if (active && fitAddon) {
+    if (active && visible && fitAddon) {
       requestAnimationFrame(() => {
         fitAddon?.fit();
         const dims = fitAddon?.proposeDimensions();
@@ -173,9 +195,17 @@
     }
   });
 
+  $effect(() => {
+    if (active && visible) {
+      attach();
+    } else {
+      detach();
+    }
+  });
+
   // Focus terminal when this pane is focused, visible, or a focus request is made
   $effect(() => {
-    const _version = focusRequestVersion;
+    void focusRequestVersion;
     if (isFocused && visible && term) {
       requestAnimationFrame(() => {
         fitAddon?.fit();

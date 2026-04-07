@@ -2,7 +2,7 @@ import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { addSession, setActiveSession, triggerRename } from "$lib/stores/sessions";
 import { settings, updateSetting } from "$lib/stores/settings";
-import { addSplit, initSessionPanes, navigatePane, renamePane, toggleStack } from "$lib/stores/panes";
+import { addSplit, initSessionPanes, movePaneInDirection, navigatePane, renamePane, resizePane, toggleFullscreen, toggleStack } from "$lib/stores/panes";
 import { spawnShell, spawnTask, listDocs, writeToSession, createSession, openInEditor, listBranches } from "$lib/tauri";
 import { closeFocusedPane } from "$lib/panes/actions";
 import { closeSession } from "$lib/sessions/close";
@@ -109,6 +109,111 @@ export function registerCommands() {
     execute: () => {
       const activeId = queries.activeSessionId();
       if (activeId) navigatePane(activeId, "right");
+    },
+  });
+
+  registry.register({
+    id: "pane.move-left",
+    label: "Move Pane Left",
+    shortcut: "ctrl+shift+h",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) movePaneInDirection(activeId, "left");
+    },
+  });
+
+  registry.register({
+    id: "pane.move-down",
+    label: "Move Pane Down",
+    shortcut: "ctrl+shift+j",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) movePaneInDirection(activeId, "down");
+    },
+  });
+
+  registry.register({
+    id: "pane.move-up",
+    label: "Move Pane Up",
+    shortcut: "ctrl+shift+k",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) movePaneInDirection(activeId, "up");
+    },
+  });
+
+  registry.register({
+    id: "pane.move-right",
+    label: "Move Pane Right",
+    shortcut: "ctrl+shift+l",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) movePaneInDirection(activeId, "right");
+    },
+  });
+
+  registry.register({
+    id: "pane.toggle-fullscreen",
+    label: "Toggle Fullscreen",
+    shortcut: "cmd+shift+f",
+    category: "Panes",
+    available: () => !!queries.focusedPaneId(),
+    execute: () => toggleFullscreen(),
+  });
+
+  registry.register({
+    id: "pane.resize-left",
+    label: "Resize Pane Left",
+    shortcut: "ctrl+alt+h",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) resizePane(activeId, "left", 0.05);
+    },
+  });
+
+  registry.register({
+    id: "pane.resize-down",
+    label: "Resize Pane Down",
+    shortcut: "ctrl+alt+j",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) resizePane(activeId, "down", 0.05);
+    },
+  });
+
+  registry.register({
+    id: "pane.resize-up",
+    label: "Resize Pane Up",
+    shortcut: "ctrl+alt+k",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) resizePane(activeId, "up", 0.05);
+    },
+  });
+
+  registry.register({
+    id: "pane.resize-right",
+    label: "Resize Pane Right",
+    shortcut: "ctrl+alt+l",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (activeId) resizePane(activeId, "right", 0.05);
     },
   });
 

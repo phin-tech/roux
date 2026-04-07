@@ -5,7 +5,7 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { onPtyOutput, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
+  import { attachPtyOutput, createPtyOutputChannel, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
   import { ensureShellTerminal } from "$lib/panes/terminalRegistry";
   import { updatePaneWorkingDir } from "$lib/stores/panes";
@@ -53,35 +53,28 @@
       fitAddon: null,
       unlisteners: [],
       disposables: [],
+      outputChannel: null,
     }));
   }
 
-  function detach() {
-    if (terminal?.element && containerEl?.contains(terminal.element)) {
-      containerEl.removeChild(terminal.element);
-    }
-  }
-
-  onMount(async () => {
-    log(`ShellTerminal mounting: pane=${paneId} pty=${capturedPtyId}`);
+  function attach() {
+    if (!containerEl) return;
     const instance = getOrCreateTerminal();
-    const term = instance.terminal;
-    terminal = term;
+    terminal = instance.terminal;
     fitAddon = instance.fitAddon;
 
-    if (!term.element) {
-      // First time — open into container
-      term.open(containerEl);
+    if (!terminal.element) {
+      terminal.open(containerEl);
       if (!fitAddon) {
         fitAddon = new FitAddon();
         instance.fitAddon = fitAddon;
       }
-      term.loadAddon(fitAddon);
-      try { term.loadAddon(new WebglAddon()); } catch {}
-      term.loadAddon(new WebLinksAddon());
+      terminal.loadAddon(fitAddon);
+      try { terminal.loadAddon(new WebglAddon()); } catch {}
+      terminal.loadAddon(new WebLinksAddon());
 
       // Track cwd via OSC 7 (emitted by modern shells on directory change)
-      term.parser.registerOscHandler(7, (data) => {
+      terminal.parser.registerOscHandler(7, (data) => {
         try {
           const url = new URL(data);
           updatePaneWorkingDir(sessionId, paneId, decodeURIComponent(url.pathname));
@@ -93,26 +86,47 @@
         return false;
       });
 
-      instance.disposables.push(term.onData((data) => writeToSession(capturedPtyId, data)));
+      instance.disposables.push(terminal.onData((data) => writeToSession(capturedPtyId, data)));
+    } else if (!containerEl.contains(terminal.element)) {
+      containerEl.appendChild(terminal.element);
+    }
 
-      instance.unlisteners.push(await onPtyOutput(capturedPtyId, (b64data) => {
-        const bytes = Uint8Array.from(atob(b64data), (c) => c.charCodeAt(0));
-        term.write(bytes);
+    requestAnimationFrame(() => {
+      fitAddon?.fit();
+      const dims = fitAddon?.proposeDimensions();
+      if (dims) resizeSession(capturedPtyId, dims.cols, dims.rows);
+      if (isFocused) terminal?.focus();
+    });
+  }
+
+  function detach() {
+    if (terminal?.element && containerEl?.contains(terminal.element)) {
+      containerEl.removeChild(terminal.element);
+    }
+  }
+
+  onMount(async () => {
+    log(`ShellTerminal mounting: pane=${paneId} pty=${capturedPtyId}`);
+    const instance = getOrCreateTerminal();
+    terminal = instance.terminal;
+    fitAddon = instance.fitAddon;
+
+    if (!instance.outputChannel) {
+      instance.outputChannel = createPtyOutputChannel((bytes) => {
+        instance.terminal.write(bytes);
+      });
+    }
+    await attachPtyOutput(capturedPtyId, instance.outputChannel);
+
+    if (instance.unlisteners.length === 0 && closeOnExit) {
+      instance.unlisteners.push(await onSessionExit(capturedPtyId, () => {
+        log(`Shell pane ${paneId} exited`);
+        void onClose();
       }));
-
-      if (closeOnExit) {
-        instance.unlisteners.push(await onSessionExit(capturedPtyId, () => {
-          log(`Shell pane ${paneId} exited`);
-          void onClose();
-        }));
-      }
-    } else {
-      // Re-mount: move the existing terminal element into the new container
-      containerEl.appendChild(term.element);
     }
 
     resizeObserver = new ResizeObserver(() => {
-      if (fitAddon) {
+      if (active && visible && fitAddon) {
         fitAddon.fit();
         const dims = fitAddon.proposeDimensions();
         if (dims) resizeSession(capturedPtyId, dims.cols, dims.rows);
@@ -120,11 +134,7 @@
     });
     resizeObserver.observe(containerEl);
 
-    requestAnimationFrame(() => {
-      fitAddon?.fit();
-      const dims = fitAddon?.proposeDimensions();
-      if (dims) resizeSession(capturedPtyId, dims.cols, dims.rows);
-    });
+    if (active && visible) attach();
   });
 
   onDestroy(() => {
@@ -141,9 +151,17 @@
     terminal.options.theme = getXtermTheme($settings.theme);
   });
 
+  $effect(() => {
+    if (active && visible) {
+      attach();
+    } else {
+      detach();
+    }
+  });
+
   // Refit when session becomes active (container goes from display:none to visible)
   $effect(() => {
-    if (active && fitAddon) {
+    if (active && visible && fitAddon) {
       requestAnimationFrame(() => {
         fitAddon?.fit();
         const dims = fitAddon?.proposeDimensions();
@@ -154,7 +172,7 @@
 
   // Focus terminal when this pane is focused, visible, or a focus request is made
   $effect(() => {
-    const _version = focusRequestVersion;
+    void focusRequestVersion;
     if (isFocused && visible && terminal) {
       requestAnimationFrame(() => {
         fitAddon?.fit();
