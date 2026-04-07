@@ -18,7 +18,7 @@
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
   import { projects, createProject } from "$lib/stores/projects";
-  import { setSessionProject } from "$lib/stores/sessions";
+  import { setSessionProject, updateSessionPermission, respondToPermission } from "$lib/stores/sessions";
   import { setSessionProject as tauriSetSessionProject } from "$lib/tauri";
   import { log, logError } from "$lib/logging";
   import type { Session } from "$lib/types";
@@ -197,14 +197,17 @@
   }
 
   async function handleApprove(id: string) {
+    respondToPermission(id);
     await writeToSession(id, "\r");
   }
 
   async function handleAlways(id: string) {
+    respondToPermission(id);
     await writeToSession(id, "\x1b[Z");
   }
 
   async function handleDeny(id: string) {
+    respondToPermission(id);
     await writeToSession(id, "\x1b[B\x1b[B\r");
   }
 
@@ -284,6 +287,7 @@
               onapprove={() => handleApprove(session.id)}
               onalways={() => handleAlways(session.id)}
               ondeny={() => handleDeny(session.id)}
+              ondismiss={() => updateSessionPermission(session.id, null)}
               oncontextmenu={(e) => handleContextMenu(e, session)}
             />
           {/each}

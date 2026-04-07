@@ -71,6 +71,10 @@ export function updateSessionPermission(
   }));
 }
 
+export function respondToPermission(id: string) {
+  updateSessionPermission(id, null);
+}
+
 export function setSessionDisconnected(id: string) {
   updateSessionStatus(id, "disconnected");
 }

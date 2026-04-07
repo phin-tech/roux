@@ -143,9 +143,10 @@ describe("movePane", () => {
     addSplit("s1", "horizontal", shell("sh1"));
     focusedPaneId.set("s1-main");
 
+    const before = get(focusTick);
     movePane("s1", "sh1", "s1-main", "left");
 
-    expect(get(focusTick)).toBe(1);
+    expect(get(focusTick)).toBeGreaterThan(before);
   });
 
   // ── Three-pane layouts ────────────────────────────────────

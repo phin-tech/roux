@@ -157,7 +157,7 @@ export function addSplit(sessionId: string, direction: SplitDirection, newPane: 
     trees.set(sessionId, splitAtPane(current, focused, direction, newPane));
     return new Map(trees);
   });
-  focusedPaneId.set(newPane.id);
+  refocusPane(newPane.id);
 }
 
 function splitAtPane(node: SplitNode, targetId: string | null, direction: SplitDirection, newPane: Pane): SplitNode {
@@ -211,8 +211,10 @@ export function removePane(sessionId: string, paneId: string) {
     return new Map(trees);
   });
 
-  if (currentFocus === paneId) {
-    focusedPaneId.set(nextFocus);
+  if (currentFocus === paneId && nextFocus) {
+    refocusPane(nextFocus);
+  } else if (currentFocus === paneId) {
+    focusedPaneId.set(null);
   }
   // Clear fullscreen if the fullscreen pane was removed
   if (get(fullscreenPaneId) === paneId) {
@@ -767,7 +769,7 @@ export function navigatePane(sessionId: string, direction: Direction) {
     if (nextIndex < 0 || nextIndex >= parent.children.length) continue;
     const target = parent.children[nextIndex];
     const newFocus = step > 0 ? firstPaneId(target) : lastPaneId(target);
-    focusedPaneId.set(newFocus);
+    refocusPane(newFocus);
     return;
   }
 }

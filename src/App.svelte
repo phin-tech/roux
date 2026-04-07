@@ -10,7 +10,7 @@
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
-  import { addSplit, initSessionPanes, hasSplitPanes, focusedPaneId } from "$lib/stores/panes";
+  import { addSplit, initSessionPanes, hasSplitPanes, focusedPaneId, focusTick } from "$lib/stores/panes";
   import { listSessions, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
@@ -205,6 +205,7 @@
           }
           if (cmd.paneId) {
             focusedPaneId.set(cmd.paneId);
+            focusTick.update((n) => n + 1);
           }
           break;
         }

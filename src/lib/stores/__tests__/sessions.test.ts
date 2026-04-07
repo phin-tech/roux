@@ -8,6 +8,7 @@ import {
   setActiveSession,
   updateSessionStatus,
   updateSessionPermission,
+  respondToPermission,
   setSessionDisconnected,
   renameSession,
 } from "../sessions";
@@ -165,6 +166,30 @@ describe("sessions store", () => {
     });
     updateSessionPermission(s.id, null);
 
+    expect(get(sessionState).sessions[0].permissionInfo).toBeNull();
+  });
+
+  it("clears permission info when responding to a permission request", () => {
+    const s = makeSession({ status: "attention" });
+    addSession(s);
+    updateSessionPermission(s.id, {
+      toolName: "Bash",
+      toolInput: { command: "rm -rf /" },
+      message: "wants to run",
+    });
+
+    // Simulate responding (approve/always/deny should clear permissionInfo)
+    respondToPermission(s.id);
+
+    const session = get(sessionState).sessions[0];
+    expect(session.permissionInfo).toBeNull();
+  });
+
+  it("does not throw when responding to a session with no permission info", () => {
+    const s = makeSession({ status: "idle" });
+    addSession(s);
+
+    expect(() => respondToPermission(s.id)).not.toThrow();
     expect(get(sessionState).sessions[0].permissionInfo).toBeNull();
   });
 

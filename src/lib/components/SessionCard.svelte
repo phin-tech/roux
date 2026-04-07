@@ -13,6 +13,7 @@
     onapprove: () => void;
     onalways: () => void;
     ondeny: () => void;
+    ondismiss: () => void;
     oncontextmenu?: (e: MouseEvent) => void;
   }
 
@@ -26,6 +27,7 @@
     onapprove,
     onalways,
     ondeny,
+    ondismiss,
     oncontextmenu,
   }: Props = $props();
 
@@ -208,12 +210,21 @@
 
   {#if session.permissionInfo}
     <div class="mt-1.5 rounded-lg border border-amber/10 bg-amber/10 px-2.5 py-1.5">
-      <span
-        class="block truncate font-mono text-[10px] text-amber"
-        title={JSON.stringify(session.permissionInfo.toolInput, null, 2)}
-      >
-        {formatPermission(session.permissionInfo)}
-      </span>
+      <div class="flex items-start gap-1">
+        <span
+          class="block flex-1 truncate font-mono text-[10px] text-amber"
+          title={JSON.stringify(session.permissionInfo.toolInput, null, 2)}
+        >
+          {formatPermission(session.permissionInfo)}
+        </span>
+        <button
+          class="cursor-pointer shrink-0 rounded bg-transparent text-[10px] leading-none text-amber/60 hover:text-amber"
+          onclick={(e) => {
+            e.stopPropagation();
+            ondismiss();
+          }}
+        >&times;</button>
+      </div>
       {#if session.status === "attention"}
         <div class="mt-1.5 flex gap-1">
           <button
