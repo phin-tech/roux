@@ -506,8 +506,8 @@ impl PtyManager {
     }
 
     pub fn kill(&self, session_id: &str) -> Result<(), String> {
-        self.pending_outputs.lock().unwrap().remove(session_id);
         let session = self.sessions.lock().unwrap().remove(session_id);
+        self.pending_outputs.lock().unwrap().remove(session_id);
         if let Some(mut session) = session {
             if let Err(e) = session.child.kill() {
                 rlog!("Warning: kill failed for {}: {}", session_id, e);
@@ -520,8 +520,12 @@ impl PtyManager {
                     Ok(None) if Instant::now() < deadline => {
                         thread::sleep(Duration::from_millis(50));
                     }
-                    _ => {
+                    Ok(None) => {
                         rlog!("Warning: child for {} did not exit within timeout", session_id);
+                        break;
+                    }
+                    Err(e) => {
+                        rlog!("Warning: try_wait failed for {}: {}", session_id, e);
                         break;
                     }
                 }
