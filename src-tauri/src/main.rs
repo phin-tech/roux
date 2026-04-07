@@ -166,6 +166,11 @@ fn kill_session(id: String, state: tauri::State<AppState>) -> Result<(), String>
 }
 
 #[tauri::command]
+fn get_pty_generation(id: String, state: tauri::State<AppState>) -> Option<u64> {
+    state.pty_manager.get_generation(&id)
+}
+
+#[tauri::command]
 fn create_session(
     repo_path: String,
     name: String,
@@ -599,6 +604,7 @@ fn main() {
             spawn_shell,
             spawn_task,
             kill_session,
+            get_pty_generation,
             create_session,
             reconnect_session,
             list_sessions,

@@ -1,6 +1,7 @@
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -93,7 +94,7 @@ impl PtyOutput {
 /// at ~16ms intervals. Returns the sender for the reader thread to push data into.
 fn spawn_flusher(
     output: PtyOutput,
-    exit_event: Option<(String, serde_json::Value)>,
+    exit_event: Option<(String, u64)>,  // (event_name, generation)
     app: tauri::AppHandle,
 ) -> mpsc::Sender<PtyChunk> {
     let (tx, rx) = mpsc::channel::<PtyChunk>();
@@ -134,12 +135,21 @@ fn spawn_flusher(
                         last_flush = Instant::now();
                     }
                 }
-                PtyChunk::Eof | PtyChunk::Error => {
+                PtyChunk::Eof => {
                     if !batch.is_empty() {
                         output.send(std::mem::take(&mut batch));
                     }
-                    if let Some((evt, payload)) = &exit_event {
-                        let _ = app.emit(evt, payload.clone());
+                    if let Some((evt, gen)) = &exit_event {
+                        let _ = app.emit(evt, serde_json::json!({"code": null, "generation": gen, "reason": "exit"}));
+                    }
+                    break;
+                }
+                PtyChunk::Error => {
+                    if !batch.is_empty() {
+                        output.send(std::mem::take(&mut batch));
+                    }
+                    if let Some((evt, gen)) = &exit_event {
+                        let _ = app.emit(evt, serde_json::json!({"code": null, "generation": gen, "reason": "io_error"}));
                     }
                     break;
                 }
@@ -205,11 +215,13 @@ struct PtySession {
     child: Box<dyn portable_pty::Child + Send>,
     writer: Box<dyn std::io::Write + Send>,
     output: PtyOutput,
+    generation: u64,
 }
 
 pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
+    generation: AtomicU64,
 }
 
 impl PtyManager {
@@ -217,6 +229,7 @@ impl PtyManager {
         Self {
             sessions: Mutex::new(HashMap::new()),
             pending_outputs: Mutex::new(HashMap::new()),
+            generation: AtomicU64::new(0),
         }
     }
 
@@ -288,18 +301,18 @@ impl PtyManager {
             .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
 
         let output = PtyOutput::new();
+        let gen = self.generation.fetch_add(1, Ordering::Relaxed);
+
+        let session = PtySession { master: pair.master, child, writer, output: output.clone(), generation: gen };
+        self.sessions.lock().unwrap().insert(session_id.to_string(), session);
         self.attach_pending_output(session_id, &output);
 
         let tx = spawn_flusher(
             output.clone(),
-            Some((format!("session-exit:{}", session_id), serde_json::json!({"code": null}))),
+            Some((format!("session-exit:{}", session_id), gen)),
             app.clone(),
         );
         spawn_reader(reader, tx);
-
-        let session = PtySession { master: pair.master, child, writer, output };
-
-        self.sessions.lock().unwrap().insert(session_id.to_string(), session);
 
         Ok(())
     }
@@ -347,18 +360,18 @@ impl PtyManager {
             .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
 
         let output = PtyOutput::new();
+        let gen = self.generation.fetch_add(1, Ordering::Relaxed);
+
+        let session = PtySession { master: pair.master, child, writer, output: output.clone(), generation: gen };
+        self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
         let tx = spawn_flusher(
             output.clone(),
-            Some((format!("session-exit:{}", id), serde_json::json!({"code": null}))),
+            Some((format!("session-exit:{}", id), gen)),
             app.clone(),
         );
         spawn_reader(reader, tx);
-
-        let session = PtySession { master: pair.master, child, writer, output };
-
-        self.sessions.lock().unwrap().insert(id.to_string(), session);
 
         Ok(())
     }
@@ -406,7 +419,17 @@ impl PtyManager {
             .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
 
         let output = PtyOutput::new();
-        // Flusher without built-in exit event — we'll emit it ourselves after waiting on the child
+        let gen = self.generation.fetch_add(1, Ordering::Relaxed);
+
+        // Insert session before attaching pending output and starting threads
+        let session = PtySession {
+            master: pair.master,
+            child: Box::new(WaitedChild),
+            writer,
+            output: output.clone(),
+            generation: gen,
+        };
+        self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
         let tx = spawn_flusher(
@@ -423,17 +446,8 @@ impl PtyManager {
                 .wait()
                 .ok()
                 .map(|status| status.exit_code());
-            let _ = app.emit(&exit_event_name, serde_json::json!({ "code": code }));
+            let _ = app.emit(&exit_event_name, serde_json::json!({ "code": code, "generation": gen, "reason": "exit" }));
         });
-
-        let session = PtySession {
-            master: pair.master,
-            child: Box::new(WaitedChild),
-            writer,
-            output,
-        };
-
-        self.sessions.lock().unwrap().insert(id.to_string(), session);
 
         Ok(())
     }
@@ -489,6 +503,10 @@ impl PtyManager {
             let _ = session.child.kill();
         }
         Ok(())
+    }
+
+    pub fn get_generation(&self, session_id: &str) -> Option<u64> {
+        self.sessions.lock().unwrap().get(session_id).map(|s| s.generation)
     }
 }
 
