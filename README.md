@@ -15,8 +15,10 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Themes** -- Multiple built-in color schemes
 - **Projects** -- Tag sessions with projects to organize related work across repos and worktrees
 - **Project notes** -- Per-project plain-text notes sidebar (`cmd+b`) shared across all sessions in a project
+- **Command panes** -- Run shell commands in dedicated panes with rerun support
 - **Task runner** -- Run predefined commands from configuration files
 - **Document viewer** -- Open markdown files in dedicated panes
+- **CLI** -- `roux-cli` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal via Unix socket
 
 ## Keybindings
 
