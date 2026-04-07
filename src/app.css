@@ -30,7 +30,7 @@
   --pane-active-brightness: 1.05;
   --pane-inactive-brightness: 0.9;
   --pane-inactive-opacity: 0.92;
-  --pane-radius: 4px;
+  --pane-radius: 0px;
   --font-mono: "JetBrains Mono", "IBM Plex Mono", "SFMono-Regular", monospace;
   --font-sans: "Geist", "Inter", "SF Pro Display", "Segoe UI", sans-serif;
 }
@@ -360,12 +360,8 @@
   }
 
   .pane-shell__titlebar {
-    background: transparent;
+    background: var(--color-bg-deep);
     transition: background-color 140ms ease;
-  }
-
-  .pane-shell[data-focused="true"] .pane-shell__titlebar {
-    background: var(--color-bg-active);
   }
 
   .ui-panel {

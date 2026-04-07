@@ -104,7 +104,7 @@
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
     <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Tasks</span>
     <div class="flex items-center gap-1.5">
-      <span class="rounded-md border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
+      <span class="border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
         {filteredGroups.reduce((n, g) => n + g.tasks.length, 0)}
       </span>
       {#if onCollapse}
@@ -120,7 +120,7 @@
   {#if $taskGroups.length > 0}
     <div class="px-3 pb-2">
       <input
-        class="w-full rounded-lg border border-border-subtle bg-bg-surface/80 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted outline-none transition-colors focus:border-border focus:bg-bg-surface"
+        class="w-full border border-border-subtle bg-bg-surface/80 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted outline-none transition-colors focus:border-border focus:bg-bg-surface"
         placeholder="Filter tasks..."
         bind:value={filter}
       />
@@ -140,7 +140,7 @@
         >
           <span class="text-[11px] text-text-secondary transition-transform {collapsedGroups.has(group.runner) ? '' : 'rotate-90'}">&#9654;</span>
           {group.runner}
-          <span class="ml-auto rounded border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[11px] font-medium normal-case tracking-normal text-text-secondary">{group.tasks.length}</span>
+          <span class="ml-auto border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[11px] font-medium normal-case tracking-normal text-text-secondary">{group.tasks.length}</span>
         </button>
 
         {#if !collapsedGroups.has(group.runner)}
@@ -148,7 +148,7 @@
             {@const run = activeRuns.get(task.id) ?? null}
             <div class="mb-1">
               <button
-                class="group relative flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep
+                class="group relative flex w-full items-start gap-3 px-3 py-2 text-left cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep
                   {run?.status === 'running'
                     ? 'bg-accent-dim/8 hover:bg-accent-dim/12'
                     : run?.status === 'failed'
@@ -170,18 +170,18 @@
                 {#if run?.status === "running"}
                   <div class="flex shrink-0 items-center gap-2 pt-0.5">
                     <span class="font-mono text-[11px] text-text-secondary">{elapsed(run.startedAt)}</span>
-                    <span class="inline-flex items-center gap-1 rounded-full border border-accent-dim/20 bg-accent-dim/15 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-accent">
+                    <span class="inline-flex items-center gap-1 border border-accent-dim/20 bg-accent-dim/15 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-accent">
                       <span class="h-1.5 w-1.5 rounded-full bg-accent animate-pulse"></span>
                       live
                     </span>
                   </div>
                 {:else if run?.status === "succeeded"}
-                  <span class="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full border border-green/20 bg-green/12 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-green">
+                  <span class="mt-0.5 inline-flex shrink-0 items-center gap-1 border border-green/20 bg-green/12 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-green">
                     <span class="h-1.5 w-1.5 rounded-full bg-green"></span>
                     done
                   </span>
                 {:else if run?.status === "failed"}
-                  <span class="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full border border-red/20 bg-red/12 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-red">
+                  <span class="mt-0.5 inline-flex shrink-0 items-center gap-1 border border-red/20 bg-red/12 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-red">
                     <span class="h-1.5 w-1.5 rounded-full bg-red"></span>
                     error
                   </span>
@@ -191,7 +191,7 @@
               </button>
 
               {#if run && run.outputLines.length > 0}
-                <div class="ui-panel mx-3 mb-2 overflow-hidden rounded-xl">
+                <div class="ui-panel mx-3 mb-2 overflow-hidden">
                   <div class="flex items-center justify-between border-b border-border-subtle px-2.5 py-1.5">
                     <span class="font-mono text-[10px] text-text-secondary">
                       {run.status === "running"
@@ -221,7 +221,7 @@
 
 {#if contextMenu}
   <div
-    class="ui-dialog fixed z-50 min-w-40 rounded-md py-1"
+    class="ui-dialog fixed z-50 min-w-40 py-1"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
   >
     <div class="px-3 py-1.5 text-[11px] uppercase tracking-wide text-text-muted">Keep open</div>

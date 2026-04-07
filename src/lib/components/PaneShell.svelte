@@ -18,9 +18,10 @@
     paneId: string;
     sessionId: string;
     visible?: boolean;
+    suppressTitleAccent?: boolean;
   }
 
-  let { paneId, sessionId, visible = true }: Props = $props();
+  let { paneId, sessionId, visible = true, suppressTitleAccent = false }: Props = $props();
 
   let containerEl: HTMLDivElement | undefined = $state();
   let resizeObserver: ResizeObserver | null = null;
@@ -277,6 +278,7 @@
     <!-- Mini title bar -->
     <div
       class="pane-shell__titlebar flex h-6 shrink-0 select-none items-center border-b border-hairline px-2 gap-1.5"
+      class:shadow-[inset_0_2px_0_var(--color-accent-dim)]={isFocused && !suppressTitleAccent}
       ondblclick={() => startRenaming(instance.name ?? "")}
     >
       <span class="text-[10px] uppercase tracking-wider text-text-muted/60 shrink-0">{paneTypeLabel(instance.type)}</span>

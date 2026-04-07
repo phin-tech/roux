@@ -2,7 +2,8 @@
   import SplitPane from "./SplitPane.svelte";
   import PaneShell from "./PaneShell.svelte";
   import { fullscreenPaneId } from "$lib/panes/focus";
-  import { containsPaneId, getStackLabel, setActiveStackIndex, type LayoutNode } from "$lib/panes/layout";
+  import { paneInstances } from "$lib/panes/instances";
+  import { containsPaneId, setActiveStackIndex, type LayoutNode } from "$lib/panes/layout";
 
   interface Props {
     node: LayoutNode;
@@ -11,6 +12,14 @@
   }
 
   let { node, sessionId, visible = true }: Props = $props();
+
+  function getStackDisplayLabel(node: LayoutNode): string {
+    if (node.kind === "leaf") {
+      const inst = $paneInstances.get(node.paneId);
+      return inst?.name ?? inst?.type ?? node.paneId;
+    }
+    return node.children.map(getStackDisplayLabel).join(" | ");
+  }
 </script>
 
 {#if node.kind === "leaf"}
@@ -23,14 +32,23 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
-        class="flex items-center h-6 shrink-0 select-none border-b border-hairline px-2 gap-1.5 cursor-pointer {i === (node.activeIndex ?? 0) ? 'bg-bg-surface/60' : 'hover:bg-bg-surface/30 transition-colors'}"
+        class="flex items-center h-6 shrink-0 select-none border-b border-hairline px-2 gap-1.5 cursor-pointer transition-[background-color,box-shadow] duration-150 {i === (node.activeIndex ?? 0) ? 'bg-bg-deep shadow-[inset_0_2px_0_var(--color-accent-dim)]' : 'bg-transparent hover:bg-bg-surface/30'}"
         onclick={() => setActiveStackIndex(sessionId, i)}
       >
         <span class="text-[10px] text-text-muted/60 shrink-0">{i === (node.activeIndex ?? 0) ? '\u25BE' : '\u25B8'}</span>
-        <span class="text-[11px] font-mono truncate {i === (node.activeIndex ?? 0) ? 'text-text-secondary' : 'text-text-muted'}">{getStackLabel(child)}</span>
+        <span class="text-[11px] font-mono truncate {i === (node.activeIndex ?? 0) ? 'text-text-secondary' : 'text-text-muted'}">{getStackDisplayLabel(child)}</span>
       </div>
       <div class="min-h-0 min-w-0 flex flex-col {i === (node.activeIndex ?? 0) ? 'flex-1' : 'hidden'}">
-        <SplitPane node={child} {sessionId} visible={visible && i === (node.activeIndex ?? 0)} />
+        {#if child.kind === "leaf"}
+          <PaneShell
+            paneId={child.paneId}
+            {sessionId}
+            visible={visible && i === (node.activeIndex ?? 0)}
+            suppressTitleAccent={i === (node.activeIndex ?? 0)}
+          />
+        {:else}
+          <SplitPane node={child} {sessionId} visible={visible && i === (node.activeIndex ?? 0)} />
+        {/if}
       </div>
     {/each}
   </div>

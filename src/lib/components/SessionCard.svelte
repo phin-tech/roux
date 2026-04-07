@@ -119,7 +119,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="group relative mb-1 w-full cursor-pointer overflow-hidden rounded-lg px-3 py-2 text-left transition-colors duration-150
+  class="group relative mb-1 w-full cursor-pointer overflow-hidden px-3 py-2 text-left transition-colors duration-150
     {active
       ? 'bg-bg-active shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
       : 'bg-transparent hover:bg-bg-active/40'}"
@@ -148,7 +148,7 @@
 
     {#if editing}
       <input
-        class="flex-1 rounded-md border border-accent-dim/30 bg-bg-deep px-2 py-1.5 text-[13px] font-semibold tracking-tight text-text-primary outline-none"
+        class="flex-1 border border-accent-dim/30 bg-bg-deep px-2 py-1.5 text-[13px] font-semibold tracking-tight text-text-primary outline-none"
         bind:value={editName}
         onblur={commitRename}
         onkeydown={(e) => {
@@ -174,7 +174,7 @@
 
     {#if session.status === "disconnected"}
       <button
-        class="cursor-pointer rounded-full border border-accent-dim/20 bg-accent-dim/15 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+        class="cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={(e) => {
           e.stopPropagation();
           onreconnect();
@@ -184,7 +184,7 @@
       </button>
     {/if}
     <button
-      class="cursor-pointer flex h-5 w-5 items-center justify-center rounded bg-transparent text-[11px] leading-none text-text-secondary opacity-80 transition-all duration-150 group-hover:opacity-100 hover:bg-bg-hover hover:text-red focus-visible:opacity-100 focus-visible:outline-none"
+      class="cursor-pointer flex h-5 w-5 items-center justify-center bg-transparent text-[11px] leading-none text-text-secondary opacity-80 transition-all duration-150 group-hover:opacity-100 hover:bg-bg-hover hover:text-red focus-visible:opacity-100 focus-visible:outline-none"
       onclick={(e) => {
         e.stopPropagation();
         onclose();
@@ -201,7 +201,7 @@
     </span>
     <span class="truncate text-[10px] text-text-muted">{pathLabel(session.worktreePath)}</span>
     {#if projectName}
-      <span class="rounded bg-accent-dim/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{projectName}</span>
+      <span class="bg-accent-dim/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{projectName}</span>
     {/if}
     <span class="ml-auto text-[10px] font-semibold text-text-muted">
       {session.cost != null ? `$${session.cost.toFixed(2)}` : ""}
@@ -209,7 +209,7 @@
   </div>
 
   {#if session.permissionInfo}
-    <div class="mt-1.5 rounded-lg border border-amber/10 bg-amber/10 px-2.5 py-1.5">
+    <div class="mt-1.5 border border-amber/10 bg-amber/10 px-2.5 py-1.5">
       <div class="flex items-start gap-1">
         <span
           class="block flex-1 truncate font-mono text-[10px] text-amber"
@@ -218,7 +218,7 @@
           {formatPermission(session.permissionInfo)}
         </span>
         <button
-          class="cursor-pointer shrink-0 rounded bg-transparent text-[10px] leading-none text-amber/60 hover:text-amber"
+          class="cursor-pointer shrink-0 bg-transparent text-[10px] leading-none text-amber/60 hover:text-amber"
           onclick={(e) => {
             e.stopPropagation();
             ondismiss();
@@ -228,7 +228,7 @@
       {#if session.status === "attention"}
         <div class="mt-1.5 flex gap-1">
           <button
-            class="cursor-pointer rounded-full bg-green/10 px-2.5 py-1 text-[11px] font-semibold text-green transition-colors hover:bg-green/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+            class="cursor-pointer bg-green/10 px-2.5 py-1 text-[11px] font-semibold text-green transition-colors hover:bg-green/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
             onclick={(e) => {
               e.stopPropagation();
               onapprove();
@@ -237,7 +237,7 @@
             &#10003; Allow
           </button>
           <button
-            class="cursor-pointer rounded-full bg-accent-dim/15 px-2.5 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+            class="cursor-pointer bg-accent-dim/15 px-2.5 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
             onclick={(e) => {
               e.stopPropagation();
               onalways();
@@ -246,7 +246,7 @@
             &#10003; Always
           </button>
           <button
-            class="cursor-pointer rounded-full bg-red/10 px-2.5 py-1 text-[11px] font-semibold text-red transition-colors hover:bg-red/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+            class="cursor-pointer bg-red/10 px-2.5 py-1 text-[11px] font-semibold text-red transition-colors hover:bg-red/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
             onclick={(e) => {
               e.stopPropagation();
               ondeny();

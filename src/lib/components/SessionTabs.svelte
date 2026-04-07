@@ -245,18 +245,23 @@
 
 <svelte:window onclick={closeContextMenu} />
 
-<div class="flex h-full flex-col border-r border-border-subtle bg-bg-deep" bind:this={containerEl}>
+<div
+  class="flex h-full flex-col overflow-hidden border-border-subtle bg-bg-base/96 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
+  class:border-r={$settings.tabPosition === "left"}
+  class:border-l={$settings.tabPosition === "right"}
+  bind:this={containerEl}
+>
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
     <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Sessions</span>
     <div class="flex items-center gap-1.5">
       <button
-        class="rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-[13px] font-medium text-text-secondary cursor-pointer transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+        class="border border-border-subtle bg-bg-surface px-2 py-1 text-[13px] font-medium text-text-secondary cursor-pointer transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
         onclick={toggleGroupBy}
         title="Group by {$settings.groupBy === 'project' ? 'repo' : 'project'}"
       >
         {$settings.groupBy === "project" ? "project" : "repo"}
       </button>
-      <span class="rounded-md border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
+      <span class="border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
         {$sessionState.sessions.length}
       </span>
     </div>
@@ -324,13 +329,13 @@
 
   <div class="flex shrink-0 gap-1 border-t border-hairline p-2">
     <button
-      class="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-bg-active/50 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      class="flex flex-1 items-center justify-center gap-1.5 bg-bg-active/50 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onNewSession}
     >
       <span class="text-sm">+</span> New
     </button>
     <button
-      class="flex items-center justify-center rounded-md bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      class="flex items-center justify-center bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onOpenSettings}
     >
       &#9881;
@@ -342,7 +347,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="ui-dialog fixed z-50 min-w-48 rounded-lg py-1"
+    class="ui-dialog fixed z-50 min-w-48 py-1"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
     onclick={(e) => e.stopPropagation()}
   >
@@ -385,13 +390,13 @@
           >
             <!-- svelte-ignore a11y_autofocus -->
             <input
-              class="min-w-0 flex-1 rounded-md border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-accent-dim/50"
+              class="min-w-0 flex-1 border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-accent-dim/50"
               bind:value={newProjectName}
               placeholder="my-project"
               autofocus
             />
             <button
-              class="cursor-pointer rounded-md border border-accent-dim/20 bg-accent-dim/15 px-2.5 py-1.5 text-[11px] font-medium text-accent hover:bg-accent-dim/24 disabled:opacity-50"
+              class="cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2.5 py-1.5 text-[11px] font-medium text-accent hover:bg-accent-dim/24 disabled:opacity-50"
               type="submit"
               disabled={!newProjectName.trim()}
             >
@@ -434,14 +439,14 @@
         >
           <!-- svelte-ignore a11y_autofocus -->
           <input
-            class="min-w-0 flex-1 rounded-md border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-accent-dim/50"
+            class="min-w-0 flex-1 border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-accent-dim/50"
             bind:value={branchName}
             placeholder="feature/my-branch"
             disabled={creatingWorktree}
             autofocus
           />
           <button
-            class="cursor-pointer rounded-md border border-accent-dim/20 bg-accent-dim/15 px-2.5 py-1.5 text-[11px] font-medium text-accent hover:bg-accent-dim/24 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
+            class="cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2.5 py-1.5 text-[11px] font-medium text-accent hover:bg-accent-dim/24 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
             type="submit"
             disabled={creatingWorktree || !branchName.trim()}
           >
