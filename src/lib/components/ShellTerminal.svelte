@@ -112,6 +112,8 @@
     }
   }
 
+  let destroyed = false;
+
   onMount(async () => {
     log(`ShellTerminal mounting: pane=${paneId} pty=${capturedPtyId}`);
     const instance = getOrCreateTerminal();
@@ -120,10 +122,12 @@
 
     // Register exit listener FIRST to avoid missing exit in the attach gap
     if (instance.unlisteners.length === 0 && closeOnExit) {
-      instance.unlisteners.push(await onSessionExit(capturedPtyId, (payload: SessionExitPayload) => {
+      const unlisten = await onSessionExit(capturedPtyId, (payload: SessionExitPayload) => {
         log(`Shell pane ${paneId} exited (code=${payload.code}, reason=${payload.reason})`);
         void onClose();
-      }));
+      });
+      if (destroyed) { unlisten(); return; }
+      instance.unlisteners.push(unlisten);
     }
 
     if (!instance.outputChannel) {
@@ -132,6 +136,7 @@
       });
     }
     await attachPtyOutput(capturedPtyId, instance.outputChannel);
+    if (destroyed) return;
 
     resizeObserver = new ResizeObserver(() => {
       if (active && visible && fitAddon) {
@@ -144,6 +149,7 @@
   });
 
   onDestroy(() => {
+    destroyed = true;
     resizeScheduler.cancel();
     resizeObserver?.disconnect();
     detach();

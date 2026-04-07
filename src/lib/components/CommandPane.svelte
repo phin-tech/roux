@@ -37,6 +37,7 @@
   let startedAt = $state(Date.now());
   let elapsed = $state("0s");
 
+  let destroyed = false;
   let unlisteners: UnlistenFn[] = [];
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let outputChannel: Channel<ArrayBuffer | Uint8Array | number[]> | null = null;
@@ -74,12 +75,14 @@
     await cleanupListeners();
 
     // Register exit listener FIRST to avoid missing exit in the attach gap
-    unlisteners.push(await onSessionExit(ptyId, (payload: SessionExitPayload) => {
+    const unlisten = await onSessionExit(ptyId, (payload: SessionExitPayload) => {
       exitCode = payload.code;
       status = payload.code === 0 ? "succeeded" : "failed";
       if (elapsedTimer) clearInterval(elapsedTimer);
       updateElapsed();
-    }));
+    });
+    if (destroyed) { unlisten(); return; }
+    unlisteners.push(unlisten);
   }
 
   async function attachOutput(ptyId: string) {
@@ -89,6 +92,7 @@
       });
     }
     await attachPtyOutput(ptyId, outputChannel);
+    if (destroyed) return;
   }
 
   function attach() {
@@ -176,6 +180,7 @@
   });
 
   onDestroy(() => {
+    destroyed = true;
     unregisterCommandPane(paneId);
     resizeScheduler.cancel();
     resizeObserver?.disconnect();

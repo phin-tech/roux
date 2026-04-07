@@ -98,7 +98,7 @@
 
     // Register exit listener FIRST to avoid missing exit in the attach gap
     if (entry.unlisteners.length === 0) {
-      entry.unlisteners.push(await onSessionExit(sid, (payload: SessionExitPayload) => {
+      const unlisten = await onSessionExit(sid, (payload: SessionExitPayload) => {
         // Ignore stale generations
         if (entry.generation !== null && payload.generation !== undefined && payload.generation !== entry.generation) {
           log(`Ignoring stale exit for ${sid} (got gen=${payload.generation}, expected=${entry.generation})`);
@@ -106,7 +106,9 @@
         }
         log(`Session ${sid} exited (code=${payload.code}, reason=${payload.reason})`);
         setSessionDisconnected(sid);
-      }));
+      });
+      if (destroyed) { unlisten(); return; }
+      entry.unlisteners.push(unlisten);
     }
 
     if (!entry.outputChannel) {
@@ -115,6 +117,7 @@
       });
     }
     await attachPtyOutput(sid, entry.outputChannel);
+    if (destroyed) return;
   }
 
   // Non-reactive copy of sessionId for use in xterm event callbacks.
@@ -182,7 +185,10 @@
     if (active && visible) attach();
   });
 
+  let destroyed = false;
+
   onDestroy(() => {
+    destroyed = true;
     resizeScheduler.cancel();
     resizeObserver?.disconnect();
     detach();
