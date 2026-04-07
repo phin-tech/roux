@@ -1,4 +1,6 @@
 import { writable, get } from "svelte/store";
+import { setLogicalFocus, focusedPaneId } from "./focus";
+import { getInstance } from "./instances";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -200,4 +202,511 @@ export function hasSplitPanes(sessionId: string): boolean {
 /** Resets all layouts — for use in tests only. */
 export function resetLayouts(): void {
   sessionLayouts.set(new Map());
+}
+
+// ── Navigation / Movement / Resize types ────────────────────────────────────
+
+export type Direction = "left" | "right" | "up" | "down";
+export type DropSide = "left" | "right" | "top" | "bottom";
+
+type PathEntry = { parent: LayoutNode & { kind: "split" }; childIndex: number };
+
+const directionAxis: Record<Direction, SplitDirection> = {
+  left: "h", right: "h",
+  up: "v", down: "v",
+};
+const directionStep: Record<Direction, number> = {
+  left: -1, right: 1, up: -1, down: 1,
+};
+
+const dropSideToDirection: Record<DropSide, SplitDirection> = {
+  left: "h",
+  right: "h",
+  top: "v",
+  bottom: "v",
+};
+
+// ── Internal tree helpers ────────────────────────────────────────────────────
+
+/** Builds the path of { parent, childIndex } entries from root to target leaf. */
+function buildPath(node: LayoutNode, targetId: string, path: PathEntry[]): boolean {
+  if (node.kind === "leaf") return node.paneId === targetId;
+  for (let i = 0; i < node.children.length; i++) {
+    path.push({ parent: node as LayoutNode & { kind: "split" }, childIndex: i });
+    if (buildPath(node.children[i], targetId, path)) return true;
+    path.pop();
+  }
+  return false;
+}
+
+/** Immutable update: replace a split node found by reference with a modified copy. */
+function updateSplitByRef(
+  node: LayoutNode,
+  target: LayoutNode & { kind: "split" },
+  patch: Partial<LayoutNode & { kind: "split" }>
+): LayoutNode {
+  if (node === target) {
+    return { ...node, ...patch } as LayoutNode;
+  }
+  if (node.kind === "leaf") return node;
+  const newChildren = node.children.map((c) => updateSplitByRef(c, target, patch));
+  if (newChildren.every((c, i) => c === node.children[i])) return node;
+  return { ...node, children: newChildren };
+}
+
+/** Replace a specific split node in the tree with a replacement node. */
+function replaceSplitInTree(
+  root: LayoutNode,
+  target: LayoutNode & { kind: "split" },
+  replacement: LayoutNode
+): LayoutNode {
+  if (root === target) return replacement;
+  if (root.kind === "leaf") return root;
+  const mapped = root.children.map((c) => replaceSplitInTree(c, target, replacement));
+  if (mapped.every((c, i) => c === root.children[i])) return root;
+  return { ...root, children: mapped };
+}
+
+/** Remove a leaf from a subtree (mirrors removeLeaf but avoids size/activeIndex adjustments). */
+function removeLeafFromSubtree(node: LayoutNode, paneId: string): LayoutNode | null {
+  if (node.kind === "leaf") {
+    return node.paneId === paneId ? null : node;
+  }
+  const mapped = node.children.map((c) => removeLeafFromSubtree(c, paneId));
+  const remaining = mapped.filter((c): c is LayoutNode => c !== null);
+  if (remaining.length === 0) return null;
+  if (remaining.length === 1) return remaining[0];
+  return { ...node, children: remaining };
+}
+
+/** Insert a new leaf next to target, creating a split of the given direction. */
+function insertLeafAtTarget(
+  node: LayoutNode,
+  targetId: string,
+  direction: SplitDirection,
+  newLeaf: LayoutNode,
+  insertBefore: boolean
+): LayoutNode {
+  if (node.kind === "leaf") {
+    if (node.paneId === targetId) {
+      const children = insertBefore ? [newLeaf, node] : [node, newLeaf];
+      return { kind: "split", direction, children };
+    }
+    return node;
+  }
+  return {
+    ...node,
+    children: node.children.map((child) =>
+      insertLeafAtTarget(child, targetId, direction, newLeaf, insertBefore)
+    ),
+  };
+}
+
+// ── Stacked panes helpers ────────────────────────────────────────────────────
+
+/** Build the path of child indices from root to the split containing targetId. */
+function buildSplitPath(node: LayoutNode, targetId: string, path: number[]): boolean {
+  if (node.kind === "leaf") return node.paneId === targetId;
+  for (let i = 0; i < node.children.length; i++) {
+    path.push(i);
+    if (buildSplitPath(node.children[i], targetId, path)) return true;
+    path.pop();
+  }
+  return false;
+}
+
+/** Resolve the split node at the given depth along path. */
+function splitAtPath(
+  root: LayoutNode,
+  path: number[],
+  depth: number
+): LayoutNode & { kind: "split" } {
+  let node = root;
+  for (let i = 0; i < depth; i++) {
+    if (node.kind !== "split") throw new Error("Expected split");
+    node = node.children[path[i]];
+  }
+  if (node.kind !== "split") throw new Error("Expected split at path");
+  return node;
+}
+
+/** Collect the depths of ancestor split nodes along the path. */
+function ancestorSplitDepths(root: LayoutNode, path: number[]): number[] {
+  const depths: number[] = [];
+  let node = root;
+  for (let i = 0; i < path.length; i++) {
+    if (node.kind === "split") {
+      depths.push(i);
+      node = node.children[path[i]];
+    }
+  }
+  return depths;
+}
+
+/** Find which child index of a split contains the given pane ID. */
+function childIndexContaining(split: LayoutNode & { kind: "split" }, paneId: string): number {
+  for (let i = 0; i < split.children.length; i++) {
+    if (containsPaneId(split.children[i], paneId)) return i;
+  }
+  return 0;
+}
+
+/** Set stacked/activeIndex on the split at the given depth in the path. */
+function setStackedAtDepth(
+  node: LayoutNode,
+  path: number[],
+  targetDepth: number,
+  currentDepth: number,
+  stacked: boolean,
+  activeIndex: number | undefined
+): LayoutNode {
+  if (node.kind === "leaf") return node;
+  if (currentDepth === targetDepth) {
+    return {
+      ...node,
+      stacked: stacked || undefined,
+      activeIndex: stacked ? (activeIndex ?? 0) : undefined,
+    };
+  }
+  const childIdx = path[currentDepth];
+  const newChildren = node.children.map((c, i) =>
+    i === childIdx
+      ? setStackedAtDepth(c, path, targetDepth, currentDepth + 1, stacked, activeIndex)
+      : c
+  );
+  if (newChildren.every((c, i) => c === node.children[i])) return node;
+  return { ...node, children: newChildren };
+}
+
+/** Toggle stacking on the tree, cycling through ancestor splits. */
+function toggleStackInTree(root: LayoutNode, focusedId: string): LayoutNode {
+  const path: number[] = [];
+  if (!buildSplitPath(root, focusedId, path)) return root;
+
+  const splitDepths = ancestorSplitDepths(root, path);
+  if (splitDepths.length === 0) return root;
+
+  let lowestStackedDepthIdx = -1;
+  for (let i = splitDepths.length - 1; i >= 0; i--) {
+    const split = splitAtPath(root, path, splitDepths[i]);
+    if (split.stacked) {
+      lowestStackedDepthIdx = i;
+      break;
+    }
+  }
+
+  if (lowestStackedDepthIdx === -1) {
+    const depth = splitDepths[splitDepths.length - 1];
+    const split = splitAtPath(root, path, depth);
+    return setStackedAtDepth(root, path, depth, 0, true, childIndexContaining(split, focusedId));
+  } else {
+    return setStackedAtDepth(
+      root,
+      path,
+      splitDepths[lowestStackedDepthIdx],
+      0,
+      false,
+      undefined
+    );
+  }
+}
+
+// ── Public navigation / move / resize / stack API ───────────────────────────
+
+/** Get the layout tree for a session. */
+export function getLayout(sessionId: string): LayoutNode {
+  return get(sessionLayouts).get(sessionId)!;
+}
+
+/** Generate a display label for a LayoutNode (used for collapsed stack tabs). */
+export function getStackLabel(node: LayoutNode): string {
+  if (node.kind === "leaf") {
+    const inst = getInstance(node.paneId);
+    return inst?.name ?? inst?.type ?? node.paneId;
+  }
+  return node.children.map(getStackLabel).join(" | ");
+}
+
+/** Navigate focus in a direction within the session's layout tree. */
+export function navigatePane(sessionId: string, direction: Direction): void {
+  const tree = get(sessionLayouts).get(sessionId);
+  if (!tree) return;
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  const path: PathEntry[] = [];
+  if (!buildPath(tree, focused, path)) return;
+
+  const axis = directionAxis[direction];
+  const step = directionStep[direction];
+
+  // Check for stacked ancestor — up/down navigates tabs within stacks
+  for (let i = path.length - 1; i >= 0; i--) {
+    const { parent } = path[i];
+    if (!parent.stacked) continue;
+    if (axis !== "v") continue;
+
+    const nextIndex = (parent.activeIndex ?? 0) + step;
+    if (nextIndex < 0 || nextIndex >= parent.children.length) return;
+
+    sessionLayouts.update((m) => {
+      const root = m.get(sessionId);
+      if (!root) return m;
+      const next = new Map(m);
+      next.set(sessionId, updateSplitByRef(root, parent, { activeIndex: nextIndex }));
+      return next;
+    });
+    const target = parent.children[nextIndex];
+    setLogicalFocus(firstLeafId(target));
+    return;
+  }
+
+  // Normal spatial navigation
+  for (let i = path.length - 1; i >= 0; i--) {
+    const { parent, childIndex } = path[i];
+    if (parent.direction !== axis) continue;
+    const nextIndex = childIndex + step;
+    if (nextIndex < 0 || nextIndex >= parent.children.length) continue;
+    const target = parent.children[nextIndex];
+    const newFocus = step > 0 ? firstLeafId(target) : lastLeafId(target);
+    setLogicalFocus(newFocus);
+    return;
+  }
+}
+
+/** Toggle stacking on the parent split of the focused pane. */
+export function toggleStack(sessionId: string): void {
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  sessionLayouts.update((m) => {
+    const tree = m.get(sessionId);
+    if (!tree) return m;
+    const next = new Map(m);
+    next.set(sessionId, toggleStackInTree(tree, focused));
+    return next;
+  });
+
+  setLogicalFocus(focused);
+}
+
+/** Switch the active stack tab within a stacked split. */
+export function setActiveStackIndex(sessionId: string, index: number): void {
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  let newFocusTarget: LayoutNode | null = null;
+
+  sessionLayouts.update((m) => {
+    const tree = m.get(sessionId);
+    if (!tree) return m;
+
+    const path: number[] = [];
+    if (!buildSplitPath(tree, focused, path)) return m;
+
+    const splitDepths = ancestorSplitDepths(tree, path);
+    let stackedDepth = -1;
+    for (let i = splitDepths.length - 1; i >= 0; i--) {
+      const split = splitAtPath(tree, path, splitDepths[i]);
+      if (split.stacked) {
+        stackedDepth = splitDepths[i];
+        break;
+      }
+    }
+    if (stackedDepth === -1) return m;
+
+    const split = splitAtPath(tree, path, stackedDepth);
+    const clamped = Math.max(0, Math.min(index, split.children.length - 1));
+    newFocusTarget = split.children[clamped];
+    const next = new Map(m);
+    next.set(sessionId, setStackedAtDepth(tree, path, stackedDepth, 0, true, clamped));
+    return next;
+  });
+
+  if (newFocusTarget) {
+    setLogicalFocus(firstLeafId(newFocusTarget));
+  }
+}
+
+/** Move the focused pane in a direction (swap / enter / extract). */
+export function movePaneInDirection(sessionId: string, direction: Direction): void {
+  const tree = get(sessionLayouts).get(sessionId);
+  if (!tree) return;
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  const result = movePaneInTree(tree, focused, direction);
+  if (!result) return;
+
+  sessionLayouts.update((m) => {
+    const next = new Map(m);
+    next.set(sessionId, result);
+    return next;
+  });
+  setLogicalFocus(focused);
+}
+
+function movePaneInTree(
+  root: LayoutNode,
+  paneId: string,
+  direction: Direction
+): LayoutNode | null {
+  const path: PathEntry[] = [];
+  if (!buildPath(root, paneId, path)) return null;
+
+  const axis = directionAxis[direction];
+  const step = directionStep[direction];
+
+  for (let i = path.length - 1; i >= 0; i--) {
+    const { parent, childIndex } = path[i];
+    if (parent.direction !== axis) continue;
+
+    const targetIndex = childIndex + step;
+    if (targetIndex < 0 || targetIndex >= parent.children.length) {
+      continue; // at edge — walk up to extract
+    }
+
+    const isDirectChild = i === path.length - 1;
+    const targetSibling = parent.children[targetIndex];
+
+    if (isDirectChild && targetSibling.kind === "leaf") {
+      // SWAP
+      const newChildren = [...parent.children];
+      newChildren[childIndex] = parent.children[targetIndex];
+      newChildren[targetIndex] = parent.children[childIndex];
+      return replaceSplitInTree(root, parent, { ...parent, children: newChildren });
+    }
+
+    if (isDirectChild && targetSibling.kind === "split") {
+      // ENTER
+      const focusedNode = parent.children[childIndex];
+      const insertIdx = step > 0 ? 0 : targetSibling.children.length;
+      const newTargetChildren = [...targetSibling.children];
+      newTargetChildren.splice(insertIdx, 0, focusedNode);
+      const updatedTarget: LayoutNode = { ...targetSibling, children: newTargetChildren };
+
+      const newChildren = parent.children
+        .map((c, j) => {
+          if (j === childIndex) return null;
+          if (j === targetIndex) return updatedTarget;
+          return c;
+        })
+        .filter((c): c is LayoutNode => c !== null);
+
+      if (newChildren.length === 1) {
+        return replaceSplitInTree(root, parent, newChildren[0]);
+      }
+      return replaceSplitInTree(root, parent, { ...parent, children: newChildren });
+    }
+
+    if (!isDirectChild) {
+      // EXTRACT
+      const paneLeaf: LayoutNode = { kind: "leaf", paneId };
+
+      const subtree = parent.children[childIndex];
+      const subtreeAfterRemove = removeLeafFromSubtree(subtree, paneId);
+
+      const newChildren: LayoutNode[] = [];
+      let subtreePos = -1;
+      for (let j = 0; j < parent.children.length; j++) {
+        if (j === childIndex) {
+          subtreePos = newChildren.length;
+          if (subtreeAfterRemove) newChildren.push(subtreeAfterRemove);
+        } else {
+          newChildren.push(parent.children[j]);
+        }
+      }
+
+      const insertPos =
+        step > 0
+          ? subtreeAfterRemove ? subtreePos + 1 : subtreePos
+          : subtreePos;
+      newChildren.splice(insertPos, 0, paneLeaf);
+
+      return replaceSplitInTree(root, parent, { ...parent, children: newChildren });
+    }
+  }
+
+  return null;
+}
+
+/** Move a pane (drag-and-drop) to a drop side of a target pane. */
+export function movePane(
+  sessionId: string,
+  paneId: string,
+  targetPaneId: string,
+  side: DropSide
+): void {
+  if (paneId === targetPaneId) return;
+
+  sessionLayouts.update((m) => {
+    let tree = m.get(sessionId);
+    if (!tree) return m;
+
+    // 1. Remove pane from current position
+    const afterRemove = removeLeafFromSubtree(tree, paneId);
+    if (!afterRemove) return m;
+
+    // 2. Verify target still exists
+    if (!containsPaneId(afterRemove, targetPaneId)) return m;
+
+    // 3. Insert at new position
+    const direction = dropSideToDirection[side];
+    const insertBefore = side === "left" || side === "top";
+    const newLeaf: LayoutNode = { kind: "leaf", paneId };
+
+    const afterInsert = insertLeafAtTarget(afterRemove, targetPaneId, direction, newLeaf, insertBefore);
+    const next = new Map(m);
+    next.set(sessionId, afterInsert);
+    return next;
+  });
+
+  setLogicalFocus(paneId);
+}
+
+/** Resize the focused pane in the given direction by a step fraction. */
+export function resizePane(sessionId: string, direction: Direction, step: number): void {
+  const tree = get(sessionLayouts).get(sessionId);
+  if (!tree) return;
+  const focused = get(focusedPaneId);
+  if (!focused) return;
+
+  const path: PathEntry[] = [];
+  if (!buildPath(tree, focused, path)) return;
+
+  const axis = directionAxis[direction];
+  const grow = directionStep[direction] * step;
+
+  for (let i = path.length - 1; i >= 0; i--) {
+    const { parent, childIndex } = path[i];
+    if (parent.direction !== axis) continue;
+
+    const neighborIndex = grow > 0 ? childIndex + 1 : childIndex - 1;
+    if (neighborIndex < 0 || neighborIndex >= parent.children.length) continue;
+
+    const count = parent.children.length;
+    const currentSizes = parent.sizes ?? Array(count).fill(1 / count);
+    const newSizes = [...currentSizes];
+
+    const delta = Math.abs(step);
+    const MIN_SIZE = 0.05;
+
+    newSizes[childIndex] = Math.min(
+      1 - MIN_SIZE * (count - 1),
+      newSizes[childIndex] + delta
+    );
+    newSizes[neighborIndex] = Math.max(MIN_SIZE, newSizes[neighborIndex] - delta);
+
+    const total = newSizes.reduce((a, b) => a + b, 0);
+    for (let j = 0; j < newSizes.length; j++) newSizes[j] /= total;
+
+    sessionLayouts.update((m) => {
+      const root = m.get(sessionId);
+      if (!root) return m;
+      const next = new Map(m);
+      next.set(sessionId, updateSplitByRef(root, parent, { sizes: newSizes }));
+      return next;
+    });
+    return;
+  }
 }

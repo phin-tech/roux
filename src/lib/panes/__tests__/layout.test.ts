@@ -11,12 +11,20 @@ import {
   hasSplitPanes,
   containsPaneId,
   resetLayouts,
+  getLayout,
+  navigatePane,
+  toggleStack,
+  setActiveStackIndex,
+  getStackLabel,
+  movePaneInDirection,
+  movePane,
+  resizePane,
   type LayoutNode,
+  type Direction,
+  type DropSide,
 } from "../layout";
-
-function getLayout(sessionId: string): LayoutNode {
-  return get(sessionLayouts).get(sessionId)!;
-}
+import { focusedPaneId, setLogicalFocus, resetFocus } from "../focus";
+import { createPane, resetInstances } from "../instances";
 
 function treeShape(node: LayoutNode): any {
   if (node.kind === "leaf") return node.paneId;
@@ -220,5 +228,160 @@ describe("layout tree", () => {
       expect(containsPaneId(tree, "shell-1")).toBe(true);
       expect(containsPaneId(tree, "nope")).toBe(false);
     });
+  });
+});
+
+describe("navigatePane", () => {
+  beforeEach(() => {
+    resetLayouts();
+    resetFocus();
+    resetInstances();
+  });
+
+  it("navigates right in a horizontal split", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      m.set("s1", insertLeaf(getLayout("s1"), "p1", "h", "p2"));
+      return new Map(m);
+    });
+    setLogicalFocus("p1");
+    navigatePane("s1", "right");
+    expect(get(focusedPaneId)).toBe("p2");
+  });
+
+  it("navigates left", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      m.set("s1", insertLeaf(getLayout("s1"), "p1", "h", "p2"));
+      return new Map(m);
+    });
+    setLogicalFocus("p2");
+    navigatePane("s1", "left");
+    expect(get(focusedPaneId)).toBe("p1");
+  });
+
+  it("does nothing at edge", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      m.set("s1", insertLeaf(getLayout("s1"), "p1", "h", "p2"));
+      return new Map(m);
+    });
+    setLogicalFocus("p2");
+    navigatePane("s1", "right");
+    expect(get(focusedPaneId)).toBe("p2");
+  });
+
+  it("navigates down in a vertical split", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      m.set("s1", insertLeaf(getLayout("s1"), "p1", "v", "p2"));
+      return new Map(m);
+    });
+    setLogicalFocus("p1");
+    navigatePane("s1", "down");
+    expect(get(focusedPaneId)).toBe("p2");
+  });
+});
+
+describe("toggleStack", () => {
+  beforeEach(() => {
+    resetLayouts();
+    resetFocus();
+    resetInstances();
+  });
+
+  it("stacks the parent split of the focused pane", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      m.set("s1", insertLeaf(getLayout("s1"), "p1", "h", "p2"));
+      return new Map(m);
+    });
+    setLogicalFocus("p1");
+    toggleStack("s1");
+    const tree = getLayout("s1");
+    if (tree.kind === "split") {
+      expect(tree.stacked).toBe(true);
+      expect(tree.activeIndex).toBe(0);
+    }
+  });
+
+  it("unstacks when already stacked", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      m.set("s1", insertLeaf(getLayout("s1"), "p1", "h", "p2"));
+      return new Map(m);
+    });
+    setLogicalFocus("p1");
+    toggleStack("s1");
+    toggleStack("s1");
+    const tree = getLayout("s1");
+    if (tree.kind === "split") {
+      expect(tree.stacked).toBeFalsy();
+    }
+  });
+});
+
+describe("resizePane", () => {
+  beforeEach(() => {
+    resetLayouts();
+    resetFocus();
+  });
+
+  it("grows the focused pane to the right", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      m.set("s1", insertLeaf(getLayout("s1"), "p1", "h", "p2"));
+      return new Map(m);
+    });
+    setLogicalFocus("p1");
+    resizePane("s1", "right", 0.05);
+    const tree = getLayout("s1");
+    if (tree.kind === "split") {
+      expect(tree.sizes).toBeDefined();
+      expect(tree.sizes![0]).toBeGreaterThan(0.5);
+    }
+  });
+});
+
+describe("getStackLabel", () => {
+  beforeEach(() => {
+    resetLayouts();
+    resetFocus();
+    resetInstances();
+  });
+
+  it("returns pane name for leaf", () => {
+    createPane({ id: "p1", type: "shell", ptyId: "pty-1", name: "my-shell" });
+    const node: LayoutNode = { kind: "leaf", paneId: "p1" };
+    expect(getStackLabel(node)).toBe("my-shell");
+  });
+
+  it("falls back to type for unnamed leaf", () => {
+    createPane({ id: "p1", type: "shell", ptyId: "pty-1" });
+    const node: LayoutNode = { kind: "leaf", paneId: "p1" };
+    expect(getStackLabel(node)).toBe("shell");
+  });
+});
+
+describe("movePane (drag-and-drop)", () => {
+  beforeEach(() => {
+    resetLayouts();
+    resetFocus();
+  });
+
+  it("moves a pane to the right of another", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      let t = getLayout("s1");
+      t = insertLeaf(t, "p1", "h", "p2");
+      t = insertLeaf(t, "p2", "h", "p3");
+      m.set("s1", t);
+      return new Map(m);
+    });
+    movePane("s1", "p3", "p1", "right");
+    const ids = collectLeafIds(getLayout("s1"));
+    expect(ids).toContain("p1");
+    expect(ids).toContain("p2");
+    expect(ids).toContain("p3");
   });
 });
