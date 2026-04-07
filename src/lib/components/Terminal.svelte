@@ -5,15 +5,13 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { onPtyOutput, onSessionExit, writeToSession, resizeSession, createSession } from "$lib/tauri";
-  import { sessionState, setSessionDisconnected, addSession, removeSession } from "$lib/stores/sessions";
+  import { onPtyOutput, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
+  import { sessionState, setSessionDisconnected } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
-  import { ensureClaudeTerminal, disposeClaudeTerminal } from "$lib/panes/terminalRegistry";
-  import { initSessionPanes, removeSessionPanes } from "$lib/stores/panes";
-  import { closeAuxiliaryPanes } from "$lib/panes/actions";
-  import { killSession } from "$lib/tauri";
+  import { ensureClaudeTerminal } from "$lib/panes/terminalRegistry";
   import { getXtermTheme } from "$lib/themes";
   import { log, logError } from "$lib/logging";
+  import { reconnectSession } from "$lib/sessions/reconnect";
   import SessionPicker from "./SessionPicker.svelte";
 
   interface Props {
@@ -34,54 +32,32 @@
   const session = $derived($sessionState.sessions.find((s) => s.id === sessionId));
   const isDisconnected = $derived(session?.status === "disconnected");
 
+  async function handleContinue() {
+    if (!session) return;
+    log(`Continuing last session for ${sessionId}`);
+    await reconnect(["--continue"]);
+  }
+
   async function handleResume(claudeSessionId: string) {
     if (!session) return;
-    log(`Resuming claude session ${claudeSessionId} (old session: ${sessionId})`);
-    const { repoRoot, name, worktreePath } = session;
-    await closeAuxiliaryPanes(sessionId);
-    await disposeClaudeTerminal(sessionId);
-    await killSession(sessionId).catch(() => {});
-    removeSessionPanes(sessionId);
-    removeSession(sessionId);
-
-    try {
-      const newSession = await createSession(
-        repoRoot,
-        name,
-        worktreePath !== repoRoot ? worktreePath : null,
-        null,
-        ["--resume", claudeSessionId],
-      );
-      log(`Resumed session created: ${newSession.id}`);
-      addSession(newSession);
-      initSessionPanes(newSession.id);
-    } catch (e) {
-      logError("Failed to resume session", e);
-    }
+    log(`Resuming claude session ${claudeSessionId} for ${sessionId}`);
+    await reconnect(["--resume", claudeSessionId]);
   }
 
   async function handleNew() {
     if (!session) return;
-    log(`Creating new session to replace ${sessionId}`);
-    const { repoRoot, name, worktreePath } = session;
-    await closeAuxiliaryPanes(sessionId);
-    await disposeClaudeTerminal(sessionId);
-    await killSession(sessionId).catch(() => {});
-    removeSessionPanes(sessionId);
-    removeSession(sessionId);
+    log(`Starting new claude session for ${sessionId}`);
+    await reconnect();
+  }
 
+  async function reconnect(extraFlags?: string[]) {
+    if (!session) return;
     try {
-      const newSession = await createSession(
-        repoRoot,
-        name,
-        worktreePath !== repoRoot ? worktreePath : null,
-        null,
-      );
-      log(`New session created: ${newSession.id}`);
-      addSession(newSession);
-      initSessionPanes(newSession.id);
+      await reconnectSession(session, extraFlags);
+      // Re-attach listeners for the new PTY
+      await attachListeners();
     } catch (e) {
-      logError("Failed to create new session", e);
+      logError("Failed to reconnect session", e);
     }
   }
 
@@ -226,6 +202,7 @@
   <div class="ui-terminal-frame h-full w-full overflow-hidden rounded-[0.95rem]">
     <SessionPicker
       cwd={session.worktreePath}
+      onContinue={handleContinue}
       onResume={handleResume}
       onNew={handleNew}
     />
