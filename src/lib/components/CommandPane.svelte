@@ -5,7 +5,7 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { attachPtyOutput, createPtyOutputChannel, spawnTask, killSession, onSessionExit, resizeSession } from "$lib/tauri";
+  import { attachPtyOutput, createPtyOutputChannel, spawnTask, killSession, onSessionExit, resizeSession, type SessionExitPayload } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
   import { getXtermTheme } from "$lib/themes";
   import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -73,9 +73,10 @@
   async function attachToPty(ptyId: string) {
     await cleanupListeners();
 
-    unlisteners.push(await onSessionExit(ptyId, (code) => {
-      exitCode = code;
-      status = code === 0 ? "succeeded" : "failed";
+    // Register exit listener FIRST to avoid missing exit in the attach gap
+    unlisteners.push(await onSessionExit(ptyId, (payload: SessionExitPayload) => {
+      exitCode = payload.code;
+      status = payload.code === 0 ? "succeeded" : "failed";
       if (elapsedTimer) clearInterval(elapsedTimer);
       updateElapsed();
     }));

@@ -10,6 +10,7 @@ interface BaseTerminalEntry {
   unlisteners: UnlistenFn[];
   disposables: IDisposable[];
   outputChannel: Channel<PtyOutputPayload> | null;
+  generation: number | null;
 }
 
 export interface ClaudeTerminalEntry extends BaseTerminalEntry {}

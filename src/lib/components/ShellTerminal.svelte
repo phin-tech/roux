@@ -5,7 +5,7 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { attachPtyOutput, createPtyOutputChannel, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
+  import { attachPtyOutput, createPtyOutputChannel, onSessionExit, writeToSession, resizeSession, type SessionExitPayload } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
   import { ensureShellTerminal } from "$lib/panes/terminalRegistry";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
@@ -61,6 +61,7 @@
       unlisteners: [],
       disposables: [],
       outputChannel: null,
+      generation: null,
     }));
   }
 
@@ -117,19 +118,20 @@
     terminal = instance.terminal;
     fitAddon = instance.fitAddon;
 
+    // Register exit listener FIRST to avoid missing exit in the attach gap
+    if (instance.unlisteners.length === 0 && closeOnExit) {
+      instance.unlisteners.push(await onSessionExit(capturedPtyId, (payload: SessionExitPayload) => {
+        log(`Shell pane ${paneId} exited (code=${payload.code}, reason=${payload.reason})`);
+        void onClose();
+      }));
+    }
+
     if (!instance.outputChannel) {
       instance.outputChannel = createPtyOutputChannel((bytes) => {
         instance.terminal.write(bytes);
       });
     }
     await attachPtyOutput(capturedPtyId, instance.outputChannel);
-
-    if (instance.unlisteners.length === 0 && closeOnExit) {
-      instance.unlisteners.push(await onSessionExit(capturedPtyId, () => {
-        log(`Shell pane ${paneId} exited`);
-        void onClose();
-      }));
-    }
 
     resizeObserver = new ResizeObserver(() => {
       if (active && visible && fitAddon) {

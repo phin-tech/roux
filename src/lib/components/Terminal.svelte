@@ -5,7 +5,7 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
-  import { attachPtyOutput, createPtyOutputChannel, onSessionExit, writeToSession, resizeSession } from "$lib/tauri";
+  import { attachPtyOutput, createPtyOutputChannel, onSessionExit, writeToSession, resizeSession, type SessionExitPayload } from "$lib/tauri";
   import { sessionState, setSessionDisconnected } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { ensureClaudeTerminal } from "$lib/panes/terminalRegistry";
@@ -84,25 +84,33 @@
       unlisteners: [],
       disposables: [],
       outputChannel: null,
+      generation: null,
     }));
   }
 
   async function attachListeners() {
     const entry = getOrCreateTerminal();
     const sid = sessionId; // capture by value for callbacks
+
+    // Register exit listener FIRST to avoid missing exit in the attach gap
+    if (entry.unlisteners.length === 0) {
+      entry.unlisteners.push(await onSessionExit(sid, (payload: SessionExitPayload) => {
+        // Ignore stale generations
+        if (entry.generation !== null && payload.generation !== undefined && payload.generation !== entry.generation) {
+          log(`Ignoring stale exit for ${sid} (got gen=${payload.generation}, expected=${entry.generation})`);
+          return;
+        }
+        log(`Session ${sid} exited (code=${payload.code}, reason=${payload.reason})`);
+        setSessionDisconnected(sid);
+      }));
+    }
+
     if (!entry.outputChannel) {
       entry.outputChannel = createPtyOutputChannel((bytes) => {
         entry.terminal.write(bytes);
       });
     }
     await attachPtyOutput(sid, entry.outputChannel);
-
-    if (entry.unlisteners.length > 0) return;
-
-    entry.unlisteners.push(await onSessionExit(sid, (_code) => {
-      log(`Session ${sid} exited (code=${_code})`);
-      setSessionDisconnected(sid);
-    }));
   }
 
   // Non-reactive copy of sessionId for use in xterm event callbacks.

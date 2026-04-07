@@ -1,4 +1,4 @@
-import { attachPtyOutput, createPtyOutputChannel, spawnTask, onSessionExit } from "$lib/tauri";
+import { attachPtyOutput, createPtyOutputChannel, spawnTask, onSessionExit, type SessionExitPayload } from "$lib/tauri";
 import { addSplit } from "$lib/stores/panes";
 import {
   addTaskRun,
@@ -29,10 +29,10 @@ export async function runTask(
     appendTaskOutput(sessionId, ptyId, stripAnsi(text));
   });
 
-  const exitReady = onSessionExit(ptyId, (code) => {
-    updateTaskRun(sessionId, ptyId, code);
+  const exitReady = onSessionExit(ptyId, (payload: SessionExitPayload) => {
+    updateTaskRun(sessionId, ptyId, payload.code);
     const keepOpen = getEffectiveKeepOpen(repoRoot, task.id, task.keepOpen);
-    if (keepOpen === "never" || (keepOpen === "on-error" && code === 0)) {
+    if (keepOpen === "never" || (keepOpen === "on-error" && payload.code === 0)) {
       setTimeout(() => {
         removeTaskRun(sessionId, ptyId);
       }, 3000);

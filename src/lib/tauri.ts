@@ -229,14 +229,20 @@ export function onSessionStatus(
   );
 }
 
+export interface SessionExitPayload {
+  code: number | null;
+  generation?: number;
+  reason?: "exit" | "io_error" | "killed";
+}
+
 export function onSessionExit(
   sessionId: string,
-  callback: (code: number | null) => void
+  callback: (payload: SessionExitPayload) => void
 ): Promise<UnlistenFn> {
-  return listen<{ code: number | null }>(
+  return listen<SessionExitPayload>(
     `session-exit:${sessionId}`,
     (event) => {
-      callback(event.payload.code);
+      callback(event.payload);
     }
   );
 }
