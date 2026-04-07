@@ -4,6 +4,9 @@ import { get } from "svelte/store";
 vi.mock("$lib/tauri", () => ({
   reconnectSessionPty: vi.fn(),
   killSession: vi.fn(),
+  createPtyOutputChannel: vi.fn((_cb: unknown) => "mock-channel"),
+  attachPtyOutput: vi.fn().mockResolvedValue(undefined),
+  onSessionExit: vi.fn().mockResolvedValue(() => {}),
 }));
 
 import { reconnectSession } from "../reconnect";

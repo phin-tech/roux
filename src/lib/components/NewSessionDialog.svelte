@@ -98,7 +98,10 @@
 
       log(`Session created: ${session.id}`);
       addSession(session);
-      initSessionPanes(session.id);
+      const mainPaneId = initSessionPanes(session.id);
+      const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+      initTerminal(mainPaneId);
+      await attachPtyListeners(mainPaneId);
       resetAndClose();
     } catch (e) {
       logError("Failed to create session", e);

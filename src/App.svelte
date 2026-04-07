@@ -142,15 +142,18 @@
     if (loadedSettings.restoreSessionsOnLaunch) {
       const sessions = await listSessions();
       log(`Restoring ${sessions.length} session(s)`);
+      const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
       for (const s of sessions) {
         addSession(s);
-        initSession(s.id);
+        const mainPaneId = initSession(s.id);
+        initTerminal(mainPaneId);
+        await attachPtyListeners(mainPaneId);
         // TODO: restore shell panes from persistence and spawn fresh PTYs
       }
     }
 
     // Listen for commands from roux-cli via socket server
-    await onRouxCommand((cmd: RouxCommand) => {
+    await onRouxCommand(async (cmd: RouxCommand) => {
       log(`roux-command: ${JSON.stringify(cmd)}`);
       switch (cmd.action) {
         case "split": {
@@ -159,19 +162,27 @@
           const ptyId = crypto.randomUUID();
           const session = $sessionState.sessions.find((s) => s.id === sessionId);
           if (!session) break;
-          spawnShell(ptyId, session.worktreePath).then(() => {
+          spawnShell(ptyId, session.worktreePath).then(async () => {
             const direction = cmd.direction === "vertical" ? "v" : "h";
-            splitPane(sessionId, direction, { type: "shell", ptyId });
+            const newPaneId = splitPane(sessionId, direction, { type: "shell", ptyId });
+            if (newPaneId) {
+              const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+              initTerminal(newPaneId);
+              await attachPtyListeners(newPaneId);
+            }
           }).catch((e) => logError("Failed to spawn shell for socket split", e));
           break;
         }
         case "session-created": {
           // Reload sessions to pick up the newly created one
-          listSessions().then((sessions) => {
+          listSessions().then(async (sessions) => {
             const newSession = sessions.find((s) => s.id === cmd.sessionId);
             if (newSession) {
               addSession(newSession);
-              initSession(newSession.id);
+              const mainPaneId = initSession(newSession.id);
+              const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+              initTerminal(mainPaneId);
+              await attachPtyListeners(mainPaneId);
             }
           });
           break;
@@ -179,18 +190,28 @@
         case "shell-opened": {
           const sessionId = cmd.sessionId;
           if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
-          splitPane(sessionId, "h", { type: "shell", ptyId: cmd.ptyId });
+          const newPaneId = splitPane(sessionId, "h", { type: "shell", ptyId: cmd.ptyId });
+          if (newPaneId) {
+            const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+            initTerminal(newPaneId);
+            await attachPtyListeners(newPaneId);
+          }
           break;
         }
         case "command-opened": {
           const sessionId = cmd.sessionId;
           if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
-          splitPane(sessionId, "h", {
+          const newPaneId = splitPane(sessionId, "h", {
             type: "command",
             ptyId: cmd.ptyId,
             command: cmd.command,
             workingDir: cmd.workingDir,
           });
+          if (newPaneId) {
+            const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+            initTerminal(newPaneId);
+            await attachPtyListeners(newPaneId);
+          }
           break;
         }
         case "focus": {

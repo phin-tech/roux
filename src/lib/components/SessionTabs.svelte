@@ -157,7 +157,10 @@
       const session = await createSession(repo, name, null, branch);
       log(`Worktree session created: ${session.id}`);
       addSession(session);
-      initSessionPanes(session.id);
+      const mainPaneId = initSessionPanes(session.id);
+      const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+      initTerminal(mainPaneId);
+      await attachPtyListeners(mainPaneId);
       closeContextMenu();
     } catch (e) {
       logError("Failed to create worktree session", e);

@@ -17,11 +17,17 @@ export async function reconnectSession(
   try {
     log(`Reconnecting session ${session.id} (${session.name})${extraFlags ? ` with flags: ${extraFlags.join(" ")}` : ""}`);
 
+    const mainPaneId = `${session.id}-main`;
+
     // Swap the PTY on the main pane — tears down old listeners, keeps terminal
-    replacePty(`${session.id}-main`, session.id);
+    replacePty(mainPaneId, session.id);
 
     // Call the Rust command that kills old PTY + spawns new one under same ID
     const updated = await reconnectSessionPty(session.id, extraFlags);
+
+    // Re-attach PTY listeners to the main pane
+    const { attachPtyListeners } = await import("$lib/panes/terminals");
+    await attachPtyListeners(mainPaneId);
 
     // Update session status in the Svelte store
     updateSessionStatus(session.id, updated.status as Session["status"]);
