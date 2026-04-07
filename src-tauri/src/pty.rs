@@ -457,6 +457,7 @@ impl PtyManager {
         session_id: &str,
         channel: Channel<Response>,
     ) -> Result<(), String> {
+        self.cleanup_stale_pending();
         let output = self
             .sessions
             .lock()
@@ -496,11 +497,35 @@ impl PtyManager {
             .map_err(|e| format!("Resize failed: {}", e))
     }
 
+    fn cleanup_stale_pending(&self) {
+        // pending_outputs only accumulate for IDs that never spawned.
+        // Since we can't timestamp them easily, just check if the session exists.
+        let sessions = self.sessions.lock().unwrap();
+        let mut pending = self.pending_outputs.lock().unwrap();
+        pending.retain(|id, _| sessions.contains_key(id));
+    }
+
     pub fn kill(&self, session_id: &str) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().unwrap();
         self.pending_outputs.lock().unwrap().remove(session_id);
-        if let Some(mut session) = sessions.remove(session_id) {
-            let _ = session.child.kill();
+        let session = self.sessions.lock().unwrap().remove(session_id);
+        if let Some(mut session) = session {
+            if let Err(e) = session.child.kill() {
+                rlog!("Warning: kill failed for {}: {}", session_id, e);
+            }
+            // Give the child up to 2 seconds to exit
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                match session.child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if Instant::now() < deadline => {
+                        thread::sleep(Duration::from_millis(50));
+                    }
+                    _ => {
+                        rlog!("Warning: child for {} did not exit within timeout", session_id);
+                        break;
+                    }
+                }
+            }
         }
         Ok(())
     }
