@@ -22,6 +22,7 @@ import {
   type SessionExitPayload,
 } from "$lib/tauri";
 import { getInstance, updateInstance } from "./instances";
+import { focusedPaneId } from "./focus";
 import { log } from "$lib/logging";
 
 /**
@@ -62,6 +63,12 @@ export function initTerminal(paneId: string): void {
     });
   });
 
+  // Reconcile disableStdin with current logical focus — focus may have been
+  // set before the terminal existed (e.g. initSession → setLogicalFocus
+  // runs before initTerminal).
+  const currentFocused = get(focusedPaneId);
+  terminal.options.disableStdin = paneId !== currentFocused;
+
   updateInstance(paneId, { terminal, fitAddon });
 }
 
@@ -69,6 +76,9 @@ export function initTerminal(paneId: string): void {
  * Wire up PTY output and (optionally) an exit handler for the pane's
  * current ptyId.  Pushes unlisteners onto the instance so they are
  * cleaned up automatically by disposePane.
+ *
+ * Re-checks instance existence and ptyId stability after each async
+ * boundary to guard against rapid close/reconnect/rerun races.
  */
 export async function attachPtyListeners(
   paneId: string,
@@ -77,20 +87,38 @@ export async function attachPtyListeners(
   const instance = getInstance(paneId);
   if (!instance) return;
 
+  // Capture the ptyId we're attaching to — if it changes between awaits,
+  // a replacePty/rerun happened and we should bail.
+  const targetPtyId = instance.ptyId;
+
   if (onExit) {
-    const unlisten = await onSessionExit(instance.ptyId, onExit);
-    instance.unlisteners.push(unlisten);
+    const unlisten = await onSessionExit(targetPtyId, onExit);
+    // Re-check: pane may have been disposed or ptyId replaced during await
+    const current = getInstance(paneId);
+    if (!current || current.ptyId !== targetPtyId) {
+      unlisten();
+      return;
+    }
+    current.unlisteners.push(unlisten);
   }
 
-  if (!instance.outputChannel) {
+  // Re-check after exit listener await
+  const inst2 = getInstance(paneId);
+  if (!inst2 || inst2.ptyId !== targetPtyId) return;
+
+  if (!inst2.outputChannel) {
     const channel = createPtyOutputChannel((bytes) => {
       // Re-read instance in case it was replaced (reconnect, rerun)
       const inst = getInstance(paneId);
       inst?.terminal?.write(bytes);
     });
     updateInstance(paneId, { outputChannel: channel });
-    await attachPtyOutput(instance.ptyId, channel);
+
+    // Final re-check before attaching output
+    const inst3 = getInstance(paneId);
+    if (!inst3 || inst3.ptyId !== targetPtyId) return;
+    await attachPtyOutput(targetPtyId, channel);
   } else {
-    await attachPtyOutput(instance.ptyId, instance.outputChannel);
+    await attachPtyOutput(targetPtyId, inst2.outputChannel);
   }
 }

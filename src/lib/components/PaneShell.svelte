@@ -195,11 +195,9 @@
     } else if (!containerEl.contains(instance.terminal.element)) {
       containerEl.appendChild(instance.terminal.element);
     }
-    resizeScheduler.schedule({
-      afterFit: () => {
-        if (isFocused) instance?.terminal?.focus();
-      },
-    });
+    // Only schedule refit — never call terminal.focus() from non-pointer paths.
+    // DOM focus is only set by requestDomFocus via pointer event handlers.
+    resizeScheduler.schedule();
   }
 
   function doDetach() {
@@ -249,14 +247,12 @@
     }
   });
 
-  // Focus effect: refit when focused
+  // Focus effect: refit when gaining logical focus (disableStdin just changed,
+  // terminal may need resize). Never call terminal.focus() here — DOM focus
+  // is only driven by pointer events via requestDomFocus.
   $effect(() => {
     if (isFocused && visible && instance?.terminal) {
-      resizeScheduler.schedule({
-        afterFit: () => {
-          instance?.terminal?.focus();
-        },
-      });
+      resizeScheduler.schedule();
     }
   });
 

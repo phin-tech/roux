@@ -96,13 +96,18 @@ export function createPane(opts: CreatePaneOpts): string {
 
 /**
  * Dispose a pane instance — idempotent.
- * Cleans up unlisteners, clears elapsed timer, disposes terminal, removes
- * from the store.
+ * Cleans up unlisteners, clears elapsed timer, disposes terminal, kills PTY
+ * for shell/command types, and removes from the store.
  */
-export function disposePane(id: string): void {
+export function disposePane(id: string, killPty?: (ptyId: string) => Promise<void>): void {
   const map = get(paneInstances);
   const inst = map.get(id);
   if (!inst) return;
+
+  // Kill PTY for shell/command panes (claude PTYs are session-level, killed separately)
+  if (killPty && (inst.type === "shell" || inst.type === "command")) {
+    killPty(inst.ptyId).catch(() => { /* best-effort */ });
+  }
 
   // Run all cleanup listeners
   for (const unlisten of inst.unlisteners.splice(0)) {

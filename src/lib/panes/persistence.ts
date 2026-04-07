@@ -1,4 +1,7 @@
+import { get } from "svelte/store";
 import type { LayoutNode } from "./layout";
+import { sessionLayouts, collectLeafIds } from "./layout";
+import { paneInstances, type PaneInstance } from "./instances";
 
 export interface PaneDescriptor {
   id: string;
@@ -141,4 +144,55 @@ export function scheduleSave(
       savePaneDescriptors(sessionId, getDescriptors(sessionId));
     }
   }, 300);
+}
+
+// ── Auto-save subscription ───────────────────────────────────────────────────
+
+function descriptorsForSession(sessionId: string): PaneDescriptor[] {
+  const instances = get(paneInstances);
+  const layouts = get(sessionLayouts);
+  const tree = layouts.get(sessionId);
+  if (!tree) return [];
+
+  const paneIds = collectLeafIds(tree);
+
+  return paneIds
+    .map((id) => instances.get(id))
+    .filter((inst): inst is PaneInstance => inst != null)
+    .map((inst) => ({
+      id: inst.id,
+      type: inst.type,
+      ptyId: inst.ptyId,
+      name: inst.name,
+      workingDir: inst.workingDir,
+      command: inst.command,
+      docPath: inst.docPath,
+    }));
+}
+
+let unsubscribe: (() => void) | null = null;
+
+/**
+ * Subscribe to sessionLayouts changes and auto-save.
+ * Call once during app initialization.
+ */
+export function initPersistence(): void {
+  if (unsubscribe) return;
+  unsubscribe = sessionLayouts.subscribe((layouts) => {
+    scheduleSave(layouts, descriptorsForSession);
+  });
+}
+
+/**
+ * Stop the auto-save subscription — for tests only.
+ */
+export function stopPersistence(): void {
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
+  }
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
 }

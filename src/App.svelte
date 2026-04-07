@@ -13,6 +13,7 @@
   import { initSession, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus } from "$lib/panes/focus";
+  import { initPersistence, loadLayout, clearLayout } from "$lib/panes/persistence";
   import { listSessions, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
@@ -148,9 +149,21 @@
         const mainPaneId = initSession(s.id);
         initTerminal(mainPaneId);
         await attachPtyListeners(mainPaneId);
-        // TODO: restore shell panes from persistence and spawn fresh PTYs
+
+        // Restore persisted layout if available (shell panes get fresh layouts;
+        // command panes are stripped since their processes are gone)
+        const persisted = loadLayout(s.id);
+        if (persisted) {
+          // For now we just use the fresh single-pane layout created by
+          // initSession. Full shell pane restore (spawn fresh PTYs for each
+          // persisted shell) is deferred to a later iteration.
+          clearLayout(s.id);
+        }
       }
     }
+
+    // Start auto-saving layout changes to localStorage
+    initPersistence();
 
     // Listen for commands from roux-cli via socket server
     await onRouxCommand(async (cmd: RouxCommand) => {
@@ -190,7 +203,8 @@
         case "shell-opened": {
           const sessionId = cmd.sessionId;
           if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
-          const newPaneId = splitPane(sessionId, "h", { type: "shell", ptyId: cmd.ptyId });
+          // Use the backend-provided paneId so socket focus commands can target it
+          const newPaneId = splitPane(sessionId, "h", { id: cmd.paneId, type: "shell", ptyId: cmd.ptyId });
           if (newPaneId) {
             const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
             initTerminal(newPaneId);
@@ -201,7 +215,9 @@
         case "command-opened": {
           const sessionId = cmd.sessionId;
           if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
+          // Use the backend-provided paneId so socket focus commands can target it
           const newPaneId = splitPane(sessionId, "h", {
+            id: cmd.paneId,
             type: "command",
             ptyId: cmd.ptyId,
             command: cmd.command,

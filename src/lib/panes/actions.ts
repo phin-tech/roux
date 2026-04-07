@@ -7,9 +7,11 @@ import {
   removeLeaf,
   firstLeafId,
   collectLeafIds,
+  containsPaneId,
   type SplitDirection,
 } from "./layout";
 import { focusedPaneId, setLogicalFocus } from "./focus";
+import { killSession } from "$lib/tauri";
 
 export function initSession(sessionId: string): string {
   const mainPaneId = `${sessionId}-main`;
@@ -25,7 +27,7 @@ export function initSession(sessionId: string): string {
 export function splitPane(
   sessionId: string,
   direction: SplitDirection,
-  opts: Omit<CreatePaneOpts, "id">
+  opts: CreatePaneOpts
 ): string | null {
   const newPaneId = createPane(opts);
 
@@ -33,14 +35,26 @@ export function splitPane(
   sessionLayouts.update((m) => {
     const tree = m.get(sessionId);
     if (!tree) return m;
-    const focused = get(focusedPaneId);
-    m.set(sessionId, insertLeaf(tree, focused ?? "", direction, newPaneId));
+
+    // Fix #4: Ensure focused pane belongs to this session's layout.
+    // If focus is on a different session, fall back to the first leaf.
+    let targetId = get(focusedPaneId);
+    if (!targetId || !containsPaneId(tree, targetId)) {
+      targetId = firstLeafId(tree);
+    }
+
+    const updated = insertLeaf(tree, targetId, direction, newPaneId);
+
+    // Verify the new pane was actually inserted
+    if (!containsPaneId(updated, newPaneId)) return m;
+
+    m.set(sessionId, updated);
     inserted = true;
     return new Map(m);
   });
 
   if (!inserted) {
-    disposePane(newPaneId);
+    disposePane(newPaneId, killSession);
     return null;
   }
 
@@ -66,7 +80,7 @@ export function closePane(sessionId: string, paneId: string): boolean {
     return new Map(m);
   });
 
-  disposePane(paneId);
+  disposePane(paneId, killSession);
 
   if (get(focusedPaneId) === paneId) {
     const tree = get(sessionLayouts).get(sessionId);
@@ -86,7 +100,7 @@ export function closeSessionPanes(sessionId: string) {
   const tree = get(sessionLayouts).get(sessionId);
   if (tree) {
     const ids = collectLeafIds(tree);
-    for (const id of ids) disposePane(id);
+    for (const id of ids) disposePane(id, killSession);
   }
   sessionLayouts.update((m) => {
     m.delete(sessionId);
