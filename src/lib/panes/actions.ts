@@ -1,57 +1,100 @@
 import { get } from "svelte/store";
+import { createPane, disposePane, getInstance, type CreatePaneOpts } from "./instances";
 import {
-  focusedPaneId,
-  getPane,
-  listPanes,
-  removePane,
-} from "$lib/stores/panes";
-import { disposeShellTerminal } from "./terminalRegistry";
+  sessionLayouts,
+  initSessionLayout,
+  insertLeaf,
+  removeLeaf,
+  firstLeafId,
+  collectLeafIds,
+  type SplitDirection,
+} from "./layout";
+import { focusedPaneId, setLogicalFocus } from "./focus";
 
-export interface PaneCloseDeps {
-  cleanupShellPane?: (paneId: string, ptyId: string) => Promise<void> | void;
+export function initSession(sessionId: string): string {
+  const mainPaneId = `${sessionId}-main`;
+  // Only create if not already exists
+  if (!getInstance(mainPaneId)) {
+    createPane({ id: mainPaneId, type: "claude", ptyId: sessionId });
+  }
+  initSessionLayout(sessionId, mainPaneId);
+  setLogicalFocus(mainPaneId);
+  return mainPaneId;
 }
 
-const defaultDeps: Required<PaneCloseDeps> = {
-  cleanupShellPane: (paneId) => disposeShellTerminal(paneId),
-};
-
-export async function closePane(
+export function splitPane(
   sessionId: string,
-  paneId: string,
-  deps: PaneCloseDeps = defaultDeps
-): Promise<boolean> {
-  const pane = getPane(sessionId, paneId);
-  if (!pane) return false;
-  if (pane.type === "claude" && pane.id === `${sessionId}-main`) {
+  direction: SplitDirection,
+  opts: Omit<CreatePaneOpts, "id">
+): string | null {
+  const newPaneId = createPane(opts);
+
+  let inserted = false;
+  sessionLayouts.update((m) => {
+    const tree = m.get(sessionId);
+    if (!tree) return m;
+    const focused = get(focusedPaneId);
+    m.set(sessionId, insertLeaf(tree, focused, direction, newPaneId));
+    inserted = true;
+    return new Map(m);
+  });
+
+  if (!inserted) {
+    disposePane(newPaneId);
+    return null;
+  }
+
+  setLogicalFocus(newPaneId);
+  return newPaneId;
+}
+
+export function closePane(sessionId: string, paneId: string): boolean {
+  const instance = getInstance(paneId);
+  if (!instance) return false;
+
+  // Don't close the main claude pane
+  if (instance.type === "claude" && instance.id === `${sessionId}-main`) {
     return false;
   }
 
-  if (pane.type === "shell") {
-    await deps.cleanupShellPane?.(pane.id, pane.ptyId);
+  sessionLayouts.update((m) => {
+    const tree = m.get(sessionId);
+    if (!tree) return m;
+    const result = removeLeaf(tree, paneId);
+    if (result) m.set(sessionId, result);
+    else m.delete(sessionId);
+    return new Map(m);
+  });
+
+  disposePane(paneId);
+
+  if (get(focusedPaneId) === paneId) {
+    const tree = get(sessionLayouts).get(sessionId);
+    setLogicalFocus(tree ? firstLeafId(tree) : null);
   }
 
-  removePane(sessionId, paneId);
   return true;
 }
 
-export async function closeFocusedPane(
-  sessionId: string,
-  deps: PaneCloseDeps = defaultDeps
-): Promise<boolean> {
+export function closeFocusedPane(sessionId: string): boolean {
   const paneId = get(focusedPaneId);
   if (!paneId) return false;
-  return closePane(sessionId, paneId, deps);
+  return closePane(sessionId, paneId);
 }
 
-export async function closeAuxiliaryPanes(
-  sessionId: string,
-  deps: PaneCloseDeps = defaultDeps
-) {
-  const panes = listPanes(sessionId).filter(
-    (pane) => !(pane.type === "claude" && pane.id === `${sessionId}-main`)
-  );
-
-  for (const pane of panes) {
-    await closePane(sessionId, pane.id, deps);
+export function closeSessionPanes(sessionId: string) {
+  const tree = get(sessionLayouts).get(sessionId);
+  if (tree) {
+    const ids = collectLeafIds(tree);
+    for (const id of ids) disposePane(id);
+  }
+  sessionLayouts.update((m) => {
+    m.delete(sessionId);
+    return new Map(m);
+  });
+  // Clear focus if it was in this session
+  const focused = get(focusedPaneId);
+  if (focused && tree && collectLeafIds(tree).includes(focused)) {
+    setLogicalFocus(null);
   }
 }

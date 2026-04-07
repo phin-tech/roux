@@ -1,74 +1,150 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { get } from "svelte/store";
-import { closePane } from "../actions";
 import {
-  addSplit,
-  focusedPaneId,
-  initSessionPanes,
-  paneTrees,
-} from "$lib/stores/panes";
+  splitPane,
+  closePane,
+  closeFocusedPane,
+  closeSessionPanes,
+  initSession,
+} from "../actions";
+import { paneInstances, resetInstances, getInstance } from "../instances";
+import { sessionLayouts, resetLayouts, collectLeafIds } from "../layout";
+import { focusedPaneId, resetFocus } from "../focus";
 
-describe("pane close actions", () => {
+describe("pane actions", () => {
   beforeEach(() => {
-    paneTrees.set(new Map());
-    focusedPaneId.set(null);
+    resetInstances();
+    resetLayouts();
+    resetFocus();
   });
 
-  it("runs shell cleanup before removing the pane", async () => {
-    initSessionPanes("s1");
-    addSplit("s1", "horizontal", { id: "shell-1", type: "shell", ptyId: "pty-1" });
+  describe("initSession", () => {
+    it("creates a claude pane instance and layout", () => {
+      const mainId = initSession("s1");
+      expect(mainId).toBe("s1-main");
 
-    const events: string[] = [];
-    const cleanupShellPane = vi.fn(async (paneId: string, ptyId: string) => {
-      events.push(`cleanup:${paneId}:${ptyId}`);
-      expect(get(paneTrees).get("s1")?.kind).toBe("split");
+      const tree = get(sessionLayouts).get("s1");
+      expect(tree?.kind).toBe("leaf");
+
+      const inst = getInstance("s1-main");
+      expect(inst).toBeDefined();
+      expect(inst!.type).toBe("claude");
+      expect(inst!.ptyId).toBe("s1");
     });
 
-    const closed = await closePane("s1", "shell-1", {
-      cleanupShellPane,
+    it("focuses the main pane", () => {
+      initSession("s1");
+      expect(get(focusedPaneId)).toBe("s1-main");
     });
 
-    expect(closed).toBe(true);
-    expect(cleanupShellPane).toHaveBeenCalledWith("shell-1", "pty-1");
-    expect(events).toEqual(["cleanup:shell-1:pty-1"]);
-    expect(get(paneTrees).get("s1")?.kind).toBe("pane");
-    expect(get(focusedPaneId)).toBe("s1-main");
+    it("is idempotent — does not reinitialize", () => {
+      initSession("s1");
+      initSession("s1");
+      expect(collectLeafIds(get(sessionLayouts).get("s1")!)).toHaveLength(1);
+    });
   });
 
-  it("removes markdown panes without invoking shell cleanup", async () => {
-    initSessionPanes("s1");
-    addSplit("s1", "horizontal", {
-      id: "doc-1",
-      type: "markdown",
-      ptyId: "",
-      docPath: "/tmp/note.md",
+  describe("splitPane", () => {
+    it("creates a new pane and inserts into layout", () => {
+      initSession("s1");
+      const newId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" });
+
+      expect(newId).not.toBeNull();
+      const tree = get(sessionLayouts).get("s1")!;
+      expect(tree.kind).toBe("split");
+      const ids = collectLeafIds(tree);
+      expect(ids).toHaveLength(2);
+      for (const id of ids) {
+        expect(get(paneInstances).has(id)).toBe(true);
+      }
     });
 
-    const cleanupShellPane = vi.fn();
-
-    const closed = await closePane("s1", "doc-1", {
-      cleanupShellPane,
+    it("focuses the new pane after split", () => {
+      initSession("s1");
+      const newId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" });
+      expect(get(focusedPaneId)).toBe(newId);
+      expect(getInstance(newId!)!.type).toBe("shell");
     });
 
-    expect(closed).toBe(true);
-    expect(cleanupShellPane).not.toHaveBeenCalled();
-    expect(get(paneTrees).get("s1")?.kind).toBe("pane");
-    expect(get(focusedPaneId)).toBe("s1-main");
+    it("rolls back if session has no layout", () => {
+      // No initSession called — no layout exists
+      const newId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" });
+      expect(newId).toBeNull();
+      // Pane instance should have been cleaned up
+      expect(get(paneInstances).size).toBe(0);
+    });
   });
 
-  it("does not close the main claude pane", async () => {
-    initSessionPanes("s1");
-    focusedPaneId.set("s1-main");
+  describe("closePane", () => {
+    it("removes pane from layout and disposes instance", () => {
+      initSession("s1");
+      const shellId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" })!;
 
-    const cleanupShellPane = vi.fn();
-
-    const closed = await closePane("s1", "s1-main", {
-      cleanupShellPane,
+      const closed = closePane("s1", shellId);
+      expect(closed).toBe(true);
+      expect(get(paneInstances).has(shellId)).toBe(false);
+      expect(get(sessionLayouts).get("s1")!.kind).toBe("leaf");
     });
 
-    expect(closed).toBe(false);
-    expect(cleanupShellPane).not.toHaveBeenCalled();
-    expect(get(paneTrees).get("s1")?.kind).toBe("pane");
-    expect(get(focusedPaneId)).toBe("s1-main");
+    it("does not close the main claude pane", () => {
+      initSession("s1");
+      const closed = closePane("s1", "s1-main");
+      expect(closed).toBe(false);
+      expect(get(paneInstances).has("s1-main")).toBe(true);
+    });
+
+    it("moves focus when closing focused pane", () => {
+      initSession("s1");
+      const shellId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" })!;
+      // shellId is focused after split
+
+      closePane("s1", shellId);
+      expect(get(focusedPaneId)).not.toBeNull();
+      expect(get(focusedPaneId)).not.toBe(shellId);
+    });
+
+    it("returns false for nonexistent pane", () => {
+      initSession("s1");
+      expect(closePane("s1", "nope")).toBe(false);
+    });
+  });
+
+  describe("closeFocusedPane", () => {
+    it("closes the currently focused pane", () => {
+      initSession("s1");
+      const shellId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" })!;
+      // shellId is focused
+
+      const closed = closeFocusedPane("s1");
+      expect(closed).toBe(true);
+      expect(get(paneInstances).has(shellId)).toBe(false);
+    });
+
+    it("returns false if nothing focused", () => {
+      resetFocus();
+      expect(closeFocusedPane("s1")).toBe(false);
+    });
+  });
+
+  describe("closeSessionPanes", () => {
+    it("disposes all panes and removes layout", () => {
+      initSession("s1");
+      splitPane("s1", "h", { type: "shell", ptyId: "pty-1" });
+
+      const ids = collectLeafIds(get(sessionLayouts).get("s1")!);
+
+      closeSessionPanes("s1");
+
+      expect(get(sessionLayouts).has("s1")).toBe(false);
+      for (const id of ids) {
+        expect(get(paneInstances).has(id)).toBe(false);
+      }
+    });
+
+    it("clears focus if focused pane was in the session", () => {
+      initSession("s1");
+      closeSessionPanes("s1");
+      expect(get(focusedPaneId)).toBeNull();
+    });
   });
 });
