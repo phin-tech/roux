@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { Session, PermissionInfo } from "$lib/types";
+  import type { Session, PermissionInfo, WatchOutcome } from "$lib/types";
   import { renameSignal } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
+  import { watchState } from "$lib/stores/watches";
 
   interface Props {
     session: Session;
@@ -113,6 +114,18 @@
   let projectName = $derived(
     session.projectId ? $projects.find((p) => p.id === session.projectId)?.name ?? null : null
   );
+
+  let sessionWatches = $derived(
+    $watchState.filter(
+      (w) => w.scope.type === "session" && w.scope.sessionId === session.id
+    )
+  );
+
+  let watchOutcomes = $derived(
+    sessionWatches
+      .map((w) => w.lastResult?.outcome ?? null)
+      .filter((o): o is WatchOutcome => o !== null)
+  );
 </script>
 
 <!-- Use div, not button, to avoid invalid nested <button> for the close control -->
@@ -206,6 +219,17 @@
     <span class="ml-auto text-[10px] font-semibold text-text-muted">
       {session.cost != null ? `$${session.cost.toFixed(2)}` : ""}
     </span>
+    {#if watchOutcomes.length > 0}
+      <div class="flex items-center gap-1">
+        {#each watchOutcomes as outcome}
+          <span
+            class="inline-block h-1.5 w-1.5 rounded-full
+              {outcome === 'success' ? 'bg-green' : outcome === 'failure' ? 'bg-red' : 'bg-amber'}"
+            class:animate-pulse={outcome === "inProgress"}
+          ></span>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   {#if session.permissionInfo}
