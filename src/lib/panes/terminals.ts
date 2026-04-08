@@ -11,6 +11,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { get } from "svelte/store";
 import { settings } from "$lib/stores/settings";
 import { getXtermTheme } from "$lib/themes";
@@ -51,6 +52,7 @@ export function initTerminal(paneId: string): void {
     cursorBlink: s.cursorBlink,
     theme: getXtermTheme(s.theme),
     disableStdin: true,
+    allowProposedApi: true,
   });
 
   const fitAddon = new FitAddon();
@@ -60,45 +62,68 @@ export function initTerminal(paneId: string): void {
   } catch {
     // WebGL not available — canvas fallback
   }
-  terminal.loadAddon(new WebLinksAddon());
+  terminal.loadAddon(new WebLinksAddon((_event, uri) => {
+    openUrl(uri);
+  }));
 
-  terminal.registerLinkProvider({
-    provideLinks(bufferLineNumber, callback) {
-      const line = terminal.buffer.active.getLine(bufferLineNumber);
-      if (!line) {
-        callback(undefined);
-        return;
-      }
+  // Add watch buttons next to GitHub Actions URLs as they appear
+  const ghRunPattern = /https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)/g;
+  const decoratedLines = new Set<number>();
+
+  terminal.onWriteParsed(() => {
+    const buf = terminal.buffer.active;
+    // Check the last few lines that may have just been written
+    for (let i = Math.max(0, buf.cursorY - 2); i <= buf.cursorY; i++) {
+      const absLine = buf.baseY + i;
+      if (decoratedLines.has(absLine)) continue;
+
+      const line = buf.getLine(absLine);
+      if (!line) continue;
       const text = line.translateToString();
 
-      const ghPattern = /https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)/g;
-      const links: { startIndex: number; length: number; repo: string; runId: number }[] = [];
-
+      ghRunPattern.lastIndex = 0;
       let match;
-      while ((match = ghPattern.exec(text)) !== null) {
-        links.push({
-          startIndex: match.index,
-          length: match[0].length,
-          repo: match[1],
-          runId: parseInt(match[2], 10),
-        });
-      }
+      while ((match = ghRunPattern.exec(text)) !== null) {
+        decoratedLines.add(absLine);
+        const repo = match[1];
+        const runId = parseInt(match[2], 10);
+        const urlEnd = match.index + match[0].length;
 
-      callback(
-        links.map((link) => ({
-          range: {
-            start: { x: link.startIndex + 1, y: bufferLineNumber },
-            end: { x: link.startIndex + link.length + 1, y: bufferLineNumber },
-          },
-          text: "Click to watch this GitHub Action",
-          activate: async () => {
+        const marker = terminal.registerMarker(i - buf.cursorY);
+        if (!marker) continue;
+
+        const decoration = terminal.registerDecoration({
+          marker,
+          anchor: "left",
+          x: urlEnd + 1,
+          width: 3,
+        });
+        if (!decoration) continue;
+
+        decoration.onRender((el) => {
+          if (el.dataset.initialized) return;
+          el.dataset.initialized = "true";
+          el.innerHTML = `<svg title="Watch this GitHub Action" style="cursor:pointer;opacity:0.7;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+          el.style.display = "inline-flex";
+          el.style.alignItems = "center";
+          el.style.height = "100%";
+          el.style.zIndex = "10";
+          el.addEventListener("mouseenter", () => {
+            el.firstElementChild!.setAttribute("style", el.firstElementChild!.getAttribute("style")!.replace("opacity:0.7", "opacity:1"));
+          });
+          el.addEventListener("mouseleave", () => {
+            el.firstElementChild!.setAttribute("style", el.firstElementChild!.getAttribute("style")!.replace("opacity:1", "opacity:0.7"));
+          });
+          el.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            e.preventDefault();
             const state = get(sessionState);
             const config: CreateWatchConfig = {
-              name: `GH: ${link.repo} #${link.runId}`,
+              name: `GH: ${repo} #${runId}`,
               kind: {
                 type: "githubAction",
-                repo: link.repo,
-                runId: link.runId,
+                repo,
+                runId,
                 workflow: null,
                 branch: null,
               },
@@ -108,10 +133,10 @@ export function initTerminal(paneId: string): void {
                 : { type: "global" },
             };
             await createWatch(config);
-          },
-        }))
-      );
-    },
+          });
+        });
+      }
+    }
   });
 
   terminal.onData((data) => {
