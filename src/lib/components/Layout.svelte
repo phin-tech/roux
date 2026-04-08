@@ -10,10 +10,11 @@
   interface Props {
     onNewSession: () => void;
     onOpenSettings: () => void;
+    onToggleWatches: () => void;
     settingsPanel?: Snippet;
   }
 
-  let { onNewSession, onOpenSettings, settingsPanel }: Props = $props();
+  let { onNewSession, onOpenSettings, onToggleWatches, settingsPanel }: Props = $props();
 
   let dragging = $state(false);
   let sidebarWidth = $derived($settings.tabWidth);
@@ -43,7 +44,7 @@
     class:flex-row-reverse={$settings.tabPosition === "right"}
   >
     <div style="width: {sidebarWidth}px" class="shrink-0">
-      <SessionTabs {onNewSession} {onOpenSettings} />
+      <SessionTabs {onNewSession} {onOpenSettings} {onToggleWatches} />
     </div>
 
     <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -315,6 +315,7 @@
 <Layout
   onNewSession={() => (showNewSessionDialog = true)}
   onOpenSettings={() => (showSettings = !showSettings)}
+  onToggleWatches={() => { showWatches = !showWatches; if (showWatches) { showSettings = false; showNotes = false; } }}
 >
   {#snippet settingsPanel()}
     <SettingsPanel visible={showSettings} onclose={() => (showSettings = false)} />
