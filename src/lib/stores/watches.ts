@@ -4,6 +4,24 @@ import type { Watch } from "$lib/types";
 export const watchState = writable<Watch[]>([]);
 export const ghAvailable = writable<boolean>(true);
 
+/** Session IDs whose watches just changed outcome — cleared after animation */
+export const flashingSessions = writable<Set<string>>(new Set());
+
+export function flashSession(sessionId: string) {
+  flashingSessions.update((s) => {
+    const next = new Set(s);
+    next.add(sessionId);
+    return next;
+  });
+  setTimeout(() => {
+    flashingSessions.update((s) => {
+      const next = new Set(s);
+      next.delete(sessionId);
+      return next;
+    });
+  }, 1500);
+}
+
 export function addOrUpdateWatch(watch: Watch): void {
   watchState.update((watches) => {
     const idx = watches.findIndex((w) => w.id === watch.id);

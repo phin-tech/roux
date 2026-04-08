@@ -11,7 +11,7 @@
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
-  import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore } from "$lib/stores/watches";
+  import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { initSession, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
@@ -283,6 +283,9 @@
     // Listen for watch updates
     await onWatchUpdate((event) => {
       addOrUpdateWatch(event.watch);
+      if (event.changed && event.watch.scope.type === "session") {
+        flashSession(event.watch.scope.sessionId);
+      }
     });
 
     // Listen for global status updates from hooks and match by cwd

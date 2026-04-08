@@ -2,7 +2,7 @@
   import type { Session, PermissionInfo, WatchOutcome } from "$lib/types";
   import { renameSignal } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
-  import { watchState } from "$lib/stores/watches";
+  import { watchState, flashingSessions } from "$lib/stores/watches";
 
   interface Props {
     session: Session;
@@ -126,6 +126,17 @@
       .map((w) => w.lastResult?.outcome ?? null)
       .filter((o): o is WatchOutcome => o !== null)
   );
+
+  let isFlashing = $derived($flashingSessions.has(session.id));
+
+  let flashColor = $derived.by(() => {
+    if (!isFlashing) return "";
+    const hasFailure = watchOutcomes.includes("failure");
+    const hasSuccess = watchOutcomes.includes("success");
+    if (hasFailure) return "var(--color-red-dim, rgba(239,68,68,0.15))";
+    if (hasSuccess) return "var(--color-green-dim, rgba(34,197,94,0.15))";
+    return "var(--color-amber-dim, rgba(245,158,11,0.15))";
+  });
 </script>
 
 <!-- Use div, not button, to avoid invalid nested <button> for the close control -->
@@ -135,7 +146,9 @@
   class="group relative mb-1 w-full cursor-pointer overflow-hidden px-3 py-2 text-left transition-colors duration-150
     {active
       ? 'bg-bg-active shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-      : 'bg-transparent hover:bg-bg-active/40'}"
+      : 'bg-transparent hover:bg-bg-active/40'}
+    {isFlashing ? 'watch-flash' : ''}"
+  style:--flash-color={flashColor}
   onclick={onselect}
   oncontextmenu={(e) => {
     if (oncontextmenu) {
@@ -283,3 +296,14 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .watch-flash {
+    animation: watch-flash-anim 1.5s ease-out;
+  }
+
+  @keyframes watch-flash-anim {
+    0% { background-color: var(--flash-color); }
+    100% { background-color: transparent; }
+  }
+</style>
