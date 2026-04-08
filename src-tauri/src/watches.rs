@@ -6,6 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use tauri::Emitter;
+use tokio::process::Command as TokioCommand;
+use tokio::time::{timeout, sleep};
+use tokio_util::sync::CancellationToken;
 
 // ── Core Types ──────────────────────────────────────────────
 
@@ -286,5 +290,344 @@ impl WatchStore {
         if let Ok(json) = serde_json::to_string_pretty(watches) {
             let _ = fs::write(&path, json);
         }
+    }
+}
+
+// ── WatchManager ───────────────────────────────────────────
+
+const MAX_OUTPUT_BYTES: usize = 64 * 1024; // 64KB
+
+fn truncate_output(s: String) -> String {
+    if s.len() > MAX_OUTPUT_BYTES {
+        s[..MAX_OUTPUT_BYTES].to_string()
+    } else {
+        s
+    }
+}
+
+pub struct WatchHandle {
+    pub cancel: CancellationToken,
+    pub join: tokio::task::JoinHandle<()>,
+}
+
+pub struct WatchManager {
+    store: Arc<WatchStore>,
+    handles: Arc<Mutex<HashMap<String, WatchHandle>>>,
+    flap_trackers: Arc<Mutex<HashMap<String, FlapTracker>>>,
+}
+
+impl WatchManager {
+    pub fn new(store: Arc<WatchStore>) -> Self {
+        Self {
+            store,
+            handles: Arc::new(Mutex::new(HashMap::new())),
+            flap_trackers: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn store(&self) -> &Arc<WatchStore> {
+        &self.store
+    }
+
+    pub fn start_all(&self, app: tauri::AppHandle) {
+        let watches = self.store.list();
+        for (i, watch) in watches.iter().enumerate() {
+            if matches!(watch.runtime_state, RuntimeState::Stopped) {
+                continue;
+            }
+            let jitter = Duration::from_millis((i as u64) * 500 + rand_jitter());
+            self.spawn_watch(watch.id.clone(), Some(jitter), app.clone());
+        }
+    }
+
+    pub fn create_watch(&self, mut watch: Watch, app: tauri::AppHandle) -> Watch {
+        watch.runtime_state = RuntimeState::Active;
+        self.store.add(watch.clone());
+        self.spawn_watch(watch.id.clone(), None, app);
+        watch.runtime_state = RuntimeState::Active;
+        watch
+    }
+
+    pub fn remove_watch(&self, id: &str) {
+        self.cancel_watch(id);
+        self.store.remove(id);
+    }
+
+    pub fn pause_watch(&self, id: &str) {
+        self.cancel_watch(id);
+        self.store.update(id, |w| {
+            w.runtime_state = RuntimeState::Paused;
+        });
+    }
+
+    pub fn resume_watch(&self, id: &str, app: tauri::AppHandle) {
+        self.store.update(id, |w| {
+            w.runtime_state = RuntimeState::Active;
+        });
+        self.spawn_watch(id.to_string(), None, app);
+    }
+
+    fn cancel_watch(&self, id: &str) {
+        let mut handles = self.handles.lock().unwrap();
+        if let Some(handle) = handles.remove(id) {
+            handle.cancel.cancel();
+        }
+    }
+
+    fn spawn_watch(&self, watch_id: String, initial_delay: Option<Duration>, app: tauri::AppHandle) {
+        let store = Arc::clone(&self.store);
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+        let handles = Arc::clone(&self.handles);
+        let _flap_trackers = Arc::clone(&self.flap_trackers);
+        let watch_id_for_handles = watch_id.clone();
+
+        let join = tokio::spawn(async move {
+            if let Some(delay) = initial_delay {
+                tokio::select! {
+                    _ = sleep(delay) => {}
+                    _ = cancel_clone.cancelled() => return,
+                }
+            }
+
+            loop {
+                let watch = match store.get(&watch_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+
+                let previous_outcome = watch.last_result.as_ref().map(|r| r.outcome().clone());
+
+                let check_timeout = match &watch.kind {
+                    WatchKind::HttpHealth { .. } => Duration::from_secs(10),
+                    _ => Duration::from_secs(30),
+                };
+
+                // IMPORTANT: Use select! with timeout to support cancellation
+                let result = tokio::select! {
+                    r = timeout(check_timeout, execute_check(&watch.kind)) => {
+                        match r {
+                            Ok(result) => result,
+                            Err(_) => WatchResult::CommandRun {
+                                exit_code: -1,
+                                stdout: String::new(),
+                                stderr: "(timed out)".to_string(),
+                                outcome: WatchOutcome::Failure,
+                            },
+                        }
+                    }
+                    _ = cancel_clone.cancelled() => return,
+                };
+
+                let new_outcome = result.outcome().clone();
+                let changed = previous_outcome.as_ref() != Some(&new_outcome);
+
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+
+                store.update(&watch_id, |w| {
+                    w.last_result = Some(result.clone());
+                    w.last_checked = Some(now);
+                    w.runtime_state = RuntimeState::Active;
+                });
+
+                if let Some(updated_watch) = store.get(&watch_id) {
+                    let event = WatchUpdateEvent {
+                        watch: updated_watch,
+                        changed,
+                        previous_outcome,
+                    };
+                    let _ = app.emit("watch-update", &event);
+                }
+
+                if matches!(watch.mode, WatchMode::OneShot) {
+                    store.update(&watch_id, |w| {
+                        w.runtime_state = RuntimeState::Stopped;
+                    });
+                    return;
+                }
+
+                let interval = match &watch.mode {
+                    WatchMode::Recurring { interval_secs } => Duration::from_secs(*interval_secs),
+                    WatchMode::OneShot => return,
+                };
+
+                tokio::select! {
+                    _ = sleep(interval) => {}
+                    _ = cancel_clone.cancelled() => return,
+                }
+            }
+        });
+
+        let mut handles_guard = handles.lock().unwrap();
+        handles_guard.insert(watch_id_for_handles, WatchHandle { cancel, join });
+    }
+}
+
+fn rand_jitter() -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
+    (nanos % 5000) as u64
+}
+
+async fn execute_check(kind: &WatchKind) -> WatchResult {
+    match kind {
+        WatchKind::GithubAction { repo, run_id, workflow, branch } => {
+            execute_github_check(repo, *run_id, workflow.as_deref(), branch.as_deref()).await
+        }
+        WatchKind::HttpHealth { url, expected_status } => {
+            execute_http_check(url, *expected_status).await
+        }
+        WatchKind::ShellCommand { command, working_dir, success_exit_code } => {
+            execute_shell_check(command, working_dir.as_deref(), *success_exit_code).await
+        }
+        WatchKind::Task { command, working_dir, .. } => {
+            execute_shell_check(command, Some(working_dir.as_str()), 0).await
+        }
+    }
+}
+
+async fn execute_github_check(
+    repo: &str,
+    run_id: Option<u64>,
+    workflow: Option<&str>,
+    branch: Option<&str>,
+) -> WatchResult {
+    let target_run_id = if let Some(id) = run_id {
+        id
+    } else {
+        let mut cmd = TokioCommand::new("gh");
+        cmd.args(["run", "list", "--repo", repo, "--json", "databaseId,status,conclusion", "--limit", "1"]);
+        if let Some(w) = workflow {
+            cmd.args(["--workflow", w]);
+        }
+        if let Some(b) = branch {
+            cmd.args(["--branch", b]);
+        }
+        match cmd.output().await {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let runs: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap_or_default();
+                match runs.first().and_then(|r| r["databaseId"].as_u64()) {
+                    Some(id) => id,
+                    None => return WatchResult::GithubRun {
+                        run_id: 0, status: "unknown".into(), conclusion: None,
+                        url: String::new(), jobs: vec![], outcome: WatchOutcome::Failure,
+                    },
+                }
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                return WatchResult::CommandRun {
+                    exit_code: output.status.code().unwrap_or(-1),
+                    stdout: String::new(), stderr: truncate_output(stderr),
+                    outcome: WatchOutcome::Failure,
+                };
+            }
+            Err(e) => {
+                return WatchResult::CommandRun {
+                    exit_code: -1, stdout: String::new(),
+                    stderr: format!("Failed to run gh: {}", e),
+                    outcome: WatchOutcome::Failure,
+                };
+            }
+        }
+    };
+
+    let output = TokioCommand::new("gh")
+        .args(["run", "view", &target_run_id.to_string(), "--repo", repo,
+               "--json", "databaseId,status,conclusion,url,jobs"])
+        .output().await;
+
+    match output {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let run: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_default();
+            let status = run["status"].as_str().unwrap_or("unknown").to_string();
+            let conclusion = run["conclusion"].as_str().map(|s| s.to_string());
+            let url = run["url"].as_str().unwrap_or("").to_string();
+            let jobs: Vec<GithubJob> = run["jobs"].as_array().unwrap_or(&vec![]).iter().map(|j| {
+                let job_conclusion = j["conclusion"].as_str().map(|s| s.to_string());
+                let failed_step = if job_conclusion.as_deref() == Some("failure") {
+                    j["steps"].as_array().and_then(|steps| {
+                        steps.iter()
+                            .find(|s| s["conclusion"].as_str() == Some("failure"))
+                            .and_then(|s| s["name"].as_str().map(|n| n.to_string()))
+                    })
+                } else { None };
+                GithubJob {
+                    name: j["name"].as_str().unwrap_or("").to_string(),
+                    status: j["status"].as_str().unwrap_or("").to_string(),
+                    conclusion: job_conclusion, failed_step,
+                }
+            }).collect();
+            let outcome = match (status.as_str(), conclusion.as_deref()) {
+                ("completed", Some("success")) => WatchOutcome::Success,
+                ("completed", _) => WatchOutcome::Failure,
+                _ => WatchOutcome::InProgress,
+            };
+            WatchResult::GithubRun { run_id: target_run_id, status, conclusion, url, jobs, outcome }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            WatchResult::CommandRun {
+                exit_code: output.status.code().unwrap_or(-1),
+                stdout: String::new(), stderr: truncate_output(stderr),
+                outcome: WatchOutcome::Failure,
+            }
+        }
+        Err(e) => WatchResult::CommandRun {
+            exit_code: -1, stdout: String::new(),
+            stderr: format!("Failed to run gh: {}", e),
+            outcome: WatchOutcome::Failure,
+        },
+    }
+}
+
+async fn execute_http_check(url: &str, expected_status: u16) -> WatchResult {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+    let start = std::time::Instant::now();
+    match client.get(url).send().await {
+        Ok(resp) => {
+            let status_code = resp.status().as_u16();
+            let response_time_ms = start.elapsed().as_millis() as u64;
+            let outcome = if status_code == expected_status { WatchOutcome::Success } else { WatchOutcome::Failure };
+            WatchResult::HttpCheck { status_code, response_time_ms, outcome }
+        }
+        Err(_e) => WatchResult::HttpCheck {
+            status_code: 0, response_time_ms: start.elapsed().as_millis() as u64,
+            outcome: WatchOutcome::Failure,
+        },
+    }
+}
+
+async fn execute_shell_check(command: &str, working_dir: Option<&str>, success_exit_code: i32) -> WatchResult {
+    let shell = if cfg!(target_os = "windows") { "cmd" } else { "sh" };
+    let flag = if cfg!(target_os = "windows") { "/C" } else { "-c" };
+    let mut cmd = TokioCommand::new(shell);
+    cmd.arg(flag).arg(command);
+    if let Some(dir) = working_dir {
+        cmd.current_dir(dir);
+    }
+    match cmd.output().await {
+        Ok(output) => {
+            let exit_code = output.status.code().unwrap_or(-1);
+            let stdout = truncate_output(String::from_utf8_lossy(&output.stdout).to_string());
+            let stderr = truncate_output(String::from_utf8_lossy(&output.stderr).to_string());
+            let outcome = if exit_code == success_exit_code { WatchOutcome::Success } else { WatchOutcome::Failure };
+            WatchResult::CommandRun { exit_code, stdout, stderr, outcome }
+        }
+        Err(e) => WatchResult::CommandRun {
+            exit_code: -1, stdout: String::new(),
+            stderr: format!("Failed to execute: {}", e),
+            outcome: WatchOutcome::Failure,
+        },
     }
 }
