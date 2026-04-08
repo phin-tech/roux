@@ -6,6 +6,7 @@
   import SetupPrompt from "$lib/components/SetupPrompt.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
+  import WatchesPane from "$lib/components/WatchesPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
@@ -28,6 +29,7 @@
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
   let showNotes = $state(false);
+  let showWatches = $state(false);
   let showPalette = $state(false);
   let showSetupPrompt = $state(false);
 
@@ -106,6 +108,11 @@
       if (cmd.id === "ui.toggle-notes") {
         showNotes = !showNotes;
         if (showNotes) showSettings = false;
+        return;
+      }
+      if (cmd.id === "ui.toggle-watches") {
+        showWatches = !showWatches;
+        if (showWatches) { showSettings = false; showNotes = false; }
         return;
       }
       if (cmd.id === "app.command-palette") {
@@ -317,6 +324,10 @@
       projectId={activeSession?.projectId ?? null}
       projectName={$projects.find(p => p.id === activeSession?.projectId)?.name ?? null}
       onclose={() => (showNotes = false)}
+    />
+    <WatchesPane
+      visible={showWatches}
+      onclose={() => (showWatches = false)}
     />
   {/snippet}
 </Layout>
