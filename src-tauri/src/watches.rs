@@ -768,11 +768,11 @@ pub struct CreateWatchConfig {
 use crate::AppState;
 
 #[tauri::command]
-pub fn cmd_create_watch(
+pub async fn cmd_create_watch(
     config: CreateWatchConfig,
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
-) -> Watch {
+) -> Result<Watch, String> {
     let watch = Watch {
         id: uuid::Uuid::new_v4().to_string(),
         name: config.name,
@@ -788,7 +788,7 @@ pub fn cmd_create_watch(
             .unwrap_or_default()
             .as_millis() as u64,
     };
-    state.watch_manager.create_watch(watch, app)
+    Ok(state.watch_manager.create_watch(watch, app))
 }
 
 #[tauri::command]
@@ -807,8 +807,9 @@ pub fn cmd_pause_watch(id: String, state: tauri::State<AppState>, app: tauri::Ap
 }
 
 #[tauri::command]
-pub fn cmd_resume_watch(id: String, state: tauri::State<AppState>, app: tauri::AppHandle) {
+pub async fn cmd_resume_watch(id: String, state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
     state.watch_manager.resume_watch(&id, app);
+    Ok(())
 }
 
 async fn execute_shell_check(command: &str, working_dir: Option<&str>, success_exit_code: i32) -> WatchResult {
