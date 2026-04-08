@@ -608,6 +608,67 @@ async fn execute_http_check(url: &str, expected_status: u16) -> WatchResult {
     }
 }
 
+// ── Config for creating a watch (no runtime fields) ─────────
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWatchConfig {
+    pub name: String,
+    pub kind: WatchKind,
+    pub mode: WatchMode,
+    pub scope: WatchScope,
+    pub notify: Option<NotifyConfig>,
+}
+
+// ── Tauri Commands ──────────────────────────────────────────
+
+use crate::AppState;
+
+#[tauri::command]
+pub fn cmd_create_watch(
+    config: CreateWatchConfig,
+    state: tauri::State<AppState>,
+    app: tauri::AppHandle,
+) -> Watch {
+    let watch = Watch {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: config.name,
+        kind: config.kind,
+        mode: config.mode,
+        scope: config.scope,
+        runtime_state: RuntimeState::Pending,
+        last_result: None,
+        last_checked: None,
+        notify: config.notify.unwrap_or_default(),
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64,
+    };
+    state.watch_manager.create_watch(watch.clone(), app);
+    watch
+}
+
+#[tauri::command]
+pub fn cmd_remove_watch(id: String, state: tauri::State<AppState>) {
+    state.watch_manager.remove_watch(&id);
+}
+
+#[tauri::command]
+pub fn cmd_list_watches(state: tauri::State<AppState>) -> Vec<Watch> {
+    state.watch_manager.store().list()
+}
+
+#[tauri::command]
+pub fn cmd_pause_watch(id: String, state: tauri::State<AppState>) {
+    state.watch_manager.pause_watch(&id);
+}
+
+#[tauri::command]
+pub fn cmd_resume_watch(id: String, state: tauri::State<AppState>, app: tauri::AppHandle) {
+    state.watch_manager.resume_watch(&id, app);
+}
+
 async fn execute_shell_check(command: &str, working_dir: Option<&str>, success_exit_code: i32) -> WatchResult {
     let shell = if cfg!(target_os = "windows") { "cmd" } else { "sh" };
     let flag = if cfg!(target_os = "windows") { "/C" } else { "-c" };

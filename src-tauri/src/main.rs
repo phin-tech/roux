@@ -10,6 +10,7 @@ mod settings;
 mod socket;
 mod status_watcher;
 mod tasks;
+mod watches;
 mod worktree;
 
 use std::sync::Mutex;
@@ -33,6 +34,7 @@ struct AppState {
     pty_manager: PtyManager,
     session_store: SessionStore,
     project_store: ProjectStore,
+    watch_manager: watches::WatchManager,
 }
 
 #[tauri::command]
@@ -582,6 +584,8 @@ fn main() {
         rlog!("Claude binary path: (default, resolved via PATH)");
     }
 
+    let watch_store = std::sync::Arc::new(watches::WatchStore::load_persisted());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
@@ -589,6 +593,7 @@ fn main() {
             pty_manager: PtyManager::new(),
             session_store: SessionStore::load_persisted(),
             project_store: ProjectStore::load_persisted(),
+            watch_manager: watches::WatchManager::new(watch_store),
         })
         .invoke_handler(tauri::generate_handler![
             get_log_path,
@@ -628,6 +633,11 @@ fn main() {
             set_session_project,
             get_project_notes,
             set_project_notes,
+            watches::cmd_create_watch,
+            watches::cmd_remove_watch,
+            watches::cmd_list_watches,
+            watches::cmd_pause_watch,
+            watches::cmd_resume_watch,
         ])
         .setup(|app| {
             // Only auto-update hooks if CLI is already installed (not first run).
@@ -641,6 +651,16 @@ fn main() {
                 eprintln!("Warning: failed to start status watcher: {}", e);
             }
             socket::start_socket_server(app.handle().clone());
+
+            // Clean up orphaned watches and start active ones
+            {
+                let state = app.state::<AppState>();
+                let session_ids: Vec<String> = state.session_store.list().iter().map(|s| s.id.clone()).collect();
+                let project_ids: Vec<String> = state.project_store.list().iter().map(|p| p.id.clone()).collect();
+                state.watch_manager.store().cleanup_orphans(&session_ids, &project_ids);
+                state.watch_manager.start_all(app.handle().clone());
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
