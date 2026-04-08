@@ -206,7 +206,7 @@ impl WatchStore {
             let mut watches: Vec<Watch> = serde_json::from_str(&content).unwrap_or_default();
             for w in &mut watches {
                 match &w.runtime_state {
-                    RuntimeState::Stopped => {}
+                    RuntimeState::Stopped | RuntimeState::Paused => {}
                     _ => w.runtime_state = RuntimeState::Pending,
                 }
             }
@@ -378,7 +378,7 @@ impl WatchManager {
         if let Some(watch) = self.store.get(id) {
             let event = WatchUpdateEvent {
                 watch,
-                changed: true,
+                changed: false,
                 previous_outcome: None,
             };
             let _ = app.emit("watch-update", &event);
@@ -393,12 +393,17 @@ impl WatchManager {
     }
 
     fn spawn_watch(&self, watch_id: String, initial_delay: Option<Duration>, app: tauri::AppHandle) {
+        // Cancel any existing task for this watch before spawning a new one
+        self.cancel_watch(&watch_id);
+
         let store = Arc::clone(&self.store);
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
         let handles = Arc::clone(&self.handles);
         let flap_trackers = Arc::clone(&self.flap_trackers);
         let watch_id_for_handles = watch_id.clone();
+        let watch_id_for_cleanup = watch_id.clone();
+        let handles_for_cleanup = Arc::clone(&self.handles);
 
         let join = tokio::spawn(async move {
             if let Some(delay) = initial_delay {
@@ -411,7 +416,7 @@ impl WatchManager {
             loop {
                 let watch = match store.get(&watch_id) {
                     Some(w) => w,
-                    None => return,
+                    None => break,
                 };
 
                 let previous_outcome = watch.last_result.as_ref().map(|r| r.outcome().clone());
@@ -421,20 +426,16 @@ impl WatchManager {
                     _ => Duration::from_secs(30),
                 };
 
-                // IMPORTANT: Use select! with timeout to support cancellation
+                // Use select! with timeout to support cancellation.
+                // Return kind-appropriate failure on timeout.
                 let result = tokio::select! {
                     r = timeout(check_timeout, execute_check(&watch.kind)) => {
                         match r {
                             Ok(result) => result,
-                            Err(_) => WatchResult::CommandRun {
-                                exit_code: -1,
-                                stdout: String::new(),
-                                stderr: "(timed out)".to_string(),
-                                outcome: WatchOutcome::Failure,
-                            },
+                            Err(_) => timeout_result(&watch.kind),
                         }
                     }
-                    _ = cancel_clone.cancelled() => return,
+                    _ = cancel_clone.cancelled() => break,
                 };
 
                 let new_outcome = result.outcome().clone();
@@ -511,19 +512,23 @@ impl WatchManager {
                     store.update(&watch_id, |w| {
                         w.runtime_state = RuntimeState::Stopped;
                     });
-                    return;
+                    break;
                 }
 
                 let interval = match &watch.mode {
                     WatchMode::Recurring { interval_secs } => Duration::from_secs(*interval_secs),
-                    WatchMode::OneShot => return,
+                    WatchMode::OneShot => break,
                 };
 
                 tokio::select! {
                     _ = sleep(interval) => {}
-                    _ = cancel_clone.cancelled() => return,
+                    _ = cancel_clone.cancelled() => break,
                 }
             }
+
+            // Clean up handle entry when task exits
+            let mut handles_guard = handles_for_cleanup.lock().unwrap();
+            handles_guard.remove(&watch_id_for_cleanup);
         });
 
         let mut handles_guard = handles.lock().unwrap();
@@ -537,6 +542,30 @@ fn rand_jitter() -> u64 {
         .unwrap_or_default()
         .subsec_nanos();
     (nanos % 5000) as u64
+}
+
+fn timeout_result(kind: &WatchKind) -> WatchResult {
+    match kind {
+        WatchKind::HttpHealth { .. } => WatchResult::HttpCheck {
+            status_code: 0,
+            response_time_ms: 0,
+            outcome: WatchOutcome::Failure,
+        },
+        WatchKind::GithubAction { repo, run_id, .. } => WatchResult::GithubRun {
+            run_id: run_id.unwrap_or(0),
+            status: "timeout".into(),
+            conclusion: None,
+            url: format!("https://github.com/{}", repo),
+            jobs: vec![],
+            outcome: WatchOutcome::Failure,
+        },
+        _ => WatchResult::CommandRun {
+            exit_code: -1,
+            stdout: String::new(),
+            stderr: "(timed out)".to_string(),
+            outcome: WatchOutcome::Failure,
+        },
+    }
 }
 
 async fn execute_check(kind: &WatchKind) -> WatchResult {
@@ -710,8 +739,7 @@ pub fn cmd_create_watch(
             .unwrap_or_default()
             .as_millis() as u64,
     };
-    state.watch_manager.create_watch(watch.clone(), app);
-    watch
+    state.watch_manager.create_watch(watch, app)
 }
 
 #[tauri::command]

@@ -666,9 +666,15 @@ export function registerCommands() {
     getItems: () => [],
     onInput: async (url: string) => {
       if (!url.startsWith("http")) return;
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        return;
+      }
       const session = queries.activeSession();
       const config: CreateWatchConfig = {
-        name: `Health: ${new URL(url).hostname}`,
+        name: `Health: ${parsedUrl.hostname}`,
         kind: { type: "httpHealth", url, expectedStatus: 200 },
         mode: { type: "recurring", intervalSecs: 60 },
         scope: session
