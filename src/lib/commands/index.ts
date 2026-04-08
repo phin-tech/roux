@@ -8,6 +8,7 @@ import { paneInstances, updateInstance } from "$lib/panes/instances";
 import { splitPane, closePane, closeFocusedPane, initSession } from "$lib/panes/actions";
 import { spawnShell, spawnTask, listDocs, writeToSession, createSession, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject, createWatch } from "$lib/tauri";
 import type { CreateWatchConfig, WatchKind } from "$lib/types";
+import { ghAvailable } from "$lib/stores/watches";
 import { closeSession } from "$lib/sessions/close";
 import { reconnectSession } from "$lib/sessions/reconnect";
 import { get } from "svelte/store";
@@ -712,6 +713,10 @@ export function registerCommands() {
     getItems: () => [],
     onInput: async (input: string) => {
       if (!input.trim()) return;
+      if (!get(ghAvailable)) {
+        // gh CLI not installed — can't create GitHub watches
+        return;
+      }
       const session = queries.activeSession();
       const urlMatch = input.match(
         /github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)/

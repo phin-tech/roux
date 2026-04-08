@@ -11,13 +11,13 @@
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
-  import { addOrUpdateWatch, watchState } from "$lib/stores/watches";
+  import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore } from "$lib/stores/watches";
   import { initSession, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, loadLayout, clearLayout } from "$lib/panes/persistence";
-  import { listSessions, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -32,6 +32,7 @@
   let showWatches = $state(false);
   let showPalette = $state(false);
   let showSetupPrompt = $state(false);
+  let ghAvailable = $state(true);
 
   function buildShortcutString(e: KeyboardEvent): string {
     const parts: string[] = [];
@@ -148,9 +149,11 @@
     await initLogging(loadedSettings.enableLogging);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
 
-    // Check if first-time CLI setup is needed
-    const needsSetup = await checkSetupNeeded();
-    if (needsSetup) {
+    // Check CLI setup and tool availability
+    const status = await checkSetupStatus();
+    ghAvailable = status.ghAvailable;
+    ghAvailableStore.set(status.ghAvailable);
+    if (!status.cliInstalled) {
       log("First-time setup needed");
       showSetupPrompt = true;
     }
@@ -347,5 +350,6 @@
 
 <SetupPrompt
   visible={showSetupPrompt}
+  {ghAvailable}
   ondone={() => (showSetupPrompt = false)}
 />

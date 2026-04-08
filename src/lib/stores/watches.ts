@@ -1,7 +1,8 @@
 import { writable, derived } from "svelte/store";
-import type { Watch, WatchOutcome } from "$lib/types";
+import type { Watch } from "$lib/types";
 
 export const watchState = writable<Watch[]>([]);
+export const ghAvailable = writable<boolean>(true);
 
 export function addOrUpdateWatch(watch: Watch): void {
   watchState.update((watches) => {

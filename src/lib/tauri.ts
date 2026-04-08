@@ -129,8 +129,17 @@ export async function listBranches(repoPath: string): Promise<string[]> {
 }
 
 // Setup / CLI install
+export interface SetupStatus {
+  cliInstalled: boolean;
+  ghAvailable: boolean;
+}
+
 export async function checkSetupNeeded(): Promise<boolean> {
   return invoke("check_setup_needed");
+}
+
+export async function checkSetupStatus(): Promise<SetupStatus> {
+  return invoke("check_setup_status");
 }
 
 export async function runSetup(): Promise<void> {

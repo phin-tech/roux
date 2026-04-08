@@ -382,6 +382,31 @@ fn list_claude_sessions(cwd: String) -> Result<Vec<ClaudeSession>, String> {
     Ok(sessions)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetupStatus {
+    cli_installed: bool,
+    gh_available: bool,
+}
+
+#[tauri::command]
+fn check_setup_status() -> SetupStatus {
+    let user_path = pty::get_user_path();
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let gh_available = std::process::Command::new(&shell)
+        .args(["-c", "command -v gh"])
+        .env("PATH", &user_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    SetupStatus {
+        cli_installed: hooks::cli_is_installed(),
+        gh_available,
+    }
+}
+
+// Backwards compat: kept as alias used nowhere else
 #[tauri::command]
 fn check_setup_needed() -> bool {
     !hooks::cli_is_installed()
@@ -621,6 +646,7 @@ fn main() {
             cmd_open_in_editor,
             cmd_list_branches,
             check_setup_needed,
+            check_setup_status,
             run_setup,
             check_nono_installed,
             list_nono_profiles,

@@ -7,7 +7,7 @@ import {
   addOrUpdateWatch,
   removeWatchFromStore,
 } from "../watches";
-import type { Watch, WatchOutcome } from "$lib/types";
+import type { Watch } from "$lib/types";
 
 function makeWatch(overrides: Partial<Watch> = {}): Watch {
   return {
