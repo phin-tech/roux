@@ -2,12 +2,8 @@
   import { watchState, removeWatchFromStore } from "$lib/stores/watches";
   import { sessionState } from "$lib/stores/sessions";
   import { removeWatch, pauseWatch, resumeWatch } from "$lib/tauri";
-  import { invoke } from "@tauri-apps/api/core";
   import type { Watch, WatchOutcome } from "$lib/types";
-
-  function openUrl(url: string) {
-    invoke("plugin:shell|open", { path: url });
-  }
+  import { open } from "@tauri-apps/plugin-shell";
 
   interface Props {
     visible: boolean;
@@ -89,6 +85,14 @@
   function toggleExpand(id: string) {
     expandedId = expandedId === id ? null : id;
   }
+
+  function stateLabel(watch: Watch): string {
+    const outcome = watch.lastResult?.outcome;
+    if (outcome === "success") return "succeeded";
+    if (outcome === "failure") return "failed";
+    if (outcome === "inProgress") return "in progress";
+    return watch.runtimeState.type;
+  }
 </script>
 
 <div
@@ -131,7 +135,7 @@
             {#if expandedId === watch.id}
               <div class="mb-2 ml-4 rounded-lg border border-hairline bg-bg-surface/20 p-2 text-xs">
                 <div class="mb-1 text-text-muted">
-                  State: <span class="text-text-primary">{watch.runtimeState.type === "stopped" && watch.lastResult?.outcome === "success" ? "succeeded" : watch.runtimeState.type === "stopped" && watch.lastResult?.outcome === "failure" ? "failed" : watch.runtimeState.type}</span>
+                  State: <span class="text-text-primary">{stateLabel(watch)}</span>
                 </div>
 
                 {#if watch.lastResult?.type === "githubRun"}
@@ -140,7 +144,7 @@
                     <span class="text-text-muted">Run:</span>
                     <button
                       class="cursor-pointer border-none bg-transparent p-0 text-blue hover:underline"
-                      onclick={(e) => { e.stopPropagation(); openUrl(ghResult.url); }}
+                      onclick={(e) => { e.stopPropagation(); open(ghResult.url); }}
                     >
                       #{ghResult.runId}
                     </button>
