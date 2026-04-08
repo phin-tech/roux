@@ -33,8 +33,14 @@ pub struct Watch {
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum WatchScope {
     Global,
-    Session { session_id: String },
-    Project { project_id: String },
+    Session {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+    Project {
+        #[serde(rename = "projectId")]
+        project_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,22 +58,28 @@ pub enum RuntimeState {
 pub enum WatchKind {
     GithubAction {
         repo: String,
+        #[serde(rename = "runId")]
         run_id: Option<u64>,
         workflow: Option<String>,
         branch: Option<String>,
     },
     HttpHealth {
         url: String,
+        #[serde(rename = "expectedStatus")]
         expected_status: u16,
     },
     ShellCommand {
         command: String,
+        #[serde(rename = "workingDir")]
         working_dir: Option<String>,
+        #[serde(rename = "successExitCode")]
         success_exit_code: i32,
     },
     Task {
+        #[serde(rename = "taskId")]
         task_id: String,
         command: String,
+        #[serde(rename = "workingDir")]
         working_dir: String,
     },
 }
@@ -75,7 +87,10 @@ pub enum WatchKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum WatchMode {
-    Recurring { interval_secs: u64 },
+    Recurring {
+        #[serde(rename = "intervalSecs")]
+        interval_secs: u64,
+    },
     OneShot,
 }
 
@@ -83,6 +98,7 @@ pub enum WatchMode {
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum WatchResult {
     GithubRun {
+        #[serde(rename = "runId")]
         run_id: u64,
         status: String,
         conclusion: Option<String>,
@@ -91,11 +107,14 @@ pub enum WatchResult {
         outcome: WatchOutcome,
     },
     HttpCheck {
+        #[serde(rename = "statusCode")]
         status_code: u16,
+        #[serde(rename = "responseTimeMs")]
         response_time_ms: u64,
         outcome: WatchOutcome,
     },
     CommandRun {
+        #[serde(rename = "exitCode")]
         exit_code: i32,
         stdout: String,
         stderr: String,
