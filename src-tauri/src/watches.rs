@@ -697,8 +697,8 @@ async fn execute_github_check(
         Err(e) => return github_error_result(format!("GitHub API error: {}", e)),
     };
 
-    let status = format!("{:?}", run.status).to_lowercase();
-    let conclusion = run.conclusion.as_ref().map(|c| format!("{:?}", c).to_lowercase());
+    let status = run.status;
+    let conclusion = run.conclusion;
     let url = run.html_url.to_string();
 
     // Get jobs for the run
@@ -711,16 +711,17 @@ async fn execute_github_check(
     let jobs: Vec<GithubJob> = match jobs_result {
         Ok(jobs_page) => {
             jobs_page.items.iter().map(|j: &octocrab::models::workflows::Job| {
-                let job_conclusion = j.conclusion.as_ref().map(|c| format!("{:?}", c).to_lowercase());
+                let job_conclusion = j.conclusion.as_ref().map(|c| serde_json::to_value(c).ok().and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default());
                 let is_failure = job_conclusion.as_deref() == Some("failure");
                 let failed_step = if is_failure {
                     j.steps.iter()
-                        .find(|s| s.conclusion.as_ref().map(|c| format!("{:?}", c).to_lowercase()).as_deref() == Some("failure"))
+                        .find(|s| s.conclusion.as_ref().and_then(|c| serde_json::to_value(c).ok()).and_then(|v| v.as_str().map(|s| s == "failure")).unwrap_or(false))
                         .map(|s| s.name.clone())
                 } else { None };
+                let job_status = serde_json::to_value(&j.status).ok().and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
                 GithubJob {
                     name: j.name.clone(),
-                    status: format!("{:?}", j.status).to_lowercase(),
+                    status: job_status,
                     conclusion: job_conclusion,
                     failed_step,
                 }
