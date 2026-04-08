@@ -131,7 +131,7 @@
             {#if expandedId === watch.id}
               <div class="mb-2 ml-4 rounded-lg border border-hairline bg-bg-surface/20 p-2 text-xs">
                 <div class="mb-1 text-text-muted">
-                  State: <span class="text-text-primary">{watch.runtimeState.type === "stopped" && watch.lastResult ? "done" : watch.runtimeState.type}</span>
+                  State: <span class="text-text-primary">{watch.runtimeState.type === "stopped" && watch.lastResult?.outcome === "success" ? "succeeded" : watch.runtimeState.type === "stopped" && watch.lastResult?.outcome === "failure" ? "failed" : watch.runtimeState.type}</span>
                 </div>
 
                 {#if watch.lastResult?.type === "githubRun"}
