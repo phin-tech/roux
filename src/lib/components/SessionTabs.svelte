@@ -307,7 +307,7 @@
   {#if $sessionState.activeSessionId}
     {#if $settings.taskPanelCollapsed}
       <button
-        class="shrink-0 flex w-full items-center gap-1.5 border-t border-hairline bg-transparent px-3 py-2 text-left cursor-pointer hover:bg-bg-active/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+        class="shrink-0 flex w-full items-center gap-1.5 border-t border-hairline bg-bg-deep/35 px-3 py-2 text-left cursor-pointer hover:bg-bg-active/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={() => updateSetting("taskPanelCollapsed", false)}
       >
         <span class="text-[11px] text-text-secondary">&#9654;</span>
@@ -317,11 +317,11 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="group flex h-3 shrink-0 cursor-row-resize items-center px-2" onmousedown={handleDividerDown}>
         <div
-          class="h-px w-full rounded-full transition-all duration-150 {dragging ? 'bg-white/20' : 'bg-white/10 opacity-0 group-hover:opacity-100'}"
+          class="h-px w-full transition-all duration-150 {dragging ? 'bg-white/22' : 'bg-white/10 group-hover:bg-white/16'}"
         ></div>
       </div>
 
-      <div style="flex: {$settings.taskPanelSplit}; min-height: 0;">
+      <div class="min-h-0 bg-bg-deep/35" style="flex: {$settings.taskPanelSplit};">
         <TaskPanel onCollapse={() => updateSetting("taskPanelCollapsed", true)} />
       </div>
     {/if}
