@@ -40,6 +40,7 @@ tokio = { version = "1", features = ["net", "io-util", "macros", "rt-multi-threa
 tokio-util = "0.7"
 reqwest = { version = "0.12", features = ["json"] }
 octocrab = "0.44"
+tauri-plugin-opener = "2.5.3"
 
 [dev-dependencies]
 tempfile = "3"

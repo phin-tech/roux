@@ -5,6 +5,7 @@
   "permissions": [
     "core:default",
     "shell:allow-open",
+    "opener:default",
     "dialog:default",
     "dialog:allow-open",
     "notification:default"

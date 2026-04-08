@@ -3,7 +3,7 @@
   import { sessionState } from "$lib/stores/sessions";
   import { removeWatch, pauseWatch, resumeWatch } from "$lib/tauri";
   import type { Watch, WatchOutcome } from "$lib/types";
-  import { open } from "@tauri-apps/plugin-shell";
+  import { openUrl } from "@tauri-apps/plugin-opener";
 
   interface Props {
     visible: boolean;
@@ -144,7 +144,7 @@
                     <span class="text-text-muted">Run:</span>
                     <button
                       class="cursor-pointer border-none bg-transparent p-0 text-blue hover:underline"
-                      onclick={(e) => { e.stopPropagation(); open(ghResult.url); }}
+                      onclick={(e) => { e.stopPropagation(); openUrl(ghResult.url); }}
                     >
                       #{ghResult.runId}
                     </button>
