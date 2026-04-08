@@ -528,7 +528,13 @@ impl WatchManager {
                     }
                 }
 
-                if matches!(watch.mode, WatchMode::OneShot) {
+                // Auto-stop: one-shot watches, or GitHub runs that completed
+                let should_stop = matches!(watch.mode, WatchMode::OneShot)
+                    || matches!(
+                        (&watch.kind, &new_outcome),
+                        (WatchKind::GithubAction { .. }, WatchOutcome::Success | WatchOutcome::Failure)
+                    );
+                if should_stop {
                     store.update(&watch_id, |w| {
                         w.runtime_state = RuntimeState::Stopped;
                     });

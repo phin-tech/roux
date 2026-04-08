@@ -746,7 +746,7 @@ export function registerCommands() {
       const config: CreateWatchConfig = {
         name,
         kind,
-        mode: { type: "recurring", intervalSecs: 30 },
+        mode: urlMatch ? { type: "oneShot" } : { type: "recurring", intervalSecs: 30 },
         scope: session
           ? { type: "session", sessionId: session.id }
           : { type: "global" },
