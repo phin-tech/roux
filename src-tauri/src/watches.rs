@@ -299,13 +299,18 @@ impl WatchStore {
 const MAX_OUTPUT_BYTES: usize = 64 * 1024; // 64KB
 
 fn truncate_output(s: String) -> String {
-    if s.len() > MAX_OUTPUT_BYTES {
-        s[..MAX_OUTPUT_BYTES].to_string()
-    } else {
-        s
+    if s.len() <= MAX_OUTPUT_BYTES {
+        return s;
     }
+    // Find a valid UTF-8 boundary at or before MAX_OUTPUT_BYTES
+    let mut end = MAX_OUTPUT_BYTES;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
 }
 
+#[allow(dead_code)]
 pub struct WatchHandle {
     pub cancel: CancellationToken,
     pub join: tokio::task::JoinHandle<()>,
@@ -333,7 +338,7 @@ impl WatchManager {
     pub fn start_all(&self, app: tauri::AppHandle) {
         let watches = self.store.list();
         for (i, watch) in watches.iter().enumerate() {
-            if matches!(watch.runtime_state, RuntimeState::Stopped) {
+            if matches!(watch.runtime_state, RuntimeState::Stopped | RuntimeState::Paused) {
                 continue;
             }
             let jitter = Duration::from_millis((i as u64) * 500 + rand_jitter());
@@ -345,7 +350,6 @@ impl WatchManager {
         watch.runtime_state = RuntimeState::Active;
         self.store.add(watch.clone());
         self.spawn_watch(watch.id.clone(), None, app);
-        watch.runtime_state = RuntimeState::Active;
         watch
     }
 
@@ -354,18 +358,31 @@ impl WatchManager {
         self.store.remove(id);
     }
 
-    pub fn pause_watch(&self, id: &str) {
+    pub fn pause_watch(&self, id: &str, app: &tauri::AppHandle) {
         self.cancel_watch(id);
         self.store.update(id, |w| {
             w.runtime_state = RuntimeState::Paused;
         });
+        self.emit_watch_update(id, app);
     }
 
     pub fn resume_watch(&self, id: &str, app: tauri::AppHandle) {
         self.store.update(id, |w| {
             w.runtime_state = RuntimeState::Active;
         });
+        self.emit_watch_update(id, &app);
         self.spawn_watch(id.to_string(), None, app);
+    }
+
+    fn emit_watch_update(&self, id: &str, app: &tauri::AppHandle) {
+        if let Some(watch) = self.store.get(id) {
+            let event = WatchUpdateEvent {
+                watch,
+                changed: true,
+                previous_outcome: None,
+            };
+            let _ = app.emit("watch-update", &event);
+        }
     }
 
     fn cancel_watch(&self, id: &str) {
@@ -708,8 +725,8 @@ pub fn cmd_list_watches(state: tauri::State<AppState>) -> Vec<Watch> {
 }
 
 #[tauri::command]
-pub fn cmd_pause_watch(id: String, state: tauri::State<AppState>) {
-    state.watch_manager.pause_watch(&id);
+pub fn cmd_pause_watch(id: String, state: tauri::State<AppState>, app: tauri::AppHandle) {
+    state.watch_manager.pause_watch(&id, &app);
 }
 
 #[tauri::command]
@@ -722,6 +739,7 @@ async fn execute_shell_check(command: &str, working_dir: Option<&str>, success_e
     let flag = if cfg!(target_os = "windows") { "/C" } else { "-c" };
     let mut cmd = TokioCommand::new(shell);
     cmd.arg(flag).arg(command);
+    cmd.kill_on_drop(true);
     if let Some(dir) = working_dir {
         cmd.current_dir(dir);
     }
