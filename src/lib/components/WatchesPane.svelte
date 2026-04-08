@@ -1,7 +1,13 @@
 <script lang="ts">
   import { watchState, removeWatchFromStore } from "$lib/stores/watches";
+  import { sessionState } from "$lib/stores/sessions";
   import { removeWatch, pauseWatch, resumeWatch } from "$lib/tauri";
+  import { invoke } from "@tauri-apps/api/core";
   import type { Watch, WatchOutcome } from "$lib/types";
+
+  function openUrl(url: string) {
+    invoke("plugin:shell|open", { path: url });
+  }
 
   interface Props {
     visible: boolean;
@@ -31,7 +37,9 @@
       }
     }
     for (const [id, watches] of sessionMap) {
-      groups.push({ label: `Session: ${id.slice(0, 8)}`, key: `s-${id}`, watches });
+      const session = $sessionState.sessions.find((s) => s.id === id);
+      const label = session ? session.name : `Session: ${id.slice(0, 8)}`;
+      groups.push({ label, key: `s-${id}`, watches });
     }
     for (const [id, watches] of projectMap) {
       groups.push({ label: `Project: ${id.slice(0, 8)}`, key: `p-${id}`, watches });
@@ -123,26 +131,25 @@
             {#if expandedId === watch.id}
               <div class="mb-2 ml-4 rounded-lg border border-hairline bg-bg-surface/20 p-2 text-xs">
                 <div class="mb-1 text-text-muted">
-                  State: <span class="text-text-primary">{watch.runtimeState.type}</span>
+                  State: <span class="text-text-primary">{watch.runtimeState.type === "stopped" && watch.lastResult ? "done" : watch.runtimeState.type}</span>
                 </div>
 
                 {#if watch.lastResult?.type === "githubRun"}
+                  {@const ghResult = watch.lastResult}
                   <div class="mb-1">
                     <span class="text-text-muted">Run:</span>
-                    <a
-                      href={watch.lastResult.url}
-                      target="_blank"
-                      rel="noopener"
-                      class="text-blue hover:underline"
+                    <button
+                      class="cursor-pointer border-none bg-transparent p-0 text-blue hover:underline"
+                      onclick={(e) => { e.stopPropagation(); openUrl(ghResult.url); }}
                     >
-                      #{watch.lastResult.runId}
-                    </a>
+                      #{ghResult.runId}
+                    </button>
                     <span class="ml-1 text-text-muted">
-                      {watch.lastResult.status}
-                      {#if watch.lastResult.conclusion}({watch.lastResult.conclusion}){/if}
+                      {ghResult.status}
+                      {#if ghResult.conclusion}({ghResult.conclusion}){/if}
                     </span>
                   </div>
-                  {#each watch.lastResult.jobs as job}
+                  {#each ghResult.jobs as job}
                     <div class="flex items-center gap-1 py-0.5 pl-2">
                       <span
                         class="inline-block h-1.5 w-1.5 rounded-full {outcomeColor(

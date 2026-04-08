@@ -335,6 +335,7 @@ pub struct WatchHandle {
     pub join: tokio::task::JoinHandle<()>,
 }
 
+#[derive(Clone)]
 pub struct WatchManager {
     store: Arc<WatchStore>,
     handles: Arc<Mutex<HashMap<String, WatchHandle>>>,

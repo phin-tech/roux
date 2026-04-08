@@ -685,7 +685,11 @@ fn main() {
                 let session_ids: Vec<String> = state.session_store.list().iter().map(|s| s.id.clone()).collect();
                 let project_ids: Vec<String> = state.project_store.list().iter().map(|p| p.id.clone()).collect();
                 state.watch_manager.store().cleanup_orphans(&session_ids, &project_ids);
-                state.watch_manager.start_all(app.handle().clone());
+                let app_handle = app.handle().clone();
+                let watch_mgr = state.watch_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    watch_mgr.start_all(app_handle);
+                });
             }
 
             Ok(())
