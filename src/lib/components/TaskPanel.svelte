@@ -8,6 +8,8 @@
   import { sessionState } from "$lib/stores/sessions";
   import { runTask, expandTask } from "$lib/tasks/runner";
   import type { TaskDefinition } from "$lib/types/tasks";
+  import { createWatch } from "$lib/tauri";
+  import type { CreateWatchConfig } from "$lib/types";
 
   interface Props {
     onCollapse?: () => void;
@@ -64,6 +66,22 @@
     e.preventDefault();
     if (!activeSession) return;
     contextMenu = { x: e.clientX, y: e.clientY, task, repoRoot: activeSession.repoRoot };
+  }
+
+  async function handleWatchTask(task: TaskDefinition, repoRoot: string, sessionId: string) {
+    const config: CreateWatchConfig = {
+      name: `Task: ${task.name}`,
+      kind: {
+        type: "task",
+        taskId: task.id,
+        command: task.command,
+        workingDir: repoRoot,
+      },
+      mode: { type: "recurring", intervalSecs: 30 },
+      scope: { type: "session", sessionId },
+    };
+    await createWatch(config);
+    contextMenu = null;
   }
 
   function setKeepOpen(value: "always" | "on-error" | "never") {
@@ -224,6 +242,16 @@
     class="ui-dialog fixed z-50 min-w-40 py-1"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
   >
+    <button
+      class="flex w-full items-center gap-2 bg-transparent px-3 py-1.5 text-left text-sm text-text-primary hover:bg-bg-hover"
+      onclick={() => {
+        if (!contextMenu || !activeSession) return;
+        handleWatchTask(contextMenu.task, contextMenu.repoRoot, activeSession.id);
+      }}
+    >
+      Watch
+    </button>
+    <div class="mx-2 border-t border-hairline"></div>
     <div class="px-3 py-1.5 text-[11px] uppercase tracking-wide text-text-muted">Keep open</div>
     {#each [["always", "Always"], ["on-error", "On Error"], ["never", "Never"]] as [value, label]}
       {@const current = getEffectiveKeepOpen(contextMenu.repoRoot, contextMenu.task.id, contextMenu.task.keepOpen)}
