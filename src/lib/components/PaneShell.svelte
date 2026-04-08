@@ -8,6 +8,7 @@
   import { resizeSession, killSession, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
+  import { draggedPaneId, dropTarget, resetPaneDrag } from "$lib/stores/paneDrag";
   import { getXtermTheme } from "$lib/themes";
   import { reconnectSession } from "$lib/sessions/reconnect";
   import { log, logError } from "$lib/logging";
@@ -33,6 +34,8 @@
 
   const instance = $derived($paneInstances.get(paneId));
   const isFocused = $derived($focusedPaneId === paneId);
+  const isDraggingPane = $derived($draggedPaneId === paneId);
+  const isAnyPaneDragging = $derived($draggedPaneId !== null);
   const session = $derived($sessionState.sessions.find((s) => s.id === sessionId));
   const isDisconnected = $derived(instance?.type === "claude" && session?.status === "disconnected");
 
@@ -85,6 +88,35 @@
 
   function handleMouseDown() {
     setLogicalFocus(paneId);
+  }
+
+  function handleTitlebarDoubleClick() {
+    if (instance && !isAnyPaneDragging) {
+      startRenaming(instance.name ?? "");
+    }
+  }
+
+  function handleDragStart(event: DragEvent) {
+    const target = event.target;
+    if (
+      editingName ||
+      (target instanceof HTMLElement && target.closest("button, input, textarea"))
+    ) {
+      event.preventDefault();
+      return;
+    }
+
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", paneId);
+    }
+
+    draggedPaneId.set(paneId);
+    dropTarget.set(null);
+  }
+
+  function handleDragEnd() {
+    resetPaneDrag();
   }
 
   // Reconnect handlers for claude pane SessionPicker
@@ -273,13 +305,21 @@
   <div
     class="pane-shell relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden bg-bg-deep"
     data-focused={isFocused}
+    data-pane-id={paneId}
+    data-dragging={isDraggingPane}
     onmousedown={handleMouseDown}
   >
     <!-- Mini title bar -->
     <div
       class="pane-shell__titlebar flex h-6 shrink-0 select-none items-center border-b border-hairline px-2 gap-1.5"
       class:shadow-[inset_0_2px_0_var(--color-accent-dim)]={isFocused && !suppressTitleAccent}
-      ondblclick={() => startRenaming(instance.name ?? "")}
+      class:cursor-grab={!editingName}
+      class:cursor-grabbing={isDraggingPane}
+      draggable={!editingName}
+      data-drag-handle="true"
+      ondragstart={handleDragStart}
+      ondragend={handleDragEnd}
+      ondblclick={handleTitlebarDoubleClick}
     >
       <span class="text-[10px] uppercase tracking-wider text-text-muted/60 shrink-0">{paneTypeLabel(instance.type)}</span>
       {#if editingName}
@@ -290,6 +330,7 @@
           placeholder="name this pane..."
           bind:value={nameInput}
           autofocus
+          draggable="false"
           onblur={() => commitRename()}
           onkeydown={(e) => {
             if (e.key === "Enter") commitRename();
@@ -305,9 +346,12 @@
         <button
           class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[12px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
           onclick={(e) => {
+            if (isAnyPaneDragging) return;
             e.stopPropagation();
             void closePane(sessionId, paneId);
           }}
+          disabled={isAnyPaneDragging}
+          draggable="false"
           title="Close pane"
         >
           &times;

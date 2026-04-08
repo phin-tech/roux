@@ -47,26 +47,36 @@ export function insertLeaf(
   direction: SplitDirection,
   newPaneId: string
 ): LayoutNode {
+  return insertLeafRelative(
+    node,
+    targetId,
+    direction,
+    { kind: "leaf", paneId: newPaneId },
+    false
+  );
+}
+
+function insertLeafRelative(
+  node: LayoutNode,
+  targetId: string,
+  direction: SplitDirection,
+  newLeaf: LayoutNode & { kind: "leaf" },
+  insertBefore: boolean
+): LayoutNode {
   if (node.kind === "leaf") {
     if (node.paneId !== targetId) return node;
-    // Wrap this leaf and the new leaf in a split node
+    const children = insertBefore ? [newLeaf, node] : [node, newLeaf];
     return {
       kind: "split",
       direction,
-      children: [
-        { kind: "leaf", paneId: targetId },
-        { kind: "leaf", paneId: newPaneId },
-      ],
+      children,
     };
   }
 
-  // node is a split — recurse into children
   const newChildren = node.children.map((child) =>
-    insertLeaf(child, targetId, direction, newPaneId)
+    insertLeafRelative(child, targetId, direction, newLeaf, insertBefore)
   );
 
-  // Check if any child was transformed into a same-direction split that
-  // should be flattened into this level
   const flatChildren: LayoutNode[] = [];
   let changed = false;
 
@@ -77,9 +87,10 @@ export function insertLeaf(
     if (
       next !== orig &&
       next.kind === "split" &&
+      !node.stacked &&
+      !next.stacked &&
       next.direction === node.direction
     ) {
-      // Flatten: inline the new split's children at this level
       flatChildren.push(...next.children);
       changed = true;
     } else {
@@ -88,9 +99,16 @@ export function insertLeaf(
     }
   }
 
-  if (!changed) return node;
-
-  return { ...node, children: flatChildren, sizes: undefined };
+  return changed
+    ? {
+        ...node,
+        children: flatChildren,
+        sizes: undefined,
+        activeIndex: node.stacked && node.activeIndex !== undefined
+          ? Math.min(node.activeIndex, flatChildren.length - 1)
+          : node.activeIndex,
+      }
+    : node;
 }
 
 /**
@@ -265,41 +283,6 @@ function replaceSplitInTree(
   const mapped = root.children.map((c) => replaceSplitInTree(c, target, replacement));
   if (mapped.every((c, i) => c === root.children[i])) return root;
   return { ...root, children: mapped };
-}
-
-/** Remove a leaf from a subtree (mirrors removeLeaf but avoids size/activeIndex adjustments). */
-function removeLeafFromSubtree(node: LayoutNode, paneId: string): LayoutNode | null {
-  if (node.kind === "leaf") {
-    return node.paneId === paneId ? null : node;
-  }
-  const mapped = node.children.map((c) => removeLeafFromSubtree(c, paneId));
-  const remaining = mapped.filter((c): c is LayoutNode => c !== null);
-  if (remaining.length === 0) return null;
-  if (remaining.length === 1) return remaining[0];
-  return { ...node, children: remaining };
-}
-
-/** Insert a new leaf next to target, creating a split of the given direction. */
-function insertLeafAtTarget(
-  node: LayoutNode,
-  targetId: string,
-  direction: SplitDirection,
-  newLeaf: LayoutNode,
-  insertBefore: boolean
-): LayoutNode {
-  if (node.kind === "leaf") {
-    if (node.paneId === targetId) {
-      const children = insertBefore ? [newLeaf, node] : [node, newLeaf];
-      return { kind: "split", direction, children };
-    }
-    return node;
-  }
-  return {
-    ...node,
-    children: node.children.map((child) =>
-      insertLeafAtTarget(child, targetId, direction, newLeaf, insertBefore)
-    ),
-  };
 }
 
 // ── Stacked panes helpers ────────────────────────────────────────────────────
@@ -604,7 +587,7 @@ function movePaneInTree(
       const paneLeaf: LayoutNode = { kind: "leaf", paneId };
 
       const subtree = parent.children[childIndex];
-      const subtreeAfterRemove = removeLeafFromSubtree(subtree, paneId);
+      const subtreeAfterRemove = removeLeaf(subtree, paneId);
 
       const newChildren: LayoutNode[] = [];
       let subtreePos = -1;
@@ -640,22 +623,23 @@ export function movePane(
   if (paneId === targetPaneId) return;
 
   sessionLayouts.update((m) => {
-    let tree = m.get(sessionId);
+    const tree = m.get(sessionId);
     if (!tree) return m;
 
-    // 1. Remove pane from current position
-    const afterRemove = removeLeafFromSubtree(tree, paneId);
+    const afterRemove = removeLeaf(tree, paneId);
     if (!afterRemove) return m;
 
-    // 2. Verify target still exists
     if (!containsPaneId(afterRemove, targetPaneId)) return m;
 
-    // 3. Insert at new position
     const direction = dropSideToDirection[side];
     const insertBefore = side === "left" || side === "top";
-    const newLeaf: LayoutNode = { kind: "leaf", paneId };
-
-    const afterInsert = insertLeafAtTarget(afterRemove, targetPaneId, direction, newLeaf, insertBefore);
+    const afterInsert = insertLeafRelative(
+      afterRemove,
+      targetPaneId,
+      direction,
+      { kind: "leaf", paneId },
+      insertBefore
+    );
     const next = new Map(m);
     next.set(sessionId, afterInsert);
     return next;

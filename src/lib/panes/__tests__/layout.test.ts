@@ -27,6 +27,14 @@ function treeShape(node: LayoutNode): any {
   return { dir: node.direction, children: node.children.map(treeShape) };
 }
 
+function expectNormalizedTree(node: LayoutNode): void {
+  if (node.kind === "leaf") return;
+  expect(node.children.length).toBeGreaterThan(1);
+  for (const child of node.children) {
+    expectNormalizedTree(child);
+  }
+}
+
 describe("layout tree", () => {
   beforeEach(() => {
     resetLayouts();
@@ -375,9 +383,128 @@ describe("movePane (drag-and-drop)", () => {
       return new Map(m);
     });
     movePane("s1", "p3", "p1", "right");
+    expect(treeShape(getLayout("s1"))).toEqual({
+      dir: "h",
+      children: ["p1", "p3", "p2"],
+    });
+    expect(get(focusedPaneId)).toBe("p3");
+  });
+
+  it("moves a pane to the left of another", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      let t = getLayout("s1");
+      t = insertLeaf(t, "p1", "h", "p2");
+      t = insertLeaf(t, "p2", "h", "p3");
+      m.set("s1", t);
+      return new Map(m);
+    });
+    movePane("s1", "p3", "p1", "left");
+    expect(treeShape(getLayout("s1"))).toEqual({
+      dir: "h",
+      children: ["p3", "p1", "p2"],
+    });
+  });
+
+  it("moves a pane above another", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      let t = getLayout("s1");
+      t = insertLeaf(t, "p1", "v", "p2");
+      t = insertLeaf(t, "p2", "v", "p3");
+      m.set("s1", t);
+      return new Map(m);
+    });
+    movePane("s1", "p3", "p1", "top");
+    expect(treeShape(getLayout("s1"))).toEqual({
+      dir: "v",
+      children: ["p3", "p1", "p2"],
+    });
+  });
+
+  it("moves a pane below another", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      let t = getLayout("s1");
+      t = insertLeaf(t, "p1", "v", "p2");
+      t = insertLeaf(t, "p2", "v", "p3");
+      m.set("s1", t);
+      return new Map(m);
+    });
+    movePane("s1", "p3", "p1", "bottom");
+    expect(treeShape(getLayout("s1"))).toEqual({
+      dir: "v",
+      children: ["p1", "p3", "p2"],
+    });
+  });
+
+  it("moves a pane into a nested split and flattens same-direction structure", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      let t = getLayout("s1");
+      t = insertLeaf(t, "p1", "h", "p2");
+      t = insertLeaf(t, "p2", "v", "p3");
+      m.set("s1", t);
+      return new Map(m);
+    });
+    movePane("s1", "p1", "p2", "bottom");
+    expect(treeShape(getLayout("s1"))).toEqual({
+      dir: "v",
+      children: ["p2", "p1", "p3"],
+    });
+    expectNormalizedTree(getLayout("s1"));
+  });
+
+  it("moves a pane out of a nested subtree into an ancestor split", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      let t = getLayout("s1");
+      t = insertLeaf(t, "p1", "h", "p2");
+      t = insertLeaf(t, "p2", "v", "p3");
+      m.set("s1", t);
+      return new Map(m);
+    });
+    movePane("s1", "p3", "p1", "left");
+    expect(treeShape(getLayout("s1"))).toEqual({
+      dir: "h",
+      children: ["p3", "p1", "p2"],
+    });
+    expectNormalizedTree(getLayout("s1"));
+  });
+
+  it("keeps all pane ids present exactly once after repeated moves", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      let t = getLayout("s1");
+      t = insertLeaf(t, "p1", "h", "p2");
+      t = insertLeaf(t, "p2", "v", "p3");
+      t = insertLeaf(t, "p3", "h", "p4");
+      m.set("s1", t);
+      return new Map(m);
+    });
+
+    movePane("s1", "p4", "p1", "left");
+    movePane("s1", "p2", "p3", "bottom");
+    movePane("s1", "p1", "p2", "right");
+
     const ids = collectLeafIds(getLayout("s1"));
-    expect(ids).toContain("p1");
-    expect(ids).toContain("p2");
-    expect(ids).toContain("p3");
+    expect(ids.sort()).toEqual(["p1", "p2", "p3", "p4"]);
+    expect(new Set(ids).size).toBe(ids.length);
+    expectNormalizedTree(getLayout("s1"));
+  });
+
+  it("treats self-drop as a no-op", () => {
+    initSessionLayout("s1", "p1");
+    sessionLayouts.update((m) => {
+      let t = getLayout("s1");
+      t = insertLeaf(t, "p1", "h", "p2");
+      m.set("s1", t);
+      return new Map(m);
+    });
+    setLogicalFocus("p2");
+    const before = getLayout("s1");
+    movePane("s1", "p2", "p2", "left");
+    expect(getLayout("s1")).toEqual(before);
+    expect(get(focusedPaneId)).toBe("p2");
   });
 });
