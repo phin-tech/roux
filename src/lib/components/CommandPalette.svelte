@@ -209,6 +209,7 @@
           {/if}
           <Command.Input
             bind:value={inputValue}
+            onkeydown={handleKeyDown}
             placeholder={inDrillStep ? (currentStep?.sourceCmd?.inputPlaceholder ?? `Search ${currentStep?.label}...`) : "Type a command..."}
             class="flex-1 border-none bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
           />
@@ -218,7 +219,11 @@
           class="app-scrollbar max-h-[340px] flex-1 overflow-y-auto px-3 py-3"
         >
           <Command.Empty class="px-4 py-8 text-center text-sm text-text-muted">
-            No results found
+            {#if inDrillStep && currentStep?.sourceCmd?.onInput}
+              Type and press Enter to submit
+            {:else}
+              No results found
+            {/if}
           </Command.Empty>
 
           {#if inDrillStep && currentStep}
