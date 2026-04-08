@@ -173,6 +173,7 @@ pub struct GithubJob {
 pub struct PrReview {
     pub reviewer: String,
     pub state: String,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,6 +181,7 @@ pub struct PrReview {
 pub struct PrCheckRun {
     pub name: String,
     pub conclusion: Option<String>,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -847,11 +849,13 @@ async fn execute_github_pr_check(repo: &str, pr_number: u64) -> WatchResult {
                     _ => "unknown",
                 };
                 // Only keep actionable states; skip "commented"/"pending" if an actionable review exists
+                let review_url = Some(review.html_url.to_string());
                 if state_str == "commented" || state_str == "pending" {
                     if !latest.contains_key(&reviewer) {
                         latest.insert(reviewer.clone(), PrReview {
                             reviewer,
                             state: state_str.to_string(),
+                            url: review_url,
                         });
                     }
                     continue;
@@ -859,6 +863,7 @@ async fn execute_github_pr_check(repo: &str, pr_number: u64) -> WatchResult {
                 latest.insert(reviewer.clone(), PrReview {
                     reviewer,
                     state: state_str.to_string(),
+                    url: review_url,
                 });
             }
             latest.into_values().collect()
@@ -879,6 +884,7 @@ async fn execute_github_pr_check(repo: &str, pr_number: u64) -> WatchResult {
                 PrCheckRun {
                     name: cr.name.clone(),
                     conclusion: cr.conclusion.clone(),
+                    url: cr.html_url.clone(),
                 }
             }).collect()
         }

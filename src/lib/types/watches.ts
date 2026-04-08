@@ -33,11 +33,13 @@ export interface GithubJob {
 export interface PrReview {
   reviewer: string;
   state: string;
+  url: string | null;
 }
 
 export interface PrCheckRun {
   name: string;
   conclusion: string | null;
+  url: string | null;
 }
 
 export type WatchResult =

@@ -194,7 +194,14 @@
                             review.state === 'approved' ? 'success' : review.state === 'changes_requested' ? 'failure' : 'inProgress'
                           )}"
                         ></span>
-                        <span class="text-text-primary">{review.reviewer}</span>
+                        {#if review.url}
+                          <button
+                            class="cursor-pointer border-none bg-transparent p-0 text-text-primary hover:text-blue hover:underline"
+                            onclick={(e) => { e.stopPropagation(); openUrl(review.url!); }}
+                          >{review.reviewer}</button>
+                        {:else}
+                          <span class="text-text-primary">{review.reviewer}</span>
+                        {/if}
                         <span class="text-text-muted">— {review.state.replace('_', ' ')}</span>
                       </div>
                     {/each}
@@ -209,7 +216,14 @@
                             check.conclusion === 'success' ? 'success' : check.conclusion === 'failure' ? 'failure' : 'inProgress'
                           )}"
                         ></span>
-                        <span class="text-text-primary">{check.name}</span>
+                        {#if check.url}
+                          <button
+                            class="cursor-pointer border-none bg-transparent p-0 text-text-primary hover:text-blue hover:underline"
+                            onclick={(e) => { e.stopPropagation(); openUrl(check.url!); }}
+                          >{check.name}</button>
+                        {:else}
+                          <span class="text-text-primary">{check.name}</span>
+                        {/if}
                       </div>
                     {/each}
                   {/if}
