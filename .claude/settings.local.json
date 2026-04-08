@@ -73,7 +73,13 @@
       "Bash(cargo update:*)",
       "Bash(/Users/sphinizy/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/scripts/start-server.sh:*)",
       "Bash(gh pr:*)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(command -v gh)",
+      "Bash(gh --version)",
+      "Read(//Users/sphinizy/Library/**)",
+      "Read(//Users/sphinizy/.config/**)",
+      "Bash(cargo add:*)",
+      "Bash(cargo doc:*)"
     ]
   }
 }
