@@ -10,12 +10,13 @@
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
+  import { addOrUpdateWatch, watchState } from "$lib/stores/watches";
   import { initSession, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, loadLayout, clearLayout } from "$lib/panes/persistence";
-  import { listSessions, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell } from "$lib/tauri";
+  import { listSessions, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -262,6 +263,16 @@
           break;
         }
       }
+    });
+
+    // Hydrate watches from backend
+    listWatches().then((watches) => {
+      watchState.set(watches);
+    });
+
+    // Listen for watch updates
+    await onWatchUpdate((event) => {
+      addOrUpdateWatch(event.watch);
     });
 
     // Listen for global status updates from hooks and match by cwd
