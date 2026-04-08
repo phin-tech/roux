@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
@@ -585,101 +585,131 @@ async fn execute_check(kind: &WatchKind) -> WatchResult {
     }
 }
 
+// ── GitHub API (octocrab) ──────────────────────────────────
+
+/// Try to get a GitHub token from `gh auth token`, cached for the process lifetime.
+fn github_token() -> Option<&'static str> {
+    static TOKEN: OnceLock<Option<String>> = OnceLock::new();
+    TOKEN.get_or_init(|| {
+        let user_path = crate::pty::get_user_path();
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        std::process::Command::new(&shell)
+            .args(["-c", "gh auth token"])
+            .env("PATH", &user_path)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|t| !t.is_empty())
+    }).as_deref()
+}
+
+fn build_octocrab() -> octocrab::Octocrab {
+    match github_token() {
+        Some(token) => octocrab::Octocrab::builder()
+            .personal_token(token.to_string())
+            .build()
+            .unwrap_or_else(|_| octocrab::Octocrab::default()),
+        None => octocrab::Octocrab::default(),
+    }
+}
+
+fn github_error_result(msg: String) -> WatchResult {
+    WatchResult::CommandRun {
+        exit_code: -1,
+        stdout: String::new(),
+        stderr: msg,
+        outcome: WatchOutcome::Failure,
+    }
+}
+
 async fn execute_github_check(
     repo: &str,
     run_id: Option<u64>,
-    workflow: Option<&str>,
-    branch: Option<&str>,
+    _workflow: Option<&str>,
+    _branch: Option<&str>,
 ) -> WatchResult {
+    let parts: Vec<&str> = repo.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return github_error_result(format!("Invalid repo format: {}", repo));
+    }
+    let (owner, repo_name) = (parts[0], parts[1]);
+    let crab = build_octocrab();
+
     let target_run_id = if let Some(id) = run_id {
         id
     } else {
-        let mut cmd = TokioCommand::new("gh");
-        cmd.args(["run", "list", "--repo", repo, "--json", "databaseId,status,conclusion", "--limit", "1"]);
-        if let Some(w) = workflow {
-            cmd.args(["--workflow", w]);
-        }
-        if let Some(b) = branch {
-            cmd.args(["--branch", b]);
-        }
-        match cmd.output().await {
-            Ok(output) if output.status.success() => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let runs: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap_or_default();
-                match runs.first().and_then(|r| r["databaseId"].as_u64()) {
-                    Some(id) => id,
+        // List the most recent run
+        let page = crab
+            .workflows(owner, repo_name)
+            .list_all_runs()
+            .per_page(1)
+            .send()
+            .await;
+        match page {
+            Ok(page) => {
+                match page.items.first() {
+                    Some(run) => run.id.0,
                     None => return WatchResult::GithubRun {
                         run_id: 0, status: "unknown".into(), conclusion: None,
                         url: String::new(), jobs: vec![], outcome: WatchOutcome::Failure,
                     },
                 }
             }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                return WatchResult::CommandRun {
-                    exit_code: output.status.code().unwrap_or(-1),
-                    stdout: String::new(), stderr: truncate_output(stderr),
-                    outcome: WatchOutcome::Failure,
-                };
-            }
-            Err(e) => {
-                return WatchResult::CommandRun {
-                    exit_code: -1, stdout: String::new(),
-                    stderr: format!("Failed to run gh: {}", e),
-                    outcome: WatchOutcome::Failure,
-                };
-            }
+            Err(e) => return github_error_result(format!("GitHub API error: {}", e)),
         }
     };
 
-    let output = TokioCommand::new("gh")
-        .args(["run", "view", &target_run_id.to_string(), "--repo", repo,
-               "--json", "databaseId,status,conclusion,url,jobs"])
-        .output().await;
+    // Get the run details
+    let run = crab
+        .workflows(owner, repo_name)
+        .get(target_run_id.into())
+        .await;
 
-    match output {
-        Ok(output) if output.status.success() => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let run: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_default();
-            let status = run["status"].as_str().unwrap_or("unknown").to_string();
-            let conclusion = run["conclusion"].as_str().map(|s| s.to_string());
-            let url = run["url"].as_str().unwrap_or("").to_string();
-            let jobs: Vec<GithubJob> = run["jobs"].as_array().unwrap_or(&vec![]).iter().map(|j| {
-                let job_conclusion = j["conclusion"].as_str().map(|s| s.to_string());
-                let failed_step = if job_conclusion.as_deref() == Some("failure") {
-                    j["steps"].as_array().and_then(|steps| {
-                        steps.iter()
-                            .find(|s| s["conclusion"].as_str() == Some("failure"))
-                            .and_then(|s| s["name"].as_str().map(|n| n.to_string()))
-                    })
+    let run = match run {
+        Ok(r) => r,
+        Err(e) => return github_error_result(format!("GitHub API error: {}", e)),
+    };
+
+    let status = format!("{:?}", run.status).to_lowercase();
+    let conclusion = run.conclusion.as_ref().map(|c| format!("{:?}", c).to_lowercase());
+    let url = run.html_url.to_string();
+
+    // Get jobs for the run
+    let jobs_result = crab
+        .workflows(owner, repo_name)
+        .list_jobs(target_run_id.into())
+        .send()
+        .await;
+
+    let jobs: Vec<GithubJob> = match jobs_result {
+        Ok(jobs_page) => {
+            jobs_page.items.iter().map(|j: &octocrab::models::workflows::Job| {
+                let job_conclusion = j.conclusion.as_ref().map(|c| format!("{:?}", c).to_lowercase());
+                let is_failure = job_conclusion.as_deref() == Some("failure");
+                let failed_step = if is_failure {
+                    j.steps.iter()
+                        .find(|s| s.conclusion.as_ref().map(|c| format!("{:?}", c).to_lowercase()).as_deref() == Some("failure"))
+                        .map(|s| s.name.clone())
                 } else { None };
                 GithubJob {
-                    name: j["name"].as_str().unwrap_or("").to_string(),
-                    status: j["status"].as_str().unwrap_or("").to_string(),
-                    conclusion: job_conclusion, failed_step,
+                    name: j.name.clone(),
+                    status: format!("{:?}", j.status).to_lowercase(),
+                    conclusion: job_conclusion,
+                    failed_step,
                 }
-            }).collect();
-            let outcome = match (status.as_str(), conclusion.as_deref()) {
-                ("completed", Some("success")) => WatchOutcome::Success,
-                ("completed", _) => WatchOutcome::Failure,
-                _ => WatchOutcome::InProgress,
-            };
-            WatchResult::GithubRun { run_id: target_run_id, status, conclusion, url, jobs, outcome }
+            }).collect()
         }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            WatchResult::CommandRun {
-                exit_code: output.status.code().unwrap_or(-1),
-                stdout: String::new(), stderr: truncate_output(stderr),
-                outcome: WatchOutcome::Failure,
-            }
-        }
-        Err(e) => WatchResult::CommandRun {
-            exit_code: -1, stdout: String::new(),
-            stderr: format!("Failed to run gh: {}", e),
-            outcome: WatchOutcome::Failure,
-        },
-    }
+        Err(_) => vec![],
+    };
+
+    let outcome = match (status.as_str(), conclusion.as_deref()) {
+        ("completed", Some("success")) => WatchOutcome::Success,
+        ("completed", _) => WatchOutcome::Failure,
+        _ => WatchOutcome::InProgress,
+    };
+
+    WatchResult::GithubRun { run_id: target_run_id, status, conclusion, url, jobs, outcome }
 }
 
 async fn execute_http_check(url: &str, expected_status: u16) -> WatchResult {
