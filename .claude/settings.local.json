@@ -71,7 +71,9 @@
       "Bash(node:*)",
       "WebFetch(domain:zellij.dev)",
       "Bash(cargo update:*)",
-      "Bash(/Users/sphinizy/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/scripts/start-server.sh:*)"
+      "Bash(/Users/sphinizy/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/scripts/start-server.sh:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh api:*)"
     ]
   }
 }
