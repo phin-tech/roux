@@ -6,6 +6,8 @@ export interface CommandItem {
   action?: () => void | Promise<void>;
   /** If set, selecting this item drills into a sub-step instead of executing */
   substeps?: () => CommandItem[] | Promise<CommandItem[]>;
+  /** If set, selecting this item drills into the specified command (for onInput flow) */
+  drillCommand?: string;
 }
 
 export interface Command {

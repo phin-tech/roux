@@ -88,6 +88,14 @@
   }
 
   async function handleItemSelect(item: CmdItem) {
+    if (item.drillCommand) {
+      const cmd = registry.get(item.drillCommand);
+      if (cmd) {
+        await handleCommandSelect(cmd);
+        return;
+      }
+    }
+
     if (item.substeps) {
       const subItems = await item.substeps();
       stepStack = [...stepStack, { label: item.label, items: subItems }];

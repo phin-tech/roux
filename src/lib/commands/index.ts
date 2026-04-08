@@ -641,19 +641,19 @@ export function registerCommands() {
         id: "github-action",
         label: "GitHub Action",
         description: "Watch a GitHub Actions workflow run",
-        action: () => { registry.execute("watch.add-github"); },
+        drillCommand: "watch.add-github",
       },
       {
         id: "http-health",
         label: "HTTP Health Check",
         description: "Monitor a URL for availability",
-        action: () => { registry.execute("watch.add-http"); },
+        drillCommand: "watch.add-http",
       },
       {
         id: "shell-command",
         label: "Shell Command",
         description: "Run a command and watch exit code",
-        action: () => { registry.execute("watch.add-shell"); },
+        drillCommand: "watch.add-shell",
       },
     ],
   });
