@@ -654,6 +654,12 @@ export function registerCommands() {
         description: "Run a command and watch exit code",
         drillCommand: "watch.add-shell",
       },
+      {
+        id: "github-pr",
+        label: "GitHub Pull Request",
+        description: "Watch a PR for reviews, checks, and state",
+        drillCommand: "watch.add-github-pr",
+      },
     ],
   });
 
@@ -747,6 +753,40 @@ export function registerCommands() {
         name,
         kind,
         mode: urlMatch ? { type: "oneShot" } : { type: "recurring", intervalSecs: 30 },
+        scope: session
+          ? { type: "session", sessionId: session.id }
+          : { type: "global" },
+      };
+      await createWatch(config);
+    },
+  });
+
+  registry.register({
+    id: "watch.add-github-pr",
+    label: "Add GitHub PR Watch",
+    category: "Watches",
+    inputPlaceholder: "Enter PR URL (e.g. https://github.com/owner/repo/pull/123) or owner/repo#123...",
+    getItems: () => [],
+    onInput: async (input: string) => {
+      if (!input.trim()) return;
+      const session = queries.activeSession();
+      const urlMatch = input.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+      const shortMatch = input.match(/^([^#]+)#(\d+)$/);
+      let repo: string;
+      let prNumber: number;
+      if (urlMatch) {
+        repo = urlMatch[1];
+        prNumber = parseInt(urlMatch[2], 10);
+      } else if (shortMatch) {
+        repo = shortMatch[1].trim();
+        prNumber = parseInt(shortMatch[2], 10);
+      } else {
+        return;
+      }
+      const config: CreateWatchConfig = {
+        name: `PR: ${repo} #${prNumber}`,
+        kind: { type: "githubPr", repo, prNumber },
+        mode: { type: "recurring", intervalSecs: 30 },
         scope: session
           ? { type: "session", sessionId: session.id }
           : { type: "global" },

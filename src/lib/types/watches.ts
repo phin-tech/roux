@@ -14,7 +14,8 @@ export type WatchKind =
   | { type: "githubAction"; repo: string; runId: number | null; workflow: string | null; branch: string | null }
   | { type: "httpHealth"; url: string; expectedStatus: number }
   | { type: "shellCommand"; command: string; workingDir: string | null; successExitCode: number }
-  | { type: "task"; taskId: string; command: string; workingDir: string };
+  | { type: "task"; taskId: string; command: string; workingDir: string }
+  | { type: "githubPr"; repo: string; prNumber: number };
 
 export type WatchMode =
   | { type: "recurring"; intervalSecs: number }
@@ -29,10 +30,21 @@ export interface GithubJob {
   failedStep: string | null;
 }
 
+export interface PrReview {
+  reviewer: string;
+  state: string;
+}
+
+export interface PrCheckRun {
+  name: string;
+  conclusion: string | null;
+}
+
 export type WatchResult =
   | { type: "githubRun"; runId: number; status: string; conclusion: string | null; url: string; jobs: GithubJob[]; outcome: WatchOutcome }
   | { type: "httpCheck"; statusCode: number; responseTimeMs: number; outcome: WatchOutcome }
-  | { type: "commandRun"; exitCode: number; stdout: string; stderr: string; outcome: WatchOutcome };
+  | { type: "commandRun"; exitCode: number; stdout: string; stderr: string; outcome: WatchOutcome }
+  | { type: "githubPr"; prNumber: number; state: string; title: string; url: string; headSha: string; draft: boolean; reviews: PrReview[]; checks: PrCheckRun[]; outcome: WatchOutcome };
 
 export interface NotifyConfig {
   desktopNotification: boolean;

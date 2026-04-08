@@ -82,6 +82,11 @@ pub enum WatchKind {
         #[serde(rename = "workingDir")]
         working_dir: String,
     },
+    GithubPr {
+        repo: String,
+        #[serde(rename = "prNumber")]
+        pr_number: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +125,19 @@ pub enum WatchResult {
         stderr: String,
         outcome: WatchOutcome,
     },
+    GithubPr {
+        #[serde(rename = "prNumber")]
+        pr_number: u64,
+        state: String,
+        title: String,
+        url: String,
+        #[serde(rename = "headSha")]
+        head_sha: String,
+        draft: bool,
+        reviews: Vec<PrReview>,
+        checks: Vec<PrCheckRun>,
+        outcome: WatchOutcome,
+    },
 }
 
 impl WatchResult {
@@ -128,6 +146,7 @@ impl WatchResult {
             WatchResult::GithubRun { outcome, .. } => outcome,
             WatchResult::HttpCheck { outcome, .. } => outcome,
             WatchResult::CommandRun { outcome, .. } => outcome,
+            WatchResult::GithubPr { outcome, .. } => outcome,
         }
     }
 }
@@ -147,6 +166,20 @@ pub struct GithubJob {
     pub status: String,
     pub conclusion: Option<String>,
     pub failed_step: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrReview {
+    pub reviewer: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrCheckRun {
+    pub name: String,
+    pub conclusion: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -517,6 +550,11 @@ impl WatchManager {
                                 Some(WatchResult::CommandRun { exit_code, .. }) => {
                                     format!("Exit code: {}", exit_code)
                                 }
+                                Some(WatchResult::GithubPr { state, checks, reviews, .. }) => {
+                                    let passed = checks.iter().filter(|c| c.conclusion.as_deref() == Some("success")).count();
+                                    let approvals = reviews.iter().filter(|r| r.state == "approved").count();
+                                    format!("{} — {}/{} checks passed, {} approval(s)", state, passed, checks.len(), approvals)
+                                }
                                 None => String::new(),
                             };
                             let _ = app.notification()
@@ -528,11 +566,16 @@ impl WatchManager {
                     }
                 }
 
-                // Auto-stop: one-shot watches, or GitHub runs that completed
+                // Auto-stop: one-shot watches, completed GitHub runs, or merged/closed PRs
                 let should_stop = matches!(watch.mode, WatchMode::OneShot)
                     || matches!(
                         (&watch.kind, &new_outcome),
                         (WatchKind::GithubAction { .. }, WatchOutcome::Success | WatchOutcome::Failure)
+                    )
+                    || matches!(
+                        (&watch.kind, &result),
+                        (WatchKind::GithubPr { .. }, WatchResult::GithubPr { ref state, .. })
+                        if state == "merged" || state == "closed"
                     );
                 if should_stop {
                     store.update(&watch_id, |w| {
@@ -585,6 +628,17 @@ fn timeout_result(kind: &WatchKind) -> WatchResult {
             jobs: vec![],
             outcome: WatchOutcome::Failure,
         },
+        WatchKind::GithubPr { repo, pr_number } => WatchResult::GithubPr {
+            pr_number: *pr_number,
+            state: "unknown".into(),
+            title: String::new(),
+            url: format!("https://github.com/{}/pull/{}", repo, pr_number),
+            head_sha: String::new(),
+            draft: false,
+            reviews: vec![],
+            checks: vec![],
+            outcome: WatchOutcome::Failure,
+        },
         _ => WatchResult::CommandRun {
             exit_code: -1,
             stdout: String::new(),
@@ -607,6 +661,9 @@ async fn execute_check(kind: &WatchKind) -> WatchResult {
         }
         WatchKind::Task { command, working_dir, .. } => {
             execute_shell_check(command, Some(working_dir.as_str()), 0).await
+        }
+        WatchKind::GithubPr { repo, pr_number } => {
+            execute_github_pr_check(repo, *pr_number).await
         }
     }
 }
@@ -737,6 +794,123 @@ async fn execute_github_check(
     };
 
     WatchResult::GithubRun { run_id: target_run_id, status, conclusion, url, jobs, outcome }
+}
+
+async fn execute_github_pr_check(repo: &str, pr_number: u64) -> WatchResult {
+    let parts: Vec<&str> = repo.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return github_error_result(format!("Invalid repo format: {}", repo));
+    }
+    let (owner, repo_name) = (parts[0], parts[1]);
+    let crab = build_octocrab();
+
+    // 1. Get PR details
+    let pr = match crab.pulls(owner, repo_name).get(pr_number).await {
+        Ok(pr) => pr,
+        Err(e) => return github_error_result(format!("GitHub API error: {}", e)),
+    };
+
+    let state = if pr.merged.unwrap_or(false) {
+        "merged".to_string()
+    } else {
+        match pr.state {
+            Some(octocrab::models::IssueState::Open) => "open".to_string(),
+            Some(octocrab::models::IssueState::Closed) => "closed".to_string(),
+            _ => "unknown".to_string(),
+        }
+    };
+    let title = pr.title.unwrap_or_default();
+    let url = pr.html_url.map(|u| u.to_string()).unwrap_or_default();
+    let head_sha = pr.head.sha.clone();
+    let draft = pr.draft.unwrap_or(false);
+
+    // 2. Get reviews (deduplicate to latest per reviewer)
+    let reviews_result = crab.pulls(owner, repo_name)
+        .list_reviews(pr_number)
+        .per_page(100)
+        .send()
+        .await;
+
+    let reviews: Vec<PrReview> = match reviews_result {
+        Ok(page) => {
+            let mut latest: std::collections::HashMap<String, PrReview> = std::collections::HashMap::new();
+            for review in &page.items {
+                let reviewer = review.user.as_ref()
+                    .map(|u| u.login.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let state_str = match review.state {
+                    Some(octocrab::models::pulls::ReviewState::Approved) => "approved",
+                    Some(octocrab::models::pulls::ReviewState::ChangesRequested) => "changes_requested",
+                    Some(octocrab::models::pulls::ReviewState::Commented) => "commented",
+                    Some(octocrab::models::pulls::ReviewState::Dismissed) => "dismissed",
+                    Some(octocrab::models::pulls::ReviewState::Pending) => "pending",
+                    _ => "unknown",
+                };
+                // Only keep actionable states; skip "commented"/"pending" if an actionable review exists
+                if state_str == "commented" || state_str == "pending" {
+                    if !latest.contains_key(&reviewer) {
+                        latest.insert(reviewer.clone(), PrReview {
+                            reviewer,
+                            state: state_str.to_string(),
+                        });
+                    }
+                    continue;
+                }
+                latest.insert(reviewer.clone(), PrReview {
+                    reviewer,
+                    state: state_str.to_string(),
+                });
+            }
+            latest.into_values().collect()
+        }
+        Err(_) => vec![],
+    };
+
+    // 3. Get check runs for the head commit
+    let checks_result = crab.checks(owner, repo_name)
+        .list_check_runs_for_git_ref(octocrab::params::repos::Commitish(head_sha.clone()))
+        .per_page(100)
+        .send()
+        .await;
+
+    let checks: Vec<PrCheckRun> = match checks_result {
+        Ok(list) => {
+            list.check_runs.iter().map(|cr| {
+                PrCheckRun {
+                    name: cr.name.clone(),
+                    conclusion: cr.conclusion.clone(),
+                }
+            }).collect()
+        }
+        Err(_) => vec![],
+    };
+
+    // 4. Compute outcome
+    let outcome = compute_pr_outcome(&state, &reviews, &checks);
+
+    WatchResult::GithubPr {
+        pr_number, state, title, url, head_sha, draft, reviews, checks, outcome,
+    }
+}
+
+fn compute_pr_outcome(state: &str, reviews: &[PrReview], checks: &[PrCheckRun]) -> WatchOutcome {
+    if state == "merged" { return WatchOutcome::Success; }
+    if state == "closed" { return WatchOutcome::Failure; }
+
+    let any_check_running = checks.iter().any(|c| c.conclusion.is_none());
+    let any_check_failed = checks.iter().any(|c| c.conclusion.as_deref() == Some("failure"));
+    let changes_requested = reviews.iter().any(|r| r.state == "changes_requested");
+    let has_approval = reviews.iter().any(|r| r.state == "approved");
+
+    if any_check_failed || changes_requested {
+        WatchOutcome::Failure
+    } else if any_check_running || checks.is_empty() {
+        WatchOutcome::InProgress
+    } else if has_approval {
+        WatchOutcome::Success
+    } else {
+        WatchOutcome::InProgress
+    }
 }
 
 async fn execute_http_check(url: &str, expected_status: u16) -> WatchResult {

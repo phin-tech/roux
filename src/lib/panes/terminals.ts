@@ -66,67 +66,71 @@ export function initTerminal(paneId: string): void {
     openUrl(uri);
   }));
 
-  // Add watch buttons next to GitHub Actions URLs as they appear
+  // Add watch buttons next to GitHub URLs as they appear
   const ghRunPattern = /https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)/g;
-  const decoratedLines = new Set<number>();
+  const ghPrPattern = /https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/g;
+  const decoratedLines = new Set<string>(); // "lineNum:pattern" keys
+
+  function addWatchDecoration(
+    yOffset: number,
+    urlEnd: number,
+    title: string,
+    onClick: () => Promise<void>,
+  ) {
+    const marker = terminal.registerMarker(yOffset);
+    if (!marker) return;
+    const decoration = terminal.registerDecoration({
+      marker,
+      anchor: "left",
+      x: urlEnd + 1,
+      width: 3,
+    });
+    if (!decoration) return;
+    decoration.onRender((el) => {
+      if (el.dataset.initialized) return;
+      el.dataset.initialized = "true";
+      el.innerHTML = `<svg title="${title}" style="cursor:pointer;opacity:0.7;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+      el.style.display = "inline-flex";
+      el.style.alignItems = "center";
+      el.style.height = "100%";
+      el.style.zIndex = "10";
+      el.addEventListener("mouseenter", () => {
+        el.firstElementChild!.setAttribute("style", el.firstElementChild!.getAttribute("style")!.replace("opacity:0.7", "opacity:1"));
+      });
+      el.addEventListener("mouseleave", () => {
+        el.firstElementChild!.setAttribute("style", el.firstElementChild!.getAttribute("style")!.replace("opacity:1", "opacity:0.7"));
+      });
+      el.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        await onClick();
+      });
+    });
+  }
 
   terminal.onWriteParsed(() => {
     const buf = terminal.buffer.active;
-    // Check the last few lines that may have just been written
     for (let i = Math.max(0, buf.cursorY - 2); i <= buf.cursorY; i++) {
       const absLine = buf.baseY + i;
-      if (decoratedLines.has(absLine)) continue;
-
       const line = buf.getLine(absLine);
       if (!line) continue;
       const text = line.translateToString();
+      const yOffset = i - buf.cursorY;
 
-      ghRunPattern.lastIndex = 0;
-      let match;
-      while ((match = ghRunPattern.exec(text)) !== null) {
-        decoratedLines.add(absLine);
-        const repo = match[1];
-        const runId = parseInt(match[2], 10);
-        const urlEnd = match.index + match[0].length;
-
-        const marker = terminal.registerMarker(i - buf.cursorY);
-        if (!marker) continue;
-
-        const decoration = terminal.registerDecoration({
-          marker,
-          anchor: "left",
-          x: urlEnd + 1,
-          width: 3,
-        });
-        if (!decoration) continue;
-
-        decoration.onRender((el) => {
-          if (el.dataset.initialized) return;
-          el.dataset.initialized = "true";
-          el.innerHTML = `<svg title="Watch this GitHub Action" style="cursor:pointer;opacity:0.7;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
-          el.style.display = "inline-flex";
-          el.style.alignItems = "center";
-          el.style.height = "100%";
-          el.style.zIndex = "10";
-          el.addEventListener("mouseenter", () => {
-            el.firstElementChild!.setAttribute("style", el.firstElementChild!.getAttribute("style")!.replace("opacity:0.7", "opacity:1"));
-          });
-          el.addEventListener("mouseleave", () => {
-            el.firstElementChild!.setAttribute("style", el.firstElementChild!.getAttribute("style")!.replace("opacity:1", "opacity:0.7"));
-          });
-          el.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            e.preventDefault();
+      // GitHub Actions run URLs
+      const runKey = `${absLine}:run`;
+      if (!decoratedLines.has(runKey)) {
+        ghRunPattern.lastIndex = 0;
+        let match;
+        while ((match = ghRunPattern.exec(text)) !== null) {
+          decoratedLines.add(runKey);
+          const repo = match[1];
+          const runId = parseInt(match[2], 10);
+          addWatchDecoration(yOffset, match.index + match[0].length, "Watch this GitHub Action", async () => {
             const state = get(sessionState);
             const config: CreateWatchConfig = {
               name: `GH: ${repo} #${runId}`,
-              kind: {
-                type: "githubAction",
-                repo,
-                runId,
-                workflow: null,
-                branch: null,
-              },
+              kind: { type: "githubAction", repo, runId, workflow: null, branch: null },
               mode: { type: "oneShot" },
               scope: state.activeSessionId
                 ? { type: "session", sessionId: state.activeSessionId }
@@ -134,7 +138,31 @@ export function initTerminal(paneId: string): void {
             };
             await createWatch(config);
           });
-        });
+        }
+      }
+
+      // GitHub PR URLs
+      const prKey = `${absLine}:pr`;
+      if (!decoratedLines.has(prKey)) {
+        ghPrPattern.lastIndex = 0;
+        let match;
+        while ((match = ghPrPattern.exec(text)) !== null) {
+          decoratedLines.add(prKey);
+          const repo = match[1];
+          const prNumber = parseInt(match[2], 10);
+          addWatchDecoration(yOffset, match.index + match[0].length, "Watch this PR", async () => {
+            const state = get(sessionState);
+            const config: CreateWatchConfig = {
+              name: `PR: ${repo} #${prNumber}`,
+              kind: { type: "githubPr", repo, prNumber },
+              mode: { type: "recurring", intervalSecs: 30 },
+              scope: state.activeSessionId
+                ? { type: "session", sessionId: state.activeSessionId }
+                : { type: "global" },
+            };
+            await createWatch(config);
+          });
+        }
       }
     }
   });

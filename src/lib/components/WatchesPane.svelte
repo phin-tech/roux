@@ -171,6 +171,48 @@
                     Status: <span class="text-text-primary">{watch.lastResult.statusCode}</span>
                     · {watch.lastResult.responseTimeMs}ms
                   </div>
+                {:else if watch.lastResult?.type === "githubPr"}
+                  {@const prResult = watch.lastResult}
+                  <div class="mb-1">
+                    <button
+                      class="cursor-pointer border-none bg-transparent p-0 text-blue hover:underline"
+                      onclick={(e) => { e.stopPropagation(); openUrl(prResult.url); }}
+                    >
+                      #{prResult.prNumber}
+                    </button>
+                    <span class="ml-1 rounded px-1 text-[10px] font-medium {prResult.state === 'merged' ? 'bg-green/20 text-green' : prResult.state === 'open' ? 'bg-purple/20 text-purple' : prResult.state === 'closed' ? 'bg-red/20 text-red' : ''}"
+                    >{prResult.state}{prResult.draft ? " (draft)" : ""}</span>
+                    <span class="ml-1 truncate text-text-muted">{prResult.title}</span>
+                  </div>
+
+                  {#if prResult.reviews.length > 0}
+                    <div class="mt-1 text-[10px] uppercase tracking-wider text-text-muted">Reviews</div>
+                    {#each prResult.reviews as review}
+                      <div class="flex items-center gap-1 py-0.5 pl-2">
+                        <span
+                          class="inline-block h-1.5 w-1.5 rounded-full {outcomeColor(
+                            review.state === 'approved' ? 'success' : review.state === 'changes_requested' ? 'failure' : 'inProgress'
+                          )}"
+                        ></span>
+                        <span class="text-text-primary">{review.reviewer}</span>
+                        <span class="text-text-muted">— {review.state.replace('_', ' ')}</span>
+                      </div>
+                    {/each}
+                  {/if}
+
+                  {#if prResult.checks.length > 0}
+                    <div class="mt-1 text-[10px] uppercase tracking-wider text-text-muted">Checks</div>
+                    {#each prResult.checks as check}
+                      <div class="flex items-center gap-1 py-0.5 pl-2">
+                        <span
+                          class="inline-block h-1.5 w-1.5 rounded-full {outcomeColor(
+                            check.conclusion === 'success' ? 'success' : check.conclusion === 'failure' ? 'failure' : 'inProgress'
+                          )}"
+                        ></span>
+                        <span class="text-text-primary">{check.name}</span>
+                      </div>
+                    {/each}
+                  {/if}
                 {:else if watch.lastResult?.type === "commandRun"}
                   <div class="text-text-muted">
                     Exit: <span class="text-text-primary">{watch.lastResult.exitCode}</span>
