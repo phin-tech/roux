@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
+use tauri_plugin_notification::NotificationExt;
 use tokio::process::Command as TokioCommand;
 use tokio::time::{timeout, sleep};
 use tokio_util::sync::CancellationToken;
@@ -379,7 +380,7 @@ impl WatchManager {
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
         let handles = Arc::clone(&self.handles);
-        let _flap_trackers = Arc::clone(&self.flap_trackers);
+        let flap_trackers = Arc::clone(&self.flap_trackers);
         let watch_id_for_handles = watch_id.clone();
 
         let join = tokio::spawn(async move {
@@ -440,6 +441,53 @@ impl WatchManager {
                         previous_outcome,
                     };
                     let _ = app.emit("watch-update", &event);
+                }
+
+                // Send desktop notification if configured (with flap debouncing)
+                if changed {
+                    if let Some(ref updated) = store.get(&watch_id) {
+                        let outcome = updated.last_result.as_ref().map(|r| r.outcome());
+
+                        // Update flap tracker and check if flapping
+                        let suppress = {
+                            let mut trackers = flap_trackers.lock().unwrap();
+                            let tracker = trackers.entry(watch_id.clone()).or_insert_with(FlapTracker::new);
+                            if let Some(ref o) = outcome {
+                                tracker.record((*o).clone(), now);
+                            }
+                            tracker.is_flapping()
+                        };
+
+                        let should_notify = !suppress && match outcome {
+                            Some(WatchOutcome::Failure) => updated.notify.desktop_notification && updated.notify.on_failure,
+                            Some(WatchOutcome::Success) => updated.notify.desktop_notification && updated.notify.on_success,
+                            _ => false,
+                        };
+                        if should_notify {
+                            let title = match outcome {
+                                Some(WatchOutcome::Failure) => format!("❌ {}", updated.name),
+                                Some(WatchOutcome::Success) => format!("✅ {}", updated.name),
+                                _ => updated.name.clone(),
+                            };
+                            let body = match &updated.last_result {
+                                Some(WatchResult::GithubRun { conclusion, url, .. }) => {
+                                    format!("{} — {}", conclusion.as_deref().unwrap_or("unknown"), url)
+                                }
+                                Some(WatchResult::HttpCheck { status_code, response_time_ms, .. }) => {
+                                    format!("HTTP {} ({}ms)", status_code, response_time_ms)
+                                }
+                                Some(WatchResult::CommandRun { exit_code, .. }) => {
+                                    format!("Exit code: {}", exit_code)
+                                }
+                                None => String::new(),
+                            };
+                            let _ = app.notification()
+                                .builder()
+                                .title(&title)
+                                .body(&body)
+                                .show();
+                        }
+                    }
                 }
 
                 if matches!(watch.mode, WatchMode::OneShot) {
