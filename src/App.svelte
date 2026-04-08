@@ -6,16 +6,18 @@
   import SetupPrompt from "$lib/components/SetupPrompt.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
+  import WatchesPane from "$lib/components/WatchesPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
+  import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { initSession, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, loadLayout, clearLayout } from "$lib/panes/persistence";
-  import { listSessions, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -27,8 +29,10 @@
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
   let showNotes = $state(false);
+  let showWatches = $state(false);
   let showPalette = $state(false);
   let showSetupPrompt = $state(false);
+  let ghAvailable = $state(true);
 
   function buildShortcutString(e: KeyboardEvent): string {
     const parts: string[] = [];
@@ -107,6 +111,11 @@
         if (showNotes) showSettings = false;
         return;
       }
+      if (cmd.id === "ui.toggle-watches") {
+        showWatches = !showWatches;
+        if (showWatches) { showSettings = false; showNotes = false; }
+        return;
+      }
       if (cmd.id === "app.command-palette") {
         showPalette = true;
         return;
@@ -140,9 +149,11 @@
     await initLogging(loadedSettings.enableLogging);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
 
-    // Check if first-time CLI setup is needed
-    const needsSetup = await checkSetupNeeded();
-    if (needsSetup) {
+    // Check CLI setup and tool availability
+    const status = await checkSetupStatus();
+    ghAvailable = status.ghAvailable;
+    ghAvailableStore.set(status.ghAvailable);
+    if (!status.cliInstalled) {
       log("First-time setup needed");
       showSetupPrompt = true;
     }
@@ -264,6 +275,19 @@
       }
     });
 
+    // Hydrate watches from backend
+    listWatches().then((watches) => {
+      watchState.set(watches);
+    });
+
+    // Listen for watch updates
+    await onWatchUpdate((event) => {
+      addOrUpdateWatch(event.watch);
+      if (event.changed && event.watch.scope.type === "session") {
+        flashSession(event.watch.scope.sessionId);
+      }
+    });
+
     // Listen for global status updates from hooks and match by cwd
     await onRouxStatusUpdate((update) => {
       const sessions = $sessionState.sessions;
@@ -297,6 +321,7 @@
 <Layout
   onNewSession={() => (showNewSessionDialog = true)}
   onOpenSettings={() => (showSettings = !showSettings)}
+  onToggleWatches={() => { showWatches = !showWatches; if (showWatches) { showSettings = false; showNotes = false; } }}
 >
   {#snippet settingsPanel()}
     <SettingsPanel visible={showSettings} onclose={() => (showSettings = false)} />
@@ -306,6 +331,10 @@
       projectId={activeSession?.projectId ?? null}
       projectName={$projects.find(p => p.id === activeSession?.projectId)?.name ?? null}
       onclose={() => (showNotes = false)}
+    />
+    <WatchesPane
+      visible={showWatches}
+      onclose={() => (showWatches = false)}
     />
   {/snippet}
 </Layout>
@@ -324,5 +353,6 @@
 
 <SetupPrompt
   visible={showSetupPrompt}
+  {ghAvailable}
   ondone={() => (showSetupPrompt = false)}
 />

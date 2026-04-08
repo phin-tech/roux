@@ -17,13 +17,16 @@ import { getXtermTheme } from "$lib/themes";
 import {
   attachPtyOutput,
   createPtyOutputChannel,
+  createWatch,
   onSessionExit,
   writeToSession,
   type SessionExitPayload,
 } from "$lib/tauri";
+import type { CreateWatchConfig } from "$lib/types";
 import { getInstance, updateInstance } from "./instances";
 import { focusedPaneId } from "./focus";
 import { log } from "$lib/logging";
+import { sessionState } from "$lib/stores/sessions";
 
 /**
  * Create an xterm Terminal + FitAddon for a pane and store them on the
@@ -58,6 +61,58 @@ export function initTerminal(paneId: string): void {
     // WebGL not available — canvas fallback
   }
   terminal.loadAddon(new WebLinksAddon());
+
+  terminal.registerLinkProvider({
+    provideLinks(bufferLineNumber, callback) {
+      const line = terminal.buffer.active.getLine(bufferLineNumber);
+      if (!line) {
+        callback(undefined);
+        return;
+      }
+      const text = line.translateToString();
+
+      const ghPattern = /https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)/g;
+      const links: { startIndex: number; length: number; repo: string; runId: number }[] = [];
+
+      let match;
+      while ((match = ghPattern.exec(text)) !== null) {
+        links.push({
+          startIndex: match.index,
+          length: match[0].length,
+          repo: match[1],
+          runId: parseInt(match[2], 10),
+        });
+      }
+
+      callback(
+        links.map((link) => ({
+          range: {
+            start: { x: link.startIndex + 1, y: bufferLineNumber },
+            end: { x: link.startIndex + link.length + 1, y: bufferLineNumber },
+          },
+          text: "Click to watch this GitHub Action",
+          activate: async () => {
+            const state = get(sessionState);
+            const config: CreateWatchConfig = {
+              name: `GH: ${link.repo} #${link.runId}`,
+              kind: {
+                type: "githubAction",
+                repo: link.repo,
+                runId: link.runId,
+                workflow: null,
+                branch: null,
+              },
+              mode: { type: "oneShot" },
+              scope: state.activeSessionId
+                ? { type: "session", sessionId: state.activeSessionId }
+                : { type: "global" },
+            };
+            await createWatch(config);
+          },
+        }))
+      );
+    },
+  });
 
   terminal.onData((data) => {
     const inst = getInstance(paneId);

@@ -21,14 +21,16 @@
   import { setSessionProject, updateSessionPermission, respondToPermission } from "$lib/stores/sessions";
   import { setSessionProject as tauriSetSessionProject } from "$lib/tauri";
   import { log, logError } from "$lib/logging";
+  import { failureCount } from "$lib/stores/watches";
   import type { Session } from "$lib/types";
 
   interface Props {
     onNewSession: () => void;
     onOpenSettings: () => void;
+    onToggleWatches: () => void;
   }
 
-  let { onNewSession, onOpenSettings }: Props = $props();
+  let { onNewSession, onOpenSettings, onToggleWatches }: Props = $props();
 
   let dragging = $state(false);
   let containerEl: HTMLDivElement | undefined = $state();
@@ -333,6 +335,18 @@
       onclick={onNewSession}
     >
       <span class="text-sm">+</span> New
+    </button>
+    <button
+      class="flex items-center justify-center gap-1 bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      onclick={onToggleWatches}
+      title="Toggle watches"
+    >
+      Watches
+      {#if $failureCount > 0}
+        <span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red px-1 text-[10px] font-bold text-white">
+          {$failureCount}
+        </span>
+      {/if}
     </button>
     <button
       class="flex items-center justify-center bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"

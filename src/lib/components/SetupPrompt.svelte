@@ -4,10 +4,11 @@
 
   interface Props {
     visible: boolean;
+    ghAvailable?: boolean;
     ondone: () => void;
   }
 
-  let { visible, ondone }: Props = $props();
+  let { visible, ghAvailable = true, ondone }: Props = $props();
 
   let installing = $state(false);
   let error = $state("");
@@ -60,6 +61,16 @@
           <li>Install <code class="rounded bg-bg-surface/60 px-1.5 py-0.5 text-xs text-text-primary">roux-cli</code> to <code class="rounded bg-bg-surface/60 px-1.5 py-0.5 text-xs text-text-primary">~/.local/bin/</code></li>
           <li>Add hooks to your Claude Code settings</li>
         </ul>
+
+        {#if !ghAvailable}
+          <div class="mt-2 border border-amber/15 bg-amber/8 px-3 py-2">
+            <p class="text-xs text-amber">
+              <span class="font-semibold">GitHub CLI not found.</span>
+              GitHub Actions watches require <code class="rounded bg-bg-surface/60 px-1 py-0.5 text-[11px]">gh</code> to be installed.
+              You can install it later with <code class="rounded bg-bg-surface/60 px-1 py-0.5 text-[11px]">brew install gh</code>.
+            </p>
+          </div>
+        {/if}
 
         {#if error}
           <p class="text-xs text-red-400">{error}</p>
