@@ -8,6 +8,9 @@ import type {
   SessionStatusPayload,
   TaskGroup,
   ClaudeSession,
+  Watch,
+  CreateWatchConfig,
+  WatchUpdateEvent,
 } from "./types";
 import { ptyOutputPayloadToBytes, type PtyOutputPayload } from "./ptyOutput";
 export type { PtyOutputPayload } from "./ptyOutput";
@@ -286,6 +289,36 @@ export function onRouxCommand(
   callback: (payload: RouxCommand) => void
 ): Promise<UnlistenFn> {
   return listen<RouxCommand>("roux-command", (event) => {
+    callback(event.payload);
+  });
+}
+
+// Watch commands
+export async function createWatch(config: CreateWatchConfig): Promise<Watch> {
+  return invoke("cmd_create_watch", { config });
+}
+
+export async function removeWatch(id: string): Promise<void> {
+  return invoke("cmd_remove_watch", { id });
+}
+
+export async function listWatches(): Promise<Watch[]> {
+  return invoke("cmd_list_watches");
+}
+
+export async function pauseWatch(id: string): Promise<void> {
+  return invoke("cmd_pause_watch", { id });
+}
+
+export async function resumeWatch(id: string): Promise<void> {
+  return invoke("cmd_resume_watch", { id });
+}
+
+// Watch events
+export function onWatchUpdate(
+  callback: (payload: WatchUpdateEvent) => void
+): Promise<UnlistenFn> {
+  return listen<WatchUpdateEvent>("watch-update", (event) => {
     callback(event.payload);
   });
 }

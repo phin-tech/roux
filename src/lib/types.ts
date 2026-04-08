@@ -104,3 +104,17 @@ export interface ClaudeSession {
 }
 
 export type { KeepOpen, TaskDefinition, TaskGroup, TaskRun } from "./types/tasks";
+
+export type {
+  Watch,
+  WatchKind,
+  WatchMode,
+  WatchScope,
+  WatchResult,
+  WatchOutcome,
+  WatchUpdateEvent,
+  CreateWatchConfig,
+  RuntimeState,
+  NotifyConfig,
+  GithubJob,
+} from "./types/watches";
