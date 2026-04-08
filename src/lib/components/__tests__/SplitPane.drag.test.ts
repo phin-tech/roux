@@ -62,17 +62,32 @@ describe("SplitPane drag and drop", () => {
     expect(sourceHandle).toBeTruthy();
     expect(targetPane).toBeTruthy();
 
+    Object.defineProperty(targetPane!, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: 120,
+        height: 80,
+        right: 120,
+        bottom: 80,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+
     const dataTransfer = createDataTransfer();
     await fireEvent.dragStart(sourceHandle!, { dataTransfer });
     expect(get(draggedPaneId)).toBe("p2");
-    await fireEvent.dragOver(targetPane!, { clientX: 1, clientY: 50, dataTransfer });
+    await fireEvent.dragOver(targetPane!, { clientX: 2, clientY: 40, dataTransfer });
     expect(get(dropTarget)).toEqual({ paneId: "p1", side: "left" });
     await tick();
 
     const overlay = container.querySelector('[data-drop-side="left"]');
     expect(overlay).toBeTruthy();
 
-    await fireEvent.drop(targetPane!, { clientX: 1, clientY: 50, dataTransfer });
+    await fireEvent.drop(targetPane!, { clientX: 2, clientY: 40, dataTransfer });
 
     expect(collectLeafIds(getLayout("s1"))).toEqual(["p2", "p1"]);
     expect(container.querySelector('[data-drop-side="left"]')).toBeNull();

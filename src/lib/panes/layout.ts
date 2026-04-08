@@ -625,6 +625,7 @@ export function movePane(
   sessionLayouts.update((m) => {
     const tree = m.get(sessionId);
     if (!tree) return m;
+    if (!containsPaneId(tree, paneId)) return m;
 
     const afterRemove = removeLeaf(tree, paneId);
     if (!afterRemove) return m;
