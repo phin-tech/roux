@@ -5,6 +5,7 @@ mod hooks;
 mod logging;
 mod commands;
 mod projects;
+mod services;
 mod pty;
 mod session;
 mod session_service;

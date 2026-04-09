@@ -153,6 +153,8 @@ fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
 }
 
 async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
+    use crate::services::sessions::{self as svc, SessionTarget};
+
     let state: tauri::State<AppState> = app.state();
     let handle = state.session_handle.clone();
 
@@ -160,75 +162,56 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
 
     let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
 
-    // Use the working_dir as repo_path, or fall back to current session's repo
-    let repo_path = match working_dir {
-        Some(ref dir) => dir.clone(),
-        None => {
-            // Try to get repo path from the requesting session
-            match req.session_id.as_deref() {
-                Some(id) => match handle.get(id).await {
-                    Ok(Some(session)) => session.repo_root.clone(),
-                    Ok(None) => return Response::err("working_dir or session_id required"),
-                    Err(e) => return Response::err(format!("{}", e)),
-                },
-                None => return Response::err("working_dir or session_id required"),
-            }
-        }
+    // Resolve repo_path: use the requesting session's repo_root, or the working_dir
+    let repo_path = match req.session_id.as_deref() {
+        Some(id) => match handle.get(id).await {
+            Ok(Some(session)) => session.repo_root.clone(),
+            _ => working_dir.clone().unwrap_or_default(),
+        },
+        None => working_dir.clone().unwrap_or_default(),
     };
+
+    if repo_path.is_empty() {
+        return Response::err("working_dir or session_id required");
+    }
 
     let settings = state.settings.lock().unwrap().clone();
-    let session_id = uuid::Uuid::new_v4().to_string();
-    let work_dir = working_dir.unwrap_or_else(|| repo_path.clone());
 
-    let all_flags = settings.additional_flags.clone();
-
-    let spawn_result = state.pty_manager.spawn(
-        &session_id,
-        &work_dir,
-        settings.default_model.as_deref(),
-        &all_flags,
-        None,
-        settings.claude_binary_path.as_deref(),
-        app.clone(),
-    );
-
-    if let Err(e) = spawn_result {
-        return Response::err(format!("Failed to spawn session: {}", e));
-    }
-
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-
-    let is_git = crate::commands::sessions::is_git_repo(&work_dir);
-    let branch = crate::commands::sessions::get_current_branch(&work_dir).unwrap_or_else(|| "main".to_string());
-
-    let session = crate::session::Session {
-        id: session_id.clone(),
-        name,
-        repo_root: repo_path,
-        worktree_path: work_dir,
-        branch,
-        is_worktree: false,
-        status: "idle".to_string(),
-        model: None,
-        cost: None,
-        created_at: now,
-        project_id: None,
-        is_git_repo: is_git,
+    // If working_dir differs from repo_path, treat it as an existing worktree
+    let target = match &working_dir {
+        Some(dir) if dir != &repo_path => SessionTarget::ExistingWorktree { path: dir },
+        _ => SessionTarget::Repo,
     };
 
-    if let Err(e) = handle.add(session).await {
-        return Response::err(format!("{}", e));
-    }
+    let session = match svc::create_session(
+        &state.pty_manager,
+        &state.session_handle,
+        &settings,
+        &repo_path,
+        &name,
+        target,
+        &[],
+        None,
+        app,
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => return Response::err(format!("{}", e)),
+    };
 
-    // Tell frontend about the new session
+    let session_id = session.id.clone();
+
     use tauri::Emitter;
-    let _ = app.emit(
+    if let Err(e) = app.emit(
         "roux-command",
         serde_json::json!({
             "action": "session-created",
             "sessionId": session_id,
         }),
-    );
+    ) {
+        rlog!("Warning: failed to emit session-created event: {}", e);
+    }
 
     Response::success(serde_json::json!({ "session_id": session_id }))
 }
