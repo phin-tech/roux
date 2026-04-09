@@ -9,6 +9,15 @@ pub(crate) fn is_command_available(command: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn is_cli_installed() -> bool {
+    crate::hooks::cli_is_installed()
+}
+
+pub(crate) fn install_hooks() -> anyhow::Result<()> {
+    crate::hooks::install_hooks()?;
+    Ok(())
+}
+
 pub(crate) fn list_nono_profiles() -> Vec<String> {
     let home = match dirs::home_dir() {
         Some(h) => h,

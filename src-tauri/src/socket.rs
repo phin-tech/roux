@@ -153,6 +153,8 @@ fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
 }
 
 async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
+    use crate::services::sessions::{self as svc, SessionTarget};
+
     let state: tauri::State<AppState> = app.state();
     let handle = state.session_handle.clone();
 
@@ -160,33 +162,34 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
 
     let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
 
-    // Use the working_dir as repo_path, or fall back to current session's repo
-    let repo_path = match working_dir {
-        Some(ref dir) => dir.clone(),
-        None => {
-            // Try to get repo path from the requesting session
-            match req.session_id.as_deref() {
-                Some(id) => match handle.get(id).await {
-                    Ok(Some(session)) => session.repo_root.clone(),
-                    Ok(None) => return Response::err("working_dir or session_id required"),
-                    Err(e) => return Response::err(format!("{}", e)),
-                },
-                None => return Response::err("working_dir or session_id required"),
-            }
-        }
+    // Resolve repo_path: use the requesting session's repo_root, or the working_dir
+    let repo_path = match req.session_id.as_deref() {
+        Some(id) => match handle.get(id).await {
+            Ok(Some(session)) => session.repo_root.clone(),
+            _ => working_dir.clone().unwrap_or_default(),
+        },
+        None => working_dir.clone().unwrap_or_default(),
     };
 
-    let settings = state.settings.lock().unwrap().clone();
-    let work_dir = working_dir.unwrap_or_else(|| repo_path.clone());
+    if repo_path.is_empty() {
+        return Response::err("working_dir or session_id required");
+    }
 
-    let session = match crate::services::sessions::create_session(
+    let settings = state.settings.lock().unwrap().clone();
+
+    // If working_dir differs from repo_path, treat it as an existing worktree
+    let target = match &working_dir {
+        Some(dir) if dir != &repo_path => SessionTarget::ExistingWorktree { path: dir },
+        _ => SessionTarget::Repo,
+    };
+
+    let session = match svc::create_session(
         &state.pty_manager,
         &state.session_handle,
         &settings,
         &repo_path,
         &name,
-        Some(&work_dir),
-        None,
+        target,
         &[],
         None,
         app,
@@ -199,15 +202,16 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
 
     let session_id = session.id.clone();
 
-    // Tell frontend about the new session
     use tauri::Emitter;
-    let _ = app.emit(
+    if let Err(e) = app.emit(
         "roux-command",
         serde_json::json!({
             "action": "session-created",
             "sessionId": session_id,
         }),
-    );
+    ) {
+        rlog!("Warning: failed to emit session-created event: {}", e);
+    }
 
     Response::success(serde_json::json!({ "session_id": session_id }))
 }

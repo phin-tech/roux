@@ -1,5 +1,8 @@
 use std::path::PathBuf;
 
+use crate::projects::{Project, ProjectStore};
+use crate::session_service::SessionHandle;
+
 pub(crate) fn notes_path(project_id: &str) -> PathBuf {
     let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("roux").join("notes").join(format!("{}.txt", project_id))
@@ -20,5 +23,20 @@ pub(crate) fn set_notes(project_id: &str, content: &str) -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&path, content)?;
+    Ok(())
+}
+
+pub(crate) fn create_project(store: &ProjectStore, name: &str) -> Project {
+    let project = Project { id: uuid::Uuid::new_v4().to_string(), name: name.to_string() };
+    store.add(project.clone());
+    project
+}
+
+pub(crate) async fn set_session_project(
+    session_handle: &SessionHandle,
+    session_id: &str,
+    project_id: Option<String>,
+) -> anyhow::Result<()> {
+    session_handle.set_project(session_id, project_id).await?;
     Ok(())
 }

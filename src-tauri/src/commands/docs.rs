@@ -2,12 +2,12 @@ use crate::services::docs as svc;
 
 #[tauri::command]
 pub(crate) fn read_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
+    svc::read_file(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub(crate) fn write_file(path: String, contents: String) -> Result<(), String> {
-    std::fs::write(&path, &contents).map_err(|e| format!("Failed to write file: {}", e))
+    svc::write_file(&path, &contents).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -27,34 +27,44 @@ pub(crate) fn get_current_branch(repo_path: &str) -> Option<String> {
     }
 }
 
+/// Describes how to resolve the working directory for a new session.
+pub(crate) enum SessionTarget<'a> {
+    /// Use the repo directory directly (no worktree).
+    Repo,
+    /// Use an existing worktree path. The session does NOT own this worktree.
+    ExistingWorktree { path: &'a str },
+    /// Create a new worktree from a branch. The session owns this worktree.
+    NewWorktree { branch: &'a str },
+}
+
 pub(crate) async fn create_session(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
     settings: &RouxSettings,
     repo_path: &str,
     name: &str,
-    worktree_path: Option<&str>,
-    branch: Option<&str>,
+    target: SessionTarget<'_>,
     extra_flags: &[String],
     nono_profile: Option<&str>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    // Determine working directory
-    let (work_dir, actual_branch, is_wt) = if let Some(wt_path) = worktree_path {
-        let br = branch
-            .map(|b| b.to_string())
-            .or_else(|| get_current_branch(wt_path))
-            .unwrap_or_else(|| "main".to_string());
-        (wt_path.to_string(), br, false)
-    } else if let Some(br) = branch {
-        let base = settings.worktree_base_path.as_deref();
-        let wt_path = crate::worktree::create_worktree(repo_path, br, base)?;
-        (wt_path, br.to_string(), true)
-    } else {
-        let br = get_current_branch(repo_path).unwrap_or_else(|| "main".to_string());
-        (repo_path.to_string(), br, false)
+    // Determine working directory based on session target
+    let (work_dir, actual_branch, is_wt) = match target {
+        SessionTarget::ExistingWorktree { path } => {
+            let br = get_current_branch(path).unwrap_or_else(|| "main".to_string());
+            (path.to_string(), br, false)
+        }
+        SessionTarget::NewWorktree { branch } => {
+            let base = settings.worktree_base_path.as_deref();
+            let wt_path = crate::worktree::create_worktree(repo_path, branch, base)?;
+            (wt_path, branch.to_string(), true)
+        }
+        SessionTarget::Repo => {
+            let br = get_current_branch(repo_path).unwrap_or_else(|| "main".to_string());
+            (repo_path.to_string(), br, false)
+        }
     };
 
     // Merge settings flags with per-session extra flags
@@ -168,6 +178,22 @@ pub(crate) async fn kill_session(
     pty_manager.kill(id);
     session_handle.remove(id).await?;
     Ok(())
+}
+
+pub(crate) async fn refresh_git_status(
+    session_handle: &SessionHandle,
+    id: &str,
+) -> anyhow::Result<bool> {
+    let session = session_handle.get(id).await?;
+    if let Some(s) = session {
+        let is_git = is_git_repo(&s.worktree_path);
+        if is_git != s.is_git_repo {
+            session_handle.set_git_repo(id, is_git).await?;
+        }
+        Ok(is_git)
+    } else {
+        Ok(false)
+    }
 }
 
 #[derive(serde::Serialize, Clone)]

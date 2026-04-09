@@ -53,14 +53,22 @@ pub(crate) async fn create_session(
 ) -> Result<Session, String> {
     let settings = state.settings.lock().unwrap().clone();
     let flags = extra_flags.unwrap_or_default();
+
+    let target = if let Some(ref wt_path) = worktree_path {
+        svc::SessionTarget::ExistingWorktree { path: wt_path }
+    } else if let Some(ref br) = branch {
+        svc::SessionTarget::NewWorktree { branch: br }
+    } else {
+        svc::SessionTarget::Repo
+    };
+
     svc::create_session(
         &state.pty_manager,
         &state.session_handle,
         &settings,
         &repo_path,
         &name,
-        worktree_path.as_deref(),
-        branch.as_deref(),
+        target,
         &flags,
         nono_profile.as_deref(),
         &app,
@@ -97,17 +105,9 @@ pub(crate) async fn list_sessions(state: tauri::State<'_, AppState>) -> Result<V
 
 #[tauri::command]
 pub(crate) async fn refresh_session_git_status(id: String, state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    let handle = state.session_handle.clone();
-    let session = handle.get(&id).await.map_err(|e| e.to_string())?;
-    if let Some(s) = session {
-        let is_git = svc::is_git_repo(&s.worktree_path);
-        if is_git != s.is_git_repo {
-            handle.set_git_repo(&id, is_git).await.map_err(|e| e.to_string())?;
-        }
-        Ok(is_git)
-    } else {
-        Ok(false)
-    }
+    svc::refresh_git_status(&state.session_handle, &id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
