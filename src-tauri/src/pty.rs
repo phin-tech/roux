@@ -6,7 +6,12 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{ipc::{Channel, Response}, Emitter};
+use tauri::{
+    ipc::{Channel, Response},
+    Emitter,
+};
+
+use crate::platform;
 
 enum PtyChunk {
     Data(Vec<u8>),
@@ -24,11 +29,7 @@ struct PtyOutputState {
 
 impl PtyOutputState {
     fn new() -> Self {
-        Self {
-            channel: None,
-            backlog: VecDeque::new(),
-            backlog_bytes: 0,
-        }
+        Self { channel: None, backlog: VecDeque::new(), backlog_bytes: 0 }
     }
 
     fn buffer(&mut self, bytes: Vec<u8>) {
@@ -76,9 +77,7 @@ struct PtyOutput {
 
 impl PtyOutput {
     fn new() -> Self {
-        Self {
-            state: Arc::new(Mutex::new(PtyOutputState::new())),
-        }
+        Self { state: Arc::new(Mutex::new(PtyOutputState::new())) }
     }
 
     fn send(&self, bytes: Vec<u8>) {
@@ -94,7 +93,7 @@ impl PtyOutput {
 /// at ~16ms intervals. Returns the sender for the reader thread to push data into.
 fn spawn_flusher(
     output: PtyOutput,
-    exit_event: Option<(String, u64)>,  // (event_name, generation)
+    exit_event: Option<(String, u64)>, // (event_name, generation)
     app: tauri::AppHandle,
 ) -> mpsc::Sender<PtyChunk> {
     let (tx, rx) = mpsc::channel::<PtyChunk>();
@@ -140,7 +139,10 @@ fn spawn_flusher(
                         output.send(std::mem::take(&mut batch));
                     }
                     if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(evt, serde_json::json!({"code": null, "generation": gen, "reason": "exit"}));
+                        let _ = app.emit(
+                            evt,
+                            serde_json::json!({"code": null, "generation": gen, "reason": "exit"}),
+                        );
                     }
                     break;
                 }
@@ -207,6 +209,11 @@ impl portable_pty::Child for WaitedChild {
     fn process_id(&self) -> Option<u32> {
         None
     }
+
+    #[cfg(windows)]
+    fn as_raw_handle(&self) -> Option<*mut std::ffi::c_void> {
+        None
+    }
 }
 
 struct PtySession {
@@ -257,7 +264,12 @@ impl PtyManager {
 
         let user_path = get_user_path();
         let claude_cmd = resolve_claude_command(claude_binary_path);
-        rlog!("Spawning claude session '{}' in '{}' with cmd='{}'", session_id, working_dir, claude_cmd);
+        rlog!(
+            "Spawning claude session '{}' in '{}' with cmd='{}'",
+            session_id,
+            working_dir,
+            claude_cmd
+        );
         rlog!("  PATH: {}", user_path);
 
         let mut cmd = if let Some(profile) = nono_profile {
@@ -303,7 +315,13 @@ impl PtyManager {
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
-        let session = PtySession { master: pair.master, child, writer: Arc::new(Mutex::new(writer)), output: output.clone(), generation: gen };
+        let session = PtySession {
+            master: pair.master,
+            child,
+            writer: Arc::new(Mutex::new(writer)),
+            output: output.clone(),
+            generation: gen,
+        };
         self.sessions.lock().unwrap().insert(session_id.to_string(), session);
         self.attach_pending_output(session_id, &output);
 
@@ -330,11 +348,14 @@ impl PtyManager {
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let shell = resolve_interactive_shell();
         let user_path = get_user_path();
-        rlog!("Spawning shell '{}' for pane '{}' in '{}'", shell, id, working_dir);
+        rlog!("Spawning shell '{}' for pane '{}' in '{}'", shell.program, id, working_dir);
 
-        let mut cmd = CommandBuilder::new(&shell);
+        let mut cmd = CommandBuilder::new(&shell.program);
+        for arg in &shell.args {
+            cmd.arg(arg);
+        }
         cmd.env("PATH", &user_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -345,11 +366,10 @@ impl PtyManager {
         }
         cmd.cwd(working_dir);
 
-        let child =
-            pair.slave.spawn_command(cmd).map_err(|e| {
-                rlog!("Failed to spawn shell: {}", e);
-                format!("Failed to spawn shell: {}", e)
-            })?;
+        let child = pair.slave.spawn_command(cmd).map_err(|e| {
+            rlog!("Failed to spawn shell: {}", e);
+            format!("Failed to spawn shell: {}", e)
+        })?;
 
         let writer =
             pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
@@ -362,15 +382,18 @@ impl PtyManager {
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
-        let session = PtySession { master: pair.master, child, writer: Arc::new(Mutex::new(writer)), output: output.clone(), generation: gen };
+        let session = PtySession {
+            master: pair.master,
+            child,
+            writer: Arc::new(Mutex::new(writer)),
+            output: output.clone(),
+            generation: gen,
+        };
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
-        let tx = spawn_flusher(
-            output.clone(),
-            Some((format!("session-exit:{}", id), gen)),
-            app.clone(),
-        );
+        let tx =
+            spawn_flusher(output.clone(), Some((format!("session-exit:{}", id), gen)), app.clone());
         spawn_reader(reader, tx);
 
         Ok(())
@@ -392,11 +415,13 @@ impl PtyManager {
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let shell = resolve_task_shell(command);
         let user_path = get_user_path();
 
-        let mut cmd = CommandBuilder::new(&shell);
-        cmd.args(["-c", command]);
+        let mut cmd = CommandBuilder::new(&shell.program);
+        for arg in &shell.args {
+            cmd.arg(arg);
+        }
         cmd.env("PATH", &user_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -432,21 +457,17 @@ impl PtyManager {
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
-        let tx = spawn_flusher(
-            output.clone(),
-            None,
-            app.clone(),
-        );
+        let tx = spawn_flusher(output.clone(), None, app.clone());
         spawn_reader(reader, tx);
 
         // Wait for the child process in a background thread and emit exit code
         let exit_event_name = format!("session-exit:{}", id);
         thread::spawn(move || {
-            let code = child
-                .wait()
-                .ok()
-                .map(|status| status.exit_code());
-            let _ = app.emit(&exit_event_name, serde_json::json!({ "code": code, "generation": gen, "reason": "exit" }));
+            let code = child.wait().ok().map(|status| status.exit_code());
+            let _ = app.emit(
+                &exit_event_name,
+                serde_json::json!({ "code": code, "generation": gen, "reason": "exit" }),
+            );
         });
 
         Ok(())
@@ -458,19 +479,12 @@ impl PtyManager {
         channel: Channel<Response>,
     ) -> Result<(), String> {
         self.cleanup_stale_pending();
-        let output = self
-            .sessions
-            .lock()
-            .unwrap()
-            .get(session_id)
-            .map(|session| session.output.clone());
+        let output =
+            self.sessions.lock().unwrap().get(session_id).map(|session| session.output.clone());
         if let Some(output) = output {
             output.attach(channel);
         } else {
-            self.pending_outputs
-                .lock()
-                .unwrap()
-                .insert(session_id.to_string(), channel);
+            self.pending_outputs.lock().unwrap().insert(session_id.to_string(), channel);
         }
         Ok(())
     }
@@ -550,44 +564,108 @@ impl PtyManager {
 
 /// Get the socket path as a string for setting env vars.
 fn socket_path_str() -> String {
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    home.join(".config").join("roux").join("roux.sock").to_string_lossy().to_string()
+    platform::resolve_socket_endpoint()
+        .unwrap_or_else(|| platform::socket_path().to_string_lossy().to_string())
 }
 
 /// Get the user's login shell PATH by invoking their actual shell (from $SHELL)
 /// instead of hardcoding /bin/bash. This ensures paths added in .zshrc etc. are found.
 pub fn get_user_path() -> String {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    // Fish outputs $PATH as a space-separated list; other shells use colons.
-    // Use fish's `string join` to get colon-separated output.
-    let path_cmd = if shell.contains("fish") {
-        "string join : $PATH"
-    } else {
-        "echo $PATH"
-    };
-    rlog!("Resolving PATH via login shell: {} -l -c '{}'", shell, path_cmd);
-    let result = std::process::Command::new(&shell)
-        .args(["-l", "-c", path_cmd])
-        .output();
-    match &result {
-        Ok(o) => {
-            if !o.status.success() {
-                rlog!("  shell exited with status: {}", o.status);
-                let stderr = String::from_utf8_lossy(&o.stderr);
-                if !stderr.is_empty() {
-                    rlog!("  stderr: {}", stderr.chars().take(500).collect::<String>());
+    #[cfg(windows)]
+    {
+        std::env::var("PATH").unwrap_or_default()
+    }
+
+    #[cfg(not(windows))]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        // Fish outputs $PATH as a space-separated list; other shells use colons.
+        // Use fish's `string join` to get colon-separated output.
+        let path_cmd = if shell.contains("fish") { "string join : $PATH" } else { "echo $PATH" };
+        rlog!("Resolving PATH via login shell: {} -l -c '{}'", shell, path_cmd);
+        let result = std::process::Command::new(&shell).args(["-l", "-c", path_cmd]).output();
+        match &result {
+            Ok(o) => {
+                if !o.status.success() {
+                    rlog!("  shell exited with status: {}", o.status);
+                    let stderr = String::from_utf8_lossy(&o.stderr);
+                    if !stderr.is_empty() {
+                        rlog!("  stderr: {}", stderr.chars().take(500).collect::<String>());
+                    }
                 }
             }
+            Err(e) => rlog!("  failed to run shell: {}", e),
         }
-        Err(e) => rlog!("  failed to run shell: {}", e),
+        let path = result
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+        rlog!("  resolved PATH: {}", path);
+        path
     }
-    let path = result
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
-    rlog!("  resolved PATH: {}", path);
-    path
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShellSpec {
+    program: String,
+    args: Vec<String>,
+}
+
+fn resolve_interactive_shell() -> ShellSpec {
+    #[cfg(windows)]
+    {
+        return ShellSpec { program: resolve_windows_shell_program(), args: Vec::new() };
+    }
+
+    #[cfg(not(windows))]
+    ShellSpec {
+        program: std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()),
+        args: Vec::new(),
+    }
+}
+
+fn resolve_task_shell(command: &str) -> ShellSpec {
+    #[cfg(windows)]
+    {
+        let program = resolve_windows_shell_program();
+        let args = windows_task_shell_args(&program, command);
+        return ShellSpec { program, args };
+    }
+
+    #[cfg(not(windows))]
+    ShellSpec {
+        program: std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()),
+        args: vec!["-c".to_string(), command.to_string()],
+    }
+}
+
+#[cfg(windows)]
+fn resolve_windows_shell_program() -> String {
+    if platform::find_executable_on_path("pwsh.exe").is_some()
+        || platform::find_executable_on_path("pwsh").is_some()
+    {
+        "pwsh".to_string()
+    } else if platform::find_executable_on_path("powershell.exe").is_some() {
+        "powershell.exe".to_string()
+    } else {
+        "cmd.exe".to_string()
+    }
+}
+
+fn windows_task_shell_args(program: &str, command: &str) -> Vec<String> {
+    if program.eq_ignore_ascii_case("cmd.exe") || program.eq_ignore_ascii_case("cmd") {
+        vec!["/C".to_string(), command.to_string()]
+    } else {
+        let mut args = vec!["-NoProfile".to_string()];
+        if program.eq_ignore_ascii_case("powershell.exe")
+            || program.eq_ignore_ascii_case("powershell")
+        {
+            args.extend(["-ExecutionPolicy".to_string(), "Bypass".to_string()]);
+        }
+        args.extend(["-Command".to_string(), command.to_string()]);
+        args
+    }
 }
 
 /// Resolve the claude binary command. If a custom path is configured, use it directly.
@@ -625,10 +703,7 @@ mod tests {
         let received = Arc::new(Mutex::new(Vec::new()));
         output.attach(raw_channel(received.clone()));
 
-        assert_eq!(
-            *received.lock().unwrap(),
-            vec![vec![1, 2, 3], vec![4, 5, 6]]
-        );
+        assert_eq!(*received.lock().unwrap(), vec![vec![1, 2, 3], vec![4, 5, 6]]);
     }
 
     #[test]
@@ -686,8 +761,18 @@ mod tests {
     fn get_user_path_returns_nonempty_string() {
         let path = get_user_path();
         assert!(!path.is_empty(), "PATH should not be empty");
-        // Should contain at least /usr/bin which is always on PATH
-        assert!(path.contains("/usr/bin") || path.contains("/bin"),
-            "PATH should contain standard bin directories, got: {}", path);
+        #[cfg(windows)]
+        assert!(
+            path.to_ascii_lowercase().contains("\\windows"),
+            "PATH should contain standard Windows directories, got: {}",
+            path
+        );
+
+        #[cfg(not(windows))]
+        assert!(
+            path.contains("/usr/bin") || path.contains("/bin"),
+            "PATH should contain standard bin directories, got: {}",
+            path
+        );
     }
 }

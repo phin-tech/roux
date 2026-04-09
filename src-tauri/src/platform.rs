@@ -5,9 +5,7 @@ use std::path::{Path, PathBuf};
 const APP_DIR_NAME: &str = "roux";
 
 pub fn app_config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(APP_DIR_NAME)
+    dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join(APP_DIR_NAME)
 }
 
 pub fn status_dir() -> PathBuf {
@@ -44,6 +42,37 @@ pub fn log_dir() -> PathBuf {
     app_config_dir().join("logs")
 }
 
+pub fn socket_path() -> PathBuf {
+    app_config_dir().join("roux.sock")
+}
+
+#[cfg(windows)]
+pub fn socket_addr_file_path() -> PathBuf {
+    app_config_dir().join("roux-socket-addr")
+}
+
+pub fn resolve_socket_endpoint() -> Option<String> {
+    if let Ok(endpoint) = std::env::var("ROUX_SOCKET") {
+        let endpoint = endpoint.trim();
+        if !endpoint.is_empty() {
+            return Some(endpoint.to_string());
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        return std::fs::read_to_string(socket_addr_file_path())
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+    }
+
+    #[cfg(not(windows))]
+    {
+        Some(socket_path().to_string_lossy().to_string())
+    }
+}
+
 pub fn roux_cli_file_name() -> &'static str {
     roux_cli_file_name_for_platform(cfg!(windows))
 }
@@ -65,10 +94,7 @@ pub fn quote_command_arg(arg: &str) -> String {
         return "\"\"".to_string();
     }
 
-    if !arg
-        .chars()
-        .any(|c| c.is_whitespace() || matches!(c, '"' | '\\'))
-    {
+    if !arg.chars().any(|c| c.is_whitespace() || matches!(c, '"' | '\\')) {
         return arg.to_string();
     }
 
@@ -85,9 +111,7 @@ pub fn command_string(program: &Path, args: &[&str]) -> String {
 
 pub fn find_executable_on_path(file_name: &str) -> Option<PathBuf> {
     let paths = std::env::var_os("PATH")?;
-    std::env::split_paths(&paths)
-        .map(|dir| dir.join(file_name))
-        .find(|path| path.is_file())
+    std::env::split_paths(&paths).map(|dir| dir.join(file_name)).find(|path| path.is_file())
 }
 
 #[cfg(test)]
@@ -97,10 +121,7 @@ mod tests {
 
     #[test]
     fn app_config_dir_ends_with_roux() {
-        assert_eq!(
-            app_config_dir().file_name().and_then(|n| n.to_str()),
-            Some("roux")
-        );
+        assert_eq!(app_config_dir().file_name().and_then(|n| n.to_str()), Some("roux"));
     }
 
     #[test]

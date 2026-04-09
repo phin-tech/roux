@@ -3,9 +3,12 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(windows)]
+use tokio::net::TcpListener;
+#[cfg(not(windows))]
 use tokio::net::UnixListener;
 
-use crate::AppState;
+use crate::{platform, AppState};
 
 #[derive(Debug, Deserialize)]
 struct Request {
@@ -40,8 +43,7 @@ impl Response {
 }
 
 pub fn socket_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".config").join("roux").join("roux.sock")
+    platform::socket_path()
 }
 
 pub fn start_socket_server(app: tauri::AppHandle) {
@@ -53,15 +55,46 @@ pub fn start_socket_server(app: tauri::AppHandle) {
             let _ = fs::create_dir_all(parent);
         }
 
-        // Remove stale socket file
-        let _ = fs::remove_file(&path);
+        #[cfg(not(windows))]
+        let listener = {
+            let _ = fs::remove_file(&path);
+            match UnixListener::bind(&path) {
+                Ok(l) => l,
+                Err(e) => {
+                    rlog!("Failed to bind socket at {:?}: {}", path, e);
+                    return;
+                }
+            }
+        };
 
-        let listener = match UnixListener::bind(&path) {
-            Ok(l) => l,
-            Err(e) => {
-                rlog!("Failed to bind socket at {:?}: {}", path, e);
+        #[cfg(windows)]
+        let listener = {
+            let listener = match TcpListener::bind("127.0.0.1:0").await {
+                Ok(l) => l,
+                Err(e) => {
+                    rlog!("Failed to bind socket server on localhost: {}", e);
+                    return;
+                }
+            };
+
+            let addr = match listener.local_addr() {
+                Ok(addr) => addr.to_string(),
+                Err(e) => {
+                    rlog!("Failed to resolve socket listener address: {}", e);
+                    return;
+                }
+            };
+
+            if let Some(parent) = platform::socket_addr_file_path().parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if let Err(e) = fs::write(platform::socket_addr_file_path(), &addr) {
+                rlog!("Failed to write socket address file: {}", e);
                 return;
             }
+
+            rlog!("Socket server listening on {}", addr);
+            listener
         };
 
         // Set permissions to owner-only (0600)
@@ -71,6 +104,7 @@ pub fn start_socket_server(app: tauri::AppHandle) {
             let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
         }
 
+        #[cfg(not(windows))]
         rlog!("Socket server listening on {:?}", path);
 
         loop {
@@ -124,12 +158,13 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
 }
 
 fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
-    let direction = req.args.get("direction")
-        .and_then(|d| d.as_str())
-        .unwrap_or("horizontal");
+    let direction = req.args.get("direction").and_then(|d| d.as_str()).unwrap_or("horizontal");
 
     if direction != "horizontal" && direction != "vertical" {
-        return Response::err(format!("invalid direction: {}, must be horizontal or vertical", direction));
+        return Response::err(format!(
+            "invalid direction: {}, must be horizontal or vertical",
+            direction
+        ));
     }
 
     let session_id = match req.session_id.as_deref() {
@@ -138,12 +173,15 @@ fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "split",
-        "sessionId": session_id,
-        "paneId": req.pane_id,
-        "direction": direction,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "split",
+            "sessionId": session_id,
+            "paneId": req.pane_id,
+            "direction": direction,
+        }),
+    );
 
     Response::ok()
 }
@@ -151,14 +189,9 @@ fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
 fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
 
-    let name = req.args.get("name")
-        .and_then(|n| n.as_str())
-        .unwrap_or("New Session")
-        .to_string();
+    let name = req.args.get("name").and_then(|n| n.as_str()).unwrap_or("New Session").to_string();
 
-    let working_dir = req.args.get("working_dir")
-        .and_then(|d| d.as_str())
-        .map(|s| s.to_string());
+    let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
 
     // Use the working_dir as repo_path, or fall back to current session's repo
     let repo_path = match working_dir {
@@ -192,10 +225,7 @@ fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
         return Response::err(format!("Failed to spawn session: {}", e));
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
     let branch = crate::get_current_branch(&work_dir).unwrap_or_else(|| "main".to_string());
 
@@ -217,10 +247,13 @@ fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
 
     // Tell frontend about the new session
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "session-created",
-        "sessionId": session_id,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "session-created",
+            "sessionId": session_id,
+        }),
+    );
 
     Response::success(serde_json::json!({ "session_id": session_id }))
 }
@@ -233,12 +266,12 @@ fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
 
     let state: tauri::State<AppState> = app.state();
 
-    let working_dir = req.args.get("working_dir")
+    let working_dir = req
+        .args
+        .get("working_dir")
         .and_then(|d| d.as_str())
         .map(|s| s.to_string())
-        .or_else(|| {
-            state.session_store.get(session_id).map(|s| s.worktree_path.clone())
-        });
+        .or_else(|| state.session_store.get(session_id).map(|s| s.worktree_path.clone()));
 
     let working_dir = match working_dir {
         Some(dir) => dir,
@@ -248,28 +281,36 @@ fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     let pane_id = crypto_random_uuid();
     let pty_id = crypto_random_uuid();
 
-    if let Err(e) = state.pty_manager.spawn_shell(&pty_id, &working_dir, Some(session_id), app.clone()) {
+    if let Err(e) =
+        state.pty_manager.spawn_shell(&pty_id, &working_dir, Some(session_id), app.clone())
+    {
         return Response::err(format!("Failed to spawn shell: {}", e));
     }
 
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "shell-opened",
-        "sessionId": session_id,
-        "paneId": pane_id,
-        "ptyId": pty_id,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "shell-opened",
+            "sessionId": session_id,
+            "paneId": pane_id,
+            "ptyId": pty_id,
+        }),
+    );
 
     Response::success(serde_json::json!({ "pane_id": pane_id, "pty_id": pty_id }))
 }
 
 fn handle_focus(req: Request, app: &tauri::AppHandle) -> Response {
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "focus",
-        "sessionId": req.session_id,
-        "paneId": req.pane_id,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "focus",
+            "sessionId": req.session_id,
+            "paneId": req.pane_id,
+        }),
+    );
 
     Response::ok()
 }
@@ -287,12 +328,12 @@ fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
 
     let state: tauri::State<AppState> = app.state();
 
-    let working_dir = req.args.get("working_dir")
+    let working_dir = req
+        .args
+        .get("working_dir")
         .and_then(|d| d.as_str())
         .map(|s| s.to_string())
-        .or_else(|| {
-            state.session_store.get(session_id).map(|s| s.worktree_path.clone())
-        });
+        .or_else(|| state.session_store.get(session_id).map(|s| s.worktree_path.clone()));
 
     let working_dir = match working_dir {
         Some(dir) => dir,
@@ -300,22 +341,30 @@ fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     let pane_id = format!("cmd-{}", crypto_random_uuid());
-    let pty_id = format!("{}-{}", pane_id, std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    let pty_id = format!(
+        "{}-{}",
+        pane_id,
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+    );
 
-    if let Err(e) = state.pty_manager.spawn_task(&pty_id, &command, &working_dir, Some(session_id), app.clone()) {
+    if let Err(e) =
+        state.pty_manager.spawn_task(&pty_id, &command, &working_dir, Some(session_id), app.clone())
+    {
         return Response::err(format!("Failed to spawn task: {}", e));
     }
 
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "command-opened",
-        "sessionId": session_id,
-        "paneId": pane_id,
-        "ptyId": pty_id,
-        "command": command,
-        "workingDir": working_dir,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "command-opened",
+            "sessionId": session_id,
+            "paneId": pane_id,
+            "ptyId": pty_id,
+            "command": command,
+            "workingDir": working_dir,
+        }),
+    );
 
     Response::success(serde_json::json!({ "pane_id": pane_id, "pty_id": pty_id }))
 }
@@ -352,6 +401,8 @@ fn crypto_random_uuid() -> String {
 pub fn cleanup_socket() {
     let path = socket_path();
     let _ = fs::remove_file(path);
+    #[cfg(windows)]
+    let _ = fs::remove_file(platform::socket_addr_file_path());
 }
 
 #[cfg(test)]
@@ -362,7 +413,14 @@ mod tests {
     fn socket_path_is_under_config() {
         let path = socket_path();
         let path_str = path.to_string_lossy();
-        assert!(path_str.contains(".config/roux/roux.sock"), "Expected .config/roux/roux.sock, got {}", path_str);
+        #[cfg(windows)]
+        assert!(path_str.ends_with("roux.sock"), "Expected roux.sock suffix, got {}", path_str);
+        #[cfg(not(windows))]
+        assert!(
+            path_str.contains(".config/roux/roux.sock"),
+            "Expected .config/roux/roux.sock, got {}",
+            path_str
+        );
     }
 
     #[test]
@@ -426,12 +484,26 @@ mod tests {
     #[tokio::test]
     async fn socket_roundtrip() {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-        use tokio::net::{UnixListener, UnixStream};
 
-        let dir = tempfile::tempdir().unwrap();
-        let sock_path = dir.path().join("test.sock");
+        #[cfg(not(windows))]
+        let tempdir = tempfile::tempdir().unwrap();
 
-        let listener = UnixListener::bind(&sock_path).unwrap();
+        #[cfg(not(windows))]
+        let listener = {
+            use tokio::net::UnixListener;
+            let sock_path = tempdir.path().join("test.sock");
+            (UnixListener::bind(&sock_path).unwrap(), sock_path)
+        };
+
+        #[cfg(windows)]
+        let listener = {
+            use tokio::net::TcpListener;
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            (listener, addr)
+        };
+
+        let (listener, endpoint) = listener;
 
         // Spawn a simple echo server that reads a line and responds with a fixed response
         let server = tokio::spawn(async move {
@@ -453,7 +525,14 @@ mod tests {
         });
 
         // Client side
-        let mut stream = UnixStream::connect(&sock_path).await.unwrap();
+        #[cfg(not(windows))]
+        let mut stream = {
+            use tokio::net::UnixStream;
+            UnixStream::connect(&endpoint).await.unwrap()
+        };
+
+        #[cfg(windows)]
+        let mut stream = tokio::net::TcpStream::connect(endpoint).await.unwrap();
         let request = serde_json::json!({
             "command": "split",
             "session_id": "test-session",
