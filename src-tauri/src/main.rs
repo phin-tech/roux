@@ -5,6 +5,7 @@ mod hooks;
 mod logging;
 mod projects;
 mod pty;
+mod redact;
 mod session;
 mod settings;
 mod socket;
