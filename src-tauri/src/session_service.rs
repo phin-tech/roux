@@ -22,7 +22,7 @@
 
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::JoinHandle;
+use tauri::async_runtime::JoinHandle;
 use tokio::time::{interval, Duration};
 
 use crate::session::Session;
@@ -151,7 +151,7 @@ pub fn spawn_with_path(
     persist_path: PathBuf,
 ) -> (SessionHandle, JoinHandle<()>) {
     let (tx, rx) = mpsc::unbounded_channel();
-    let join = tokio::spawn(service_loop(rx, initial_sessions, persist_path));
+    let join = tauri::async_runtime::spawn(service_loop(rx, initial_sessions, persist_path));
     (SessionHandle { tx }, join)
 }
 
