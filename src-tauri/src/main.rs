@@ -6,6 +6,7 @@ mod logging;
 mod projects;
 mod pty;
 mod session;
+mod session_service;
 mod settings;
 mod socket;
 mod status_watcher;
@@ -18,7 +19,8 @@ use tauri::{Emitter, Manager};
 
 use crate::projects::{Project, ProjectStore};
 use crate::pty::PtyManager;
-use crate::session::{Session, SessionStore};
+use crate::session::Session;
+use crate::session_service::SessionHandle;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,7 +34,7 @@ struct DocFile {
 struct AppState {
     settings: Mutex<settings::RouxSettings>,
     pty_manager: PtyManager,
-    session_store: SessionStore,
+    session_handle: SessionHandle,
     project_store: ProjectStore,
     watch_manager: watches::WatchManager,
 }
@@ -165,9 +167,10 @@ fn spawn_task(
 }
 
 #[tauri::command]
-fn kill_session(id: String, state: tauri::State<AppState>) -> Result<(), String> {
+async fn kill_session(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     state.pty_manager.kill(&id);
-    state.session_store.remove(&id);
+    let handle = state.session_handle.clone();
+    handle.remove(&id).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -177,14 +180,14 @@ fn get_pty_generation(id: String, state: tauri::State<AppState>) -> Option<u64> 
 }
 
 #[tauri::command]
-fn create_session(
+async fn create_session(
     repo_path: String,
     name: String,
     worktree_path: Option<String>,
     branch: Option<String>,
     extra_flags: Option<Vec<String>>,
     nono_profile: Option<String>,
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
     let settings = state.settings.lock().unwrap().clone();
@@ -261,19 +264,31 @@ fn create_session(
         is_git_repo: is_git_repo(&repo_path),
     };
 
-    state.session_store.add(session.clone());
+    let handle = state.session_handle.clone();
+    if let Err(e) = handle.add(session.clone()).await {
+        // Rollback: kill the PTY we just spawned and remove worktree if we created one
+        state.pty_manager.kill(&session.id);
+        if is_wt {
+            let _ = worktree::remove_worktree(&session.worktree_path);
+        }
+        return Err(e.to_string());
+    }
     Ok(session)
 }
 
 #[tauri::command]
-fn reconnect_session(
+async fn reconnect_session(
     id: String,
     extra_flags: Option<Vec<String>>,
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
-    let session =
-        state.session_store.get(&id).ok_or_else(|| format!("Session {} not found", id))?;
+    let handle = state.session_handle.clone();
+    let session = handle
+        .get(&id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Session {} not found", id))?;
 
     let settings = state.settings.lock().unwrap().clone();
 
@@ -303,7 +318,7 @@ fn reconnect_session(
         .map_err(|e| e.to_string())?;
 
     // Update status to idle
-    state.session_store.update_status(&id, "idle");
+    handle.update_status(&id, "idle").await.map_err(|e| e.to_string())?;
 
     rlog!("Session '{}' reconnected successfully", id);
 
@@ -481,22 +496,26 @@ fn git_init(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn refresh_session_git_status(id: String, state: tauri::State<AppState>) -> bool {
-    let session = state.session_store.get(&id);
+async fn refresh_session_git_status(id: String, state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    let handle = state.session_handle.clone();
+    let session = handle.get(&id).await.map_err(|e| e.to_string())?;
     if let Some(s) = session {
         let is_git = is_git_repo(&s.worktree_path);
         if is_git != s.is_git_repo {
-            state.session_store.set_git_repo(&id, is_git);
+            handle.set_git_repo(&id, is_git).await.map_err(|e| e.to_string())?;
         }
-        is_git
+        Ok(is_git)
     } else {
-        false
+        Ok(false)
     }
 }
 
 #[tauri::command]
-fn quit_app(app: tauri::AppHandle) {
+async fn quit_app(state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+    let handle = state.session_handle.clone();
+    handle.shutdown().await;
     app.exit(0);
+    Ok(())
 }
 
 pub fn is_git_repo(path: &str) -> bool {
@@ -527,8 +546,9 @@ fn get_current_branch(repo_path: &str) -> Option<String> {
 }
 
 #[tauri::command]
-fn list_sessions(state: tauri::State<AppState>) -> Vec<Session> {
-    state.session_store.list()
+async fn list_sessions(state: tauri::State<'_, AppState>) -> Result<Vec<Session>, String> {
+    let handle = state.session_handle.clone();
+    Ok(handle.list().await.map_err(|e| e.to_string())?)
 }
 
 #[tauri::command]
@@ -554,12 +574,14 @@ fn rename_project(id: String, name: String, state: tauri::State<AppState>) {
 }
 
 #[tauri::command]
-fn set_session_project(
+async fn set_session_project(
     session_id: String,
     project_id: Option<String>,
-    state: tauri::State<AppState>,
-) {
-    state.session_store.set_project(&session_id, project_id);
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let handle = state.session_handle.clone();
+    handle.set_project(&session_id, project_id).await.map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -668,6 +690,9 @@ fn main() {
 
     let watch_store = std::sync::Arc::new(watches::WatchStore::load_persisted());
 
+    let persisted_sessions = session::load_persisted_sessions();
+    let (session_handle, _session_join) = session_service::spawn(persisted_sessions);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -675,7 +700,7 @@ fn main() {
         .manage(AppState {
             settings: Mutex::new(initial_settings),
             pty_manager: PtyManager::new(),
-            session_store: SessionStore::load_persisted(),
+            session_handle,
             project_store: ProjectStore::load_persisted(),
             watch_manager: watches::WatchManager::new(watch_store),
         })
@@ -744,14 +769,24 @@ fn main() {
             // Clean up orphaned watches and start active ones
             {
                 let state = app.state::<AppState>();
-                let session_ids: Vec<String> =
-                    state.session_store.list().iter().map(|s| s.id.clone()).collect();
+                let session_handle = state.session_handle.clone();
                 let project_ids: Vec<String> =
                     state.project_store.list().iter().map(|p| p.id.clone()).collect();
-                state.watch_manager.store().cleanup_orphans(&session_ids, &project_ids);
                 let app_handle = app.handle().clone();
                 let watch_mgr = state.watch_manager.clone();
                 tauri::async_runtime::spawn(async move {
+                    match session_handle.list().await {
+                        Ok(sessions) => {
+                            let session_ids: Vec<String> =
+                                sessions.iter().map(|s| s.id.clone()).collect();
+                            watch_mgr.store().cleanup_orphans(&session_ids, &project_ids);
+                        }
+                        Err(_) => {
+                            // Skip orphan cleanup if session service is unavailable —
+                            // better to keep stale watches than delete valid ones.
+                            eprintln!("Warning: session service unavailable, skipping watch orphan cleanup");
+                        }
+                    }
                     watch_mgr.start_all(app_handle);
                 });
             }
