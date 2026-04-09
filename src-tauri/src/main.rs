@@ -410,7 +410,7 @@ fn check_setup_status() -> SetupStatus {
 // Backwards compat: kept as alias used nowhere else
 #[tauri::command]
 fn check_setup_needed() -> bool {
-    !hooks::cli_is_installed()
+    !hooks::setup_is_complete()
 }
 
 #[tauri::command]
