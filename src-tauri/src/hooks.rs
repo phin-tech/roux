@@ -1,10 +1,71 @@
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
+use thiserror::Error;
 
 const ROUX_HOOK_MARKER: &str = "roux-cli hook";
 
-fn roux_cli_path() -> Result<String, String> {
+#[derive(Debug, Error)]
+pub enum HooksError {
+    #[error("roux-cli binary not found. Run 'cargo install --path src-tauri' or copy roux-cli to ~/.local/bin/")]
+    RouxCliBinaryNotFound,
+    #[error("Could not determine home directory")]
+    HomeDirUnavailable,
+    #[error("Could not find roux-cli next to roux binary")]
+    RouxCliBinaryNextToRouxNotFound,
+    #[error("Failed to create ~/.local/bin: {source}")]
+    CreateBinDir {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to copy roux-cli: {source}")]
+    CopyCliBinary {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{source}")]
+    ReadInstalledBinaryMetadata {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{source}")]
+    SetInstalledBinaryPermissions {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to create status dir: {source}")]
+    CreateStatusDir {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to read settings: {source}")]
+    ReadSettings {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to parse settings: {source}")]
+    ParseSettings {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("Failed to create .claude dir: {source}")]
+    CreateClaudeDir {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to serialize settings: {source}")]
+    SerializeSettings {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("Failed to write settings: {source}")]
+    WriteSettings {
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+fn roux_cli_path() -> Result<String, HooksError> {
     // Look for roux-cli in common locations
     let candidates = [
         // Primary install location
@@ -31,7 +92,7 @@ fn roux_cli_path() -> Result<String, String> {
         }
     }
 
-    Err("roux-cli binary not found. Run 'cargo install --path src-tauri' or copy roux-cli to ~/.local/bin/".to_string())
+    Err(HooksError::RouxCliBinaryNotFound)
 }
 
 /// Check if roux-cli is already installed at ~/.local/bin/
@@ -42,10 +103,10 @@ pub fn cli_is_installed() -> bool {
 }
 
 /// Install roux-cli to ~/.local/bin/ on first app load
-pub fn install_cli_binary() -> Result<String, String> {
+pub fn install_cli_binary() -> Result<String, HooksError> {
     let bin_dir =
-        dirs::home_dir().ok_or("Could not determine home directory")?.join(".local").join("bin");
-    fs::create_dir_all(&bin_dir).map_err(|e| format!("Failed to create ~/.local/bin: {}", e))?;
+        dirs::home_dir().ok_or(HooksError::HomeDirUnavailable)?.join(".local").join("bin");
+    fs::create_dir_all(&bin_dir).map_err(|source| HooksError::CreateBinDir { source })?;
 
     let target = bin_dir.join("roux-cli");
 
@@ -53,7 +114,7 @@ pub fn install_cli_binary() -> Result<String, String> {
     let source = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("roux-cli")))
-        .ok_or("Could not find roux-cli next to roux binary")?;
+        .ok_or(HooksError::RouxCliBinaryNextToRouxNotFound)?;
 
     if source.exists() {
         // Only copy if source is newer or target doesn't exist
@@ -69,13 +130,16 @@ pub fn install_cli_binary() -> Result<String, String> {
         };
 
         if should_copy {
-            fs::copy(&source, &target).map_err(|e| format!("Failed to copy roux-cli: {}", e))?;
+            fs::copy(&source, &target).map_err(|source| HooksError::CopyCliBinary { source })?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let mut perms = fs::metadata(&target).map_err(|e| e.to_string())?.permissions();
+                let mut perms = fs::metadata(&target)
+                    .map_err(|source| HooksError::ReadInstalledBinaryMetadata { source })?
+                    .permissions();
                 perms.set_mode(0o755);
-                fs::set_permissions(&target, perms).map_err(|e| e.to_string())?;
+                fs::set_permissions(&target, perms)
+                    .map_err(|source| HooksError::SetInstalledBinaryPermissions { source })?;
             }
             eprintln!("Installed roux-cli to {}", target.display());
         }
@@ -86,15 +150,15 @@ pub fn install_cli_binary() -> Result<String, String> {
     roux_cli_path()
 }
 
-fn claude_settings_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+fn claude_settings_path() -> Result<PathBuf, HooksError> {
+    let home = dirs::home_dir().ok_or(HooksError::HomeDirUnavailable)?;
     Ok(home.join(".claude").join("settings.json"))
 }
 
-fn status_dir() -> Result<(), String> {
-    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+fn status_dir() -> Result<(), HooksError> {
+    let home = dirs::home_dir().ok_or(HooksError::HomeDirUnavailable)?;
     let dir = home.join(".config").join("roux").join("status");
-    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create status dir: {}", e))?;
+    fs::create_dir_all(&dir).map_err(|source| HooksError::CreateStatusDir { source })?;
     Ok(())
 }
 
@@ -191,7 +255,7 @@ fn roux_hooks_config(cli_path: &str) -> Value {
     })
 }
 
-fn merge_hooks(settings: &mut Value, cli_path: &str) -> Result<(), String> {
+fn merge_hooks(settings: &mut Value, cli_path: &str) {
     let roux = roux_hooks_config(cli_path);
     let roux_hooks = roux.get("hooks").unwrap().as_object().unwrap();
 
@@ -232,11 +296,9 @@ fn merge_hooks(settings: &mut Value, cli_path: &str) -> Result<(), String> {
         filtered.extend(roux_entries.iter().cloned());
         settings["hooks"][event_name] = Value::Array(filtered);
     }
-
-    Ok(())
 }
 
-pub fn install_hooks() -> Result<(), String> {
+pub fn install_hooks() -> Result<(), HooksError> {
     status_dir()?;
 
     let cli_path = install_cli_binary().or_else(|_| roux_cli_path())?;
@@ -244,22 +306,71 @@ pub fn install_hooks() -> Result<(), String> {
 
     let mut settings: Value = if settings_path.exists() {
         let content = fs::read_to_string(&settings_path)
-            .map_err(|e| format!("Failed to read settings: {}", e))?;
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))?
+            .map_err(|source| HooksError::ReadSettings { source })?;
+        serde_json::from_str(&content).map_err(|source| HooksError::ParseSettings { source })?
     } else {
         if let Some(parent) = settings_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create .claude dir: {}", e))?;
+            fs::create_dir_all(parent).map_err(|source| HooksError::CreateClaudeDir { source })?;
         }
         json!({})
     };
 
-    merge_hooks(&mut settings, &cli_path)?;
+    merge_hooks(&mut settings, &cli_path);
 
     let output = serde_json::to_string_pretty(&settings)
-        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    fs::write(&settings_path, output).map_err(|e| format!("Failed to write settings: {}", e))?;
+        .map_err(|source| HooksError::SerializeSettings { source })?;
+    fs::write(&settings_path, output).map_err(|source| HooksError::WriteSettings { source })?;
 
     eprintln!("Roux hooks installed (using {})", cli_path);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+
+    #[test]
+    fn hooks_error_display_keeps_existing_messages() {
+        let error = HooksError::WriteSettings { source: io::Error::other("read-only file system") };
+
+        assert_eq!(error.to_string(), "Failed to write settings: read-only file system");
+    }
+
+    #[test]
+    fn merge_hooks_replaces_existing_roux_entries() {
+        let mut settings = json!({
+            "hooks": {
+                "Stop": [
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "/tmp/roux-cli hook idle"
+                            }
+                        ]
+                    },
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "echo keep-me"
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        merge_hooks(&mut settings, "/usr/local/bin/roux-cli");
+
+        let stop_hooks = settings["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop_hooks.len(), 2);
+        assert!(stop_hooks.iter().any(|entry| {
+            entry["hooks"][0]["command"] == json!("/usr/local/bin/roux-cli hook idle")
+        }));
+        assert!(stop_hooks
+            .iter()
+            .any(|entry| entry["hooks"][0]["command"] == json!("echo keep-me")));
+    }
 }

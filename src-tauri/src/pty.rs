@@ -6,7 +6,11 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{ipc::{Channel, Response}, Emitter};
+use tauri::{
+    ipc::{Channel, Response},
+    Emitter,
+};
+use thiserror::Error;
 
 enum PtyChunk {
     Data(Vec<u8>),
@@ -24,11 +28,7 @@ struct PtyOutputState {
 
 impl PtyOutputState {
     fn new() -> Self {
-        Self {
-            channel: None,
-            backlog: VecDeque::new(),
-            backlog_bytes: 0,
-        }
+        Self { channel: None, backlog: VecDeque::new(), backlog_bytes: 0 }
     }
 
     fn buffer(&mut self, bytes: Vec<u8>) {
@@ -76,9 +76,7 @@ struct PtyOutput {
 
 impl PtyOutput {
     fn new() -> Self {
-        Self {
-            state: Arc::new(Mutex::new(PtyOutputState::new())),
-        }
+        Self { state: Arc::new(Mutex::new(PtyOutputState::new())) }
     }
 
     fn send(&self, bytes: Vec<u8>) {
@@ -94,7 +92,7 @@ impl PtyOutput {
 /// at ~16ms intervals. Returns the sender for the reader thread to push data into.
 fn spawn_flusher(
     output: PtyOutput,
-    exit_event: Option<(String, u64)>,  // (event_name, generation)
+    exit_event: Option<(String, u64)>, // (event_name, generation)
     app: tauri::AppHandle,
 ) -> mpsc::Sender<PtyChunk> {
     let (tx, rx) = mpsc::channel::<PtyChunk>();
@@ -140,7 +138,10 @@ fn spawn_flusher(
                         output.send(std::mem::take(&mut batch));
                     }
                     if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(evt, serde_json::json!({"code": null, "generation": gen, "reason": "exit"}));
+                        let _ = app.emit(
+                            evt,
+                            serde_json::json!({"code": null, "generation": gen, "reason": "exit"}),
+                        );
                     }
                     break;
                 }
@@ -218,6 +219,57 @@ struct PtySession {
     generation: u64,
 }
 
+#[derive(Debug, Error)]
+pub enum PtyError {
+    #[error("Failed to open PTY: {source}")]
+    OpenPty {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to spawn claude: {source}")]
+    SpawnClaude {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to spawn shell: {source}")]
+    SpawnShell {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to spawn task: {source}")]
+    SpawnTask {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to get PTY writer: {source}")]
+    GetWriter {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to get PTY reader: {source}")]
+    GetReader {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Session {session_id} not found")]
+    SessionNotFound { session_id: String },
+    #[error("Write failed: {source}")]
+    WriteFailed {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Flush failed: {source}")]
+    FlushFailed {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Resize failed: {source}")]
+    ResizeFailed {
+        #[source]
+        source: anyhow::Error,
+    },
+}
+
 pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
@@ -248,16 +300,21 @@ impl PtyManager {
         nono_profile: Option<&str>,
         claude_binary_path: Option<&str>,
         app: tauri::AppHandle,
-    ) -> Result<(), String> {
+    ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("Failed to open PTY: {}", e))?;
+            .map_err(|source| PtyError::OpenPty { source })?;
 
         let user_path = get_user_path();
         let claude_cmd = resolve_claude_command(claude_binary_path);
-        rlog!("Spawning claude session '{}' in '{}' with cmd='{}'", session_id, working_dir, claude_cmd);
+        rlog!(
+            "Spawning claude session '{}' in '{}' with cmd='{}'",
+            session_id,
+            working_dir,
+            claude_cmd
+        );
         rlog!("  PATH: {}", user_path);
 
         let mut cmd = if let Some(profile) = nono_profile {
@@ -290,20 +347,23 @@ impl PtyManager {
         cmd.cwd(working_dir);
 
         let child =
-            pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn claude: {}", e))?;
+            pair.slave.spawn_command(cmd).map_err(|source| PtyError::SpawnClaude { source })?;
 
-        let writer =
-            pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+        let writer = pair.master.take_writer().map_err(|source| PtyError::GetWriter { source })?;
 
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
+        let reader =
+            pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
 
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
-        let session = PtySession { master: pair.master, child, writer: Arc::new(Mutex::new(writer)), output: output.clone(), generation: gen };
+        let session = PtySession {
+            master: pair.master,
+            child,
+            writer: Arc::new(Mutex::new(writer)),
+            output: output.clone(),
+            generation: gen,
+        };
         self.sessions.lock().unwrap().insert(session_id.to_string(), session);
         self.attach_pending_output(session_id, &output);
 
@@ -323,12 +383,12 @@ impl PtyManager {
         working_dir: &str,
         session_id: Option<&str>,
         app: tauri::AppHandle,
-    ) -> Result<(), String> {
+    ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("Failed to open PTY: {}", e))?;
+            .map_err(|source| PtyError::OpenPty { source })?;
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let user_path = get_user_path();
@@ -345,32 +405,31 @@ impl PtyManager {
         }
         cmd.cwd(working_dir);
 
-        let child =
-            pair.slave.spawn_command(cmd).map_err(|e| {
-                rlog!("Failed to spawn shell: {}", e);
-                format!("Failed to spawn shell: {}", e)
-            })?;
+        let child = pair.slave.spawn_command(cmd).map_err(|source| {
+            rlog!("Failed to spawn shell: {}", source);
+            PtyError::SpawnShell { source }
+        })?;
 
-        let writer =
-            pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+        let writer = pair.master.take_writer().map_err(|source| PtyError::GetWriter { source })?;
 
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
+        let reader =
+            pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
 
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
-        let session = PtySession { master: pair.master, child, writer: Arc::new(Mutex::new(writer)), output: output.clone(), generation: gen };
+        let session = PtySession {
+            master: pair.master,
+            child,
+            writer: Arc::new(Mutex::new(writer)),
+            output: output.clone(),
+            generation: gen,
+        };
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
-        let tx = spawn_flusher(
-            output.clone(),
-            Some((format!("session-exit:{}", id), gen)),
-            app.clone(),
-        );
+        let tx =
+            spawn_flusher(output.clone(), Some((format!("session-exit:{}", id), gen)), app.clone());
         spawn_reader(reader, tx);
 
         Ok(())
@@ -385,12 +444,12 @@ impl PtyManager {
         working_dir: &str,
         session_id: Option<&str>,
         app: tauri::AppHandle,
-    ) -> Result<(), String> {
+    ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("Failed to open PTY: {}", e))?;
+            .map_err(|source| PtyError::OpenPty { source })?;
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let user_path = get_user_path();
@@ -408,15 +467,12 @@ impl PtyManager {
         cmd.cwd(working_dir);
 
         let mut child =
-            pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn task: {}", e))?;
+            pair.slave.spawn_command(cmd).map_err(|source| PtyError::SpawnTask { source })?;
 
-        let writer =
-            pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+        let writer = pair.master.take_writer().map_err(|source| PtyError::GetWriter { source })?;
 
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
+        let reader =
+            pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
 
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
@@ -432,76 +488,60 @@ impl PtyManager {
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
-        let tx = spawn_flusher(
-            output.clone(),
-            None,
-            app.clone(),
-        );
+        let tx = spawn_flusher(output.clone(), None, app.clone());
         spawn_reader(reader, tx);
 
         // Wait for the child process in a background thread and emit exit code
         let exit_event_name = format!("session-exit:{}", id);
         thread::spawn(move || {
-            let code = child
-                .wait()
-                .ok()
-                .map(|status| status.exit_code());
-            let _ = app.emit(&exit_event_name, serde_json::json!({ "code": code, "generation": gen, "reason": "exit" }));
+            let code = child.wait().ok().map(|status| status.exit_code());
+            let _ = app.emit(
+                &exit_event_name,
+                serde_json::json!({ "code": code, "generation": gen, "reason": "exit" }),
+            );
         });
 
         Ok(())
     }
 
-    pub fn attach_output_channel(
-        &self,
-        session_id: &str,
-        channel: Channel<Response>,
-    ) -> Result<(), String> {
+    pub fn attach_output_channel(&self, session_id: &str, channel: Channel<Response>) {
         self.cleanup_stale_pending();
-        let output = self
-            .sessions
-            .lock()
-            .unwrap()
-            .get(session_id)
-            .map(|session| session.output.clone());
+        let output =
+            self.sessions.lock().unwrap().get(session_id).map(|session| session.output.clone());
         if let Some(output) = output {
             output.attach(channel);
         } else {
-            self.pending_outputs
-                .lock()
-                .unwrap()
-                .insert(session_id.to_string(), channel);
+            self.pending_outputs.lock().unwrap().insert(session_id.to_string(), channel);
         }
-        Ok(())
     }
 
-    pub fn write(&self, session_id: &str, data: &[u8]) -> Result<(), String> {
+    pub fn write(&self, session_id: &str, data: &[u8]) -> Result<(), PtyError> {
         let writer = {
             let sessions = self.sessions.lock().unwrap();
             let session = sessions
                 .get(session_id)
-                .ok_or_else(|| format!("Session {} not found", session_id))?;
+                .ok_or_else(|| PtyError::SessionNotFound { session_id: session_id.to_string() })?;
             Arc::clone(&session.writer)
         };
         // Global lock released — only per-session writer lock held
         let mut writer = writer.lock().unwrap();
         use std::io::Write;
-        writer.write_all(data).map_err(|e| format!("Write failed: {}", e))?;
-        writer.flush().map_err(|e| format!("Flush failed: {}", e))
+        writer.write_all(data).map_err(|source| PtyError::WriteFailed { source })?;
+        writer.flush().map_err(|source| PtyError::FlushFailed { source })
     }
 
-    pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), String> {
+    pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), PtyError> {
         let master = {
             let sessions = self.sessions.lock().unwrap();
             let session = sessions
                 .get(session_id)
-                .ok_or_else(|| format!("Session {} not found", session_id))?;
+                .ok_or_else(|| PtyError::SessionNotFound { session_id: session_id.to_string() })?;
             // MasterPty doesn't impl Clone, so we need to keep the lock for resize.
             // However, we can at least use try_lock to avoid blocking other sessions.
             session
                 .master
                 .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-                .map_err(|e| format!("Resize failed: {}", e))
+                .map_err(|source| PtyError::ResizeFailed { source })
         };
         master
     }
@@ -514,7 +554,7 @@ impl PtyManager {
         pending.retain(|id, _| sessions.contains_key(id));
     }
 
-    pub fn kill(&self, session_id: &str) -> Result<(), String> {
+    pub fn kill(&self, session_id: &str) {
         let session = self.sessions.lock().unwrap().remove(session_id);
         self.pending_outputs.lock().unwrap().remove(session_id);
         if let Some(mut session) = session {
@@ -540,7 +580,6 @@ impl PtyManager {
                 }
             }
         }
-        Ok(())
     }
 
     pub fn get_generation(&self, session_id: &str) -> Option<u64> {
@@ -560,15 +599,9 @@ pub fn get_user_path() -> String {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     // Fish outputs $PATH as a space-separated list; other shells use colons.
     // Use fish's `string join` to get colon-separated output.
-    let path_cmd = if shell.contains("fish") {
-        "string join : $PATH"
-    } else {
-        "echo $PATH"
-    };
+    let path_cmd = if shell.contains("fish") { "string join : $PATH" } else { "echo $PATH" };
     rlog!("Resolving PATH via login shell: {} -l -c '{}'", shell, path_cmd);
-    let result = std::process::Command::new(&shell)
-        .args(["-l", "-c", path_cmd])
-        .output();
+    let result = std::process::Command::new(&shell).args(["-l", "-c", path_cmd]).output();
     match &result {
         Ok(o) => {
             if !o.status.success() {
@@ -602,6 +635,7 @@ pub fn resolve_claude_command(custom_path: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
     use std::sync::{Arc, Mutex};
     use tauri::ipc::{Channel, InvokeResponseBody, Response};
 
@@ -625,10 +659,7 @@ mod tests {
         let received = Arc::new(Mutex::new(Vec::new()));
         output.attach(raw_channel(received.clone()));
 
-        assert_eq!(
-            *received.lock().unwrap(),
-            vec![vec![1, 2, 3], vec![4, 5, 6]]
-        );
+        assert_eq!(*received.lock().unwrap(), vec![vec![1, 2, 3], vec![4, 5, 6]]);
     }
 
     #[test]
@@ -687,7 +718,19 @@ mod tests {
         let path = get_user_path();
         assert!(!path.is_empty(), "PATH should not be empty");
         // Should contain at least /usr/bin which is always on PATH
-        assert!(path.contains("/usr/bin") || path.contains("/bin"),
-            "PATH should contain standard bin directories, got: {}", path);
+        assert!(
+            path.contains("/usr/bin") || path.contains("/bin"),
+            "PATH should contain standard bin directories, got: {}",
+            path
+        );
+    }
+
+    #[test]
+    fn pty_error_display_keeps_existing_messages() {
+        let error = PtyError::SessionNotFound { session_id: "session-123".to_string() };
+        assert_eq!(error.to_string(), "Session session-123 not found");
+
+        let io_error = PtyError::WriteFailed { source: io::Error::other("broken pipe") };
+        assert_eq!(io_error.to_string(), "Write failed: broken pipe");
     }
 }
