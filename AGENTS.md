@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 ## Project Overview
 
@@ -164,7 +164,6 @@ TDD is the primary development method in this repo.
 - Prefer red-green-refactor over implementation-first changes
 - Start by writing or identifying a failing test when the behavior can be tested
 - Make the smallest change that gets the test green
-- If we're debugging a bug if possible start by writing a failing test to reproduce the bug
 - Refactor only after the test is passing again
 - If it is unclear what the correct test surface is, confirm with the human before proceeding
 

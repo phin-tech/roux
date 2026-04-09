@@ -483,6 +483,11 @@ fn refresh_session_git_status(id: String, state: tauri::State<AppState>) -> bool
     }
 }
 
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 pub fn is_git_repo(path: &str) -> bool {
     std::process::Command::new("git")
         .args(["rev-parse", "--is-inside-work-tree"])
@@ -712,6 +717,7 @@ fn main() {
             check_is_git_repo,
             git_init,
             refresh_session_git_status,
+            quit_app,
         ])
         .setup(|app| {
             // Only auto-update hooks if CLI is already installed (not first run).
@@ -743,12 +749,21 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Emit to frontend — it will decide whether to close a pane or the window
                 let app = window.app_handle();
                 let _ = app.emit("close-requested", ());
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                // If exit was triggered programmatically (app.exit()), let it through
+                if code.is_some() {
+                    return;
+                }
+                api.prevent_exit();
+                let _ = app.emit("quit-requested", ());
+            }
+        });
 }

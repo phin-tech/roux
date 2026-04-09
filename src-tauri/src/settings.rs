@@ -17,6 +17,10 @@ fn normalize_theme(theme: &str) -> String {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RouxSettings {
@@ -46,6 +50,8 @@ pub struct RouxSettings {
     pub enable_logging: bool,
     #[serde(default = "default_group_by")]
     pub group_by: String,
+    #[serde(default = "default_true")]
+    pub confirm_on_quit: bool,
 }
 
 fn default_group_by() -> String {
@@ -77,6 +83,7 @@ impl Default for RouxSettings {
             task_panel_collapsed: false,
             enable_logging: false,
             group_by: default_group_by(),
+            confirm_on_quit: true,
         }
     }
 }

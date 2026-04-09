@@ -132,6 +132,10 @@ export async function gitInit(path: string): Promise<void> {
   return invoke("git_init", { path });
 }
 
+export async function quitApp(): Promise<void> {
+  return invoke("quit_app");
+}
+
 export async function refreshSessionGitStatus(id: string): Promise<boolean> {
   return invoke("refresh_session_git_status", { id });
 }

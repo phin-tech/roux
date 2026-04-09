@@ -59,6 +59,7 @@ export interface RouxSettings {
   taskPanelCollapsed: boolean;
   enableLogging: boolean;
   groupBy: "repo" | "project";
+  confirmOnQuit: boolean;
 }
 
 export interface Worktree {
@@ -96,6 +97,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   taskPanelCollapsed: false,
   enableLogging: false,
   groupBy: "repo",
+  confirmOnQuit: true,
 };
 
 export interface ClaudeSession {

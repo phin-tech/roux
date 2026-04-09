@@ -5,10 +5,12 @@ import { killSession, removeWorktree } from "$lib/tauri";
 import { settings } from "$lib/stores/settings";
 import type { Session } from "$lib/types";
 
-export async function closeSession(session: Session): Promise<boolean> {
+export async function closeSession(session: Session, opts?: { force?: boolean }): Promise<boolean> {
   const s = get(settings);
+  const force = opts?.force ?? false;
 
   if (
+    !force &&
     s.confirmOnClose &&
     (session.status === "thinking" || session.status === "generating")
   ) {
@@ -25,7 +27,7 @@ export async function closeSession(session: Session): Promise<boolean> {
   if (session.isWorktree) {
     if (s.cleanupWorktreesOnClose) {
       await removeWorktree(session.worktreePath).catch(() => {});
-    } else {
+    } else if (!force) {
       const remove = window.confirm(
         `Also remove the worktree at ${session.worktreePath}?`
       );
