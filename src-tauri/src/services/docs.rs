@@ -9,6 +9,15 @@ pub(crate) struct DocFile {
     pub(crate) modified: u64,
 }
 
+pub(crate) fn read_file(path: &str) -> anyhow::Result<String> {
+    Ok(std::fs::read_to_string(path)?)
+}
+
+pub(crate) fn write_file(path: &str, contents: &str) -> anyhow::Result<()> {
+    std::fs::write(path, contents)?;
+    Ok(())
+}
+
 pub(crate) fn list_docs(dir: &str) -> anyhow::Result<Vec<DocFile>> {
     let base = Path::new(dir);
     if !base.is_dir() {
