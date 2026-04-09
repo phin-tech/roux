@@ -5,7 +5,7 @@ use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 
-use crate::AppState;
+use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 struct Request {
@@ -198,8 +198,8 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
 
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
-    let is_git = crate::is_git_repo(&work_dir);
-    let branch = crate::get_current_branch(&work_dir).unwrap_or_else(|| "main".to_string());
+    let is_git = crate::commands::sessions::is_git_repo(&work_dir);
+    let branch = crate::commands::sessions::get_current_branch(&work_dir).unwrap_or_else(|| "main".to_string());
 
     let session = crate::session::Session {
         id: session_id.clone(),

@@ -997,7 +997,7 @@ pub struct CreateWatchConfig {
 
 // ── Tauri Commands ──────────────────────────────────────────
 
-use crate::AppState;
+use crate::state::AppState;
 
 #[tauri::command]
 pub async fn cmd_create_watch(
