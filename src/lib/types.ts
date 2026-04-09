@@ -35,6 +35,13 @@ export interface Project {
   name: string;
 }
 
+export interface RedactCategories {
+  apiKeys: boolean;
+  credentials: boolean;
+  privateKeys: boolean;
+  connectionStrings: boolean;
+}
+
 export interface RouxSettings {
   tabPosition: "left" | "right";
   tabWidth: number;
@@ -58,6 +65,8 @@ export interface RouxSettings {
   taskPanelCollapsed: boolean;
   enableLogging: boolean;
   groupBy: "repo" | "project";
+  redactSecrets: boolean;
+  redactCategories: RedactCategories;
 }
 
 export interface Worktree {
@@ -95,6 +104,13 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   taskPanelCollapsed: false,
   enableLogging: false,
   groupBy: "repo",
+  redactSecrets: false,
+  redactCategories: {
+    apiKeys: true,
+    credentials: true,
+    privateKeys: true,
+    connectionStrings: true,
+  },
 };
 
 export interface ClaudeSession {

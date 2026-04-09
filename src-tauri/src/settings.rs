@@ -46,10 +46,38 @@ pub struct RouxSettings {
     pub enable_logging: bool,
     #[serde(default = "default_group_by")]
     pub group_by: String,
+    #[serde(default)]
+    pub redact_secrets: bool,
+    #[serde(default = "default_redact_categories")]
+    pub redact_categories: RedactCategories,
 }
 
 fn default_group_by() -> String {
     "repo".to_string()
+}
+
+fn default_redact_categories() -> RedactCategories {
+    RedactCategories::default()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedactCategories {
+    pub api_keys: bool,
+    pub credentials: bool,
+    pub private_keys: bool,
+    pub connection_strings: bool,
+}
+
+impl Default for RedactCategories {
+    fn default() -> Self {
+        Self {
+            api_keys: true,
+            credentials: true,
+            private_keys: true,
+            connection_strings: true,
+        }
+    }
 }
 
 impl Default for RouxSettings {
@@ -77,6 +105,8 @@ impl Default for RouxSettings {
             task_panel_collapsed: false,
             enable_logging: false,
             group_by: default_group_by(),
+            redact_secrets: false,
+            redact_categories: RedactCategories::default(),
         }
     }
 }
