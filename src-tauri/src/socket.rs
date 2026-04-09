@@ -114,10 +114,10 @@ pub fn start_socket_server(app: tauri::AppHandle) {
 async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
     match req.command.as_str() {
         "split" => handle_split(req, app),
-        "session-create" => handle_session_create(req, app),
-        "shell" => handle_shell(req, app),
+        "session-create" => handle_session_create(req, app).await,
+        "shell" => handle_shell(req, app).await,
         "focus" => handle_focus(req, app),
-        "run" => handle_run(req, app),
+        "run" => handle_run(req, app).await,
         "send" => handle_send(req, app),
         _ => Response::err(format!("unknown command: {}", req.command)),
     }
@@ -152,8 +152,9 @@ fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
     Response::ok()
 }
 
-fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
+async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
+    let handle = state.session_handle.clone();
 
     let name = req.args.get("name").and_then(|n| n.as_str()).unwrap_or("New Session").to_string();
 
@@ -164,8 +165,12 @@ fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
         Some(ref dir) => dir.clone(),
         None => {
             // Try to get repo path from the requesting session
-            match req.session_id.as_deref().and_then(|id| state.session_store.get(id)) {
-                Some(session) => session.repo_root.clone(),
+            match req.session_id.as_deref() {
+                Some(id) => match handle.get(id).await {
+                    Ok(Some(session)) => session.repo_root.clone(),
+                    Ok(None) => return Response::err("working_dir or session_id required"),
+                    Err(e) => return Response::err(format!("{}", e)),
+                },
                 None => return Response::err("working_dir or session_id required"),
             }
         }
@@ -211,7 +216,9 @@ fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
         is_git_repo: is_git,
     };
 
-    state.session_store.add(session);
+    if let Err(e) = handle.add(session).await {
+        return Response::err(format!("{}", e));
+    }
 
     // Tell frontend about the new session
     use tauri::Emitter;
@@ -226,24 +233,27 @@ fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
     Response::success(serde_json::json!({ "session_id": session_id }))
 }
 
-fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
+async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     let session_id = match req.session_id.as_deref() {
         Some(id) => id,
         None => return Response::err("session_id required"),
     };
 
     let state: tauri::State<AppState> = app.state();
+    let handle = state.session_handle.clone();
 
     let working_dir = req
         .args
         .get("working_dir")
         .and_then(|d| d.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| state.session_store.get(session_id).map(|s| s.worktree_path.clone()));
-
+        .map(|s| s.to_string());
     let working_dir = match working_dir {
         Some(dir) => dir,
-        None => return Response::err("could not determine working directory"),
+        None => match handle.get(session_id).await {
+            Ok(Some(s)) => s.worktree_path.clone(),
+            Ok(None) => return Response::err("could not determine working directory"),
+            Err(e) => return Response::err(format!("{}", e)),
+        },
     };
 
     let pane_id = crypto_random_uuid();
@@ -283,7 +293,7 @@ fn handle_focus(req: Request, app: &tauri::AppHandle) -> Response {
     Response::ok()
 }
 
-fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
+async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
     let session_id = match req.session_id.as_deref() {
         Some(id) => id,
         None => return Response::err("session_id required"),
@@ -295,17 +305,20 @@ fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     let state: tauri::State<AppState> = app.state();
+    let handle = state.session_handle.clone();
 
     let working_dir = req
         .args
         .get("working_dir")
         .and_then(|d| d.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| state.session_store.get(session_id).map(|s| s.worktree_path.clone()));
-
+        .map(|s| s.to_string());
     let working_dir = match working_dir {
         Some(dir) => dir,
-        None => return Response::err("could not determine working directory"),
+        None => match handle.get(session_id).await {
+            Ok(Some(s)) => s.worktree_path.clone(),
+            Ok(None) => return Response::err("could not determine working directory"),
+            Err(e) => return Response::err(format!("{}", e)),
+        },
     };
 
     let pane_id = format!("cmd-{}", crypto_random_uuid());

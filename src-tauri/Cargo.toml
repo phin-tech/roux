@@ -37,7 +37,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 notify = "7"
 serde_yaml = "0.9"
-tokio = { version = "1", features = ["net", "io-util", "macros", "rt-multi-thread", "process", "time"] }
+tokio = { version = "1", features = ["net", "io-util", "macros", "rt-multi-thread", "process", "time", "sync"] }
 tokio-util = "0.7"
 reqwest = { version = "0.12", features = ["json"] }
 octocrab = "0.44"
