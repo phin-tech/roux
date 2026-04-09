@@ -1,6 +1,6 @@
 use std::path::Path;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DocFile {
     pub(crate) path: String,

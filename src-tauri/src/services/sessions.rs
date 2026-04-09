@@ -196,7 +196,7 @@ pub(crate) async fn refresh_git_status(
     }
 }
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ClaudeSession {
     pub(crate) session_id: String,
