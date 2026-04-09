@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
+use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,10 +21,31 @@ struct StatusUpdate {
     message: Option<String>,
 }
 
-fn status_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+#[derive(Debug, Error)]
+pub enum StatusWatcherError {
+    #[error("Could not determine home directory")]
+    HomeDirUnavailable,
+    #[error("Failed to create status dir: {source}")]
+    CreateStatusDir {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to create watcher: {source}")]
+    CreateWatcher {
+        #[source]
+        source: notify::Error,
+    },
+    #[error("Failed to watch status dir: {source}")]
+    WatchStatusDir {
+        #[source]
+        source: notify::Error,
+    },
+}
+
+fn status_dir() -> Result<PathBuf, StatusWatcherError> {
+    let home = dirs::home_dir().ok_or(StatusWatcherError::HomeDirUnavailable)?;
     let dir = home.join(".config").join("roux").join("status");
-    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create status dir: {}", e))?;
+    fs::create_dir_all(&dir).map_err(|source| StatusWatcherError::CreateStatusDir { source })?;
     Ok(dir)
 }
 
@@ -38,17 +60,17 @@ fn map_status(raw: &str) -> &str {
     }
 }
 
-pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
+pub fn start_watching(app: tauri::AppHandle) -> Result<(), StatusWatcherError> {
     let watch_dir = status_dir()?;
 
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
 
     let mut watcher = RecommendedWatcher::new(tx, notify::Config::default())
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+        .map_err(|source| StatusWatcherError::CreateWatcher { source })?;
 
     watcher
         .watch(&watch_dir, RecursiveMode::NonRecursive)
-        .map_err(|e| format!("Failed to watch status dir: {}", e))?;
+        .map_err(|source| StatusWatcherError::WatchStatusDir { source })?;
 
     thread::spawn(move || {
         // Keep watcher alive for the lifetime of this thread
@@ -144,4 +166,24 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+
+    #[test]
+    fn maps_known_status_values() {
+        assert_eq!(map_status("working"), "generating");
+        assert_eq!(map_status("idle"), "idle");
+    }
+
+    #[test]
+    fn status_watcher_error_display_keeps_existing_messages() {
+        let error =
+            StatusWatcherError::CreateStatusDir { source: io::Error::other("permission denied") };
+
+        assert_eq!(error.to_string(), "Failed to create status dir: permission denied");
+    }
 }

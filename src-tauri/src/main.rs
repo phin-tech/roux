@@ -60,7 +60,7 @@ fn update_settings(
 ) -> Result<(), String> {
     let settings = settings.normalized();
     logging::set_enabled(settings.enable_logging);
-    settings::save_settings(&settings)?;
+    settings::save_settings(&settings).map_err(|e| e.to_string())?;
     *state.settings.lock().unwrap() = settings.clone();
     app.emit("settings-changed", &settings).map_err(|e| e.to_string())
 }
@@ -73,17 +73,17 @@ fn cmd_create_worktree(
 ) -> Result<String, String> {
     let settings = state.settings.lock().unwrap();
     let base_path = settings.worktree_base_path.as_deref();
-    worktree::create_worktree(&repo_path, &branch, base_path)
+    worktree::create_worktree(&repo_path, &branch, base_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn cmd_remove_worktree(worktree_path: String) -> Result<(), String> {
-    worktree::remove_worktree(&worktree_path)
+    worktree::remove_worktree(&worktree_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn cmd_list_worktrees(repo_path: String) -> Result<Vec<worktree::Worktree>, String> {
-    worktree::list_worktrees(&repo_path)
+    worktree::list_worktrees(&repo_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -117,7 +117,7 @@ fn cmd_open_in_editor(path: String) -> Result<(), String> {
 // We accept String and convert to bytes server-side for simplicity.
 #[tauri::command]
 fn write_to_session(id: String, data: String, state: tauri::State<AppState>) -> Result<(), String> {
-    state.pty_manager.write(&id, data.as_bytes())
+    state.pty_manager.write(&id, data.as_bytes()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -127,7 +127,7 @@ fn resize_session(
     rows: u16,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
-    state.pty_manager.resize(&id, cols, rows)
+    state.pty_manager.resize(&id, cols, rows).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -136,7 +136,8 @@ fn attach_pty_output(
     on_event: tauri::ipc::Channel<tauri::ipc::Response>,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
-    state.pty_manager.attach_output_channel(&id, on_event)
+    state.pty_manager.attach_output_channel(&id, on_event);
+    Ok(())
 }
 
 #[tauri::command]
@@ -146,7 +147,7 @@ fn spawn_shell(
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    state.pty_manager.spawn_shell(&id, &working_dir, None, app.clone())
+    state.pty_manager.spawn_shell(&id, &working_dir, None, app.clone()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -157,12 +158,15 @@ fn spawn_task(
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    state.pty_manager.spawn_task(&id, &command, &working_dir, None, app.clone())
+    state
+        .pty_manager
+        .spawn_task(&id, &command, &working_dir, None, app.clone())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn kill_session(id: String, state: tauri::State<AppState>) -> Result<(), String> {
-    state.pty_manager.kill(&id)?;
+    state.pty_manager.kill(&id);
     state.session_store.remove(&id);
     Ok(())
 }
@@ -195,7 +199,8 @@ fn create_session(
     } else if let Some(br) = branch {
         // Create new worktree
         let base = settings.worktree_base_path.as_deref();
-        let wt_path = worktree::create_worktree(&repo_path, &br, base)?;
+        let wt_path =
+            worktree::create_worktree(&repo_path, &br, base).map_err(|e| e.to_string())?;
         (wt_path, br, true)
     } else {
         // Use repo directly
@@ -210,7 +215,12 @@ fn create_session(
     }
 
     rlog!("Creating session '{}' (id={}) in '{}'", name, session_id, work_dir);
-    rlog!("  branch={}, flags={:?}, claude_binary={:?}", actual_branch, all_flags, settings.claude_binary_path);
+    rlog!(
+        "  branch={}, flags={:?}, claude_binary={:?}",
+        actual_branch,
+        all_flags,
+        settings.claude_binary_path
+    );
 
     // Spawn PTY
     let spawn_result = state.pty_manager.spawn(
@@ -224,12 +234,13 @@ fn create_session(
     );
 
     // Rollback worktree on spawn failure
-    if let Err(ref e) = spawn_result {
-        rlog!("Session spawn failed: {}", e);
+    if let Err(e) = spawn_result {
+        let message = e.to_string();
+        rlog!("Session spawn failed: {}", message);
         if is_wt {
             let _ = worktree::remove_worktree(&work_dir);
         }
-        return Err(e.clone());
+        return Err(message);
     }
     rlog!("Session '{}' spawned successfully", session_id);
 
@@ -261,13 +272,13 @@ fn reconnect_session(
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
-    let session = state.session_store.get(&id)
-        .ok_or_else(|| format!("Session {} not found", id))?;
+    let session =
+        state.session_store.get(&id).ok_or_else(|| format!("Session {} not found", id))?;
 
     let settings = state.settings.lock().unwrap().clone();
 
     // Kill existing PTY (ignore errors — it may already be dead)
-    let _ = state.pty_manager.kill(&id);
+    state.pty_manager.kill(&id);
 
     // Merge settings flags with per-call extra flags
     let mut all_flags = settings.additional_flags.clone();
@@ -278,15 +289,18 @@ fn reconnect_session(
     rlog!("Reconnecting session '{}' (id={}) in '{}'", session.name, id, session.worktree_path);
 
     // Spawn new Claude PTY under the same session ID
-    state.pty_manager.spawn(
-        &id,
-        &session.worktree_path,
-        settings.default_model.as_deref(),
-        &all_flags,
-        None,
-        settings.claude_binary_path.as_deref(),
-        app.clone(),
-    )?;
+    state
+        .pty_manager
+        .spawn(
+            &id,
+            &session.worktree_path,
+            settings.default_model.as_deref(),
+            &all_flags,
+            None,
+            settings.claude_binary_path.as_deref(),
+            app.clone(),
+        )
+        .map_err(|e| e.to_string())?;
 
     // Update status to idle
     state.session_store.update_status(&id, "idle");
@@ -401,10 +415,7 @@ fn check_setup_status() -> SetupStatus {
         .map(|o| o.status.success())
         .unwrap_or(false);
 
-    SetupStatus {
-        cli_installed: hooks::cli_is_installed(),
-        gh_available,
-    }
+    SetupStatus { cli_installed: hooks::cli_is_installed(), gh_available }
 }
 
 // Backwards compat: kept as alias used nowhere else
@@ -415,7 +426,7 @@ fn check_setup_needed() -> bool {
 
 #[tauri::command]
 fn run_setup() -> Result<(), String> {
-    hooks::install_hooks()
+    hooks::install_hooks().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -527,10 +538,7 @@ fn list_projects(state: tauri::State<AppState>) -> Vec<Project> {
 
 #[tauri::command]
 fn create_project(name: String, state: tauri::State<AppState>) -> Project {
-    let project = Project {
-        id: uuid::Uuid::new_v4().to_string(),
-        name,
-    };
+    let project = Project { id: uuid::Uuid::new_v4().to_string(), name };
     state.project_store.add(project.clone());
     project
 }
@@ -568,7 +576,8 @@ fn get_project_notes(project_id: String) -> Result<String, String> {
 fn set_project_notes(project_id: String, content: String) -> Result<(), String> {
     let path = notes_path(&project_id);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create notes dir: {}", e))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create notes dir: {}", e))?;
     }
     std::fs::write(&path, &content).map_err(|e| format!("Failed to write notes: {}", e))
 }
@@ -735,8 +744,10 @@ fn main() {
             // Clean up orphaned watches and start active ones
             {
                 let state = app.state::<AppState>();
-                let session_ids: Vec<String> = state.session_store.list().iter().map(|s| s.id.clone()).collect();
-                let project_ids: Vec<String> = state.project_store.list().iter().map(|p| p.id.clone()).collect();
+                let session_ids: Vec<String> =
+                    state.session_store.list().iter().map(|s| s.id.clone()).collect();
+                let project_ids: Vec<String> =
+                    state.project_store.list().iter().map(|p| p.id.clone()).collect();
                 state.watch_manager.store().cleanup_orphans(&session_ids, &project_ids);
                 let app_handle = app.handle().clone();
                 let watch_mgr = state.watch_manager.clone();

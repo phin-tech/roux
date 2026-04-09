@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -8,6 +9,21 @@ pub struct Worktree {
     pub path: String,
     pub branch: String,
     pub is_main: bool,
+}
+
+#[derive(Debug, Error)]
+pub enum WorktreeError {
+    #[error("Failed to run git: {source}")]
+    RunGit {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("git worktree add failed: {stderr}")]
+    AddFailed { stderr: String },
+    #[error("git worktree remove failed: {stderr}")]
+    RemoveFailed { stderr: String },
+    #[error("git worktree list failed: {stderr}")]
+    ListFailed { stderr: String },
 }
 
 fn sanitize_branch_for_path(branch: &str) -> String {
@@ -67,7 +83,7 @@ pub fn create_worktree(
     repo_path: &str,
     branch: &str,
     base_path: Option<&str>,
-) -> Result<String, String> {
+) -> Result<String, WorktreeError> {
     // Check if the branch is already checked out in an existing worktree
     if let Ok(worktrees) = list_worktrees(repo_path) {
         if let Some(wt) = worktrees.iter().find(|wt| wt.branch == branch) {
@@ -83,50 +99,54 @@ pub fn create_worktree(
             .args(["worktree", "add", &target_str, branch])
             .current_dir(repo_path)
             .output()
-            .map_err(|e| format!("Failed to run git: {}", e))?
+            .map_err(|source| WorktreeError::RunGit { source })?
     } else {
         Command::new("git")
             .args(["worktree", "add", "-b", branch, &target_str])
             .current_dir(repo_path)
             .output()
-            .map_err(|e| format!("Failed to run git: {}", e))?
+            .map_err(|source| WorktreeError::RunGit { source })?
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git worktree add failed: {}", stderr));
+        return Err(WorktreeError::AddFailed { stderr: stderr.to_string() });
     }
 
     Ok(target_str)
 }
 
-pub fn remove_worktree(worktree_path: &str) -> Result<(), String> {
+pub fn remove_worktree(worktree_path: &str) -> Result<(), WorktreeError> {
     let output = Command::new("git")
         .args(["worktree", "remove", worktree_path, "--force"])
         .output()
-        .map_err(|e| format!("Failed to run git: {}", e))?;
+        .map_err(|source| WorktreeError::RunGit { source })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git worktree remove failed: {}", stderr));
+        return Err(WorktreeError::RemoveFailed { stderr: stderr.to_string() });
     }
 
     Ok(())
 }
 
-pub fn list_worktrees(repo_path: &str) -> Result<Vec<Worktree>, String> {
+pub fn list_worktrees(repo_path: &str) -> Result<Vec<Worktree>, WorktreeError> {
     let output = Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(repo_path)
         .output()
-        .map_err(|e| format!("Failed to run git: {}", e))?;
+        .map_err(|source| WorktreeError::RunGit { source })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git worktree list failed: {}", stderr));
+        return Err(WorktreeError::ListFailed { stderr: stderr.to_string() });
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_porcelain(&stdout))
+}
+
+fn parse_porcelain(stdout: &str) -> Vec<Worktree> {
     let mut worktrees = Vec::new();
     let mut current_path: Option<String> = None;
     let mut current_branch: Option<String> = None;
@@ -165,12 +185,13 @@ pub fn list_worktrees(repo_path: &str) -> Result<Vec<Worktree>, String> {
         }
     }
 
-    Ok(worktrees)
+    worktrees
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
 
     #[test]
     fn test_sanitize_simple_branch() {
@@ -276,44 +297,10 @@ mod tests {
         assert_eq!(worktrees.len(), 1);
     }
 
-    /// Helper to parse porcelain output without calling git
-    fn parse_porcelain(stdout: &str) -> Vec<Worktree> {
-        let mut worktrees = Vec::new();
-        let mut current_path: Option<String> = None;
-        let mut current_branch: Option<String> = None;
-        let mut is_bare = false;
+    #[test]
+    fn worktree_error_display_keeps_existing_messages() {
+        let error = WorktreeError::RunGit { source: io::Error::other("boom") };
 
-        for line in stdout.lines() {
-            if let Some(path) = line.strip_prefix("worktree ") {
-                current_path = Some(path.to_string());
-                current_branch = None;
-                is_bare = false;
-            } else if let Some(branch_ref) = line.strip_prefix("branch ") {
-                current_branch =
-                    Some(branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref).to_string());
-            } else if line == "bare" {
-                is_bare = true;
-            } else if line.is_empty() {
-                if let Some(path) = current_path.take() {
-                    if !is_bare {
-                        let branch = current_branch.take().unwrap_or_else(|| "HEAD".to_string());
-                        let is_main = worktrees.is_empty();
-                        worktrees.push(Worktree { path, branch, is_main });
-                    }
-                }
-                current_branch = None;
-                is_bare = false;
-            }
-        }
-
-        if let Some(path) = current_path {
-            if !is_bare {
-                let branch = current_branch.unwrap_or_else(|| "HEAD".to_string());
-                let is_main = worktrees.is_empty();
-                worktrees.push(Worktree { path, branch, is_main });
-            }
-        }
-
-        worktrees
+        assert_eq!(error.to_string(), "Failed to run git: boom");
     }
 }

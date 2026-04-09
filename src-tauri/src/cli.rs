@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+use thiserror::Error;
 
 #[derive(Parser)]
 #[command(name = "roux-cli", about = "Roux terminal manager CLI")]
@@ -92,41 +93,84 @@ fn socket_path() -> PathBuf {
     home.join(".config").join("roux").join("roux.sock")
 }
 
-fn send_socket_command(request: Value) -> Result<Value, String> {
+#[derive(Debug, Error)]
+enum CliError {
+    #[error("Roux is not running")]
+    RouxNotRunning,
+    #[error("Failed to connect to Roux: {source}")]
+    Connect {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to set timeout: {source}")]
+    SetTimeout {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to serialize command: {source}")]
+    SerializeCommand {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("Failed to send command: {source}")]
+    SendCommand {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to shutdown write: {source}")]
+    ShutdownWrite {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Failed to read response: {source}")]
+    ReadResponse {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Invalid response: {source}")]
+    InvalidResponse {
+        #[source]
+        source: serde_json::Error,
+    },
+}
+
+fn send_socket_command(request: Value) -> Result<Value, CliError> {
     use std::io::Write;
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
     let path = socket_path();
     let stream = UnixStream::connect(&path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound || e.kind() == std::io::ErrorKind::ConnectionRefused {
-            "Roux is not running".to_string()
+        if e.kind() == std::io::ErrorKind::NotFound
+            || e.kind() == std::io::ErrorKind::ConnectionRefused
+        {
+            CliError::RouxNotRunning
         } else {
-            format!("Failed to connect to Roux: {}", e)
+            CliError::Connect { source: e }
         }
     })?;
 
-    stream.set_read_timeout(Some(Duration::from_secs(5)))
-        .map_err(|e| format!("Failed to set timeout: {}", e))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))
-        .map_err(|e| format!("Failed to set timeout: {}", e))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|source| CliError::SetTimeout { source })?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .map_err(|source| CliError::SetTimeout { source })?;
 
-    let json = serde_json::to_string(&request).unwrap();
+    let json =
+        serde_json::to_string(&request).map_err(|source| CliError::SerializeCommand { source })?;
     let mut stream_ref = &stream;
-    stream_ref.write_all(json.as_bytes())
-        .map_err(|e| format!("Failed to send command: {}", e))?;
-    stream_ref.write_all(b"\n")
-        .map_err(|e| format!("Failed to send command: {}", e))?;
-    stream.shutdown(std::net::Shutdown::Write)
-        .map_err(|e| format!("Failed to shutdown write: {}", e))?;
+    stream_ref.write_all(json.as_bytes()).map_err(|source| CliError::SendCommand { source })?;
+    stream_ref.write_all(b"\n").map_err(|source| CliError::SendCommand { source })?;
+    stream
+        .shutdown(std::net::Shutdown::Write)
+        .map_err(|source| CliError::ShutdownWrite { source })?;
 
     let mut response = String::new();
     let mut reader = std::io::BufReader::new(&stream);
-    reader.read_to_string(&mut response)
-        .map_err(|e| format!("Failed to read response: {}", e))?;
+    reader.read_to_string(&mut response).map_err(|source| CliError::ReadResponse { source })?;
 
-    serde_json::from_str(&response)
-        .map_err(|e| format!("Invalid response: {}", e))
+    serde_json::from_str(&response).map_err(|source| CliError::InvalidResponse { source })
 }
 
 fn get_session_id() -> Option<String> {
@@ -146,9 +190,8 @@ fn run_socket_command(request: Value) {
                     println!("{}", serde_json::to_string_pretty(data).unwrap());
                 }
             } else {
-                let error = response.get("error")
-                    .and_then(|e| e.as_str())
-                    .unwrap_or("unknown error");
+                let error =
+                    response.get("error").and_then(|e| e.as_str()).unwrap_or("unknown error");
                 eprintln!("Error: {}", error);
                 std::process::exit(1);
             }

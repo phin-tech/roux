@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use thiserror::Error;
 
 const DEFAULT_THEME: &str = "deep-blue";
 
@@ -104,6 +105,25 @@ fn settings_path() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+#[derive(Debug, Error)]
+pub enum SettingsError {
+    #[error("{source}")]
+    CreateSettingsDir {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{source}")]
+    Serialize {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{source}")]
+    Write {
+        #[source]
+        source: std::io::Error,
+    },
+}
+
 pub fn load_settings() -> RouxSettings {
     let path = settings_path();
     if path.exists() {
@@ -114,17 +134,19 @@ pub fn load_settings() -> RouxSettings {
     }
 }
 
-pub fn save_settings(settings: &RouxSettings) -> Result<(), String> {
+pub fn save_settings(settings: &RouxSettings) -> Result<(), SettingsError> {
     let path = settings_path();
-    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    let json =
-        serde_json::to_string_pretty(&settings.clone().normalized()).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    fs::create_dir_all(path.parent().unwrap())
+        .map_err(|source| SettingsError::CreateSettingsDir { source })?;
+    let json = serde_json::to_string_pretty(&settings.clone().normalized())
+        .map_err(|source| SettingsError::Serialize { source })?;
+    fs::write(&path, json).map_err(|source| SettingsError::Write { source })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
 
     #[test]
     fn default_settings_has_no_claude_binary_path() {
@@ -167,5 +189,12 @@ mod tests {
         }"#;
         let settings: RouxSettings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.claude_binary_path, None);
+    }
+
+    #[test]
+    fn settings_error_display_keeps_user_facing_message_shape() {
+        let error = SettingsError::Write { source: io::Error::other("disk full") };
+
+        assert_eq!(error.to_string(), "disk full");
     }
 }
