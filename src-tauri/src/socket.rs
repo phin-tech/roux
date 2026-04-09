@@ -124,12 +124,13 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
 }
 
 fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
-    let direction = req.args.get("direction")
-        .and_then(|d| d.as_str())
-        .unwrap_or("horizontal");
+    let direction = req.args.get("direction").and_then(|d| d.as_str()).unwrap_or("horizontal");
 
     if direction != "horizontal" && direction != "vertical" {
-        return Response::err(format!("invalid direction: {}, must be horizontal or vertical", direction));
+        return Response::err(format!(
+            "invalid direction: {}, must be horizontal or vertical",
+            direction
+        ));
     }
 
     let session_id = match req.session_id.as_deref() {
@@ -138,12 +139,15 @@ fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "split",
-        "sessionId": session_id,
-        "paneId": req.pane_id,
-        "direction": direction,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "split",
+            "sessionId": session_id,
+            "paneId": req.pane_id,
+            "direction": direction,
+        }),
+    );
 
     Response::ok()
 }
@@ -151,14 +155,9 @@ fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
 fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
 
-    let name = req.args.get("name")
-        .and_then(|n| n.as_str())
-        .unwrap_or("New Session")
-        .to_string();
+    let name = req.args.get("name").and_then(|n| n.as_str()).unwrap_or("New Session").to_string();
 
-    let working_dir = req.args.get("working_dir")
-        .and_then(|d| d.as_str())
-        .map(|s| s.to_string());
+    let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
 
     // Use the working_dir as repo_path, or fall back to current session's repo
     let repo_path = match working_dir {
@@ -192,10 +191,7 @@ fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
         return Response::err(format!("Failed to spawn session: {}", e));
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
     let is_git = crate::is_git_repo(&work_dir);
     let branch = crate::get_current_branch(&work_dir).unwrap_or_else(|| "main".to_string());
@@ -219,10 +215,13 @@ fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
 
     // Tell frontend about the new session
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "session-created",
-        "sessionId": session_id,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "session-created",
+            "sessionId": session_id,
+        }),
+    );
 
     Response::success(serde_json::json!({ "session_id": session_id }))
 }
@@ -235,12 +234,12 @@ fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
 
     let state: tauri::State<AppState> = app.state();
 
-    let working_dir = req.args.get("working_dir")
+    let working_dir = req
+        .args
+        .get("working_dir")
         .and_then(|d| d.as_str())
         .map(|s| s.to_string())
-        .or_else(|| {
-            state.session_store.get(session_id).map(|s| s.worktree_path.clone())
-        });
+        .or_else(|| state.session_store.get(session_id).map(|s| s.worktree_path.clone()));
 
     let working_dir = match working_dir {
         Some(dir) => dir,
@@ -250,28 +249,36 @@ fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     let pane_id = crypto_random_uuid();
     let pty_id = crypto_random_uuid();
 
-    if let Err(e) = state.pty_manager.spawn_shell(&pty_id, &working_dir, Some(session_id), app.clone()) {
+    if let Err(e) =
+        state.pty_manager.spawn_shell(&pty_id, &working_dir, Some(session_id), app.clone())
+    {
         return Response::err(format!("Failed to spawn shell: {}", e));
     }
 
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "shell-opened",
-        "sessionId": session_id,
-        "paneId": pane_id,
-        "ptyId": pty_id,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "shell-opened",
+            "sessionId": session_id,
+            "paneId": pane_id,
+            "ptyId": pty_id,
+        }),
+    );
 
     Response::success(serde_json::json!({ "pane_id": pane_id, "pty_id": pty_id }))
 }
 
 fn handle_focus(req: Request, app: &tauri::AppHandle) -> Response {
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "focus",
-        "sessionId": req.session_id,
-        "paneId": req.pane_id,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "focus",
+            "sessionId": req.session_id,
+            "paneId": req.pane_id,
+        }),
+    );
 
     Response::ok()
 }
@@ -289,12 +296,12 @@ fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
 
     let state: tauri::State<AppState> = app.state();
 
-    let working_dir = req.args.get("working_dir")
+    let working_dir = req
+        .args
+        .get("working_dir")
         .and_then(|d| d.as_str())
         .map(|s| s.to_string())
-        .or_else(|| {
-            state.session_store.get(session_id).map(|s| s.worktree_path.clone())
-        });
+        .or_else(|| state.session_store.get(session_id).map(|s| s.worktree_path.clone()));
 
     let working_dir = match working_dir {
         Some(dir) => dir,
@@ -302,22 +309,30 @@ fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     let pane_id = format!("cmd-{}", crypto_random_uuid());
-    let pty_id = format!("{}-{}", pane_id, std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    let pty_id = format!(
+        "{}-{}",
+        pane_id,
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+    );
 
-    if let Err(e) = state.pty_manager.spawn_task(&pty_id, &command, &working_dir, Some(session_id), app.clone()) {
+    if let Err(e) =
+        state.pty_manager.spawn_task(&pty_id, &command, &working_dir, Some(session_id), app.clone())
+    {
         return Response::err(format!("Failed to spawn task: {}", e));
     }
 
     use tauri::Emitter;
-    let _ = app.emit("roux-command", serde_json::json!({
-        "action": "command-opened",
-        "sessionId": session_id,
-        "paneId": pane_id,
-        "ptyId": pty_id,
-        "command": command,
-        "workingDir": working_dir,
-    }));
+    let _ = app.emit(
+        "roux-command",
+        serde_json::json!({
+            "action": "command-opened",
+            "sessionId": session_id,
+            "paneId": pane_id,
+            "ptyId": pty_id,
+            "command": command,
+            "workingDir": working_dir,
+        }),
+    );
 
     Response::success(serde_json::json!({ "pane_id": pane_id, "pty_id": pty_id }))
 }
@@ -364,7 +379,11 @@ mod tests {
     fn socket_path_is_under_config() {
         let path = socket_path();
         let path_str = path.to_string_lossy();
-        assert!(path_str.contains(".config/roux/roux.sock"), "Expected .config/roux/roux.sock, got {}", path_str);
+        assert!(
+            path_str.contains(".config/roux/roux.sock"),
+            "Expected .config/roux/roux.sock, got {}",
+            path_str
+        );
     }
 
     #[test]
