@@ -1,3 +1,4 @@
+use crate::services::settings as svc;
 use crate::state::AppState;
 use tauri::Emitter;
 
@@ -12,9 +13,7 @@ pub(crate) fn update_settings(
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let settings = settings.normalized();
-    crate::logging::set_enabled(settings.enable_logging);
-    crate::settings::save_settings(&settings).map_err(|e| e.to_string())?;
+    let settings = svc::update_settings(settings).map_err(|e| e.to_string())?;
     *state.settings.lock().unwrap() = settings.clone();
     app.emit("settings-changed", &settings).map_err(|e| e.to_string())
 }
