@@ -21,6 +21,8 @@ pub struct Session {
     pub created_at: u64,
     #[serde(default)]
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub is_git_repo: bool,
 }
 
 pub struct SessionStore {
@@ -88,6 +90,14 @@ impl SessionStore {
             s.status = status.to_string();
         }
         self.dirty.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn set_git_repo(&self, id: &str, is_git_repo: bool) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+            s.is_git_repo = is_git_repo;
+        }
+        self.dirty.store(true, Ordering::Release);
     }
 
     pub fn set_project(&self, id: &str, project_id: Option<String>) {

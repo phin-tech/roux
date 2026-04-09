@@ -238,7 +238,7 @@ fn create_session(
     let session = Session {
         id: session_id,
         name,
-        repo_root: repo_path,
+        repo_root: repo_path.clone(),
         worktree_path: work_dir,
         branch: actual_branch,
         is_worktree: is_wt,
@@ -247,6 +247,7 @@ fn create_session(
         cost: None,
         created_at: now,
         project_id: None,
+        is_git_repo: is_git_repo(&repo_path),
     };
 
     state.session_store.add(session.clone());
@@ -452,6 +453,48 @@ fn list_nono_profiles() -> Vec<String> {
     }
     profiles.sort();
     profiles
+}
+
+#[tauri::command]
+fn git_init(path: String) -> Result<(), String> {
+    let output = std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("Failed to run git init: {}", e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[tauri::command]
+fn refresh_session_git_status(id: String, state: tauri::State<AppState>) -> bool {
+    let session = state.session_store.get(&id);
+    if let Some(s) = session {
+        let is_git = is_git_repo(&s.worktree_path);
+        if is_git != s.is_git_repo {
+            state.session_store.set_git_repo(&id, is_git);
+        }
+        is_git
+    } else {
+        false
+    }
+}
+
+pub fn is_git_repo(path: &str) -> bool {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+fn check_is_git_repo(path: String) -> bool {
+    is_git_repo(&path)
 }
 
 fn get_current_branch(repo_path: &str) -> Option<String> {
@@ -666,6 +709,9 @@ fn main() {
             watches::cmd_list_watches,
             watches::cmd_pause_watch,
             watches::cmd_resume_watch,
+            check_is_git_repo,
+            git_init,
+            refresh_session_git_status,
         ])
         .setup(|app| {
             // Only auto-update hooks if CLI is already installed (not first run).

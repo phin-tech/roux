@@ -197,6 +197,7 @@ fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
         .unwrap()
         .as_secs();
 
+    let is_git = crate::is_git_repo(&work_dir);
     let branch = crate::get_current_branch(&work_dir).unwrap_or_else(|| "main".to_string());
 
     let session = crate::session::Session {
@@ -211,6 +212,7 @@ fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response {
         cost: None,
         created_at: now,
         project_id: None,
+        is_git_repo: is_git,
     };
 
     state.session_store.add(session);

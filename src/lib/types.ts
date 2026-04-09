@@ -28,6 +28,7 @@ export interface Session {
   permissionInfo: PermissionInfo | null;
   createdAt: number;
   projectId: string | null;
+  isGitRepo: boolean;
 }
 
 export interface Project {

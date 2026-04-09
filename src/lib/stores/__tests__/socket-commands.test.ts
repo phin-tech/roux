@@ -41,6 +41,7 @@ function makeSession(id: string, name = "test") {
     permissionInfo: null,
     createdAt: Date.now(),
     projectId: null,
+    isGitRepo: true,
   };
 }
 

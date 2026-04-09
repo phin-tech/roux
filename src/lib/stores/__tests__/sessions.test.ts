@@ -28,6 +28,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     permissionInfo: null,
     createdAt: Date.now(),
     projectId: null,
+    isGitRepo: true,
     ...overrides,
   };
 }
