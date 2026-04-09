@@ -177,48 +177,27 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     };
 
     let settings = state.settings.lock().unwrap().clone();
-    let session_id = uuid::Uuid::new_v4().to_string();
     let work_dir = working_dir.unwrap_or_else(|| repo_path.clone());
 
-    let all_flags = settings.additional_flags.clone();
-
-    let spawn_result = state.pty_manager.spawn(
-        &session_id,
-        &work_dir,
-        settings.default_model.as_deref(),
-        &all_flags,
+    let session = match crate::services::sessions::create_session(
+        &state.pty_manager,
+        &state.session_handle,
+        &settings,
+        &repo_path,
+        &name,
+        Some(&work_dir),
         None,
-        settings.claude_binary_path.as_deref(),
-        app.clone(),
-    );
-
-    if let Err(e) = spawn_result {
-        return Response::err(format!("Failed to spawn session: {}", e));
-    }
-
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-
-    let is_git = crate::commands::sessions::is_git_repo(&work_dir);
-    let branch = crate::commands::sessions::get_current_branch(&work_dir).unwrap_or_else(|| "main".to_string());
-
-    let session = crate::session::Session {
-        id: session_id.clone(),
-        name,
-        repo_root: repo_path,
-        worktree_path: work_dir,
-        branch,
-        is_worktree: false,
-        status: "idle".to_string(),
-        model: None,
-        cost: None,
-        created_at: now,
-        project_id: None,
-        is_git_repo: is_git,
+        &[],
+        None,
+        app,
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => return Response::err(format!("{}", e)),
     };
 
-    if let Err(e) = handle.add(session).await {
-        return Response::err(format!("{}", e));
-    }
+    let session_id = session.id.clone();
 
     // Tell frontend about the new session
     use tauri::Emitter;
