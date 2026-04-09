@@ -10,7 +10,7 @@ use std::time::Duration;
 use tauri::Emitter;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 struct StatusUpdate {
     status: String,

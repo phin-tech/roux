@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskDefinition {
     pub id: String,
@@ -14,7 +14,7 @@ pub struct TaskDefinition {
     pub keep_open: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskGroup {
     pub runner: String,
@@ -329,11 +329,13 @@ fn overrides_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn cmd_discover_tasks(dir: String) -> Vec<TaskGroup> {
     discover_tasks(Path::new(&dir))
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn cmd_load_task_overrides() -> HashMap<String, HashMap<String, String>> {
     let path = overrides_path();
     if path.exists() {
@@ -345,6 +347,7 @@ pub fn cmd_load_task_overrides() -> HashMap<String, HashMap<String, String>> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn cmd_save_task_overrides(
     overrides: HashMap<String, HashMap<String, String>>,
 ) -> Result<(), String> {

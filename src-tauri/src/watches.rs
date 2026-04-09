@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 // ── Core Types ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Watch {
     pub id: String,
@@ -29,7 +29,7 @@ pub struct Watch {
     pub created_at: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum WatchScope {
     Global,
@@ -43,7 +43,7 @@ pub enum WatchScope {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum RuntimeState {
     Pending,
@@ -53,7 +53,7 @@ pub enum RuntimeState {
     Error { message: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum WatchKind {
     GithubAction {
@@ -89,7 +89,7 @@ pub enum WatchKind {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum WatchMode {
     Recurring {
@@ -99,7 +99,7 @@ pub enum WatchMode {
     OneShot,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum WatchResult {
     GithubRun {
@@ -151,7 +151,7 @@ impl WatchResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WatchOutcome {
     Success,
@@ -159,7 +159,7 @@ pub enum WatchOutcome {
     InProgress,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct GithubJob {
     pub name: String,
@@ -168,7 +168,7 @@ pub struct GithubJob {
     pub failed_step: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PrReview {
     pub reviewer: String,
@@ -176,7 +176,7 @@ pub struct PrReview {
     pub url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PrCheckRun {
     pub name: String,
@@ -184,7 +184,7 @@ pub struct PrCheckRun {
     pub url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NotifyConfig {
     pub desktop_notification: bool,
@@ -198,7 +198,7 @@ impl Default for NotifyConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WatchUpdateEvent {
     pub watch: Watch,
@@ -985,7 +985,7 @@ async fn execute_http_check(url: &str, expected_status: u16) -> WatchResult {
 
 // ── Config for creating a watch (no runtime fields) ─────────
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWatchConfig {
     pub name: String,
@@ -1000,6 +1000,7 @@ pub struct CreateWatchConfig {
 use crate::state::AppState;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn cmd_create_watch(
     config: CreateWatchConfig,
     state: tauri::State<'_, AppState>,
@@ -1024,21 +1025,25 @@ pub async fn cmd_create_watch(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn cmd_remove_watch(id: String, state: tauri::State<AppState>) {
     state.watch_manager.remove_watch(&id);
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn cmd_list_watches(state: tauri::State<AppState>) -> Vec<Watch> {
     state.watch_manager.store().list()
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn cmd_pause_watch(id: String, state: tauri::State<AppState>, app: tauri::AppHandle) {
     state.watch_manager.pause_watch(&id, &app);
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn cmd_resume_watch(
     id: String,
     state: tauri::State<'_, AppState>,

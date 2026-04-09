@@ -19,6 +19,7 @@ mod worktree;
 
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
+use tauri_specta::{Builder, collect_commands};
 
 use crate::projects::ProjectStore;
 use crate::pty::PtyManager;
@@ -38,6 +39,64 @@ fn main() {
 
     let persisted_sessions = session::load_persisted_sessions();
     let (session_handle, _session_join) = session_service::spawn(persisted_sessions);
+
+    let builder = Builder::<tauri::Wry>::new()
+        .commands(collect_commands![
+            commands::misc::get_log_path,
+            commands::misc::frontend_log,
+            commands::settings::get_settings,
+            commands::settings::update_settings,
+            commands::worktrees::cmd_create_worktree,
+            commands::worktrees::cmd_remove_worktree,
+            commands::worktrees::cmd_list_worktrees,
+            commands::sessions::write_to_session,
+            commands::sessions::resize_session,
+            commands::sessions::spawn_shell,
+            commands::sessions::spawn_task,
+            commands::sessions::kill_session,
+            commands::sessions::get_pty_generation,
+            commands::sessions::create_session,
+            commands::sessions::reconnect_session,
+            commands::sessions::list_sessions,
+            commands::sessions::list_claude_sessions,
+            commands::docs::read_file,
+            commands::docs::write_file,
+            commands::docs::list_docs,
+            commands::misc::cmd_open_in_editor,
+            commands::worktrees::cmd_list_branches,
+            commands::setup::check_setup_needed,
+            commands::setup::check_setup_status,
+            commands::setup::run_setup,
+            commands::setup::check_nono_installed,
+            commands::setup::list_nono_profiles,
+            tasks::cmd_discover_tasks,
+            tasks::cmd_load_task_overrides,
+            tasks::cmd_save_task_overrides,
+            commands::projects::list_projects,
+            commands::projects::create_project,
+            commands::projects::remove_project,
+            commands::projects::rename_project,
+            commands::projects::set_session_project,
+            commands::projects::get_project_notes,
+            commands::projects::set_project_notes,
+            watches::cmd_create_watch,
+            watches::cmd_remove_watch,
+            watches::cmd_list_watches,
+            watches::cmd_pause_watch,
+            watches::cmd_resume_watch,
+            commands::sessions::check_is_git_repo,
+            commands::worktrees::git_init,
+            commands::sessions::refresh_session_git_status,
+            commands::misc::quit_app,
+        ]);
+
+    #[cfg(debug_assertions)]
+    builder
+        .export(
+            specta_typescript::Typescript::default(),
+            "../src/lib/bindings.ts",
+        )
+        .expect("Failed to export TypeScript bindings");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

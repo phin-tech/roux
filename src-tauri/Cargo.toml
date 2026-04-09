@@ -43,6 +43,9 @@ reqwest = { version = "0.12", features = ["json"] }
 octocrab = "0.44"
 tauri-plugin-opener = "2.5.3"
 thiserror = "2"
+specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }
+specta-typescript = "0.0.11"
+tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }
 
 [dev-dependencies]
 tempfile = "3"
