@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::platform;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub id: String,
@@ -74,8 +76,7 @@ impl ProjectStore {
     }
 
     fn persistence_path() -> PathBuf {
-        let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        base.join("roux").join("projects.json")
+        platform::projects_path()
     }
 
     fn write_to_disk(projects: &[Project]) {

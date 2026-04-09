@@ -12,6 +12,8 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::{timeout, sleep};
 use tokio_util::sync::CancellationToken;
 
+use crate::platform;
+
 // ── Core Types ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,8 +335,7 @@ impl WatchStore {
     }
 
     fn persistence_path() -> PathBuf {
-        let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        base.join("roux").join("watches.json")
+        platform::watches_path()
     }
 
     fn write_to_disk(watches: &[Watch]) {

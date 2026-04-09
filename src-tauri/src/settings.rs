@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+
+use crate::platform;
 
 const DEFAULT_THEME: &str = "deep-blue";
 
@@ -88,17 +89,8 @@ impl RouxSettings {
     }
 }
 
-fn config_dir() -> PathBuf {
-    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("roux")
-}
-
-fn settings_path() -> PathBuf {
-    config_dir().join("settings.json")
-}
-
 pub fn load_settings() -> RouxSettings {
-    let path = settings_path();
+    let path = platform::settings_path();
     if path.exists() {
         let content = fs::read_to_string(&path).unwrap_or_default();
         serde_json::from_str::<RouxSettings>(&content).unwrap_or_default().normalized()
@@ -108,7 +100,7 @@ pub fn load_settings() -> RouxSettings {
 }
 
 pub fn save_settings(settings: &RouxSettings) -> Result<(), String> {
-    let path = settings_path();
+    let path = platform::settings_path();
     fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     let json =
         serde_json::to_string_pretty(&settings.clone().normalized()).map_err(|e| e.to_string())?;

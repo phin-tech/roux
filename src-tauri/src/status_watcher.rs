@@ -3,11 +3,12 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
+
+use crate::platform;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,13 +19,6 @@ struct StatusUpdate {
     tool_name: Option<String>,
     tool_input: Option<serde_json::Value>,
     message: Option<String>,
-}
-
-fn status_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
-    let dir = home.join(".config").join("roux").join("status");
-    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create status dir: {}", e))?;
-    Ok(dir)
 }
 
 fn map_status(raw: &str) -> &str {
@@ -39,7 +33,7 @@ fn map_status(raw: &str) -> &str {
 }
 
 pub fn start_watching(app: tauri::AppHandle) -> Result<(), String> {
-    let watch_dir = status_dir()?;
+    let watch_dir = platform::ensure_status_dir()?;
 
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
 

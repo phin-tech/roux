@@ -3,6 +3,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::platform;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskDefinition {
@@ -324,8 +326,7 @@ pub fn discover_tasks(dir: &Path) -> Vec<TaskGroup> {
 }
 
 fn overrides_path() -> std::path::PathBuf {
-    let base = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    base.join("roux").join("task-overrides.json")
+    platform::task_overrides_path()
 }
 
 #[tauri::command]

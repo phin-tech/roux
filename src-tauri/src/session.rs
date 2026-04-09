@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::platform;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
@@ -103,8 +105,7 @@ impl SessionStore {
     }
 
     fn persistence_path() -> PathBuf {
-        let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        base.join("roux").join("sessions.json")
+        platform::sessions_path()
     }
 
     fn write_to_disk(sessions: &[Session]) {

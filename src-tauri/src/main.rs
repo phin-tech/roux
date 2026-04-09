@@ -3,6 +3,7 @@
 mod hooks;
 #[macro_use]
 mod logging;
+mod platform;
 mod projects;
 mod pty;
 mod session;
@@ -602,7 +603,7 @@ fn list_docs(dir: String) -> Result<Vec<DocFile>, String> {
 fn main() {
     let initial_settings = settings::load_settings();
     logging::init(initial_settings.enable_logging);
-    rlog!("Settings loaded from {:?}", dirs::config_dir().map(|d| d.join("roux/settings.json")));
+    rlog!("Settings loaded from {:?}", platform::settings_path());
     if let Some(ref p) = initial_settings.claude_binary_path {
         rlog!("Claude binary path (from settings): {}", p);
     } else {

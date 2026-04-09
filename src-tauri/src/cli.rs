@@ -5,6 +5,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod platform;
+
 #[derive(Parser)]
 #[command(name = "roux-cli", about = "Roux terminal manager CLI")]
 struct Cli {
@@ -80,8 +82,7 @@ enum SessionAction {
 }
 
 fn status_dir() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".config").join("roux").join("status")
+    platform::status_dir()
 }
 
 fn socket_path() -> PathBuf {
