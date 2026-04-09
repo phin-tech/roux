@@ -28,14 +28,18 @@ tasks:
         fi
 
   cli:install:
-    desc: "Build and install roux-cli to ~/.local/bin"
+    desc: "Build and prepare roux-cli for local development"
     cmds:
-      - cd src-tauri && cargo build --bin roux-cli
-      - |
-        mkdir -p ~/.local/bin
-        cp src-tauri/target/debug/roux-cli ~/.local/bin/roux-cli
-        chmod +x ~/.local/bin/roux-cli
-        echo "Installed roux-cli to ~/.local/bin/roux-cli"
+      - cargo build --manifest-path src-tauri/Cargo.toml --bin roux-cli
+      - cmd: |
+          cmd /c echo Built src-tauri\target\debug\roux-cli.exe for Windows dev use
+        platforms: [windows]
+      - cmd: |
+          mkdir -p ~/.local/bin
+          cp src-tauri/target/debug/roux-cli ~/.local/bin/roux-cli
+          chmod +x ~/.local/bin/roux-cli
+          echo "Installed roux-cli to ~/.local/bin/roux-cli"
+        platforms: [darwin, linux]
 
   dev:install:
     desc: "Build and install the desktop app and CLI locally"
@@ -55,7 +59,7 @@ tasks:
   build:
     desc: "Build the app for production"
     cmds:
-      - task: macos:prepare-cli
+      - task: bundle:prepare-cli
       - npm run tauri build
 
   build:frontend:
@@ -142,8 +146,33 @@ tasks:
   clean:status:
     desc: "Clear all session status files"
     cmds:
-      - rm -f ~/.config/roux/status/*.json
-      - echo "Cleared status files"
+      - cmd: |
+          cmd /c "set DIR=%APPDATA%\roux\status && if exist \"%DIR%\" del /Q \"%DIR%\*.json\" 2>nul & echo Cleared status files"
+        platforms: [windows]
+      - cmd: |
+          rm -f ~/.config/roux/status/*.json
+          echo "Cleared status files"
+        platforms: [darwin, linux]
+
+  bundle:prepare-cli:
+    desc: "Build roux-cli and stage it for bundling"
+    cmds:
+      - cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli
+      - cmd: |
+          cmd /c "if not exist src-tauri\binaries mkdir src-tauri\binaries && copy /Y src-tauri\target\release\roux-cli.exe src-tauri\binaries\roux-cli.exe >nul && echo Prepared bundled roux-cli.exe"
+        platforms: [windows]
+      - cmd: |
+          mkdir -p src-tauri/binaries
+          cp src-tauri/target/release/roux-cli src-tauri/binaries/roux-cli
+          chmod +x src-tauri/binaries/roux-cli
+          echo "Prepared bundled roux-cli"
+        platforms: [darwin, linux]
+
+  windows:build:
+    desc: "Build the Windows NSIS installer"
+    cmds:
+      - task: bundle:prepare-cli
+      - npm run tauri build -- --bundles nsis
 
   macos:prepare-cli:
     desc: "Build roux-cli and stage it for macOS bundling"

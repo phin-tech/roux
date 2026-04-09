@@ -28,6 +28,14 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "binaries/roux-cli"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "macOS": {
       "files": {
         "MacOS/roux-cli": "binaries/roux-cli"

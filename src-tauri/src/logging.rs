@@ -84,6 +84,7 @@ pub fn log_path() -> Option<PathBuf> {
 }
 
 /// Return whether logging is currently enabled.
+#[allow(dead_code)]
 pub fn is_enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
 }

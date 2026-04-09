@@ -398,6 +398,7 @@ fn crypto_random_uuid() -> String {
 }
 
 /// Clean up the socket file on shutdown.
+#[allow(dead_code)]
 pub fn cleanup_socket() {
     let path = socket_path();
     let _ = fs::remove_file(path);
