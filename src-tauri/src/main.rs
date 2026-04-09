@@ -63,7 +63,16 @@ fn update_settings(
     logging::set_enabled(settings.enable_logging);
     settings::save_settings(&settings)?;
     *state.settings.lock().unwrap() = settings.clone();
-    app.emit("settings-changed", &settings).map_err(|e| e.to_string())
+    app.emit("settings-changed", &settings).map_err(|e| e.to_string())?;
+
+    // Sync redact config to PTY manager
+    state.pty_manager.redact_config.enabled.store(
+        settings.redact_secrets,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    *state.pty_manager.redact_config.categories.lock().unwrap() = settings.redact_categories.clone();
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -669,6 +678,17 @@ fn main() {
             watches::cmd_resume_watch,
         ])
         .setup(|app| {
+            // Sync initial redact settings to PTY manager
+            {
+                let state = app.state::<AppState>();
+                let settings = state.settings.lock().unwrap();
+                state.pty_manager.redact_config.enabled.store(
+                    settings.redact_secrets,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                *state.pty_manager.redact_config.categories.lock().unwrap() = settings.redact_categories.clone();
+            }
+
             // Only auto-update hooks if CLI is already installed (not first run).
             // First-run install is handled by the frontend setup prompt.
             if hooks::cli_is_installed() {

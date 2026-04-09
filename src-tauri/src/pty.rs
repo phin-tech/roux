@@ -1,12 +1,30 @@
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{ipc::{Channel, Response}, Emitter};
+
+use crate::redact;
+use crate::settings::RedactCategories;
+
+#[derive(Clone)]
+pub struct RedactConfig {
+    pub enabled: Arc<AtomicBool>,
+    pub categories: Arc<Mutex<RedactCategories>>,
+}
+
+impl RedactConfig {
+    pub fn new() -> Self {
+        Self {
+            enabled: Arc::new(AtomicBool::new(false)),
+            categories: Arc::new(Mutex::new(RedactCategories::default())),
+        }
+    }
+}
 
 enum PtyChunk {
     Data(Vec<u8>),
@@ -161,27 +179,110 @@ fn spawn_flusher(
 }
 
 /// Spawn a reader thread that blocks on PTY reads and sends chunks to the flusher.
-fn spawn_reader(mut reader: Box<dyn Read + Send>, tx: mpsc::Sender<PtyChunk>) {
+fn spawn_reader(mut reader: Box<dyn Read + Send>, tx: mpsc::Sender<PtyChunk>, redact_config: RedactConfig) {
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
+        let mut line_buf = Vec::new();
+        let mut engine: Option<redact::AnalyzerEngine> = None;
+        let mut engine_categories: Option<RedactCategories> = None;
+
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => {
+                    // Flush remaining line buffer
+                    if !line_buf.is_empty() {
+                        let data = flush_line_buf(&mut line_buf, &redact_config, &mut engine, &mut engine_categories);
+                        let _ = tx.send(PtyChunk::Data(data));
+                    }
                     let _ = tx.send(PtyChunk::Eof);
                     break;
                 }
                 Ok(n) => {
-                    if tx.send(PtyChunk::Data(buf[..n].to_vec())).is_err() {
-                        break;
+                    if !redact_config.enabled.load(Ordering::Relaxed) {
+                        // Redaction disabled — passthrough with no buffering
+                        if tx.send(PtyChunk::Data(buf[..n].to_vec())).is_err() {
+                            break;
+                        }
+                    } else {
+                        // Line-buffer and redact
+                        line_buf.extend_from_slice(&buf[..n]);
+
+                        // Process complete lines
+                        let mut output = Vec::new();
+                        while let Some(newline_pos) = line_buf.iter().position(|&b| b == b'\n') {
+                            let line_bytes: Vec<u8> = line_buf.drain(..=newline_pos).collect();
+                            let line = String::from_utf8_lossy(&line_bytes);
+                            let redacted = redact_with_engine(&line, &redact_config, &mut engine, &mut engine_categories);
+                            output.extend_from_slice(redacted.as_bytes());
+                        }
+
+                        // Flush if line_buf exceeds 8KB (no newline seen)
+                        if line_buf.len() > 8192 {
+                            let data = flush_line_buf(&mut line_buf, &redact_config, &mut engine, &mut engine_categories);
+                            output.extend_from_slice(&data);
+                        }
+
+                        if !output.is_empty() {
+                            if tx.send(PtyChunk::Data(output)).is_err() {
+                                break;
+                            }
+                        }
                     }
                 }
                 Err(_) => {
+                    if !line_buf.is_empty() {
+                        let data = flush_line_buf(&mut line_buf, &redact_config, &mut engine, &mut engine_categories);
+                        let _ = tx.send(PtyChunk::Data(data));
+                    }
                     let _ = tx.send(PtyChunk::Error);
                     break;
                 }
             }
         }
     });
+}
+
+fn redact_with_engine(
+    line: &str,
+    config: &RedactConfig,
+    engine: &mut Option<redact::AnalyzerEngine>,
+    engine_categories: &mut Option<RedactCategories>,
+) -> String {
+    let current_cats = config.categories.lock().unwrap().clone();
+
+    // Rebuild engine if categories changed
+    let needs_rebuild = match engine_categories {
+        Some(prev) => {
+            prev.api_keys != current_cats.api_keys
+            || prev.credentials != current_cats.credentials
+            || prev.private_keys != current_cats.private_keys
+            || prev.connection_strings != current_cats.connection_strings
+        }
+        None => true,
+    };
+
+    if needs_rebuild {
+        *engine = Some(redact::build_engine(&current_cats));
+        *engine_categories = Some(current_cats);
+    }
+
+    if let Some(eng) = engine {
+        redact::redact_line(eng, line)
+    } else {
+        line.to_string()
+    }
+}
+
+fn flush_line_buf(
+    line_buf: &mut Vec<u8>,
+    config: &RedactConfig,
+    engine: &mut Option<redact::AnalyzerEngine>,
+    engine_categories: &mut Option<RedactCategories>,
+) -> Vec<u8> {
+    let text = String::from_utf8_lossy(line_buf);
+    let redacted = redact_with_engine(&text, config, engine, engine_categories);
+    line_buf.clear();
+    redacted.into_bytes()
 }
 
 /// Placeholder for a child process that's already being waited on by another thread.
@@ -222,6 +323,7 @@ pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
     generation: AtomicU64,
+    pub redact_config: RedactConfig,
 }
 
 impl PtyManager {
@@ -230,6 +332,7 @@ impl PtyManager {
             sessions: Mutex::new(HashMap::new()),
             pending_outputs: Mutex::new(HashMap::new()),
             generation: AtomicU64::new(0),
+            redact_config: RedactConfig::new(),
         }
     }
 
@@ -312,7 +415,7 @@ impl PtyManager {
             Some((format!("session-exit:{}", session_id), gen)),
             app.clone(),
         );
-        spawn_reader(reader, tx);
+        spawn_reader(reader, tx, self.redact_config.clone());
 
         Ok(())
     }
@@ -371,7 +474,7 @@ impl PtyManager {
             Some((format!("session-exit:{}", id), gen)),
             app.clone(),
         );
-        spawn_reader(reader, tx);
+        spawn_reader(reader, tx, self.redact_config.clone());
 
         Ok(())
     }
@@ -437,7 +540,7 @@ impl PtyManager {
             None,
             app.clone(),
         );
-        spawn_reader(reader, tx);
+        spawn_reader(reader, tx, self.redact_config.clone());
 
         // Wait for the child process in a background thread and emit exit code
         let exit_event_name = format!("session-exit:{}", id);
