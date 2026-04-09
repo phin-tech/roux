@@ -25,6 +25,7 @@
   import { closeFocusedPane } from "$lib/panes/actions";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
   import { initLogging, log, logError } from "$lib/logging";
+  import { hasPrimaryModifier, isMacPlatform } from "$lib/platform";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
@@ -36,10 +37,11 @@
 
   function buildShortcutString(e: KeyboardEvent): string {
     const parts: string[] = [];
-    if (e.metaKey) parts.push("cmd");
+    if (hasPrimaryModifier(e)) parts.push("cmd");
     if (e.shiftKey) parts.push("shift");
     if (e.altKey) parts.push("alt");
-    if (e.ctrlKey) parts.push("ctrl");
+    if (e.ctrlKey && isMacPlatform()) parts.push("ctrl");
+    if (e.metaKey && !isMacPlatform()) parts.push("meta");
     // On macOS, Alt produces special characters (e.g. Alt+h → ˙).
     // Use the physical key (e.code) when Alt is held so shortcuts work.
     let key = e.key.toLowerCase();
@@ -72,7 +74,7 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     // Command palette toggle
-    if (e.metaKey && e.key === "k") {
+    if (hasPrimaryModifier(e) && e.key === "k") {
       e.preventDefault();
       showPalette = !showPalette;
       return;

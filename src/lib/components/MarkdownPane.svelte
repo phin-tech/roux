@@ -9,6 +9,7 @@
   import { vim } from "@replit/codemirror-vim";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { readFile, writeFile } from "$lib/tauri";
+  import { hasPrimaryModifier } from "$lib/platform";
   import { settings } from "$lib/stores/settings";
 
   interface Props {
@@ -201,7 +202,7 @@
 
   // Handle Cmd+S
   function handleKeydown(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    if (hasPrimaryModifier(e) && e.key === "s") {
       e.preventDefault();
       saveCurrentTab();
     }
