@@ -1,15 +1,8 @@
-use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct Worktree {
-    pub path: String,
-    pub branch: String,
-    pub is_main: bool,
-}
+pub use roux_core::Worktree;
 
 #[derive(Debug, Error)]
 pub enum WorktreeError {

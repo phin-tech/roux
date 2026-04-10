@@ -1,25 +1,7 @@
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct Session {
-    pub id: String,
-    pub name: String,
-    pub repo_root: String,
-    pub worktree_path: String,
-    pub branch: String,
-    pub is_worktree: bool,
-    pub status: String,
-    pub model: Option<String>,
-    pub cost: Option<f64>,
-    pub created_at: u64,
-    #[serde(default)]
-    pub project_id: Option<String>,
-    #[serde(default)]
-    pub is_git_repo: bool,
-}
+pub use roux_core::Session;
 
 /// Load persisted sessions from disk. All restored sessions are marked as "disconnected".
 pub fn load_persisted_sessions() -> Vec<Session> {
