@@ -1,4 +1,5 @@
 mod events;
+mod notification;
 mod session;
 mod project;
 mod settings;
@@ -7,6 +8,10 @@ mod watch;
 mod task;
 
 pub use events::{SessionExitPayload, SessionExitReason, RouxCommand};
+pub use notification::{
+    ActionKind, Notification, NotificationAction, NotificationEvent, NotificationLevel,
+    NotificationRequest, NotificationSource,
+};
 pub use session::{Session, SessionStatus};
 pub use project::Project;
 pub use settings::{RouxSettings, CursorStyle, TabPosition, GroupBy};

@@ -4,6 +4,7 @@ mod hooks;
 #[macro_use]
 mod logging;
 mod commands;
+mod notifications;
 mod projects;
 mod project_service;
 mod services;
@@ -88,6 +89,15 @@ fn main() {
             watches::cmd_list_watches,
             watches::cmd_pause_watch,
             watches::cmd_resume_watch,
+            notifications::notifications_list,
+            notifications::notifications_list_for_session,
+            notifications::notifications_unread_count,
+            notifications::notifications_mark_read,
+            notifications::notifications_mark_all_read,
+            notifications::notifications_remove,
+            notifications::notifications_clear,
+            notifications::notifications_push,
+            notifications::notifications_dismiss_source,
             commands::sessions::check_is_git_repo,
             commands::worktrees::git_init,
             commands::sessions::refresh_session_git_status,
@@ -112,6 +122,7 @@ fn main() {
             session_handle,
             project_handle,
             watch_manager: watches::WatchManager::new(watch_store_handle),
+            notification_manager: notifications::NotificationManager::new(),
         })
         .invoke_handler(tauri::generate_handler![
             commands::misc::get_log_path,
@@ -157,6 +168,15 @@ fn main() {
             watches::cmd_list_watches,
             watches::cmd_pause_watch,
             watches::cmd_resume_watch,
+            notifications::notifications_list,
+            notifications::notifications_list_for_session,
+            notifications::notifications_unread_count,
+            notifications::notifications_mark_read,
+            notifications::notifications_mark_all_read,
+            notifications::notifications_remove,
+            notifications::notifications_clear,
+            notifications::notifications_push,
+            notifications::notifications_dismiss_source,
             commands::sessions::check_is_git_repo,
             commands::worktrees::git_init,
             commands::sessions::refresh_session_git_status,

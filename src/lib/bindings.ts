@@ -46,6 +46,26 @@ export const commands = {
 	cmdListWatches: () => typedError<Watch[], string>(__TAURI_INVOKE("cmd_list_watches")),
 	cmdPauseWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_pause_watch", { id })),
 	cmdResumeWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_resume_watch", { id })),
+	notificationsList: () => typedError<Notification[], string>(__TAURI_INVOKE("notifications_list")),
+	notificationsListForSession: (sessionId: string | null) => typedError<Notification[], string>(__TAURI_INVOKE("notifications_list_for_session", { sessionId })),
+	notificationsUnreadCount: (sessionId: string | null, global: boolean | null) => typedError<number, string>(__TAURI_INVOKE("notifications_unread_count", { sessionId, global })),
+	notificationsMarkRead: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("notifications_mark_read", { id })),
+	notificationsMarkAllRead: (sessionId: string | null, global: boolean | null) => typedError<number, string>(__TAURI_INVOKE("notifications_mark_all_read", { sessionId, global })),
+	notificationsRemove: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("notifications_remove", { id })),
+	notificationsClear: (sessionId: string | null, global: boolean | null) => typedError<number, string>(__TAURI_INVOKE("notifications_clear", { sessionId, global })),
+	/**
+	 *  Push a notification from the frontend. Primarily intended for testing,
+	 *  demos, and the eventual `roux notify` CLI bridge; production notifications
+	 *  originate in Rust (watches, hooks, tasks, OSC parser).
+	 */
+	notificationsPush: (request: NotificationRequest) => typedError<Notification, string>(__TAURI_INVOKE("notifications_push", { request })),
+	/**
+	 *  Remove all notifications whose source matches the given source variant.
+	 *  Only the variant is compared — inner fields (e.g. `watch_id`, `pane_id`)
+	 *  are ignored — because the `DismissSource` action is "dismiss all of this
+	 *  kind", not "dismiss all from exactly this id".
+	 */
+	notificationsDismissSource: (source: NotificationSource) => typedError<number, string>(__TAURI_INVOKE("notifications_dismiss_source", { source })),
 	checkIsGitRepo: (path: string) => __TAURI_INVOKE<boolean>("check_is_git_repo", { path }),
 	gitInit: (path: string) => typedError<null, string>(__TAURI_INVOKE("git_init", { path })),
 	refreshSessionGitStatus: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("refresh_session_git_status", { id })),
@@ -53,6 +73,8 @@ export const commands = {
 };
 
 /* Types */
+export type ActionKind = { type: "focusSession"; sessionId: string } | { type: "focusPane"; paneId: string } | { type: "openUrl"; url: string } | { type: "openPath"; path: string } | { type: "runCommand"; commandId: string } | { type: "retryWatch"; watchId: string } | { type: "dismiss" } | { type: "dismissSource" } | { type: "markRead" };
+
 export type ClaudeSession = {
 	sessionId: string,
 	summary: string,
@@ -86,6 +108,41 @@ export type GithubJob = {
 export type GroupBy = "repo" | "project";
 
 export type KeepOpen = "always" | "on-error" | "never";
+
+export type Notification = {
+	id: string,
+	createdAt: number,
+	level: NotificationLevel,
+	source: NotificationSource,
+	title: string,
+	subtitle: string | null,
+	body: string | null,
+	sessionId: string | null,
+	read: boolean,
+	actions: NotificationAction[],
+};
+
+export type NotificationAction = {
+	id: string,
+	label: string,
+	kind: ActionKind,
+	primary: boolean,
+};
+
+export type NotificationLevel = "info" | "success" | "attention" | "warning" | "error";
+
+// Write-side struct used by ingress paths. The store fills in id, created_at, and read=false.
+export type NotificationRequest = {
+	level: NotificationLevel,
+	source: NotificationSource,
+	title: string,
+	subtitle: string | null,
+	body: string | null,
+	sessionId: string | null,
+	actions: NotificationAction[],
+};
+
+export type NotificationSource = { type: "hook"; provider: string } | { type: "watch"; watchId: string } | { type: "task"; paneId: string } | { type: "cli" } | { type: "osc"; code: number; senderId: string | null } | { type: "internal" };
 
 export type NotifyConfig = {
 	desktopNotification: boolean,
