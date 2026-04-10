@@ -1,10 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 
 use roux_core::{Notification, NotificationEvent, NotificationRequest, NotificationSource};
 
+use super::policy::{should_fan_out_to_os, PolicyInput};
 use super::store::NotificationStore;
+use crate::state::AppState;
 
 /// Tauri event name used for all notification store mutations.
 pub const NOTIFICATION_EVENT: &str = "notification-event";
@@ -24,7 +27,8 @@ impl NotificationManager {
     }
 
     /// Push a new notification and emit an `Added` event to the frontend.
-    /// Returns the stored notification (with id + created_at filled in).
+    /// Also fans out to an OS notification when the policy says so. Returns
+    /// the stored notification (with id + created_at filled in).
     pub fn push(&self, req: NotificationRequest, app: Option<&AppHandle>) -> Notification {
         let notification = {
             let mut store = self.inner.lock().expect("notification store poisoned");
@@ -37,8 +41,37 @@ impl NotificationManager {
                     notification: notification.clone(),
                 },
             );
+            self.maybe_fan_out_to_os(app, &notification);
         }
         notification
+    }
+
+    fn maybe_fan_out_to_os(&self, app: &AppHandle, notification: &Notification) {
+        // Read current settings + focus state. If either the kill switch is
+        // off or the window is focused, the policy returns false and we bail.
+        let notifications_enabled = app
+            .try_state::<AppState>()
+            .map(|s| s.settings.lock().map(|g| g.notifications_enabled).unwrap_or(true))
+            .unwrap_or(true);
+
+        let window_focused = app
+            .get_webview_window("main")
+            .and_then(|w| w.is_focused().ok())
+            .unwrap_or(false);
+
+        let should = should_fan_out_to_os(PolicyInput {
+            level: notification.level,
+            source: &notification.source,
+            window_focused,
+            notifications_enabled,
+        });
+        if !should {
+            return;
+        }
+
+        let title = build_os_title(notification);
+        let body = notification.body.clone().unwrap_or_default();
+        let _ = app.notification().builder().title(&title).body(&body).show();
     }
 
     pub fn list(&self) -> Vec<Notification> {
@@ -161,6 +194,24 @@ impl NotificationManager {
 impl Default for NotificationManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Build the OS-notification title. For attention/error we prepend a small
+/// glyph so the alert is scannable at a glance in the notification center.
+fn build_os_title(notification: &Notification) -> String {
+    use roux_core::NotificationLevel as L;
+    let prefix = match notification.level {
+        L::Attention => "⚠ ",
+        L::Error => "✖ ",
+        L::Warning => "! ",
+        L::Success => "✓ ",
+        L::Info => "",
+    };
+    if let Some(ref sub) = notification.subtitle {
+        format!("{}{} — {}", prefix, notification.title, sub)
+    } else {
+        format!("{}{}", prefix, notification.title)
     }
 }
 

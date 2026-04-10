@@ -81,6 +81,11 @@ pub struct RouxSettings {
     pub group_by: GroupBy,
     #[serde(default = "default_true")]
     pub confirm_on_quit: bool,
+    /// Master kill-switch for the notification service's OS-notification
+    /// fan-out. When false, notifications still land in the in-app pane but
+    /// `tauri-plugin-notification` is never invoked. Defaults to true.
+    #[serde(default = "default_true")]
+    pub notifications_enabled: bool,
 }
 
 impl Default for RouxSettings {
@@ -109,6 +114,7 @@ impl Default for RouxSettings {
             enable_logging: false,
             group_by: GroupBy::Repo,
             confirm_on_quit: true,
+            notifications_enabled: true,
         }
     }
 }

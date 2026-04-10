@@ -7,6 +7,7 @@
 
 pub mod manager;
 pub mod osc_parser;
+pub mod policy;
 pub mod store;
 
 pub use manager::NotificationManager;

@@ -46,7 +46,7 @@ export function registerUiCommands() {
   registry.register({
     id: "ui.toggle-notifications",
     label: "Toggle Notifications",
-    shortcut: "cmd+shift+n",
+    shortcut: "cmd+i",
     category: "App",
     available: () => true,
   });

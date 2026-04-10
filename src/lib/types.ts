@@ -84,6 +84,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   enableLogging: false,
   groupBy: "repo",
   confirmOnQuit: true,
+  notificationsEnabled: true,
 };
 
 // Re-export frontend-only task types

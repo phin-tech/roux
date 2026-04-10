@@ -191,6 +191,12 @@ export type RouxSettings = {
 	enableLogging?: boolean,
 	groupBy?: GroupBy,
 	confirmOnQuit?: boolean,
+	/**
+	 *  Master kill-switch for the notification service's OS-notification
+	 *  fan-out. When false, notifications still land in the in-app pane but
+	 *  `tauri-plugin-notification` is never invoked. Defaults to true.
+	 */
+	notificationsEnabled?: boolean,
 };
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };

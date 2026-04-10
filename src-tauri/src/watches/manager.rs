@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Emitter, Manager};
-use tauri_plugin_notification::NotificationExt;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
@@ -215,10 +214,9 @@ impl WatchManager {
                                 }
                                 None => String::new(),
                             };
-                            let _ = app.notification().builder().title(&title).body(&body).show();
-
-                            // Also push into the notification service so the in-app
-                            // notifications pane (Phase 2) has the history.
+                            // Push through the notification service. The policy
+                            // layer inside the service decides whether to fan
+                            // out to the OS (respecting focus + kill switch).
                             let state = app.state::<AppState>();
                             let session_id = match &updated_watch.scope {
                                 WatchScope::Session { session_id } => Some(session_id.clone()),
