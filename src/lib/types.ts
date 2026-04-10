@@ -29,6 +29,12 @@ export type {
   KeepOpen,
   DocFile,
   SetupStatus,
+  Notification,
+  NotificationAction,
+  NotificationLevel,
+  NotificationRequest,
+  NotificationSource,
+  ActionKind,
 } from "./bindings";
 
 // Frontend-only types (not defined in Rust)

@@ -7,18 +7,20 @@
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
   import WatchesPane from "$lib/components/WatchesPane.svelte";
+  import NotificationsPane from "$lib/components/NotificationsPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import QuitDialog from "$lib/components/QuitDialog.svelte";
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
+  import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
   import { initSession, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, loadLayout, clearLayout } from "$lib/panes/persistence";
-  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, quitApp } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { registerCommands, registry } from "$lib/commands";
@@ -31,6 +33,7 @@
   let showSettings = $state(false);
   let showNotes = $state(false);
   let showWatches = $state(false);
+  let showNotifications = $state(false);
   let showPalette = $state(false);
   let showSetupPrompt = $state(false);
   let showQuitDialog = $state(false);
@@ -142,7 +145,12 @@
       }
       if (cmd.id === "ui.toggle-watches") {
         showWatches = !showWatches;
-        if (showWatches) { showSettings = false; showNotes = false; }
+        if (showWatches) { showSettings = false; showNotes = false; showNotifications = false; }
+        return;
+      }
+      if (cmd.id === "ui.toggle-notifications") {
+        showNotifications = !showNotifications;
+        if (showNotifications) { showSettings = false; showNotes = false; showWatches = false; }
         return;
       }
       if (cmd.id === "app.command-palette") {
@@ -319,6 +327,12 @@
       }
     });
 
+    // Hydrate + subscribe to notifications
+    await hydrateNotifications();
+    await onNotificationEvent((payload) => {
+      applyNotificationEvent(payload);
+    });
+
     // Listen for global status updates from hooks and match by cwd
     await onRouxStatusUpdate((update) => {
       const sessions = $sessionState.sessions;
@@ -366,6 +380,10 @@
     <WatchesPane
       visible={showWatches}
       onclose={() => (showWatches = false)}
+    />
+    <NotificationsPane
+      visible={showNotifications}
+      onclose={() => (showNotifications = false)}
     />
   {/snippet}
 </Layout>

@@ -3,6 +3,7 @@
   import { renameSignal } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
   import { watchState, flashingSessions } from "$lib/stores/watches";
+  import { unreadBySession } from "$lib/stores/notifications";
 
   interface Props {
     session: Session;
@@ -129,6 +130,8 @@
 
   let isFlashing = $derived($flashingSessions.has(session.id));
 
+  let unreadCount = $derived($unreadBySession.get(session.id) ?? 0);
+
   let flashColor = $derived.by(() => {
     if (!isFlashing) return "";
     const hasFailure = watchOutcomes.includes("failure");
@@ -198,6 +201,12 @@
       </span>
     {/if}
 
+    {#if unreadCount > 0}
+      <span
+        class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full bg-accent-dim/30 px-1 text-[9px] font-semibold text-accent"
+        title="{unreadCount} unread notification{unreadCount === 1 ? '' : 's'}"
+      >{unreadCount > 99 ? "99+" : unreadCount}</span>
+    {/if}
     {#if session.status === "disconnected"}
       <button
         class="cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"

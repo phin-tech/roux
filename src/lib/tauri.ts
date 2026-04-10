@@ -341,3 +341,77 @@ export function onWatchUpdate(
     callback(event.payload);
   });
 }
+
+// Notification events
+import type { NotificationEvent } from "./types/notifications";
+import type { Notification, NotificationRequest, NotificationSource } from "./bindings";
+
+export function onNotificationEvent(
+  callback: (payload: NotificationEvent) => void
+): Promise<UnlistenFn> {
+  return listen<NotificationEvent>("notification-event", (event) => {
+    callback(event.payload);
+  });
+}
+
+// Notification commands — thin wrappers that unwrap the typed-error envelope.
+// Errors are surfaced as rejected promises so callers can try/catch as usual.
+async function unwrap<T>(
+  p: Promise<{ status: "ok"; data: T } | { status: "error"; error: string }>,
+): Promise<T> {
+  const r = await p;
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function listNotifications(): Promise<Notification[]> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsList());
+}
+
+export async function listNotificationsForSession(
+  sessionId: string | null,
+): Promise<Notification[]> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsListForSession(sessionId));
+}
+
+export async function notificationsMarkRead(id: string): Promise<boolean> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsMarkRead(id));
+}
+
+export async function notificationsMarkAllRead(
+  sessionId: string | null,
+  global: boolean | null,
+): Promise<number> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsMarkAllRead(sessionId, global));
+}
+
+export async function notificationsRemove(id: string): Promise<boolean> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsRemove(id));
+}
+
+export async function notificationsClear(
+  sessionId: string | null,
+  global: boolean | null,
+): Promise<number> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsClear(sessionId, global));
+}
+
+export async function notificationsDismissSource(
+  source: NotificationSource,
+): Promise<number> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsDismissSource(source));
+}
+
+export async function notificationsPush(
+  request: NotificationRequest,
+): Promise<Notification> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsPush(request));
+}
