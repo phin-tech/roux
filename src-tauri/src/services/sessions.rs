@@ -111,7 +111,7 @@ pub(crate) async fn create_session(
         worktree_path: work_dir,
         branch: actual_branch,
         is_worktree: is_wt,
-        status: "idle".to_string(),
+        status: roux_core::SessionStatus::Idle,
         model: None,
         cost: None,
         created_at: now,
@@ -161,12 +161,12 @@ pub(crate) async fn reconnect_session(
         )
         .map_err(|e| anyhow!("{}", e))?;
 
-    session_handle.update_status(id, "idle").await?;
+    session_handle.update_status(id, roux_core::SessionStatus::Idle).await?;
 
     rlog!("Session '{}' reconnected successfully", id);
 
     let mut updated = session;
-    updated.status = "idle".to_string();
+    updated.status = roux_core::SessionStatus::Idle;
     Ok(updated)
 }
 

@@ -10,14 +10,50 @@ fn default_true() -> bool {
     true
 }
 
-fn default_group_by() -> String {
-    "repo".to_string()
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CursorStyle {
+    Block,
+    Underline,
+    Bar,
+}
+
+impl Default for CursorStyle {
+    fn default() -> Self {
+        Self::Block
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TabPosition {
+    Left,
+    Right,
+}
+
+impl Default for TabPosition {
+    fn default() -> Self {
+        Self::Left
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum GroupBy {
+    Repo,
+    Project,
+}
+
+impl Default for GroupBy {
+    fn default() -> Self {
+        Self::Repo
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RouxSettings {
-    pub tab_position: String,
+    pub tab_position: TabPosition,
     pub tab_width: u32,
     pub font_size: u32,
     pub font_family: String,
@@ -25,7 +61,7 @@ pub struct RouxSettings {
     pub ui_font_family: String,
     pub line_height: f64,
     pub scrollback: u32,
-    pub cursor_style: String,
+    pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
     pub default_project_path: Option<String>,
     pub confirm_on_close: bool,
@@ -41,8 +77,8 @@ pub struct RouxSettings {
     pub task_panel_collapsed: bool,
     #[serde(default)]
     pub enable_logging: bool,
-    #[serde(default = "default_group_by")]
-    pub group_by: String,
+    #[serde(default)]
+    pub group_by: GroupBy,
     #[serde(default = "default_true")]
     pub confirm_on_quit: bool,
 }
@@ -50,14 +86,14 @@ pub struct RouxSettings {
 impl Default for RouxSettings {
     fn default() -> Self {
         Self {
-            tab_position: "left".to_string(),
+            tab_position: TabPosition::Left,
             tab_width: 260,
             font_size: 14,
             font_family: "JetBrains Mono, IBM Plex Mono, SFMono-Regular, monospace".to_string(),
             ui_font_family: default_ui_font_family(),
             line_height: 1.2,
             scrollback: 5000,
-            cursor_style: "block".to_string(),
+            cursor_style: CursorStyle::Block,
             cursor_blink: true,
             default_project_path: None,
             confirm_on_close: true,
@@ -71,7 +107,7 @@ impl Default for RouxSettings {
             task_panel_split: 0.5,
             task_panel_collapsed: true,
             enable_logging: false,
-            group_by: "repo".to_string(),
+            group_by: GroupBy::Repo,
             confirm_on_quit: true,
         }
     }
