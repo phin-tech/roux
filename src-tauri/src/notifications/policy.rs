@@ -4,17 +4,20 @@
 //! know about focus, settings, or per-source rules. Inputs:
 //!   - `NotificationLevel` — drives the default priority
 //!   - `NotificationSource` — lets specific sources force/opt-out
-//!   - `window_focused` — if the app is focused, suppress entirely (the user
-//!     will see the in-app pane without needing an OS alert)
+//!   - `window_focused` — if the app is focused, low-signal notifications are
+//!     suppressed (you already see the in-app pane); high-signal ones still
+//!     fire because the whole point is "get my attention now".
 //!   - `settings.notifications_enabled` — global kill switch
 //!
-//! Rules (v1):
-//!   1. If the kill switch is off → never fan out.
-//!   2. If the window is focused → never fan out (in-app is enough).
-//!   3. Severity `Attention | Warning | Error` → fan out.
-//!   4. Severity `Info | Success` → fan out only for sources that explicitly
-//!      want it. Today only `Watch` (watches already had desktop notifications
-//!      before the service existed — preserve behavior).
+//! Rules (v1.1):
+//!   1. Kill switch off → never fan out.
+//!   2. Severity `Attention | Warning | Error` → always fan out, even when
+//!      focused. These are things the user wants to know about immediately,
+//!      and macOS handles Do-Not-Disturb at the OS level.
+//!   3. Severity `Info | Success` from `Watch` → fan out when unfocused
+//!      (preserves the pre-service behavior). Suppress when focused because
+//!      the flash animation + badge are already visible.
+//!   4. Everything else → in-app only.
 
 use roux_core::{NotificationLevel, NotificationSource};
 
@@ -32,9 +35,6 @@ pub fn should_fan_out_to_os(input: PolicyInput<'_>) -> bool {
     if !input.notifications_enabled {
         return false;
     }
-    if input.window_focused {
-        return false;
-    }
 
     match input.level {
         NotificationLevel::Attention
@@ -42,6 +42,7 @@ pub fn should_fan_out_to_os(input: PolicyInput<'_>) -> bool {
         | NotificationLevel::Error => true,
         NotificationLevel::Info | NotificationLevel::Success => {
             matches!(input.source, NotificationSource::Watch { .. })
+                && !input.window_focused
         }
     }
 }
@@ -75,10 +76,30 @@ mod tests {
     }
 
     #[test]
-    fn focused_suppresses_everything() {
-        assert!(!input(
+    fn error_fires_even_when_focused() {
+        assert!(input(
             NotificationLevel::Error,
             NotificationSource::Internal,
+            true,
+            true,
+        ));
+    }
+
+    #[test]
+    fn attention_fires_even_when_focused() {
+        assert!(input(
+            NotificationLevel::Attention,
+            NotificationSource::Hook { provider: "claude".into() },
+            true,
+            true,
+        ));
+    }
+
+    #[test]
+    fn watch_success_suppressed_when_focused() {
+        assert!(!input(
+            NotificationLevel::Success,
+            NotificationSource::Watch { watch_id: "w1".into() },
             true,
             true,
         ));

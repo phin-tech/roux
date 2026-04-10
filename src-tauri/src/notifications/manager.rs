@@ -54,10 +54,13 @@ impl NotificationManager {
             .map(|s| s.settings.lock().map(|g| g.notifications_enabled).unwrap_or(true))
             .unwrap_or(true);
 
+        // Iterate all webview windows — tauri.conf.json doesn't pin a label,
+        // so the window label is not reliably "main". We report "focused" if
+        // any of the app's windows currently has focus.
         let window_focused = app
-            .get_webview_window("main")
-            .and_then(|w| w.is_focused().ok())
-            .unwrap_or(false);
+            .webview_windows()
+            .values()
+            .any(|w| w.is_focused().unwrap_or(false));
 
         let should = should_fan_out_to_os(PolicyInput {
             level: notification.level,
@@ -65,13 +68,26 @@ impl NotificationManager {
             window_focused,
             notifications_enabled,
         });
+
+        crate::rlog!(
+            "notifications.policy: level={:?} source={:?} focused={} enabled={} => fire={}",
+            notification.level,
+            notification.source,
+            window_focused,
+            notifications_enabled,
+            should
+        );
+
         if !should {
             return;
         }
 
         let title = build_os_title(notification);
         let body = notification.body.clone().unwrap_or_default();
-        let _ = app.notification().builder().title(&title).body(&body).show();
+        match app.notification().builder().title(&title).body(&body).show() {
+            Ok(()) => crate::rlog!("notifications.os: fired title={:?}", title),
+            Err(e) => crate::rlog!("notifications.os: FAILED title={:?} err={}", title, e),
+        }
     }
 
     pub fn list(&self) -> Vec<Notification> {
