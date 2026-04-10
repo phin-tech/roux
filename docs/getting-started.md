@@ -5,7 +5,8 @@ This page walks you from a fresh install to your first Claude Code session in Ro
 ## Prerequisites
 
 - A working [Claude Code](https://docs.anthropic.com/en/docs/claude-code) install on your machine.
-- Any projects you want to open should be normal git repositories on disk.
+
+Projects can be any directory on disk. A git repository is only required if you want to use [worktrees](features/worktrees.md).
 
 ## First launch
 
