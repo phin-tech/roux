@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 // Re-export core types
 pub use roux_core::{
-    CreateWatchConfig, GithubJob, NotifyConfig, PrCheckRun, PrReview, RuntimeState, Watch,
+    CreateWatchConfig, GithubJob, PrCheckRun, PrReview, RuntimeState, Watch,
     WatchKind, WatchMode, WatchOutcome, WatchResult, WatchScope, WatchUpdateEvent,
 };
 
