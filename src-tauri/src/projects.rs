@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -6,11 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-pub struct Project {
-    pub id: String,
-    pub name: String,
-}
+pub use roux_core::Project;
 
 pub struct ProjectStore {
     projects: Arc<Mutex<Vec<Project>>>,
