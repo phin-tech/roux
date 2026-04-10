@@ -6,11 +6,13 @@
 //! `roux notify` CLI, and focus-gated policy all arrive in later phases.
 
 pub mod manager;
+pub mod osc_parser;
 pub mod store;
 
 pub use manager::NotificationManager;
 #[allow(unused_imports)]
 pub use manager::NOTIFICATION_EVENT;
+pub use osc_parser::OscSniffer;
 
 use crate::state::AppState;
 use roux_core::{Notification, NotificationRequest, NotificationSource};

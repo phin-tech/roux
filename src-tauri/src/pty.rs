@@ -167,7 +167,13 @@ fn spawn_flusher(
 }
 
 /// Spawn a reader thread that blocks on PTY reads and sends chunks to the flusher.
-fn spawn_reader(mut reader: Box<dyn Read + Send>, tx: mpsc::Sender<PtyChunk>) {
+/// If `sniffer` is provided, every chunk is also fed through the OSC parser
+/// before being forwarded (non-consuming — bytes pass through unchanged).
+fn spawn_reader(
+    mut reader: Box<dyn Read + Send>,
+    tx: mpsc::Sender<PtyChunk>,
+    mut sniffer: Option<crate::notifications::OscSniffer>,
+) {
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
         loop {
@@ -177,6 +183,9 @@ fn spawn_reader(mut reader: Box<dyn Read + Send>, tx: mpsc::Sender<PtyChunk>) {
                     break;
                 }
                 Ok(n) => {
+                    if let Some(ref mut s) = sniffer {
+                        s.feed(&buf[..n]);
+                    }
                     if tx.send(PtyChunk::Data(buf[..n].to_vec())).is_err() {
                         break;
                     }
@@ -377,7 +386,11 @@ impl PtyManager {
             Some((format!("session-exit:{}", session_id), gen)),
             app.clone(),
         );
-        spawn_reader(reader, tx);
+        let sniffer = crate::notifications::OscSniffer::new(
+            app.clone(),
+            Some(session_id.to_string()),
+        );
+        spawn_reader(reader, tx, Some(sniffer));
 
         Ok(())
     }
@@ -435,7 +448,11 @@ impl PtyManager {
 
         let tx =
             spawn_flusher(output.clone(), Some((format!("session-exit:{}", id), gen)), app.clone());
-        spawn_reader(reader, tx);
+        let sniffer = crate::notifications::OscSniffer::new(
+            app.clone(),
+            session_id.map(|s| s.to_string()),
+        );
+        spawn_reader(reader, tx, Some(sniffer));
 
         Ok(())
     }
@@ -494,7 +511,11 @@ impl PtyManager {
         self.attach_pending_output(id, &output);
 
         let tx = spawn_flusher(output.clone(), None, app.clone());
-        spawn_reader(reader, tx);
+        let sniffer = crate::notifications::OscSniffer::new(
+            app.clone(),
+            session_id.map(|s| s.to_string()),
+        );
+        spawn_reader(reader, tx, Some(sniffer));
 
         // Wait for the child process in a background thread and emit exit code
         let exit_event_name = format!("session-exit:{}", id);
