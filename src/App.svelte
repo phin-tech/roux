@@ -10,6 +10,8 @@
   import NotificationsPane from "$lib/components/NotificationsPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import QuitDialog from "$lib/components/QuitDialog.svelte";
+  import UpdateBanner from "$lib/components/UpdateBanner.svelte";
+  import { runStartupCheck, runManualCheck } from "$lib/stores/updater";
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
@@ -187,6 +189,9 @@
     const loadedSettings = await initSettings();
     await initLogging(loadedSettings.enableLogging ?? false);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
+
+    // Kick off a silent background update check (5s debounce, respects user toggle)
+    runStartupCheck();
 
     // Check CLI setup and tool availability
     const status = await checkSetupStatus();
@@ -383,7 +388,10 @@
   onclose={() => (showPalette = false)}
   onNewSession={() => (showNewSessionDialog = true)}
   onSettings={() => (showSettings = !showSettings)}
+  onCheckForUpdates={() => { showSettings = true; void runManualCheck(); }}
 />
+
+<UpdateBanner />
 
 <QuitDialog
   visible={showQuitDialog}

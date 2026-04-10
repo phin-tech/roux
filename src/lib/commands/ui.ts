@@ -75,4 +75,10 @@ export function registerUiCommands() {
     shortcut: "cmd+k",
     category: "App",
   });
+
+  registry.register({
+    id: "app.check-updates",
+    label: "Check for Updates",
+    category: "App",
+  });
 }

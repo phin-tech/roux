@@ -8,9 +8,10 @@
     onclose: () => void;
     onNewSession: () => void;
     onSettings: () => void;
+    onCheckForUpdates: () => void;
   }
 
-  let { open, onclose, onNewSession, onSettings }: Props = $props();
+  let { open, onclose, onNewSession, onSettings, onCheckForUpdates }: Props = $props();
 
   let stepStack = $state<{ label: string; items: CmdItem[]; sourceCmd?: Cmd }[]>([]);
   let inputValue = $state("");
@@ -74,6 +75,11 @@
     if (cmd.id === "app.settings") {
       onclose();
       onSettings();
+      return;
+    }
+    if (cmd.id === "app.check-updates") {
+      onclose();
+      onCheckForUpdates();
       return;
     }
     if (cmd.id === "app.command-palette") return;

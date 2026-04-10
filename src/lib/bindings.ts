@@ -197,6 +197,11 @@ export type RouxSettings = {
 	 *  `tauri-plugin-notification` is never invoked. Defaults to true.
 	 */
 	notificationsEnabled?: boolean,
+	/**
+	 *  Whether Roux checks for updates silently on launch. Manual checks via
+	 *  Settings / command palette remain available regardless.
+	 */
+	updateCheckOnLaunch?: boolean,
 };
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };

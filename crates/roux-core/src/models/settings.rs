@@ -86,6 +86,10 @@ pub struct RouxSettings {
     /// `tauri-plugin-notification` is never invoked. Defaults to true.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
+    /// Whether Roux checks for updates silently on launch. Manual checks via
+    /// Settings / command palette remain available regardless.
+    #[serde(default = "default_true")]
+    pub update_check_on_launch: bool,
 }
 
 impl Default for RouxSettings {
@@ -115,6 +119,7 @@ impl Default for RouxSettings {
             group_by: GroupBy::Repo,
             confirm_on_quit: true,
             notifications_enabled: true,
+            update_check_on_launch: true,
         }
     }
 }

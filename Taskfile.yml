@@ -336,6 +336,61 @@ tasks:
           echo "Uploaded $DMG to $TAG"
         done
 
+        # Updater manifest: skip for prereleases so they never become "latest" for everyone.
+        if [ -n "$PRE_FLAG" ]; then
+          echo "Skipping updater manifest for prerelease $TAG"
+        else
+          TARBALL_MATCHES=$(find "${TARGET_ROOT}" -path "*/release/bundle/macos/*.app.tar.gz" -print)
+          TARBALL_COUNT=$(printf '%s\n' "$TARBALL_MATCHES" | grep -c . || true)
+          if [ "$TARBALL_COUNT" -eq 0 ]; then
+            echo "ERROR: no updater tarball (*.app.tar.gz) found under ${TARGET_ROOT}" >&2
+            exit 1
+          fi
+          if [ "$TARBALL_COUNT" -gt 1 ]; then
+            echo "ERROR: multiple updater tarballs found under ${TARGET_ROOT}:" >&2
+            printf '%s\n' "$TARBALL_MATCHES" >&2
+            exit 1
+          fi
+          TARBALL="$TARBALL_MATCHES"
+          SIG_PATH="${TARBALL}.sig"
+          if [ ! -f "$SIG_PATH" ]; then
+            echo "ERROR: updater signature file missing: $SIG_PATH" >&2
+            exit 1
+          fi
+          TARBALL_BASENAME=$(basename "$TARBALL")
+          MANIFEST_DIR=$(dirname "$TARBALL")
+          MANIFEST="${MANIFEST_DIR}/latest.json"
+          PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          URL="https://github.com/phin-tech/roux/releases/download/${TAG}/${TARBALL_BASENAME}"
+
+          ROUX_VERSION="$VERSION" \
+          ROUX_NOTES="$CHANGELOG" \
+          ROUX_PUB_DATE="$PUB_DATE" \
+          ROUX_URL="$URL" \
+          ROUX_SIG_PATH="$SIG_PATH" \
+          ROUX_MANIFEST="$MANIFEST" \
+          python3 -c '
+          import json, os
+          sig = open(os.environ["ROUX_SIG_PATH"]).read()
+          manifest = {
+              "version": os.environ["ROUX_VERSION"],
+              "notes": os.environ["ROUX_NOTES"],
+              "pub_date": os.environ["ROUX_PUB_DATE"],
+              "platforms": {
+                  "darwin-aarch64": {
+                      "signature": sig,
+                      "url": os.environ["ROUX_URL"],
+                  },
+              },
+          }
+          with open(os.environ["ROUX_MANIFEST"], "w") as f:
+              json.dump(manifest, f, indent=2)
+          '
+
+          gh release upload "$TAG" "$TARBALL" "$SIG_PATH" "$MANIFEST" --clobber
+          echo "Uploaded updater artifacts ($TARBALL_BASENAME, .sig, latest.json) to $TAG"
+        fi
+
   publish:op:
     desc: "Sign with 1Password-backed secrets, then publish the current version"
     cmds:
@@ -413,3 +468,14 @@ tasks:
         git push origin "v${NEW}"
 
         echo "Released v${NEW}"
+
+  release:
+    desc: "Bump version, build, sign, notarize, and publish in one shot. Usage: task release BUMP=patch|minor|major [PRE=alpha|beta|dev|rc]"
+    requires:
+      vars: [BUMP]
+    cmds:
+      - task: version
+        vars:
+          BUMP: "{{.BUMP}}"
+          PRE: "{{.PRE}}"
+      - task: publish:op
