@@ -38,10 +38,10 @@ tasks:
         echo "Installed roux-cli to ~/.local/bin/roux-cli"
 
   dev:install:
-    desc: "Build and install the desktop app and CLI locally"
+    desc: "Build and install the desktop app and CLI locally (unsigned, no updater artifacts)"
     cmds:
       - task: macos:prepare-cli
-      - npm run tauri build
+      - npm run tauri build -- -c '{"bundle":{"createUpdaterArtifacts":false}}'
       - |
         # Install desktop app
         APP="/Applications/Roux.app"
@@ -53,10 +53,10 @@ tasks:
         echo "Installed Roux.app to /Applications"
 
   build:
-    desc: "Build the app for production"
+    desc: "Build the app locally (unsigned, no updater artifacts). Use task sign for release builds."
     cmds:
       - task: macos:prepare-cli
-      - npm run tauri build
+      - npm run tauri build -- -c '{"bundle":{"createUpdaterArtifacts":false}}'
 
   build:frontend:
     desc: "Build frontend only"
