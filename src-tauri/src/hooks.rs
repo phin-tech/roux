@@ -300,13 +300,7 @@ pub fn setup_is_complete() -> bool {
         return false;
     };
 
-    let expected = hook_command(&cli_path, "working");
-    settings
-        .get("hooks")
-        .and_then(|h| h.get("UserPromptSubmit"))
-        .and_then(|v| v.as_array())
-        .map(|entries| entries.iter().any(|entry| hook_entry_contains_command(entry, &expected)))
-        .unwrap_or(false)
+    hook_config_contains_expected_entries(&settings, &roux_hooks_config(&cli_path))
 }
 
 fn hook_entry_contains_command(entry: &Value, expected: &str) -> bool {
@@ -319,6 +313,48 @@ fn hook_entry_contains_command(entry: &Value, expected: &str) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+fn hook_entry_matches_expected(entry: &Value, expected: &Value) -> bool {
+    let matcher_matches =
+        entry.get("matcher").and_then(|m| m.as_str()) == expected.get("matcher").and_then(|m| m.as_str());
+    matcher_matches
+        && expected
+            .get("hooks")
+            .and_then(|h| h.as_array())
+            .map(|expected_hooks| {
+                expected_hooks.iter().all(|expected_hook| {
+                    expected_hook
+                        .get("command")
+                        .and_then(|c| c.as_str())
+                        .map(|command| hook_entry_contains_command(entry, command))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+}
+
+fn hook_config_contains_expected_entries(settings: &Value, expected: &Value) -> bool {
+    let Some(expected_hooks) = expected.get("hooks").and_then(|h| h.as_object()) else {
+        return false;
+    };
+
+    expected_hooks.iter().all(|(event_name, expected_entries)| {
+        let Some(expected_entries) = expected_entries.as_array() else {
+            return false;
+        };
+        let Some(existing_entries) =
+            settings.get("hooks").and_then(|h| h.get(event_name)).and_then(|entries| entries.as_array())
+        else {
+            return false;
+        };
+
+        expected_entries.iter().all(|expected_entry| {
+            existing_entries
+                .iter()
+                .any(|existing_entry| hook_entry_matches_expected(existing_entry, expected_entry))
+        })
+    })
 }
 
 #[cfg(test)]
@@ -380,5 +416,28 @@ mod tests {
         assert!(entries.iter().any(|entry| {
             entry["hooks"].as_array().unwrap()[0]["command"].as_str() == Some("echo keep-me")
         }));
+    }
+
+    #[test]
+    fn setup_validation_requires_all_expected_hooks() {
+        let cli_path = Path::new("C:\\Program Files\\Roux\\roux-cli.exe");
+        let settings = roux_hooks_config(cli_path);
+        assert!(hook_config_contains_expected_entries(&settings, &roux_hooks_config(cli_path)));
+    }
+
+    #[test]
+    fn setup_validation_rejects_partial_hook_config() {
+        let cli_path = Path::new("C:\\Program Files\\Roux\\roux-cli.exe");
+        let mut settings = roux_hooks_config(cli_path);
+        settings["hooks"].as_object_mut().unwrap().remove("StopFailure");
+        assert!(!hook_config_contains_expected_entries(&settings, &roux_hooks_config(cli_path)));
+    }
+
+    #[test]
+    fn setup_validation_requires_notification_matchers() {
+        let cli_path = Path::new("C:\\Program Files\\Roux\\roux-cli.exe");
+        let mut settings = roux_hooks_config(cli_path);
+        settings["hooks"]["Notification"][0]["matcher"] = json!("wrong_matcher");
+        assert!(!hook_config_contains_expected_entries(&settings, &roux_hooks_config(cli_path)));
     }
 }
