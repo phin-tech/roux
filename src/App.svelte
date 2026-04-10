@@ -8,6 +8,7 @@
   import NotesPanel from "$lib/components/NotesPanel.svelte";
   import WatchesPane from "$lib/components/WatchesPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
+  import QuitDialog from "$lib/components/QuitDialog.svelte";
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
@@ -17,12 +18,12 @@
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, loadLayout, clearLayout } from "$lib/panes/persistence";
-  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, quitApp } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { registerCommands, registry } from "$lib/commands";
   import { closeFocusedPane } from "$lib/panes/actions";
+  import { closeSession } from "$lib/sessions/close";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
   import { initLogging, log, logError } from "$lib/logging";
   import { hasPrimaryModifier, isMacPlatform } from "$lib/platform";
@@ -33,6 +34,7 @@
   let showWatches = $state(false);
   let showPalette = $state(false);
   let showSetupPrompt = $state(false);
+  let showQuitDialog = $state(false);
   let ghAvailable = $state(true);
 
   function buildShortcutString(e: KeyboardEvent): string {
@@ -59,20 +61,47 @@
     return closeFocusedPane(state.activeSessionId);
   }
 
+  async function forceQuit() {
+    const state = get(sessionState);
+    for (const session of [...state.sessions]) {
+      try { await closeSession(session, { force: true }); } catch {}
+    }
+    quitApp();
+  }
+
+  async function handleQuitRequested() {
+    if (showQuitDialog) return; // Already showing
+    const state = get(sessionState);
+    if (state.sessions.length > 0 && get(settings).confirmOnQuit) {
+      showQuitDialog = true;
+      return;
+    }
+    await forceQuit();
+  }
+
   async function handleCloseRequested() {
     const state = get(sessionState);
     if (!state.activeSessionId) {
-      getCurrentWindow().destroy();
+      quitApp();
       return;
     }
+    // Cmd+W: close focused split pane first
     if (hasSplitPanes(state.activeSessionId)) {
       const closed = await closeCurrentFocusedPane();
       if (closed) return;
     }
-    getCurrentWindow().destroy();
+    // No split panes left — trigger quit flow
+    await handleQuitRequested();
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // Cmd+Q: quit
+    if (e.metaKey && e.key === "q") {
+      e.preventDefault();
+      void handleQuitRequested();
+      return;
+    }
+
     // Command palette toggle
     if (hasPrimaryModifier(e) && e.key === "k") {
       e.preventDefault();
@@ -131,7 +160,7 @@
     const theme = normalizeTheme($settings.theme);
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
-    document.documentElement.style.setProperty("--font-sans", $settings.uiFontFamily);
+    document.documentElement.style.setProperty("--font-sans", $settings.uiFontFamily ?? "sans-serif");
     document.documentElement.style.colorScheme = isLightTheme(theme) ? "light" : "dark";
   });
 
@@ -144,11 +173,13 @@
     // Use capture phase so we intercept before xterm.js swallows the event
     window.addEventListener("keydown", handleKeyDown, true);
 
-    // Listen for Tauri close-requested event (Cmd+W or red button)
+    // Listen for Tauri close-requested event (red button / Cmd+W)
     await listen("close-requested", () => void handleCloseRequested());
+    // Listen for macOS Quit menu / Dock quit
+    await listen("quit-requested", () => void handleQuitRequested());
 
     const loadedSettings = await initSettings();
-    await initLogging(loadedSettings.enableLogging);
+    await initLogging(loadedSettings.enableLogging ?? false);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
 
     // Check CLI setup and tool availability
@@ -351,6 +382,11 @@
   onclose={() => (showPalette = false)}
   onNewSession={() => (showNewSessionDialog = true)}
   onSettings={() => (showSettings = !showSettings)}
+/>
+
+<QuitDialog
+  visible={showQuitDialog}
+  oncancel={() => (showQuitDialog = false)}
 />
 
 <SetupPrompt

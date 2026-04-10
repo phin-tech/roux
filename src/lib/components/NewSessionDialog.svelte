@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { createSession, listWorktrees, checkNonoInstalled, listNonoProfiles } from "$lib/tauri";
+  import { createSession, listWorktrees, checkNonoInstalled, listNonoProfiles, checkIsGitRepo, gitInit } from "$lib/tauri";
   import { addSession } from "$lib/stores/sessions";
   import { initSession as initSessionPanes } from "$lib/panes/actions";
   import { settings } from "$lib/stores/settings";
@@ -16,7 +16,8 @@
   let { visible, onclose }: Props = $props();
 
   let repoPath = $state($settings.defaultProjectPath ?? "");
-  let mode = $state<"new" | "existing">("new");
+  let isGitRepo = $state(false);
+  let mode = $state<"new" | "existing" | "plain">("plain");
   let branchName = $state("");
   let sessionName = $state("");
   let worktrees = $state<Worktree[]>([]);
@@ -30,7 +31,7 @@
   let selectedNonoProfile = $state<string | null>(null);
   let skipPermissions = $state(false);
 
-  // Check for nono on mount
+  // Check for nono on mount and detect git repo for default path
   $effect(() => {
     if (visible) {
       checkNonoInstalled().then((installed) => {
@@ -41,14 +42,28 @@
           });
         }
       });
+      if (repoPath) {
+        detectGitRepo(repoPath);
+      }
     }
   });
 
+  async function detectGitRepo(path: string) {
+    isGitRepo = await checkIsGitRepo(path);
+    if (isGitRepo) {
+      mode = "new";
+      await loadWorktrees();
+    } else {
+      mode = "plain";
+      worktrees = [];
+    }
+  }
+
   async function pickRepo() {
-    const selected = await open({ directory: true, title: "Select Git Repository" });
+    const selected = await open({ directory: true, title: "Select Directory" });
     if (selected) {
       repoPath = selected as string;
-      await loadWorktrees();
+      await detectGitRepo(repoPath);
     }
   }
 
@@ -64,7 +79,7 @@
 
   async function handleCreate() {
     if (!repoPath) {
-      error = "Please select a repository";
+      error = "Please select a directory";
       return;
     }
     if (mode === "new" && !branchName.trim()) {
@@ -77,9 +92,11 @@
     try {
       const name =
         sessionName ||
-        repoPath.split("/").pop() +
-          "-" +
-          (mode === "new" ? branchName : selectedWorktree?.branch ?? "main");
+        (mode === "plain"
+          ? repoPath.split("/").pop() ?? "session"
+          : repoPath.split("/").pop() +
+              "-" +
+              (mode === "new" ? branchName : selectedWorktree?.branch ?? "main"));
 
       const extraFlags: string[] = [];
       if (skipPermissions) {
@@ -114,7 +131,8 @@
   function resetAndClose() {
     branchName = "";
     sessionName = "";
-    mode = "new";
+    mode = "plain";
+    isGitRepo = false;
     error = "";
     selectedNonoProfile = null;
     skipPermissions = false;
@@ -137,7 +155,7 @@
       <!-- Header -->
       <div class="border-b border-hairline bg-bg-surface/30 px-6 pt-5 pb-4">
         <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">New Session</h2>
-        <p class="text-xs text-text-muted">Create a new Claude Code session in a git repository</p>
+        <p class="text-xs text-text-muted">Create a new Claude Code session</p>
       </div>
 
       <!-- Body -->
@@ -148,7 +166,7 @@
             for="new-session-repo"
             class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
           >
-            Repository
+            Directory
           </label>
           <div class="flex gap-2">
             <input
@@ -167,26 +185,48 @@
           </div>
         </div>
 
-        <!-- Mode toggle -->
-        <fieldset class="flex flex-col gap-1.5">
-          <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Mode</legend>
-          <div class="flex rounded-xl border border-border-subtle bg-bg-deep/80 p-1">
+        <!-- Non-git directory notice -->
+        {#if repoPath && !isGitRepo}
+          <div class="flex items-center gap-2 rounded-md border border-border-subtle bg-bg-deep/60 px-3 py-2">
+            <span class="text-xs text-text-muted flex-1">Not a git repository</span>
             <button
-              class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
-                {mode === 'new' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary hover:text-text-primary'}"
-              onclick={() => (mode = "new")}
+              class="cursor-pointer rounded-md border border-accent-dim/20 bg-accent-dim/15 px-3 py-1.5 text-[11px] font-medium text-accent hover:bg-accent-dim/24"
+              onclick={async () => {
+                try {
+                  await gitInit(repoPath);
+                  await detectGitRepo(repoPath);
+                } catch (e) {
+                  error = String(e);
+                }
+              }}
             >
-              New Worktree
-            </button>
-            <button
-              class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
-                {mode === 'existing' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary hover:text-text-primary'}"
-              onclick={() => { mode = "existing"; loadWorktrees(); }}
-            >
-              Existing Directory
+              Initialize Git
             </button>
           </div>
-        </fieldset>
+        {/if}
+
+        <!-- Mode toggle (only for git repos) -->
+        {#if isGitRepo}
+          <fieldset class="flex flex-col gap-1.5">
+            <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Mode</legend>
+            <div class="flex rounded-xl border border-border-subtle bg-bg-deep/80 p-1">
+              <button
+                class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
+                  {mode === 'new' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary hover:text-text-primary'}"
+                onclick={() => (mode = "new")}
+              >
+                New Worktree
+              </button>
+              <button
+                class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
+                  {mode === 'existing' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary hover:text-text-primary'}"
+                onclick={() => { mode = "existing"; loadWorktrees(); }}
+              >
+                Existing Directory
+              </button>
+            </div>
+          </fieldset>
+        {/if}
 
         <!-- New worktree: branch input -->
         {#if mode === "new"}
@@ -227,7 +267,7 @@
                 </button>
               {/each}
               {#if worktrees.length === 0}
-                <p class="text-xs text-text-muted py-2 text-center">No worktrees found. Select a git repository first.</p>
+                <p class="text-xs text-text-muted py-2 text-center">No worktrees found.</p>
               {/if}
             </div>
           </fieldset>

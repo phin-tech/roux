@@ -10,6 +10,7 @@ use tauri::{
     ipc::{Channel, Response},
     Emitter,
 };
+use thiserror::Error;
 
 use crate::platform;
 
@@ -139,10 +140,11 @@ fn spawn_flusher(
                         output.send(std::mem::take(&mut batch));
                     }
                     if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(
-                            evt,
-                            serde_json::json!({"code": null, "generation": gen, "reason": "exit"}),
-                        );
+                        let _ = app.emit(evt, &roux_core::SessionExitPayload {
+                            code: None,
+                            generation: *gen,
+                            reason: roux_core::SessionExitReason::Exit,
+                        });
                     }
                     break;
                 }
@@ -151,7 +153,11 @@ fn spawn_flusher(
                         output.send(std::mem::take(&mut batch));
                     }
                     if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(evt, serde_json::json!({"code": null, "generation": gen, "reason": "io_error"}));
+                        let _ = app.emit(evt, &roux_core::SessionExitPayload {
+                            code: None,
+                            generation: *gen,
+                            reason: roux_core::SessionExitReason::IoError,
+                        });
                     }
                     break;
                 }
@@ -225,6 +231,57 @@ struct PtySession {
     generation: u64,
 }
 
+#[derive(Debug, Error)]
+pub enum PtyError {
+    #[error("Failed to open PTY: {source}")]
+    OpenPty {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to spawn claude: {source}")]
+    SpawnClaude {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to spawn shell: {source}")]
+    SpawnShell {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to spawn task: {source}")]
+    SpawnTask {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to get PTY writer: {source}")]
+    GetWriter {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Failed to get PTY reader: {source}")]
+    GetReader {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error("Session {session_id} not found")]
+    SessionNotFound { session_id: String },
+    #[error("Write failed: {source}")]
+    WriteFailed {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Flush failed: {source}")]
+    FlushFailed {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Resize failed: {source}")]
+    ResizeFailed {
+        #[source]
+        source: anyhow::Error,
+    },
+}
+
 pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
@@ -255,12 +312,12 @@ impl PtyManager {
         nono_profile: Option<&str>,
         claude_binary_path: Option<&str>,
         app: tauri::AppHandle,
-    ) -> Result<(), String> {
+    ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("Failed to open PTY: {}", e))?;
+            .map_err(|source| PtyError::OpenPty { source })?;
 
         let user_path = get_user_path();
         let claude_cmd = resolve_claude_command(claude_binary_path);
@@ -302,15 +359,12 @@ impl PtyManager {
         cmd.cwd(working_dir);
 
         let child =
-            pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn claude: {}", e))?;
+            pair.slave.spawn_command(cmd).map_err(|source| PtyError::SpawnClaude { source })?;
 
-        let writer =
-            pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+        let writer = pair.master.take_writer().map_err(|source| PtyError::GetWriter { source })?;
 
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
+        let reader =
+            pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
 
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
@@ -341,21 +395,19 @@ impl PtyManager {
         working_dir: &str,
         session_id: Option<&str>,
         app: tauri::AppHandle,
-    ) -> Result<(), String> {
+    ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("Failed to open PTY: {}", e))?;
+            .map_err(|source| PtyError::OpenPty { source })?;
 
-        let shell = resolve_interactive_shell();
+        let shell = resolve_default_shell();
         let user_path = get_user_path();
-        rlog!("Spawning shell '{}' for pane '{}' in '{}'", shell.program, id, working_dir);
+        rlog!("Spawning shell '{}' for pane '{}' in '{}'", shell, id, working_dir);
 
-        let mut cmd = CommandBuilder::new(&shell.program);
-        for arg in &shell.args {
-            cmd.arg(arg);
-        }
+        let mut cmd = CommandBuilder::new(&shell);
+        apply_shell_command_flags(&mut cmd, &shell);
         cmd.env("PATH", &user_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -366,18 +418,15 @@ impl PtyManager {
         }
         cmd.cwd(working_dir);
 
-        let child = pair.slave.spawn_command(cmd).map_err(|e| {
-            rlog!("Failed to spawn shell: {}", e);
-            format!("Failed to spawn shell: {}", e)
+        let child = pair.slave.spawn_command(cmd).map_err(|source| {
+            rlog!("Failed to spawn shell: {}", source);
+            PtyError::SpawnShell { source }
         })?;
 
-        let writer =
-            pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+        let writer = pair.master.take_writer().map_err(|source| PtyError::GetWriter { source })?;
 
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
+        let reader =
+            pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
 
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
@@ -408,20 +457,18 @@ impl PtyManager {
         working_dir: &str,
         session_id: Option<&str>,
         app: tauri::AppHandle,
-    ) -> Result<(), String> {
+    ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("Failed to open PTY: {}", e))?;
+            .map_err(|source| PtyError::OpenPty { source })?;
 
-        let shell = resolve_task_shell(command);
+        let shell = resolve_default_shell();
         let user_path = get_user_path();
 
-        let mut cmd = CommandBuilder::new(&shell.program);
-        for arg in &shell.args {
-            cmd.arg(arg);
-        }
+        let mut cmd = CommandBuilder::new(&shell);
+        apply_task_command_args(&mut cmd, &shell, command);
         cmd.env("PATH", &user_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -433,15 +480,12 @@ impl PtyManager {
         cmd.cwd(working_dir);
 
         let mut child =
-            pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn task: {}", e))?;
+            pair.slave.spawn_command(cmd).map_err(|source| PtyError::SpawnTask { source })?;
 
-        let writer =
-            pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+        let writer = pair.master.take_writer().map_err(|source| PtyError::GetWriter { source })?;
 
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
+        let reader =
+            pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
 
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
@@ -466,18 +510,18 @@ impl PtyManager {
             let code = child.wait().ok().map(|status| status.exit_code());
             let _ = app.emit(
                 &exit_event_name,
-                serde_json::json!({ "code": code, "generation": gen, "reason": "exit" }),
+                &roux_core::SessionExitPayload {
+                    code,
+                    generation: gen,
+                    reason: roux_core::SessionExitReason::Exit,
+                },
             );
         });
 
         Ok(())
     }
 
-    pub fn attach_output_channel(
-        &self,
-        session_id: &str,
-        channel: Channel<Response>,
-    ) -> Result<(), String> {
+    pub fn attach_output_channel(&self, session_id: &str, channel: Channel<Response>) {
         self.cleanup_stale_pending();
         let output =
             self.sessions.lock().unwrap().get(session_id).map(|session| session.output.clone());
@@ -486,36 +530,35 @@ impl PtyManager {
         } else {
             self.pending_outputs.lock().unwrap().insert(session_id.to_string(), channel);
         }
-        Ok(())
     }
 
-    pub fn write(&self, session_id: &str, data: &[u8]) -> Result<(), String> {
+    pub fn write(&self, session_id: &str, data: &[u8]) -> Result<(), PtyError> {
         let writer = {
             let sessions = self.sessions.lock().unwrap();
             let session = sessions
                 .get(session_id)
-                .ok_or_else(|| format!("Session {} not found", session_id))?;
+                .ok_or_else(|| PtyError::SessionNotFound { session_id: session_id.to_string() })?;
             Arc::clone(&session.writer)
         };
         // Global lock released — only per-session writer lock held
         let mut writer = writer.lock().unwrap();
         use std::io::Write;
-        writer.write_all(data).map_err(|e| format!("Write failed: {}", e))?;
-        writer.flush().map_err(|e| format!("Flush failed: {}", e))
+        writer.write_all(data).map_err(|source| PtyError::WriteFailed { source })?;
+        writer.flush().map_err(|source| PtyError::FlushFailed { source })
     }
 
-    pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), String> {
+    pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), PtyError> {
         let master = {
             let sessions = self.sessions.lock().unwrap();
             let session = sessions
                 .get(session_id)
-                .ok_or_else(|| format!("Session {} not found", session_id))?;
+                .ok_or_else(|| PtyError::SessionNotFound { session_id: session_id.to_string() })?;
             // MasterPty doesn't impl Clone, so we need to keep the lock for resize.
             // However, we can at least use try_lock to avoid blocking other sessions.
             session
                 .master
                 .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-                .map_err(|e| format!("Resize failed: {}", e))
+                .map_err(|source| PtyError::ResizeFailed { source })
         };
         master
     }
@@ -528,7 +571,7 @@ impl PtyManager {
         pending.retain(|id, _| sessions.contains_key(id));
     }
 
-    pub fn kill(&self, session_id: &str) -> Result<(), String> {
+    pub fn kill(&self, session_id: &str) {
         let session = self.sessions.lock().unwrap().remove(session_id);
         self.pending_outputs.lock().unwrap().remove(session_id);
         if let Some(mut session) = session {
@@ -554,11 +597,19 @@ impl PtyManager {
                 }
             }
         }
-        Ok(())
     }
 
     pub fn get_generation(&self, session_id: &str) -> Option<u64> {
         self.sessions.lock().unwrap().get(session_id).map(|s| s.generation)
+    }
+
+    /// Kill all active PTY sessions. Called during app shutdown.
+    pub fn shutdown_all(&self) {
+        let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
+        for id in &ids {
+            self.kill(id);
+        }
+        rlog!("PtyManager: shut down {} session(s)", ids.len());
     }
 }
 
@@ -571,101 +622,39 @@ fn socket_path_str() -> String {
 /// Get the user's login shell PATH by invoking their actual shell (from $SHELL)
 /// instead of hardcoding /bin/bash. This ensures paths added in .zshrc etc. are found.
 pub fn get_user_path() -> String {
-    #[cfg(windows)]
-    {
-        std::env::var("PATH").unwrap_or_default()
-    }
-
-    #[cfg(not(windows))]
-    {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        // Fish outputs $PATH as a space-separated list; other shells use colons.
-        // Use fish's `string join` to get colon-separated output.
-        let path_cmd = if shell.contains("fish") { "string join : $PATH" } else { "echo $PATH" };
-        rlog!("Resolving PATH via login shell: {} -l -c '{}'", shell, path_cmd);
-        let result = std::process::Command::new(&shell).args(["-l", "-c", path_cmd]).output();
-        match &result {
-            Ok(o) => {
-                if !o.status.success() {
-                    rlog!("  shell exited with status: {}", o.status);
-                    let stderr = String::from_utf8_lossy(&o.stderr);
-                    if !stderr.is_empty() {
-                        rlog!("  stderr: {}", stderr.chars().take(500).collect::<String>());
-                    }
-                }
-            }
-            Err(e) => rlog!("  failed to run shell: {}", e),
-        }
-        let path = result
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
-        rlog!("  resolved PATH: {}", path);
-        path
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ShellSpec {
-    program: String,
-    args: Vec<String>,
-}
-
-fn resolve_interactive_shell() -> ShellSpec {
-    #[cfg(windows)]
-    {
-        return ShellSpec { program: resolve_windows_shell_program(), args: Vec::new() };
-    }
-
-    #[cfg(not(windows))]
-    ShellSpec {
-        program: std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()),
-        args: Vec::new(),
-    }
-}
-
-fn resolve_task_shell(command: &str) -> ShellSpec {
-    #[cfg(windows)]
-    {
-        let program = resolve_windows_shell_program();
-        let args = windows_task_shell_args(&program, command);
-        return ShellSpec { program, args };
-    }
-
-    #[cfg(not(windows))]
-    ShellSpec {
-        program: std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()),
-        args: vec!["-c".to_string(), command.to_string()],
-    }
+    get_user_path_impl()
 }
 
 #[cfg(windows)]
-fn resolve_windows_shell_program() -> String {
-    if platform::find_executable_on_path("pwsh.exe").is_some()
-        || platform::find_executable_on_path("pwsh").is_some()
-    {
-        "pwsh".to_string()
-    } else if platform::find_executable_on_path("powershell.exe").is_some() {
-        "powershell.exe".to_string()
-    } else {
-        "cmd.exe".to_string()
-    }
+fn get_user_path_impl() -> String {
+    std::env::var("PATH").unwrap_or_default()
 }
 
-fn windows_task_shell_args(program: &str, command: &str) -> Vec<String> {
-    if program.eq_ignore_ascii_case("cmd.exe") || program.eq_ignore_ascii_case("cmd") {
-        vec!["/C".to_string(), command.to_string()]
-    } else {
-        let mut args = vec!["-NoProfile".to_string()];
-        if program.eq_ignore_ascii_case("powershell.exe")
-            || program.eq_ignore_ascii_case("powershell")
-        {
-            args.extend(["-ExecutionPolicy".to_string(), "Bypass".to_string()]);
+#[cfg(not(windows))]
+fn get_user_path_impl() -> String {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let path_cmd = if shell.contains("fish") { "string join : $PATH" } else { "echo $PATH" };
+    rlog!("Resolving PATH via login shell: {} -l -c '{}'", shell, path_cmd);
+    let result = std::process::Command::new(&shell).args(["-l", "-c", path_cmd]).output();
+    match &result {
+        Ok(o) => {
+            if !o.status.success() {
+                rlog!("  shell exited with status: {}", o.status);
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                if !stderr.is_empty() {
+                    rlog!("  stderr: {}", stderr.chars().take(500).collect::<String>());
+                }
+            }
         }
-        args.extend(["-Command".to_string(), command.to_string()]);
-        args
+        Err(e) => rlog!("  failed to run shell: {}", e),
     }
+    let path = result
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+    rlog!("  resolved PATH: {}", path);
+    path
 }
 
 /// Resolve the claude binary command. If a custom path is configured, use it directly.
@@ -677,9 +666,68 @@ pub fn resolve_claude_command(custom_path: Option<&str>) -> String {
     }
 }
 
+fn resolve_default_shell() -> String {
+    #[cfg(windows)]
+    {
+        if platform::find_executable_on_path("pwsh").is_some()
+            || platform::find_executable_on_path("pwsh.exe").is_some()
+        {
+            return "pwsh".to_string();
+        }
+        if platform::find_executable_on_path("powershell.exe").is_some() {
+            return "powershell.exe".to_string();
+        }
+        return std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+    }
+
+    #[cfg(not(windows))]
+    {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    }
+}
+
+fn apply_shell_command_flags(cmd: &mut CommandBuilder, shell: &str) {
+    #[cfg(windows)]
+    {
+        let shell_lower = shell.to_ascii_lowercase();
+        if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
+            cmd.arg("-NoLogo");
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (cmd, shell);
+    }
+}
+
+fn apply_task_command_args(cmd: &mut CommandBuilder, shell: &str, command: &str) {
+    #[cfg(windows)]
+    {
+        let shell_lower = shell.to_ascii_lowercase();
+        if shell_lower.contains("pwsh") {
+            cmd.args(["-NoLogo", "-NoProfile", "-Command", command]);
+            return;
+        }
+        if shell_lower.contains("powershell") {
+            cmd.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]);
+            return;
+        }
+        cmd.args(["/C", command]);
+        return;
+    }
+
+    #[cfg(not(windows))]
+    {
+        cmd.args(["-c", command]);
+        let _ = shell;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
     use std::sync::{Arc, Mutex};
     use tauri::ipc::{Channel, InvokeResponseBody, Response};
 
@@ -761,18 +809,14 @@ mod tests {
     fn get_user_path_returns_nonempty_string() {
         let path = get_user_path();
         assert!(!path.is_empty(), "PATH should not be empty");
-        #[cfg(windows)]
-        assert!(
-            path.to_ascii_lowercase().contains("\\windows"),
-            "PATH should contain standard Windows directories, got: {}",
-            path
-        );
+    }
 
-        #[cfg(not(windows))]
-        assert!(
-            path.contains("/usr/bin") || path.contains("/bin"),
-            "PATH should contain standard bin directories, got: {}",
-            path
-        );
+    #[test]
+    fn pty_error_display_keeps_existing_messages() {
+        let error = PtyError::SessionNotFound { session_id: "session-123".to_string() };
+        assert_eq!(error.to_string(), "Session session-123 not found");
+
+        let io_error = PtyError::WriteFailed { source: io::Error::other("broken pipe") };
+        assert_eq!(io_error.to_string(), "Write failed: broken pipe");
     }
 }

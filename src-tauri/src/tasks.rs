@@ -1,28 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
-use crate::platform;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskDefinition {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub runner: String,
-    pub command: String,
-    pub keep_open: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskGroup {
-    pub runner: String,
-    pub config_file: String,
-    pub tasks: Vec<TaskDefinition>,
-}
+pub use roux_core::{TaskDefinition, TaskGroup};
 
 pub trait TaskDiscoverer {
     fn config_file(&self) -> &str;
@@ -62,7 +41,7 @@ impl TaskDiscoverer for NpmDiscoverer {
                 description: String::new(),
                 runner: "npm".to_string(),
                 command: format!("npm run {}", name),
-                keep_open: "on-error".to_string(),
+                keep_open: roux_core::KeepOpen::OnError,
             })
             .collect();
 
@@ -113,7 +92,7 @@ impl TaskDiscoverer for TaskfileDiscoverer {
                 description: desc,
                 runner: "task".to_string(),
                 command: format!("task {}", name),
-                keep_open: "on-error".to_string(),
+                keep_open: roux_core::KeepOpen::OnError,
             })
             .collect();
 
@@ -201,7 +180,7 @@ impl TaskDiscoverer for MakeDiscoverer {
                 description: desc,
                 runner: "make".to_string(),
                 command: format!("make {}", name),
-                keep_open: "on-error".to_string(),
+                keep_open: roux_core::KeepOpen::OnError,
             })
             .collect();
 
@@ -302,7 +281,7 @@ impl TaskDiscoverer for JustDiscoverer {
                 description: desc,
                 runner: "just".to_string(),
                 command: format!("just {}", name),
-                keep_open: "on-error".to_string(),
+                keep_open: roux_core::KeepOpen::OnError,
             })
             .collect();
 
@@ -326,15 +305,18 @@ pub fn discover_tasks(dir: &Path) -> Vec<TaskGroup> {
 }
 
 fn overrides_path() -> std::path::PathBuf {
-    platform::task_overrides_path()
+    let base = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    base.join("roux").join("task-overrides.json")
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn cmd_discover_tasks(dir: String) -> Vec<TaskGroup> {
     discover_tasks(Path::new(&dir))
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn cmd_load_task_overrides() -> HashMap<String, HashMap<String, String>> {
     let path = overrides_path();
     if path.exists() {
@@ -346,6 +328,7 @@ pub fn cmd_load_task_overrides() -> HashMap<String, HashMap<String, String>> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn cmd_save_task_overrides(
     overrides: HashMap<String, HashMap<String, String>>,
 ) -> Result<(), String> {
@@ -385,7 +368,7 @@ mod tests {
         assert_eq!(group.tasks[0].name, "build");
         assert_eq!(group.tasks[0].command, "npm run build");
         assert_eq!(group.tasks[0].id, "npm:build");
-        assert_eq!(group.tasks[0].keep_open, "on-error");
+        assert_eq!(group.tasks[0].keep_open, roux_core::KeepOpen::OnError);
 
         assert_eq!(group.tasks[1].name, "dev");
         assert_eq!(group.tasks[2].name, "test");
@@ -469,7 +452,7 @@ tasks:
         assert_eq!(group.tasks[0].description, "Compile the project");
         assert_eq!(group.tasks[0].command, "task build");
         assert_eq!(group.tasks[0].id, "taskfile:build");
-        assert_eq!(group.tasks[0].keep_open, "on-error");
+        assert_eq!(group.tasks[0].keep_open, roux_core::KeepOpen::OnError);
 
         assert_eq!(group.tasks[1].name, "lint");
         assert_eq!(group.tasks[1].description, "");
@@ -522,7 +505,7 @@ _internal:
         assert_eq!(group.tasks[0].description, "Build the project");
         assert_eq!(group.tasks[0].command, "make build");
         assert_eq!(group.tasks[0].id, "make:build");
-        assert_eq!(group.tasks[0].keep_open, "on-error");
+        assert_eq!(group.tasks[0].keep_open, roux_core::KeepOpen::OnError);
 
         assert_eq!(group.tasks[1].name, "lint");
         assert_eq!(group.tasks[1].description, "");
@@ -585,7 +568,7 @@ lint:
         assert_eq!(group.tasks[0].description, "Build the project");
         assert_eq!(group.tasks[0].command, "just build");
         assert_eq!(group.tasks[0].id, "just:build");
-        assert_eq!(group.tasks[0].keep_open, "on-error");
+        assert_eq!(group.tasks[0].keep_open, roux_core::KeepOpen::OnError);
 
         assert_eq!(group.tasks[1].name, "lint");
         assert_eq!(group.tasks[1].description, "");

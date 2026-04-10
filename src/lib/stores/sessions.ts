@@ -94,6 +94,15 @@ export function renameSession(id: string, newName: string) {
   }));
 }
 
+export function updateSessionGitStatus(id: string, isGitRepo: boolean) {
+  sessionState.update((state) => ({
+    ...state,
+    sessions: state.sessions.map((s) =>
+      s.id === id ? { ...s, isGitRepo } : s
+    ),
+  }));
+}
+
 export function setSessionProject(id: string, projectId: string | null) {
   sessionState.update((state) => ({
     ...state,

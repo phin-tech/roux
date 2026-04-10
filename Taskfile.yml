@@ -337,11 +337,17 @@ tasks:
           CHANGELOG=$(git log --pretty=format:"- %s" --no-merges | grep -v "^- release:" || true)
         fi
 
+        # Detect pre-release versions (contain a hyphen, e.g. 0.3.0-alpha.1)
+        PRE_FLAG=""
+        if echo "$VERSION" | grep -q '-'; then
+          PRE_FLAG="--prerelease"
+        fi
+
         if ! gh release view "$TAG" &>/dev/null; then
-          gh release create "$TAG" --title "$TAG" --notes "$CHANGELOG"
+          gh release create "$TAG" --title "$TAG" --notes "$CHANGELOG" $PRE_FLAG
           echo "Created release $TAG"
         else
-          gh release edit "$TAG" --notes "$CHANGELOG"
+          gh release edit "$TAG" --notes "$CHANGELOG" $PRE_FLAG
           echo "Updated release notes for $TAG"
         fi
 
@@ -360,7 +366,7 @@ tasks:
       - task: publish
 
   version:
-    desc: "Bump version, commit, tag, push. Usage: task version BUMP=patch|minor|major"
+    desc: "Bump version, commit, tag, push. Usage: task version BUMP=patch|minor|major [PRE=alpha|beta|dev|rc]"
     requires:
       vars: [BUMP]
     preconditions:
@@ -370,11 +376,14 @@ tasks:
         msg: "Working tree must be clean before releasing"
     cmds:
       - |
-        TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
-        if [ -z "$TAG" ]; then
+        set -euo pipefail
+
+        # Find the last stable tag (no pre-release suffix) for base calculation
+        LAST_STABLE=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+        if [ -z "$LAST_STABLE" ]; then
           CURRENT="0.1.0"
         else
-          CURRENT=$(echo "$TAG" | sed 's/^v//')
+          CURRENT=$(echo "$LAST_STABLE" | sed 's/^v//')
         fi
         IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
 
@@ -384,7 +393,24 @@ tasks:
           patch) PATCH=$((PATCH + 1)) ;;
         esac
 
-        NEW="${MAJOR}.${MINOR}.${PATCH}"
+        BASE="${MAJOR}.${MINOR}.${PATCH}"
+        PRE="{{.PRE}}"
+
+        if [ -n "$PRE" ]; then
+          # Auto-increment pre-release number based on existing tags
+          LAST_PRE_NUM=$(git tag -l "v${BASE}-${PRE}.*" | sed "s/v${BASE}-${PRE}\.//" | sort -n | tail -1 || true)
+          if [ -n "$LAST_PRE_NUM" ]; then
+            PRE_NUM=$((LAST_PRE_NUM + 1))
+          else
+            PRE_NUM=1
+          fi
+          NEW="${BASE}-${PRE}.${PRE_NUM}"
+          COMMIT_PREFIX="pre-release"
+        else
+          NEW="$BASE"
+          COMMIT_PREFIX="release"
+        fi
+
         echo "Bumping version: ${CURRENT} -> ${NEW}"
 
         # Update package.json
@@ -404,7 +430,7 @@ tasks:
         sed -i '' "s/^version = \".*\"/version = \"${NEW}\"/" src-tauri/Cargo.toml
 
         git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
-        git commit -m "release: v${NEW}"
+        git commit -m "${COMMIT_PREFIX}: v${NEW}"
         git tag "v${NEW}"
         git push origin main
         git push origin "v${NEW}"

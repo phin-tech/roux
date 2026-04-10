@@ -124,15 +124,29 @@ export async function listClaudeSessions(cwd: string): Promise<ClaudeSession[]> 
 }
 
 // Git
+export async function checkIsGitRepo(path: string): Promise<boolean> {
+  return invoke("check_is_git_repo", { path });
+}
+
+export async function gitInit(path: string): Promise<void> {
+  return invoke("git_init", { path });
+}
+
+export async function quitApp(): Promise<void> {
+  return invoke("quit_app");
+}
+
+export async function refreshSessionGitStatus(id: string): Promise<boolean> {
+  return invoke("refresh_session_git_status", { id });
+}
+
 export async function listBranches(repoPath: string): Promise<string[]> {
   return invoke("cmd_list_branches", { repoPath });
 }
 
 // Setup / CLI install
-export interface SetupStatus {
-  cliInstalled: boolean;
-  ghAvailable: boolean;
-}
+import type { SetupStatus } from "$lib/bindings";
+export type { SetupStatus };
 
 export async function checkSetupNeeded(): Promise<boolean> {
   return invoke("check_setup_needed");
@@ -194,12 +208,8 @@ export async function openInEditor(path: string): Promise<void> {
 }
 
 // Document viewer commands
-export interface DocFile {
-  path: string;
-  name: string;
-  relativePath: string;
-  modified: number;
-}
+import type { DocFile } from "$lib/bindings";
+export type { DocFile };
 
 export async function readFile(path: string): Promise<string> {
   return invoke("read_file", { path });

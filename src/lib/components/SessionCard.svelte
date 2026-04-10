@@ -221,10 +221,12 @@
   </div>
 
   <div class="flex items-center gap-1.5 pl-4">
-    <span class="flex items-center gap-1 font-mono text-[11px] {active ? 'text-text-secondary' : 'text-text-muted'}">
-      <span class="text-[10px] text-text-secondary">&#9095;</span>
-      {session.branch}
-    </span>
+    {#if session.isGitRepo}
+      <span class="flex items-center gap-1 font-mono text-[11px] {active ? 'text-text-secondary' : 'text-text-muted'}">
+        <span class="text-[10px] text-text-secondary">&#9095;</span>
+        {session.branch}
+      </span>
+    {/if}
     <span class="truncate text-[10px] text-text-muted">{pathLabel(session.worktreePath)}</span>
     {#if projectName}
       <span class="bg-accent-dim/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{projectName}</span>

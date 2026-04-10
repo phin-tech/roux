@@ -11,6 +11,7 @@ import {
   respondToPermission,
   setSessionDisconnected,
   renameSession,
+  updateSessionGitStatus,
 } from "../sessions";
 import type { Session } from "$lib/types";
 
@@ -28,6 +29,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     permissionInfo: null,
     createdAt: Date.now(),
     projectId: null,
+    isGitRepo: true,
     ...overrides,
   };
 }
@@ -207,5 +209,28 @@ describe("sessions store", () => {
 
   it("derives null active session when none exist", () => {
     expect(get(activeSession)).toBeNull();
+  });
+
+  it("updates session git status", () => {
+    const s = makeSession({ isGitRepo: false });
+    addSession(s);
+
+    expect(get(sessionState).sessions[0].isGitRepo).toBe(false);
+
+    updateSessionGitStatus(s.id, true);
+
+    expect(get(sessionState).sessions[0].isGitRepo).toBe(true);
+  });
+
+  it("does not affect other sessions when updating git status", () => {
+    const s1 = makeSession({ isGitRepo: false });
+    const s2 = makeSession({ isGitRepo: false });
+    addSession(s1);
+    addSession(s2);
+
+    updateSessionGitStatus(s1.id, true);
+
+    expect(get(sessionState).sessions.find((s) => s.id === s1.id)?.isGitRepo).toBe(true);
+    expect(get(sessionState).sessions.find((s) => s.id === s2.id)?.isGitRepo).toBe(false);
   });
 });

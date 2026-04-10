@@ -17,8 +17,10 @@
       <div class="w-1.5 h-1.5 rounded-full {statusDotClass[$activeSession.status] ?? 'bg-gray'}"></div>
       <span class="font-medium tracking-tight text-text-secondary">{$activeSession.name}</span>
     </div>
-    <span class="text-text-secondary">&bull;</span>
-    <span class="font-mono text-text-muted">&#9095; {$activeSession.branch}</span>
+    {#if $activeSession.isGitRepo}
+      <span class="text-text-secondary">&bull;</span>
+      <span class="font-mono text-text-muted">&#9095; {$activeSession.branch}</span>
+    {/if}
     <span class="text-text-secondary">&bull;</span>
     <span class="font-mono text-text-muted">{$activeSession.model ?? "--"}</span>
     <span class="text-text-secondary">&bull;</span>

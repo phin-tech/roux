@@ -685,6 +685,7 @@ export function registerCommands() {
         scope: session
           ? { type: "session", sessionId: session.id }
           : { type: "global" },
+        notify: null,
       };
       await createWatch(config);
     },
@@ -711,6 +712,7 @@ export function registerCommands() {
         scope: session
           ? { type: "session", sessionId: session.id }
           : { type: "global" },
+        notify: null,
       };
       await createWatch(config);
     },
@@ -756,6 +758,7 @@ export function registerCommands() {
         scope: session
           ? { type: "session", sessionId: session.id }
           : { type: "global" },
+        notify: null,
       };
       await createWatch(config);
     },
@@ -790,6 +793,7 @@ export function registerCommands() {
         scope: session
           ? { type: "session", sessionId: session.id }
           : { type: "global" },
+        notify: null,
       };
       await createWatch(config);
     },

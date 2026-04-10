@@ -6,12 +6,14 @@
     setActiveSession,
     renameSession,
     addSession,
+    updateSessionGitStatus,
   } from "$lib/stores/sessions";
   import { initSession as initSessionPanes } from "$lib/panes/actions";
   import {
     writeToSession,
     createSession,
     openInEditor,
+    refreshSessionGitStatus,
   } from "$lib/tauri";
   import { settings, updateSetting } from "$lib/stores/settings";
   import { reconnectSession } from "$lib/sessions/reconnect";
@@ -193,6 +195,20 @@
 
   $effect(() => {
     void initTaskOverrides();
+  });
+
+  // Poll non-git sessions to detect when they become git repos (e.g. after `git init`)
+  $effect(() => {
+    const interval = setInterval(() => {
+      for (const s of $sessionState.sessions) {
+        if (!s.isGitRepo) {
+          refreshSessionGitStatus(s.id).then((isGit) => {
+            if (isGit) updateSessionGitStatus(s.id, true);
+          });
+        }
+      }
+    }, 5000);
+    return () => clearInterval(interval);
   });
 
   async function handleClose(id: string) {
@@ -427,13 +443,15 @@
         <span class="text-[11px] text-text-secondary">&#9776;</span>
         Set Project
       </button>
-      <button
-        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
-        onclick={showWorktreeInput}
-      >
-        <span class="text-[11px] text-text-secondary">&#9095;</span>
-        New Worktree
-      </button>
+      {#if contextMenu.session.isGitRepo}
+        <button
+          class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
+          onclick={showWorktreeInput}
+        >
+          <span class="text-[11px] text-text-secondary">&#9095;</span>
+          New Worktree
+        </button>
+      {/if}
       <button
         class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
         onclick={handleOpenInCode}

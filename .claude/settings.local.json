@@ -86,7 +86,8 @@
       "Bash(cargo info:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(curl -s https://api.github.com/repos/rusty-ferris-club/redact-engine/contents/src)",
-      "Bash(curl -sL https://raw.githubusercontent.com/censgate/redact/main/README.md)"
+      "Bash(curl -sL https://raw.githubusercontent.com/censgate/redact/main/README.md)",
+      "WebFetch(domain:docs.github.com)"
     ]
   }
 }
