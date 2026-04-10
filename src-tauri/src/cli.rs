@@ -136,7 +136,7 @@ fn send_socket_command(request: Value) -> Result<Value, String> {
         use std::os::unix::net::UnixStream;
         use std::time::Duration;
 
-        let path = socket_path();
+        let path = platform::socket_path();
         let stream = UnixStream::connect(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound
                 || e.kind() == std::io::ErrorKind::ConnectionRefused
