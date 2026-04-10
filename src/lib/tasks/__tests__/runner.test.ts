@@ -20,7 +20,7 @@ import { sessionLayouts, resetLayouts } from "$lib/panes/layout";
 import { resetFocus } from "$lib/panes/focus";
 import { resetInstances } from "$lib/panes/instances";
 import { initSession } from "$lib/panes/actions";
-import type { TaskDefinition } from "$lib/types/tasks";
+import type { TaskDefinition } from "$lib/types";
 
 describe("runTask", () => {
   beforeEach(() => {

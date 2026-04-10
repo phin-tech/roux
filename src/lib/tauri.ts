@@ -145,10 +145,8 @@ export async function listBranches(repoPath: string): Promise<string[]> {
 }
 
 // Setup / CLI install
-export interface SetupStatus {
-  cliInstalled: boolean;
-  ghAvailable: boolean;
-}
+import type { SetupStatus } from "$lib/bindings";
+export type { SetupStatus };
 
 export async function checkSetupNeeded(): Promise<boolean> {
   return invoke("check_setup_needed");
@@ -210,12 +208,8 @@ export async function openInEditor(path: string): Promise<void> {
 }
 
 // Document viewer commands
-export interface DocFile {
-  path: string;
-  name: string;
-  relativePath: string;
-  modified: number;
-}
+import type { DocFile } from "$lib/bindings";
+export type { DocFile };
 
 export async function readFile(path: string): Promise<string> {
   return invoke("read_file", { path });

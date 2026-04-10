@@ -7,7 +7,7 @@
   } from "$lib/stores/tasks";
   import { sessionState } from "$lib/stores/sessions";
   import { runTask, expandTask } from "$lib/tasks/runner";
-  import type { TaskDefinition } from "$lib/types/tasks";
+  import type { TaskDefinition } from "$lib/types";
   import { createWatch } from "$lib/tauri";
   import type { CreateWatchConfig } from "$lib/types";
 
@@ -79,6 +79,7 @@
       },
       mode: { type: "recurring", intervalSecs: 30 },
       scope: { type: "session", sessionId },
+      notify: null,
     };
     await createWatch(config);
     contextMenu = null;

@@ -158,7 +158,7 @@
     const theme = normalizeTheme($settings.theme);
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
-    document.documentElement.style.setProperty("--font-sans", $settings.uiFontFamily);
+    document.documentElement.style.setProperty("--font-sans", $settings.uiFontFamily ?? "sans-serif");
     document.documentElement.style.colorScheme = isLightTheme(theme) ? "light" : "dark";
   });
 
@@ -177,7 +177,7 @@
     await listen("quit-requested", () => void handleQuitRequested());
 
     const loadedSettings = await initSettings();
-    await initLogging(loadedSettings.enableLogging);
+    await initLogging(loadedSettings.enableLogging ?? false);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
 
     // Check CLI setup and tool availability

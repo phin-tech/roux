@@ -1,6 +1,6 @@
 import { writable, get } from "svelte/store";
 import { discoverTasks, loadTaskOverrides, saveTaskOverrides } from "$lib/tauri";
-import type { TaskGroup, TaskRun, KeepOpen } from "$lib/types/tasks";
+import type { TaskGroup, TaskRun, KeepOpen } from "$lib/types";
 
 export const taskGroups = writable<TaskGroup[]>([]);
 export const taskRuns = writable<Map<string, TaskRun[]>>(new Map());

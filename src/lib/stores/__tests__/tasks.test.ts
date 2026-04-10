@@ -21,7 +21,7 @@ import {
   clearDiscoveryCache,
 } from "../tasks";
 import { discoverTasks, loadTaskOverrides } from "$lib/tauri";
-import type { TaskGroup, TaskRun } from "$lib/types/tasks";
+import type { TaskGroup, TaskRun } from "$lib/types";
 
 describe("task stores", () => {
   beforeEach(() => {
