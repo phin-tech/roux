@@ -34,3 +34,7 @@ Thumbs.db
 
 # Worktrees
 .worktrees/
+
+# Docs site
+site/
+.mkdocs-venv/
