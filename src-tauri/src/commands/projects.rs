@@ -1,29 +1,31 @@
-use crate::projects::Project;
 use crate::services::projects as svc;
 use crate::state::AppState;
+use roux_core::Project;
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn list_projects(state: tauri::State<AppState>) -> Vec<Project> {
-    state.project_store.list()
+pub(crate) async fn list_projects(state: tauri::State<'_, AppState>) -> Result<Vec<Project>, String> {
+    state.project_handle.list().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn create_project(name: String, state: tauri::State<AppState>) -> Project {
-    svc::create_project(&state.project_store, &name)
+pub(crate) async fn create_project(name: String, state: tauri::State<'_, AppState>) -> Result<Project, String> {
+    let project = Project { id: uuid::Uuid::new_v4().to_string(), name };
+    state.project_handle.add(project.clone()).await.map_err(|e| e.to_string())?;
+    Ok(project)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn remove_project(id: String, state: tauri::State<AppState>) {
-    state.project_store.remove(&id);
+pub(crate) async fn remove_project(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.project_handle.remove(&id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn rename_project(id: String, name: String, state: tauri::State<AppState>) {
-    state.project_store.rename(&id, &name);
+pub(crate) async fn rename_project(id: String, name: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.project_handle.rename(&id, &name).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

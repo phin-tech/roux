@@ -5,6 +5,7 @@ mod hooks;
 mod logging;
 mod commands;
 mod projects;
+mod project_service;
 mod services;
 mod pty;
 mod session;
@@ -21,7 +22,6 @@ use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 use tauri_specta::{Builder, collect_commands};
 
-use crate::projects::ProjectStore;
 use crate::pty::PtyManager;
 use crate::state::AppState;
 
@@ -39,6 +39,9 @@ fn main() {
 
     let persisted_sessions = session::load_persisted_sessions();
     let (session_handle, _session_join) = session_service::spawn(persisted_sessions);
+
+    let persisted_projects = project_service::load_persisted();
+    let (project_handle, _project_join) = project_service::spawn(persisted_projects);
 
     let builder = Builder::<tauri::Wry>::new()
         .commands(collect_commands![
@@ -106,7 +109,7 @@ fn main() {
             settings: Mutex::new(initial_settings),
             pty_manager: PtyManager::new(),
             session_handle,
-            project_store: ProjectStore::load_persisted(),
+            project_handle,
             watch_manager: watches::WatchManager::new(watch_store),
         })
         .invoke_handler(tauri::generate_handler![
@@ -175,21 +178,21 @@ fn main() {
             {
                 let state = app.state::<AppState>();
                 let session_handle = state.session_handle.clone();
-                let project_ids: Vec<String> =
-                    state.project_store.list().iter().map(|p| p.id.clone()).collect();
+                let project_handle = state.project_handle.clone();
                 let app_handle = app.handle().clone();
                 let watch_mgr = state.watch_manager.clone();
                 tauri::async_runtime::spawn(async move {
-                    match session_handle.list().await {
-                        Ok(sessions) => {
-                            let session_ids: Vec<String> =
-                                sessions.iter().map(|s| s.id.clone()).collect();
-                            watch_mgr.store().cleanup_orphans(&session_ids, &project_ids);
+                    let session_ids = session_handle.list().await
+                        .map(|s| s.iter().map(|s| s.id.clone()).collect::<Vec<_>>());
+                    let project_ids = project_handle.list().await
+                        .map(|p| p.iter().map(|p| p.id.clone()).collect::<Vec<_>>());
+
+                    match (session_ids, project_ids) {
+                        (Ok(sids), Ok(pids)) => {
+                            watch_mgr.store().cleanup_orphans(&sids, &pids);
                         }
-                        Err(_) => {
-                            // Skip orphan cleanup if session service is unavailable —
-                            // better to keep stale watches than delete valid ones.
-                            eprintln!("Warning: session service unavailable, skipping watch orphan cleanup");
+                        _ => {
+                            eprintln!("Warning: service unavailable, skipping watch orphan cleanup");
                         }
                     }
                     watch_mgr.start_all(app_handle);
