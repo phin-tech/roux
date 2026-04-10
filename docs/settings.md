@@ -27,4 +27,6 @@ The Updates section shows the currently running Roux version and lets you manage
 
 Updates are signed by Roux's release key and verified on your machine before they're installed. A signature failure always surfaces visibly — Roux will never silently ignore one.
 
+After a successful install, Roux tries to relaunch itself into the new version. If the automatic relaunch fails (a known macOS quirk after the app bundle is swapped in place), the banner and this section will both show **"Update installed. Quit and reopen Roux to finish."** with a **Quit Roux** button — click it and reopen the app to complete the update.
+
 See the [Troubleshooting](troubleshooting.md) page if a setting doesn't seem to take effect.
