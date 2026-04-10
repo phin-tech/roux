@@ -1,3 +1,7 @@
+> [!NOTE]  
+>  This is about 96.25% vibe coded. It's a tool developed for a few folks to use. So take that as you will. If this bugs you then you should probably not use it. If this doesn't bug you then you should probably not use it either. ;)
+
+
 # Roux
 
 ![Roux screenshot](docs/images/screenshot.jpg)
