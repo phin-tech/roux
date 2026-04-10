@@ -146,13 +146,7 @@ tasks:
   clean:status:
     desc: "Clear all session status files"
     cmds:
-      - cmd: |
-          cmd /c "set DIR=%APPDATA%\roux\status && if exist \"%DIR%\" del /Q \"%DIR%\*.json\" 2>nul & echo Cleared status files"
-        platforms: [windows]
-      - cmd: |
-          rm -f ~/.config/roux/status/*.json
-          echo "Cleared status files"
-        platforms: [darwin, linux]
+      - cargo run --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target-task --bin roux-cli -- clear
 
   bundle:prepare-cli:
     desc: "Build roux-cli and stage it for bundling"
