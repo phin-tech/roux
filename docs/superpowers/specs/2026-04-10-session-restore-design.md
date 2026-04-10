@@ -102,7 +102,9 @@ Rust treats `data` as `serde_json::Value` — opaque. Only `version` is inspecte
 
 **Atomic write pattern:** write to `<file>.tmp`, `fsync`, rename over target. Standard pattern; prevents half-written files on crash.
 
-**Session deletion hook:** wherever sessions are removed from `session.rs`, add a call to `delete_pane_state(session_id)` in the same code path. Best-effort; logged on error but non-fatal.
+**Session deletion hook:** in `src-tauri/src/services/sessions.rs::kill_session` (around line 179, right after `session_handle.remove(id).await?`), add a call to `delete_pane_state(session_id)`. Best-effort; logged on error but non-fatal. *Not* in `session.rs` — that module only handles loading/path helpers.
+
+**Loader diagnostics:** `load_pane_state` returns `None` on unreadable / corrupt / wrong-version files to keep the UX fallback clean, but **every failure path logs the cause** (file IO error, JSON parse error, version mismatch with the expected vs. actual version number). Without this, "my layout vanished" becomes undebuggable.
 
 ### Frontend persistence layer
 
@@ -164,37 +166,79 @@ export function deletePaneStateRaw(sessionId: string): Promise<void>
 
 **File:** `src/lib/sessions/reconnect.ts` (extend the existing `reconnect` function).
 
-**New behavior for `reconnect(sessionId, extraFlags)`:**
+**When to rehydrate vs. plain reconnect.** `reconnectSession` is called from several places — not just after app restart. It's also triggered when a session disconnects mid-use (Claude CLI crashes, SessionCard button, SessionTabs, PaneShell). If the user already has splits open and Claude crashes, we **must not** rehydrate from disk — that would stomp existing live pane instances. So the first thing reconnect does is inspect the current in-memory layout:
+
+- If the current `sessionLayouts` entry for this session is a **single leaf** matching `<sessionId>-main` (the default post-startup state), we *may* rehydrate from disk.
+- If the current layout has **any splits already rendered**, rehydration is skipped entirely and we fall through to today's main-pane-only reconnect. The disk state is stale relative to runtime; we trust runtime.
+
+**New behavior for `reconnectSession(session, extraFlags)`:**
 
 ```
-1. Set per-session `reconnecting` flag; bail if already set (prevents double-click races). Implementation: module-scoped `Set<string>` in `reconnect.ts`, added on entry, removed in a `finally` block so it's cleared even on error.
+1. Set per-session `reconnecting` flag; bail if already set (prevents double-click
+   races). Implementation: module-scoped Set<string> in reconnect.ts, added on entry,
+   removed in a finally block so it's cleared even on error.
 
-2. Load persisted pane state from disk:
+2. Inspect current in-memory layout for sessionId.
+   If it is NOT a single main-only leaf → skip rehydration, run today's main-pane-only
+   reconnect (unchanged), clear flag, return. This protects mid-session disconnects.
+
+3. Load persisted pane state from disk:
    └─ loadPaneState(sessionId) → { layout, descriptors } | null
 
-3. If no persisted state exists → fall back to today's main-pane-only reconnect
-   (current code path, unchanged). Clear flag, return.
+4. If no persisted state → main-pane-only reconnect, clear flag, return.
 
-4. Fast-path: if the persisted tree is a single leaf matching `<sessionId>-main`,
-   there's nothing to rehydrate. Run the main-pane reconnect, clear flag, return.
+5. Validate the persisted payload (preflight, see below). If invalid → log the reason,
+   main-pane-only reconnect, clear flag, return. Do NOT apply bad state.
 
-5. Otherwise, full rehydration:
+6. Fast-path: if the persisted tree is a single leaf matching `<sessionId>-main`,
+   run the main-pane reconnect, clear flag, return.
+
+7. Otherwise, full rehydration:
    a. Strip command panes from the tree via stripCommandPanes helper.
       Command panes represent one-shot processes; they cannot be restarted.
    b. Reconnect the main Claude PTY (existing reconnectSessionPty logic).
-      If this fails, abort the restore and let existing error handling run.
-   c. Collect non-claude leaves in tree-walk order (use collectLeafIds from
-      layout.ts, filter out the main pane).
+      If this fails → abort the restore, clear flag, let existing error handling run.
+   c. Collect non-claude leaves in tree-walk order (use collectLeafIds from layout.ts,
+      filter out the main pane).
    d. For each leaf's descriptor, call rehydratePane(descriptor, session.worktreePath):
         - shell    → spawn fresh shell PTY at descriptor.workingDir, create PaneInstance
         - markdown → create PaneInstance directly (no PTY, preserve docPath)
         - command  → already stripped, never reached
-   e. Apply the restored layout tree: sessionLayouts.set(sessionId, strippedTree).
-   f. For each newly-created instance, initTerminal + attachPtyListeners.
+   e. Apply the restored layout tree to sessionLayouts using the store's update
+      pattern (see below).
+   f. For each newly-created non-main instance, in tree-walk order:
+        initTerminal(paneId)   // creates the xterm Terminal + FitAddon on the instance
+        await attachPtyListeners(paneId)  // wires PTY output → terminal.write
+      The initTerminal call MUST precede attachPtyListeners — otherwise early PTY
+      output is dropped because instance.terminal is still null when the output
+      channel callback fires. This matches the existing pattern in App.svelte:216-217
+      and commands/panes.ts.
    g. Clear `reconnecting` flag.
 ```
 
-**Ordering constraint:** all `PaneInstance` objects must exist in `paneInstances` **before** `sessionLayouts.set(...)` is called, otherwise `SplitPane.svelte` will try to resolve leaves that don't exist yet. Instance creation happens in step 5d, tree apply happens in 5e. Terminal init and PTY listener attachment (5f) run after the reactive render resolves.
+**Integrity preflight (step 5).** Before applying any persisted tree, validate:
+
+1. `layout` is a well-formed `LayoutNode` (recursive check).
+2. `descriptors` has **exactly one** entry with `type === "claude"` and id `<sessionId>-main`.
+3. Every leaf `paneId` in the tree maps to exactly one descriptor.
+4. No duplicate descriptor ids.
+5. No descriptor types outside `"claude" | "shell" | "command" | "markdown"`.
+
+If any check fails → log the specific reason, return null from the load path, fall back to main-pane-only reconnect. Reason: without this, a corrupt file (e.g., partial write from a crash older than this design, or an old-schema file that slipped through the version guard) would render empty leaves in `SplitPane.svelte`/`PaneShell.svelte` *and* the auto-save subscription would then persist the bad state back to disk, compounding the problem.
+
+**Store mutation — the correct pattern.** `sessionLayouts` is a `writable<Map<string, LayoutNode>>`. The existing codebase (layout.ts, actions.ts) always mutates per-session entries via the `update` pattern, not `.set(...)`:
+
+```ts
+sessionLayouts.update((m) => {
+  const next = new Map(m);
+  next.set(sessionId, strippedTree);
+  return next;
+});
+```
+
+Step 7e uses exactly this pattern. Using `sessionLayouts.set(sessionId, strippedTree)` would replace the entire map with the wrong type and break everything — do not write that.
+
+**Ordering constraint:** all `PaneInstance` objects must exist in `paneInstances` **before** the layout tree is applied in step 7e, otherwise `SplitPane.svelte` (which renders leaves reactively) will try to resolve pane ids that don't exist yet and log missing-instance errors. Instance creation happens in step 7d, tree apply happens in 7e. Terminal init and PTY listener attachment (7f) run after the tree apply has triggered the reactive render — at that point each pane's DOM container is mounted and `attachToContainer` can be called.
 
 **Why preserve the original pane id:** the saved layout tree references pane ids. Generating new ids at rehydration time would require rewriting the tree. Keep the ids stable, generate fresh PTY ids only.
 
@@ -287,7 +331,8 @@ Behavior:
 
 - Round-trip: `save_pane_state` → `load_pane_state` returns identical payload.
 - Missing file: `load_pane_state` for unknown session → `None`.
-- Wrong version: file with `version: 999` → `load_pane_state` returns `None`.
+- Wrong version: file with `version: 999` → `load_pane_state` returns `None` **and logs the mismatch**.
+- Corrupt JSON: `load_pane_state` returns `None` **and logs the parse error**.
 - Atomic write: bad tmp file leaves target untouched.
 - Delete: `delete_pane_state` on missing file → no error.
 - Directory autocreation: first save on a fresh config dir creates `pane_state/` directory.
@@ -308,6 +353,9 @@ Behavior:
 - Shell spawn fails → instance created with `restoreError` set, layout still applied.
 - Command pane in persisted tree → stripped before rehydration.
 - Double-click reconnect → second call bails on the `reconnecting` flag.
+- **Mid-session disconnect** → current layout already has splits → rehydration skipped, main-pane-only reconnect runs.
+- **Corrupt persisted state** (leaf references missing descriptor, duplicate ids, missing main claude, invalid descriptor type) → integrity preflight fails → logged, main-pane-only fallback runs, disk state is not applied.
+- **Ordering** — assert `initTerminal` is called before `attachPtyListeners` for each rehydrated pane.
 - Mock `spawnShell` and `loadPaneState` to control success/failure.
 
 ### Frontend instance tests — extend `src/lib/panes/__tests__/instances.test.ts`
@@ -329,10 +377,12 @@ Behavior:
 
 ## Risks
 
-1. **Subscription fires during rehydration.** Applying the restored tree via `sessionLayouts.set(...)` triggers the auto-save subscription, which schedules a redundant save. Harmless but wasteful. Acceptable — debounce absorbs it.
-2. **Reconnect race.** Rapid double-click could double-spawn shells. Mitigated by the per-session `reconnecting` flag set at reconnect entry.
-3. **PaneShell component contract.** Currently assumes `instance.terminal` exists after mount for shell panes. The `restoreError` branch short-circuits before that dereference, but a full audit of `PaneShell.svelte` during implementation is required to confirm nothing downstream derefs `instance.terminal` unconditionally.
-4. **Atomic write on macOS.** `rename(2)` over an existing file is atomic on APFS, but only within the same filesystem. The tmp file must be created in the same directory as the target (not in `/tmp`). Standard practice; just flagging.
+1. **Subscription fires during rehydration.** Applying the restored tree via `sessionLayouts.update(...)` triggers the auto-save subscription, which schedules a redundant save. Harmless but wasteful. Acceptable — debounce absorbs it.
+2. **Reconnect race.** Rapid double-click could double-spawn shells. Mitigated by the per-session `reconnecting` flag set at reconnect entry, cleared in `finally`.
+3. **Mid-session disconnect scenario.** Claude CLI crashes while the user has splits open → clicking reconnect should respawn Claude but leave the existing pane tree alone. Mitigated by step 2 of the reconnect flow: rehydrate *only* when the current layout is a single main-only leaf. Any other runtime state is trusted over disk.
+4. **Stale/corrupt persisted state.** A partial write from a crashed old version, or a file tampered with externally, could reference missing pane ids or have mismatched descriptors. Mitigated by the integrity preflight in step 5; invalid state is logged and ignored rather than applied.
+5. **PaneShell component contract.** Currently assumes `instance.terminal` exists after mount for shell panes. The `restoreError` branch short-circuits before that dereference, but a full audit of `PaneShell.svelte` during implementation is required to confirm nothing downstream derefs `instance.terminal` unconditionally.
+6. **Atomic write on macOS.** `rename(2)` over an existing file is atomic on APFS, but only within the same filesystem. The tmp file must be created in the same directory as the target (not in `/tmp`). Standard practice; just flagging.
 
 ## Open Questions
 
@@ -355,7 +405,7 @@ None at design time. All architectural decisions made and confirmed.
 
 **Modified:**
 - `src-tauri/src/main.rs` — register new Tauri commands
-- `src-tauri/src/session.rs` — call `delete_pane_state` on session removal
+- `src-tauri/src/services/sessions.rs` — call `delete_pane_state` in `kill_session` after `session_handle.remove(id)`
 - `src/lib/tauri.ts` — wrappers for the three new Tauri commands
 - `src/lib/panes/persistence.ts` — replace localStorage with Tauri-backed save/load
 - `src/lib/panes/instances.ts` — add `restoreError` field
