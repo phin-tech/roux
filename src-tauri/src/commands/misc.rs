@@ -25,8 +25,8 @@ pub(crate) fn cmd_open_in_editor(path: String) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn quit_app(state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    let handle = state.session_handle.clone();
-    handle.shutdown().await;
+    state.session_handle.shutdown().await;
+    state.project_handle.shutdown().await;
     app.exit(0);
     Ok(())
 }
