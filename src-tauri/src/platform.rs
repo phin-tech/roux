@@ -109,9 +109,44 @@ pub fn command_string(program: &Path, args: &[&str]) -> String {
     parts.join(" ")
 }
 
+fn windows_command_candidates(file_name: &str) -> Vec<String> {
+    let mut candidates = vec![file_name.to_string()];
+    if Path::new(file_name).extension().is_some() {
+        return candidates;
+    }
+
+    let extensions = std::env::var_os("PATHEXT")
+        .map(|value| {
+            value
+                .to_string_lossy()
+                .split(';')
+                .filter_map(|ext| {
+                    let ext = ext.trim();
+                    if ext.is_empty() { None } else { Some(ext.to_string()) }
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|exts| !exts.is_empty())
+        .unwrap_or_else(|| vec![".COM".into(), ".EXE".into(), ".BAT".into(), ".CMD".into()]);
+
+    for ext in extensions {
+        candidates.push(format!("{}{}", file_name, ext));
+    }
+
+    candidates
+}
+
 pub fn find_executable_on_path(file_name: &str) -> Option<PathBuf> {
     let paths = std::env::var_os("PATH")?;
-    std::env::split_paths(&paths).map(|dir| dir.join(file_name)).find(|path| path.is_file())
+    let candidates = if cfg!(windows) {
+        windows_command_candidates(file_name)
+    } else {
+        vec![file_name.to_string()]
+    };
+
+    std::env::split_paths(&paths)
+        .flat_map(|dir| candidates.iter().map(move |candidate| dir.join(candidate)))
+        .find(|path| path.is_file())
 }
 
 #[cfg(test)]
@@ -156,5 +191,11 @@ mod tests {
             command,
             "\"C:\\\\Users\\\\Sam\\\\App Data\\\\Roux\\\\roux-cli.exe\" hook working"
         );
+    }
+
+    #[test]
+    fn windows_command_candidates_include_executable_extensions() {
+        let candidates = windows_command_candidates("gh");
+        assert!(candidates.iter().any(|candidate| candidate.eq_ignore_ascii_case("gh.exe")));
     }
 }

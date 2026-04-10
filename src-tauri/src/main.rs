@@ -392,14 +392,7 @@ struct SetupStatus {
 
 #[tauri::command]
 fn check_setup_status() -> SetupStatus {
-    let user_path = pty::get_user_path();
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let gh_available = std::process::Command::new(&shell)
-        .args(["-c", "command -v gh"])
-        .env("PATH", &user_path)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let gh_available = platform::find_executable_on_path("gh").is_some();
 
     SetupStatus {
         cli_installed: hooks::cli_is_installed(),
@@ -420,15 +413,7 @@ fn run_setup() -> Result<(), String> {
 
 #[tauri::command]
 fn check_nono_installed() -> bool {
-    let user_path = pty::get_user_path();
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-
-    std::process::Command::new(&shell)
-        .args(["-c", "command -v nono"])
-        .env("PATH", &user_path)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    platform::find_executable_on_path("nono").is_some()
 }
 
 #[tauri::command]
