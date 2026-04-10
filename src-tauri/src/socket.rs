@@ -15,6 +15,7 @@ struct Request {
     command: String,
     session_id: Option<String>,
     pane_id: Option<String>,
+    auth_token: Option<String>,
     #[serde(default)]
     args: serde_json::Value,
 }
@@ -92,6 +93,11 @@ pub fn start_socket_server(app: tauri::AppHandle) {
                 rlog!("Failed to write socket address file: {}", e);
                 return;
             }
+            let auth_token = uuid::Uuid::new_v4().to_string();
+            if let Err(e) = fs::write(platform::socket_auth_token_file_path(), &auth_token) {
+                rlog!("Failed to write socket auth token file: {}", e);
+                return;
+            }
 
             rlog!("Socket server listening on {}", addr);
             listener
@@ -146,6 +152,17 @@ pub fn start_socket_server(app: tauri::AppHandle) {
 }
 
 async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
+    #[cfg(windows)]
+    {
+        let Some(expected_token) = platform::load_socket_auth_token() else {
+            return Response::err("Socket auth token unavailable");
+        };
+
+        if req.auth_token.as_deref() != Some(expected_token.as_str()) {
+            return Response::err("unauthorized");
+        }
+    }
+
     match req.command.as_str() {
         "split" => handle_split(req, app),
         "session-create" => handle_session_create(req, app),
@@ -403,6 +420,8 @@ pub fn cleanup_socket() {
     let path = socket_path();
     let _ = fs::remove_file(path);
     #[cfg(windows)]
+    let _ = fs::remove_file(platform::socket_auth_token_file_path());
+    #[cfg(windows)]
     let _ = fs::remove_file(platform::socket_addr_file_path());
 }
 
@@ -458,6 +477,7 @@ mod tests {
         assert_eq!(req.command, "split");
         assert!(req.session_id.is_none());
         assert!(req.pane_id.is_none());
+        assert!(req.auth_token.is_none());
     }
 
     #[test]
@@ -472,6 +492,7 @@ mod tests {
         assert_eq!(req.command, "split");
         assert_eq!(req.session_id.as_deref(), Some("abc123"));
         assert_eq!(req.pane_id.as_deref(), Some("pane-1"));
+        assert!(req.auth_token.is_none());
         assert_eq!(req.args["direction"], "horizontal");
     }
 

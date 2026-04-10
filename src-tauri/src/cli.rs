@@ -92,6 +92,13 @@ fn send_socket_command(request: Value) -> Result<Value, String> {
         use std::net::TcpStream;
         use std::time::Duration;
 
+        let mut request = request;
+        let auth_token = platform::load_socket_auth_token()
+            .ok_or_else(|| "Roux command channel token not found".to_string())?;
+        if let Some(request_obj) = request.as_object_mut() {
+            request_obj.insert("auth_token".to_string(), Value::String(auth_token));
+        }
+
         let endpoint =
             platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
         let mut stream = TcpStream::connect(&endpoint).map_err(|e| {

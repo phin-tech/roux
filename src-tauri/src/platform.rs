@@ -51,6 +51,11 @@ pub fn socket_addr_file_path() -> PathBuf {
     app_config_dir().join("roux-socket-addr")
 }
 
+#[cfg(windows)]
+pub fn socket_auth_token_file_path() -> PathBuf {
+    app_config_dir().join("roux-socket-token")
+}
+
 pub fn resolve_socket_endpoint() -> Option<String> {
     if let Ok(endpoint) = std::env::var("ROUX_SOCKET") {
         let endpoint = endpoint.trim();
@@ -71,6 +76,14 @@ pub fn resolve_socket_endpoint() -> Option<String> {
     {
         Some(socket_path().to_string_lossy().to_string())
     }
+}
+
+#[cfg(windows)]
+pub fn load_socket_auth_token() -> Option<String> {
+    std::fs::read_to_string(socket_auth_token_file_path())
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 pub fn roux_cli_file_name() -> &'static str {
