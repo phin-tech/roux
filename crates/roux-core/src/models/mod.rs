@@ -1,3 +1,4 @@
+mod events;
 mod session;
 mod project;
 mod settings;
@@ -5,6 +6,7 @@ mod worktree;
 mod watch;
 mod task;
 
+pub use events::{SessionExitPayload, SessionExitReason, RouxCommand};
 pub use session::{Session, SessionStatus};
 pub use project::Project;
 pub use settings::{RouxSettings, CursorStyle, TabPosition, GroupBy};

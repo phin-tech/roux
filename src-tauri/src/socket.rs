@@ -139,15 +139,13 @@ fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     use tauri::Emitter;
-    let _ = app.emit(
-        "roux-command",
-        serde_json::json!({
-            "action": "split",
-            "sessionId": session_id,
-            "paneId": req.pane_id,
-            "direction": direction,
-        }),
-    );
+    let mut cmd = roux_core::RouxCommand::new("split")
+        .session_id(session_id)
+        .direction(direction);
+    if let Some(ref pane_id) = req.pane_id {
+        cmd = cmd.pane_id(pane_id);
+    }
+    let _ = app.emit("roux-command", &cmd);
 
     Response::ok()
 }
@@ -203,13 +201,8 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     let session_id = session.id.clone();
 
     use tauri::Emitter;
-    if let Err(e) = app.emit(
-        "roux-command",
-        serde_json::json!({
-            "action": "session-created",
-            "sessionId": session_id,
-        }),
-    ) {
+    let cmd = roux_core::RouxCommand::new("session-created").session_id(&session_id);
+    if let Err(e) = app.emit("roux-command", &cmd) {
         rlog!("Warning: failed to emit session-created event: {}", e);
     }
 
@@ -251,12 +244,10 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     use tauri::Emitter;
     let _ = app.emit(
         "roux-command",
-        serde_json::json!({
-            "action": "shell-opened",
-            "sessionId": session_id,
-            "paneId": pane_id,
-            "ptyId": pty_id,
-        }),
+        &roux_core::RouxCommand::new("shell-opened")
+            .session_id(session_id)
+            .pane_id(&pane_id)
+            .pty_id(&pty_id),
     );
 
     Response::success(serde_json::json!({ "pane_id": pane_id, "pty_id": pty_id }))
@@ -264,14 +255,14 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
 
 fn handle_focus(req: Request, app: &tauri::AppHandle) -> Response {
     use tauri::Emitter;
-    let _ = app.emit(
-        "roux-command",
-        serde_json::json!({
-            "action": "focus",
-            "sessionId": req.session_id,
-            "paneId": req.pane_id,
-        }),
-    );
+    let mut cmd = roux_core::RouxCommand::new("focus");
+    if let Some(ref id) = req.session_id {
+        cmd = cmd.session_id(id);
+    }
+    if let Some(ref pane_id) = req.pane_id {
+        cmd = cmd.pane_id(pane_id);
+    }
+    let _ = app.emit("roux-command", &cmd);
 
     Response::ok()
 }
@@ -320,14 +311,12 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
     use tauri::Emitter;
     let _ = app.emit(
         "roux-command",
-        serde_json::json!({
-            "action": "command-opened",
-            "sessionId": session_id,
-            "paneId": pane_id,
-            "ptyId": pty_id,
-            "command": command,
-            "workingDir": working_dir,
-        }),
+        &roux_core::RouxCommand::new("command-opened")
+            .session_id(session_id)
+            .pane_id(&pane_id)
+            .pty_id(&pty_id)
+            .command(&command)
+            .working_dir(&working_dir),
     );
 
     Response::success(serde_json::json!({ "pane_id": pane_id, "pty_id": pty_id }))

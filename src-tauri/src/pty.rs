@@ -138,10 +138,11 @@ fn spawn_flusher(
                         output.send(std::mem::take(&mut batch));
                     }
                     if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(
-                            evt,
-                            serde_json::json!({"code": null, "generation": gen, "reason": "exit"}),
-                        );
+                        let _ = app.emit(evt, &roux_core::SessionExitPayload {
+                            code: None,
+                            generation: *gen,
+                            reason: roux_core::SessionExitReason::Exit,
+                        });
                     }
                     break;
                 }
@@ -150,7 +151,11 @@ fn spawn_flusher(
                         output.send(std::mem::take(&mut batch));
                     }
                     if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(evt, serde_json::json!({"code": null, "generation": gen, "reason": "io_error"}));
+                        let _ = app.emit(evt, &roux_core::SessionExitPayload {
+                            code: None,
+                            generation: *gen,
+                            reason: roux_core::SessionExitReason::IoError,
+                        });
                     }
                     break;
                 }
@@ -497,7 +502,11 @@ impl PtyManager {
             let code = child.wait().ok().map(|status| status.exit_code());
             let _ = app.emit(
                 &exit_event_name,
-                serde_json::json!({ "code": code, "generation": gen, "reason": "exit" }),
+                &roux_core::SessionExitPayload {
+                    code,
+                    generation: gen,
+                    reason: roux_core::SessionExitReason::Exit,
+                },
             );
         });
 
