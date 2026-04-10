@@ -199,5 +199,6 @@ pub struct CreateWatchConfig {
     pub kind: WatchKind,
     pub mode: WatchMode,
     pub scope: WatchScope,
+    #[serde(default)]
     pub notify: Option<NotifyConfig>,
 }

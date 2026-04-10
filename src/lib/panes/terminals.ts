@@ -135,6 +135,7 @@ export function initTerminal(paneId: string): void {
               scope: state.activeSessionId
                 ? { type: "session", sessionId: state.activeSessionId }
                 : { type: "global" },
+              notify: null,
             };
             await createWatch(config);
           });
@@ -159,6 +160,7 @@ export function initTerminal(paneId: string): void {
               scope: state.activeSessionId
                 ? { type: "session", sessionId: state.activeSessionId }
                 : { type: "global" },
+              notify: null,
             };
             await createWatch(config);
           });

@@ -11,7 +11,7 @@ import {
   setTaskPaneId,
   getEffectiveKeepOpen,
 } from "$lib/stores/tasks";
-import type { TaskDefinition } from "$lib/types/tasks";
+import type { TaskDefinition } from "$lib/types";
 
 /** Simple ANSI escape code stripper for inline display */
 function stripAnsi(text: string): string {
