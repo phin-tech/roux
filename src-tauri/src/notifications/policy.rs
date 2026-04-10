@@ -36,6 +36,13 @@ pub fn should_fan_out_to_os(input: PolicyInput<'_>) -> bool {
         return false;
     }
 
+    // CLI-pushed notifications always fire. The user explicitly ran
+    // `roux notify`, so surfacing it is the point — we don't second-guess
+    // them on level or focus.
+    if matches!(input.source, NotificationSource::Cli) {
+        return true;
+    }
+
     match input.level {
         NotificationLevel::Attention
         | NotificationLevel::Warning
@@ -126,10 +133,32 @@ mod tests {
     }
 
     #[test]
-    fn info_from_random_source_does_not_fire() {
+    fn cli_always_fires_regardless_of_focus_or_level() {
+        // Cli is the explicit-user path — `roux notify` should never be
+        // suppressed by the policy. Test the full matrix.
+        for level in [
+            NotificationLevel::Info,
+            NotificationLevel::Success,
+            NotificationLevel::Attention,
+            NotificationLevel::Warning,
+            NotificationLevel::Error,
+        ] {
+            for focused in [true, false] {
+                assert!(
+                    input(level, NotificationSource::Cli, focused, true),
+                    "Cli should fire for level={:?} focused={}",
+                    level,
+                    focused
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn info_from_internal_source_does_not_fire() {
         assert!(!input(
             NotificationLevel::Info,
-            NotificationSource::Cli,
+            NotificationSource::Internal,
             false,
             true,
         ));
