@@ -35,7 +35,8 @@ fn main() {
         rlog!("Claude binary path: (default, resolved via PATH)");
     }
 
-    let watch_store = std::sync::Arc::new(watches::WatchStore::load_persisted());
+    let persisted_watches = watches::load_persisted_watches();
+    let (watch_store_handle, _watch_join) = watches::store::spawn(persisted_watches);
 
     let persisted_sessions = session::load_persisted_sessions();
     let (session_handle, _session_join) = session_service::spawn(persisted_sessions);
@@ -110,7 +111,7 @@ fn main() {
             pty_manager: PtyManager::new(),
             session_handle,
             project_handle,
-            watch_manager: watches::WatchManager::new(watch_store),
+            watch_manager: watches::WatchManager::new(watch_store_handle),
         })
         .invoke_handler(tauri::generate_handler![
             commands::misc::get_log_path,
@@ -189,7 +190,7 @@ fn main() {
 
                     match (session_ids, project_ids) {
                         (Ok(sids), Ok(pids)) => {
-                            watch_mgr.store().cleanup_orphans(&sids, &pids);
+                            let _ = watch_mgr.store().cleanup_orphans(sids, pids).await;
                         }
                         _ => {
                             eprintln!("Warning: service unavailable, skipping watch orphan cleanup");

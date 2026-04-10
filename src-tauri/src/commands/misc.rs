@@ -28,6 +28,7 @@ pub(crate) async fn quit_app(state: tauri::State<'_, AppState>, app: tauri::AppH
     state.pty_manager.shutdown_all();
     state.session_handle.shutdown().await;
     state.project_handle.shutdown().await;
+    state.watch_manager.store().shutdown().await;
     crate::socket::cleanup_socket();
     app.exit(0);
     Ok(())
