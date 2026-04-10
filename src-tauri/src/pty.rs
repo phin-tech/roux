@@ -594,6 +594,15 @@ impl PtyManager {
     pub fn get_generation(&self, session_id: &str) -> Option<u64> {
         self.sessions.lock().unwrap().get(session_id).map(|s| s.generation)
     }
+
+    /// Kill all active PTY sessions. Called during app shutdown.
+    pub fn shutdown_all(&self) {
+        let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
+        for id in &ids {
+            self.kill(id);
+        }
+        rlog!("PtyManager: shut down {} session(s)", ids.len());
+    }
 }
 
 /// Get the socket path as a string for setting env vars.
