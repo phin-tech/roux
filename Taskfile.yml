@@ -33,7 +33,7 @@ tasks:
       - cd src-tauri && cargo build --bin roux-cli
       - |
         mkdir -p ~/.local/bin
-        cp src-tauri/target/debug/roux-cli ~/.local/bin/roux-cli
+        cp target/debug/roux-cli ~/.local/bin/roux-cli
         chmod +x ~/.local/bin/roux-cli
         echo "Installed roux-cli to ~/.local/bin/roux-cli"
 
@@ -49,7 +49,7 @@ tasks:
           echo "Removing existing $APP"
           rm -rf "$APP"
         fi
-        cp -R src-tauri/target/release/bundle/macos/Roux.app /Applications/
+        cp -R target/release/bundle/macos/Roux.app /Applications/
         echo "Installed Roux.app to /Applications"
 
   build:
@@ -152,10 +152,10 @@ tasks:
         set -euo pipefail
         if [ -n "${TAURI_TARGET:-}" ]; then
           cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli --target "${TAURI_TARGET}"
-          SOURCE="src-tauri/target/${TAURI_TARGET}/release/roux-cli"
+          SOURCE="target/${TAURI_TARGET}/release/roux-cli"
         else
           cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli
-          SOURCE="src-tauri/target/release/roux-cli"
+          SOURCE="target/release/roux-cli"
         fi
         mkdir -p src-tauri/binaries
         cp "${SOURCE}" src-tauri/binaries/roux-cli
@@ -167,7 +167,7 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        TARGET_ROOT="src-tauri/target"
+        TARGET_ROOT="target"
         if [ -n "${TAURI_TARGET:-}" ]; then
           TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
         fi
@@ -188,7 +188,7 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        TARGET_ROOT="src-tauri/target"
+        TARGET_ROOT="target"
         if [ -n "${TAURI_TARGET:-}" ]; then
           TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
         fi
@@ -205,7 +205,7 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        TARGET_ROOT="src-tauri/target"
+        TARGET_ROOT="target"
         if [ -n "${TAURI_TARGET:-}" ]; then
           TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
         fi
@@ -223,7 +223,7 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        TARGET_ROOT="src-tauri/target"
+        TARGET_ROOT="target"
         if [ -n "${TAURI_TARGET:-}" ]; then
           TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
         fi
@@ -297,7 +297,7 @@ tasks:
       - task: macos:zip-app
       - |
         set -euo pipefail
-        TARGET_ROOT="src-tauri/target"
+        TARGET_ROOT="target"
         if [ -n "${TAURI_TARGET:-}" ]; then
           TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
         fi
