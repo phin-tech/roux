@@ -67,7 +67,13 @@
             <p class="text-base font-semibold tracking-tight text-text-primary">No active sessions</p>
             <p class="text-sm text-text-secondary">Start a new session to open a terminal workspace.</p>
           </div>
-          <p class="text-[12px] font-semibold uppercase tracking-[0.2em] text-text-secondary">Click "New" in the sidebar</p>
+          <button
+            type="button"
+            onclick={onNewSession}
+            class="rounded-lg border border-border-subtle bg-bg-surface/80 px-4 py-2 text-sm font-semibold text-text-primary shadow-[0_18px_40px_rgba(2,6,23,0.45)] transition-colors hover:border-accent hover:text-accent"
+          >
+            New Session
+          </button>
         </div>
       {:else}
         {#each $sessionState.sessions as session (session.id)}
@@ -80,6 +86,7 @@
               <SplitPane
                 node={tree}
                 sessionId={session.id}
+                visible={session.id === $sessionState.activeSessionId}
               />
             </div>
           {/if}
