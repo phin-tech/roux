@@ -9,6 +9,7 @@ export type UpdateStatus =
   | { kind: "no-update" }
   | { kind: "available"; version: string; notes: string }
   | { kind: "downloading"; progress: number | null }
+  | { kind: "installed-restart-required" }
   | { kind: "ready" }
   | { kind: "error"; reason: UpdaterError };
 
@@ -100,6 +101,18 @@ export async function installUpdate(
       }
     }
   });
+  // Do NOT call relaunch() here. The install is complete; relaunch is a
+  // separate, best-effort step handled by the caller so we can distinguish
+  // "install failed" from "install succeeded but restart failed".
+}
 
+/**
+ * Attempts to exit the current process and start a fresh one. May throw
+ * on macOS if the bundle was just replaced on disk — callers should treat
+ * any thrown error as "the install is fine, the user just needs to restart
+ * Roux manually".
+ */
+export async function relaunchApp(): Promise<void> {
+  if (isDev()) return;
   await relaunch();
 }

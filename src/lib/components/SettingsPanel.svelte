@@ -6,6 +6,7 @@
   import { notificationsPush } from "$lib/tauri";
   import { updateStatus, runManualCheck, performInstall } from "$lib/stores/updater";
   import { getVersion } from "@tauri-apps/api/app";
+  import { quitApp } from "$lib/tauri";
   import { onMount } from "svelte";
 
   let appVersion = $state<string>("…");
@@ -398,6 +399,17 @@
               style="width: {$updateStatus.progress !== null ? Math.round($updateStatus.progress * 100) : 30}%"
             ></div>
           </div>
+        </div>
+      {:else if $updateStatus.kind === "installed-restart-required"}
+        <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
+          <div class="text-[12px] font-semibold text-text-primary">Update installed</div>
+          <div class="text-[11px] text-text-secondary mt-0.5">Quit and reopen Roux to finish.</div>
+          <button
+            class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
+            onclick={() => void quitApp()}
+          >
+            Quit Roux
+          </button>
         </div>
       {:else if $updateStatus.kind === "error"}
         <div class="mt-2 text-[11px] text-red">{describeError($updateStatus.reason)}</div>

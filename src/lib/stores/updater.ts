@@ -1,5 +1,10 @@
 import { writable, get } from "svelte/store";
-import { checkForUpdate, installUpdate, type UpdateStatus } from "$lib/updater";
+import {
+  checkForUpdate,
+  installUpdate,
+  relaunchApp,
+  type UpdateStatus,
+} from "$lib/updater";
 import { settings } from "./settings";
 
 export const updateStatus = writable<UpdateStatus>({ kind: "idle" });
@@ -28,11 +33,11 @@ export async function runManualCheck(): Promise<void> {
 
 export async function performInstall(): Promise<void> {
   updateStatus.set({ kind: "downloading", progress: null });
+
   try {
     await installUpdate((progress) => {
       updateStatus.set({ kind: "downloading", progress });
     });
-    updateStatus.set({ kind: "ready" });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const reason = /signature/i.test(message)
@@ -41,6 +46,20 @@ export async function performInstall(): Promise<void> {
         ? "network"
         : "unknown";
     updateStatus.set({ kind: "error", reason });
+    return;
+  }
+
+  // Install succeeded. Show the "restart required" state first — if the
+  // relaunch call succeeds the process exits and the user never sees this
+  // state, but if relaunch throws (a known flake on macOS after the bundle
+  // is swapped) we leave the message visible so the user knows to quit
+  // and reopen Roux manually.
+  updateStatus.set({ kind: "installed-restart-required" });
+
+  try {
+    await relaunchApp();
+  } catch (e) {
+    console.warn("[updater] relaunch failed after install; user must quit manually", e);
   }
 }
 

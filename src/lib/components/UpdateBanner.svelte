@@ -1,9 +1,11 @@
 <script lang="ts">
   import { updateStatus, performInstall, dismissUpdateBanner } from "$lib/stores/updater";
+  import { quitApp } from "$lib/tauri";
 
   let visible = $derived(
     $updateStatus.kind === "available" ||
     $updateStatus.kind === "downloading" ||
+    $updateStatus.kind === "installed-restart-required" ||
     $updateStatus.kind === "error"
   );
 </script>
@@ -39,6 +41,21 @@
             style="width: {$updateStatus.progress !== null ? Math.round($updateStatus.progress * 100) : 30}%"
           ></div>
         </div>
+      </div>
+    {:else if $updateStatus.kind === "installed-restart-required"}
+      <div class="flex items-center gap-3">
+        <div>
+          <div class="font-semibold text-text-primary">Update installed</div>
+          <div class="text-[11px] text-text-muted">Quit and reopen Roux to finish.</div>
+        </div>
+        <button
+          class="rounded border border-accent bg-accent-dim px-2.5 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
+          onclick={() => void quitApp()}
+        >Quit Roux</button>
+        <button
+          class="rounded border border-border px-2.5 py-1 text-[11px] text-text-secondary hover:bg-bg-hover"
+          onclick={dismissUpdateBanner}
+        >Later</button>
       </div>
     {:else if $updateStatus.kind === "error"}
       <div class="flex items-center gap-3">
