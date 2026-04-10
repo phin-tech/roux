@@ -45,8 +45,4 @@ export const queries = {
     if (!paneId) return null;
     return getInstance(paneId) ?? null;
   },
-
-  hasAttentionSession() {
-    return this.sessions().some((s) => s.status === "attention");
-  },
 };

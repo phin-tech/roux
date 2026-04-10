@@ -38,7 +38,6 @@ function makeSession(id: string, name = "test") {
     status: "idle" as const,
     model: null,
     cost: null,
-    permissionInfo: null,
     createdAt: Date.now(),
     projectId: null,
     isGitRepo: true,

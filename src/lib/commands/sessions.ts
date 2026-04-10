@@ -2,7 +2,7 @@ import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { addSession, setActiveSession, triggerRename, setSessionProject } from "$lib/stores/sessions";
 import { initSession } from "$lib/panes/actions";
-import { writeToSession, createSession, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
+import { createSession, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
 import { closeSession } from "$lib/sessions/close";
 import { reconnectSession } from "$lib/sessions/reconnect";
 
@@ -19,52 +19,6 @@ export function registerSessionCommands() {
         description: `${s.branch} \u00b7 ${s.status}`,
         action: () => setActiveSession(s.id),
       }));
-    },
-  });
-
-  // -- Multi-step: Approve Permission --
-  registry.register({
-    id: "session.approve",
-    label: "Approve Permission",
-    category: "Sessions",
-    available: () => queries.hasAttentionSession(),
-    getItems: () => {
-      return queries
-        .sessions()
-        .filter((s) => s.status === "attention")
-        .map((s) => ({
-          id: s.id,
-          label: s.name,
-          description: s.permissionInfo
-            ? `${s.permissionInfo.toolName}: ${JSON.stringify(s.permissionInfo.toolInput).slice(0, 60)}`
-            : "Permission needed",
-          substeps: () => [
-            {
-              id: "allow",
-              label: "Allow",
-              description: "Yes, this time",
-              action: async () => {
-                await writeToSession(s.id, "\r");
-              },
-            },
-            {
-              id: "always",
-              label: "Always",
-              description: "Allow during this session",
-              action: async () => {
-                await writeToSession(s.id, "\x1b[Z");
-              },
-            },
-            {
-              id: "deny",
-              label: "Deny",
-              description: "No",
-              action: async () => {
-                await writeToSession(s.id, "\x1b[B\x1b[B\r");
-              },
-            },
-          ],
-        }));
     },
   });
 

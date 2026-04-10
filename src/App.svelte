@@ -12,7 +12,7 @@
   import QuitDialog from "$lib/components/QuitDialog.svelte";
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
-  import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
+  import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
   import { initSession, splitPane } from "$lib/panes/actions";
@@ -333,7 +333,9 @@
       applyNotificationEvent(payload);
     });
 
-    // Listen for global status updates from hooks and match by cwd
+    // Listen for global status updates from hooks and match by cwd.
+    // Attention-state details (tool name/input/message) now flow through
+    // the notification service instead of per-session permission state.
     await onRouxStatusUpdate((update) => {
       const sessions = $sessionState.sessions;
       const match = sessions.find(
@@ -341,23 +343,6 @@
       );
       if (match) {
         updateSessionStatus(match.id, update.status as any, null, null);
-        if (update.status === "attention") {
-          if (update.toolName) {
-            updateSessionPermission(match.id, {
-              toolName: update.toolName,
-              toolInput: update.toolInput ?? {},
-              message: update.message ?? "",
-            });
-          } else if (update.message && !match.permissionInfo) {
-            updateSessionPermission(match.id, {
-              toolName: "",
-              toolInput: {},
-              message: update.message,
-            });
-          }
-        } else {
-          updateSessionPermission(match.id, null);
-        }
       }
     });
   });

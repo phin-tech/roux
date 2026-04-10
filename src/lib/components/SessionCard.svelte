@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session, PermissionInfo, WatchOutcome } from "$lib/types";
+  import type { Session, WatchOutcome } from "$lib/types";
   import { renameSignal } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
   import { watchState, flashingSessions } from "$lib/stores/watches";
@@ -12,10 +12,6 @@
     onclose: () => void;
     onrename: (newName: string) => void;
     onreconnect: () => void;
-    onapprove: () => void;
-    onalways: () => void;
-    ondeny: () => void;
-    ondismiss: () => void;
     oncontextmenu?: (e: MouseEvent) => void;
   }
 
@@ -26,31 +22,8 @@
     onclose,
     onrename,
     onreconnect,
-    onapprove,
-    onalways,
-    ondeny,
-    ondismiss,
     oncontextmenu,
   }: Props = $props();
-
-  function formatPermission(info: PermissionInfo): string {
-    if (info.toolName === "Bash" && info.toolInput?.command) {
-      return `Bash: ${info.toolInput.command}`;
-    }
-    if (info.toolName === "Read" && info.toolInput?.file_path) {
-      return `Read: ${info.toolInput.file_path}`;
-    }
-    if (info.toolName === "Write" && info.toolInput?.file_path) {
-      return `Write: ${info.toolInput.file_path}`;
-    }
-    if (info.toolName === "Edit" && info.toolInput?.file_path) {
-      return `Edit: ${info.toolInput.file_path}`;
-    }
-    if (info.message) {
-      return info.message;
-    }
-    return info.toolName || "Permission needed";
-  }
 
   function pathLabel(path: string): string {
     const parts = path.split("/").filter(Boolean);
@@ -256,56 +229,6 @@
     {/if}
   </div>
 
-  {#if session.permissionInfo}
-    <div class="mt-1.5 border border-amber/10 bg-amber/10 px-2.5 py-1.5">
-      <div class="flex items-start gap-1">
-        <span
-          class="block flex-1 truncate font-mono text-[10px] text-amber"
-          title={JSON.stringify(session.permissionInfo.toolInput, null, 2)}
-        >
-          {formatPermission(session.permissionInfo)}
-        </span>
-        <button
-          class="cursor-pointer shrink-0 bg-transparent text-[10px] leading-none text-amber/60 hover:text-amber"
-          onclick={(e) => {
-            e.stopPropagation();
-            ondismiss();
-          }}
-        >&times;</button>
-      </div>
-      {#if session.status === "attention"}
-        <div class="mt-1.5 flex gap-1">
-          <button
-            class="cursor-pointer bg-green/10 px-2.5 py-1 text-[11px] font-semibold text-green transition-colors hover:bg-green/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-            onclick={(e) => {
-              e.stopPropagation();
-              onapprove();
-            }}
-          >
-            &#10003; Allow
-          </button>
-          <button
-            class="cursor-pointer bg-accent-dim/15 px-2.5 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-            onclick={(e) => {
-              e.stopPropagation();
-              onalways();
-            }}
-          >
-            &#10003; Always
-          </button>
-          <button
-            class="cursor-pointer bg-red/10 px-2.5 py-1 text-[11px] font-semibold text-red transition-colors hover:bg-red/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-            onclick={(e) => {
-              e.stopPropagation();
-              ondeny();
-            }}
-          >
-            &#10007; Deny
-          </button>
-        </div>
-      {/if}
-    </div>
-  {/if}
 </div>
 
 <style>

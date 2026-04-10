@@ -7,8 +7,14 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use thiserror::Error;
+
+use roux_core::{
+    ActionKind, NotificationAction, NotificationLevel, NotificationRequest, NotificationSource,
+};
+
+use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -153,19 +159,110 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), StatusWatcherError> {
 
                 let update = StatusUpdate {
                     status: mapped.to_string(),
-                    cwd,
+                    cwd: cwd.clone(),
                     claude_session_id: claude_sid,
-                    tool_name,
-                    tool_input,
-                    message,
+                    tool_name: tool_name.clone(),
+                    tool_input: tool_input.clone(),
+                    message: message.clone(),
                 };
 
                 let _ = app.emit("roux-status-update", &update);
+
+                // For attention states, also push a notification so the
+                // notifications pane and any OS fan-out get a first-class
+                // entry. We resolve the session from the cwd on a background
+                // task (session_handle is async) so the watcher thread stays
+                // non-blocking.
+                if mapped == "attention" {
+                    let app_for_task = app.clone();
+                    let cwd_for_task = cwd.clone();
+                    let tool_name_for_task = tool_name.clone();
+                    let tool_input_for_task = tool_input.clone();
+                    let message_for_task = message.clone();
+                    tauri::async_runtime::spawn(async move {
+                        push_attention_notification(
+                            &app_for_task,
+                            &cwd_for_task,
+                            tool_name_for_task,
+                            tool_input_for_task,
+                            message_for_task,
+                        )
+                        .await;
+                    });
+                }
             }
         }
     });
 
     Ok(())
+}
+
+async fn push_attention_notification(
+    app: &tauri::AppHandle,
+    cwd: &str,
+    tool_name: Option<String>,
+    tool_input: Option<Value>,
+    message: Option<String>,
+) {
+    let state = app.state::<AppState>();
+
+    // Match the cwd to a known session by worktree_path or repo_root — the
+    // same match the frontend has been doing for status updates.
+    let session_id = match state.session_handle.list().await {
+        Ok(sessions) => sessions
+            .into_iter()
+            .find(|s| s.worktree_path == cwd || s.repo_root == cwd)
+            .map(|s| s.id),
+        Err(_) => None,
+    };
+
+    let title = tool_name
+        .clone()
+        .or_else(|| message.clone())
+        .unwrap_or_else(|| "Permission requested".to_string());
+
+    let body = match (&tool_name, &tool_input) {
+        (Some(_), Some(input)) => {
+            let serialized = serde_json::to_string(input).unwrap_or_default();
+            if serialized.len() > 200 {
+                Some(format!("{}…", &serialized[..200]))
+            } else {
+                Some(serialized)
+            }
+        }
+        _ => message.clone(),
+    };
+
+    let mut actions: Vec<NotificationAction> = Vec::new();
+    if let Some(ref sid) = session_id {
+        actions.push(NotificationAction {
+            id: "focus".into(),
+            label: "Focus session".into(),
+            kind: ActionKind::FocusSession { session_id: sid.clone() },
+            primary: true,
+        });
+    }
+    actions.push(NotificationAction {
+        id: "dismiss".into(),
+        label: "Dismiss".into(),
+        kind: ActionKind::Dismiss,
+        primary: actions.is_empty(),
+    });
+
+    state.notification_manager.push(
+        NotificationRequest {
+            level: NotificationLevel::Attention,
+            source: NotificationSource::Hook {
+                provider: "claude".to_string(),
+            },
+            title,
+            subtitle: None,
+            body,
+            session_id,
+            actions,
+        },
+        Some(app),
+    );
 }
 
 #[cfg(test)]

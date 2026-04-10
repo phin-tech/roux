@@ -1,5 +1,5 @@
 import { writable, derived } from "svelte/store";
-import type { Session, PermissionInfo } from "../types";
+import type { Session } from "../types";
 
 interface SessionState {
   sessions: Session[];
@@ -57,22 +57,6 @@ export function updateSessionStatus(
         : s
     ),
   }));
-}
-
-export function updateSessionPermission(
-  id: string,
-  info: PermissionInfo | null
-) {
-  sessionState.update((state) => ({
-    ...state,
-    sessions: state.sessions.map((s) =>
-      s.id === id ? { ...s, permissionInfo: info } : s
-    ),
-  }));
-}
-
-export function respondToPermission(id: string) {
-  updateSessionPermission(id, null);
 }
 
 export function setSessionDisconnected(id: string) {

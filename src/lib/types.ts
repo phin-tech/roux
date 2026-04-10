@@ -50,16 +50,9 @@ export type ThemePreset =
   | "paper-ink"
   | "github-day";
 
-export interface PermissionInfo {
-  toolName: string;
-  toolInput: Record<string, any>;
-  message: string;
-}
-
-// Session from Rust + frontend-only permissionInfo field
-export type Session = import("./bindings").Session & {
-  permissionInfo: PermissionInfo | null;
-};
+// Session is exactly the Rust type; permission state now lives in the
+// notification service (Phase 3 retired the inline Allow/Deny flow).
+export type Session = import("./bindings").Session;
 
 export interface SessionStatusPayload {
   status: string;

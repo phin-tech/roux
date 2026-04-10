@@ -30,7 +30,6 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     status: "disconnected",
     model: null,
     cost: null,
-    permissionInfo: null,
     createdAt: 1,
     projectId: null,
     isGitRepo: true,
