@@ -87,15 +87,29 @@ impl Perform for OscState {
 impl OscState {
     fn handle_osc_9(&mut self, rest: &[&[u8]]) {
         // OSC 9 is iTerm2 growl-style: a single body string, no title.
-        // rest is everything after the "9;" prefix; join with ';' to
+        // Some senders stuff JSON into that field (e.g. {"message":"..."}),
+        // so we attempt a tiny normalization pass before falling back.
+        // `rest` is everything after the "9;" prefix; join with ';' to
         // preserve any literal semicolons in the user's message.
-        let body = join_params(rest);
-        if body.is_empty() {
+        let raw = join_params(rest);
+        if raw.trim().is_empty() {
             return;
         }
+
+        if let Some(parsed) = parse_osc9_payload(&raw) {
+            self.push(
+                NotificationSource::Osc { code: 9, sender_id: None },
+                parsed.title,
+                parsed.subtitle,
+                parsed.body,
+                None,
+            );
+            return;
+        }
+
         self.push(
             NotificationSource::Osc { code: 9, sender_id: None },
-            body,
+            raw,
             None,
             None,
             None,
@@ -280,6 +294,66 @@ impl OscState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedOsc9Payload {
+    title: String,
+    subtitle: Option<String>,
+    body: Option<String>,
+}
+
+fn parse_osc9_payload(raw: &str) -> Option<ParsedOsc9Payload> {
+    use serde_json::{Map, Value};
+
+    fn first_string(obj: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+        keys.iter().find_map(|k| {
+            obj.get(*k)
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        })
+    }
+
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    match serde_json::from_str::<Value>(trimmed).ok()? {
+        Value::String(s) => {
+            let s = s.trim();
+            if s.is_empty() {
+                return None;
+            }
+            Some(ParsedOsc9Payload {
+                title: s.to_string(),
+                subtitle: None,
+                body: None,
+            })
+        }
+        Value::Object(obj) => {
+            let subtitle = first_string(&obj, &["subtitle", "subTitle"]);
+            let title = first_string(&obj, &["title", "summary", "subject"]);
+            let message = first_string(&obj, &["body", "message", "text", "detail", "details"]);
+
+            let Some(final_title) = title.clone().or_else(|| message.clone()) else {
+                return None;
+            };
+            let body = match (title.is_some(), message) {
+                (true, Some(m)) if m != final_title => Some(m),
+                _ => None,
+            };
+
+            Some(ParsedOsc9Payload {
+                title: final_title,
+                subtitle,
+                body,
+            })
+        }
+        _ => None,
+    }
+}
+
 fn join_params(parts: &[&[u8]]) -> String {
     let strs: Vec<String> = parts
         .iter()
@@ -350,6 +424,15 @@ mod tests {
         assert_eq!(captured[0][0], b"99");
         assert_eq!(captured[0][1], b"i=1:d=1:p=title");
         assert_eq!(captured[0][2], b"Build done");
+    }
+
+    #[test]
+    fn osc_9_json_payload_extracts_message() {
+        let payload = r#"{"message":"Build failed","subtitle":"repo-a"}"#;
+        let parsed = parse_osc9_payload(payload).expect("expected JSON payload to parse");
+        assert_eq!(parsed.title, "Build failed");
+        assert_eq!(parsed.subtitle.as_deref(), Some("repo-a"));
+        assert_eq!(parsed.body, None);
     }
 
     #[test]
