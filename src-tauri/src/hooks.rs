@@ -39,7 +39,9 @@ fn roux_cli_path() -> Result<PathBuf, String> {
         })
 }
 
-/// Check if roux-cli is already installed at ~/.local/bin/
+/// Check whether `roux-cli` can be found in any of the supported lookup locations,
+/// including the platform-specific install path, a sibling binary, Cargo's bin
+/// directory, or `PATH`.
 pub fn cli_is_installed() -> bool {
     roux_cli_path().is_ok()
 }
