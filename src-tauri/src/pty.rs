@@ -344,12 +344,7 @@ impl PtyManager {
         } else {
             CommandBuilder::new(&claude_cmd)
         };
-        cmd.env("PATH", &user_path);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env("ROUX_SESSION", "1");
-        cmd.env("ROUX_SOCKET", socket_path_str());
-        cmd.env("ROUX_SESSION_ID", session_id);
+        apply_roux_env(&mut cmd, &user_path, Some(session_id));
         cmd.env("ROUX_PANE_ID", format!("{}-main", session_id));
         if let Some(m) = model {
             cmd.arg("--model");
@@ -413,14 +408,7 @@ impl PtyManager {
         rlog!("Spawning shell '{}' for pane '{}' in '{}'", shell, id, working_dir);
 
         let mut cmd = CommandBuilder::new(&shell);
-        cmd.env("PATH", &user_path);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env("ROUX_SESSION", "1");
-        cmd.env("ROUX_SOCKET", socket_path_str());
-        if let Some(sid) = session_id {
-            cmd.env("ROUX_SESSION_ID", sid);
-        }
+        apply_roux_env(&mut cmd, &user_path, session_id);
         cmd.cwd(working_dir);
 
         let child = pair.slave.spawn_command(cmd).map_err(|source| {
@@ -478,14 +466,7 @@ impl PtyManager {
 
         let mut cmd = CommandBuilder::new(&shell);
         cmd.args(["-c", command]);
-        cmd.env("PATH", &user_path);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env("ROUX_SESSION", "1");
-        cmd.env("ROUX_SOCKET", socket_path_str());
-        if let Some(sid) = session_id {
-            cmd.env("ROUX_SESSION_ID", sid);
-        }
+        apply_roux_env(&mut cmd, &user_path, session_id);
         cmd.cwd(working_dir);
 
         let mut child =
@@ -630,6 +611,103 @@ impl PtyManager {
 fn socket_path_str() -> String {
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     home.join(".config").join("roux").join("roux.sock").to_string_lossy().to_string()
+}
+
+/// Eager trigger for the roux-cli shim. Called from `main.rs` setup so the
+/// symlink dir is ready before any PTY spawns and so we log the result at
+/// startup for debugging. Safe to call repeatedly — cached behind a OnceLock.
+pub fn ensure_roux_cli_shim() {
+    let _ = roux_cli_shim();
+}
+
+/// Cached pair of (bin-dir-to-prepend-to-PATH, full-path-to-roux-cli).
+/// Set up once at first PTY spawn: creates `~/.config/roux/bin/` and places
+/// `roux-cli` + `roux` symlinks there, both pointing at the roux-cli binary
+/// built next to the currently running `roux` exe. Returning `None` means
+/// we couldn't find the bundled roux-cli (e.g. a dev build where it wasn't
+/// compiled yet) — callers skip the PATH injection gracefully.
+fn roux_cli_shim() -> Option<(String, String)> {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<Option<(String, String)>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            // 1. Find the bundled roux-cli next to the currently running exe.
+            let source = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("roux-cli")))?;
+            if !source.exists() {
+                rlog!("roux_cli_shim: bundled roux-cli not found at {}", source.display());
+                return None;
+            }
+
+            // 2. Ensure ~/.config/roux/bin/ exists.
+            let home = dirs::home_dir()?;
+            let bin_dir = home.join(".config").join("roux").join("bin");
+            if let Err(e) = std::fs::create_dir_all(&bin_dir) {
+                rlog!("roux_cli_shim: failed to create {}: {}", bin_dir.display(), e);
+                return None;
+            }
+
+            // 3. Install symlinks: `roux-cli` and short alias `roux` both
+            //    pointing at the bundled source. We re-create the links every
+            //    startup so the PTY always sees the freshest binary, even
+            //    after a version bump.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs as unix_fs;
+                for alias in ["roux-cli", "roux"] {
+                    let link = bin_dir.join(alias);
+                    // Remove any existing symlink/file so we can re-point it.
+                    let _ = std::fs::remove_file(&link);
+                    if let Err(e) = unix_fs::symlink(&source, &link) {
+                        rlog!(
+                            "roux_cli_shim: failed to symlink {} -> {}: {}",
+                            link.display(),
+                            source.display(),
+                            e
+                        );
+                        return None;
+                    }
+                }
+            }
+
+            let bin_dir_str = bin_dir.to_string_lossy().to_string();
+            let source_str = source.to_string_lossy().to_string();
+            rlog!("roux_cli_shim: installed {} (source: {})", bin_dir_str, source_str);
+            Some((bin_dir_str, source_str))
+        })
+        .clone()
+}
+
+/// Build the PATH value to hand to a PTY child. Prepends the roux-cli shim
+/// directory (if available) to the user's login-shell PATH so scripts
+/// running inside any Roux pane can invoke `roux notify`, `roux-cli focus`,
+/// etc. without a separate install step.
+fn build_pty_path(user_path: &str) -> String {
+    match roux_cli_shim() {
+        Some((bin_dir, _)) if !user_path.split(':').any(|p| p == bin_dir) => {
+            format!("{}:{}", bin_dir, user_path)
+        }
+        _ => user_path.to_string(),
+    }
+}
+
+/// Apply the common Roux env vars to a `CommandBuilder`: PATH with shim dir
+/// prepended, `ROUX_CLI` pointing at the absolute roux-cli path, and the
+/// standard `ROUX_*` markers. Called by every `spawn_*` method so the three
+/// paths stay in sync.
+fn apply_roux_env(cmd: &mut CommandBuilder, user_path: &str, session_id: Option<&str>) {
+    cmd.env("PATH", build_pty_path(user_path));
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("ROUX_SESSION", "1");
+    cmd.env("ROUX_SOCKET", socket_path_str());
+    if let Some((_, cli_path)) = roux_cli_shim() {
+        cmd.env("ROUX_CLI", cli_path);
+    }
+    if let Some(sid) = session_id {
+        cmd.env("ROUX_SESSION_ID", sid);
+    }
 }
 
 /// Get the user's login shell PATH by invoking their actual shell (from $SHELL)

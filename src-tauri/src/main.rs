@@ -183,6 +183,11 @@ fn main() {
             commands::misc::quit_app,
         ])
         .setup(|app| {
+            // Install the roux-cli shim dir (~/.config/roux/bin) with
+            // `roux` and `roux-cli` symlinks so any PTY child can find them
+            // without requiring a system-wide install.
+            pty::ensure_roux_cli_shim();
+
             // Only auto-update hooks if CLI is already installed (not first run).
             // First-run install is handled by the frontend setup prompt.
             if hooks::cli_is_installed() {
