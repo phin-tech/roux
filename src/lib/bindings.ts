@@ -67,6 +67,8 @@ export type CreateWatchConfig = {
 	notify: NotifyConfig | null,
 };
 
+export type CursorStyle = "block" | "underline" | "bar";
+
 export type DocFile = {
 	path: string,
 	name: string,
@@ -80,6 +82,10 @@ export type GithubJob = {
 	conclusion: string | null,
 	failedStep: string | null,
 };
+
+export type GroupBy = "repo" | "project";
+
+export type KeepOpen = "always" | "on-error" | "never";
 
 export type NotifyConfig = {
 	desktopNotification: boolean,
@@ -105,14 +111,14 @@ export type Project = {
 };
 
 export type RouxSettings = {
-	tabPosition: string,
+	tabPosition: TabPosition,
 	tabWidth: number,
 	fontSize: number,
 	fontFamily: string,
 	uiFontFamily?: string,
 	lineHeight: number,
 	scrollback: number,
-	cursorStyle: string,
+	cursorStyle: CursorStyle,
 	cursorBlink: boolean,
 	defaultProjectPath: string | null,
 	confirmOnClose: boolean,
@@ -126,7 +132,7 @@ export type RouxSettings = {
 	taskPanelSplit: number,
 	taskPanelCollapsed: boolean,
 	enableLogging?: boolean,
-	groupBy?: string,
+	groupBy?: GroupBy,
 	confirmOnQuit?: boolean,
 };
 
@@ -139,7 +145,7 @@ export type Session = {
 	worktreePath: string,
 	branch: string,
 	isWorktree: boolean,
-	status: string,
+	status: SessionStatus,
 	model: string | null,
 	cost: number | null,
 	createdAt: number,
@@ -147,10 +153,14 @@ export type Session = {
 	isGitRepo?: boolean,
 };
 
+export type SessionStatus = "idle" | "thinking" | "generating" | "error" | "disconnected" | "attention";
+
 export type SetupStatus = {
 	cliInstalled: boolean,
 	ghAvailable: boolean,
 };
+
+export type TabPosition = "left" | "right";
 
 export type TaskDefinition = {
 	id: string,
@@ -158,7 +168,7 @@ export type TaskDefinition = {
 	description: string,
 	runner: string,
 	command: string,
-	keepOpen: string,
+	keepOpen: KeepOpen,
 };
 
 export type TaskGroup = {

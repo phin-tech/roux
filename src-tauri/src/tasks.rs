@@ -41,7 +41,7 @@ impl TaskDiscoverer for NpmDiscoverer {
                 description: String::new(),
                 runner: "npm".to_string(),
                 command: format!("npm run {}", name),
-                keep_open: "on-error".to_string(),
+                keep_open: roux_core::KeepOpen::OnError,
             })
             .collect();
 
@@ -92,7 +92,7 @@ impl TaskDiscoverer for TaskfileDiscoverer {
                 description: desc,
                 runner: "task".to_string(),
                 command: format!("task {}", name),
-                keep_open: "on-error".to_string(),
+                keep_open: roux_core::KeepOpen::OnError,
             })
             .collect();
 
@@ -180,7 +180,7 @@ impl TaskDiscoverer for MakeDiscoverer {
                 description: desc,
                 runner: "make".to_string(),
                 command: format!("make {}", name),
-                keep_open: "on-error".to_string(),
+                keep_open: roux_core::KeepOpen::OnError,
             })
             .collect();
 
@@ -281,7 +281,7 @@ impl TaskDiscoverer for JustDiscoverer {
                 description: desc,
                 runner: "just".to_string(),
                 command: format!("just {}", name),
-                keep_open: "on-error".to_string(),
+                keep_open: roux_core::KeepOpen::OnError,
             })
             .collect();
 
@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(group.tasks[0].name, "build");
         assert_eq!(group.tasks[0].command, "npm run build");
         assert_eq!(group.tasks[0].id, "npm:build");
-        assert_eq!(group.tasks[0].keep_open, "on-error");
+        assert_eq!(group.tasks[0].keep_open, roux_core::KeepOpen::OnError);
 
         assert_eq!(group.tasks[1].name, "dev");
         assert_eq!(group.tasks[2].name, "test");
@@ -452,7 +452,7 @@ tasks:
         assert_eq!(group.tasks[0].description, "Compile the project");
         assert_eq!(group.tasks[0].command, "task build");
         assert_eq!(group.tasks[0].id, "taskfile:build");
-        assert_eq!(group.tasks[0].keep_open, "on-error");
+        assert_eq!(group.tasks[0].keep_open, roux_core::KeepOpen::OnError);
 
         assert_eq!(group.tasks[1].name, "lint");
         assert_eq!(group.tasks[1].description, "");
@@ -505,7 +505,7 @@ _internal:
         assert_eq!(group.tasks[0].description, "Build the project");
         assert_eq!(group.tasks[0].command, "make build");
         assert_eq!(group.tasks[0].id, "make:build");
-        assert_eq!(group.tasks[0].keep_open, "on-error");
+        assert_eq!(group.tasks[0].keep_open, roux_core::KeepOpen::OnError);
 
         assert_eq!(group.tasks[1].name, "lint");
         assert_eq!(group.tasks[1].description, "");
@@ -568,7 +568,7 @@ lint:
         assert_eq!(group.tasks[0].description, "Build the project");
         assert_eq!(group.tasks[0].command, "just build");
         assert_eq!(group.tasks[0].id, "just:build");
-        assert_eq!(group.tasks[0].keep_open, "on-error");
+        assert_eq!(group.tasks[0].keep_open, roux_core::KeepOpen::OnError);
 
         assert_eq!(group.tasks[1].name, "lint");
         assert_eq!(group.tasks[1].description, "");

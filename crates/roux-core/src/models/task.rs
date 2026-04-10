@@ -1,5 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "kebab-case")]
+pub enum KeepOpen {
+    Always,
+    OnError,
+    Never,
+}
+
+impl Default for KeepOpen {
+    fn default() -> Self {
+        Self::OnError
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskDefinition {
@@ -8,7 +22,7 @@ pub struct TaskDefinition {
     pub description: String,
     pub runner: String,
     pub command: String,
-    pub keep_open: String,
+    pub keep_open: KeepOpen,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]

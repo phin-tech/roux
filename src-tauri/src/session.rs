@@ -10,7 +10,7 @@ pub fn load_persisted_sessions() -> Vec<Session> {
         let content = fs::read_to_string(&path).unwrap_or_default();
         let mut sessions: Vec<Session> = serde_json::from_str(&content).unwrap_or_default();
         for s in &mut sessions {
-            s.status = "disconnected".to_string();
+            s.status = roux_core::SessionStatus::Disconnected;
         }
         sessions
     } else {

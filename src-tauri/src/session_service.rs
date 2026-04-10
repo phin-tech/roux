@@ -45,7 +45,7 @@ enum SessionMsg {
     },
     UpdateStatus {
         id: String,
-        status: String,
+        status: roux_core::SessionStatus,
         reply: oneshot::Sender<()>,
     },
     SetGitRepo {
@@ -102,11 +102,11 @@ impl SessionHandle {
         reply_rx.await.map_err(|_| ServiceError)
     }
 
-    pub async fn update_status(&self, id: &str, status: &str) -> Result<(), ServiceError> {
+    pub async fn update_status(&self, id: &str, status: roux_core::SessionStatus) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(SessionMsg::UpdateStatus {
             id: id.to_string(),
-            status: status.to_string(),
+            status,
             reply: reply_tx,
         })?;
         reply_rx.await.map_err(|_| ServiceError)
@@ -259,7 +259,7 @@ mod tests {
             worktree_path: "/tmp/repo".to_string(),
             branch: "main".to_string(),
             is_worktree: false,
-            status: "idle".to_string(),
+            status: roux_core::SessionStatus::Idle,
             model: None,
             cost: None,
             created_at: 0,
@@ -324,10 +324,10 @@ mod tests {
         let (_dir, path) = temp_persist_path();
         let (handle, _join) = spawn_with_path(vec![make_session("s1")], path);
 
-        handle.update_status("s1", "generating").await.unwrap();
+        handle.update_status("s1", roux_core::SessionStatus::Generating).await.unwrap();
 
         let session = handle.get("s1").await.unwrap().unwrap();
-        assert_eq!(session.status, "generating");
+        assert_eq!(session.status, roux_core::SessionStatus::Generating);
     }
 
     #[tokio::test]
@@ -375,13 +375,13 @@ mod tests {
         let (_dir, path) = temp_persist_path();
         let (handle, join) = spawn_with_path(vec![make_session("s1")], path.clone());
 
-        handle.update_status("s1", "generating").await.unwrap();
+        handle.update_status("s1", roux_core::SessionStatus::Generating).await.unwrap();
         handle.shutdown().await;
         join.await.unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         let persisted: Vec<Session> = serde_json::from_str(&content).unwrap();
-        assert_eq!(persisted[0].status, "generating");
+        assert_eq!(persisted[0].status, roux_core::SessionStatus::Generating);
     }
 
     #[tokio::test]
@@ -409,7 +409,7 @@ mod tests {
         assert!(handle.list().await.is_err());
         assert!(handle.get("s1").await.is_err());
         assert!(handle.remove("s1").await.is_err());
-        assert!(handle.update_status("s1", "idle").await.is_err());
+        assert!(handle.update_status("s1", roux_core::SessionStatus::Idle).await.is_err());
         assert!(handle.set_git_repo("s1", true).await.is_err());
         assert!(handle.set_project("s1", None).await.is_err());
     }
