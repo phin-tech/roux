@@ -22,6 +22,8 @@
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, flushPaneState } from "$lib/panes/persistence";
+  import { loadBuiltinProfiles } from "$lib/panes/profiles";
+  import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
@@ -277,6 +279,11 @@
     await initLogging(loadedSettings.enableLogging ?? false);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
 
+    // Populate the built-in spawn-profile registry so pane pickers and
+    // restored panes can resolve { kind: "registered", id: "claude" } etc.
+    // User profiles are already loaded by initSettings via setUserProfiles.
+    void loadBuiltinProfiles();
+
     // Kick off a silent background update check (5s debounce, respects user toggle)
     runStartupCheck();
 
@@ -418,13 +425,22 @@
       applyNotificationEvent(payload);
     });
 
-    // Listen for global status updates from hooks and match by cwd.
-    // Attention-state details (tool name/input/message) now flow through
-    // the notification service instead of per-session permission state.
+    // Listen for global status updates from hooks. Tier-1 routing (with a
+    // `rouxPaneId` in the payload) updates the pane's runtime agentState so
+    // the session-card aggregate and provider-specific UI light up. Legacy
+    // events without a pane id fall through to cwd-based session status,
+    // which still drives notification fan-out.
     await onRouxStatusUpdate((update) => {
+      const routing = applyStatusRouting(routeStatusUpdate(update));
+      if (routing.kind === "pane") {
+        // Tier-1 routing already wrote to agentState; the session aggregate
+        // is derived from pane state so we don't also poke session.status.
+        return;
+      }
+
       const sessions = $sessionState.sessions;
       const match = sessions.find(
-        (s) => s.worktreePath === update.cwd || s.repoRoot === update.cwd
+        (s) => s.worktreePath === update.cwd || s.repoRoot === update.cwd,
       );
       if (match) {
         updateSessionStatus(match.id, update.status as any, null, null);

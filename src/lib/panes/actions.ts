@@ -11,6 +11,7 @@ import {
   type SplitDirection,
 } from "./layout";
 import { focusedPaneId, setLogicalFocus } from "./focus";
+import { disposeAgentState } from "./agentState";
 import { killSession } from "$lib/tauri";
 
 export function initSession(sessionId: string): string {
@@ -85,6 +86,7 @@ export function closePane(sessionId: string, paneId: string): boolean {
   });
 
   disposePane(paneId, killSession);
+  disposeAgentState(paneId);
 
   if (get(focusedPaneId) === paneId) {
     const tree = get(sessionLayouts).get(sessionId);
@@ -104,7 +106,10 @@ export function closeSessionPanes(sessionId: string) {
   const tree = get(sessionLayouts).get(sessionId);
   if (tree) {
     const ids = collectLeafIds(tree);
-    for (const id of ids) disposePane(id, killSession);
+    for (const id of ids) {
+      disposePane(id, killSession);
+      disposeAgentState(id);
+    }
   }
   sessionLayouts.update((m) => {
     m.delete(sessionId);

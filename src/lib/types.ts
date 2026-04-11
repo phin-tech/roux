@@ -87,6 +87,8 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   confirmOnQuit: true,
   notificationsEnabled: true,
   updateCheckOnLaunch: true,
+  spawnProfiles: [],
+  trustedWorkspaces: [],
 };
 
 // Re-export frontend-only task types
