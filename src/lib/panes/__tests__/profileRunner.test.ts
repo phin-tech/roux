@@ -91,4 +91,103 @@ describe("runProfileInPane", () => {
       runProfileInPane("pty-1", profile({ startupCommand: "claude" })),
     ).resolves.toBeUndefined();
   });
+
+  describe("cwdOverride", () => {
+    it("types a cd command before setup/startup", async () => {
+      await runProfileInPane(
+        "pty-1",
+        profile({
+          cwdOverride: "/tmp/workspace",
+          startupCommand: "claude",
+        }),
+      );
+      expect(writes()).toEqual(["cd '/tmp/workspace'", "\n", "claude", "\n"]);
+    });
+
+    it("shell-escapes paths containing spaces and single quotes", async () => {
+      // Single quotes in shell strings require the 'foo'\''bar' dance;
+      // without that a path like `/tmp/it's mine` would break out of the
+      // quoted string and let the remainder be interpreted as commands.
+      await runProfileInPane(
+        "pty-1",
+        profile({ cwdOverride: "/tmp/it's my dir" }),
+      );
+      expect(writes()).toEqual(["cd '/tmp/it'\\''s my dir'", "\n"]);
+    });
+
+    it("skips cd for an empty or whitespace-only cwdOverride", async () => {
+      await runProfileInPane(
+        "pty-1",
+        profile({ cwdOverride: "   ", startupCommand: "claude" }),
+      );
+      expect(writes()).toEqual(["claude", "\n"]);
+    });
+  });
+
+  describe("env", () => {
+    it("emits an export per entry before setup/startup", async () => {
+      await runProfileInPane(
+        "pty-1",
+        profile({
+          env: { FOO: "bar", BAZ: "qux" },
+          startupCommand: "claude",
+        }),
+      );
+      // BTreeMap serialization is lexicographic, so BAZ comes first.
+      // We don't hard-assert order in this test because Object iteration
+      // in JS is insertion-ordered; just check both are present and
+      // precede the startup command.
+      const out = writes();
+      const startupIdx = out.indexOf("claude");
+      expect(startupIdx).toBeGreaterThan(-1);
+      expect(out.slice(0, startupIdx)).toEqual(
+        expect.arrayContaining(["export FOO='bar'", "export BAZ='qux'", "\n"]),
+      );
+    });
+
+    it("shell-escapes env values containing single quotes and metacharacters", async () => {
+      await runProfileInPane(
+        "pty-1",
+        profile({ env: { MSG: "it's; $(whoami)" } }),
+      );
+      expect(writes()).toEqual([
+        "export MSG='it'\\''s; $(whoami)'",
+        "\n",
+      ]);
+    });
+
+    it("skips env entries with invalid shell variable names", async () => {
+      // Names must match [A-Za-z_][A-Za-z0-9_]*. `1BAD` and `WITH-DASH`
+      // would silently break the exported line if we didn't filter them.
+      await runProfileInPane(
+        "pty-1",
+        profile({
+          env: { "1BAD": "x", "WITH-DASH": "y", GOOD: "z" },
+        }),
+      );
+      expect(writes()).toEqual(["export GOOD='z'", "\n"]);
+    });
+  });
+
+  it("applies cwdOverride → env → setup → startup in order", async () => {
+    await runProfileInPane(
+      "pty-1",
+      profile({
+        cwdOverride: "/work",
+        env: { API: "https://api" },
+        setupCommand: "./seed.sh",
+        startupCommand: "claude",
+      }),
+    );
+    expect(writes()).toEqual([
+      "cd '/work'",
+      "\n",
+      "export API='https://api'",
+      "\n",
+      "./seed.sh",
+      "\n",
+      "claude",
+      "\n",
+    ]);
+  });
 });
