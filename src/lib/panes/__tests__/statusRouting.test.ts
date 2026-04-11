@@ -11,7 +11,7 @@ function ev(partial: Partial<StatusUpdate> = {}): StatusUpdate {
   return {
     status: "generating",
     cwd: "/repo",
-    claudeSessionId: "claude-sess-1",
+    providerSessionId: "claude-sess-1",
     provider: "claude",
     rouxSessionId: "sess-1",
     rouxPaneId: "pane-1",
@@ -63,7 +63,7 @@ describe("routeStatusUpdate", () => {
     expect(routing.status).toBe("generating");
   });
 
-  it("infers provider: claude when unset but a claude session id is present", () => {
+  it("infers provider: claude when unset but a provider session id is present", () => {
     const routing = routeStatusUpdate(ev({ provider: "" }));
     expect(routing.kind).toBe("pane");
     if (routing.kind !== "pane") throw new Error("unreachable");
@@ -72,7 +72,7 @@ describe("routeStatusUpdate", () => {
 
   it("drops the event when no provider can be inferred at all", () => {
     const routing = routeStatusUpdate(
-      ev({ provider: "", claudeSessionId: "" }),
+      ev({ provider: "", providerSessionId: null }),
     );
     expect(routing.kind).toBe("dropped");
   });

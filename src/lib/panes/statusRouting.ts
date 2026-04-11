@@ -60,10 +60,7 @@ export function routeStatusUpdate(update: StatusUpdate): StatusRouting {
       provider,
       status: routed,
       permissionInfo,
-      providerSessionId:
-        update.claudeSessionId && update.claudeSessionId.length > 0
-          ? update.claudeSessionId
-          : undefined,
+      providerSessionId: update.providerSessionId ?? undefined,
       source: "hook",
     },
   };
@@ -86,8 +83,10 @@ function inferProvider(update: StatusUpdate): Provider | null {
   }
   // Legacy hook installs don't set `provider`. Until Codex support lands
   // broadly the only first-class provider in the wild is Claude, so treat
-  // the unknown case as Claude rather than dropping the event.
-  if (update.claudeSessionId && update.claudeSessionId.length > 0) {
+  // the unknown case as Claude rather than dropping the event — but only
+  // when a provider session id is actually present. A bare status update
+  // with neither provider nor session id shouldn't be silently coerced.
+  if (update.providerSessionId && update.providerSessionId.length > 0) {
     return "claude";
   }
   return null;

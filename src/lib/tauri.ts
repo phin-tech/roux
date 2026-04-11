@@ -329,7 +329,12 @@ export function onSettingsChanged(
 export interface StatusUpdate {
   status: string;
   cwd: string;
-  claudeSessionId: string;
+  /**
+   * Provider-internal session id (Claude's `session_id`, Codex's equivalent,
+   * etc.). `null` when the hook didn't carry one. Formerly `claudeSessionId`
+   * — renamed so non-Claude hooks don't have to masquerade as Claude.
+   */
+  providerSessionId: string | null;
   /** Provider that emitted the hook (e.g. `"claude"`). Empty string for legacy payloads. */
   provider: string;
   /** Roux session id captured from `ROUX_SESSION_ID` at hook time. */
