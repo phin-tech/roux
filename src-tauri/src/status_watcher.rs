@@ -21,7 +21,11 @@ use crate::state::AppState;
 struct StatusUpdate {
     status: String,
     cwd: String,
-    claude_session_id: String,
+    /// The provider-internal session id (Claude's `session_id`, Codex's
+    /// equivalent, etc.). `None` when the hook didn't carry one. Previously
+    /// named `claudeSessionId` and hard-populated; renamed so non-Claude
+    /// providers aren't forced to masquerade as Claude.
+    provider_session_id: Option<String>,
     /// Provider that emitted the hook (`"claude"`, `"codex"`, …). Present when
     /// the hook bridge recognized the source; empty string for legacy payloads.
     provider: String,
@@ -82,11 +86,14 @@ fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
 
     let cwd = parsed.get("cwd").and_then(|s| s.as_str()).unwrap_or("").to_string();
 
-    let claude_sid = parsed
-        .get("claude_session_id")
+    // Prefer the new provider-agnostic key; fall back to `claude_session_id`
+    // for older roux-cli hook shims that haven't been reinstalled yet.
+    let provider_session_id = parsed
+        .get("provider_session_id")
+        .or_else(|| parsed.get("claude_session_id"))
         .and_then(|s| s.as_str())
-        .unwrap_or("")
-        .to_string();
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
 
     let provider = parsed
         .get("provider")
@@ -123,7 +130,7 @@ fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
     Some(StatusUpdate {
         status: map_status(&raw_status).to_string(),
         cwd,
-        claude_session_id: claude_sid,
+        provider_session_id,
         provider,
         roux_session_id,
         roux_pane_id,
@@ -330,7 +337,7 @@ mod tests {
         let payload = json!({
             "status": "working",
             "cwd": "/repo",
-            "claude_session_id": "claude-abc",
+            "provider_session_id": "claude-abc",
             "provider": "claude",
             "roux_session_id": "sess-1",
             "roux_pane_id": "pane-1",
@@ -339,10 +346,41 @@ mod tests {
         let update = parse_status_payload(&payload).expect("parse ok");
         assert_eq!(update.status, "generating");
         assert_eq!(update.cwd, "/repo");
-        assert_eq!(update.claude_session_id, "claude-abc");
+        assert_eq!(update.provider_session_id.as_deref(), Some("claude-abc"));
         assert_eq!(update.provider, "claude");
         assert_eq!(update.roux_session_id.as_deref(), Some("sess-1"));
         assert_eq!(update.roux_pane_id.as_deref(), Some("pane-1"));
+    }
+
+    #[test]
+    fn parse_payload_accepts_legacy_claude_session_id_key() {
+        // Backward compat: a roux-cli shim from before the rename still
+        // writes `claude_session_id`. The watcher reads either key so a
+        // half-upgraded install keeps routing correctly.
+        let payload = json!({
+            "status": "idle",
+            "cwd": "/repo",
+            "claude_session_id": "claude-legacy",
+            "provider": "claude",
+        });
+
+        let update = parse_status_payload(&payload).expect("parse ok");
+        assert_eq!(update.provider_session_id.as_deref(), Some("claude-legacy"));
+    }
+
+    #[test]
+    fn parse_payload_prefers_provider_session_id_over_legacy_key() {
+        // If both keys are present (e.g. during a rolling upgrade where the
+        // shim writes both), the canonical `provider_session_id` wins.
+        let payload = json!({
+            "status": "idle",
+            "cwd": "/repo",
+            "claude_session_id": "stale-legacy",
+            "provider_session_id": "new-canonical",
+        });
+
+        let update = parse_status_payload(&payload).expect("parse ok");
+        assert_eq!(update.provider_session_id.as_deref(), Some("new-canonical"));
     }
 
     #[test]
@@ -371,12 +409,13 @@ mod tests {
         let payload = json!({
             "status": "idle",
             "cwd": "/repo",
-            "claude_session_id": "claude-x",
+            "provider_session_id": "",
             "roux_session_id": "",
             "roux_pane_id": "",
         });
 
         let update = parse_status_payload(&payload).expect("parse ok");
+        assert_eq!(update.provider_session_id, None);
         assert_eq!(update.roux_session_id, None);
         assert_eq!(update.roux_pane_id, None);
     }
@@ -385,7 +424,7 @@ mod tests {
     fn parse_payload_drops_payload_without_status() {
         let payload = json!({
             "cwd": "/repo",
-            "claude_session_id": "x",
+            "provider_session_id": "x",
         });
         assert!(parse_status_payload(&payload).is_none());
     }

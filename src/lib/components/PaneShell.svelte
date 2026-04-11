@@ -7,7 +7,14 @@
   import { resolveProfileRef } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
-  import { resizeSession, killPty, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
+  import {
+    resizeSession,
+    killPty,
+    spawnTask,
+    attachPtyOutput,
+    createPtyOutputChannel,
+    notificationsPush,
+  } from "$lib/tauri";
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
@@ -44,8 +51,12 @@
   );
   // A pane is "disconnected" (showing the resume picker) when it hosts the
   // session-owned PTY (ptyId === sessionId) and the session itself is in a
-  // disconnected state. Phase 5 replaces session.status with the derived
-  // aggregate from pane-level agentState.
+  // disconnected state. "disconnected" is the one session-level status the
+  // backend owns exclusively — per-pane AgentState has no equivalent, since
+  // dead-PTY is a session fact, not an agent observation — so we read
+  // `session.status` directly here rather than going through
+  // `computeEffectiveSessionStatus`. For every *other* UI decision that
+  // needs a single indicator, consumers go through that helper instead.
   const isSessionPrimary = $derived(!!instance && instance.ptyId === sessionId);
   const isDisconnected = $derived(isSessionPrimary && session?.status === "disconnected");
 
@@ -77,7 +88,33 @@
   async function reRunProfile() {
     if (!instance || !activeProfile) return;
     log(`Re-running profile "${activeProfile.id}" in pane ${paneId}`);
-    await runProfileInPane(instance.ptyId, activeProfile);
+    try {
+      await runProfileInPane(instance.ptyId, activeProfile);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logError(`Re-run profile "${activeProfile.id}" failed`, e);
+      // Surface the failure as a notification so the user isn't left
+      // wondering why the button had no effect. The shell stays alive;
+      // the user can hand-type whatever didn't get seeded.
+      void notificationsPush({
+        level: "warning",
+        source: { type: "internal" },
+        title: `Re-run failed: ${activeProfile.name}`,
+        subtitle: null,
+        body: msg,
+        sessionId,
+        actions: [
+          {
+            id: "dismiss",
+            label: "Dismiss",
+            kind: { type: "dismiss" },
+            primary: true,
+          },
+        ],
+      }).catch((pushErr) =>
+        logError("re-run profile: notificationsPush failed", pushErr),
+      );
+    }
   }
 
   const resizeScheduler = createResizeScheduler({

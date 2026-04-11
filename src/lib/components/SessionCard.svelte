@@ -5,7 +5,10 @@
   import { watchState, flashingSessions } from "$lib/stores/watches";
   import { unreadBySession } from "$lib/stores/notifications";
   import { showSessionHints } from "$lib/stores/ui";
-  import { sessionAgentStatus } from "$lib/panes/agentState";
+  import {
+    sessionAgentStatus,
+    computeEffectiveSessionStatus,
+  } from "$lib/panes/agentState";
 
   interface Props {
     session: Session;
@@ -114,16 +117,15 @@
   let unreadCount = $derived($unreadBySession.get(session.id) ?? 0);
 
   // Effective status combines tier-1 agent aggregate (generating/idle from
-  // pane-level agentState) with legacy Session.status for states that
-  // haven't migrated yet (disconnected/error). The aggregate wins whenever
-  // it has a value, so a pane actively generating always pulses even if
-  // session.status is stuck at "idle" from a stale event.
+  // pane-level agentState) with the backend Session.status. Precedence is
+  // defined once in `computeEffectiveSessionStatus`: disconnected/error
+  // from the backend always wins (so a stale agent entry that predates
+  // the disconnect can't repaint the card), and a live agent aggregate
+  // beats a stale legacy value otherwise.
   let agentAggregate = $derived($sessionAgentStatus.get(session.id) ?? null);
-  let effectiveStatus = $derived.by<Session["status"]>(() => {
-    if (agentAggregate === "generating") return "generating";
-    if (agentAggregate === "idle") return "idle";
-    return session.status;
-  });
+  let effectiveStatus = $derived(
+    computeEffectiveSessionStatus(session.status, agentAggregate),
+  );
 
   let flashColor = $derived.by(() => {
     if (!isFlashing) return "";

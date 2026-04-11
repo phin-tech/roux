@@ -254,7 +254,11 @@ fn handle_hook(status: &str) {
     let mut out = serde_json::json!({
         "status": status,
         "provider": "claude",
-        "claude_session_id": sid,
+        // Provider-agnostic key; the old `claude_session_id` name was
+        // confusing once we picked up non-Claude agents. The watcher still
+        // accepts the legacy key so an older roux-cli shim paired with a
+        // newer desktop binary keeps working.
+        "provider_session_id": sid,
         "cwd": cwd,
         "timestamp": timestamp,
     });
