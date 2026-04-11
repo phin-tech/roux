@@ -18,16 +18,17 @@ import {
 } from "./layout";
 import { focusedPaneId, setLogicalFocus } from "./focus";
 import { disposeAgentState } from "./agentState";
+import { forgetLastStatus } from "./agentNotifications";
 import type { SpawnProfileRef } from "./profiles";
 import { killSession } from "$lib/tauri";
 
-// Register agent-state cleanup as a post-dispose hook so every path that
-// goes through disposePane (closePane, closeSessionPanes, splitPane
-// rollback, anything future) also clears runtime agent state. Doing this
-// via a hook avoids a hard import from instances.ts → agentState.ts,
-// which would create a circular dep (instances → agentState → layout →
-// instances).
+// Register cleanup hooks on disposePane so every path that disposes a
+// pane (closePane, closeSessionPanes, splitPane rollback, anything
+// future) also clears downstream state. Hooks live here instead of in
+// instances.ts to avoid a circular dep (instances → agentState → layout
+// → instances).
 registerDisposeHook(disposeAgentState);
+registerDisposeHook(forgetLastStatus);
 
 export function initSession(sessionId: string): string {
   return initSessionWithProfile(sessionId, { kind: "registered", id: "claude" });

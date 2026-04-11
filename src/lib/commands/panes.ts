@@ -93,6 +93,16 @@ function profileSubItems(
   return items;
 }
 
+/**
+ * Look up a registered built-in profile by id for the keyboard-shortcut
+ * split commands. Returns null if the registry isn't populated yet
+ * (e.g. `loadBuiltinProfiles` hasn't finished on startup) or the provider
+ * was removed.
+ */
+function findBuiltinProfile(id: string): SpawnProfile | null {
+  return get(profileList).find((p) => p.id === id) ?? null;
+}
+
 export function registerPaneCommands() {
   registry.register({
     id: "pane.split-horizontal",
@@ -172,6 +182,44 @@ export function registerPaneCommands() {
     category: "Panes",
     available: () => queries.canSplitPane(),
     getItems: () => profileSubItems((p) => spawnShellPaneWithProfile("v", p)),
+  });
+
+  // Fast-path shortcuts for the two first-class agents. Register a palette
+  // entry each so keyboard users can drop a Claude or Codex shell next to
+  // the focused pane without drilling into the profile picker. Shortcuts
+  // no-op until `loadBuiltinProfiles` finishes populating the registry on
+  // startup — acceptable for something a user can only hit after the
+  // window is interactive.
+  registry.register({
+    id: "pane.split-claude",
+    label: "Split Right → Claude",
+    shortcut: "cmd+alt+c",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: async () => {
+      const profile = findBuiltinProfile("claude");
+      if (!profile) {
+        log("pane.split-claude: claude built-in profile not in registry yet");
+        return;
+      }
+      await spawnShellPaneWithProfile("h", profile);
+    },
+  });
+
+  registry.register({
+    id: "pane.split-codex",
+    label: "Split Right → Codex",
+    shortcut: "cmd+alt+x",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: async () => {
+      const profile = findBuiltinProfile("codex");
+      if (!profile) {
+        log("pane.split-codex: codex built-in profile not in registry yet");
+        return;
+      }
+      await spawnShellPaneWithProfile("h", profile);
+    },
   });
 
   registry.register({

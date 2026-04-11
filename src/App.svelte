@@ -24,6 +24,7 @@
   import { initPersistence, flushPaneState } from "$lib/panes/persistence";
   import { loadBuiltinProfiles } from "$lib/panes/profiles";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
+  import { initAgentNotifications } from "$lib/panes/agentNotifications";
   import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
@@ -283,6 +284,11 @@
     // restored panes can resolve { kind: "registered", id: "claude" } etc.
     // User profiles are already loaded by initSettings via setUserProfiles.
     void loadBuiltinProfiles();
+
+    // Start watching agent-state transitions so per-pane generating→idle
+    // transitions fire a completion notification. Window-focus suppression
+    // and OS fan-out happen on the Rust side of notificationsPush.
+    initAgentNotifications();
 
     // Kick off a silent background update check (5s debounce, respects user toggle)
     runStartupCheck();
