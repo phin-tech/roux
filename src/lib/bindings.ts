@@ -25,6 +25,7 @@ export const commands = {
 	 */
 	getPtyCwd: (id: string) => __TAURI_INVOKE<string | null>("get_pty_cwd", { id }),
 	createSession: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, extraFlags: string[] | null, nonoProfile: string | null) => typedError<Session, string>(__TAURI_INVOKE("create_session", { repoPath, name, worktreePath, branch, extraFlags, nonoProfile })),
+	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch })),
 	reconnectSession: (id: string, extraFlags: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session", { id, extraFlags })),
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),
 	listClaudeSessions: (cwd: string) => typedError<ClaudeSession[], string>(__TAURI_INVOKE("list_claude_sessions", { cwd })),

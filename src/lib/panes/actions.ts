@@ -18,6 +18,7 @@ import {
 } from "./layout";
 import { focusedPaneId, setLogicalFocus } from "./focus";
 import { disposeAgentState } from "./agentState";
+import type { SpawnProfileRef } from "./profiles";
 import { killSession } from "$lib/tauri";
 
 // Register agent-state cleanup as a post-dispose hook so every path that
@@ -29,18 +30,25 @@ import { killSession } from "$lib/tauri";
 registerDisposeHook(disposeAgentState);
 
 export function initSession(sessionId: string): string {
+  return initSessionWithProfile(sessionId, { kind: "registered", id: "claude" });
+}
+
+/**
+ * Create the session's primary pane with a specific spawn profile ref.
+ * Used by the new-session dialog after the user picks a profile. Call
+ * `initSession` directly for the default Claude path (restore flows, etc).
+ */
+export function initSessionWithProfile(
+  sessionId: string,
+  spawnProfileRef: SpawnProfileRef,
+): string {
   const mainPaneId = `${sessionId}-main`;
-  // Only create if not already exists
   if (!getInstance(mainPaneId)) {
     createPane({
       id: mainPaneId,
       type: "shell",
       ptyId: sessionId,
-      // Until phase 5 rewires session creation through the profile picker,
-      // every session's initial pane is the Claude built-in profile. The
-      // ref resolves lazily via the profile registry, so it's safe even
-      // when `loadBuiltinProfiles` hasn't returned yet.
-      spawnProfileRef: { kind: "registered", id: "claude" },
+      spawnProfileRef,
     });
   }
   initSessionLayout(sessionId, mainPaneId);

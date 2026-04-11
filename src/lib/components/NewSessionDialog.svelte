@@ -1,12 +1,27 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { createSession, listWorktrees, checkNonoInstalled, listNonoProfiles, checkIsGitRepo, gitInit } from "$lib/tauri";
+  import {
+    createSession,
+    createSessionShell,
+    listWorktrees,
+    checkNonoInstalled,
+    listNonoProfiles,
+    checkIsGitRepo,
+    gitInit,
+  } from "$lib/tauri";
   import { addSession } from "$lib/stores/sessions";
-  import { initSession as initSessionPanes } from "$lib/panes/actions";
+  import { initSessionWithProfile } from "$lib/panes/actions";
   import { settings } from "$lib/stores/settings";
+  import {
+    profileList,
+    type SpawnProfile,
+    type SpawnProfileRef,
+  } from "$lib/panes/profiles";
+  import { runProfileInPane } from "$lib/panes/profileRunner";
   import type { Worktree } from "$lib/types";
   import { log, logError } from "$lib/logging";
+  import ProfileCustomEditor from "./ProfileCustomEditor.svelte";
 
   interface Props {
     visible: boolean;
@@ -24,6 +39,27 @@
   let selectedWorktree = $state<Worktree | null>(null);
   let error = $state("");
   let creating = $state(false);
+
+  // Spawn profile selection. Defaults to the claude built-in so first-time
+  // users see familiar behavior. An inline profile from the Custom… editor
+  // sets `inlineProfile` and picks a synthetic id ("__inline__").
+  let selectedProfileId = $state<string>("claude");
+  let inlineProfile = $state<SpawnProfile | null>(null);
+  let showCustomEditor = $state(false);
+
+  // Resolve the currently-selected profile object. Built-in / user profiles
+  // come from the registry; inline ones from local state.
+  let selectedProfile = $derived.by<SpawnProfile | null>(() => {
+    if (selectedProfileId === "__inline__") return inlineProfile;
+    return $profileList.find((p) => p.id === selectedProfileId) ?? null;
+  });
+
+  // True when the selected profile's startup behavior should go through
+  // the legacy Claude-spawning backend path (preserves nono wrapping).
+  // Any other profile uses createSessionShell + runProfileInPane.
+  let useLegacyClaudePath = $derived(
+    selectedProfileId === "claude" && !inlineProfile,
+  );
 
   // Nono sandbox integration
   let nonoInstalled = $state(false);
@@ -86,6 +122,10 @@
       error = "Branch name is required for new worktrees";
       return;
     }
+    if (!selectedProfile) {
+      error = "Pick a spawn profile (or use Custom…).";
+      return;
+    }
     error = "";
     creating = true;
 
@@ -98,27 +138,65 @@
               "-" +
               (mode === "new" ? branchName : selectedWorktree?.branch ?? "main"));
 
-      const extraFlags: string[] = [];
-      if (skipPermissions) {
-        extraFlags.push("--dangerously-skip-permissions");
-      }
-
-      log(`Creating new session: repo=${repoPath}, mode=${mode}, name=${name}`);
-      const session = await createSession(
-        repoPath,
-        name,
-        mode === "existing" ? selectedWorktree?.path ?? null : null,
-        mode === "new" ? branchName.trim() : null,
-        extraFlags.length > 0 ? extraFlags : undefined,
-        selectedNonoProfile,
+      log(
+        `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, profile=${selectedProfile.id}`,
       );
+
+      const worktreePathArg =
+        mode === "existing" ? selectedWorktree?.path ?? null : null;
+      const branchArg = mode === "new" ? branchName.trim() : null;
+
+      let session: Awaited<ReturnType<typeof createSession>>;
+      if (useLegacyClaudePath) {
+        // Claude built-in profile + optional nono wrapping. Goes through
+        // the existing provider-aware spawn so nono and additional-flags
+        // continue to work exactly as before.
+        const extraFlags: string[] = [];
+        if (skipPermissions) {
+          extraFlags.push("--dangerously-skip-permissions");
+        }
+        session = await createSession(
+          repoPath,
+          name,
+          worktreePathArg,
+          branchArg,
+          extraFlags.length > 0 ? extraFlags : undefined,
+          selectedNonoProfile,
+        );
+      } else {
+        // Any other profile: spawn a plain shell, then type the profile's
+        // setup / startup commands into it after the PTY is attached.
+        session = await createSessionShell(
+          repoPath,
+          name,
+          worktreePathArg,
+          branchArg,
+        );
+      }
 
       log(`Session created: ${session.id}`);
       addSession(session);
-      const mainPaneId = initSessionPanes(session.id);
+
+      // Attach the chosen profile to the session's primary pane. Inline
+      // profiles travel as full captures so they survive restart.
+      const profileRef: SpawnProfileRef =
+        selectedProfile.source === "inline"
+          ? { kind: "inline", profile: selectedProfile }
+          : { kind: "registered", id: selectedProfile.id };
+
+      const mainPaneId = initSessionWithProfile(session.id, profileRef);
       const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
       initTerminal(mainPaneId);
       await attachPtyListeners(mainPaneId);
+
+      // For non-Claude paths, type the profile's commands into the new
+      // shell. Claude built-in + legacy path: backend already launched
+      // claude directly, so there's nothing to type.
+      if (!useLegacyClaudePath) {
+        // session.id is also the PTY id for the session-owned shell.
+        await runProfileInPane(session.id, selectedProfile);
+      }
+
       resetAndClose();
     } catch (e) {
       logError("Failed to create session", e);
@@ -126,6 +204,21 @@
     } finally {
       creating = false;
     }
+  }
+
+  function handleProfileSelect(value: string) {
+    if (value === "__custom__") {
+      showCustomEditor = true;
+      return;
+    }
+    selectedProfileId = value;
+    inlineProfile = null;
+  }
+
+  function handleInlineSubmit(profile: SpawnProfile) {
+    inlineProfile = profile;
+    selectedProfileId = "__inline__";
+    showCustomEditor = false;
   }
 
   function resetAndClose() {
@@ -136,6 +229,9 @@
     error = "";
     selectedNonoProfile = null;
     skipPermissions = false;
+    selectedProfileId = "claude";
+    inlineProfile = null;
+    showCustomEditor = false;
     onclose();
   }
 </script>
@@ -155,7 +251,7 @@
       <!-- Header -->
       <div class="border-b border-hairline bg-bg-surface/30 px-6 pt-5 pb-4">
         <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">New Session</h2>
-        <p class="text-xs text-text-muted">Create a new Claude Code session</p>
+        <p class="text-xs text-text-muted">Pick a spawn profile and launch a pane</p>
       </div>
 
       <!-- Body -->
@@ -273,8 +369,43 @@
           </fieldset>
         {/if}
 
+        <!-- Spawn profile picker -->
+        <div class="flex flex-col gap-1.5">
+          <label
+            for="new-session-profile"
+            class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+          >
+            Spawn profile
+          </label>
+          <select
+            id="new-session-profile"
+            class="bg-bg-deep border border-border rounded-md px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim appearance-none cursor-pointer"
+            onchange={(e) => handleProfileSelect(e.currentTarget.value)}
+          >
+            {#each $profileList as profile}
+              <option
+                value={profile.id}
+                selected={selectedProfileId === profile.id}
+              >
+                {profile.name} {profile.source === "user" ? "(user)" : ""}
+              </option>
+            {/each}
+            {#if inlineProfile}
+              <option value="__inline__" selected={selectedProfileId === "__inline__"}>
+                {inlineProfile.name} (custom)
+              </option>
+            {/if}
+            <option value="__custom__">Custom…</option>
+          </select>
+          {#if selectedProfile && selectedProfile.startupCommand}
+            <p class="truncate font-mono text-[11px] text-text-muted">
+              $ {selectedProfile.startupCommand}
+            </p>
+          {/if}
+        </div>
+
         <!-- Nono sandbox profile -->
-        {#if nonoInstalled}
+        {#if nonoInstalled && useLegacyClaudePath}
           <div class="flex flex-col gap-1.5">
             <label
               for="new-session-nono"
@@ -299,18 +430,20 @@
           </div>
         {/if}
 
-        <!-- Skip permissions checkbox -->
-        <label class="flex items-center gap-2.5 cursor-pointer group">
-          <input
-            type="checkbox"
-            bind:checked={skipPermissions}
-            class="w-4 h-4 rounded border border-border bg-bg-deep accent-amber-500 cursor-pointer"
-          />
-          <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">
-            Skip permission prompts
-          </span>
-          <span class="text-[10px] text-amber-400/70 font-mono">--dangerously-skip-permissions</span>
-        </label>
+        <!-- Skip permissions checkbox (claude built-in path only) -->
+        {#if useLegacyClaudePath}
+          <label class="flex items-center gap-2.5 cursor-pointer group">
+            <input
+              type="checkbox"
+              bind:checked={skipPermissions}
+              class="w-4 h-4 rounded border border-border bg-bg-deep accent-amber-500 cursor-pointer"
+            />
+            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">
+              Skip permission prompts
+            </span>
+            <span class="text-[10px] text-amber-400/70 font-mono">--dangerously-skip-permissions</span>
+          </label>
+        {/if}
 
         <!-- Session name -->
         <div class="flex flex-col gap-1.5">
@@ -351,4 +484,10 @@
       </div>
     </div>
   </div>
+
+  <ProfileCustomEditor
+    visible={showCustomEditor}
+    onclose={() => (showCustomEditor = false)}
+    onsubmit={handleInlineSubmit}
+  />
 {/if}

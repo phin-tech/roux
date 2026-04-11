@@ -34,6 +34,25 @@ export async function createSession(
   });
 }
 
+/**
+ * Parallel to `createSession`, but spawns a plain shell in the session's
+ * primary PTY. Caller then attaches a spawn profile and types its setup /
+ * startup commands into the shell.
+ */
+export async function createSessionShell(
+  repoPath: string,
+  name: string,
+  worktreePath: string | null,
+  branch: string | null,
+): Promise<Session> {
+  return invoke("create_session_shell", {
+    repoPath,
+    name,
+    worktreePath,
+    branch,
+  });
+}
+
 export async function killSession(id: string): Promise<void> {
   return invoke("kill_session", { id });
 }

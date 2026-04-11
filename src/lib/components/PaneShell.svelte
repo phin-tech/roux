@@ -4,6 +4,8 @@
   import { paneInstances, attachToContainer, updateInstance } from "$lib/panes/instances";
   import { focusedPaneId, setLogicalFocus } from "$lib/panes/focus";
   import { closePane } from "$lib/panes/actions";
+  import { resolveProfileRef } from "$lib/panes/profiles";
+  import { runProfileInPane } from "$lib/panes/profileRunner";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
   import { resizeSession, killSession, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
   import { sessionState } from "$lib/stores/sessions";
@@ -50,6 +52,21 @@
   // Command pane status helpers
   const commandStatus = $derived(instance?.commandStatus ?? "idle");
   const commandExitCode = $derived(instance?.commandExitCode ?? null);
+
+  // Resolved profile for the "Re-run profile" button. Built-in / user
+  // refs resolve against the live registry; inline refs carry the profile
+  // on the pane itself. Null when the pane has no profile attached or the
+  // registered profile was deleted out from under it.
+  const activeProfile = $derived(resolveProfileRef(instance?.spawnProfileRef));
+  const canReRunProfile = $derived(
+    !!activeProfile && (!!activeProfile.setupCommand || !!activeProfile.startupCommand),
+  );
+
+  async function reRunProfile() {
+    if (!instance || !activeProfile) return;
+    log(`Re-running profile "${activeProfile.id}" in pane ${paneId}`);
+    await runProfileInPane(instance.ptyId, activeProfile);
+  }
 
   const resizeScheduler = createResizeScheduler({
     getFitAddon: () => instance?.fitAddon ?? null,
@@ -309,6 +326,18 @@
         <span class="min-w-0 flex-1 truncate text-[11px] text-text-secondary font-mono">{instance.name}</span>
       {:else}
         <span class="flex-1"></span>
+      {/if}
+      {#if canReRunProfile}
+        <button
+          class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[11px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+          onclick={(e) => {
+            e.stopPropagation();
+            void reRunProfile();
+          }}
+          title={activeProfile ? `Re-run profile: ${activeProfile.name}` : "Re-run profile"}
+        >
+          &#8635;
+        </button>
       {/if}
       {#if canClose()}
         <button

@@ -1,11 +1,97 @@
+import { get } from "svelte/store";
 import { registry } from "./registry";
+import type { CommandItem } from "./registry";
 import { queries } from "$lib/queries";
 import { navigatePane, movePaneInDirection, resizePane, toggleStack } from "$lib/panes/layout";
 import { toggleFullscreen } from "$lib/panes/focus";
 import { updateInstance } from "$lib/panes/instances";
 import { splitPane, closePane, closeFocusedPane } from "$lib/panes/actions";
+import {
+  profileList,
+  type SpawnProfile,
+  type SpawnProfileRef,
+} from "$lib/panes/profiles";
+import { runProfileInPane } from "$lib/panes/profileRunner";
 import { spawnShell, spawnTask, listDocs } from "$lib/tauri";
 import { log, logError } from "$lib/logging";
+
+/**
+ * Spawn a new shell pane seeded by a specific profile. Shared by both
+ * "Split right with profile" and "Split down with profile" palette
+ * commands. Plain shell profiles get the same path with no setup/startup
+ * commands, so the helper handles every registry entry uniformly.
+ */
+async function spawnShellPaneWithProfile(
+  direction: "h" | "v",
+  profile: SpawnProfile,
+): Promise<void> {
+  const session = queries.activeSession();
+  const activeId = queries.activeSessionId();
+  if (!session || !activeId) return;
+
+  const ptyId = crypto.randomUUID();
+  const paneId = crypto.randomUUID();
+  log(
+    `Split ${direction} with profile "${profile.id}": pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`,
+  );
+  try {
+    await spawnShell(ptyId, session.worktreePath, session.id, paneId);
+  } catch (e) {
+    logError(`Failed to spawn shell for profile "${profile.id}"`, e);
+    return;
+  }
+
+  const spawnProfileRef: SpawnProfileRef =
+    profile.source === "inline"
+      ? { kind: "inline", profile }
+      : { kind: "registered", id: profile.id };
+
+  const newPaneId = splitPane(activeId, direction, {
+    id: paneId,
+    type: "shell",
+    ptyId,
+    spawnProfileRef,
+  });
+  if (!newPaneId) return;
+
+  const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+  initTerminal(newPaneId);
+  await attachPtyListeners(newPaneId, (payload) => {
+    log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
+    closePane(activeId, newPaneId);
+  });
+
+  // The attach is synchronous enough that the pending-output channel
+  // catches any bytes emitted before we start typing.
+  await runProfileInPane(ptyId, profile);
+}
+
+/**
+ * Build a palette sub-picker item for each registered profile. Used by
+ * both the horizontal and vertical "Split with profile" commands. The
+ * `onPick` callback is the concrete action that runs after the user
+ * chooses a profile in the drill-in.
+ */
+function profileSubItems(
+  onPick: (profile: SpawnProfile) => void | Promise<void>,
+): CommandItem[] {
+  const items: CommandItem[] = [];
+  for (const profile of get(profileList)) {
+    const suffix =
+      profile.source === "user"
+        ? " (user)"
+        : profile.provider
+          ? ` · ${profile.provider}`
+          : "";
+    items.push({
+      id: `profile:${profile.id}`,
+      label: `${profile.name}${suffix}`,
+      description: profile.startupCommand ?? undefined,
+      action: () => onPick(profile),
+    });
+  }
+  return items;
+}
 
 export function registerPaneCommands() {
   registry.register({
@@ -70,6 +156,22 @@ export function registerPaneCommands() {
         });
       }
     },
+  });
+
+  registry.register({
+    id: "pane.split-horizontal-with-profile",
+    label: "Split Right with Profile…",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    getItems: () => profileSubItems((p) => spawnShellPaneWithProfile("h", p)),
+  });
+
+  registry.register({
+    id: "pane.split-vertical-with-profile",
+    label: "Split Down with Profile…",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    getItems: () => profileSubItems((p) => spawnShellPaneWithProfile("v", p)),
   });
 
   registry.register({
