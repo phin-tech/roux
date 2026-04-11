@@ -4,13 +4,10 @@ use thiserror::Error;
 
 pub use roux_core::RouxSettings;
 
-fn config_dir() -> PathBuf {
-    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("roux")
-}
+use crate::paths::roux_config_dir;
 
 fn settings_path() -> PathBuf {
-    config_dir().join("settings.json")
+    roux_config_dir().join("settings.json")
 }
 
 #[derive(Debug, Error)]

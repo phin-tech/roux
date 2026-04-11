@@ -705,8 +705,7 @@ impl PtyManager {
 
 /// Get the socket path as a string for setting env vars.
 fn socket_path_str() -> String {
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    home.join(".config").join("roux").join("roux.sock").to_string_lossy().to_string()
+    crate::paths::roux_config_dir().join("roux.sock").to_string_lossy().to_string()
 }
 
 /// Eager trigger for the roux-cli shim. Called from `main.rs` setup so the
@@ -737,8 +736,7 @@ fn roux_cli_shim() -> Option<(String, String)> {
             }
 
             // 2. Ensure ~/.config/roux/bin/ exists.
-            let home = dirs::home_dir()?;
-            let bin_dir = home.join(".config").join("roux").join("bin");
+            let bin_dir = crate::paths::roux_config_dir().join("bin");
             if let Err(e) = std::fs::create_dir_all(&bin_dir) {
                 rlog!("roux_cli_shim: failed to create {}: {}", bin_dir.display(), e);
                 return None;

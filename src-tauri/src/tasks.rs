@@ -305,8 +305,7 @@ pub fn discover_tasks(dir: &Path) -> Vec<TaskGroup> {
 }
 
 fn overrides_path() -> std::path::PathBuf {
-    let base = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    base.join("roux").join("task-overrides.json")
+    crate::paths::roux_config_dir().join("task-overrides.json")
 }
 
 #[tauri::command]

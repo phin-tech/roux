@@ -6,6 +6,7 @@ mod logging;
 mod commands;
 mod notifications;
 mod pane_state;
+mod paths;
 mod projects;
 mod project_service;
 mod providers;
@@ -29,9 +30,15 @@ use crate::pty::PtyManager;
 use crate::state::AppState;
 
 fn main() {
+    // Move any legacy state from the pre-unification config location
+    // (`~/Library/Application Support/roux` on macOS) into the canonical
+    // `~/.config/roux` before any module loads state. Best-effort; failures
+    // are logged but never block startup.
+    paths::migrate_legacy_config_dir();
+
     let initial_settings = settings::load_settings();
     logging::init(initial_settings.enable_logging);
-    rlog!("Settings loaded from {:?}", dirs::config_dir().map(|d| d.join("roux/settings.json")));
+    rlog!("Settings loaded from {:?}", paths::roux_config_dir().join("settings.json"));
     if let Some(ref p) = initial_settings.claude_binary_path {
         rlog!("Claude binary path (from settings): {}", p);
     } else {

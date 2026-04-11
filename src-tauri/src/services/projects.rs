@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
+use crate::paths::roux_config_dir;
 use crate::session_service::SessionHandle;
 
 pub(crate) fn notes_path(project_id: &str) -> PathBuf {
-    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("roux").join("notes").join(format!("{}.txt", project_id))
+    roux_config_dir().join("notes").join(format!("{}.txt", project_id))
 }
 
 pub(crate) fn get_notes(project_id: &str) -> anyhow::Result<String> {

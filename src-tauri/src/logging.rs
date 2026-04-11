@@ -8,8 +8,7 @@ static LOG_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
 fn log_dir() -> PathBuf {
-    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("roux").join("logs")
+    crate::paths::roux_config_dir().join("logs")
 }
 
 /// Initialize logging. Call once at startup.

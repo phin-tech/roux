@@ -1,6 +1,6 @@
 //! Per-session pane state persistence.
 //!
-//! Writes to `<config_dir>/roux/pane_state/<session_id>.json` as a versioned
+//! Writes to `~/.config/roux/pane_state/<session_id>.json` as a versioned
 //! envelope: `{ "version": 1, "data": <opaque-frontend-json> }`. Rust does
 //! not inspect `data` — the frontend owns that schema.
 //!
@@ -29,7 +29,7 @@ fn is_safe_session_id(session_id: &str) -> bool {
 }
 
 fn pane_state_dir(base: &Path) -> PathBuf {
-    base.join("roux").join("pane_state")
+    base.join("pane_state")
 }
 
 fn pane_state_file(base: &Path, session_id: &str) -> PathBuf {
@@ -119,7 +119,7 @@ pub fn delete_from(base: &Path, session_id: &str) -> Result<(), String> {
 }
 
 fn config_base() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(|| PathBuf::from("."))
+    crate::paths::roux_config_dir()
 }
 
 /// Public loader — reads from the standard config directory.

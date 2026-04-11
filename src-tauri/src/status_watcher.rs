@@ -39,8 +39,6 @@ struct StatusUpdate {
 
 #[derive(Debug, Error)]
 pub enum StatusWatcherError {
-    #[error("Could not determine home directory")]
-    HomeDirUnavailable,
     #[error("Failed to create status dir: {source}")]
     CreateStatusDir {
         #[source]
@@ -59,8 +57,7 @@ pub enum StatusWatcherError {
 }
 
 fn status_dir() -> Result<PathBuf, StatusWatcherError> {
-    let home = dirs::home_dir().ok_or(StatusWatcherError::HomeDirUnavailable)?;
-    let dir = home.join(".config").join("roux").join("status");
+    let dir = crate::paths::roux_config_dir().join("status");
     fs::create_dir_all(&dir).map_err(|source| StatusWatcherError::CreateStatusDir { source })?;
     Ok(dir)
 }

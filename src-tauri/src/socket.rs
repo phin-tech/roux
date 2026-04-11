@@ -40,8 +40,7 @@ impl Response {
 }
 
 pub fn socket_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".config").join("roux").join("roux.sock")
+    crate::paths::roux_config_dir().join("roux.sock")
 }
 
 pub fn start_socket_server(app: tauri::AppHandle) {
