@@ -57,6 +57,15 @@ export async function killSession(id: string): Promise<void> {
   return invoke("kill_session", { id });
 }
 
+/**
+ * Kill only the PTY `id`, leaving the session record and pane-state files
+ * alone. Use this for pane disposal — `killSession` removes the session
+ * too, which is almost never what a pane-level close wants.
+ */
+export async function killPty(id: string): Promise<void> {
+  return invoke("kill_pty", { id });
+}
+
 export async function reconnectSessionPty(
   id: string,
   extraFlags?: string[],

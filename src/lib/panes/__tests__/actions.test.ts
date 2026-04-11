@@ -1,5 +1,14 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
+
+// Stub $lib/tauri so we can observe which kill primitive disposePane
+// chose. The real invoke() would just reject silently in jsdom; this mock
+// lets the pane-disposal path reach the assertion surface.
+vi.mock("$lib/tauri", () => ({
+  killPty: vi.fn().mockResolvedValue(undefined),
+  killSession: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   splitPane,
   closePane,
@@ -10,12 +19,15 @@ import {
 import { paneInstances, resetInstances, getInstance } from "../instances";
 import { sessionLayouts, resetLayouts, collectLeafIds } from "../layout";
 import { focusedPaneId, resetFocus } from "../focus";
+import { killPty, killSession } from "$lib/tauri";
 
 describe("pane actions", () => {
   beforeEach(() => {
     resetInstances();
     resetLayouts();
     resetFocus();
+    vi.mocked(killPty).mockClear();
+    vi.mocked(killSession).mockClear();
   });
 
   describe("initSession", () => {
@@ -87,12 +99,31 @@ describe("pane actions", () => {
       expect(get(sessionLayouts).get("s1")!.kind).toBe("leaf");
     });
 
-    it("closes the claude pane and leaves the session with zero panes", () => {
+    it("closes the primary pane and leaves the session with zero panes", () => {
       initSession("s1");
       const closed = closePane("s1", "s1-main");
       expect(closed).toBe(true);
       expect(get(paneInstances).has("s1-main")).toBe(false);
       expect(get(sessionLayouts).has("s1")).toBe(false);
+    });
+
+    it("uses killPty (not killSession) when disposing the primary pane", () => {
+      // Regression: phase 4 made disposePane kill PTYs for every shell,
+      // which destroyed sessions when the primary pane was closed because
+      // killSession removed the session record as a side effect. Pane
+      // disposal must only touch the PTY.
+      initSession("s1");
+      closePane("s1", "s1-main");
+      expect(killPty).toHaveBeenCalledWith("s1");
+      expect(killSession).not.toHaveBeenCalled();
+    });
+
+    it("uses killPty when disposing a shell pane created by splitPane", () => {
+      initSession("s1");
+      const shellId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" })!;
+      closePane("s1", shellId);
+      expect(killPty).toHaveBeenCalledWith("pty-1");
+      expect(killSession).not.toHaveBeenCalled();
     });
 
     it("moves focus when closing focused pane", () => {

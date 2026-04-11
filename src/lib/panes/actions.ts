@@ -20,7 +20,7 @@ import { focusedPaneId, setLogicalFocus } from "./focus";
 import { disposeAgentState } from "./agentState";
 import { forgetLastStatus } from "./agentNotifications";
 import type { SpawnProfileRef } from "./profiles";
-import { killSession } from "$lib/tauri";
+import { killPty } from "$lib/tauri";
 
 // Register cleanup hooks on disposePane so every path that disposes a
 // pane (closePane, closeSessionPanes, splitPane rollback, anything
@@ -87,7 +87,7 @@ export function splitPane(
   });
 
   if (!inserted) {
-    disposePane(newPaneId, killSession);
+    disposePane(newPaneId, killPty);
     return null;
   }
 
@@ -108,7 +108,7 @@ export function closePane(sessionId: string, paneId: string): boolean {
     return new Map(m);
   });
 
-  disposePane(paneId, killSession);
+  disposePane(paneId, killPty);
 
   if (get(focusedPaneId) === paneId) {
     const tree = get(sessionLayouts).get(sessionId);
@@ -128,7 +128,7 @@ export function closeSessionPanes(sessionId: string) {
   const tree = get(sessionLayouts).get(sessionId);
   if (tree) {
     const ids = collectLeafIds(tree);
-    for (const id of ids) disposePane(id, killSession);
+    for (const id of ids) disposePane(id, killPty);
   }
   sessionLayouts.update((m) => {
     m.delete(sessionId);

@@ -16,6 +16,20 @@ export const commands = {
 	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId })),
 	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId })),
 	killSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_session", { id })),
+	/**
+	 *  Kill only the PTY for `id`, leaving session state, pane-state files, and
+	 *  the session record untouched. Used by `disposePane` on the frontend so
+	 *  closing a pane never accidentally destroys its session — even when the
+	 *  pane's `ptyId === sessionId` (the session-owned PTY spawned by
+	 *  `create_session` / `create_session_shell`).
+	 * 
+	 *  Prior to this command, `disposePane` called `kill_session`, which tore
+	 *  down `session_handle` and `pane_state` as a side effect. That was fine
+	 *  for non-primary shells whose ptyId was a random UUID (not in
+	 *  `session_handle`) but catastrophic for primary panes, where
+	 *  `ptyId == sessionId` matched a real session record and deleted it.
+	 */
+	killPty: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_pty", { id })),
 	getPtyGeneration: (id: string) => __TAURI_INVOKE<number | null>("get_pty_generation", { id }),
 	/**
 	 *  Live cwd of a PTY-backed process, resolved from the OS (no shell hooks).

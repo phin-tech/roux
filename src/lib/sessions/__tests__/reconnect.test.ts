@@ -4,6 +4,7 @@ import { get } from "svelte/store";
 vi.mock("$lib/tauri", () => ({
   reconnectSessionPty: vi.fn(),
   killSession: vi.fn(),
+  killPty: vi.fn().mockResolvedValue(undefined),
   spawnShell: vi.fn(),
   loadPaneStateRaw: vi.fn().mockResolvedValue(null),
   savePaneStateRaw: vi.fn().mockResolvedValue(undefined),

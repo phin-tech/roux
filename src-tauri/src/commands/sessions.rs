@@ -78,6 +78,24 @@ pub(crate) async fn kill_session(id: String, state: tauri::State<'_, AppState>) 
         .map_err(|e| e.to_string())
 }
 
+/// Kill only the PTY for `id`, leaving session state, pane-state files, and
+/// the session record untouched. Used by `disposePane` on the frontend so
+/// closing a pane never accidentally destroys its session — even when the
+/// pane's `ptyId === sessionId` (the session-owned PTY spawned by
+/// `create_session` / `create_session_shell`).
+///
+/// Prior to this command, `disposePane` called `kill_session`, which tore
+/// down `session_handle` and `pane_state` as a side effect. That was fine
+/// for non-primary shells whose ptyId was a random UUID (not in
+/// `session_handle`) but catastrophic for primary panes, where
+/// `ptyId == sessionId` matched a real session record and deleted it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn kill_pty(id: String, state: tauri::State<AppState>) -> Result<(), String> {
+    state.pty_manager.kill(&id);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn create_session(

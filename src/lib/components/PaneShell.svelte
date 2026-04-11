@@ -7,7 +7,7 @@
   import { resolveProfileRef } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
-  import { resizeSession, killSession, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
+  import { resizeSession, killPty, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
@@ -154,7 +154,7 @@
 
     // Kill old PTY if still running
     if (commandStatus === "running") {
-      await killSession(instance.ptyId).catch(() => {});
+      await killPty(instance.ptyId).catch(() => {});
     }
 
     // Clean up old listeners
@@ -382,7 +382,7 @@
               <span class="h-2 w-2 shrink-0 rounded-full bg-accent animate-pulse"></span>
               <button
                 class="bg-transparent px-1 font-mono text-[10px] text-text-muted border-none cursor-pointer hover:text-red"
-                onclick={() => { void killSession(instance.ptyId).catch(() => {}); }}
+                onclick={() => { void killPty(instance.ptyId).catch(() => {}); }}
                 title="Stop"
               >&#9632;</button>
             {:else}
