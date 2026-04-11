@@ -66,11 +66,6 @@ export function closePane(sessionId: string, paneId: string): boolean {
   const instance = getInstance(paneId);
   if (!instance) return false;
 
-  // Don't close the main claude pane
-  if (instance.type === "claude" && instance.id === `${sessionId}-main`) {
-    return false;
-  }
-
   sessionLayouts.update((m) => {
     const tree = m.get(sessionId);
     if (!tree) return m;

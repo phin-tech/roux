@@ -85,8 +85,7 @@
   }
 
   function canClose(): boolean {
-    if (!instance) return false;
-    return !(instance.type === "claude" && paneId === `${sessionId}-main`);
+    return !!instance;
   }
 
   function handleMouseDown() {

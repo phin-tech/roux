@@ -3,11 +3,41 @@ import type { Session } from "$lib/types";
 import { updateSessionStatus } from "$lib/stores/sessions";
 import { reconnectSessionPty, spawnShell } from "$lib/tauri";
 import { replacePty, createPane, updateInstance, getInstance } from "$lib/panes/instances";
-import { sessionLayouts, collectLeafIds } from "$lib/panes/layout";
+import { sessionLayouts, collectLeafIds, type LayoutNode } from "$lib/panes/layout";
 import { loadPaneState, stripCommandPanes, type PaneDescriptor, type PaneStatePayload } from "$lib/panes/persistence";
 import { log } from "$lib/logging";
 
 const reconnecting = new Set<string>();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Find the pane id of the session's claude pane by walking the current layout.
+ * Returns null if the session has no layout or no claude pane.
+ */
+function findClaudePaneId(sessionId: string): string | null {
+  const layout = get(sessionLayouts).get(sessionId);
+  if (!layout) return null;
+  for (const leafId of collectLeafIds(layout)) {
+    if (getInstance(leafId)?.type === "claude") return leafId;
+  }
+  return null;
+}
+
+/** Find the claude descriptor id in a persisted payload. */
+function findClaudeDescriptorId(descriptors: PaneDescriptor[]): string | null {
+  const claudeDescs = descriptors.filter((d) => d.type === "claude");
+  return claudeDescs.length === 1 ? claudeDescs[0].id : null;
+}
+
+/** True when the given layout is a single claude leaf. */
+function isSingleClaudeLeaf(layout: LayoutNode, claudePaneId: string | null): boolean {
+  return (
+    claudePaneId !== null &&
+    layout.kind === "leaf" &&
+    layout.paneId === claudePaneId
+  );
+}
 
 // ── Integrity preflight ───────────────────────────────────────────────────────
 
@@ -21,11 +51,10 @@ function validatePanePayload(sessionId: string, payload: PaneStatePayload): bool
     return false;
   }
 
-  // Must have exactly one claude descriptor matching the main pane.
-  const mainId = `${sessionId}-main`;
+  // Must have exactly one claude descriptor.
   const claudeDescs = descriptors.filter((d) => d.type === "claude");
-  if (claudeDescs.length !== 1 || claudeDescs[0].id !== mainId) {
-    log(`pane restore preflight(${sessionId}): expected exactly one claude descriptor with id ${mainId}`);
+  if (claudeDescs.length !== 1) {
+    log(`pane restore preflight(${sessionId}): expected exactly one claude descriptor, got ${claudeDescs.length}`);
     return false;
   }
 
@@ -100,19 +129,22 @@ async function rehydratePane(
   // command panes are stripped before rehydration; this branch is unreachable
 }
 
-// ── Main-pane-only reconnect (extracted from original reconnectSession) ───────
+// ── Claude-pane-only reconnect (extracted from original reconnectSession) ────
 
-async function reconnectMainPaneOnly(
+async function reconnectClaudePaneOnly(
   session: Session,
   extraFlags?: string[],
 ): Promise<Session> {
-  const mainPaneId = `${session.id}-main`;
-  replacePty(mainPaneId, session.id);
+  const claudePaneId = findClaudePaneId(session.id);
+  if (!claudePaneId) {
+    throw new Error(`reconnectSession(${session.id}): no claude pane found to reconnect`);
+  }
+  replacePty(claudePaneId, session.id);
   const updated = await reconnectSessionPty(session.id, extraFlags);
   const { attachPtyListeners } = await import("$lib/panes/terminals");
-  await attachPtyListeners(mainPaneId);
+  await attachPtyListeners(claudePaneId);
   updateSessionStatus(session.id, updated.status as Session["status"]);
-  log(`Session ${session.id} reconnected (main pane only)`);
+  log(`Session ${session.id} reconnected (claude pane only)`);
   return updated;
 }
 
@@ -129,36 +161,35 @@ export async function reconnectSession(
   try {
     log(`Reconnecting session ${session.id} (${session.name})`);
 
-    // Guard: if the current layout is not the default main-only leaf, we're
-    // dealing with a mid-session disconnect. Don't rehydrate from disk — trust
-    // the live runtime state instead.
-    const currentTree = get(sessionLayouts).get(session.id);
-    const isMainOnly =
-      currentTree?.kind === "leaf" &&
-      currentTree.paneId === `${session.id}-main`;
+    const liveClaudePaneId = findClaudePaneId(session.id);
 
-    if (!isMainOnly) {
-      return await reconnectMainPaneOnly(session, extraFlags);
+    // Guard: if the current layout is not a lone claude leaf, we're dealing
+    // with a mid-session disconnect. Don't rehydrate from disk — trust the
+    // live runtime state instead.
+    const currentTree = get(sessionLayouts).get(session.id);
+    const isClaudeOnly =
+      !!currentTree && isSingleClaudeLeaf(currentTree, liveClaudePaneId);
+
+    if (!isClaudeOnly) {
+      return await reconnectClaudePaneOnly(session, extraFlags);
     }
 
     // Try to load persisted pane state from disk.
     const persisted = await loadPaneState(session.id);
     if (!persisted) {
-      return await reconnectMainPaneOnly(session, extraFlags);
+      return await reconnectClaudePaneOnly(session, extraFlags);
     }
 
-    // Fast-path: persisted tree is also main-only.
-    if (
-      persisted.layout.kind === "leaf" &&
-      persisted.layout.paneId === `${session.id}-main`
-    ) {
-      return await reconnectMainPaneOnly(session, extraFlags);
+    // Fast-path: persisted tree is also a lone claude leaf.
+    const persistedClaudeId = findClaudeDescriptorId(persisted.descriptors);
+    if (isSingleClaudeLeaf(persisted.layout, persistedClaudeId)) {
+      return await reconnectClaudePaneOnly(session, extraFlags);
     }
 
     // Integrity preflight: reject corrupt/mismatched data before touching state.
     if (!validatePanePayload(session.id, persisted)) {
-      log(`pane restore preflight failed for ${session.id}, falling back to main-pane-only reconnect`);
-      return await reconnectMainPaneOnly(session, extraFlags);
+      log(`pane restore preflight failed for ${session.id}, falling back to claude-pane-only reconnect`);
+      return await reconnectClaudePaneOnly(session, extraFlags);
     }
 
     // Strip command panes — they cannot be restarted.
@@ -168,17 +199,18 @@ export async function reconnectSession(
     );
 
     if (!strippedTree) {
-      return await reconnectMainPaneOnly(session, extraFlags);
+      return await reconnectClaudePaneOnly(session, extraFlags);
     }
 
     // Reconnect the Claude PTY. Abort layout restore if this fails.
-    const updated = await reconnectMainPaneOnly(session, extraFlags);
+    const updated = await reconnectClaudePaneOnly(session, extraFlags);
 
-    // Rehydrate non-main panes. All PaneInstances must exist BEFORE we apply
-    // the layout tree, so the renderer can resolve every leaf.
+    // Rehydrate non-claude panes. All PaneInstances must exist BEFORE we
+    // apply the layout tree, so the renderer can resolve every leaf.
     const leafIds = collectLeafIds(strippedTree);
     const descById = new Map(strippedDescs.map((d) => [d.id, d]));
-    const nonMainIds = leafIds.filter((id) => id !== `${session.id}-main`);
+    const claudeDescId = findClaudeDescriptorId(strippedDescs);
+    const nonMainIds = leafIds.filter((id) => id !== claudeDescId);
 
     for (const paneId of nonMainIds) {
       const descriptor = descById.get(paneId);

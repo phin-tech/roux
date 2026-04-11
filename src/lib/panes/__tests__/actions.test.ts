@@ -86,11 +86,12 @@ describe("pane actions", () => {
       expect(get(sessionLayouts).get("s1")!.kind).toBe("leaf");
     });
 
-    it("does not close the main claude pane", () => {
+    it("closes the claude pane and leaves the session with zero panes", () => {
       initSession("s1");
       const closed = closePane("s1", "s1-main");
-      expect(closed).toBe(false);
-      expect(get(paneInstances).has("s1-main")).toBe(true);
+      expect(closed).toBe(true);
+      expect(get(paneInstances).has("s1-main")).toBe(false);
+      expect(get(sessionLayouts).has("s1")).toBe(false);
     });
 
     it("moves focus when closing focused pane", () => {
