@@ -13,6 +13,7 @@ import {
 } from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
 import { spawnShell, spawnTask, listDocs, notificationsPush } from "$lib/tauri";
+import { openCustomProfileEditor } from "$lib/stores/customProfileModal";
 import { log, logError } from "$lib/logging";
 
 /**
@@ -97,6 +98,10 @@ async function spawnShellPaneWithProfile(
  * both the horizontal and vertical "Split with profile" commands. The
  * `onPick` callback is the concrete action that runs after the user
  * chooses a profile in the drill-in.
+ *
+ * Also appends a "Custom…" entry at the end that defers to the global
+ * `ProfileCustomEditor` modal via `openCustomProfileEditor()` — matches
+ * the parity of the new-session dialog's profile picker.
  */
 function profileSubItems(
   onPick: (profile: SpawnProfile) => void | Promise<void>,
@@ -116,6 +121,15 @@ function profileSubItems(
       action: () => onPick(profile),
     });
   }
+  items.push({
+    id: "profile:__custom__",
+    label: "Custom…",
+    description: "Define an ad-hoc inline profile for this pane",
+    action: async () => {
+      const profile = await openCustomProfileEditor();
+      if (profile) await onPick(profile);
+    },
+  });
   return items;
 }
 

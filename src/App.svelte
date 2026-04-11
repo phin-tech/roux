@@ -3,6 +3,7 @@
   import { get } from "svelte/store";
   import Layout from "$lib/components/Layout.svelte";
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
+  import ProfileCustomEditor from "$lib/components/ProfileCustomEditor.svelte";
   import SetupPrompt from "$lib/components/SetupPrompt.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
@@ -23,6 +24,11 @@
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, flushPaneState, loadPaneState } from "$lib/panes/persistence";
   import { loadBuiltinProfiles } from "$lib/panes/profiles";
+  import {
+    customProfileModalState,
+    submitCustomProfile,
+    closeCustomProfileEditor,
+  } from "$lib/stores/customProfileModal";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
   import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp } from "$lib/tauri";
@@ -494,6 +500,15 @@
 <NewSessionDialog
   visible={showNewSessionDialog}
   onclose={() => (showNewSessionDialog = false)}
+/>
+
+<!-- Global custom-profile editor host. Opened by palette flows
+     (split-with-profile) that can't mount their own modal. Resolves
+     the pending `openCustomProfileEditor()` promise on submit/cancel. -->
+<ProfileCustomEditor
+  visible={$customProfileModalState.visible}
+  onclose={closeCustomProfileEditor}
+  onsubmit={submitCustomProfile}
 />
 
 <CommandPalette
