@@ -8,6 +8,7 @@ import {
   firstLeafId,
   lastLeafId,
   collectLeafIds,
+  collectVisibleLeafIds,
   hasSplitPanes,
   containsPaneId,
   resetLayouts,
@@ -184,6 +185,62 @@ describe("layout tree", () => {
         return new Map(m);
       });
       expect(lastLeafId(getLayout("s1"))).toBe("shell-1");
+    });
+
+    it("collectVisibleLeafIds returns DFS order for a plain split tree", () => {
+      const tree: LayoutNode = {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "a" },
+          {
+            kind: "split",
+            direction: "v",
+            children: [
+              { kind: "leaf", paneId: "b" },
+              { kind: "leaf", paneId: "c" },
+            ],
+          },
+          { kind: "leaf", paneId: "d" },
+        ],
+      };
+      expect(collectVisibleLeafIds(tree)).toEqual(["a", "b", "c", "d"]);
+    });
+
+    it("collectVisibleLeafIds skips hidden children of stacked splits", () => {
+      const tree: LayoutNode = {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "a" },
+          {
+            kind: "split",
+            direction: "h",
+            stacked: true,
+            activeIndex: 1,
+            children: [
+              { kind: "leaf", paneId: "hidden-1" },
+              { kind: "leaf", paneId: "visible" },
+              { kind: "leaf", paneId: "hidden-2" },
+            ],
+          },
+          { kind: "leaf", paneId: "d" },
+        ],
+      };
+      expect(collectVisibleLeafIds(tree)).toEqual(["a", "visible", "d"]);
+    });
+
+    it("collectVisibleLeafIds defaults stacked activeIndex to 0", () => {
+      const tree: LayoutNode = {
+        kind: "split",
+        direction: "h",
+        stacked: true,
+        children: [
+          { kind: "leaf", paneId: "first" },
+          { kind: "leaf", paneId: "second" },
+        ],
+      };
+      expect(collectVisibleLeafIds(tree)).toEqual(["first"]);
     });
 
     it("collectLeafIds returns all leaf IDs", () => {

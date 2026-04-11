@@ -186,6 +186,23 @@ export function collectLeafIds(node: LayoutNode): string[] {
   return node.children.flatMap(collectLeafIds);
 }
 
+/**
+ * Collects leaf paneIds in DFS order, visiting only the currently-visible
+ * branch of stacked splits. Hidden stack tabs are skipped because the
+ * session-switch / pane-jump overlay can only draw a badge on a rendered
+ * pane element, and a focused pane inside a hidden stack tab would not be
+ * reachable without extra stack-activation bookkeeping.
+ */
+export function collectVisibleLeafIds(node: LayoutNode): string[] {
+  if (node.kind === "leaf") return [node.paneId];
+  if (node.stacked) {
+    const activeIdx = node.activeIndex ?? 0;
+    const active = node.children[activeIdx];
+    return active ? collectVisibleLeafIds(active) : [];
+  }
+  return node.children.flatMap(collectVisibleLeafIds);
+}
+
 /** Returns true if the given node contains paneId anywhere in its subtree. */
 export function containsPaneId(node: LayoutNode, paneId: string): boolean {
   if (node.kind === "leaf") return node.paneId === paneId;

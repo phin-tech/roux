@@ -4,10 +4,12 @@
   import { projects } from "$lib/stores/projects";
   import { watchState, flashingSessions } from "$lib/stores/watches";
   import { unreadBySession } from "$lib/stores/notifications";
+  import { showSessionHints } from "$lib/stores/ui";
 
   interface Props {
     session: Session;
     active: boolean;
+    slotNumber?: number;
     onselect: () => void;
     onclose: () => void;
     onrename: (newName: string) => void;
@@ -18,12 +20,17 @@
   let {
     session,
     active,
+    slotNumber,
     onselect,
     onclose,
     onrename,
     onreconnect,
     oncontextmenu,
   }: Props = $props();
+
+  let slotLabel = $derived(
+    slotNumber == null ? null : slotNumber === 10 ? "0" : String(slotNumber),
+  );
 
   function pathLabel(path: string): string {
     const parts = path.split("/").filter(Boolean);
@@ -229,6 +236,17 @@
     {/if}
   </div>
 
+  {#if slotLabel}
+    <div
+      class="slot-hint-overlay pointer-events-none absolute inset-0 flex items-center justify-center bg-bg-deep/75 backdrop-blur-[1px] transition-opacity duration-[120ms]"
+      class:slot-hint-visible={$showSessionHints}
+      aria-hidden="true"
+    >
+      <span class="font-mono text-[28px] font-bold leading-none text-text-primary drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+        &#8984;{slotLabel}
+      </span>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -239,5 +257,13 @@
   @keyframes watch-flash-anim {
     0% { background-color: var(--flash-color); }
     100% { background-color: transparent; }
+  }
+
+  .slot-hint-overlay {
+    opacity: 0;
+  }
+
+  .slot-hint-overlay.slot-hint-visible {
+    opacity: 1;
   }
 </style>

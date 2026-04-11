@@ -29,6 +29,14 @@
   import { closeFocusedPane } from "$lib/panes/actions";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
   import { initLogging, log, logError } from "$lib/logging";
+  import {
+    armSessionHints,
+    hideSessionHints,
+    armPaneHints,
+    hidePaneHints,
+    paneSlotById,
+  } from "$lib/stores/ui";
+  import { getVisualSessionOrder } from "$lib/sessions/order";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
@@ -98,6 +106,18 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // Arm the session-hint overlay when Cmd is pressed on its own.
+    // The store handles the 200ms delay; quick chords like Cmd+K or Cmd+1
+    // release before the delay elapses and never reveal the overlay.
+    if (e.key === "Meta") {
+      armSessionHints();
+    }
+
+    // Same deal for Alt / Option → pane hint overlay.
+    if (e.key === "Alt") {
+      armPaneHints();
+    }
+
     // Cmd+Q: quit
     if (e.metaKey && e.key === "q") {
       e.preventDefault();
@@ -114,6 +134,52 @@
 
     // Don't intercept shortcuts when palette is open
     if (showPalette) return;
+
+    // Cmd+1..9 / Cmd+0: switch to the Nth session in sidebar visual order.
+    // Cmd+0 maps to slot 10. Slots past the available session count are
+    // no-ops but still consume the key so nothing else reacts.
+    if (
+      e.metaKey &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !e.ctrlKey &&
+      /^[0-9]$/.test(e.key)
+    ) {
+      const slot = e.key === "0" ? 10 : parseInt(e.key, 10);
+      const order = getVisualSessionOrder(
+        get(sessionState).sessions,
+        get(projects),
+        get(settings).groupBy ?? "repo",
+      );
+      const target = order[slot - 1];
+      e.preventDefault();
+      if (target) setActiveSession(target.id);
+      return;
+    }
+
+    // Alt+1..9 / Alt+0: focus the Nth visible pane in the active session.
+    // Uses e.code because macOS Option produces special characters in e.key
+    // (Option+1 → ¡, Option+2 → ™, etc.), and we need the physical digit.
+    if (
+      e.altKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      !e.ctrlKey &&
+      /^Digit[0-9]$/.test(e.code)
+    ) {
+      const digit = e.code.slice(5);
+      const slot = digit === "0" ? 10 : parseInt(digit, 10);
+      e.preventDefault();
+      // paneSlotById is already keyed to the active session's visible DFS order.
+      const slots = get(paneSlotById);
+      for (const [paneId, s] of slots) {
+        if (s === slot) {
+          setLogicalFocus(paneId);
+          break;
+        }
+      }
+      return;
+    }
 
     // Prevent WebKit from blurring xterm's hidden textarea on Escape.
     // Without this, pressing Escape (e.g. to leave vim insert mode) causes
@@ -164,6 +230,16 @@
     }
   }
 
+  function handleKeyUp(e: KeyboardEvent) {
+    if (e.key === "Meta") hideSessionHints();
+    if (e.key === "Alt") hidePaneHints();
+  }
+
+  function handleWindowBlur() {
+    hideSessionHints();
+    hidePaneHints();
+  }
+
   $effect(() => {
     const theme = normalizeTheme($settings.theme);
     document.documentElement.dataset.theme = theme;
@@ -174,6 +250,8 @@
 
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);
+    window.removeEventListener("keyup", handleKeyUp, true);
+    window.removeEventListener("blur", handleWindowBlur);
   });
 
   onMount(async () => {
@@ -187,6 +265,8 @@
     registerCommands();
     // Use capture phase so we intercept before xterm.js swallows the event
     window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("blur", handleWindowBlur);
 
     // Listen for Tauri close-requested event (red button / Cmd+W)
     await listen("close-requested", () => void handleCloseRequested());

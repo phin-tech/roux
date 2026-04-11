@@ -8,6 +8,7 @@
   import { resizeSession, killSession, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
+  import { showPaneHints, paneSlotById } from "$lib/stores/ui";
   import { getXtermTheme } from "$lib/themes";
   import { reconnectSession, retryShellPane } from "$lib/sessions/reconnect";
   import { log, logError } from "$lib/logging";
@@ -35,6 +36,10 @@
   const instance = $derived($paneInstances.get(paneId));
   const isFocused = $derived($focusedPaneId === paneId);
   const session = $derived($sessionState.sessions.find((s) => s.id === sessionId));
+  const paneSlot = $derived($paneSlotById.get(paneId) ?? null);
+  const paneSlotLabel = $derived(
+    paneSlot == null ? null : paneSlot === 10 ? "0" : String(paneSlot),
+  );
   const isDisconnected = $derived(instance?.type === "claude" && session?.status === "disconnected");
 
   // Command pane status helpers
@@ -380,5 +385,27 @@
         ></div>
       {/if}
     </div>
+
+    {#if paneSlotLabel}
+      <div
+        class="pane-slot-hint pointer-events-none absolute inset-0 flex items-center justify-center bg-bg-deep/70 backdrop-blur-[1px]"
+        class:pane-slot-hint--visible={$showPaneHints}
+        aria-hidden="true"
+      >
+        <span class="font-mono text-[64px] font-bold leading-none text-text-primary drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]">
+          &#8997;{paneSlotLabel}
+        </span>
+      </div>
+    {/if}
   </div>
 {/if}
+
+<style>
+  .pane-slot-hint {
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+  }
+  .pane-slot-hint--visible {
+    opacity: 1;
+  }
+</style>
