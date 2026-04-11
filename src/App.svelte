@@ -27,7 +27,6 @@
   import { listen } from "@tauri-apps/api/event";
   import { registerCommands, registry } from "$lib/commands";
   import { closeFocusedPane } from "$lib/panes/actions";
-  import { closeSession } from "$lib/sessions/close";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
   import { initLogging, log, logError } from "$lib/logging";
 
@@ -65,12 +64,11 @@
   }
 
   async function forceQuit() {
-    // Flush any pending pane state debounce before sessions are closed.
+    // Flush any pending pane state debounce before quitting.
     try { await flushPaneState(); } catch {}
-    const state = get(sessionState);
-    for (const session of [...state.sessions]) {
-      try { await closeSession(session, { force: true }); } catch {}
-    }
+    // Do NOT close/remove sessions here. The Rust quit_app command kills PTYs
+    // and persists sessions to disk (they load as "disconnected" on next launch).
+    // Removing sessions before quit empties sessions.json, breaking restore.
     quitApp();
   }
 

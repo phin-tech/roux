@@ -1,9 +1,9 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
   import { sessionState } from "$lib/stores/sessions";
-  import { closeSession } from "$lib/sessions/close";
   import { updateSetting } from "$lib/stores/settings";
   import { quitApp } from "$lib/tauri";
+  import { flushPaneState } from "$lib/panes/persistence";
 
   interface Props {
     visible: boolean;
@@ -27,14 +27,10 @@
     if (skipNextTime) {
       updateSetting("confirmOnQuit", false);
     }
-    // Close all sessions with force (skip individual confirmations)
-    for (const session of [...$sessionState.sessions]) {
-      try {
-        await closeSession(session, { force: true });
-      } catch {
-        // Best effort — continue closing remaining sessions
-      }
-    }
+    // Do NOT remove sessions — the Rust quit_app command kills PTYs and persists
+    // session state so sessions reload as "disconnected" on next launch. Removing
+    // them here empties sessions.json and breaks restore.
+    try { await flushPaneState(); } catch {}
     quitApp();
   }
 

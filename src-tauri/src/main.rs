@@ -103,9 +103,8 @@ fn main() {
             commands::worktrees::git_init,
             commands::sessions::refresh_session_git_status,
             commands::misc::quit_app,
-            commands::pane_state::load_pane_state,
-            commands::pane_state::save_pane_state,
-            commands::pane_state::delete_pane_state,
+            // pane_state commands are omitted from specta — serde_json::Value
+            // produces invalid TypeScript. They're called via raw invoke() instead.
         ]);
 
     #[cfg(debug_assertions)]
