@@ -1,6 +1,25 @@
+import { get } from "svelte/store";
 import type { StatusUpdate } from "$lib/tauri";
 import { updateAgentState, type AgentStateEvent, type PermissionInfo } from "./agentState";
+import { sessionLayouts, collectLeafIds } from "./layout";
 import type { Provider } from "./profiles";
+
+/**
+ * Cross-check that a given pane id belongs to the claimed session — the
+ * callback form exists so unit tests can stub the lookup without pushing
+ * Svelte stores through the test harness. The default implementation
+ * walks `sessionLayouts` to find the leaf.
+ */
+export type PaneSessionCheck = (sessionId: string, paneId: string) => boolean;
+
+function defaultPaneBelongsToSession(sessionId: string, paneId: string): boolean {
+  const layout = get(sessionLayouts).get(sessionId);
+  if (!layout) return false;
+  for (const leafId of collectLeafIds(layout)) {
+    if (leafId === paneId) return true;
+  }
+  return false;
+}
 
 /**
  * Outcome of routing a `roux-status-update` event.
@@ -26,13 +45,41 @@ export type StatusRouting =
  * store — `applyStatusRouting` takes the resulting decision and commits
  * it. Extracted so the decision logic can be unit-tested without spinning
  * up Svelte stores or Tauri listeners.
+ *
+ * `paneBelongsToSession` is overridable for tests; by default it consults
+ * the live `sessionLayouts` store to verify the claimed pane id is an
+ * actual leaf of the claimed session. The check prevents a hook payload
+ * from smearing one session's aggregate status with another session's
+ * pane state (either by planted file or by a restart/id-collision bug).
  */
-export function routeStatusUpdate(update: StatusUpdate): StatusRouting {
+export function routeStatusUpdate(
+  update: StatusUpdate,
+  paneBelongsToSession: PaneSessionCheck = defaultPaneBelongsToSession,
+): StatusRouting {
   // Only tier-1 events know which specific pane the agent lives in. Legacy
   // events (cwd-only) still emit here so the legacy notification path keeps
   // working, but they must not touch pane-level state.
   if (!update.rouxPaneId) {
     return { kind: "legacy", cwd: update.cwd, status: update.status };
+  }
+
+  // Pane routing requires a session id so we can cross-check membership.
+  // A payload carrying only `rouxPaneId` without `rouxSessionId` cannot
+  // be validated, so we refuse rather than trusting it blindly.
+  if (!update.rouxSessionId) {
+    return {
+      kind: "dropped",
+      reason: `rouxPaneId "${update.rouxPaneId}" carries no rouxSessionId; refusing to route`,
+    };
+  }
+
+  // Cross-session hijack guard: the claimed pane must live under the
+  // claimed session in the live layout tree.
+  if (!paneBelongsToSession(update.rouxSessionId, update.rouxPaneId)) {
+    return {
+      kind: "dropped",
+      reason: `rouxPaneId "${update.rouxPaneId}" does not belong to rouxSessionId "${update.rouxSessionId}"`,
+    };
   }
 
   const provider = inferProvider(update);
