@@ -30,6 +30,7 @@ Backward compatibility with existing persisted pane state is explicitly not a go
 - Multiple UI views of a single AI process.
 - Reconciling Roux's notion of "session" with Claude or Codex provider-side session files — each AI pane independently manages its own provider-side resume.
 - Visual provider differentiation beyond the pane-header label (no color stripes, no branded backgrounds).
+- Detection-only "adopt an unmanaged shell as an AI session" flow. Dedicated AI panes are the primary, authoritative model: Roux spawns the agent, owns the PTY, injects the env, and correlates hook events deterministically. A future layer may notice hook activity from a shell-launched agent and offer a best-effort "external agent activity" indicator or an "adopt session" affordance, but that lives on top of the managed model rather than replacing it, and is out of scope for this spec.
 
 ## Data Model
 
