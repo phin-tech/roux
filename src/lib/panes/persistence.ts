@@ -167,7 +167,17 @@ let unsubscribe: (() => void) | null = null;
  */
 export function initPersistence(): void {
   if (unsubscribe) return;
+  // Skip the first callback — Svelte stores fire immediately on subscribe
+  // with the current value, which is the initial state, not a mutation.
+  // Without this guard, startup would schedule a save of whatever layout
+  // was already in the store (e.g. main-only leaves from session restore),
+  // clobbering the persisted full layout on disk.
+  let isFirstCallback = true;
   unsubscribe = sessionLayouts.subscribe((layouts) => {
+    if (isFirstCallback) {
+      isFirstCallback = false;
+      return;
+    }
     scheduleSave(layouts);
   });
 }

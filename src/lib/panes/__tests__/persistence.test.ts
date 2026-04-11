@@ -133,6 +133,41 @@ describe("persistence — Tauri-backed API", () => {
       await flushPaneState();
       expect(savePaneStateRaw).not.toHaveBeenCalled();
     });
+
+    it("does not save on initial subscribe — the first callback is the current value, not a mutation", async () => {
+      // Simulates the startup race: sessionLayouts already contains restored
+      // main-pane leaves by the time initPersistence() subscribes. The first
+      // subscribe callback fires immediately with that value, but it's not a
+      // real change — it's the initial state. Without the skip-first guard,
+      // this would schedule a save that clobbers the persisted full layout.
+      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
+      sessionLayouts.set(
+        new Map([["s1", { kind: "leaf", paneId: "s1-main" }]])
+      );
+
+      initPersistence();
+
+      // Advance past the debounce window. No save should happen because the
+      // subscribe-immediate callback is not treated as a mutation.
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(savePaneStateRaw).not.toHaveBeenCalled();
+
+      // A subsequent real mutation still schedules a save.
+      sessionLayouts.update((m) => {
+        const next = new Map(m);
+        next.set("s1", {
+          kind: "split",
+          direction: "h",
+          children: [
+            { kind: "leaf", paneId: "s1-main" },
+            { kind: "leaf", paneId: "s1-shell" },
+          ],
+        });
+        return next;
+      });
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
