@@ -33,6 +33,7 @@ describe("persistence — Tauri-backed API", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     sessionLayouts.set(new Map());
+    paneInstances.set(new Map());
     stopPersistence();
   });
 
