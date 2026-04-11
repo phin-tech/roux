@@ -85,13 +85,35 @@ pub fn migrate_legacy_config_dir() {
 
 /// Recursively copy `src` into `dst`, skipping any file that already
 /// exists at the destination path. Returns the number of files copied.
+///
+/// Symlinks are explicitly refused with `symlink_metadata` before we ever
+/// look at `is_file` / `is_dir`. Roux never writes symlinks to its state
+/// dir, so anything symlinked in the legacy tree is either stale, planted,
+/// or a sign the user knows what they're doing — in all three cases we
+/// leave the link alone rather than copying through it into the new
+/// `~/.config/roux` tree (a `settings.json -> /etc/passwd` symlink would
+/// otherwise leak contents out of the source).
 fn copy_dir_skip_existing(src: &Path, dst: &Path) -> std::io::Result<usize> {
     let mut copied = 0;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
-        let ft = entry.file_type()?;
+
+        // `symlink_metadata` never traverses the final component, so a
+        // symlink returns the symlink's own file type. Using this instead
+        // of `entry.file_type()` makes the symlink guard unambiguous even
+        // on platforms where `DirEntry::file_type` quietly follows links.
+        let meta = std::fs::symlink_metadata(&src_path)?;
+        let ft = meta.file_type();
+        if ft.is_symlink() {
+            eprintln!(
+                "roux: skipping symlink {} during legacy config migration",
+                src_path.display(),
+            );
+            continue;
+        }
+
         if ft.is_dir() {
             std::fs::create_dir_all(&dst_path)?;
             copied += copy_dir_skip_existing(&src_path, &dst_path)?;
@@ -102,8 +124,8 @@ fn copy_dir_skip_existing(src: &Path, dst: &Path) -> std::io::Result<usize> {
             std::fs::copy(&src_path, &dst_path)?;
             copied += 1;
         }
-        // Symlinks and other file types are ignored — Roux never writes
-        // them to its state dir.
+        // Other file types (sockets, fifos, block/char devices) are
+        // ignored — Roux never writes them to its state dir.
     }
     Ok(copied)
 }
@@ -171,5 +193,49 @@ mod tests {
         let second = copy_dir_skip_existing(src.path(), dst.path()).unwrap();
         assert_eq!(first, 1);
         assert_eq!(second, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_skip_existing_rejects_symlinked_files() {
+        // A malicious or buggy legacy tree could contain a symlink named
+        // like a real state file (`settings.json -> /etc/passwd`). We must
+        // never follow it into the new `~/.config/roux` tree.
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+
+        fs::write(outside.path().join("secret.txt"), "leaked").unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            src.path().join("settings.json"),
+        )
+        .unwrap();
+        fs::write(src.path().join("normal.json"), "ok").unwrap();
+
+        let count = copy_dir_skip_existing(src.path(), dst.path()).unwrap();
+
+        assert_eq!(count, 1, "only the non-symlink file should be copied");
+        assert!(!dst.path().join("settings.json").exists());
+        assert_eq!(fs::read_to_string(dst.path().join("normal.json")).unwrap(), "ok");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_skip_existing_rejects_symlinked_directories() {
+        // A symlink pointing a whole directory outside the source tree
+        // (`logs -> /var/log`) would otherwise cause `read_dir` recursion
+        // to copy files the user never placed in the legacy config dir.
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+
+        fs::write(outside.path().join("leaked.log"), "secret").unwrap();
+        std::os::unix::fs::symlink(outside.path(), src.path().join("logs")).unwrap();
+
+        let count = copy_dir_skip_existing(src.path(), dst.path()).unwrap();
+
+        assert_eq!(count, 0);
+        assert!(!dst.path().join("logs").exists());
     }
 }
