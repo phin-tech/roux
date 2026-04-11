@@ -1,5 +1,5 @@
 import { writeToSession } from "$lib/tauri";
-import { log, logError } from "$lib/logging";
+import { log } from "$lib/logging";
 import type { SpawnProfile } from "./profiles";
 
 /**
@@ -61,35 +61,38 @@ export async function runProfileInPane(
     return;
   }
 
-  try {
-    if (cwdOverride) {
-      log(
-        `runProfileInPane(${ptyId}): cd to override for profile "${profile.id}"`,
-      );
-      await writeToSession(ptyId, `cd ${shellSingleQuote(cwdOverride)}`);
-      await writeToSession(ptyId, "\n");
-    }
+  // Errors propagate. The runner used to log-and-swallow, which meant a
+  // profile with a busted setupCommand silently produced a dead-looking
+  // pane and the user had no way to find out. Callers now get the error
+  // and decide how to surface it (inline in the new-session dialog, as a
+  // notification from the re-run button, etc.). A wrapped exception
+  // includes the profile id so callers can quote it in the UI without
+  // re-parsing the underlying IO error.
+  if (cwdOverride) {
+    log(
+      `runProfileInPane(${ptyId}): cd to override for profile "${profile.id}"`,
+    );
+    await writeToSession(ptyId, `cd ${shellSingleQuote(cwdOverride)}`);
+    await writeToSession(ptyId, "\n");
+  }
 
-    for (const [name, value] of envEntries) {
-      await writeToSession(ptyId, `export ${name}=${shellSingleQuote(value)}`);
-      await writeToSession(ptyId, "\n");
-    }
+  for (const [name, value] of envEntries) {
+    await writeToSession(ptyId, `export ${name}=${shellSingleQuote(value)}`);
+    await writeToSession(ptyId, "\n");
+  }
 
-    if (hasSetup) {
-      log(`runProfileInPane(${ptyId}): typing setup command for profile "${profile.id}"`);
-      await writeToSession(ptyId, profile.setupCommand!);
-      await writeToSession(ptyId, "\n");
-    }
+  if (hasSetup) {
+    log(`runProfileInPane(${ptyId}): typing setup command for profile "${profile.id}"`);
+    await writeToSession(ptyId, profile.setupCommand!);
+    await writeToSession(ptyId, "\n");
+  }
 
-    if (hasStartup) {
-      const suffix = (profile.startupBehavior ?? "autoRun") === "typeOnly" ? "" : "\n";
-      log(
-        `runProfileInPane(${ptyId}): typing startup command for profile "${profile.id}" (behavior=${profile.startupBehavior ?? "autoRun"})`,
-      );
-      await writeToSession(ptyId, profile.startupCommand!);
-      if (suffix) await writeToSession(ptyId, suffix);
-    }
-  } catch (e) {
-    logError(`runProfileInPane(${ptyId}) failed`, e);
+  if (hasStartup) {
+    const suffix = (profile.startupBehavior ?? "autoRun") === "typeOnly" ? "" : "\n";
+    log(
+      `runProfileInPane(${ptyId}): typing startup command for profile "${profile.id}" (behavior=${profile.startupBehavior ?? "autoRun"})`,
+    );
+    await writeToSession(ptyId, profile.startupCommand!);
+    if (suffix) await writeToSession(ptyId, suffix);
   }
 }

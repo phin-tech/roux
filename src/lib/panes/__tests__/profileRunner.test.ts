@@ -85,11 +85,15 @@ describe("runProfileInPane", () => {
     expect(writes()).toEqual(["claude", "\n"]);
   });
 
-  it("swallows writeToSession errors so a failed tab doesn't break callers", async () => {
+  it("propagates writeToSession errors so callers can surface them", async () => {
+    // Previous behavior was to log-and-swallow, which silently produced
+    // a dead-looking pane with no user feedback. Callers now catch and
+    // decide how to surface: inline in the new-session dialog, as a
+    // notification from the re-run button, etc.
     vi.mocked(writeToSession).mockRejectedValueOnce(new Error("dead pty"));
     await expect(
       runProfileInPane("pty-1", profile({ startupCommand: "claude" })),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow("dead pty");
   });
 
   describe("cwdOverride", () => {

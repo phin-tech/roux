@@ -331,11 +331,20 @@ export async function reconnectSessionShell(session: Session): Promise<Session> 
 
     // Re-run the pane's profile commands so the agent (Codex, a user
     // profile, etc.) comes back up automatically. Plain-shell panes
-    // have no commands so this is a no-op for them.
+    // have no commands so this is a no-op for them. A profile-replay
+    // failure during reconnect is logged but not fatal: the shell is
+    // alive, and firing a startup-time notification before the window
+    // has any UI context is worse than quiet.
     const instance = getInstance(primaryPaneId);
     const profile = resolveProfileRef(instance?.spawnProfileRef);
     if (profile) {
-      await runProfileInPane(session.id, profile);
+      try {
+        await runProfileInPane(session.id, profile);
+      } catch (e) {
+        log(
+          `reconnectSessionShell(${session.id}): profile "${profile.id}" replay failed — ${e}`,
+        );
+      }
     }
 
     log(`Session ${session.id} reconnected (shell path)`);

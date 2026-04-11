@@ -7,7 +7,14 @@
   import { resolveProfileRef } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
-  import { resizeSession, killPty, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
+  import {
+    resizeSession,
+    killPty,
+    spawnTask,
+    attachPtyOutput,
+    createPtyOutputChannel,
+    notificationsPush,
+  } from "$lib/tauri";
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
@@ -77,7 +84,33 @@
   async function reRunProfile() {
     if (!instance || !activeProfile) return;
     log(`Re-running profile "${activeProfile.id}" in pane ${paneId}`);
-    await runProfileInPane(instance.ptyId, activeProfile);
+    try {
+      await runProfileInPane(instance.ptyId, activeProfile);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logError(`Re-run profile "${activeProfile.id}" failed`, e);
+      // Surface the failure as a notification so the user isn't left
+      // wondering why the button had no effect. The shell stays alive;
+      // the user can hand-type whatever didn't get seeded.
+      void notificationsPush({
+        level: "warning",
+        source: { type: "internal" },
+        title: `Re-run failed: ${activeProfile.name}`,
+        subtitle: null,
+        body: msg,
+        sessionId,
+        actions: [
+          {
+            id: "dismiss",
+            label: "Dismiss",
+            kind: { type: "dismiss" },
+            primary: true,
+          },
+        ],
+      }).catch((pushErr) =>
+        logError("re-run profile: notificationsPush failed", pushErr),
+      );
+    }
   }
 
   const resizeScheduler = createResizeScheduler({

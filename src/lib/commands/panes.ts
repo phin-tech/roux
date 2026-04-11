@@ -12,7 +12,7 @@ import {
   type SpawnProfileRef,
 } from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
-import { spawnShell, spawnTask, listDocs } from "$lib/tauri";
+import { spawnShell, spawnTask, listDocs, notificationsPush } from "$lib/tauri";
 import { log, logError } from "$lib/logging";
 
 /**
@@ -62,8 +62,34 @@ async function spawnShellPaneWithProfile(
   });
 
   // The attach is synchronous enough that the pending-output channel
-  // catches any bytes emitted before we start typing.
-  await runProfileInPane(ptyId, profile);
+  // catches any bytes emitted before we start typing. If the profile
+  // itself throws (bad setup command, dead PTY, etc.) the pane is
+  // already in the tree and the shell is alive, so we surface a
+  // notification instead of tearing the pane down.
+  try {
+    await runProfileInPane(ptyId, profile);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logError(`runProfileInPane failed for split-with-profile "${profile.id}"`, e);
+    void notificationsPush({
+      level: "warning",
+      source: { type: "internal" },
+      title: `Profile setup failed: ${profile.name}`,
+      subtitle: null,
+      body: msg,
+      sessionId: session.id,
+      actions: [
+        {
+          id: "dismiss",
+          label: "Dismiss",
+          kind: { type: "dismiss" },
+          primary: true,
+        },
+      ],
+    }).catch((pushErr) =>
+      logError("split-with-profile: notificationsPush failed", pushErr),
+    );
+  }
 }
 
 /**
