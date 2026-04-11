@@ -5,6 +5,7 @@ mod hooks;
 mod logging;
 mod commands;
 mod notifications;
+mod pane_state;
 mod projects;
 mod project_service;
 mod services;
@@ -102,6 +103,9 @@ fn main() {
             commands::worktrees::git_init,
             commands::sessions::refresh_session_git_status,
             commands::misc::quit_app,
+            commands::pane_state::load_pane_state,
+            commands::pane_state::save_pane_state,
+            commands::pane_state::delete_pane_state,
         ]);
 
     #[cfg(debug_assertions)]
@@ -182,6 +186,9 @@ fn main() {
             commands::worktrees::git_init,
             commands::sessions::refresh_session_git_status,
             commands::misc::quit_app,
+            commands::pane_state::load_pane_state,
+            commands::pane_state::save_pane_state,
+            commands::pane_state::delete_pane_state,
         ])
         .setup(|app| {
             // Install the roux-cli shim dir (~/.config/roux/bin) with

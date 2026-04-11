@@ -177,6 +177,10 @@ pub(crate) async fn kill_session(
 ) -> anyhow::Result<()> {
     pty_manager.kill(id);
     session_handle.remove(id).await?;
+    // Best-effort: remove per-session pane state file. Non-fatal if it fails.
+    if let Err(e) = crate::pane_state::delete_pane_state(id) {
+        rlog!("kill_session: failed to delete pane state for {id}: {e}");
+    }
     Ok(())
 }
 

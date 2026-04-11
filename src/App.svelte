@@ -21,7 +21,7 @@
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
-  import { initPersistence, loadLayout, clearLayout } from "$lib/panes/persistence";
+  import { initPersistence, flushPaneState } from "$lib/panes/persistence";
   import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
@@ -65,6 +65,8 @@
   }
 
   async function forceQuit() {
+    // Flush any pending pane state debounce before sessions are closed.
+    try { await flushPaneState(); } catch {}
     const state = get(sessionState);
     for (const session of [...state.sessions]) {
       try { await closeSession(session, { force: true }); } catch {}
@@ -177,6 +179,13 @@
   });
 
   onMount(async () => {
+    // One-shot cleanup of old localStorage-backed pane state keys.
+    // These were used before pane state moved to disk (per-session JSON files).
+    try {
+      localStorage.removeItem("roux:pane-layouts-v2");
+      localStorage.removeItem("roux:pane-descriptors");
+    } catch {}
+
     registerCommands();
     // Use capture phase so we intercept before xterm.js swallows the event
     window.addEventListener("keydown", handleKeyDown, true);
@@ -215,16 +224,8 @@
         const mainPaneId = initSession(s.id);
         initTerminal(mainPaneId);
         await attachPtyListeners(mainPaneId);
-
-        // Restore persisted layout if available (shell panes get fresh layouts;
-        // command panes are stripped since their processes are gone)
-        const persisted = loadLayout(s.id);
-        if (persisted) {
-          // For now we just use the fresh single-pane layout created by
-          // initSession. Full shell pane restore (spawn fresh PTYs for each
-          // persisted shell) is deferred to a later iteration.
-          clearLayout(s.id);
-        }
+        // Full layout restore (shell PTY re-spawn etc.) happens on reconnect click.
+        // Startup only sets up the main pane in disconnected state.
       }
     }
 

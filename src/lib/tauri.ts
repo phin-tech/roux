@@ -415,3 +415,17 @@ export async function notificationsPush(
   const { commands } = await import("./bindings");
   return unwrap(commands.notificationsPush(request));
 }
+
+// ── Pane state persistence ────────────────────────────────────────────────────
+
+export async function loadPaneStateRaw(sessionId: string): Promise<unknown | null> {
+  return invoke("load_pane_state", { sessionId });
+}
+
+export async function savePaneStateRaw(sessionId: string, data: unknown): Promise<void> {
+  return invoke("save_pane_state", { sessionId, data });
+}
+
+export async function deletePaneStateRaw(sessionId: string): Promise<void> {
+  return invoke("delete_pane_state", { sessionId });
+}

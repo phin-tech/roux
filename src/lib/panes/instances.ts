@@ -32,6 +32,11 @@ export interface PaneInstance {
   command?: string;
   docPath?: string;
 
+  // Set when a shell pane failed to spawn during session restore.
+  // Causes PaneShell to render the DeadPaneView instead of xterm.
+  // Not persisted — only lives in runtime state.
+  restoreError?: string;
+
   // Command-pane runtime state
   commandStatus?: CommandStatus;
   commandExitCode?: number | null;

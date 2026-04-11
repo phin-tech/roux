@@ -9,10 +9,11 @@
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { getXtermTheme } from "$lib/themes";
-  import { reconnectSession } from "$lib/sessions/reconnect";
+  import { reconnectSession, retryShellPane } from "$lib/sessions/reconnect";
   import { log, logError } from "$lib/logging";
   import SessionPicker from "./SessionPicker.svelte";
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
+  import DeadPaneView from "./DeadPaneView.svelte";
 
   interface Props {
     paneId: string;
@@ -316,7 +317,14 @@
     </div>
 
     <div class="flex-1 min-h-0 min-w-0">
-      {#if instance.type === "claude" && isDisconnected && session}
+      {#if instance.restoreError}
+        <DeadPaneView
+          error={instance.restoreError}
+          workingDir={instance.workingDir}
+          onRetry={() => void retryShellPane(paneId)}
+          onClose={() => void closePane(sessionId, paneId)}
+        />
+      {:else if instance.type === "claude" && isDisconnected && session}
         <div class="ui-terminal-frame h-full w-full overflow-hidden">
           <SessionPicker
             cwd={session.worktreePath}

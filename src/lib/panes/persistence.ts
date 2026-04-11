@@ -2,6 +2,8 @@ import { get } from "svelte/store";
 import type { LayoutNode } from "./layout";
 import { sessionLayouts, collectLeafIds } from "./layout";
 import { paneInstances, type PaneInstance } from "./instances";
+import { loadPaneStateRaw, savePaneStateRaw, deletePaneStateRaw } from "$lib/tauri";
+import { log } from "$lib/logging";
 
 export interface PaneDescriptor {
   id: string;
@@ -13,79 +15,35 @@ export interface PaneDescriptor {
   docPath?: string;
 }
 
-const LAYOUT_KEY = "roux:pane-layouts-v2";
-const DESCRIPTOR_KEY = "roux:pane-descriptors";
-
-// ── Layout persistence ────────────────────────────────────────────────────────
-
-export function saveLayout(sessionId: string, tree: LayoutNode): void {
-  try {
-    const raw = localStorage.getItem(LAYOUT_KEY);
-    const all: Record<string, LayoutNode> = raw ? JSON.parse(raw) : {};
-    all[sessionId] = tree;
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify(all));
-  } catch {
-    // silently ignore storage errors
-  }
+export interface PaneStatePayload {
+  layout: LayoutNode;
+  descriptors: PaneDescriptor[];
 }
 
-export function loadLayout(sessionId: string): LayoutNode | null {
+// ── Public async API ──────────────────────────────────────────────────────────
+
+export async function loadPaneState(
+  sessionId: string,
+): Promise<PaneStatePayload | null> {
   try {
-    const raw = localStorage.getItem(LAYOUT_KEY);
-    if (!raw) return null;
-    const all: Record<string, LayoutNode> = JSON.parse(raw);
-    return all[sessionId] ?? null;
-  } catch {
+    const raw = await loadPaneStateRaw(sessionId);
+    if (raw == null) return null;
+    return raw as PaneStatePayload;
+  } catch (e) {
+    log(`loadPaneState(${sessionId}): failed — ${e}`);
     return null;
   }
 }
 
-export function clearLayout(sessionId: string): void {
-  try {
-    const raw = localStorage.getItem(LAYOUT_KEY);
-    if (!raw) return;
-    const all: Record<string, LayoutNode> = JSON.parse(raw);
-    delete all[sessionId];
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify(all));
-  } catch {
-    // silently ignore storage errors
-  }
+export async function savePaneState(
+  sessionId: string,
+  payload: PaneStatePayload,
+): Promise<void> {
+  await savePaneStateRaw(sessionId, payload);
 }
 
-// ── Descriptor persistence ────────────────────────────────────────────────────
-
-export function savePaneDescriptors(sessionId: string, descriptors: PaneDescriptor[]): void {
-  try {
-    const raw = localStorage.getItem(DESCRIPTOR_KEY);
-    const all: Record<string, PaneDescriptor[]> = raw ? JSON.parse(raw) : {};
-    all[sessionId] = descriptors;
-    localStorage.setItem(DESCRIPTOR_KEY, JSON.stringify(all));
-  } catch {
-    // silently ignore storage errors
-  }
-}
-
-export function loadPaneDescriptors(sessionId: string): PaneDescriptor[] | null {
-  try {
-    const raw = localStorage.getItem(DESCRIPTOR_KEY);
-    if (!raw) return null;
-    const all: Record<string, PaneDescriptor[]> = JSON.parse(raw);
-    return all[sessionId] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export function clearPaneDescriptors(sessionId: string): void {
-  try {
-    const raw = localStorage.getItem(DESCRIPTOR_KEY);
-    if (!raw) return;
-    const all: Record<string, PaneDescriptor[]> = JSON.parse(raw);
-    delete all[sessionId];
-    localStorage.setItem(DESCRIPTOR_KEY, JSON.stringify(all));
-  } catch {
-    // silently ignore storage errors
-  }
+export async function deletePaneState(sessionId: string): Promise<void> {
+  await deletePaneStateRaw(sessionId);
 }
 
 // ── Restore helpers ───────────────────────────────────────────────────────────
@@ -114,7 +72,6 @@ function stripCommandsFromNode(
     return commandIds.has(node.paneId) ? null : node;
   }
 
-  // Recurse into children, filtering out nulls
   const newChildren: LayoutNode[] = [];
   for (const child of node.children) {
     const result = stripCommandsFromNode(child, commandIds);
@@ -130,23 +87,11 @@ function stripCommandsFromNode(
 
 // ── Debounced auto-save ───────────────────────────────────────────────────────
 
+const DEBOUNCE_MS = 1500;
+
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
-
-export function scheduleSave(
-  layouts: Map<string, LayoutNode>,
-  getDescriptors: (sessionId: string) => PaneDescriptor[]
-): void {
-  if (saveTimer !== null) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    for (const [sessionId, tree] of layouts) {
-      saveLayout(sessionId, tree);
-      savePaneDescriptors(sessionId, getDescriptors(sessionId));
-    }
-  }, 300);
-}
-
-// ── Auto-save subscription ───────────────────────────────────────────────────
+// Track which sessions have pending unsaved changes
+let dirtySessions: Set<string> = new Set();
 
 function descriptorsForSession(sessionId: string): PaneDescriptor[] {
   const instances = get(paneInstances);
@@ -170,6 +115,50 @@ function descriptorsForSession(sessionId: string): PaneDescriptor[] {
     }));
 }
 
+export function scheduleSave(layouts: Map<string, LayoutNode>): void {
+  // Mark all current sessions as dirty
+  for (const sessionId of layouts.keys()) {
+    dirtySessions.add(sessionId);
+  }
+
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void writeAllDirty();
+  }, DEBOUNCE_MS);
+}
+
+async function writeAllDirty(): Promise<void> {
+  const layouts = get(sessionLayouts);
+  const toWrite = new Set(dirtySessions);
+  dirtySessions.clear();
+
+  for (const sessionId of toWrite) {
+    const tree = layouts.get(sessionId);
+    if (!tree) continue;
+    const descriptors = descriptorsForSession(sessionId);
+    try {
+      await savePaneState(sessionId, { layout: tree, descriptors });
+    } catch (e) {
+      log(`auto-save failed for session ${sessionId}: ${e}`);
+    }
+  }
+}
+
+/**
+ * Cancels any pending debounce timer and writes all dirty sessions immediately.
+ * Call from quit/close handlers to avoid losing the last layout change.
+ */
+export async function flushPaneState(): Promise<void> {
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (dirtySessions.size > 0) {
+    await writeAllDirty();
+  }
+}
+
 let unsubscribe: (() => void) | null = null;
 
 /**
@@ -179,7 +168,7 @@ let unsubscribe: (() => void) | null = null;
 export function initPersistence(): void {
   if (unsubscribe) return;
   unsubscribe = sessionLayouts.subscribe((layouts) => {
-    scheduleSave(layouts, descriptorsForSession);
+    scheduleSave(layouts);
   });
 }
 
@@ -195,4 +184,5 @@ export function stopPersistence(): void {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
+  dirtySessions.clear();
 }

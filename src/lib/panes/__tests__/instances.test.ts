@@ -5,6 +5,7 @@ import {
   createPane,
   disposePane,
   resetInstances,
+  updateInstance,
 } from "../instances";
 
 describe("pane instances", () => {
@@ -68,5 +69,28 @@ describe("pane instances", () => {
     inst.unlisteners.push(() => { cleaned = true; });
     disposePane(id);
     expect(cleaned).toBe(true);
+  });
+
+  describe("restoreError field", () => {
+    it("createPane defaults restoreError to undefined", () => {
+      const id = createPane({ type: "shell", ptyId: "pty-1" });
+      const inst = get(paneInstances).get(id)!;
+      expect(inst.restoreError).toBeUndefined();
+    });
+
+    it("updateInstance can set restoreError", () => {
+      const id = createPane({ type: "shell", ptyId: "pty-1" });
+      updateInstance(id, { restoreError: "working directory not found: /gone" });
+      const inst = get(paneInstances).get(id)!;
+      expect(inst.restoreError).toBe("working directory not found: /gone");
+    });
+
+    it("updateInstance can clear restoreError on retry success", () => {
+      const id = createPane({ type: "shell", ptyId: "pty-1" });
+      updateInstance(id, { restoreError: "some error" });
+      updateInstance(id, { restoreError: undefined });
+      const inst = get(paneInstances).get(id)!;
+      expect(inst.restoreError).toBeUndefined();
+    });
   });
 });
