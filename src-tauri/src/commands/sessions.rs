@@ -163,3 +163,15 @@ pub(crate) fn check_is_git_repo(path: String) -> bool {
 pub(crate) fn list_claude_sessions(cwd: String) -> Result<Vec<svc::ClaudeSession>, String> {
     svc::list_claude_sessions(&cwd).map_err(|e| e.to_string())
 }
+
+/// Return the built-in spawn profile registry, assembled from each provider
+/// module plus the catch-all "Plain shell". Called once at frontend startup
+/// to populate the built-in segment of the pane-picker registry. Safe to
+/// call again any time — the result is derived from current settings and
+/// has no side effects.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn get_builtin_profiles(state: tauri::State<AppState>) -> Vec<roux_core::SpawnProfile> {
+    let settings = state.settings.lock().unwrap().clone();
+    crate::providers::builtin_profiles(&settings)
+}

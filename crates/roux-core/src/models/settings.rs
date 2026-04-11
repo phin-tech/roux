@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::profile::{ProfileSource, SpawnProfile};
+
 const DEFAULT_THEME: &str = "deep-blue";
 
 fn default_ui_font_family() -> String {
@@ -92,6 +94,19 @@ pub struct RouxSettings {
     /// Settings / command palette remain available regardless.
     #[serde(default = "default_true")]
     pub update_check_on_launch: bool,
+    /// User-defined spawn profiles. Edited as raw JSON in the settings file
+    /// in v1 — the "Save as user profile" UI is a later addition. The settings
+    /// loader force-sets `source: "user"` on each entry regardless of what
+    /// the file says, so users can't forge a `"builtin"` marker.
+    #[serde(default)]
+    pub spawn_profiles: Vec<SpawnProfile>,
+    /// Absolute paths of workspaces the user has marked trusted for the
+    /// future project-profile loader (`.roux/profiles.json`). Reserved in
+    /// phase 3; the loader that consumes this list ships later. Storing the
+    /// field now means the trust prompt and its toggles will not require a
+    /// settings schema bump when they arrive.
+    #[serde(default)]
+    pub trusted_workspaces: Vec<String>,
 }
 
 impl Default for RouxSettings {
@@ -123,6 +138,8 @@ impl Default for RouxSettings {
             confirm_on_quit: true,
             notifications_enabled: true,
             update_check_on_launch: true,
+            spawn_profiles: Vec::new(),
+            trusted_workspaces: Vec::new(),
         }
     }
 }
@@ -131,6 +148,11 @@ impl RouxSettings {
     pub fn normalized(&self) -> Self {
         let mut s = self.clone();
         s.theme = normalize_theme(&s.theme);
+        // Force-set source on user profiles regardless of what the JSON says,
+        // so a malicious or copy-pasted profile cannot masquerade as built-in.
+        for profile in &mut s.spawn_profiles {
+            profile.source = ProfileSource::User;
+        }
         s
     }
 }

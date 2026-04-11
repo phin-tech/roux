@@ -8,6 +8,7 @@ mod notifications;
 mod pane_state;
 mod projects;
 mod project_service;
+mod providers;
 mod services;
 mod pty;
 mod session;
@@ -66,6 +67,7 @@ fn main() {
             commands::sessions::reconnect_session,
             commands::sessions::list_sessions,
             commands::sessions::list_claude_sessions,
+            commands::sessions::get_builtin_profiles,
             commands::docs::read_file,
             commands::docs::write_file,
             commands::docs::list_docs,
@@ -149,6 +151,7 @@ fn main() {
             commands::sessions::reconnect_session,
             commands::sessions::list_sessions,
             commands::sessions::list_claude_sessions,
+            commands::sessions::get_builtin_profiles,
             commands::docs::read_file,
             commands::docs::write_file,
             commands::docs::list_docs,

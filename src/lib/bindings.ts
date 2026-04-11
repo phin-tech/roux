@@ -28,6 +28,7 @@ export const commands = {
 	reconnectSession: (id: string, extraFlags: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session", { id, extraFlags })),
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),
 	listClaudeSessions: (cwd: string) => typedError<ClaudeSession[], string>(__TAURI_INVOKE("list_claude_sessions", { cwd })),
+	getBuiltinProfiles: () => __TAURI_INVOKE<SpawnProfile[]>("get_builtin_profiles"),
 	readFile: (path: string) => typedError<string, string>(__TAURI_INVOKE("read_file", { path })),
 	writeFile: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file", { path, contents })),
 	listDocs: (dir: string) => typedError<DocFile[], string>(__TAURI_INVOKE("list_docs", { dir })),
@@ -210,6 +211,38 @@ export type RouxSettings = {
 	 *  Settings / command palette remain available regardless.
 	 */
 	updateCheckOnLaunch?: boolean,
+	/**
+	 *  User-defined spawn profiles. Edited as raw JSON in the settings file
+	 *  in v1 — the "Save as user profile" UI is a later addition. The settings
+	 *  loader force-sets `source: "user"` on each entry regardless of what
+	 *  the file says, so users can't forge a `"builtin"` marker.
+	 */
+	spawnProfiles?: SpawnProfile[],
+	/**
+	 *  Absolute paths of workspaces the user has marked trusted for the
+	 *  future project-profile loader (`.roux/profiles.json`). Reserved in
+	 *  phase 3; the loader that consumes this list ships later.
+	 */
+	trustedWorkspaces?: string[],
+};
+
+export type Provider = "claude" | "codex";
+
+export type ProfileSource = "builtin" | "user" | "project" | "inline";
+
+export type StartupBehavior = "autoRun" | "typeOnly";
+
+export type SpawnProfile = {
+	id: string,
+	name: string,
+	setupCommand?: string,
+	startupCommand?: string,
+	startupBehavior?: StartupBehavior,
+	env?: { [key in string]: string },
+	cwdOverride?: string,
+	icon?: string,
+	provider?: Provider,
+	source: ProfileSource,
 };
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
