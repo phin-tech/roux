@@ -245,7 +245,41 @@ describe("persistence — Tauri-backed API", () => {
       expect(mainDesc?.workingDir).toBe("/tmp/claude-cwd");
     });
 
-    it("flushPaneState is a no-op when nothing is dirty", async () => {
+    it("flushPaneState writes all current sessions even when nothing was marked dirty", async () => {
+      // Regression: the user can `cd` inside a shell pane without mutating
+      // sessionLayouts, which leaves dirtySessions empty. If flush early-
+      // returns on !dirty, the quit-time save never captures the live cwd
+      // and the shell restores to its spawn directory.
+      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
+      vi.mocked(getPtyCwd).mockResolvedValue("/tmp/live");
+
+      paneInstances.set(new Map());
+      createPane({
+        id: "s1-shell",
+        type: "shell",
+        ptyId: "pty-shell-1",
+        workingDir: "/tmp/original",
+      });
+
+      sessionLayouts.set(
+        new Map([["s1", { kind: "leaf", paneId: "s1-shell" }]])
+      );
+
+      initPersistence();
+
+      // No mutation between subscribe and flush — dirtySessions is empty.
+      await flushPaneState();
+
+      expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
+      const [, payload] = vi.mocked(savePaneStateRaw).mock.calls[0] as [
+        string,
+        { descriptors: PaneDescriptor[]; layout: LayoutNode },
+      ];
+      const shellDesc = payload.descriptors.find((d) => d.id === "s1-shell");
+      expect(shellDesc?.workingDir).toBe("/tmp/live");
+    });
+
+    it("flushPaneState is a no-op when there are no sessions at all", async () => {
       vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
       initPersistence();
 

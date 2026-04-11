@@ -168,13 +168,22 @@ async function writeAllDirty(): Promise<void> {
 }
 
 /**
- * Cancels any pending debounce timer and writes all dirty sessions immediately.
- * Call from quit/close handlers to avoid losing the last layout change.
+ * Cancels any pending debounce timer and writes all currently-mounted sessions
+ * immediately. Call from quit/close handlers.
+ *
+ * Always force-marks every session in sessionLayouts dirty before writing:
+ * users can mutate shell cwd (via `cd`) without touching sessionLayouts, so
+ * dirtySessions may be empty even when the on-disk state is stale. Quit is
+ * rare, so the extra write is cheap.
  */
 export async function flushPaneState(): Promise<void> {
   if (saveTimer !== null) {
     clearTimeout(saveTimer);
     saveTimer = null;
+  }
+  const layouts = get(sessionLayouts);
+  for (const sessionId of layouts.keys()) {
+    dirtySessions.add(sessionId);
   }
   if (dirtySessions.size > 0) {
     await writeAllDirty();
