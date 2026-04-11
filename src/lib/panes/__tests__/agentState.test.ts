@@ -10,6 +10,11 @@ import {
   resetAgentStates,
 } from "../agentState";
 import { sessionLayouts, resetLayouts, insertLeaf } from "../layout";
+// Importing actions.ts registers the post-dispose hook that wires
+// disposePane → disposeAgentState. We exercise that integration below.
+import { closePane, initSession } from "../actions";
+import { resetInstances } from "../instances";
+import { resetFocus } from "../focus";
 
 function setSingleLeafLayout(sessionId: string, paneId: string): void {
   sessionLayouts.update((m) => {
@@ -101,6 +106,28 @@ describe("agentState store", () => {
 
     it("is a no-op when the pane has no entry", () => {
       expect(() => disposeAgentState("never-seen")).not.toThrow();
+    });
+
+    it("fires automatically when closePane disposes a pane (dispose-hook integration)", () => {
+      // Regression guard against the easy-to-forget pattern of calling
+      // disposePane without disposeAgentState. A post-dispose hook is
+      // registered in actions.ts at module load to close the gap for
+      // every caller — this test exercises that hook end-to-end.
+      resetInstances();
+      resetLayouts();
+      resetFocus();
+      resetAgentStates();
+
+      initSession("sess-1");
+      updateAgentState("sess-1-main", {
+        provider: "claude",
+        status: "generating",
+        source: "hook",
+      });
+      expect(get(agentStates).has("sess-1-main")).toBe(true);
+
+      closePane("sess-1", "sess-1-main");
+      expect(get(agentStates).has("sess-1-main")).toBe(false);
     });
   });
 

@@ -1,5 +1,11 @@
 import { get } from "svelte/store";
-import { createPane, disposePane, getInstance, type CreatePaneOpts } from "./instances";
+import {
+  createPane,
+  disposePane,
+  getInstance,
+  registerDisposeHook,
+  type CreatePaneOpts,
+} from "./instances";
 import {
   sessionLayouts,
   initSessionLayout,
@@ -13,6 +19,14 @@ import {
 import { focusedPaneId, setLogicalFocus } from "./focus";
 import { disposeAgentState } from "./agentState";
 import { killSession } from "$lib/tauri";
+
+// Register agent-state cleanup as a post-dispose hook so every path that
+// goes through disposePane (closePane, closeSessionPanes, splitPane
+// rollback, anything future) also clears runtime agent state. Doing this
+// via a hook avoids a hard import from instances.ts → agentState.ts,
+// which would create a circular dep (instances → agentState → layout →
+// instances).
+registerDisposeHook(disposeAgentState);
 
 export function initSession(sessionId: string): string {
   const mainPaneId = `${sessionId}-main`;
@@ -86,7 +100,6 @@ export function closePane(sessionId: string, paneId: string): boolean {
   });
 
   disposePane(paneId, killSession);
-  disposeAgentState(paneId);
 
   if (get(focusedPaneId) === paneId) {
     const tree = get(sessionLayouts).get(sessionId);
@@ -106,10 +119,7 @@ export function closeSessionPanes(sessionId: string) {
   const tree = get(sessionLayouts).get(sessionId);
   if (tree) {
     const ids = collectLeafIds(tree);
-    for (const id of ids) {
-      disposePane(id, killSession);
-      disposeAgentState(id);
-    }
+    for (const id of ids) disposePane(id, killSession);
   }
   sessionLayouts.update((m) => {
     m.delete(sessionId);

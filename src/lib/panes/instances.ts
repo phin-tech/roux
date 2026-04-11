@@ -112,9 +112,29 @@ export function createPane(opts: CreatePaneOpts): string {
 }
 
 /**
+ * Extra cleanup hooks run after a pane instance is removed. Actions.ts
+ * registers `disposeAgentState` here at startup so that every disposal
+ * path — `closePane`, `closeSessionPanes`, splitPane rollback, and any
+ * future caller — clears runtime agent state for the pane without
+ * instances.ts needing to import agentState.ts (which would create an
+ * instances → agentState → layout → instances cycle).
+ */
+const postDisposeHooks: Array<(paneId: string) => void> = [];
+
+export function registerDisposeHook(hook: (paneId: string) => void): void {
+  if (!postDisposeHooks.includes(hook)) postDisposeHooks.push(hook);
+}
+
+/** Test-only: drop registered dispose hooks so Vitest runs stay isolated. */
+export function resetDisposeHooks(): void {
+  postDisposeHooks.length = 0;
+}
+
+/**
  * Dispose a pane instance — idempotent.
  * Cleans up unlisteners, clears elapsed timer, disposes terminal, kills PTY
- * for shell/command types, and removes from the store.
+ * for shell/command types, removes from the store, and runs any registered
+ * post-dispose hooks (e.g. agent-state cleanup).
  */
 export function disposePane(id: string, killPty?: (ptyId: string) => Promise<void>): void {
   const map = get(paneInstances);
@@ -157,6 +177,12 @@ export function disposePane(id: string, killPty?: (ptyId: string) => Promise<voi
     next.delete(id);
     return next;
   });
+
+  for (const hook of postDisposeHooks) {
+    try {
+      hook(id);
+    } catch { /* best-effort */ }
+  }
 }
 
 /**
