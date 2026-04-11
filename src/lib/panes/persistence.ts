@@ -1,7 +1,8 @@
 import { get } from "svelte/store";
 import type { LayoutNode } from "./layout";
 import { sessionLayouts, collectLeafIds } from "./layout";
-import { paneInstances, type PaneInstance } from "./instances";
+import { paneInstances, type PaneInstance, type PaneType } from "./instances";
+import type { SpawnProfileRef } from "./profiles";
 import {
   loadPaneStateRaw,
   savePaneStateRaw,
@@ -10,17 +11,28 @@ import {
 } from "$lib/tauri";
 import { log } from "$lib/logging";
 
+/**
+ * Pane-state schema version. Bump when descriptors or payload shape change
+ * in a way that would confuse the loader. Phase 4 moved off the legacy
+ * `claude` pane type and added `spawnProfileRef`, so old payloads are
+ * rejected on load and the session restores empty — this is acceptable per
+ * the spec's no-backcompat scope rule.
+ */
+export const PANE_STATE_SCHEMA_VERSION = 3;
+
 export interface PaneDescriptor {
   id: string;
-  type: "claude" | "shell" | "command" | "markdown";
+  type: PaneType;
   ptyId: string;
   name?: string;
   workingDir?: string;
   command?: string;
   docPath?: string;
+  spawnProfileRef?: SpawnProfileRef;
 }
 
 export interface PaneStatePayload {
+  schemaVersion: typeof PANE_STATE_SCHEMA_VERSION;
   layout: LayoutNode;
   descriptors: PaneDescriptor[];
 }
@@ -33,7 +45,16 @@ export async function loadPaneState(
   try {
     const raw = await loadPaneStateRaw(sessionId);
     if (raw == null) return null;
-    return raw as PaneStatePayload;
+    const payload = raw as { schemaVersion?: number } & PaneStatePayload;
+    if (payload.schemaVersion !== PANE_STATE_SCHEMA_VERSION) {
+      log(
+        `loadPaneState(${sessionId}): schema mismatch (got ${
+          payload.schemaVersion ?? "missing"
+        }, expected ${PANE_STATE_SCHEMA_VERSION}) — dropping persisted state`,
+      );
+      return null;
+    }
+    return payload;
   } catch (e) {
     log(`loadPaneState(${sessionId}): failed — ${e}`);
     return null;
@@ -62,7 +83,7 @@ export function stripCommandPanes(
   descriptors: PaneDescriptor[]
 ): { tree: LayoutNode | null; descriptors: PaneDescriptor[] } {
   const commandIds = new Set(
-    descriptors.filter((d) => d.type === "command").map((d) => d.id)
+    descriptors.filter((d) => d.type === "command").map((d) => d.id),
   );
   const strippedTree = stripCommandsFromNode(tree, commandIds);
   const strippedDescriptors = descriptors.filter((d) => d.type !== "command");
@@ -132,6 +153,7 @@ async function descriptorsForSession(sessionId: string): Promise<PaneDescriptor[
         workingDir,
         command: inst.command,
         docPath: inst.docPath,
+        spawnProfileRef: inst.spawnProfileRef,
       };
     }),
   );
@@ -160,7 +182,11 @@ async function writeAllDirty(): Promise<void> {
     if (!tree) continue;
     try {
       const descriptors = await descriptorsForSession(sessionId);
-      await savePaneState(sessionId, { layout: tree, descriptors });
+      await savePaneState(sessionId, {
+        schemaVersion: PANE_STATE_SCHEMA_VERSION,
+        layout: tree,
+        descriptors,
+      });
     } catch (e) {
       log(`auto-save failed for session ${sessionId}: ${e}`);
     }

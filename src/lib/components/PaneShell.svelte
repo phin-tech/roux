@@ -4,13 +4,15 @@
   import { paneInstances, attachToContainer, updateInstance } from "$lib/panes/instances";
   import { focusedPaneId, setLogicalFocus } from "$lib/panes/focus";
   import { closePane } from "$lib/panes/actions";
+  import { resolveProfileRef } from "$lib/panes/profiles";
+  import { runProfileInPane } from "$lib/panes/profileRunner";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
-  import { resizeSession, killSession, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
+  import { resizeSession, killPty, spawnTask, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
   import { getXtermTheme } from "$lib/themes";
-  import { reconnectSession, retryShellPane } from "$lib/sessions/reconnect";
+  import { reconnectSession, reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
   import { log, logError } from "$lib/logging";
   import SessionPicker from "./SessionPicker.svelte";
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
@@ -40,11 +42,43 @@
   const paneSlotLabel = $derived(
     paneSlot == null ? null : paneSlot === 10 ? "0" : String(paneSlot),
   );
-  const isDisconnected = $derived(instance?.type === "claude" && session?.status === "disconnected");
+  // A pane is "disconnected" (showing the resume picker) when it hosts the
+  // session-owned PTY (ptyId === sessionId) and the session itself is in a
+  // disconnected state. Phase 5 replaces session.status with the derived
+  // aggregate from pane-level agentState.
+  const isSessionPrimary = $derived(!!instance && instance.ptyId === sessionId);
+  const isDisconnected = $derived(isSessionPrimary && session?.status === "disconnected");
 
   // Command pane status helpers
   const commandStatus = $derived(instance?.commandStatus ?? "idle");
   const commandExitCode = $derived(instance?.commandExitCode ?? null);
+
+  // Resolved profile for the "Re-run profile" button. Built-in / user
+  // refs resolve against the live registry; inline refs carry the profile
+  // on the pane itself. Null when the pane has no profile attached or the
+  // registered profile was deleted out from under it.
+  const activeProfile = $derived(resolveProfileRef(instance?.spawnProfileRef));
+  const canReRunProfile = $derived(
+    !!activeProfile && (!!activeProfile.setupCommand || !!activeProfile.startupCommand),
+  );
+
+  // Dispatch for the disconnected reconnect UI: Claude built-in takes the
+  // legacy SessionPicker (Continue/Resume/New via `claude --continue` etc.)
+  // because the backend spawns the claude binary directly. Every other
+  // profile — Codex, Plain shell, user-defined, inline — takes the
+  // generic shell-reconnect path, which respawns a plain shell and
+  // replays the profile's commands.
+  const isClaudeBuiltinPrimary = $derived(
+    isSessionPrimary &&
+      activeProfile?.id === "claude" &&
+      activeProfile?.source === "builtin",
+  );
+
+  async function reRunProfile() {
+    if (!instance || !activeProfile) return;
+    log(`Re-running profile "${activeProfile.id}" in pane ${paneId}`);
+    await runProfileInPane(instance.ptyId, activeProfile);
+  }
 
   const resizeScheduler = createResizeScheduler({
     getFitAddon: () => instance?.fitAddon ?? null,
@@ -66,7 +100,6 @@
 
   function paneTypeLabel(type: string): string {
     switch (type) {
-      case "claude": return "claude";
       case "shell": return "shell";
       case "markdown": return "doc";
       case "command": return "cmd";
@@ -85,8 +118,7 @@
   }
 
   function canClose(): boolean {
-    if (!instance) return false;
-    return !(instance.type === "claude" && paneId === `${sessionId}-main`);
+    return !!instance;
   }
 
   function handleMouseDown() {
@@ -125,6 +157,19 @@
     }
   }
 
+  async function reconnectShell() {
+    if (!session) return;
+    try {
+      await reconnectSessionShell(session);
+    } catch (e: any) {
+      if (e?.message?.includes("already in progress")) {
+        log(`Reconnect for ${sessionId} skipped — already in progress`);
+        return;
+      }
+      logError("Failed to reconnect shell session", e);
+    }
+  }
+
   // Command pane rerun
   async function rerunCommand() {
     if (!instance) return;
@@ -134,7 +179,7 @@
 
     // Kill old PTY if still running
     if (commandStatus === "running") {
-      await killSession(instance.ptyId).catch(() => {});
+      await killPty(instance.ptyId).catch(() => {});
     }
 
     // Clean up old listeners
@@ -180,7 +225,7 @@
     });
 
     // Spawn new command
-    await spawnTask(newPtyId, command, workingDir);
+    await spawnTask(newPtyId, command, workingDir, sessionId, paneId);
     // Attach output
     const inst = $paneInstances.get(paneId);
     if (inst && !inst.outputChannel) {
@@ -307,6 +352,18 @@
       {:else}
         <span class="flex-1"></span>
       {/if}
+      {#if canReRunProfile}
+        <button
+          class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[11px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+          onclick={(e) => {
+            e.stopPropagation();
+            void reRunProfile();
+          }}
+          title={activeProfile ? `Re-run profile: ${activeProfile.name}` : "Re-run profile"}
+        >
+          &#8635;
+        </button>
+      {/if}
       {#if canClose()}
         <button
           class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[12px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
@@ -326,10 +383,11 @@
         <DeadPaneView
           error={instance.restoreError}
           workingDir={instance.workingDir}
-          onRetry={() => void retryShellPane(paneId)}
+          onRetry={() => void retryShellPane(paneId, sessionId)}
           onClose={() => void closePane(sessionId, paneId)}
         />
-      {:else if instance.type === "claude" && isDisconnected && session}
+      {:else if isDisconnected && session && isClaudeBuiltinPrimary}
+        <!-- Claude built-in profile: Continue / Resume / New picker -->
         <div class="ui-terminal-frame h-full w-full overflow-hidden">
           <SessionPicker
             cwd={session.worktreePath}
@@ -337,6 +395,27 @@
             onResume={handleResume}
             onNew={handleNew}
           />
+        </div>
+      {:else if isDisconnected && session}
+        <!-- Any other profile: plain reconnect button that respawns a
+             shell and replays the profile's commands. -->
+        <div class="ui-terminal-frame flex h-full w-full flex-col items-center justify-center gap-3 bg-bg-deep p-6 text-center">
+          <span class="text-[11px] uppercase tracking-wider text-text-muted">
+            Session disconnected
+          </span>
+          <span class="max-w-xs text-[13px] text-text-secondary">
+            {#if activeProfile}
+              Reconnect will respawn a shell and re-run the <span class="font-mono text-text-primary">{activeProfile.name}</span> profile.
+            {:else}
+              Reconnect will respawn a plain shell in this pane.
+            {/if}
+          </span>
+          <button
+            class="cursor-pointer rounded-xl border border-accent-dim/20 bg-accent-dim/15 px-5 py-2 text-[13px] font-medium text-accent hover:bg-accent-dim/24"
+            onclick={() => void reconnectShell()}
+          >
+            Reconnect
+          </button>
         </div>
       {:else if instance.type === "markdown"}
         <LazyMarkdownPane docPath={instance.docPath ?? ""} />
@@ -350,7 +429,7 @@
               <span class="h-2 w-2 shrink-0 rounded-full bg-accent animate-pulse"></span>
               <button
                 class="bg-transparent px-1 font-mono text-[10px] text-text-muted border-none cursor-pointer hover:text-red"
-                onclick={() => { void killSession(instance.ptyId).catch(() => {}); }}
+                onclick={() => { void killPty(instance.ptyId).catch(() => {}); }}
                 title="Stop"
               >&#9632;</button>
             {:else}
@@ -375,7 +454,7 @@
           ></div>
         </div>
       {:else}
-        <!-- claude or shell: just a terminal container -->
+        <!-- shell: just a terminal container -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div

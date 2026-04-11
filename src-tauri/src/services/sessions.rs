@@ -129,6 +129,107 @@ pub(crate) async fn create_session(
     Ok(session)
 }
 
+/// Create a session that hosts a **plain shell** in its primary PTY,
+/// instead of the claude binary. The frontend attaches a spawn profile and
+/// writes setup / startup commands into the shell after it comes up. Used
+/// for every non-Claude profile in the new-session picker.
+///
+/// Parallel shape to [`create_session`] minus the Claude-specific inputs
+/// (default model, additional flags, nono profile, claude binary path),
+/// but settings-aware for anything non-Claude-specific — notably
+/// `worktree_base_path` so new worktrees land in the user's configured
+/// base directory regardless of which profile spawned them.
+/// Emits the same Session record so the rest of the app doesn't need to
+/// know which creation path was used.
+pub(crate) async fn create_session_shell(
+    pty_manager: &PtyManager,
+    session_handle: &SessionHandle,
+    settings: &RouxSettings,
+    repo_path: &str,
+    name: &str,
+    target: SessionTarget<'_>,
+    app: &tauri::AppHandle,
+) -> anyhow::Result<Session> {
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Determine working directory based on session target. Same logic as
+    // create_session; cheaper than extracting a helper because the shape
+    // is small and the two callers diverge quickly after this step.
+    let (work_dir, actual_branch, is_wt) = match target {
+        SessionTarget::ExistingWorktree { path } => {
+            let br = get_current_branch(path).unwrap_or_else(|| "main".to_string());
+            (path.to_string(), br, false)
+        }
+        SessionTarget::NewWorktree { branch } => {
+            let base = settings.worktree_base_path.as_deref();
+            let wt_path = crate::worktree::create_worktree(repo_path, branch, base)?;
+            (wt_path, branch.to_string(), true)
+        }
+        SessionTarget::Repo => {
+            let br = get_current_branch(repo_path).unwrap_or_else(|| "main".to_string());
+            (repo_path.to_string(), br, false)
+        }
+    };
+
+    rlog!(
+        "Creating shell session '{}' (id={}) in '{}' (branch={})",
+        name,
+        session_id,
+        work_dir,
+        actual_branch,
+    );
+
+    // The session's primary pane id matches the frontend's formula (see
+    // actions.ts::initSession). Passing both ids into the PTY env keeps
+    // tier-1 hook routing happy the moment the user starts an agent.
+    let pane_id = format!("{}-main", session_id);
+    let spawn_result = pty_manager.spawn_shell(
+        &session_id,
+        &work_dir,
+        Some(&session_id),
+        Some(&pane_id),
+        app.clone(),
+    );
+
+    if let Err(e) = spawn_result {
+        rlog!("Shell session spawn failed: {}", e);
+        if is_wt {
+            let _ = crate::worktree::remove_worktree(&work_dir);
+        }
+        return Err(anyhow!("{}", e));
+    }
+    rlog!("Shell session '{}' spawned", session_id);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let session = Session {
+        id: session_id,
+        name: name.to_string(),
+        repo_root: repo_path.to_string(),
+        worktree_path: work_dir,
+        branch: actual_branch,
+        is_worktree: is_wt,
+        status: roux_core::SessionStatus::Idle,
+        model: None,
+        cost: None,
+        created_at: now,
+        project_id: None,
+        is_git_repo: is_git_repo(repo_path),
+    };
+
+    if let Err(e) = session_handle.add(session.clone()).await {
+        pty_manager.kill(&session.id);
+        if is_wt {
+            let _ = crate::worktree::remove_worktree(&session.worktree_path);
+        }
+        return Err(e.into());
+    }
+    Ok(session)
+}
+
 pub(crate) async fn reconnect_session(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
@@ -164,6 +265,63 @@ pub(crate) async fn reconnect_session(
     session_handle.update_status(id, roux_core::SessionStatus::Idle).await?;
 
     rlog!("Session '{}' reconnected successfully", id);
+
+    let mut updated = session;
+    updated.status = roux_core::SessionStatus::Idle;
+    Ok(updated)
+}
+
+/// Reconnect a session by respawning a **plain shell** in its primary PTY,
+/// without running the claude binary directly. Used by any session whose
+/// primary pane was originally created via `create_session_shell` — i.e.
+/// every non-Claude-builtin profile (Codex, Plain shell, user profiles,
+/// inline Custom…). The frontend re-runs the pane's profile commands
+/// into the fresh shell after this call, so agents like Codex come back
+/// up by typing their startup command rather than being re-execed
+/// directly by the backend.
+///
+/// Parallel to [`reconnect_session`] minus the Claude-specific inputs.
+/// Both functions kill the old PTY first so the session id is free for a
+/// fresh `spawn`/`spawn_shell`.
+pub(crate) async fn reconnect_session_shell(
+    pty_manager: &PtyManager,
+    session_handle: &SessionHandle,
+    id: &str,
+    app: &tauri::AppHandle,
+) -> anyhow::Result<Session> {
+    let session = session_handle
+        .get(id)
+        .await?
+        .ok_or_else(|| anyhow!("Session {} not found", id))?;
+
+    pty_manager.kill(id);
+
+    rlog!(
+        "Reconnecting shell session '{}' (id={}) in '{}'",
+        session.name,
+        id,
+        session.worktree_path,
+    );
+
+    // Same env-injection contract as create_session_shell: primary pane
+    // id matches the frontend's formula so tier-1 hook routing stays
+    // deterministic the moment the user starts an agent in the shell.
+    let pane_id = format!("{}-main", id);
+    pty_manager
+        .spawn_shell(
+            id,
+            &session.worktree_path,
+            Some(id),
+            Some(&pane_id),
+            app.clone(),
+        )
+        .map_err(|e| anyhow!("{}", e))?;
+
+    session_handle
+        .update_status(id, roux_core::SessionStatus::Idle)
+        .await?;
+
+    rlog!("Shell session '{}' reconnected successfully", id);
 
     let mut updated = session;
     updated.status = roux_core::SessionStatus::Idle;

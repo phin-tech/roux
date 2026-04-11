@@ -253,10 +253,22 @@ fn handle_hook(status: &str) {
 
     let mut out = serde_json::json!({
         "status": status,
+        "provider": "claude",
         "claude_session_id": sid,
         "cwd": cwd,
         "timestamp": timestamp,
     });
+
+    // Pane-scoped routing fields. Present when the agent was launched inside
+    // a Roux-managed PTY (which injects both env vars unconditionally). Absent
+    // for legacy or external installs — status_watcher falls back to cwd
+    // matching in that case, for notifications only.
+    if let Some(roux_sid) = get_session_id() {
+        out["roux_session_id"] = Value::String(roux_sid);
+    }
+    if let Some(pane) = get_pane_id() {
+        out["roux_pane_id"] = Value::String(pane);
+    }
 
     if status == "attention" {
         if let Some(tn) = data.get("tool_name") {

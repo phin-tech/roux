@@ -3,8 +3,11 @@ import { get } from "svelte/store";
 
 vi.mock("$lib/tauri", () => ({
   reconnectSessionPty: vi.fn(),
+  reconnectSessionShellPty: vi.fn(),
   killSession: vi.fn(),
+  killPty: vi.fn().mockResolvedValue(undefined),
   spawnShell: vi.fn(),
+  writeToSession: vi.fn().mockResolvedValue(undefined),
   loadPaneStateRaw: vi.fn().mockResolvedValue(null),
   savePaneStateRaw: vi.fn().mockResolvedValue(undefined),
   deletePaneStateRaw: vi.fn().mockResolvedValue(undefined),
@@ -59,9 +62,13 @@ function makePayloadWithShells(sessionId: string, shells: Array<{ id: string; wo
     ...shells.map((s) => ({ kind: "leaf" as const, paneId: s.id })),
   ];
   return {
+    schemaVersion: 3,
     layout: { kind: "split", direction: "h" as const, children },
     descriptors: [
-      { id: mainId, type: "claude" as const, ptyId: sessionId },
+      // The session-primary pane is a shell whose ptyId matches the
+      // session id — that is how the session-owned PTY is keyed on the
+      // Rust side. reconnectPrimaryPaneOnly finds it by that match.
+      { id: mainId, type: "shell" as const, ptyId: sessionId },
       ...shells.map((s) => ({ id: s.id, type: "shell" as const, ptyId: "old-pty", workingDir: s.workingDir })),
     ],
   };
@@ -185,14 +192,15 @@ describe("reconnectSession — full rehydration", () => {
     vi.mocked(attachPtyListeners).mockReset().mockResolvedValue(undefined);
   });
 
-  it("fast-path when persisted state is main-only leaf", async () => {
+  it("fast-path when persisted state is primary-only leaf", async () => {
     const session = makeSession();
     addSession(session);
     initSession(session.id);
 
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 3,
       layout: { kind: "leaf", paneId: `${session.id}-main` },
-      descriptors: [{ id: `${session.id}-main`, type: "claude", ptyId: session.id }],
+      descriptors: [{ id: `${session.id}-main`, type: "shell", ptyId: session.id }],
     } satisfies PaneStatePayload);
 
     await reconnectSession(session);
@@ -216,8 +224,8 @@ describe("reconnectSession — full rehydration", () => {
     await reconnectSession(session);
 
     expect(spawnShell).toHaveBeenCalledTimes(2);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a");
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b");
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a");
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b");
 
     const instances = get(paneInstances);
     expect(instances.has("shell-a")).toBe(true);
@@ -307,6 +315,47 @@ describe("reconnectSession — full rehydration", () => {
     expect(tree?.kind).toBe("split");
   });
 
+  it("preserves spawnProfileRef on restored shell panes", async () => {
+    // Regression: phase 5 added spawnProfileRef persistence on save but
+    // rehydratePane dropped the field on restore, so the re-run button
+    // and provider-specific UI went dark after restart for every pane
+    // that wasn't the session-primary.
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+
+    const mainId = `${session.id}-main`;
+    vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 3,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: mainId },
+          { kind: "leaf", paneId: "codex-pane" },
+        ],
+      },
+      descriptors: [
+        { id: mainId, type: "shell", ptyId: session.id },
+        {
+          id: "codex-pane",
+          type: "shell",
+          ptyId: "old-pty",
+          workingDir: "/repo",
+          spawnProfileRef: { kind: "registered", id: "codex" },
+        },
+      ],
+    } satisfies PaneStatePayload);
+
+    await reconnectSession(session);
+
+    const codexInstance = get(paneInstances).get("codex-pane");
+    expect(codexInstance?.spawnProfileRef).toEqual({
+      kind: "registered",
+      id: "codex",
+    });
+  });
+
   it("strips command panes from the persisted tree before rehydration", async () => {
     const session = makeSession();
     addSession(session);
@@ -314,6 +363,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 3,
       layout: {
         kind: "split",
         direction: "h",
@@ -323,7 +373,7 @@ describe("reconnectSession — full rehydration", () => {
         ],
       },
       descriptors: [
-        { id: mainId, type: "claude", ptyId: session.id },
+        { id: mainId, type: "shell", ptyId: session.id },
         { id: "cmd-pane", type: "command", ptyId: "pty-cmd", command: "npm test" },
       ],
     } satisfies PaneStatePayload);
@@ -336,7 +386,7 @@ describe("reconnectSession — full rehydration", () => {
     expect(spawnShell).not.toHaveBeenCalled();
   });
 
-  it("falls back to main-pane-only when persisted payload fails integrity check", async () => {
+  it("falls back to primary-pane-only when persisted payload fails integrity check", async () => {
     const session = makeSession();
     addSession(session);
     initSession(session.id);
@@ -344,6 +394,7 @@ describe("reconnectSession — full rehydration", () => {
     const mainId = `${session.id}-main`;
     // Corrupt: leaf in tree with no matching descriptor
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 3,
       layout: {
         kind: "split",
         direction: "h",
@@ -353,7 +404,7 @@ describe("reconnectSession — full rehydration", () => {
         ],
       },
       descriptors: [
-        { id: mainId, type: "claude", ptyId: session.id },
+        { id: mainId, type: "shell", ptyId: session.id },
         // "orphan-pane" is missing from descriptors
       ],
     } satisfies PaneStatePayload);
@@ -388,9 +439,9 @@ describe("retryShellPane", () => {
     const { updateInstance } = await import("$lib/panes/instances");
     updateInstance(paneId, { restoreError: "old error" });
 
-    await retryShellPane(paneId);
+    await retryShellPane(paneId, "sess-1");
 
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo");
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId);
     const inst = get(paneInstances).get(paneId);
     expect(inst?.restoreError).toBeUndefined();
   });
@@ -401,7 +452,7 @@ describe("retryShellPane", () => {
     updateInstance(paneId, { restoreError: "old error" });
 
     vi.mocked(spawnShell).mockRejectedValue(new Error("still gone"));
-    await retryShellPane(paneId);
+    await retryShellPane(paneId, "sess-1");
 
     const inst = get(paneInstances).get(paneId);
     expect(inst?.restoreError).toContain("still gone");
@@ -410,7 +461,7 @@ describe("retryShellPane", () => {
   it("is a no-op for panes without restoreError", async () => {
     const paneId = createPane({ type: "shell", ptyId: "live-pty", workingDir: "/repo" });
 
-    await retryShellPane(paneId);
+    await retryShellPane(paneId, "sess-1");
 
     expect(spawnShell).not.toHaveBeenCalled();
   });

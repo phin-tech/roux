@@ -5,6 +5,7 @@
   import { watchState, flashingSessions } from "$lib/stores/watches";
   import { unreadBySession } from "$lib/stores/notifications";
   import { showSessionHints } from "$lib/stores/ui";
+  import { sessionAgentStatus } from "$lib/panes/agentState";
 
   interface Props {
     session: Session;
@@ -112,6 +113,18 @@
 
   let unreadCount = $derived($unreadBySession.get(session.id) ?? 0);
 
+  // Effective status combines tier-1 agent aggregate (generating/idle from
+  // pane-level agentState) with legacy Session.status for states that
+  // haven't migrated yet (disconnected/error). The aggregate wins whenever
+  // it has a value, so a pane actively generating always pulses even if
+  // session.status is stuck at "idle" from a stale event.
+  let agentAggregate = $derived($sessionAgentStatus.get(session.id) ?? null);
+  let effectiveStatus = $derived.by<Session["status"]>(() => {
+    if (agentAggregate === "generating") return "generating";
+    if (agentAggregate === "idle") return "idle";
+    return session.status;
+  });
+
   let flashColor = $derived.by(() => {
     if (!isFlashing) return "";
     const hasFailure = watchOutcomes.includes("failure");
@@ -141,18 +154,18 @@
   }}
   title={session.worktreePath}
 >
-  {#if active || pulsingStatuses.includes(session.status) || session.status === "error"}
+  {#if active || pulsingStatuses.includes(effectiveStatus) || effectiveStatus === "error"}
     <div
-      class="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full {active ? 'bg-accent shadow-[0_0_6px_var(--color-blue-dim)]' : railClasses[session.status]}"
+      class="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full {active ? 'bg-accent shadow-[0_0_6px_var(--color-blue-dim)]' : railClasses[effectiveStatus]}"
     ></div>
   {/if}
 
   <div class="mb-1 flex items-start gap-2">
     <div class="relative mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-      {#if pulsingStatuses.includes(session.status)}
-        <span class="absolute inline-flex h-2 w-2 rounded-full {statusClasses[session.status]} animate-ping opacity-50"></span>
+      {#if pulsingStatuses.includes(effectiveStatus)}
+        <span class="absolute inline-flex h-2 w-2 rounded-full {statusClasses[effectiveStatus]} animate-ping opacity-50"></span>
       {/if}
-      <span class="relative inline-flex h-2 w-2 rounded-full {statusClasses[session.status]}"></span>
+      <span class="relative inline-flex h-2 w-2 rounded-full {statusClasses[effectiveStatus]}"></span>
     </div>
 
     {#if editing}

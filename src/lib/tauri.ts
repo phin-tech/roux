@@ -34,8 +34,36 @@ export async function createSession(
   });
 }
 
+/**
+ * Parallel to `createSession`, but spawns a plain shell in the session's
+ * primary PTY. Caller then attaches a spawn profile and types its setup /
+ * startup commands into the shell.
+ */
+export async function createSessionShell(
+  repoPath: string,
+  name: string,
+  worktreePath: string | null,
+  branch: string | null,
+): Promise<Session> {
+  return invoke("create_session_shell", {
+    repoPath,
+    name,
+    worktreePath,
+    branch,
+  });
+}
+
 export async function killSession(id: string): Promise<void> {
   return invoke("kill_session", { id });
+}
+
+/**
+ * Kill only the PTY `id`, leaving the session record and pane-state files
+ * alone. Use this for pane disposal — `killSession` removes the session
+ * too, which is almost never what a pane-level close wants.
+ */
+export async function killPty(id: string): Promise<void> {
+  return invoke("kill_pty", { id });
 }
 
 export async function reconnectSessionPty(
@@ -43,6 +71,16 @@ export async function reconnectSessionPty(
   extraFlags?: string[],
 ): Promise<Session> {
   return invoke("reconnect_session", { id, extraFlags: extraFlags ?? null });
+}
+
+/**
+ * Parallel to `reconnectSessionPty`, but respawns a plain shell in the
+ * session's primary PTY instead of the claude binary. Used by non-Claude
+ * spawn profiles — the caller replays the profile's setup / startup
+ * commands into the fresh shell after this resolves.
+ */
+export async function reconnectSessionShellPty(id: string): Promise<Session> {
+  return invoke("reconnect_session_shell", { id });
 }
 
 export async function writeToSession(
@@ -77,12 +115,23 @@ export async function attachPtyOutput(
   return invoke("attach_pty_output", { id, onEvent });
 }
 
-export async function spawnShell(id: string, workingDir: string): Promise<void> {
-  return invoke("spawn_shell", { id, workingDir });
+export async function spawnShell(
+  id: string,
+  workingDir: string,
+  sessionId: string | null,
+  paneId: string | null,
+): Promise<void> {
+  return invoke("spawn_shell", { id, workingDir, sessionId, paneId });
 }
 
-export async function spawnTask(id: string, command: string, workingDir: string): Promise<void> {
-  return invoke("spawn_task", { id, command, workingDir });
+export async function spawnTask(
+  id: string,
+  command: string,
+  workingDir: string,
+  sessionId: string | null,
+  paneId: string | null,
+): Promise<void> {
+  return invoke("spawn_task", { id, command, workingDir, sessionId, paneId });
 }
 
 export async function listSessions(): Promise<Session[]> {
@@ -281,6 +330,12 @@ export interface StatusUpdate {
   status: string;
   cwd: string;
   claudeSessionId: string;
+  /** Provider that emitted the hook (e.g. `"claude"`). Empty string for legacy payloads. */
+  provider: string;
+  /** Roux session id captured from `ROUX_SESSION_ID` at hook time. */
+  rouxSessionId: string | null;
+  /** Roux pane id captured from `ROUX_PANE_ID` at hook time. Tier-1 routing key. */
+  rouxPaneId: string | null;
   toolName: string | null;
   toolInput: Record<string, any> | null;
   message: string | null;

@@ -45,8 +45,9 @@ describe("persistence — Tauri-backed API", () => {
   describe("loadPaneState", () => {
     it("returns parsed payload when Tauri call resolves with valid data", async () => {
       const payload: PaneStatePayload = {
+        schemaVersion: 3,
         layout: { kind: "leaf", paneId: "s1-main" },
-        descriptors: [{ id: "s1-main", type: "claude", ptyId: "s1" }],
+        descriptors: [{ id: "s1-main", type: "shell", ptyId: "s1" }],
       };
       vi.mocked(loadPaneStateRaw).mockResolvedValue(payload);
 
@@ -66,14 +67,34 @@ describe("persistence — Tauri-backed API", () => {
       const result = await loadPaneState("s1");
       expect(result).toBeNull();
     });
+
+    it("drops payloads with a missing schemaVersion (pre-v3)", async () => {
+      vi.mocked(loadPaneStateRaw).mockResolvedValue({
+        layout: { kind: "leaf", paneId: "s1-main" },
+        descriptors: [{ id: "s1-main", type: "claude", ptyId: "s1" }],
+      } as unknown);
+      const result = await loadPaneState("s1");
+      expect(result).toBeNull();
+    });
+
+    it("drops payloads with a lower schemaVersion", async () => {
+      vi.mocked(loadPaneStateRaw).mockResolvedValue({
+        schemaVersion: 2,
+        layout: { kind: "leaf", paneId: "s1-main" },
+        descriptors: [{ id: "s1-main", type: "shell", ptyId: "s1" }],
+      } as unknown);
+      const result = await loadPaneState("s1");
+      expect(result).toBeNull();
+    });
   });
 
   describe("savePaneState", () => {
     it("delegates to Tauri with session id and payload", async () => {
       vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
       const payload: PaneStatePayload = {
+        schemaVersion: 3,
         layout: { kind: "leaf", paneId: "s1-main" },
-        descriptors: [{ id: "s1-main", type: "claude", ptyId: "s1" }],
+        descriptors: [{ id: "s1-main", type: "shell", ptyId: "s1" }],
       };
       await savePaneState("s1", payload);
       expect(savePaneStateRaw).toHaveBeenCalledWith("s1", payload);
@@ -139,12 +160,13 @@ describe("persistence — Tauri-backed API", () => {
         return null;
       });
 
-      // Set up a pane instance for the shell. Claude pane is the main leaf.
+      // Set up a pane instance for the shell. Session-primary pane is the
+      // main leaf (ptyId matches the session's PTY key).
       paneInstances.set(new Map());
       createPane({
         id: "s1-main",
-        type: "claude",
-        ptyId: "pty-claude-1",
+        type: "shell",
+        ptyId: "s1",
       });
       createPane({
         id: "s1-shell",
@@ -213,23 +235,23 @@ describe("persistence — Tauri-backed API", () => {
       expect(shellDesc?.workingDir).toBe("/tmp/fallback");
     });
 
-    it("does not query getPtyCwd for non-shell panes", async () => {
+    it("does not query getPtyCwd for markdown panes (no PTY)", async () => {
       vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
       vi.mocked(getPtyCwd).mockResolvedValue("/should/not/be/used");
 
       paneInstances.set(new Map());
       createPane({
-        id: "s1-main",
-        type: "claude",
-        ptyId: "pty-claude",
-        workingDir: "/tmp/claude-cwd",
+        id: "doc-1",
+        type: "markdown",
+        ptyId: "",
+        docPath: "/notes.md",
       });
 
       initPersistence();
 
       sessionLayouts.update((m) => {
         const next = new Map(m);
-        next.set("s1", { kind: "leaf", paneId: "s1-main" });
+        next.set("s1", { kind: "leaf", paneId: "doc-1" });
         return next;
       });
 
@@ -237,12 +259,6 @@ describe("persistence — Tauri-backed API", () => {
       await vi.runAllTimersAsync();
 
       expect(getPtyCwd).not.toHaveBeenCalled();
-      const [, payload] = vi.mocked(savePaneStateRaw).mock.calls[0] as [
-        string,
-        { descriptors: PaneDescriptor[]; layout: LayoutNode },
-      ];
-      const mainDesc = payload.descriptors.find((d) => d.id === "s1-main");
-      expect(mainDesc?.workingDir).toBe("/tmp/claude-cwd");
     });
 
     it("flushPaneState writes all current sessions even when nothing was marked dirty", async () => {
@@ -335,7 +351,7 @@ describe("persistence — stripCommandPanes (unchanged)", () => {
       ],
     };
     const descs: PaneDescriptor[] = [
-      { id: "p1", type: "claude", ptyId: "s1" },
+      { id: "p1", type: "shell", ptyId: "s1" },
       { id: "cmd-1", type: "command", ptyId: "pty-cmd", command: "npm test" },
     ];
     const result = stripCommandPanes(tree, descs);
@@ -369,7 +385,7 @@ describe("persistence — stripCommandPanes (unchanged)", () => {
       ],
     };
     const descs: PaneDescriptor[] = [
-      { id: "p1", type: "claude", ptyId: "s1" },
+      { id: "p1", type: "shell", ptyId: "s1" },
       { id: "p2", type: "shell", ptyId: "pty-2" },
       { id: "cmd-1", type: "command", ptyId: "pty-cmd", command: "npm test" },
     ];

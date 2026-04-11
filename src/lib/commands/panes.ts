@@ -1,11 +1,107 @@
+import { get } from "svelte/store";
 import { registry } from "./registry";
+import type { CommandItem } from "./registry";
 import { queries } from "$lib/queries";
 import { navigatePane, movePaneInDirection, resizePane, toggleStack } from "$lib/panes/layout";
 import { toggleFullscreen } from "$lib/panes/focus";
 import { updateInstance } from "$lib/panes/instances";
 import { splitPane, closePane, closeFocusedPane } from "$lib/panes/actions";
+import {
+  profileList,
+  type SpawnProfile,
+  type SpawnProfileRef,
+} from "$lib/panes/profiles";
+import { runProfileInPane } from "$lib/panes/profileRunner";
 import { spawnShell, spawnTask, listDocs } from "$lib/tauri";
 import { log, logError } from "$lib/logging";
+
+/**
+ * Spawn a new shell pane seeded by a specific profile. Shared by both
+ * "Split right with profile" and "Split down with profile" palette
+ * commands. Plain shell profiles get the same path with no setup/startup
+ * commands, so the helper handles every registry entry uniformly.
+ */
+async function spawnShellPaneWithProfile(
+  direction: "h" | "v",
+  profile: SpawnProfile,
+): Promise<void> {
+  const session = queries.activeSession();
+  const activeId = queries.activeSessionId();
+  if (!session || !activeId) return;
+
+  const ptyId = crypto.randomUUID();
+  const paneId = crypto.randomUUID();
+  log(
+    `Split ${direction} with profile "${profile.id}": pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`,
+  );
+  try {
+    await spawnShell(ptyId, session.worktreePath, session.id, paneId);
+  } catch (e) {
+    logError(`Failed to spawn shell for profile "${profile.id}"`, e);
+    return;
+  }
+
+  const spawnProfileRef: SpawnProfileRef =
+    profile.source === "inline"
+      ? { kind: "inline", profile }
+      : { kind: "registered", id: profile.id };
+
+  const newPaneId = splitPane(activeId, direction, {
+    id: paneId,
+    type: "shell",
+    ptyId,
+    spawnProfileRef,
+  });
+  if (!newPaneId) return;
+
+  const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+  initTerminal(newPaneId);
+  await attachPtyListeners(newPaneId, (payload) => {
+    log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
+    closePane(activeId, newPaneId);
+  });
+
+  // The attach is synchronous enough that the pending-output channel
+  // catches any bytes emitted before we start typing.
+  await runProfileInPane(ptyId, profile);
+}
+
+/**
+ * Build a palette sub-picker item for each registered profile. Used by
+ * both the horizontal and vertical "Split with profile" commands. The
+ * `onPick` callback is the concrete action that runs after the user
+ * chooses a profile in the drill-in.
+ */
+function profileSubItems(
+  onPick: (profile: SpawnProfile) => void | Promise<void>,
+): CommandItem[] {
+  const items: CommandItem[] = [];
+  for (const profile of get(profileList)) {
+    const suffix =
+      profile.source === "user"
+        ? " (user)"
+        : profile.provider
+          ? ` · ${profile.provider}`
+          : "";
+    items.push({
+      id: `profile:${profile.id}`,
+      label: `${profile.name}${suffix}`,
+      description: profile.startupCommand ?? undefined,
+      action: () => onPick(profile),
+    });
+  }
+  return items;
+}
+
+/**
+ * Look up a registered built-in profile by id for the keyboard-shortcut
+ * split commands. Returns null if the registry isn't populated yet
+ * (e.g. `loadBuiltinProfiles` hasn't finished on startup) or the provider
+ * was removed.
+ */
+function findBuiltinProfile(id: string): SpawnProfile | null {
+  return get(profileList).find((p) => p.id === id) ?? null;
+}
 
 export function registerPaneCommands() {
   registry.register({
@@ -18,16 +114,17 @@ export function registerPaneCommands() {
       const session = queries.activeSession();
       if (!session) return;
       const ptyId = crypto.randomUUID();
-      log(`Split horizontal: pty=${ptyId} cwd=${session.worktreePath}`);
+      const paneId = crypto.randomUUID();
+      log(`Split horizontal: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
       try {
-        await spawnShell(ptyId, session.worktreePath);
+        await spawnShell(ptyId, session.worktreePath, session.id, paneId);
       } catch (e) {
         logError("Failed to spawn shell for horizontal split", e);
         return;
       }
       const activeId = queries.activeSessionId();
       if (!activeId) return;
-      const newPaneId = splitPane(activeId, "h", { type: "shell", ptyId });
+      const newPaneId = splitPane(activeId, "h", { id: paneId, type: "shell", ptyId });
       if (newPaneId) {
         const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
         initTerminal(newPaneId);
@@ -49,16 +146,17 @@ export function registerPaneCommands() {
       const session = queries.activeSession();
       if (!session) return;
       const ptyId = crypto.randomUUID();
-      log(`Split vertical: pty=${ptyId} cwd=${session.worktreePath}`);
+      const paneId = crypto.randomUUID();
+      log(`Split vertical: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
       try {
-        await spawnShell(ptyId, session.worktreePath);
+        await spawnShell(ptyId, session.worktreePath, session.id, paneId);
       } catch (e) {
         logError("Failed to spawn shell for vertical split", e);
         return;
       }
       const activeId = queries.activeSessionId();
       if (!activeId) return;
-      const newPaneId = splitPane(activeId, "v", { type: "shell", ptyId });
+      const newPaneId = splitPane(activeId, "v", { id: paneId, type: "shell", ptyId });
       if (newPaneId) {
         const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
         initTerminal(newPaneId);
@@ -67,6 +165,60 @@ export function registerPaneCommands() {
           import("$lib/panes/actions").then(({ closePane: cp }) => cp(activeId, newPaneId));
         });
       }
+    },
+  });
+
+  registry.register({
+    id: "pane.split-horizontal-with-profile",
+    label: "Split Right with Profile…",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    getItems: () => profileSubItems((p) => spawnShellPaneWithProfile("h", p)),
+  });
+
+  registry.register({
+    id: "pane.split-vertical-with-profile",
+    label: "Split Down with Profile…",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    getItems: () => profileSubItems((p) => spawnShellPaneWithProfile("v", p)),
+  });
+
+  // Fast-path shortcuts for the two first-class agents. Register a palette
+  // entry each so keyboard users can drop a Claude or Codex shell next to
+  // the focused pane without drilling into the profile picker. Shortcuts
+  // no-op until `loadBuiltinProfiles` finishes populating the registry on
+  // startup — acceptable for something a user can only hit after the
+  // window is interactive.
+  registry.register({
+    id: "pane.split-claude",
+    label: "Split Right → Claude",
+    shortcut: "cmd+alt+c",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: async () => {
+      const profile = findBuiltinProfile("claude");
+      if (!profile) {
+        log("pane.split-claude: claude built-in profile not in registry yet");
+        return;
+      }
+      await spawnShellPaneWithProfile("h", profile);
+    },
+  });
+
+  registry.register({
+    id: "pane.split-codex",
+    label: "Split Right → Codex",
+    shortcut: "cmd+alt+x",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: async () => {
+      const profile = findBuiltinProfile("codex");
+      if (!profile) {
+        log("pane.split-codex: codex built-in profile not in registry yet");
+        return;
+      }
+      await spawnShellPaneWithProfile("h", profile);
     },
   });
 
@@ -306,8 +458,9 @@ export function registerPaneCommands() {
       if (!session || !activeId) return;
       const paneId = `cmd-${crypto.randomUUID()}`;
       const ptyId = `${paneId}-${Date.now()}`;
-      await spawnTask(ptyId, command, session.worktreePath);
+      await spawnTask(ptyId, command, session.worktreePath, session.id, paneId);
       const newPaneId = splitPane(activeId, "h", {
+        id: paneId,
         type: "command",
         ptyId,
         command,

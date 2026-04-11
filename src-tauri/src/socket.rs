@@ -40,8 +40,7 @@ impl Response {
 }
 
 pub fn socket_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".config").join("roux").join("roux.sock")
+    crate::paths::roux_config_dir().join("roux.sock")
 }
 
 pub fn start_socket_server(app: tauri::AppHandle) {
@@ -236,9 +235,13 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     let pane_id = crypto_random_uuid();
     let pty_id = crypto_random_uuid();
 
-    if let Err(e) =
-        state.pty_manager.spawn_shell(&pty_id, &working_dir, Some(session_id), app.clone())
-    {
+    if let Err(e) = state.pty_manager.spawn_shell(
+        &pty_id,
+        &working_dir,
+        Some(session_id),
+        Some(&pane_id),
+        app.clone(),
+    ) {
         return Response::err(format!("Failed to spawn shell: {}", e));
     }
 
@@ -303,9 +306,14 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
     );
 
-    if let Err(e) =
-        state.pty_manager.spawn_task(&pty_id, &command, &working_dir, Some(session_id), app.clone())
-    {
+    if let Err(e) = state.pty_manager.spawn_task(
+        &pty_id,
+        &command,
+        &working_dir,
+        Some(session_id),
+        Some(&pane_id),
+        app.clone(),
+    ) {
         return Response::err(format!("Failed to spawn task: {}", e));
     }
 

@@ -3,6 +3,7 @@ import { get } from "svelte/store";
 
 vi.mock("$lib/tauri", () => ({
   killSession: vi.fn().mockResolvedValue(undefined),
+  killPty: vi.fn().mockResolvedValue(undefined),
   removeWorktree: vi.fn().mockResolvedValue(undefined),
 }));
 

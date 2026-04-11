@@ -2,6 +2,7 @@ import { writable } from "svelte/store";
 import type { RouxSettings } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
 import { normalizeTheme } from "$lib/themes";
+import { setUserProfiles } from "$lib/panes/profiles";
 import {
   getSettings,
   updateSettings as updateSettingsApi,
@@ -16,10 +17,13 @@ export async function initSettings(): Promise<RouxSettings> {
   const raw = await getSettings();
   const loaded = { ...raw, theme: normalizeTheme(raw.theme) };
   settings.set(loaded);
+  setUserProfiles(loaded.spawnProfiles);
 
   // Listen for changes from backend
   await onSettingsChanged((updated) => {
-    settings.set({ ...updated, theme: normalizeTheme(updated.theme) });
+    const next = { ...updated, theme: normalizeTheme(updated.theme) };
+    settings.set(next);
+    setUserProfiles(next.spawnProfiles);
   });
 
   return loaded;

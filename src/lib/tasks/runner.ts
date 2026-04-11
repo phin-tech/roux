@@ -1,8 +1,15 @@
+import { get } from "svelte/store";
 import { attachPtyOutput, createPtyOutputChannel, spawnTask, onSessionExit, type SessionExitPayload } from "$lib/tauri";
 import { splitPane } from "$lib/panes/actions";
 import { updateInstance, getInstance } from "$lib/panes/instances";
 import { focusedPaneId } from "$lib/panes/focus";
+import { sessionLayouts, firstLeafId } from "$lib/panes/layout";
 import { log } from "$lib/logging";
+
+function focusPrimaryPane(sessionId: string): void {
+  const layout = get(sessionLayouts).get(sessionId);
+  if (layout) focusedPaneId.set(firstLeafId(layout));
+}
 import {
   addTaskRun,
   updateTaskRun,
@@ -40,11 +47,12 @@ export async function runTask(
 
   const keepOpen = getEffectiveKeepOpen(repoRoot, task.id, task.keepOpen);
   const spawnInPane = keepOpen === "always";
+  const paneId = spawnInPane ? crypto.randomUUID() : null;
 
   addTaskRun(sessionId, {
     taskId: task.id,
     ptyId,
-    paneId: spawnInPane ? ptyId : null,
+    paneId,
     status: "running",
     exitCode: null,
     outputLines: [],
@@ -53,12 +61,13 @@ export async function runTask(
 
   // Spawn one-shot command — output buffers in Rust backlog until channel attaches
   log(`runTask: spawning ptyId=${ptyId} cmd="${task.command}" keepOpen=${keepOpen} spawnInPane=${spawnInPane}`);
-  await spawnTask(ptyId, task.command, repoRoot);
+  await spawnTask(ptyId, task.command, repoRoot, sessionId, paneId);
 
   // If keepOpen is "always", show in a command pane with full terminal
-  if (spawnInPane) {
-    focusedPaneId.set(`${sessionId}-main`);
+  if (spawnInPane && paneId) {
+    focusPrimaryPane(sessionId);
     const newPaneId = splitPane(sessionId, "h", {
+      id: paneId,
       type: "command",
       ptyId,
       command: task.command,
@@ -107,8 +116,8 @@ export async function runTask(
 
 /** Promote a background task to a visible shell pane */
 export function expandTask(sessionId: string, ptyId: string) {
-  // Ensure focus is on the session's main pane so splitPane can find a target
-  focusedPaneId.set(`${sessionId}-main`);
+  // Ensure focus is on a pane in this session so splitPane can find a target
+  focusPrimaryPane(sessionId);
   const newPaneId = splitPane(sessionId, "h", {
     type: "shell",
     ptyId,

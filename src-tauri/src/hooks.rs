@@ -156,8 +156,7 @@ fn claude_settings_path() -> Result<PathBuf, HooksError> {
 }
 
 fn status_dir() -> Result<(), HooksError> {
-    let home = dirs::home_dir().ok_or(HooksError::HomeDirUnavailable)?;
-    let dir = home.join(".config").join("roux").join("status");
+    let dir = crate::paths::roux_config_dir().join("status");
     fs::create_dir_all(&dir).map_err(|source| HooksError::CreateStatusDir { source })?;
     Ok(())
 }

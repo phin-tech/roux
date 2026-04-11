@@ -427,8 +427,10 @@ impl PtyManager {
         } else {
             CommandBuilder::new(&claude_cmd)
         };
-        apply_roux_env(&mut cmd, &user_path, Some(session_id));
-        cmd.env("ROUX_PANE_ID", format!("{}-main", session_id));
+        // Until spawn profiles land in phase 4, the claude pane id is still
+        // derived from the session id. Phase 4 will take pane_id as a param.
+        let pane_id = format!("{}-main", session_id);
+        apply_roux_env(&mut cmd, &user_path, Some(session_id), Some(&pane_id));
         if let Some(m) = model {
             cmd.arg("--model");
             cmd.arg(m);
@@ -478,6 +480,7 @@ impl PtyManager {
         id: &str,
         working_dir: &str,
         session_id: Option<&str>,
+        pane_id: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
@@ -491,7 +494,7 @@ impl PtyManager {
         rlog!("Spawning shell '{}' for pane '{}' in '{}'", shell, id, working_dir);
 
         let mut cmd = CommandBuilder::new(&shell);
-        apply_roux_env(&mut cmd, &user_path, session_id);
+        apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
         cmd.cwd(working_dir);
 
         let child = pair.slave.spawn_command(cmd).map_err(|source| {
@@ -536,6 +539,7 @@ impl PtyManager {
         command: &str,
         working_dir: &str,
         session_id: Option<&str>,
+        pane_id: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
@@ -549,7 +553,7 @@ impl PtyManager {
 
         let mut cmd = CommandBuilder::new(&shell);
         cmd.args(["-c", command]);
-        apply_roux_env(&mut cmd, &user_path, session_id);
+        apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
         cmd.cwd(working_dir);
 
         let mut child =
@@ -701,8 +705,7 @@ impl PtyManager {
 
 /// Get the socket path as a string for setting env vars.
 fn socket_path_str() -> String {
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    home.join(".config").join("roux").join("roux.sock").to_string_lossy().to_string()
+    crate::paths::roux_config_dir().join("roux.sock").to_string_lossy().to_string()
 }
 
 /// Eager trigger for the roux-cli shim. Called from `main.rs` setup so the
@@ -733,8 +736,7 @@ fn roux_cli_shim() -> Option<(String, String)> {
             }
 
             // 2. Ensure ~/.config/roux/bin/ exists.
-            let home = dirs::home_dir()?;
-            let bin_dir = home.join(".config").join("roux").join("bin");
+            let bin_dir = crate::paths::roux_config_dir().join("bin");
             if let Err(e) = std::fs::create_dir_all(&bin_dir) {
                 rlog!("roux_cli_shim: failed to create {}: {}", bin_dir.display(), e);
                 return None;
@@ -788,7 +790,17 @@ fn build_pty_path(user_path: &str) -> String {
 /// prepended, `ROUX_CLI` pointing at the absolute roux-cli path, and the
 /// standard `ROUX_*` markers. Called by every `spawn_*` method so the three
 /// paths stay in sync.
-fn apply_roux_env(cmd: &mut CommandBuilder, user_path: &str, session_id: Option<&str>) {
+///
+/// `session_id` and `pane_id` are threaded through so every shell/task/agent
+/// PTY hosts `ROUX_SESSION_ID` and `ROUX_PANE_ID` in its env unconditionally.
+/// Hooks and `roux notify` read them to route events back to the correct
+/// pane without cwd heuristics.
+fn apply_roux_env(
+    cmd: &mut CommandBuilder,
+    user_path: &str,
+    session_id: Option<&str>,
+    pane_id: Option<&str>,
+) {
     cmd.env("PATH", build_pty_path(user_path));
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -799,6 +811,9 @@ fn apply_roux_env(cmd: &mut CommandBuilder, user_path: &str, session_id: Option<
     }
     if let Some(sid) = session_id {
         cmd.env("ROUX_SESSION_ID", sid);
+    }
+    if let Some(pid) = pane_id {
+        cmd.env("ROUX_PANE_ID", pid);
     }
 }
 
