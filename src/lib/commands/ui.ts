@@ -63,6 +63,18 @@ export function registerUiCommands() {
   });
 
   registry.register({
+    id: "ui.toggle-sidebar",
+    label: "Toggle Sidebar",
+    shortcut: "cmd+\\",
+    category: "App",
+    available: () => true,
+    execute: () => {
+      const current = get(settings);
+      updateSetting("sidebarCollapsed", !current.sidebarCollapsed);
+    },
+  });
+
+  registry.register({
     id: "app.settings",
     label: "Settings",
     shortcut: "cmd+,",

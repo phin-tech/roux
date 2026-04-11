@@ -81,6 +81,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   additionalFlags: [],
   taskPanelSplit: 0.4,
   taskPanelCollapsed: false,
+  sidebarCollapsed: false,
   enableLogging: false,
   groupBy: "repo",
   confirmOnQuit: true,

@@ -36,3 +36,4 @@ The session-switch shortcuts target the Nth session in the sidebar's top-to-bott
 |---|---|
 | Command palette | ++cmd+k++ |
 | Toggle notes | ++cmd+b++ |
+| Toggle sidebar | ++cmd+"\\"++ |

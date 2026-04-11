@@ -76,6 +76,8 @@ pub struct RouxSettings {
     pub task_panel_split: f64,
     pub task_panel_collapsed: bool,
     #[serde(default)]
+    pub sidebar_collapsed: bool,
+    #[serde(default)]
     pub enable_logging: bool,
     #[serde(default)]
     pub group_by: GroupBy,
@@ -115,6 +117,7 @@ impl Default for RouxSettings {
             additional_flags: Vec::new(),
             task_panel_split: 0.5,
             task_panel_collapsed: true,
+            sidebar_collapsed: false,
             enable_logging: false,
             group_by: GroupBy::Repo,
             confirm_on_quit: true,

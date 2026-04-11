@@ -195,6 +195,7 @@ export type RouxSettings = {
 	additionalFlags: string[],
 	taskPanelSplit: number,
 	taskPanelCollapsed: boolean,
+	sidebarCollapsed?: boolean,
 	enableLogging?: boolean,
 	groupBy?: GroupBy,
 	confirmOnQuit?: boolean,
