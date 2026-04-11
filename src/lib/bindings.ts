@@ -17,6 +17,13 @@ export const commands = {
 	spawnTask: (id: string, command: string, workingDir: string) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir })),
 	killSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_session", { id })),
 	getPtyGeneration: (id: string) => __TAURI_INVOKE<number | null>("get_pty_generation", { id }),
+	/**
+	 *  Live cwd of a PTY-backed process, resolved from the OS (no shell hooks).
+	 *  Used at pane-state save time so that reconnecting a session restores the
+	 *  directory the shell is actually in (after `cd`s), not just the directory
+	 *  it was spawned in.
+	 */
+	getPtyCwd: (id: string) => __TAURI_INVOKE<string | null>("get_pty_cwd", { id }),
 	createSession: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, extraFlags: string[] | null, nonoProfile: string | null) => typedError<Session, string>(__TAURI_INVOKE("create_session", { repoPath, name, worktreePath, branch, extraFlags, nonoProfile })),
 	reconnectSession: (id: string, extraFlags: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session", { id, extraFlags })),
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),
