@@ -136,6 +136,11 @@ async function rehydratePane(
         ptyId,
         name: descriptor.name,
         workingDir: descriptor.workingDir,
+        // Preserve the profile the pane was launched from so the
+        // re-run button and provider-specific UI light up after
+        // restart. Dropping this silently reverted every restored
+        // pane to "plain shell" in the UI.
+        spawnProfileRef: descriptor.spawnProfileRef,
       });
     } catch (e) {
       const errMsg = String(e);
@@ -146,6 +151,7 @@ async function rehydratePane(
         ptyId: "",
         name: descriptor.name,
         workingDir: descriptor.workingDir,
+        spawnProfileRef: descriptor.spawnProfileRef,
       });
       updateInstance(paneId, { restoreError: errMsg });
     }

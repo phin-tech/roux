@@ -17,11 +17,11 @@
   import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
-  import { initSession, splitPane } from "$lib/panes/actions";
+  import { initSession, initSessionWithProfile, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
-  import { initPersistence, flushPaneState } from "$lib/panes/persistence";
+  import { initPersistence, flushPaneState, loadPaneState } from "$lib/panes/persistence";
   import { loadBuiltinProfiles } from "$lib/panes/profiles";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
@@ -312,7 +312,18 @@
       const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
       for (const s of sessions) {
         addSession(s);
-        const mainPaneId = initSession(s.id);
+        // Look up the persisted primary descriptor so the restored pane
+        // keeps its spawnProfileRef. Without this, every session would
+        // come back tagged as the Claude built-in profile regardless of
+        // what the user actually chose at creation time, and the re-run
+        // button + provider-specific UI would lie.
+        const persisted = await loadPaneState(s.id);
+        const primaryDescriptor = persisted?.descriptors.find(
+          (d) => d.ptyId === s.id,
+        );
+        const mainPaneId = primaryDescriptor?.spawnProfileRef
+          ? initSessionWithProfile(s.id, primaryDescriptor.spawnProfileRef)
+          : initSession(s.id);
         initTerminal(mainPaneId);
         await attachPtyListeners(mainPaneId);
         // Full layout restore (shell PTY re-spawn etc.) happens on reconnect click.

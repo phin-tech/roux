@@ -313,6 +313,47 @@ describe("reconnectSession — full rehydration", () => {
     expect(tree?.kind).toBe("split");
   });
 
+  it("preserves spawnProfileRef on restored shell panes", async () => {
+    // Regression: phase 5 added spawnProfileRef persistence on save but
+    // rehydratePane dropped the field on restore, so the re-run button
+    // and provider-specific UI went dark after restart for every pane
+    // that wasn't the session-primary.
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+
+    const mainId = `${session.id}-main`;
+    vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 3,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: mainId },
+          { kind: "leaf", paneId: "codex-pane" },
+        ],
+      },
+      descriptors: [
+        { id: mainId, type: "shell", ptyId: session.id },
+        {
+          id: "codex-pane",
+          type: "shell",
+          ptyId: "old-pty",
+          workingDir: "/repo",
+          spawnProfileRef: { kind: "registered", id: "codex" },
+        },
+      ],
+    } satisfies PaneStatePayload);
+
+    await reconnectSession(session);
+
+    const codexInstance = get(paneInstances).get("codex-pane");
+    expect(codexInstance?.spawnProfileRef).toEqual({
+      kind: "registered",
+      id: "codex",
+    });
+  });
+
   it("strips command panes from the persisted tree before rehydration", async () => {
     const session = makeSession();
     addSession(session);
