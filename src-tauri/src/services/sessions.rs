@@ -271,6 +271,63 @@ pub(crate) async fn reconnect_session(
     Ok(updated)
 }
 
+/// Reconnect a session by respawning a **plain shell** in its primary PTY,
+/// without running the claude binary directly. Used by any session whose
+/// primary pane was originally created via `create_session_shell` — i.e.
+/// every non-Claude-builtin profile (Codex, Plain shell, user profiles,
+/// inline Custom…). The frontend re-runs the pane's profile commands
+/// into the fresh shell after this call, so agents like Codex come back
+/// up by typing their startup command rather than being re-execed
+/// directly by the backend.
+///
+/// Parallel to [`reconnect_session`] minus the Claude-specific inputs.
+/// Both functions kill the old PTY first so the session id is free for a
+/// fresh `spawn`/`spawn_shell`.
+pub(crate) async fn reconnect_session_shell(
+    pty_manager: &PtyManager,
+    session_handle: &SessionHandle,
+    id: &str,
+    app: &tauri::AppHandle,
+) -> anyhow::Result<Session> {
+    let session = session_handle
+        .get(id)
+        .await?
+        .ok_or_else(|| anyhow!("Session {} not found", id))?;
+
+    pty_manager.kill(id);
+
+    rlog!(
+        "Reconnecting shell session '{}' (id={}) in '{}'",
+        session.name,
+        id,
+        session.worktree_path,
+    );
+
+    // Same env-injection contract as create_session_shell: primary pane
+    // id matches the frontend's formula so tier-1 hook routing stays
+    // deterministic the moment the user starts an agent in the shell.
+    let pane_id = format!("{}-main", id);
+    pty_manager
+        .spawn_shell(
+            id,
+            &session.worktree_path,
+            Some(id),
+            Some(&pane_id),
+            app.clone(),
+        )
+        .map_err(|e| anyhow!("{}", e))?;
+
+    session_handle
+        .update_status(id, roux_core::SessionStatus::Idle)
+        .await?;
+
+    rlog!("Shell session '{}' reconnected successfully", id);
+
+    let mut updated = session;
+    updated.status = roux_core::SessionStatus::Idle;
+    Ok(updated)
+}
+
 pub(crate) async fn kill_session(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,

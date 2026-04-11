@@ -195,6 +195,23 @@ pub(crate) async fn reconnect_session(
     .map_err(|e| e.to_string())
 }
 
+/// Parallel to `reconnect_session`, but respawns a plain shell in the
+/// session's primary PTY instead of the claude binary. The frontend
+/// replays the pane's spawn profile commands into the fresh shell after
+/// this call returns, so agents come back up the same way they were
+/// originally launched via `create_session_shell`.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn reconnect_session_shell(
+    id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Session, String> {
+    svc::reconnect_session_shell(&state.pty_manager, &state.session_handle, &id, &app)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn list_sessions(state: tauri::State<'_, AppState>) -> Result<Vec<Session>, String> {

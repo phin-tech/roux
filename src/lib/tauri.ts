@@ -73,6 +73,16 @@ export async function reconnectSessionPty(
   return invoke("reconnect_session", { id, extraFlags: extraFlags ?? null });
 }
 
+/**
+ * Parallel to `reconnectSessionPty`, but respawns a plain shell in the
+ * session's primary PTY instead of the claude binary. Used by non-Claude
+ * spawn profiles — the caller replays the profile's setup / startup
+ * commands into the fresh shell after this resolves.
+ */
+export async function reconnectSessionShellPty(id: string): Promise<Session> {
+  return invoke("reconnect_session_shell", { id });
+}
+
 export async function writeToSession(
   id: string,
   data: string

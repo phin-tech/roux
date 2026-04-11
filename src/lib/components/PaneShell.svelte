@@ -12,7 +12,7 @@
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
   import { getXtermTheme } from "$lib/themes";
-  import { reconnectSession, retryShellPane } from "$lib/sessions/reconnect";
+  import { reconnectSession, reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
   import { log, logError } from "$lib/logging";
   import SessionPicker from "./SessionPicker.svelte";
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
@@ -60,6 +60,18 @@
   const activeProfile = $derived(resolveProfileRef(instance?.spawnProfileRef));
   const canReRunProfile = $derived(
     !!activeProfile && (!!activeProfile.setupCommand || !!activeProfile.startupCommand),
+  );
+
+  // Dispatch for the disconnected reconnect UI: Claude built-in takes the
+  // legacy SessionPicker (Continue/Resume/New via `claude --continue` etc.)
+  // because the backend spawns the claude binary directly. Every other
+  // profile — Codex, Plain shell, user-defined, inline — takes the
+  // generic shell-reconnect path, which respawns a plain shell and
+  // replays the profile's commands.
+  const isClaudeBuiltinPrimary = $derived(
+    isSessionPrimary &&
+      activeProfile?.id === "claude" &&
+      activeProfile?.source === "builtin",
   );
 
   async function reRunProfile() {
@@ -142,6 +154,19 @@
         return;
       }
       logError("Failed to reconnect session", e);
+    }
+  }
+
+  async function reconnectShell() {
+    if (!session) return;
+    try {
+      await reconnectSessionShell(session);
+    } catch (e: any) {
+      if (e?.message?.includes("already in progress")) {
+        log(`Reconnect for ${sessionId} skipped — already in progress`);
+        return;
+      }
+      logError("Failed to reconnect shell session", e);
     }
   }
 
@@ -361,7 +386,8 @@
           onRetry={() => void retryShellPane(paneId, sessionId)}
           onClose={() => void closePane(sessionId, paneId)}
         />
-      {:else if isDisconnected && session}
+      {:else if isDisconnected && session && isClaudeBuiltinPrimary}
+        <!-- Claude built-in profile: Continue / Resume / New picker -->
         <div class="ui-terminal-frame h-full w-full overflow-hidden">
           <SessionPicker
             cwd={session.worktreePath}
@@ -369,6 +395,27 @@
             onResume={handleResume}
             onNew={handleNew}
           />
+        </div>
+      {:else if isDisconnected && session}
+        <!-- Any other profile: plain reconnect button that respawns a
+             shell and replays the profile's commands. -->
+        <div class="ui-terminal-frame flex h-full w-full flex-col items-center justify-center gap-3 bg-bg-deep p-6 text-center">
+          <span class="text-[11px] uppercase tracking-wider text-text-muted">
+            Session disconnected
+          </span>
+          <span class="max-w-xs text-[13px] text-text-secondary">
+            {#if activeProfile}
+              Reconnect will respawn a shell and re-run the <span class="font-mono text-text-primary">{activeProfile.name}</span> profile.
+            {:else}
+              Reconnect will respawn a plain shell in this pane.
+            {/if}
+          </span>
+          <button
+            class="cursor-pointer rounded-xl border border-accent-dim/20 bg-accent-dim/15 px-5 py-2 text-[13px] font-medium text-accent hover:bg-accent-dim/24"
+            onclick={() => void reconnectShell()}
+          >
+            Reconnect
+          </button>
         </div>
       {:else if instance.type === "markdown"}
         <LazyMarkdownPane docPath={instance.docPath ?? ""} />

@@ -48,6 +48,14 @@ export const commands = {
 	 */
 	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch })),
 	reconnectSession: (id: string, extraFlags: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session", { id, extraFlags })),
+	/**
+	 *  Parallel to `reconnect_session`, but respawns a plain shell in the
+	 *  session's primary PTY instead of the claude binary. The frontend
+	 *  replays the pane's spawn profile commands into the fresh shell after
+	 *  this call returns, so agents come back up the same way they were
+	 *  originally launched via `create_session_shell`.
+	 */
+	reconnectSessionShell: (id: string) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id })),
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),
 	listClaudeSessions: (cwd: string) => typedError<ClaudeSession[], string>(__TAURI_INVOKE("list_claude_sessions", { cwd })),
 	/**

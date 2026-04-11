@@ -1,10 +1,12 @@
 import { get } from "svelte/store";
 import type { Session } from "$lib/types";
 import { updateSessionStatus } from "$lib/stores/sessions";
-import { reconnectSessionPty, spawnShell } from "$lib/tauri";
+import { reconnectSessionPty, reconnectSessionShellPty, spawnShell } from "$lib/tauri";
 import { replacePty, createPane, updateInstance, getInstance } from "$lib/panes/instances";
 import { sessionLayouts, collectLeafIds, type LayoutNode } from "$lib/panes/layout";
 import { loadPaneState, stripCommandPanes, type PaneDescriptor, type PaneStatePayload } from "$lib/panes/persistence";
+import { resolveProfileRef } from "$lib/panes/profiles";
+import { runProfileInPane } from "$lib/panes/profileRunner";
 import { log } from "$lib/logging";
 
 const reconnecting = new Set<string>();
@@ -281,6 +283,62 @@ export async function reconnectSession(
     }
 
     log(`Session ${session.id} reconnected with ${nonMainIds.length} additional pane(s)`);
+    return updated;
+  } finally {
+    reconnecting.delete(session.id);
+  }
+}
+
+/**
+ * Reconnect a session whose primary pane was created via
+ * `createSessionShell` (i.e. every non-Claude-builtin profile). Kills
+ * the old PTY, spawns a fresh plain shell on the backend, re-attaches
+ * pane listeners, and replays the pane's profile commands so agents
+ * like Codex come back up the way they were first launched.
+ *
+ * Separate from `reconnectSession` so that the legacy Claude spawn
+ * path (which runs the claude binary directly, via `pty_manager.spawn`
+ * with flags + nono wrapping) stays undisturbed. Callers dispatch based
+ * on the primary pane's spawnProfileRef — Claude-builtin uses
+ * `reconnectSession`, everything else uses this one.
+ */
+export async function reconnectSessionShell(session: Session): Promise<Session> {
+  if (reconnecting.has(session.id)) {
+    throw new Error(`Reconnect already in progress for ${session.id}`);
+  }
+  reconnecting.add(session.id);
+  try {
+    log(`Reconnecting shell session ${session.id} (${session.name})`);
+
+    const primaryPaneId = findSessionPrimaryPaneId(session.id);
+    if (!primaryPaneId) {
+      throw new Error(
+        `reconnectSessionShell(${session.id}): no primary pane found to reconnect`,
+      );
+    }
+
+    // Point the frontend pane at the same session id — the Rust side
+    // keys the shell PTY under session.id, identical to create_session
+    // and create_session_shell. `replacePty` clears any stale listeners
+    // before we attach the fresh ones.
+    replacePty(primaryPaneId, session.id);
+
+    const updated = await reconnectSessionShellPty(session.id);
+
+    const { attachPtyListeners } = await import("$lib/panes/terminals");
+    await attachPtyListeners(primaryPaneId);
+    updateSessionStatus(session.id, updated.status as Session["status"]);
+
+    // Re-run the pane's profile commands so the agent (Codex, a user
+    // profile, etc.) comes back up automatically. Plain-shell panes
+    // have no commands so this is a no-op for them.
+    const instance = getInstance(primaryPaneId);
+    const profile = resolveProfileRef(instance?.spawnProfileRef);
+    if (profile) {
+      await runProfileInPane(session.id, profile);
+    }
+
+    log(`Session ${session.id} reconnected (shell path)`);
     return updated;
   } finally {
     reconnecting.delete(session.id);
