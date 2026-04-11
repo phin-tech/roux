@@ -51,8 +51,12 @@
   );
   // A pane is "disconnected" (showing the resume picker) when it hosts the
   // session-owned PTY (ptyId === sessionId) and the session itself is in a
-  // disconnected state. Phase 5 replaces session.status with the derived
-  // aggregate from pane-level agentState.
+  // disconnected state. "disconnected" is the one session-level status the
+  // backend owns exclusively — per-pane AgentState has no equivalent, since
+  // dead-PTY is a session fact, not an agent observation — so we read
+  // `session.status` directly here rather than going through
+  // `computeEffectiveSessionStatus`. For every *other* UI decision that
+  // needs a single indicator, consumers go through that helper instead.
   const isSessionPrimary = $derived(!!instance && instance.ptyId === sessionId);
   const isDisconnected = $derived(isSessionPrimary && session?.status === "disconnected");
 

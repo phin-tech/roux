@@ -3,19 +3,31 @@ import { removeSession } from "$lib/stores/sessions";
 import { closeSessionPanes } from "$lib/panes/actions";
 import { killSession, removeWorktree } from "$lib/tauri";
 import { settings } from "$lib/stores/settings";
+import {
+  sessionAgentStatus,
+  computeEffectiveSessionStatus,
+} from "$lib/panes/agentState";
 import type { Session } from "$lib/types";
 
 export async function closeSession(session: Session, opts?: { force?: boolean }): Promise<boolean> {
   const s = get(settings);
   const force = opts?.force ?? false;
 
+  // Use the unified effective status so that a session whose secondary
+  // pane is actively generating still trips the confirm prompt even if
+  // the legacy Session.status field is stale.
+  const effective = computeEffectiveSessionStatus(
+    session.status,
+    get(sessionAgentStatus).get(session.id) ?? null,
+  );
+
   if (
     !force &&
     s.confirmOnClose &&
-    (session.status === "thinking" || session.status === "generating")
+    (effective === "thinking" || effective === "generating")
   ) {
     const confirmed = window.confirm(
-      `"${session.name}" is currently ${session.status}. Close it?`
+      `"${session.name}" is currently ${effective}. Close it?`,
     );
     if (!confirmed) return false;
   }

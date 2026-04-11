@@ -8,6 +8,7 @@ import {
   getSessionAgentStatus,
   sessionAgentStatus,
   resetAgentStates,
+  computeEffectiveSessionStatus,
 } from "../agentState";
 import { sessionLayouts, resetLayouts, insertLeaf } from "../layout";
 // Importing actions.ts registers the post-dispose hook that wires
@@ -170,6 +171,47 @@ describe("agentState store", () => {
       const map = get(sessionAgentStatus);
       expect(map.get("sess-1")).toBe("generating");
       expect(map.get("sess-2")).toBe("idle");
+    });
+  });
+
+  describe("computeEffectiveSessionStatus", () => {
+    it("disconnected session wins over any agent aggregate", () => {
+      // A stale agentState entry that predates the disconnect must not
+      // silently repaint the sidebar card as generating.
+      expect(computeEffectiveSessionStatus("disconnected", "generating")).toBe(
+        "disconnected",
+      );
+      expect(computeEffectiveSessionStatus("disconnected", "idle")).toBe(
+        "disconnected",
+      );
+      expect(computeEffectiveSessionStatus("disconnected", null)).toBe(
+        "disconnected",
+      );
+    });
+
+    it("error session wins over any agent aggregate", () => {
+      expect(computeEffectiveSessionStatus("error", "generating")).toBe("error");
+      expect(computeEffectiveSessionStatus("error", "idle")).toBe("error");
+      expect(computeEffectiveSessionStatus("error", null)).toBe("error");
+    });
+
+    it("live agent aggregate overrides a stale legacy status", () => {
+      // Session-level thinking/idle/generating from the old path may be
+      // stuck on a value we never cleared. A real agent update from a
+      // pane supersedes it.
+      expect(computeEffectiveSessionStatus("idle", "generating")).toBe(
+        "generating",
+      );
+      expect(computeEffectiveSessionStatus("thinking", "generating")).toBe(
+        "generating",
+      );
+      expect(computeEffectiveSessionStatus("generating", "idle")).toBe("idle");
+    });
+
+    it("legacy field passes through when no agent aggregate is present", () => {
+      expect(computeEffectiveSessionStatus("idle", null)).toBe("idle");
+      expect(computeEffectiveSessionStatus("thinking", null)).toBe("thinking");
+      expect(computeEffectiveSessionStatus("attention", null)).toBe("attention");
     });
   });
 });

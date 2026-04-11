@@ -1,5 +1,5 @@
 import { writable, derived, get, type Readable } from "svelte/store";
-import type { Provider } from "$lib/bindings";
+import type { Provider, SessionStatus } from "$lib/bindings";
 import { sessionLayouts, collectLeafIds, type LayoutNode } from "./layout";
 
 /**
@@ -140,6 +140,42 @@ export function getSessionAgentStatus(
   sessionId: string,
 ): AggregateStatus | null {
   return aggregateFor(get(sessionLayouts).get(sessionId), get(agentStates));
+}
+
+/**
+ * Combine a session's legacy `Session.status` with its per-pane
+ * `sessionAgentStatus` aggregate into a single "what is this session
+ * doing right now?" value for every UI consumer that needs to render a
+ * single indicator (sidebar card dot, reconnect-gate, close-confirm
+ * prompt, etc.).
+ *
+ * Precedence:
+ *
+ * 1. `"disconnected"` and `"error"` come from the backend session
+ *    record and win unconditionally — if the primary PTY is gone
+ *    there is nothing generating, and an agent-state entry that
+ *    predates the disconnect must not silently repaint the card.
+ * 2. A live agent aggregate (`"generating"` / `"idle"`) overrides the
+ *    legacy field, so a pane actively generating always pulses even
+ *    when `Session.status` is stuck at a stale "idle" from an earlier
+ *    event we never bothered to clear.
+ * 3. Otherwise the legacy field passes through.
+ *
+ * This is the intended unification path: the backend keeps owning
+ * session-level liveness (connect/disconnect/error), the frontend owns
+ * per-pane agent liveness via hooks, and this helper is the one spot
+ * that decides the precedence between them. Consumers should never
+ * reach past it to `Session.status` directly.
+ */
+export function computeEffectiveSessionStatus(
+  rawSessionStatus: SessionStatus,
+  agentAggregate: AggregateStatus | null,
+): SessionStatus {
+  if (rawSessionStatus === "disconnected") return "disconnected";
+  if (rawSessionStatus === "error") return "error";
+  if (agentAggregate === "generating") return "generating";
+  if (agentAggregate === "idle") return "idle";
+  return rawSessionStatus;
 }
 
 /** Test-only reset hook. */
