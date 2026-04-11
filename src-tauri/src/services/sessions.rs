@@ -135,12 +135,16 @@ pub(crate) async fn create_session(
 /// for every non-Claude profile in the new-session picker.
 ///
 /// Parallel shape to [`create_session`] minus the Claude-specific inputs
-/// (default model, additional flags, nono profile, claude binary path).
+/// (default model, additional flags, nono profile, claude binary path),
+/// but settings-aware for anything non-Claude-specific — notably
+/// `worktree_base_path` so new worktrees land in the user's configured
+/// base directory regardless of which profile spawned them.
 /// Emits the same Session record so the rest of the app doesn't need to
 /// know which creation path was used.
 pub(crate) async fn create_session_shell(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
+    settings: &RouxSettings,
     repo_path: &str,
     name: &str,
     target: SessionTarget<'_>,
@@ -157,7 +161,8 @@ pub(crate) async fn create_session_shell(
             (path.to_string(), br, false)
         }
         SessionTarget::NewWorktree { branch } => {
-            let wt_path = crate::worktree::create_worktree(repo_path, branch, None)?;
+            let base = settings.worktree_base_path.as_deref();
+            let wt_path = crate::worktree::create_worktree(repo_path, branch, base)?;
             (wt_path, branch.to_string(), true)
         }
         SessionTarget::Repo => {

@@ -79,12 +79,16 @@ describe("pane actions", () => {
       expect(getInstance(newId!)!.type).toBe("shell");
     });
 
-    it("rolls back if session has no layout", () => {
-      // No initSession called — no layout exists
+    it("seeds a single-leaf layout when splitting into a zero-pane session", () => {
+      // A session whose last pane was closed has no layout entry. Splitting
+      // into it must re-populate the layout with the new pane as sole
+      // leaf — spec allows zero-pane sessions as a transient state and
+      // dropping the split on the floor would strand the user.
       const newId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" });
-      expect(newId).toBeNull();
-      // Pane instance should have been cleaned up
-      expect(get(paneInstances).size).toBe(0);
+      expect(newId).not.toBeNull();
+      const tree = get(sessionLayouts).get("s1");
+      expect(tree).toEqual({ kind: "leaf", paneId: newId });
+      expect(get(paneInstances).has(newId!)).toBe(true);
     });
   });
 

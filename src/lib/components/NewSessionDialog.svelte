@@ -57,8 +57,16 @@
   // True when the selected profile's startup behavior should go through
   // the legacy Claude-spawning backend path (preserves nono wrapping).
   // Any other profile uses createSessionShell + runProfileInPane.
+  //
+  // Gated on source === "builtin" too, because a user profile named
+  // "claude" overrides the built-in on id collision (see profiles.ts
+  // registry derived). Sending a user profile through the legacy path
+  // would silently ignore its setupCommand / startupCommand and respawn
+  // the real Claude binary, which is obviously not what the user wrote.
   let useLegacyClaudePath = $derived(
-    selectedProfileId === "claude" && !inlineProfile,
+    !!selectedProfile &&
+      selectedProfile.id === "claude" &&
+      selectedProfile.source === "builtin",
   );
 
   // Nono sandbox integration

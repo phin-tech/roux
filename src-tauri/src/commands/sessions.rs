@@ -149,6 +149,9 @@ pub(crate) async fn create_session_shell(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
+    // Clone before await — the MutexGuard is not Send.
+    let settings = state.settings.lock().unwrap().clone();
+
     let target = if let Some(ref wt_path) = worktree_path {
         svc::SessionTarget::ExistingWorktree { path: wt_path }
     } else if let Some(ref br) = branch {
@@ -160,6 +163,7 @@ pub(crate) async fn create_session_shell(
     svc::create_session_shell(
         &state.pty_manager,
         &state.session_handle,
+        &settings,
         &repo_path,
         &name,
         target,

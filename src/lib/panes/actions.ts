@@ -67,7 +67,17 @@ export function splitPane(
   let inserted = false;
   sessionLayouts.update((m) => {
     const tree = m.get(sessionId);
-    if (!tree) return m;
+
+    // Zero-pane recovery: when the session's last pane was closed, the
+    // layout entry is gone. Seed a fresh single-leaf layout with the new
+    // pane as the sole leaf instead of dropping the split on the floor.
+    // The spec explicitly allows zero-pane sessions as a transient state,
+    // so splitting into one must re-populate it.
+    if (!tree) {
+      m.set(sessionId, { kind: "leaf", paneId: newPaneId });
+      inserted = true;
+      return new Map(m);
+    }
 
     // Fix #4: Ensure focused pane belongs to this session's layout.
     // If focus is on a different session, fall back to the first leaf.
