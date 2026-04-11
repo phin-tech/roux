@@ -57,19 +57,23 @@ impl Default for StartupBehavior {
 pub struct SpawnProfile {
     pub id: String,
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // Optional fields are serialized as `null` when unset rather than
+    // omitted. specta's unified-mode type validator rejects
+    // `skip_serializing_if` because it produces asymmetric types, and the
+    // bytes saved by omission aren't worth forking serialize/deserialize.
+    #[serde(default)]
     pub setup_command: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub startup_command: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub startup_behavior: Option<StartupBehavior>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub env: Option<BTreeMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub cwd_override: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub icon: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub provider: Option<Provider>,
     pub source: ProfileSource,
 }
@@ -115,11 +119,14 @@ mod tests {
     }
 
     #[test]
-    fn optional_fields_omitted_when_none() {
+    fn optional_fields_serialize_as_null_when_none() {
+        // specta unified-mode rejects skip_serializing_if, so None fields
+        // travel over the wire as explicit nulls. The frontend TypeScript
+        // interface keeps them optional either way.
         let p = SpawnProfile::builtin("plain", "Plain shell");
         let json = serde_json::to_string(&p).unwrap();
-        assert!(!json.contains("startupCommand"));
-        assert!(!json.contains("provider"));
-        assert!(!json.contains("env"));
+        assert!(json.contains("\"startupCommand\":null"));
+        assert!(json.contains("\"provider\":null"));
+        assert!(json.contains("\"env\":null"));
     }
 }
