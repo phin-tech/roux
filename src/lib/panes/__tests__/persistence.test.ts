@@ -18,13 +18,15 @@ vi.mock("$lib/tauri", () => ({
   loadPaneStateRaw: vi.fn(),
   savePaneStateRaw: vi.fn(),
   deletePaneStateRaw: vi.fn(),
+  getPtyCwd: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("$lib/logging", () => ({
   log: vi.fn(),
 }));
 
-import { loadPaneStateRaw, savePaneStateRaw, deletePaneStateRaw } from "$lib/tauri";
+import { loadPaneStateRaw, savePaneStateRaw, deletePaneStateRaw, getPtyCwd } from "$lib/tauri";
+import { paneInstances, createPane } from "../instances";
 
 describe("persistence — Tauri-backed API", () => {
   beforeEach(() => {
@@ -124,6 +126,122 @@ describe("persistence — Tauri-backed API", () => {
       // Advancing time beyond the window should NOT produce a second call
       await vi.advanceTimersByTimeAsync(2000);
       expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it("resolves live cwd from Tauri for shell panes when saving", async () => {
+      // A shell pane was spawned in /tmp/original, then the user `cd`'d to
+      // /tmp/live. At save time we should record the live cwd so reconnect
+      // restores where the user actually is.
+      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
+      vi.mocked(getPtyCwd).mockImplementation(async (id: string) => {
+        if (id === "pty-shell-1") return "/tmp/live";
+        return null;
+      });
+
+      // Set up a pane instance for the shell. Claude pane is the main leaf.
+      paneInstances.set(new Map());
+      createPane({
+        id: "s1-main",
+        type: "claude",
+        ptyId: "pty-claude-1",
+      });
+      createPane({
+        id: "s1-shell",
+        type: "shell",
+        ptyId: "pty-shell-1",
+        workingDir: "/tmp/original",
+      });
+
+      initPersistence();
+
+      sessionLayouts.update((m) => {
+        const next = new Map(m);
+        next.set("s1", {
+          kind: "split",
+          direction: "h",
+          children: [
+            { kind: "leaf", paneId: "s1-main" },
+            { kind: "leaf", paneId: "s1-shell" },
+          ],
+        });
+        return next;
+      });
+
+      await vi.advanceTimersByTimeAsync(1600);
+      // Flush any pending microtasks from the awaited getPtyCwd call.
+      await vi.runAllTimersAsync();
+
+      expect(getPtyCwd).toHaveBeenCalledWith("pty-shell-1");
+      expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
+      const [, payload] = vi.mocked(savePaneStateRaw).mock.calls[0] as [
+        string,
+        { descriptors: PaneDescriptor[]; layout: LayoutNode },
+      ];
+      const shellDesc = payload.descriptors.find((d) => d.id === "s1-shell");
+      expect(shellDesc?.workingDir).toBe("/tmp/live");
+    });
+
+    it("falls back to the stored workingDir if Tauri returns null", async () => {
+      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
+      vi.mocked(getPtyCwd).mockResolvedValue(null);
+
+      paneInstances.set(new Map());
+      createPane({
+        id: "s1-shell",
+        type: "shell",
+        ptyId: "pty-dead",
+        workingDir: "/tmp/fallback",
+      });
+
+      initPersistence();
+
+      sessionLayouts.update((m) => {
+        const next = new Map(m);
+        next.set("s1", { kind: "leaf", paneId: "s1-shell" });
+        return next;
+      });
+
+      await vi.advanceTimersByTimeAsync(1600);
+      await vi.runAllTimersAsync();
+
+      const [, payload] = vi.mocked(savePaneStateRaw).mock.calls[0] as [
+        string,
+        { descriptors: PaneDescriptor[]; layout: LayoutNode },
+      ];
+      const shellDesc = payload.descriptors.find((d) => d.id === "s1-shell");
+      expect(shellDesc?.workingDir).toBe("/tmp/fallback");
+    });
+
+    it("does not query getPtyCwd for non-shell panes", async () => {
+      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
+      vi.mocked(getPtyCwd).mockResolvedValue("/should/not/be/used");
+
+      paneInstances.set(new Map());
+      createPane({
+        id: "s1-main",
+        type: "claude",
+        ptyId: "pty-claude",
+        workingDir: "/tmp/claude-cwd",
+      });
+
+      initPersistence();
+
+      sessionLayouts.update((m) => {
+        const next = new Map(m);
+        next.set("s1", { kind: "leaf", paneId: "s1-main" });
+        return next;
+      });
+
+      await vi.advanceTimersByTimeAsync(1600);
+      await vi.runAllTimersAsync();
+
+      expect(getPtyCwd).not.toHaveBeenCalled();
+      const [, payload] = vi.mocked(savePaneStateRaw).mock.calls[0] as [
+        string,
+        { descriptors: PaneDescriptor[]; layout: LayoutNode },
+      ];
+      const mainDesc = payload.descriptors.find((d) => d.id === "s1-main");
+      expect(mainDesc?.workingDir).toBe("/tmp/claude-cwd");
     });
 
     it("flushPaneState is a no-op when nothing is dirty", async () => {

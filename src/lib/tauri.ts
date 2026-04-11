@@ -416,6 +416,10 @@ export async function notificationsPush(
   return unwrap(commands.notificationsPush(request));
 }
 
+export async function getPtyCwd(id: string): Promise<string | null> {
+  return invoke("get_pty_cwd", { id });
+}
+
 // ── Pane state persistence ────────────────────────────────────────────────────
 
 export async function loadPaneStateRaw(sessionId: string): Promise<unknown | null> {

@@ -2,7 +2,12 @@ import { get } from "svelte/store";
 import type { LayoutNode } from "./layout";
 import { sessionLayouts, collectLeafIds } from "./layout";
 import { paneInstances, type PaneInstance } from "./instances";
-import { loadPaneStateRaw, savePaneStateRaw, deletePaneStateRaw } from "$lib/tauri";
+import {
+  loadPaneStateRaw,
+  savePaneStateRaw,
+  deletePaneStateRaw,
+  getPtyCwd,
+} from "$lib/tauri";
 import { log } from "$lib/logging";
 
 export interface PaneDescriptor {
@@ -93,26 +98,43 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 // Track which sessions have pending unsaved changes
 let dirtySessions: Set<string> = new Set();
 
-function descriptorsForSession(sessionId: string): PaneDescriptor[] {
+async function descriptorsForSession(sessionId: string): Promise<PaneDescriptor[]> {
   const instances = get(paneInstances);
   const layouts = get(sessionLayouts);
   const tree = layouts.get(sessionId);
   if (!tree) return [];
 
   const paneIds = collectLeafIds(tree);
-
-  return paneIds
+  const panes = paneIds
     .map((id) => instances.get(id))
-    .filter((inst): inst is PaneInstance => inst != null)
-    .map((inst) => ({
-      id: inst.id,
-      type: inst.type,
-      ptyId: inst.ptyId,
-      name: inst.name,
-      workingDir: inst.workingDir,
-      command: inst.command,
-      docPath: inst.docPath,
-    }));
+    .filter((inst): inst is PaneInstance => inst != null);
+
+  return Promise.all(
+    panes.map(async (inst) => {
+      // For shell panes, ask the OS what directory the process is in right
+      // now. This captures `cd`s the user made since the shell was spawned.
+      // Falls back to the stored workingDir (the original spawn directory)
+      // if the process has exited or the OS refuses the query.
+      let workingDir = inst.workingDir;
+      if (inst.type === "shell") {
+        try {
+          const live = await getPtyCwd(inst.ptyId);
+          if (live) workingDir = live;
+        } catch (e) {
+          log(`getPtyCwd(${inst.ptyId}) failed — ${e}`);
+        }
+      }
+      return {
+        id: inst.id,
+        type: inst.type,
+        ptyId: inst.ptyId,
+        name: inst.name,
+        workingDir,
+        command: inst.command,
+        docPath: inst.docPath,
+      };
+    }),
+  );
 }
 
 export function scheduleSave(layouts: Map<string, LayoutNode>): void {
@@ -136,8 +158,8 @@ async function writeAllDirty(): Promise<void> {
   for (const sessionId of toWrite) {
     const tree = layouts.get(sessionId);
     if (!tree) continue;
-    const descriptors = descriptorsForSession(sessionId);
     try {
+      const descriptors = await descriptorsForSession(sessionId);
       await savePaneState(sessionId, { layout: tree, descriptors });
     } catch (e) {
       log(`auto-save failed for session ${sessionId}: ${e}`);

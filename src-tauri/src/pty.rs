@@ -284,6 +284,89 @@ pub enum PtyError {
     },
 }
 
+/// Look up the current working directory of an OS process by PID.
+///
+/// Used to report live cwd for shell panes at save time so reconnecting a
+/// session restores the user's actual directory (after `cd`s), not just the
+/// directory the shell was originally spawned in. The kernel tracks cwd on
+/// the shell process itself, so this pulls directly from OS-level process
+/// info — no shell integration or OSC 7 cooperation required.
+///
+/// Returns `None` if the PID doesn't exist, the caller lacks permission, or
+/// the OS refuses.
+#[cfg(target_os = "macos")]
+pub fn cwd_for_pid(pid: u32) -> Option<String> {
+    // proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &mut info, sizeof(info))
+    // fills a proc_vnodepathinfo struct; its pvi_cdir.vip_path is the cwd as
+    // a NUL-terminated C string of length MAXPATHLEN (1024 on Darwin).
+    //
+    // We only need the cwd byte range, not the full struct layout, so we
+    // define a minimally-sufficient stand-in whose size matches the real
+    // struct. proc_vnodepathinfo is two vnode_info_path structs back-to-back;
+    // the first is pvi_cdir (what we want). Each vnode_info_path is
+    // sizeof(vnode_info) + MAXPATHLEN; vnode_info is 152 bytes on Darwin.
+    const MAXPATHLEN: usize = 1024;
+    const VNODE_INFO_SIZE: usize = 152;
+    const VNODE_INFO_PATH_SIZE: usize = VNODE_INFO_SIZE + MAXPATHLEN;
+    const PROC_PIDVNODEPATHINFO: libc::c_int = 9;
+
+    #[repr(C)]
+    struct ProcVnodePathInfo {
+        pvi_cdir: [u8; VNODE_INFO_PATH_SIZE],
+        pvi_rdir: [u8; VNODE_INFO_PATH_SIZE],
+    }
+
+    extern "C" {
+        fn proc_pidinfo(
+            pid: libc::c_int,
+            flavor: libc::c_int,
+            arg: u64,
+            buffer: *mut libc::c_void,
+            buffersize: libc::c_int,
+        ) -> libc::c_int;
+    }
+
+    let mut info = ProcVnodePathInfo {
+        pvi_cdir: [0u8; VNODE_INFO_PATH_SIZE],
+        pvi_rdir: [0u8; VNODE_INFO_PATH_SIZE],
+    };
+    let size = std::mem::size_of::<ProcVnodePathInfo>() as libc::c_int;
+
+    let ret = unsafe {
+        proc_pidinfo(
+            pid as libc::c_int,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            size,
+        )
+    };
+    if ret <= 0 {
+        return None;
+    }
+
+    // vip_path starts at offset VNODE_INFO_SIZE within vnode_info_path and is
+    // a C string (MAXPATHLEN bytes, NUL-terminated).
+    let path_bytes = &info.pvi_cdir[VNODE_INFO_SIZE..];
+    let nul = path_bytes.iter().position(|&b| b == 0).unwrap_or(path_bytes.len());
+    if nul == 0 {
+        return None;
+    }
+    std::str::from_utf8(&path_bytes[..nul]).ok().map(|s| s.to_string())
+}
+
+#[cfg(target_os = "linux")]
+pub fn cwd_for_pid(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{}/cwd", pid))
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn cwd_for_pid(_pid: u32) -> Option<String> {
+    None
+}
+
 pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
@@ -597,6 +680,15 @@ impl PtyManager {
         self.sessions.lock().unwrap().get(session_id).map(|s| s.generation)
     }
 
+    /// Resolve the current working directory of the shell (or claude) process
+    /// attached to `pty_id`, by walking `portable_pty::Child::process_id` →
+    /// OS-level cwd lookup. Returns `None` if the session doesn't exist, the
+    /// child has exited, or the OS refuses.
+    pub fn get_cwd(&self, pty_id: &str) -> Option<String> {
+        let pid = self.sessions.lock().unwrap().get(pty_id).and_then(|s| s.child.process_id())?;
+        cwd_for_pid(pid)
+    }
+
     /// Kill all active PTY sessions. Called during app shutdown.
     pub fn shutdown_all(&self) {
         let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
@@ -849,5 +941,23 @@ mod tests {
 
         let io_error = PtyError::WriteFailed { source: io::Error::other("broken pipe") };
         assert_eq!(io_error.to_string(), "Write failed: broken pipe");
+    }
+
+    #[test]
+    fn cwd_for_pid_returns_current_process_cwd() {
+        let pid = std::process::id();
+        let cwd = cwd_for_pid(pid).expect("cwd_for_pid should resolve for self");
+        let expected = std::env::current_dir().expect("current_dir");
+        assert_eq!(
+            std::fs::canonicalize(&cwd).unwrap(),
+            std::fs::canonicalize(&expected).unwrap(),
+            "cwd_for_pid(self) should match std::env::current_dir()"
+        );
+    }
+
+    #[test]
+    fn cwd_for_pid_returns_none_for_nonexistent_pid() {
+        // PID 0 is never a real process on macOS or Linux.
+        assert!(cwd_for_pid(0).is_none());
     }
 }

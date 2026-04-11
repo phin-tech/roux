@@ -39,6 +39,16 @@ pub(crate) fn get_pty_generation(id: String, state: tauri::State<AppState>) -> O
     state.pty_manager.get_generation(&id)
 }
 
+/// Live cwd of a PTY-backed process, resolved from the OS (no shell hooks).
+/// Used at pane-state save time so that reconnecting a session restores the
+/// directory the shell is actually in (after `cd`s), not just the directory
+/// it was spawned in.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn get_pty_cwd(id: String, state: tauri::State<AppState>) -> Option<String> {
+    state.pty_manager.get_cwd(&id)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn kill_session(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
