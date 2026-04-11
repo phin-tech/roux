@@ -23,14 +23,35 @@ pub(crate) fn attach_pty_output(id: String, on_event: tauri::ipc::Channel<tauri:
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn spawn_shell(id: String, working_dir: String, state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    state.pty_manager.spawn_shell(&id, &working_dir, None, app.clone()).map_err(|e| e.to_string())
+pub(crate) fn spawn_shell(
+    id: String,
+    working_dir: String,
+    session_id: Option<String>,
+    pane_id: Option<String>,
+    state: tauri::State<AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    state
+        .pty_manager
+        .spawn_shell(&id, &working_dir, session_id.as_deref(), pane_id.as_deref(), app.clone())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn spawn_task(id: String, command: String, working_dir: String, state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    state.pty_manager.spawn_task(&id, &command, &working_dir, None, app.clone()).map_err(|e| e.to_string())
+pub(crate) fn spawn_task(
+    id: String,
+    command: String,
+    working_dir: String,
+    session_id: Option<String>,
+    pane_id: Option<String>,
+    state: tauri::State<AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    state
+        .pty_manager
+        .spawn_task(&id, &command, &working_dir, session_id.as_deref(), pane_id.as_deref(), app.clone())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

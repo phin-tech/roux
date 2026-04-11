@@ -13,8 +13,8 @@ export const commands = {
 	cmdListWorktrees: (repoPath: string) => typedError<Worktree[], string>(__TAURI_INVOKE("cmd_list_worktrees", { repoPath })),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
-	spawnShell: (id: string, workingDir: string) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir })),
-	spawnTask: (id: string, command: string, workingDir: string) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir })),
+	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId })),
+	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId })),
 	killSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_session", { id })),
 	getPtyGeneration: (id: string) => __TAURI_INVOKE<number | null>("get_pty_generation", { id }),
 	/**

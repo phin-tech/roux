@@ -318,11 +318,12 @@
           const sessionId = cmd.sessionId;
           if (!sessionId) break;
           const ptyId = crypto.randomUUID();
+          const paneId = crypto.randomUUID();
           const session = $sessionState.sessions.find((s) => s.id === sessionId);
           if (!session) break;
-          spawnShell(ptyId, session.worktreePath).then(async () => {
+          spawnShell(ptyId, session.worktreePath, session.id, paneId).then(async () => {
             const direction = cmd.direction === "vertical" ? "v" : "h";
-            const newPaneId = splitPane(sessionId, direction, { type: "shell", ptyId });
+            const newPaneId = splitPane(sessionId, direction, { id: paneId, type: "shell", ptyId });
             if (newPaneId) {
               const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
               initTerminal(newPaneId);

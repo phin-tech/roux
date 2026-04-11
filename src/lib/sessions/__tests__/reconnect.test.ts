@@ -216,8 +216,8 @@ describe("reconnectSession — full rehydration", () => {
     await reconnectSession(session);
 
     expect(spawnShell).toHaveBeenCalledTimes(2);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a");
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b");
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a");
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b");
 
     const instances = get(paneInstances);
     expect(instances.has("shell-a")).toBe(true);
@@ -388,9 +388,9 @@ describe("retryShellPane", () => {
     const { updateInstance } = await import("$lib/panes/instances");
     updateInstance(paneId, { restoreError: "old error" });
 
-    await retryShellPane(paneId);
+    await retryShellPane(paneId, "sess-1");
 
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo");
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId);
     const inst = get(paneInstances).get(paneId);
     expect(inst?.restoreError).toBeUndefined();
   });
@@ -401,7 +401,7 @@ describe("retryShellPane", () => {
     updateInstance(paneId, { restoreError: "old error" });
 
     vi.mocked(spawnShell).mockRejectedValue(new Error("still gone"));
-    await retryShellPane(paneId);
+    await retryShellPane(paneId, "sess-1");
 
     const inst = get(paneInstances).get(paneId);
     expect(inst?.restoreError).toContain("still gone");
@@ -410,7 +410,7 @@ describe("retryShellPane", () => {
   it("is a no-op for panes without restoreError", async () => {
     const paneId = createPane({ type: "shell", ptyId: "live-pty", workingDir: "/repo" });
 
-    await retryShellPane(paneId);
+    await retryShellPane(paneId, "sess-1");
 
     expect(spawnShell).not.toHaveBeenCalled();
   });

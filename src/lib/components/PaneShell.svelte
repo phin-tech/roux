@@ -179,7 +179,7 @@
     });
 
     // Spawn new command
-    await spawnTask(newPtyId, command, workingDir);
+    await spawnTask(newPtyId, command, workingDir, sessionId, paneId);
     // Attach output
     const inst = $paneInstances.get(paneId);
     if (inst && !inst.outputChannel) {
@@ -325,7 +325,7 @@
         <DeadPaneView
           error={instance.restoreError}
           workingDir={instance.workingDir}
-          onRetry={() => void retryShellPane(paneId)}
+          onRetry={() => void retryShellPane(paneId, sessionId)}
           onClose={() => void closePane(sessionId, paneId)}
         />
       {:else if instance.type === "claude" && isDisconnected && session}

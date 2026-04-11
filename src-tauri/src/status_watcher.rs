@@ -22,6 +22,16 @@ struct StatusUpdate {
     status: String,
     cwd: String,
     claude_session_id: String,
+    /// Provider that emitted the hook (`"claude"`, `"codex"`, …). Present when
+    /// the hook bridge recognized the source; empty string for legacy payloads.
+    provider: String,
+    /// Roux session id captured from `ROUX_SESSION_ID` at hook time.
+    /// Absent for agents launched outside a Roux-managed PTY.
+    roux_session_id: Option<String>,
+    /// Roux pane id captured from `ROUX_PANE_ID` at hook time. Tier-1 routing
+    /// uses this to update the exact pane's runtime agent state without cwd
+    /// heuristics. Absent for legacy / external installs (tier 2 fallback).
+    roux_pane_id: Option<String>,
     tool_name: Option<String>,
     tool_input: Option<serde_json::Value>,
     message: Option<String>,
@@ -64,6 +74,66 @@ fn map_status(raw: &str) -> &str {
         "disconnected" => "disconnected",
         _ => raw,
     }
+}
+
+/// Pure parse of a hook payload JSON blob into a StatusUpdate. Returns `None`
+/// for payloads with no `status` field — the watcher then drops the event.
+/// Extracted so tier-1 routing fields (`roux_session_id`, `roux_pane_id`,
+/// `provider`) can be unit-tested without the file watcher / Tauri emitter.
+fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
+    let raw_status = parsed.get("status").and_then(|s| s.as_str())?.to_string();
+
+    let cwd = parsed.get("cwd").and_then(|s| s.as_str()).unwrap_or("").to_string();
+
+    let claude_sid = parsed
+        .get("claude_session_id")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let provider = parsed
+        .get("provider")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let roux_session_id = parsed
+        .get("roux_session_id")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let roux_pane_id = parsed
+        .get("roux_pane_id")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let tool_name = parsed
+        .get("tool_name")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let tool_input = parsed.get("tool_input").cloned().filter(|v| !v.is_null());
+
+    let message = parsed
+        .get("message")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    Some(StatusUpdate {
+        status: map_status(&raw_status).to_string(),
+        cwd,
+        claude_session_id: claude_sid,
+        provider,
+        roux_session_id,
+        roux_pane_id,
+        tool_name,
+        tool_input,
+        message,
+    })
 }
 
 pub fn start_watching(app: tauri::AppHandle) -> Result<(), StatusWatcherError> {
@@ -128,43 +198,16 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), StatusWatcherError> {
                     Err(_) => continue,
                 };
 
-                let raw_status = match parsed.get("status").and_then(|s| s.as_str()) {
-                    Some(s) => s.to_string(),
+                let update = match parse_status_payload(&parsed) {
+                    Some(u) => u,
                     None => continue,
                 };
 
-                let cwd = parsed.get("cwd").and_then(|s| s.as_str()).unwrap_or("").to_string();
-
-                let claude_sid = parsed
-                    .get("claude_session_id")
-                    .and_then(|s| s.as_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                let tool_name = parsed
-                    .get("tool_name")
-                    .and_then(|s| s.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string());
-
-                let tool_input = parsed.get("tool_input").cloned().filter(|v| !v.is_null());
-
-                let message = parsed
-                    .get("message")
-                    .and_then(|s| s.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string());
-
-                let mapped = map_status(&raw_status);
-
-                let update = StatusUpdate {
-                    status: mapped.to_string(),
-                    cwd: cwd.clone(),
-                    claude_session_id: claude_sid,
-                    tool_name: tool_name.clone(),
-                    tool_input: tool_input.clone(),
-                    message: message.clone(),
-                };
+                let cwd = update.cwd.clone();
+                let mapped = update.status.clone();
+                let tool_name = update.tool_name.clone();
+                let tool_input = update.tool_input.clone();
+                let message = update.message.clone();
 
                 let _ = app.emit("roux-status-update", &update);
 
@@ -268,6 +311,7 @@ async fn push_attention_notification(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::io;
 
     #[test]
@@ -282,5 +326,70 @@ mod tests {
             StatusWatcherError::CreateStatusDir { source: io::Error::other("permission denied") };
 
         assert_eq!(error.to_string(), "Failed to create status dir: permission denied");
+    }
+
+    #[test]
+    fn parse_payload_extracts_tier1_fields() {
+        let payload = json!({
+            "status": "working",
+            "cwd": "/repo",
+            "claude_session_id": "claude-abc",
+            "provider": "claude",
+            "roux_session_id": "sess-1",
+            "roux_pane_id": "pane-1",
+        });
+
+        let update = parse_status_payload(&payload).expect("parse ok");
+        assert_eq!(update.status, "generating");
+        assert_eq!(update.cwd, "/repo");
+        assert_eq!(update.claude_session_id, "claude-abc");
+        assert_eq!(update.provider, "claude");
+        assert_eq!(update.roux_session_id.as_deref(), Some("sess-1"));
+        assert_eq!(update.roux_pane_id.as_deref(), Some("pane-1"));
+    }
+
+    #[test]
+    fn parse_payload_legacy_missing_tier1_fields_returns_none_for_routing() {
+        // Legacy hook install: no roux_* fields. Still produces a valid
+        // StatusUpdate so notification fan-out keeps working, but tier-1
+        // pane routing is disabled because roux_pane_id is None.
+        let payload = json!({
+            "status": "idle",
+            "cwd": "/repo",
+            "claude_session_id": "claude-legacy",
+        });
+
+        let update = parse_status_payload(&payload).expect("parse ok");
+        assert_eq!(update.status, "idle");
+        assert_eq!(update.provider, "");
+        assert_eq!(update.roux_session_id, None);
+        assert_eq!(update.roux_pane_id, None);
+    }
+
+    #[test]
+    fn parse_payload_empty_tier1_strings_treated_as_none() {
+        // The hook writes empty strings when env vars are unset on some
+        // shells; we want those treated as "not present" so routing code
+        // doesn't try to match on "".
+        let payload = json!({
+            "status": "idle",
+            "cwd": "/repo",
+            "claude_session_id": "claude-x",
+            "roux_session_id": "",
+            "roux_pane_id": "",
+        });
+
+        let update = parse_status_payload(&payload).expect("parse ok");
+        assert_eq!(update.roux_session_id, None);
+        assert_eq!(update.roux_pane_id, None);
+    }
+
+    #[test]
+    fn parse_payload_drops_payload_without_status() {
+        let payload = json!({
+            "cwd": "/repo",
+            "claude_session_id": "x",
+        });
+        assert!(parse_status_payload(&payload).is_none());
     }
 }

@@ -47,11 +47,12 @@ export async function runTask(
 
   const keepOpen = getEffectiveKeepOpen(repoRoot, task.id, task.keepOpen);
   const spawnInPane = keepOpen === "always";
+  const paneId = spawnInPane ? crypto.randomUUID() : null;
 
   addTaskRun(sessionId, {
     taskId: task.id,
     ptyId,
-    paneId: spawnInPane ? ptyId : null,
+    paneId,
     status: "running",
     exitCode: null,
     outputLines: [],
@@ -60,12 +61,13 @@ export async function runTask(
 
   // Spawn one-shot command — output buffers in Rust backlog until channel attaches
   log(`runTask: spawning ptyId=${ptyId} cmd="${task.command}" keepOpen=${keepOpen} spawnInPane=${spawnInPane}`);
-  await spawnTask(ptyId, task.command, repoRoot);
+  await spawnTask(ptyId, task.command, repoRoot, sessionId, paneId);
 
   // If keepOpen is "always", show in a command pane with full terminal
-  if (spawnInPane) {
+  if (spawnInPane && paneId) {
     focusPrimaryPane(sessionId);
     const newPaneId = splitPane(sessionId, "h", {
+      id: paneId,
       type: "command",
       ptyId,
       command: task.command,

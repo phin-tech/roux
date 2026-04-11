@@ -77,12 +77,23 @@ export async function attachPtyOutput(
   return invoke("attach_pty_output", { id, onEvent });
 }
 
-export async function spawnShell(id: string, workingDir: string): Promise<void> {
-  return invoke("spawn_shell", { id, workingDir });
+export async function spawnShell(
+  id: string,
+  workingDir: string,
+  sessionId: string | null,
+  paneId: string | null,
+): Promise<void> {
+  return invoke("spawn_shell", { id, workingDir, sessionId, paneId });
 }
 
-export async function spawnTask(id: string, command: string, workingDir: string): Promise<void> {
-  return invoke("spawn_task", { id, command, workingDir });
+export async function spawnTask(
+  id: string,
+  command: string,
+  workingDir: string,
+  sessionId: string | null,
+  paneId: string | null,
+): Promise<void> {
+  return invoke("spawn_task", { id, command, workingDir, sessionId, paneId });
 }
 
 export async function listSessions(): Promise<Session[]> {
@@ -281,6 +292,12 @@ export interface StatusUpdate {
   status: string;
   cwd: string;
   claudeSessionId: string;
+  /** Provider that emitted the hook (e.g. `"claude"`). Empty string for legacy payloads. */
+  provider: string;
+  /** Roux session id captured from `ROUX_SESSION_ID` at hook time. */
+  rouxSessionId: string | null;
+  /** Roux pane id captured from `ROUX_PANE_ID` at hook time. Tier-1 routing key. */
+  rouxPaneId: string | null;
   toolName: string | null;
   toolInput: Record<string, any> | null;
   message: string | null;

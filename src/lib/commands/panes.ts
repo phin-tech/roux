@@ -18,16 +18,17 @@ export function registerPaneCommands() {
       const session = queries.activeSession();
       if (!session) return;
       const ptyId = crypto.randomUUID();
-      log(`Split horizontal: pty=${ptyId} cwd=${session.worktreePath}`);
+      const paneId = crypto.randomUUID();
+      log(`Split horizontal: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
       try {
-        await spawnShell(ptyId, session.worktreePath);
+        await spawnShell(ptyId, session.worktreePath, session.id, paneId);
       } catch (e) {
         logError("Failed to spawn shell for horizontal split", e);
         return;
       }
       const activeId = queries.activeSessionId();
       if (!activeId) return;
-      const newPaneId = splitPane(activeId, "h", { type: "shell", ptyId });
+      const newPaneId = splitPane(activeId, "h", { id: paneId, type: "shell", ptyId });
       if (newPaneId) {
         const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
         initTerminal(newPaneId);
@@ -49,16 +50,17 @@ export function registerPaneCommands() {
       const session = queries.activeSession();
       if (!session) return;
       const ptyId = crypto.randomUUID();
-      log(`Split vertical: pty=${ptyId} cwd=${session.worktreePath}`);
+      const paneId = crypto.randomUUID();
+      log(`Split vertical: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
       try {
-        await spawnShell(ptyId, session.worktreePath);
+        await spawnShell(ptyId, session.worktreePath, session.id, paneId);
       } catch (e) {
         logError("Failed to spawn shell for vertical split", e);
         return;
       }
       const activeId = queries.activeSessionId();
       if (!activeId) return;
-      const newPaneId = splitPane(activeId, "v", { type: "shell", ptyId });
+      const newPaneId = splitPane(activeId, "v", { id: paneId, type: "shell", ptyId });
       if (newPaneId) {
         const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
         initTerminal(newPaneId);
@@ -306,8 +308,9 @@ export function registerPaneCommands() {
       if (!session || !activeId) return;
       const paneId = `cmd-${crypto.randomUUID()}`;
       const ptyId = `${paneId}-${Date.now()}`;
-      await spawnTask(ptyId, command, session.worktreePath);
+      await spawnTask(ptyId, command, session.worktreePath, session.id, paneId);
       const newPaneId = splitPane(activeId, "h", {
+        id: paneId,
         type: "command",
         ptyId,
         command,

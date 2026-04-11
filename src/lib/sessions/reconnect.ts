@@ -85,6 +85,7 @@ function validatePanePayload(sessionId: string, payload: PaneStatePayload): bool
 async function rehydratePane(
   paneId: string,
   descriptor: PaneDescriptor,
+  sessionId: string,
   sessionWorktreePath: string,
 ): Promise<void> {
   if (descriptor.type === "claude") return; // main pane already exists
@@ -103,7 +104,12 @@ async function rehydratePane(
   if (descriptor.type === "shell") {
     const ptyId = crypto.randomUUID();
     try {
-      await spawnShell(ptyId, descriptor.workingDir ?? sessionWorktreePath);
+      await spawnShell(
+        ptyId,
+        descriptor.workingDir ?? sessionWorktreePath,
+        sessionId,
+        paneId,
+      );
       createPane({
         id: paneId,
         type: "shell",
@@ -215,7 +221,7 @@ export async function reconnectSession(
     for (const paneId of nonMainIds) {
       const descriptor = descById.get(paneId);
       if (!descriptor) continue;
-      await rehydratePane(paneId, descriptor, session.worktreePath);
+      await rehydratePane(paneId, descriptor, session.id, session.worktreePath);
     }
 
     // Apply the layout tree AFTER all PaneInstances are in the store.
@@ -248,13 +254,13 @@ export async function reconnectSession(
   }
 }
 
-export async function retryShellPane(paneId: string): Promise<void> {
+export async function retryShellPane(paneId: string, sessionId: string): Promise<void> {
   const instance = getInstance(paneId);
   if (!instance || instance.type !== "shell" || !instance.restoreError) return;
 
   const ptyId = crypto.randomUUID();
   try {
-    await spawnShell(ptyId, instance.workingDir ?? "");
+    await spawnShell(ptyId, instance.workingDir ?? "", sessionId, paneId);
     updateInstance(paneId, { ptyId, restoreError: undefined });
     const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
     initTerminal(paneId);
