@@ -17,7 +17,16 @@ export function initSession(sessionId: string): string {
   const mainPaneId = `${sessionId}-main`;
   // Only create if not already exists
   if (!getInstance(mainPaneId)) {
-    createPane({ id: mainPaneId, type: "claude", ptyId: sessionId });
+    createPane({
+      id: mainPaneId,
+      type: "shell",
+      ptyId: sessionId,
+      // Until phase 5 rewires session creation through the profile picker,
+      // every session's initial pane is the Claude built-in profile. The
+      // ref resolves lazily via the profile registry, so it's safe even
+      // when `loadBuiltinProfiles` hasn't returned yet.
+      spawnProfileRef: { kind: "registered", id: "claude" },
+    });
   }
   initSessionLayout(sessionId, mainPaneId);
   setLogicalFocus(mainPaneId);

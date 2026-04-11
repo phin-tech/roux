@@ -1,4 +1,5 @@
 import { writable, get } from "svelte/store";
+import type { SpawnProfileRef } from "./profiles";
 
 // Use `any` for xterm types to keep this module importable in test environments
 // without pulling in the full xterm bundle.
@@ -9,7 +10,7 @@ type FitAddon = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type OutputChannel = any;
 
-export type PaneType = "claude" | "shell" | "markdown" | "command";
+export type PaneType = "shell" | "markdown" | "command";
 
 export type CommandStatus = "idle" | "running" | "success" | "error";
 
@@ -32,6 +33,15 @@ export interface PaneInstance {
   command?: string;
   docPath?: string;
 
+  /**
+   * Optional pointer to the spawn profile this pane was launched from.
+   * `registered` refs are re-resolved from the profile registry at render /
+   * re-run time; `inline` refs carry the entire profile so ad-hoc "Custom…"
+   * panes survive restore without depending on settings state. Absent for
+   * plain shell panes launched without a profile.
+   */
+  spawnProfileRef?: SpawnProfileRef;
+
   // Set when a shell pane failed to spawn during session restore.
   // Causes PaneShell to render the DeadPaneView instead of xterm.
   // Not persisted — only lives in runtime state.
@@ -52,6 +62,7 @@ export interface CreatePaneOpts {
   workingDir?: string;
   command?: string;
   docPath?: string;
+  spawnProfileRef?: SpawnProfileRef;
 }
 
 // ── Store ──────────────────────────────────────────────────
@@ -86,6 +97,7 @@ export function createPane(opts: CreatePaneOpts): string {
     workingDir: opts.workingDir,
     command: opts.command,
     docPath: opts.docPath,
+    spawnProfileRef: opts.spawnProfileRef,
     commandStatus: "idle",
     commandExitCode: null,
     commandStartedAt: null,
@@ -109,8 +121,11 @@ export function disposePane(id: string, killPty?: (ptyId: string) => Promise<voi
   const inst = map.get(id);
   if (!inst) return;
 
-  // Kill PTY for shell/command panes (claude PTYs are session-level, killed separately)
-  if (killPty && (inst.type === "shell" || inst.type === "command")) {
+  // Kill the underlying PTY for any pane that hosts one. Markdown panes
+  // carry an empty ptyId so the killer is skipped implicitly.
+  // Note: agents now live inside the shell PTY, so killing the pane kills
+  // the agent — there is no separate session-level PTY to preserve.
+  if (killPty && inst.ptyId && (inst.type === "shell" || inst.type === "command")) {
     killPty(inst.ptyId).catch(() => { /* best-effort */ });
   }
 

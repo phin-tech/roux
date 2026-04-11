@@ -19,7 +19,7 @@ describe("pane actions", () => {
   });
 
   describe("initSession", () => {
-    it("creates a claude pane instance and layout", () => {
+    it("creates a shell pane instance tagged with the claude built-in profile and layout", () => {
       const mainId = initSession("s1");
       expect(mainId).toBe("s1-main");
 
@@ -28,8 +28,9 @@ describe("pane actions", () => {
 
       const inst = getInstance("s1-main");
       expect(inst).toBeDefined();
-      expect(inst!.type).toBe("claude");
+      expect(inst!.type).toBe("shell");
       expect(inst!.ptyId).toBe("s1");
+      expect(inst!.spawnProfileRef).toEqual({ kind: "registered", id: "claude" });
     });
 
     it("focuses the main pane", () => {

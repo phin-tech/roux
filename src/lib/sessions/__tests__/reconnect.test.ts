@@ -59,9 +59,13 @@ function makePayloadWithShells(sessionId: string, shells: Array<{ id: string; wo
     ...shells.map((s) => ({ kind: "leaf" as const, paneId: s.id })),
   ];
   return {
+    schemaVersion: 3,
     layout: { kind: "split", direction: "h" as const, children },
     descriptors: [
-      { id: mainId, type: "claude" as const, ptyId: sessionId },
+      // The session-primary pane is a shell whose ptyId matches the
+      // session id — that is how the session-owned PTY is keyed on the
+      // Rust side. reconnectPrimaryPaneOnly finds it by that match.
+      { id: mainId, type: "shell" as const, ptyId: sessionId },
       ...shells.map((s) => ({ id: s.id, type: "shell" as const, ptyId: "old-pty", workingDir: s.workingDir })),
     ],
   };
@@ -185,14 +189,15 @@ describe("reconnectSession — full rehydration", () => {
     vi.mocked(attachPtyListeners).mockReset().mockResolvedValue(undefined);
   });
 
-  it("fast-path when persisted state is main-only leaf", async () => {
+  it("fast-path when persisted state is primary-only leaf", async () => {
     const session = makeSession();
     addSession(session);
     initSession(session.id);
 
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 3,
       layout: { kind: "leaf", paneId: `${session.id}-main` },
-      descriptors: [{ id: `${session.id}-main`, type: "claude", ptyId: session.id }],
+      descriptors: [{ id: `${session.id}-main`, type: "shell", ptyId: session.id }],
     } satisfies PaneStatePayload);
 
     await reconnectSession(session);
@@ -314,6 +319,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 3,
       layout: {
         kind: "split",
         direction: "h",
@@ -323,7 +329,7 @@ describe("reconnectSession — full rehydration", () => {
         ],
       },
       descriptors: [
-        { id: mainId, type: "claude", ptyId: session.id },
+        { id: mainId, type: "shell", ptyId: session.id },
         { id: "cmd-pane", type: "command", ptyId: "pty-cmd", command: "npm test" },
       ],
     } satisfies PaneStatePayload);
@@ -336,7 +342,7 @@ describe("reconnectSession — full rehydration", () => {
     expect(spawnShell).not.toHaveBeenCalled();
   });
 
-  it("falls back to main-pane-only when persisted payload fails integrity check", async () => {
+  it("falls back to primary-pane-only when persisted payload fails integrity check", async () => {
     const session = makeSession();
     addSession(session);
     initSession(session.id);
@@ -344,6 +350,7 @@ describe("reconnectSession — full rehydration", () => {
     const mainId = `${session.id}-main`;
     // Corrupt: leaf in tree with no matching descriptor
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 3,
       layout: {
         kind: "split",
         direction: "h",
@@ -353,7 +360,7 @@ describe("reconnectSession — full rehydration", () => {
         ],
       },
       descriptors: [
-        { id: mainId, type: "claude", ptyId: session.id },
+        { id: mainId, type: "shell", ptyId: session.id },
         // "orphan-pane" is missing from descriptors
       ],
     } satisfies PaneStatePayload);

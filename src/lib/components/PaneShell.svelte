@@ -40,7 +40,12 @@
   const paneSlotLabel = $derived(
     paneSlot == null ? null : paneSlot === 10 ? "0" : String(paneSlot),
   );
-  const isDisconnected = $derived(instance?.type === "claude" && session?.status === "disconnected");
+  // A pane is "disconnected" (showing the resume picker) when it hosts the
+  // session-owned PTY (ptyId === sessionId) and the session itself is in a
+  // disconnected state. Phase 5 replaces session.status with the derived
+  // aggregate from pane-level agentState.
+  const isSessionPrimary = $derived(!!instance && instance.ptyId === sessionId);
+  const isDisconnected = $derived(isSessionPrimary && session?.status === "disconnected");
 
   // Command pane status helpers
   const commandStatus = $derived(instance?.commandStatus ?? "idle");
@@ -66,7 +71,6 @@
 
   function paneTypeLabel(type: string): string {
     switch (type) {
-      case "claude": return "claude";
       case "shell": return "shell";
       case "markdown": return "doc";
       case "command": return "cmd";
@@ -328,7 +332,7 @@
           onRetry={() => void retryShellPane(paneId, sessionId)}
           onClose={() => void closePane(sessionId, paneId)}
         />
-      {:else if instance.type === "claude" && isDisconnected && session}
+      {:else if isDisconnected && session}
         <div class="ui-terminal-frame h-full w-full overflow-hidden">
           <SessionPicker
             cwd={session.worktreePath}
@@ -374,7 +378,7 @@
           ></div>
         </div>
       {:else}
-        <!-- claude or shell: just a terminal container -->
+        <!-- shell: just a terminal container -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div

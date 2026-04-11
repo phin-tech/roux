@@ -23,7 +23,7 @@ describe("pane instances", () => {
   });
 
   it("createPane accepts an explicit id", () => {
-    const id = createPane({ id: "my-pane", type: "claude", ptyId: "s1" });
+    const id = createPane({ id: "my-pane", type: "shell", ptyId: "s1" });
     expect(id).toBe("my-pane");
     expect(get(paneInstances).has("my-pane")).toBe(true);
   });
