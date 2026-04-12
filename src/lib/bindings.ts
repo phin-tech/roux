@@ -21,7 +21,7 @@ export const commands = {
 	 *  the session record untouched. Used by `disposePane` on the frontend so
 	 *  closing a pane never accidentally destroys its session — even when the
 	 *  pane's `ptyId === sessionId` (the session-owned PTY spawned by
-	 *  `create_session` / `create_session_shell`).
+	 *  `create_session_shell`).
 	 * 
 	 *  Prior to this command, `disposePane` called `kill_session`, which tore
 	 *  down `session_handle` and `pane_state` as a side effect. That was fine
@@ -39,19 +39,16 @@ export const commands = {
 	 */
 	getPtyCwd: (id: string) => __TAURI_INVOKE<string | null>("get_pty_cwd", { id }),
 	/**
-	 *  Parallel to `create_session`, but spawns a plain shell in the session's
-	 *  primary PTY instead of the claude binary. The frontend attaches the
-	 *  selected spawn profile and types setup / startup commands after the
-	 *  shell is ready. Used for every non-claude profile in the new-session
-	 *  picker (Codex, Plain shell, user profiles, inline Custom…).
+	 *  Create a session with a plain shell in its primary PTY, optionally
+	 *  nono-wrapped. The frontend attaches a spawn profile and types setup /
+	 *  startup commands after the shell is ready. This is the only session
+	 *  creation path.
 	 */
 	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, nonoProfile, nonoAllowDirs })),
 	/**
-	 *  Parallel to `reconnect_session`, but respawns a plain shell in the
-	 *  session's primary PTY instead of the claude binary. The frontend
-	 *  replays the pane's spawn profile commands into the fresh shell after
-	 *  this call returns, so agents come back up the same way they were
-	 *  originally launched via `create_session_shell`.
+	 *  Reconnect a session by respawning its primary shell PTY, optionally
+	 *  nono-wrapped. The frontend replays the pane's spawn profile commands
+	 *  into the fresh shell after this call returns.
 	 */
 	reconnectSessionShell: (id: string, nonoProfile: string | null, nonoAllowDirs: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, nonoProfile, nonoAllowDirs })),
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),

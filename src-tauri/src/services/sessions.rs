@@ -37,18 +37,14 @@ pub(crate) enum SessionTarget<'a> {
     NewWorktree { branch: &'a str },
 }
 
-/// Create a session that hosts a **plain shell** in its primary PTY,
-/// instead of the claude binary. The frontend attaches a spawn profile and
-/// writes setup / startup commands into the shell after it comes up. Used
-/// for every non-Claude profile in the new-session picker.
+/// Create a session with a plain shell in its primary PTY. The shell is
+/// optionally wrapped in `nono run` via [`NonoConfig`]. The frontend
+/// attaches a spawn profile and writes setup / startup commands into the
+/// shell after it comes up. This is the one and only session creation
+/// path.
 ///
-/// Parallel shape to [`create_session`] minus the Claude-specific inputs
-/// (default model, additional flags, nono profile, claude binary path),
-/// but settings-aware for anything non-Claude-specific — notably
-/// `worktree_base_path` so new worktrees land in the user's configured
-/// base directory regardless of which profile spawned them.
-/// Emits the same Session record so the rest of the app doesn't need to
-/// know which creation path was used.
+/// Settings-aware for `worktree_base_path` so new worktrees land in the
+/// user's configured base directory.
 pub(crate) async fn create_session_shell(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
@@ -61,9 +57,7 @@ pub(crate) async fn create_session_shell(
 ) -> anyhow::Result<Session> {
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    // Determine working directory based on session target. Same logic as
-    // create_session; cheaper than extracting a helper because the shape
-    // is small and the two callers diverge quickly after this step.
+    // Determine working directory based on session target.
     let (work_dir, actual_branch, is_wt) = match target {
         SessionTarget::ExistingWorktree { path } => {
             let br = get_current_branch(path).unwrap_or_else(|| "main".to_string());
@@ -140,18 +134,11 @@ pub(crate) async fn create_session_shell(
     Ok(session)
 }
 
-/// Reconnect a session by respawning a **plain shell** in its primary PTY,
-/// without running the claude binary directly. Used by any session whose
-/// primary pane was originally created via `create_session_shell` — i.e.
-/// every non-Claude-builtin profile (Codex, Plain shell, user profiles,
-/// inline Custom…). The frontend re-runs the pane's profile commands
-/// into the fresh shell after this call, so agents like Codex come back
-/// up by typing their startup command rather than being re-execed
-/// directly by the backend.
-///
-/// Parallel to [`reconnect_session`] minus the Claude-specific inputs.
-/// Both functions kill the old PTY first so the session id is free for a
-/// fresh `spawn`/`spawn_shell`.
+/// Reconnect a session by respawning its primary shell PTY, optionally
+/// nono-wrapped. The frontend re-runs the pane's profile commands into
+/// the fresh shell after this call, so agents come back up by typing
+/// their startup command. Kills the old PTY first so the session id is
+/// free for a fresh `spawn_shell`.
 pub(crate) async fn reconnect_session_shell(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
