@@ -34,7 +34,7 @@ pub struct RouxCommand {
     pub command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
-    /// Profile id for pane/session creation (e.g. "claude", "shell", user profile id)
+    /// Profile id for pane/session creation (e.g. "claude", "plain-shell", "codex", user profile id)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile_id: Option<String>,
     /// Correlation id for request/response round-trips with the frontend

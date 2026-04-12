@@ -323,8 +323,9 @@ fn bring_window_to_front(app: &tauri::AppHandle) {
 }
 
 /// Validate that a profile id is known — either a built-in or a user-defined
-/// profile in settings. Returns the normalized id on success so callers get
-/// a clear error when a typo like "shell" is used instead of "plain-shell".
+/// profile in settings. Returns `Ok(())` on match, or a descriptive error
+/// listing every known id so a CLI caller can correct typos like "shell"
+/// (the correct built-in id is "plain-shell").
 fn validate_profile_id(
     id: &str,
     settings: &crate::settings::RouxSettings,
@@ -336,14 +337,20 @@ fn validate_profile_id(
     if builtin_ids.iter().any(|b| b == id) {
         return Ok(());
     }
-    if settings.spawn_profiles.iter().any(|p| p.id == id) {
+    let user_ids: Vec<String> =
+        settings.spawn_profiles.iter().map(|p| p.id.clone()).collect();
+    if user_ids.iter().any(|u| u == id) {
         return Ok(());
     }
-    Err(format!(
+    let mut msg = format!(
         "unknown profile id '{}'. Known built-ins: {}",
         id,
         builtin_ids.join(", ")
-    ))
+    );
+    if !user_ids.is_empty() {
+        msg.push_str(&format!(". User profiles: {}", user_ids.join(", ")));
+    }
+    Err(msg)
 }
 
 /// Canonicalize a path to an absolute form, falling back to the input if
@@ -534,6 +541,22 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
             _ => SessionTarget::Repo,
         }
     };
+
+    // Enforce the contract between args and the selected spawn path so
+    // data doesn't silently get dropped. `flags` are agent-binary-specific
+    // (claude-only for now); `nono_allow_dirs` needs a NonoConfig, which
+    // only the shell path wires through end-to-end.
+    if profile == "claude" && !nono_allow_dirs.is_empty() {
+        return Response::err(
+            "--nono-allow-dir is not supported with profile 'claude'; use a shell-based profile or omit allow-dirs",
+        );
+    }
+    if profile != "claude" && !flags.is_empty() {
+        return Response::err(format!(
+            "--flag/-f is only supported with profile 'claude', not '{}'",
+            profile
+        ));
+    }
 
     let nono_config = nono_profile.as_ref().map(|p| crate::pty::NonoConfig {
         profile: p.clone(),
@@ -1109,6 +1132,35 @@ mod tests {
             source: roux_core::ProfileSource::User,
         });
         assert!(validate_profile_id("my-profile", &settings).is_ok());
+    }
+
+    #[test]
+    fn validate_profile_id_error_lists_user_profiles_when_present() {
+        let mut settings = crate::settings::RouxSettings::default();
+        settings.spawn_profiles.push(roux_core::SpawnProfile {
+            id: "my-profile".into(),
+            name: "Mine".into(),
+            setup_command: None,
+            startup_command: None,
+            startup_behavior: None,
+            env: None,
+            cwd_override: None,
+            icon: None,
+            provider: None,
+            nono_profile: None,
+            nono_allow_dirs: None,
+            source: roux_core::ProfileSource::User,
+        });
+        let err = validate_profile_id("typo", &settings).unwrap_err();
+        assert!(err.contains("User profiles"), "err should mention user profiles: {}", err);
+        assert!(err.contains("my-profile"), "err should list user profile id: {}", err);
+    }
+
+    #[test]
+    fn validate_profile_id_error_omits_user_section_when_no_user_profiles() {
+        let settings = crate::settings::RouxSettings::default();
+        let err = validate_profile_id("typo", &settings).unwrap_err();
+        assert!(!err.contains("User profiles"), "err should not mention user profiles when empty: {}", err);
     }
 
     // ── Canonicalized path matching ──────────────────────────
