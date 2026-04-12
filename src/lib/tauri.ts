@@ -16,28 +16,10 @@ import { ptyOutputPayloadToBytes, type PtyOutputPayload } from "./ptyOutput";
 export type { PtyOutputPayload } from "./ptyOutput";
 
 // Commands (frontend → backend)
-export async function createSession(
-  repoPath: string,
-  name: string,
-  worktreePath: string | null,
-  branch: string | null,
-  extraFlags?: string[],
-  nonoProfile?: string | null,
-): Promise<Session> {
-  return invoke("create_session", {
-    repoPath,
-    name,
-    worktreePath,
-    branch,
-    extraFlags: extraFlags ?? null,
-    nonoProfile: nonoProfile ?? null,
-  });
-}
 
 /**
- * Parallel to `createSession`, but spawns a plain shell in the session's
- * primary PTY. Caller then attaches a spawn profile and types its setup /
- * startup commands into the shell.
+ * Spawns a plain shell in the session's primary PTY. Caller then attaches
+ * a spawn profile and types its setup / startup commands into the shell.
  */
 export async function createSessionShell(
   repoPath: string,
@@ -70,18 +52,10 @@ export async function killPty(id: string): Promise<void> {
   return invoke("kill_pty", { id });
 }
 
-export async function reconnectSessionPty(
-  id: string,
-  extraFlags?: string[],
-): Promise<Session> {
-  return invoke("reconnect_session", { id, extraFlags: extraFlags ?? null });
-}
-
 /**
- * Parallel to `reconnectSessionPty`, but respawns a plain shell in the
- * session's primary PTY instead of the claude binary. Used by non-Claude
- * spawn profiles — the caller replays the profile's setup / startup
- * commands into the fresh shell after this resolves.
+ * Respawns a plain shell in the session's primary PTY. The caller replays
+ * the profile's setup / startup commands into the fresh shell after this
+ * resolves.
  */
 export async function reconnectSessionShellPty(
   id: string,

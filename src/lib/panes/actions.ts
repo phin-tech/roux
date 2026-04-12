@@ -42,6 +42,7 @@ export function initSession(sessionId: string): string {
 export function initSessionWithProfile(
   sessionId: string,
   spawnProfileRef: SpawnProfileRef,
+  nono?: { nonoProfile?: string; nonoAllowDirs?: string[] },
 ): string {
   const mainPaneId = `${sessionId}-main`;
   if (!getInstance(mainPaneId)) {
@@ -50,6 +51,8 @@ export function initSessionWithProfile(
       type: "shell",
       ptyId: sessionId,
       spawnProfileRef,
+      nonoProfile: nono?.nonoProfile,
+      nonoAllowDirs: nono?.nonoAllowDirs,
     });
   }
   initSessionLayout(sessionId, mainPaneId);

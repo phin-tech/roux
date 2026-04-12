@@ -71,7 +71,7 @@ function stubSession(id: string): Session {
 
 function leafNode(
   profileId: string,
-  opts: { name?: string; size?: number } = {},
+  opts: { name?: string; size?: number; nono_profile?: string; nono_allow_dirs?: string[] } = {},
 ): LayoutPaneNode {
   return {
     kind: "leaf",
@@ -79,12 +79,14 @@ function leafNode(
     name: opts.name ?? null,
     size: opts.size ?? null,
     cwd: null,
+    nono_profile: opts.nono_profile ?? null,
+    nono_allow_dirs: opts.nono_allow_dirs ?? null,
   };
 }
 
 function inlineLeafNode(
   profile: SpawnProfile,
-  opts: { name?: string; size?: number } = {},
+  opts: { name?: string; size?: number; nono_profile?: string; nono_allow_dirs?: string[] } = {},
 ): LayoutPaneNode {
   return {
     kind: "leaf",
@@ -92,6 +94,8 @@ function inlineLeafNode(
     name: opts.name ?? null,
     size: opts.size ?? null,
     cwd: null,
+    nono_profile: opts.nono_profile ?? null,
+    nono_allow_dirs: opts.nono_allow_dirs ?? null,
   };
 }
 
@@ -499,5 +503,123 @@ describe("applyLayoutToSession", () => {
     // Both leaves get profile commands
     expect(runProfileInPane).toHaveBeenCalledTimes(2);
     expect(runProfileInPane).toHaveBeenCalledWith("s9", claude);
+  });
+
+  // ── Nono config tests ─────────────────────────────────────────────────────
+
+  it("passes nono config from layout leaf to spawnShell", async () => {
+    const claude = stubProfile("claude", { startupCommand: "claude" });
+    setUserProfiles([claude]);
+
+    const session = stubSession("sn1");
+    const layout = layoutSpec(
+      splitNode("horizontal", [
+        leafNode("claude"),
+        leafNode("claude", { nono_profile: "default" }),
+      ]),
+    );
+
+    const result = await applyLayoutToSession(session, layout);
+    expect(result.ok).toBe(true);
+
+    // spawnShell called once for the second leaf
+    expect(spawnShell).toHaveBeenCalledTimes(1);
+    expect(spawnShell).toHaveBeenCalledWith(
+      expect.any(String),       // ptyId (UUID)
+      "/tmp/repo",              // worktreePath
+      "sn1",                    // sessionId
+      expect.any(String),       // paneId (UUID)
+      "default",                // nonoProfile
+      undefined,                // nonoAllowDirs
+    );
+
+    // Pane instance for second leaf has nonoProfile
+    const instances = get(paneInstances);
+    const secondLeaf = Array.from(instances.values()).find(
+      (p) => p.nonoProfile === "default",
+    );
+    expect(secondLeaf).toBeDefined();
+    expect(secondLeaf!.nonoProfile).toBe("default");
+  });
+
+  it("uses nono from SpawnProfile when layout leaf has none", async () => {
+    const p = stubProfile("p", { nonoProfile: "from-profile", nonoAllowDirs: ["/b"] });
+    setUserProfiles([p]);
+
+    const session = stubSession("sn2");
+    const layout = layoutSpec(
+      splitNode("horizontal", [
+        leafNode("p"),
+        leafNode("p"),
+      ]),
+    );
+
+    const result = await applyLayoutToSession(session, layout);
+    expect(result.ok).toBe(true);
+
+    // spawnShell called for second leaf with profile nono
+    expect(spawnShell).toHaveBeenCalledTimes(1);
+    expect(spawnShell).toHaveBeenCalledWith(
+      expect.any(String),
+      "/tmp/repo",
+      "sn2",
+      expect.any(String),
+      "from-profile",
+      ["/b"],
+    );
+  });
+
+  it("layout nono overrides profile nono", async () => {
+    const p = stubProfile("p", { nonoProfile: "profile-default" });
+    setUserProfiles([p]);
+
+    const session = stubSession("sn3");
+    const layout = layoutSpec(
+      splitNode("horizontal", [
+        leafNode("p"),
+        leafNode("p", { nono_profile: "leaf-override" }),
+      ]),
+    );
+
+    const result = await applyLayoutToSession(session, layout);
+    expect(result.ok).toBe(true);
+
+    expect(spawnShell).toHaveBeenCalledTimes(1);
+    expect(spawnShell).toHaveBeenCalledWith(
+      expect.any(String),
+      "/tmp/repo",
+      "sn3",
+      expect.any(String),
+      "leaf-override",
+      undefined,
+    );
+  });
+
+  it("merges allow_dirs from layout leaf and profile", async () => {
+    const p = stubProfile("p", {
+      nonoProfile: "merged",
+      nonoAllowDirs: ["/b"],
+    });
+    setUserProfiles([p]);
+
+    const session = stubSession("sn4");
+    const layout = layoutSpec(
+      splitNode("horizontal", [
+        leafNode("p"),
+        leafNode("p", { nono_profile: "merged", nono_allow_dirs: ["/a"] }),
+      ]),
+    );
+
+    const result = await applyLayoutToSession(session, layout);
+    expect(result.ok).toBe(true);
+
+    expect(spawnShell).toHaveBeenCalledTimes(1);
+    const callArgs = vi.mocked(spawnShell).mock.calls[0];
+    expect(callArgs[4]).toBe("merged");
+    // Allow dirs should contain both "/a" (from leaf) and "/b" (from profile)
+    const dirs = callArgs[5] as string[];
+    expect(dirs).toHaveLength(2);
+    expect(dirs).toContain("/a");
+    expect(dirs).toContain("/b");
   });
 });

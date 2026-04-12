@@ -42,6 +42,9 @@ export interface PaneInstance {
    */
   spawnProfileRef?: SpawnProfileRef;
 
+  nonoProfile?: string;
+  nonoAllowDirs?: string[];
+
   // Set when a shell pane failed to spawn during session restore.
   // Causes PaneShell to render the DeadPaneView instead of xterm.
   // Not persisted — only lives in runtime state.
@@ -63,6 +66,8 @@ export interface CreatePaneOpts {
   command?: string;
   docPath?: string;
   spawnProfileRef?: SpawnProfileRef;
+  nonoProfile?: string;
+  nonoAllowDirs?: string[];
 }
 
 // ── Store ──────────────────────────────────────────────────
@@ -98,6 +103,8 @@ export function createPane(opts: CreatePaneOpts): string {
     command: opts.command,
     docPath: opts.docPath,
     spawnProfileRef: opts.spawnProfileRef,
+    nonoProfile: opts.nonoProfile,
+    nonoAllowDirs: opts.nonoAllowDirs,
     commandStatus: "idle",
     commandExitCode: null,
     commandStartedAt: null,

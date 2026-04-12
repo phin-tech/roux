@@ -427,14 +427,13 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
 
     let settings = state.settings.lock().unwrap().clone();
 
-    let session = match svc::create_session(
+    let session = match svc::create_session_shell(
         &state.pty_manager,
         &state.session_handle,
         &settings,
         &path,
         &name,
         SessionTarget::Repo,
-        &[],
         None,
         app,
     )
@@ -542,20 +541,14 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         }
     };
 
-    // Enforce the contract between args and the selected spawn path so
-    // data doesn't silently get dropped. `flags` are agent-binary-specific
-    // (claude-only for now); `nono_allow_dirs` needs a NonoConfig, which
-    // only the shell path wires through end-to-end.
-    if profile == "claude" && !nono_allow_dirs.is_empty() {
+    // `flags` were only meaningful for the legacy Claude spawn path
+    // (passed directly as args to the claude binary). That path is gone;
+    // flags now belong on a SpawnProfile's `startup_command` or
+    // `additional_flags`. Reject them here rather than silently dropping.
+    if !flags.is_empty() {
         return Response::err(
-            "--nono-allow-dir is not supported with profile 'claude'; use a shell-based profile or omit allow-dirs",
+            "--flag/-f is no longer supported at session creation; bake flags into a spawn profile's startup_command instead",
         );
-    }
-    if profile != "claude" && !flags.is_empty() {
-        return Response::err(format!(
-            "--flag/-f is only supported with profile 'claude', not '{}'",
-            profile
-        ));
     }
 
     let nono_config = nono_profile.as_ref().map(|p| crate::pty::NonoConfig {
@@ -563,39 +556,20 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         allow_dirs: nono_allow_dirs.clone(),
     });
 
-    let session = if profile == "claude" {
-        match svc::create_session(
-            &state.pty_manager,
-            &state.session_handle,
-            &settings,
-            &repo_path,
-            &name,
-            target,
-            &flags,
-            nono_profile.as_deref(),
-            app,
-        )
-        .await
-        {
-            Ok(s) => s,
-            Err(e) => return Response::err(format!("{}", e)),
-        }
-    } else {
-        match svc::create_session_shell(
-            &state.pty_manager,
-            &state.session_handle,
-            &settings,
-            &repo_path,
-            &name,
-            target,
-            nono_config.as_ref(),
-            app,
-        )
-        .await
-        {
-            Ok(s) => s,
-            Err(e) => return Response::err(format!("{}", e)),
-        }
+    let session = match svc::create_session_shell(
+        &state.pty_manager,
+        &state.session_handle,
+        &settings,
+        &repo_path,
+        &name,
+        target,
+        nono_config.as_ref(),
+        app,
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => return Response::err(format!("{}", e)),
     };
 
     let session_id = session.id.clone();

@@ -32,11 +32,22 @@ async function spawnShellPaneWithProfile(
 
   const ptyId = crypto.randomUUID();
   const paneId = crypto.randomUUID();
+  const nonoProfile = profile.nonoProfile ?? undefined;
+  const nonoAllowDirs = profile.nonoAllowDirs?.length
+    ? profile.nonoAllowDirs
+    : undefined;
   log(
     `Split ${direction} with profile "${profile.id}": pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`,
   );
   try {
-    await spawnShell(ptyId, session.worktreePath, session.id, paneId);
+    await spawnShell(
+      ptyId,
+      session.worktreePath,
+      session.id,
+      paneId,
+      nonoProfile,
+      nonoAllowDirs,
+    );
   } catch (e) {
     logError(`Failed to spawn shell for profile "${profile.id}"`, e);
     return;
@@ -52,6 +63,8 @@ async function spawnShellPaneWithProfile(
     type: "shell",
     ptyId,
     spawnProfileRef,
+    nonoProfile,
+    nonoAllowDirs,
   });
   if (!newPaneId) return;
 
