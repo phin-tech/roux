@@ -360,8 +360,6 @@ export type Session = {
 	createdAt: number,
 	projectId?: string | null,
 	isGitRepo?: boolean,
-	layoutId?: string | null,
-	layoutName?: string | null,
 };
 
 export type SessionStatus = "idle" | "thinking" | "generating" | "error" | "disconnected" | "attention";

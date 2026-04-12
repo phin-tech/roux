@@ -16,8 +16,6 @@ User layouts override built-in layouts on id collision (the id is the filename s
 3. When a layout is selected, the spawn-profile picker is hidden — the layout defines its own panes.
 4. Click **Create Session**. Roux creates the session, then splits and populates panes according to the layout.
 
-Sessions created from a layout show a small "layout: ..." badge in the session sidebar.
-
 ## KDL schema
 
 Layouts are written in [KDL](https://kdl.dev). The top-level node is `layout`:
@@ -153,4 +151,3 @@ Save this as `~/.config/roux/layouts/dev_setup.kdl` and it will appear in the la
 - Layouts only apply at session creation — no "apply to existing session."
 - No "save current layout as file" — edit the `.kdl` files directly.
 - No inline layout editor in the UI.
-- The layout badge on the session card is cosmetic and does not persist across restarts.

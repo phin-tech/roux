@@ -171,9 +171,6 @@
           branchArg,
         );
         log(`Session created via layout: ${session.id}`);
-        // Tag with layout info for display badge (cosmetic, not persisted to backend)
-        session.layoutId = selectedLayout.id;
-        session.layoutName = selectedLayout.name;
         addSession(session);
 
         const layoutResult = await applyLayoutToSession(session, selectedLayout);

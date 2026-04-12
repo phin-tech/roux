@@ -47,8 +47,4 @@ pub struct Session {
     pub project_id: Option<String>,
     #[serde(default)]
     pub is_git_repo: bool,
-    #[serde(default)]
-    pub layout_id: Option<String>,
-    #[serde(default)]
-    pub layout_name: Option<String>,
 }

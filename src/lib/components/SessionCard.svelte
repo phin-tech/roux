@@ -235,9 +235,6 @@
     {#if projectName}
       <span class="bg-accent-dim/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{projectName}</span>
     {/if}
-    {#if session.layoutName}
-      <span class="text-[10px] text-text-muted font-mono truncate">layout: {session.layoutName}</span>
-    {/if}
     <span class="ml-auto text-[10px] font-semibold text-text-muted">
       {session.cost != null ? `$${session.cost.toFixed(2)}` : ""}
     </span>
