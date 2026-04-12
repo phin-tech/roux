@@ -2,7 +2,6 @@
   import { fade, scale } from "svelte/transition";
   import { open } from "@tauri-apps/plugin-dialog";
   import {
-    createSession,
     createSessionShell,
     listWorktrees,
     checkNonoInstalled,
@@ -13,7 +12,7 @@
   } from "$lib/tauri";
   import { addSession, removeSession } from "$lib/stores/sessions";
   import { layoutList, type LayoutSpec } from "$lib/panes/layouts";
-  import { applyLayoutToSession, type LayoutApplyError } from "$lib/panes/layoutRunner";
+  import { applyLayoutToSession, resolveFirstLeafNono, type LayoutApplyError } from "$lib/panes/layoutRunner";
   import { initSessionWithProfile } from "$lib/panes/actions";
   import { settings } from "$lib/stores/settings";
   import {
@@ -64,26 +63,10 @@
     return $profileList.find((p) => p.id === selectedProfileId) ?? null;
   });
 
-  // True when the selected profile's startup behavior should go through
-  // the legacy Claude-spawning backend path (preserves nono wrapping).
-  // Any other profile uses createSessionShell + runProfileInPane.
-  //
-  // Gated on source === "builtin" too, because a user profile named
-  // "claude" overrides the built-in on id collision (see profiles.ts
-  // registry derived). Sending a user profile through the legacy path
-  // would silently ignore its setupCommand / startupCommand and respawn
-  // the real Claude binary, which is obviously not what the user wrote.
-  let useLegacyClaudePath = $derived(
-    !!selectedProfile &&
-      selectedProfile.id === "claude" &&
-      selectedProfile.source === "builtin",
-  );
-
   // Nono sandbox integration
   let nonoInstalled = $state(false);
   let nonoProfiles = $state<string[]>([]);
   let selectedNonoProfile = $state<string | null>(null);
-  let skipPermissions = $state(false);
 
   // Check for nono on mount and detect git repo for default path
   $effect(() => {
@@ -164,11 +147,17 @@
         log(
           `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, layout=${selectedLayout.id}`,
         );
+        // Resolve the first leaf's effective nono up-front — the session's
+        // primary PTY is spawned now by createSessionShell, not by the
+        // layout walker (which only spawns PTYs for leaves 2..N).
+        const firstLeafNono = resolveFirstLeafNono(selectedLayout);
         const session = await createSessionShell(
           repoPath,
           name,
           worktreePathArg,
           branchArg,
+          firstLeafNono.nonoProfile ?? undefined,
+          firstLeafNono.nonoAllowDirs ?? undefined,
         );
         log(`Session created via layout: ${session.id}`);
         addSession(session);
@@ -195,33 +184,22 @@
         `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, profile=${profile.id}`,
       );
 
-      let session: Awaited<ReturnType<typeof createSession>>;
-      if (useLegacyClaudePath) {
-        // Claude built-in profile + optional nono wrapping. Goes through
-        // the existing provider-aware spawn so nono and additional-flags
-        // continue to work exactly as before.
-        const extraFlags: string[] = [];
-        if (skipPermissions) {
-          extraFlags.push("--dangerously-skip-permissions");
-        }
-        session = await createSession(
-          repoPath,
-          name,
-          worktreePathArg,
-          branchArg,
-          extraFlags.length > 0 ? extraFlags : undefined,
-          selectedNonoProfile,
-        );
-      } else {
-        // Any other profile: spawn a plain shell, then type the profile's
-        // setup / startup commands into it after the PTY is attached.
-        session = await createSessionShell(
-          repoPath,
-          name,
-          worktreePathArg,
-          branchArg,
-        );
-      }
+      // Effective nono: dialog dropdown takes precedence over the profile's
+      // own nono_profile. In either case we thread along the profile's
+      // allow_dirs — they describe what that profile needs to work, and
+      // aren't tied to a specific sandbox profile name.
+      const effectiveNono = resolveNonoForProfile(profile, selectedNonoProfile);
+
+      // Spawn a shell (optionally nono-wrapped), then type the profile's
+      // setup / startup commands into it after the PTY is attached.
+      const session = await createSessionShell(
+        repoPath,
+        name,
+        worktreePathArg,
+        branchArg,
+        effectiveNono.nonoProfile,
+        effectiveNono.nonoAllowDirs,
+      );
 
       log(`Session created: ${session.id}`);
       addSession(session);
@@ -233,18 +211,14 @@
           ? { kind: "inline", profile: profile }
           : { kind: "registered", id: profile.id };
 
-      const mainPaneId = initSessionWithProfile(session.id, profileRef);
+      const mainPaneId = initSessionWithProfile(session.id, profileRef, effectiveNono);
       const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
       initTerminal(mainPaneId);
       await attachPtyListeners(mainPaneId);
 
-      // For non-Claude paths, type the profile's commands into the new
-      // shell. Claude built-in + legacy path: backend already launched
-      // claude directly, so there's nothing to type.
-      if (!useLegacyClaudePath) {
-        // session.id is also the PTY id for the session-owned shell.
-        await runProfileInPane(session.id, profile);
-      }
+      // Type the profile's commands into the new shell.
+      // session.id is also the PTY id for the session-owned shell.
+      await runProfileInPane(session.id, profile);
 
       resetAndClose();
     } catch (e) {
@@ -253,6 +227,39 @@
     } finally {
       creating = false;
     }
+  }
+
+  /**
+   * Resolve the effective nono for the non-layout creation path.
+   *
+   * - Dialog dropdown wins when set: the user is explicit about which
+   *   sandbox profile wraps the shell. We still pass the profile's
+   *   allow_dirs because they describe what the spawn profile itself
+   *   needs (e.g. a scratch dir) — they aren't coupled to a specific
+   *   sandbox profile name.
+   * - Otherwise fall back to whatever nono the SpawnProfile declares.
+   */
+  function resolveNonoForProfile(
+    profile: SpawnProfile,
+    dialogNonoProfile: string | null,
+  ): { nonoProfile: string | undefined; nonoAllowDirs: string[] | undefined } {
+    if (dialogNonoProfile) {
+      return {
+        nonoProfile: dialogNonoProfile,
+        nonoAllowDirs: profile.nonoAllowDirs?.length
+          ? profile.nonoAllowDirs
+          : undefined,
+      };
+    }
+    if (profile.nonoProfile) {
+      return {
+        nonoProfile: profile.nonoProfile,
+        nonoAllowDirs: profile.nonoAllowDirs?.length
+          ? profile.nonoAllowDirs
+          : undefined,
+      };
+    }
+    return { nonoProfile: undefined, nonoAllowDirs: undefined };
   }
 
   function renderLayoutError(err: LayoutApplyError): string {
@@ -288,7 +295,6 @@
     isGitRepo = false;
     error = "";
     selectedNonoProfile = null;
-    skipPermissions = false;
     selectedLayoutId = "";
     selectedProfileId = "claude";
     inlineProfile = null;
@@ -495,7 +501,7 @@
           </div>
 
           <!-- Nono sandbox profile -->
-          {#if nonoInstalled && useLegacyClaudePath}
+          {#if nonoInstalled}
             <div class="flex flex-col gap-1.5">
               <label
                 for="new-session-nono"
@@ -520,20 +526,6 @@
             </div>
           {/if}
 
-          <!-- Skip permissions checkbox (claude built-in path only) -->
-          {#if useLegacyClaudePath}
-            <label class="flex items-center gap-2.5 cursor-pointer group">
-              <input
-                type="checkbox"
-                bind:checked={skipPermissions}
-                class="w-4 h-4 rounded border border-border bg-bg-deep accent-amber-500 cursor-pointer"
-              />
-              <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">
-                Skip permission prompts
-              </span>
-              <span class="text-[10px] text-amber-400/70 font-mono">--dangerously-skip-permissions</span>
-            </label>
-          {/if}
         {/if}
 
         <!-- Session name -->

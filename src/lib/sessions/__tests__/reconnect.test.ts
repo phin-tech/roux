@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
 
 vi.mock("$lib/tauri", () => ({
-  reconnectSessionPty: vi.fn(),
   reconnectSessionShellPty: vi.fn(),
   killSession: vi.fn(),
   killPty: vi.fn().mockResolvedValue(undefined),
@@ -32,7 +31,7 @@ import { initSession } from "$lib/panes/actions";
 import { sessionLayouts, resetLayouts } from "$lib/panes/layout";
 import { paneInstances, resetInstances, createPane } from "$lib/panes/instances";
 import { resetFocus } from "$lib/panes/focus";
-import { reconnectSessionPty, spawnShell, loadPaneStateRaw } from "$lib/tauri";
+import { reconnectSessionShellPty, spawnShell, loadPaneStateRaw } from "$lib/tauri";
 import { initTerminal, attachPtyListeners } from "$lib/panes/terminals";
 import type { Session } from "$lib/types";
 import type { PaneStatePayload } from "$lib/panes/persistence";
@@ -62,7 +61,7 @@ function makePayloadWithShells(sessionId: string, shells: Array<{ id: string; wo
     ...shells.map((s) => ({ kind: "leaf" as const, paneId: s.id })),
   ];
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     layout: { kind: "split", direction: "h" as const, children },
     descriptors: [
       // The session-primary pane is a shell whose ptyId matches the
@@ -80,7 +79,7 @@ describe("reconnectSession — existing behavior preserved", () => {
     resetLayouts();
     resetInstances();
     resetFocus();
-    vi.mocked(reconnectSessionPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
+    vi.mocked(reconnectSessionShellPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
     vi.mocked(loadPaneStateRaw).mockReset().mockResolvedValue(null);
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
     vi.mocked(initTerminal).mockReset();
@@ -94,17 +93,20 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionPty).toHaveBeenCalledWith(session.id, undefined);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null);
   });
 
-  it("passes extra flags through to the Tauri command", async () => {
+  it("invokes reconnect with extra flags without error", async () => {
+    // Extra flags are now appended to the profile startup command and
+    // typed into the shell rather than passed to the PTY-level command,
+    // so the Tauri call shape no longer varies with flags.
     const session = makeSession();
     addSession(session);
     initSession(session.id);
 
     await reconnectSession(session, ["--resume", "abc123"]);
 
-    expect(reconnectSessionPty).toHaveBeenCalledWith(session.id, ["--resume", "abc123"]);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null);
   });
 
   it("preserves the layout tree when reconnecting main-pane-only", async () => {
@@ -138,7 +140,7 @@ describe("reconnectSession — mid-session disconnect guard", () => {
     resetLayouts();
     resetInstances();
     resetFocus();
-    vi.mocked(reconnectSessionPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
+    vi.mocked(reconnectSessionShellPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
     vi.mocked(loadPaneStateRaw).mockReset().mockResolvedValue(null);
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
     vi.mocked(initTerminal).mockReset();
@@ -185,7 +187,7 @@ describe("reconnectSession — full rehydration", () => {
     resetLayouts();
     resetInstances();
     resetFocus();
-    vi.mocked(reconnectSessionPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
+    vi.mocked(reconnectSessionShellPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
     vi.mocked(loadPaneStateRaw).mockReset();
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
     vi.mocked(initTerminal).mockReset();
@@ -198,7 +200,7 @@ describe("reconnectSession — full rehydration", () => {
     initSession(session.id);
 
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       layout: { kind: "leaf", paneId: `${session.id}-main` },
       descriptors: [{ id: `${session.id}-main`, type: "shell", ptyId: session.id }],
     } satisfies PaneStatePayload);
@@ -224,8 +226,8 @@ describe("reconnectSession — full rehydration", () => {
     await reconnectSession(session);
 
     expect(spawnShell).toHaveBeenCalledTimes(2);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a");
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b");
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a", null, null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b", null, null);
 
     const instances = get(paneInstances);
     expect(instances.has("shell-a")).toBe(true);
@@ -326,7 +328,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       layout: {
         kind: "split",
         direction: "h",
@@ -363,7 +365,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       layout: {
         kind: "split",
         direction: "h",
@@ -394,7 +396,7 @@ describe("reconnectSession — full rehydration", () => {
     const mainId = `${session.id}-main`;
     // Corrupt: leaf in tree with no matching descriptor
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       layout: {
         kind: "split",
         direction: "h",
@@ -441,7 +443,7 @@ describe("retryShellPane", () => {
 
     await retryShellPane(paneId, "sess-1");
 
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId, null, null);
     const inst = get(paneInstances).get(paneId);
     expect(inst?.restoreError).toBeUndefined();
   });

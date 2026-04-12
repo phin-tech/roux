@@ -18,7 +18,7 @@ import { log } from "$lib/logging";
  * rejected on load and the session restores empty — this is acceptable per
  * the spec's no-backcompat scope rule.
  */
-export const PANE_STATE_SCHEMA_VERSION = 3;
+export const PANE_STATE_SCHEMA_VERSION = 4;
 
 export interface PaneDescriptor {
   id: string;
@@ -29,6 +29,8 @@ export interface PaneDescriptor {
   command?: string;
   docPath?: string;
   spawnProfileRef?: SpawnProfileRef;
+  nonoProfile?: string;
+  nonoAllowDirs?: string[];
 }
 
 export interface PaneStatePayload {
@@ -154,6 +156,8 @@ async function descriptorsForSession(sessionId: string): Promise<PaneDescriptor[
         command: inst.command,
         docPath: inst.docPath,
         spawnProfileRef: inst.spawnProfileRef,
+        nonoProfile: inst.nonoProfile,
+        nonoAllowDirs: inst.nonoAllowDirs,
       };
     }),
   );

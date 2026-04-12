@@ -1,10 +1,39 @@
 import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { addSession, setActiveSession, triggerRename, setSessionProject } from "$lib/stores/sessions";
-import { initSession } from "$lib/panes/actions";
-import { createSession, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
+import { initSessionWithProfile } from "$lib/panes/actions";
+import { createSessionShell, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
+import type { SpawnProfileRef } from "$lib/panes/profiles";
 import { closeSession } from "$lib/sessions/close";
 import { reconnectSession } from "$lib/sessions/reconnect";
+
+/**
+ * Create a worktree-backed session that launches the built-in Claude profile.
+ * Resolves the profile's nono config up-front so the primary shell is
+ * nono-wrapped from the start, matching the layout/dialog paths.
+ */
+async function createWorktreeClaudeSession(repo: string, name: string, branch: string) {
+  const { resolveProfileRef } = await import("$lib/panes/profiles");
+  const { runProfileInPane } = await import("$lib/panes/profileRunner");
+  const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
+  const profile = resolveProfileRef(profileRef);
+  const nonoProfile = profile?.nonoProfile ?? undefined;
+  const nonoAllowDirs = profile?.nonoAllowDirs ?? undefined;
+
+  const newSession = await createSessionShell(
+    repo, name, null, branch,
+    nonoProfile, nonoAllowDirs,
+  );
+  addSession(newSession);
+  const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {
+    nonoProfile,
+    nonoAllowDirs,
+  });
+  const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+  initTerminal(mainPaneId);
+  await attachPtyListeners(mainPaneId);
+  if (profile) await runProfileInPane(newSession.id, profile);
+}
 
 export function registerSessionCommands() {
   // -- Multi-step: Switch Session --
@@ -126,9 +155,7 @@ export function registerSessionCommands() {
         action: async () => {
           const repo = session.repoRoot;
           const name = repo.split("/").pop() + "-" + branch;
-          const newSession = await createSession(repo, name, null, branch);
-          addSession(newSession);
-          initSession(newSession.id);
+          await createWorktreeClaudeSession(repo, name, branch);
         },
       }));
     },
@@ -137,9 +164,7 @@ export function registerSessionCommands() {
       if (!session) return;
       const repo = session.repoRoot;
       const name = repo.split("/").pop() + "-" + branch;
-      const newSession = await createSession(repo, name, null, branch);
-      addSession(newSession);
-      initSession(newSession.id);
+      await createWorktreeClaudeSession(repo, name, branch);
     },
   });
 

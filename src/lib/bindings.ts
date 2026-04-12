@@ -21,7 +21,7 @@ export const commands = {
 	 *  the session record untouched. Used by `disposePane` on the frontend so
 	 *  closing a pane never accidentally destroys its session — even when the
 	 *  pane's `ptyId === sessionId` (the session-owned PTY spawned by
-	 *  `create_session` / `create_session_shell`).
+	 *  `create_session_shell`).
 	 * 
 	 *  Prior to this command, `disposePane` called `kill_session`, which tore
 	 *  down `session_handle` and `pane_state` as a side effect. That was fine
@@ -38,22 +38,17 @@ export const commands = {
 	 *  it was spawned in.
 	 */
 	getPtyCwd: (id: string) => __TAURI_INVOKE<string | null>("get_pty_cwd", { id }),
-	createSession: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, extraFlags: string[] | null, nonoProfile: string | null) => typedError<Session, string>(__TAURI_INVOKE("create_session", { repoPath, name, worktreePath, branch, extraFlags, nonoProfile })),
 	/**
-	 *  Parallel to `create_session`, but spawns a plain shell in the session's
-	 *  primary PTY instead of the claude binary. The frontend attaches the
-	 *  selected spawn profile and types setup / startup commands after the
-	 *  shell is ready. Used for every non-claude profile in the new-session
-	 *  picker (Codex, Plain shell, user profiles, inline Custom…).
+	 *  Create a session with a plain shell in its primary PTY, optionally
+	 *  nono-wrapped. The frontend attaches a spawn profile and types setup /
+	 *  startup commands after the shell is ready. This is the only session
+	 *  creation path.
 	 */
 	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, nonoProfile, nonoAllowDirs })),
-	reconnectSession: (id: string, extraFlags: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session", { id, extraFlags })),
 	/**
-	 *  Parallel to `reconnect_session`, but respawns a plain shell in the
-	 *  session's primary PTY instead of the claude binary. The frontend
-	 *  replays the pane's spawn profile commands into the fresh shell after
-	 *  this call returns, so agents come back up the same way they were
-	 *  originally launched via `create_session_shell`.
+	 *  Reconnect a session by respawning its primary shell PTY, optionally
+	 *  nono-wrapped. The frontend replays the pane's spawn profile commands
+	 *  into the fresh shell after this call returns.
 	 */
 	reconnectSessionShell: (id: string, nonoProfile: string | null, nonoAllowDirs: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, nonoProfile, nonoAllowDirs })),
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),
@@ -176,7 +171,7 @@ export type KeepOpen = "always" | "on-error" | "never";
  *  not implement `Eq`. Tests use `PartialEq` with exact float values, which
  *  is fine because sizes come directly from literal tokens in the KDL source.
  */
-export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
+export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null; nono_profile?: string | null; nono_allow_dirs?: string[] | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
 
 /**
  *  How a leaf pane references a spawn profile. Registered ids are looked up

@@ -45,7 +45,7 @@ describe("persistence — Tauri-backed API", () => {
   describe("loadPaneState", () => {
     it("returns parsed payload when Tauri call resolves with valid data", async () => {
       const payload: PaneStatePayload = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         layout: { kind: "leaf", paneId: "s1-main" },
         descriptors: [{ id: "s1-main", type: "shell", ptyId: "s1" }],
       };
@@ -92,7 +92,7 @@ describe("persistence — Tauri-backed API", () => {
     it("delegates to Tauri with session id and payload", async () => {
       vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
       const payload: PaneStatePayload = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         layout: { kind: "leaf", paneId: "s1-main" },
         descriptors: [{ id: "s1-main", type: "shell", ptyId: "s1" }],
       };
