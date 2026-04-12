@@ -705,9 +705,42 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#known-v1-limitations" class="md-nav__link">
+  <a href="#nono-sandbox-integration" class="md-nav__link">
     <span class="md-ellipsis">
-      Known v1 limitations
+      Nono sandbox integration
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Nono sandbox integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resolution-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resolution order
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-dangerously-skip-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      --dangerously-skip-permissions
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Known limitations
     </span>
   </a>
   
@@ -1002,9 +1035,42 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#known-v1-limitations" class="md-nav__link">
+  <a href="#nono-sandbox-integration" class="md-nav__link">
     <span class="md-ellipsis">
-      Known v1 limitations
+      Nono sandbox integration
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Nono sandbox integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resolution-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resolution order
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-dangerously-skip-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      --dangerously-skip-permissions
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Known limitations
     </span>
   </a>
   
@@ -1144,7 +1210,7 @@
 <p>Claude and Codex side-by-side (50/50).</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>layout {
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    name &quot;Agent comparison&quot;
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    description &quot;Claude and Codex side-by-side (nono wrapping not applied in v1)&quot;
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    description &quot;Claude and Codex side-by-side&quot;
 </span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    pane split_direction=&quot;horizontal&quot; {
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>        pane profile=&quot;claude&quot; name=&quot;claude&quot; size=50
@@ -1178,9 +1244,32 @@
 <li><a href="../panes/">Panes</a> — how splits and stacking work once the layout is applied</li>
 <li><a href="../sessions/">Sessions</a> — session lifecycle and persistence</li>
 </ul>
-<h2 id="known-v1-limitations">Known v1 limitations<a class="headerlink" href="#known-v1-limitations" title="Permanent link">&para;</a></h2>
+<h2 id="nono-sandbox-integration">Nono sandbox integration<a class="headerlink" href="#nono-sandbox-integration" title="Permanent link">&para;</a></h2>
+<p>Any pane in a layout can be wrapped in the <a href="https://nono.sh">nono</a> sandbox by adding a <code>nono</code> attribute:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>pane profile=&quot;claude&quot; nono=&quot;default&quot;
+</span></code></pre></div>
+<p>The shell itself is spawned inside <code>nono run --profile &lt;name&gt; --allow-cwd -- $SHELL</code>, so everything typed into it — including the agent command — runs under the sandbox policy.</p>
+<p>For profiles that need access to directories outside the session's working directory, add a <code>nono_flags</code> child block:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>pane profile=&quot;claude&quot; nono=&quot;permissive&quot; {
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    nono_flags {
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>        allow_dir &quot;/tmp/scratch&quot;
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>        allow_dir &quot;~/data&quot;
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    }
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>}
+</span></code></pre></div>
+<p><code>~</code> expands to the user's home directory. Relative paths are resolved against the session's working directory.</p>
+<h3 id="resolution-order">Resolution order<a class="headerlink" href="#resolution-order" title="Permanent link">&para;</a></h3>
+<p>Nono config can come from three places, resolved in this order:</p>
+<ol>
+<li><strong>Layout leaf</strong> — <code>nono="..."</code> on the pane in the <code>.kdl</code> file.</li>
+<li><strong>Spawn profile</strong> — the <code>nonoProfile</code> / <code>nonoAllowDirs</code> fields on a <code>SpawnProfile</code>.</li>
+<li><strong>Dialog dropdown</strong> — when creating a session without a layout.</li>
+</ol>
+<p>Layout leaf wins over profile. <code>allow_dirs</code> from layout and profile are merged (union).</p>
+<h3 id="-dangerously-skip-permissions"><code>--dangerously-skip-permissions</code><a class="headerlink" href="#-dangerously-skip-permissions" title="Permanent link">&para;</a></h3>
+<p>This Claude flag is a profile-level concern, not a layout-level one. Create a user profile with the flag in its <code>startup_command</code> (or <code>additional_flags</code>) and use that profile in your layout.</p>
+<h2 id="known-limitations">Known limitations<a class="headerlink" href="#known-limitations" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Claude panes inside layouts are not nono-wrapped.</li>
 <li><code>cwd</code> attribute is reserved but not honored yet.</li>
 <li>Layouts only apply at session creation — no "apply to existing session."</li>
 <li>No "save current layout as file" — edit the <code>.kdl</code> files directly.</li>
