@@ -10,8 +10,24 @@
   import WatchesPane from "$lib/components/WatchesPane.svelte";
   import NotificationsPane from "$lib/components/NotificationsPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
+  import LeaderHud from "$lib/components/LeaderHud.svelte";
   import QuitDialog from "$lib/components/QuitDialog.svelte";
   import UpdateBanner from "$lib/components/UpdateBanner.svelte";
+  import {
+    getVisibleLeaderHints,
+    normalizeLeaderKey,
+    resolveLeaderSequence,
+  } from "$lib/commands/leader";
+  import {
+    closeCommandSurface,
+    commandSurface,
+    openCommandPalette,
+    openLeaderPrompt,
+    openLeaderMode,
+    setLeaderSequence,
+    setLeaderPromptValue,
+    toggleCommandSurface,
+  } from "$lib/stores/commandSurface";
   import { runStartupCheck, runManualCheck } from "$lib/stores/updater";
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
@@ -36,6 +52,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { registerCommands, registry } from "$lib/commands";
   import { closeFocusedPane } from "$lib/panes/actions";
+  import { queries } from "$lib/queries";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
   import { initLogging, log, logError } from "$lib/logging";
   import {
@@ -52,7 +69,6 @@
   let showNotes = $state(false);
   let showWatches = $state(false);
   let showNotifications = $state(false);
-  let showPalette = $state(false);
   let showSetupPrompt = $state(false);
   let showQuitDialog = $state(false);
   let ghAvailable = $state(true);
@@ -114,6 +130,69 @@
     await handleQuitRequested();
   }
 
+  function executeCommandById(commandId: string) {
+    const cmd = registry.get(commandId);
+    if (!cmd) return;
+
+    if (cmd.id === "session.new") {
+      showNewSessionDialog = true;
+      return;
+    }
+    if (cmd.id === "app.settings") {
+      showSettings = !showSettings;
+      if (showSettings) showNotes = false;
+      return;
+    }
+    if (cmd.id === "ui.toggle-notes") {
+      showNotes = !showNotes;
+      if (showNotes) showSettings = false;
+      return;
+    }
+    if (cmd.id === "ui.toggle-watches") {
+      showWatches = !showWatches;
+      if (showWatches) { showSettings = false; showNotes = false; showNotifications = false; }
+      return;
+    }
+    if (cmd.id === "ui.toggle-notifications") {
+      showNotifications = !showNotifications;
+      if (showNotifications) { showSettings = false; showNotes = false; showWatches = false; }
+      return;
+    }
+    if (cmd.id === "app.command-palette") {
+      openCommandPalette();
+      return;
+    }
+    if (cmd.id === "app.leader-mode") {
+      openLeaderMode();
+      return;
+    }
+
+    if (cmd.execute) void cmd.execute();
+  }
+
+  function getLeaderPromptInitialValue(commandId: string): string {
+    if (commandId === "pane.rename") {
+      return queries.focusedPane()?.name ?? "";
+    }
+    return "";
+  }
+
+  function submitLeaderPrompt() {
+    const surface = get(commandSurface);
+    if (!surface.leaderPromptCommandId) return;
+    const cmd = registry.get(surface.leaderPromptCommandId);
+    if (!cmd?.onInput) return;
+    const value = surface.leaderPromptValue;
+    closeCommandSurface();
+    void cmd.onInput(value);
+  }
+
+  function isLeaderCommandAvailable(commandId: string): boolean {
+    const cmd = registry.get(commandId);
+    if (!cmd) return false;
+    return !cmd.available || cmd.available();
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     // Arm the session-hint overlay when Cmd is pressed on its own.
     // The store handles the 200ms delay; quick chords like Cmd+K or Cmd+1
@@ -137,12 +216,79 @@
     // Command palette toggle
     if (e.metaKey && e.key === "k") {
       e.preventDefault();
-      showPalette = !showPalette;
+      toggleCommandSurface("palette");
       return;
     }
 
-    // Don't intercept shortcuts when palette is open
-    if (showPalette) return;
+    // Leader mode
+    if (e.metaKey && e.key === ";") {
+      e.preventDefault();
+      toggleCommandSurface("leader");
+      return;
+    }
+
+    // Don't intercept shortcuts when a command surface is open
+    const surface = get(commandSurface);
+    if (surface.open) {
+      if (surface.mode === "leader") {
+        if (surface.leaderPromptCommandId) {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            closeCommandSurface();
+            return;
+          }
+          if (e.key === "Enter") {
+            e.preventDefault();
+            submitLeaderPrompt();
+            return;
+          }
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closeCommandSurface();
+          return;
+        }
+        if (e.key === "Backspace") {
+          e.preventDefault();
+          if (surface.leaderSequence.length === 0) {
+            closeCommandSurface();
+            return;
+          }
+          setLeaderSequence(surface.leaderSequence.slice(0, -1));
+          return;
+        }
+        const key = normalizeLeaderKey(e);
+        if (!key) return;
+        e.preventDefault();
+        const nextSequence = [...surface.leaderSequence, key];
+        const resolution = resolveLeaderSequence(nextSequence);
+        if (resolution.kind === "pending") {
+          setLeaderSequence(nextSequence);
+          return;
+        }
+        if (resolution.kind === "palette") {
+          openCommandPalette();
+          return;
+        }
+        if (resolution.kind === "command") {
+          const resolvedCmd = registry.get(resolution.commandId);
+          if (resolvedCmd?.onInput) {
+            openLeaderPrompt(
+              resolution.commandId,
+              getLeaderPromptInitialValue(resolution.commandId),
+            );
+            return;
+          }
+          closeCommandSurface();
+          executeCommandById(resolution.commandId);
+          return;
+        }
+        closeCommandSurface();
+        return;
+      }
+      return;
+    }
 
     // Cmd+1..9 / Cmd+0: switch to the Nth session in sidebar visual order.
     // Cmd+0 maps to slot 10. Slots past the available session count are
@@ -204,38 +350,7 @@
     const cmd = registry.getByShortcut(shortcut);
     if (cmd) {
       e.preventDefault();
-
-      // Handle special commands that need local state
-      if (cmd.id === "session.new") {
-        showNewSessionDialog = true;
-        return;
-      }
-      if (cmd.id === "app.settings") {
-        showSettings = !showSettings;
-        if (showSettings) showNotes = false;
-        return;
-      }
-      if (cmd.id === "ui.toggle-notes") {
-        showNotes = !showNotes;
-        if (showNotes) showSettings = false;
-        return;
-      }
-      if (cmd.id === "ui.toggle-watches") {
-        showWatches = !showWatches;
-        if (showWatches) { showSettings = false; showNotes = false; showNotifications = false; }
-        return;
-      }
-      if (cmd.id === "ui.toggle-notifications") {
-        showNotifications = !showNotifications;
-        if (showNotifications) { showSettings = false; showNotes = false; showWatches = false; }
-        return;
-      }
-      if (cmd.id === "app.command-palette") {
-        showPalette = true;
-        return;
-      }
-
-      if (cmd.execute) void cmd.execute();
+      executeCommandById(cmd.id);
     }
   }
 
@@ -512,12 +627,32 @@
 />
 
 <CommandPalette
-  open={showPalette}
-  onclose={() => (showPalette = false)}
+  open={$commandSurface.open && $commandSurface.mode === "palette"}
+  onclose={closeCommandSurface}
   onNewSession={() => (showNewSessionDialog = true)}
   onSettings={() => (showSettings = !showSettings)}
   onCheckForUpdates={() => { showSettings = true; void runManualCheck(); }}
 />
+
+{#if $commandSurface.open && $commandSurface.mode === "leader"}
+  {@const leaderState = resolveLeaderSequence($commandSurface.leaderSequence)}
+  {@const visibleLeaderHints = getVisibleLeaderHints(
+    $commandSurface.leaderSequence,
+    isLeaderCommandAvailable,
+  )}
+  {#if leaderState.kind === "pending" || $commandSurface.leaderPromptCommandId}
+    <LeaderHud
+      title={leaderState.kind === "pending" ? leaderState.title : "Leader"}
+      sequence={$commandSurface.leaderSequence}
+      hints={leaderState.kind === "pending" ? visibleLeaderHints : []}
+      promptLabel={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.label ?? "Input" : null}
+      promptPlaceholder={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.inputPlaceholder ?? "" : null}
+      promptValue={$commandSurface.leaderPromptValue}
+      onPromptInput={setLeaderPromptValue}
+      onPromptSubmit={submitLeaderPrompt}
+    />
+  {/if}
+{/if}
 
 <UpdateBanner />
 
