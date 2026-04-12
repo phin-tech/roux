@@ -507,6 +507,18 @@ export function toggleStack(sessionId: string): void {
   setLogicalFocus(focused);
 }
 
+/** Whether the focused pane has a parent split whose stacked state can be toggled. */
+export function canToggleStack(sessionId: string): boolean {
+  const focused = get(focusedPaneId);
+  if (!focused) return false;
+  const tree = get(sessionLayouts).get(sessionId);
+  if (!tree) return false;
+
+  const path: number[] = [];
+  if (!buildSplitPath(tree, focused, path)) return false;
+  return ancestorSplitDepths(tree, path).length > 0;
+}
+
 /** Switch the active stack tab within a stacked split. */
 export function setActiveStackIndex(sessionId: string, index: number): void {
   const focused = get(focusedPaneId);

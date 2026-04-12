@@ -89,6 +89,13 @@ export function registerUiCommands() {
   });
 
   registry.register({
+    id: "app.leader-mode",
+    label: "Leader Mode",
+    shortcut: "cmd+;",
+    category: "App",
+  });
+
+  registry.register({
     id: "app.check-updates",
     label: "Check for Updates",
     category: "App",
