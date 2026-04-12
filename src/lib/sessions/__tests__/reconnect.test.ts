@@ -62,7 +62,7 @@ function makePayloadWithShells(sessionId: string, shells: Array<{ id: string; wo
     ...shells.map((s) => ({ kind: "leaf" as const, paneId: s.id })),
   ];
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     layout: { kind: "split", direction: "h" as const, children },
     descriptors: [
       // The session-primary pane is a shell whose ptyId matches the
@@ -198,7 +198,7 @@ describe("reconnectSession — full rehydration", () => {
     initSession(session.id);
 
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       layout: { kind: "leaf", paneId: `${session.id}-main` },
       descriptors: [{ id: `${session.id}-main`, type: "shell", ptyId: session.id }],
     } satisfies PaneStatePayload);
@@ -326,7 +326,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       layout: {
         kind: "split",
         direction: "h",
@@ -363,7 +363,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       layout: {
         kind: "split",
         direction: "h",
@@ -394,7 +394,7 @@ describe("reconnectSession — full rehydration", () => {
     const mainId = `${session.id}-main`;
     // Corrupt: leaf in tree with no matching descriptor
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       layout: {
         kind: "split",
         direction: "h",
