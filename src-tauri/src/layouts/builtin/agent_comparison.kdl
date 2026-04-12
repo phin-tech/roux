@@ -1,0 +1,9 @@
+layout {
+    name "Agent comparison"
+    description "Claude and Codex side-by-side (nono wrapping not applied in v1)"
+
+    pane split_direction="horizontal" {
+        pane profile="claude" name="claude" size=50
+        pane profile="codex"  name="codex"  size=50
+    }
+}
