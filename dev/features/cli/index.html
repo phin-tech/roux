@@ -684,9 +684,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
+  <a href="#scripting-agent-to-agent-examples" class="md-nav__link">
     <span class="md-ellipsis">
-      Example
+      Scripting &amp; agent-to-agent examples
     </span>
   </a>
   
@@ -834,9 +834,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
+  <a href="#scripting-agent-to-agent-examples" class="md-nav__link">
     <span class="md-ellipsis">
-      Example
+      Scripting &amp; agent-to-agent examples
     </span>
   </a>
   
@@ -878,19 +878,38 @@
 <p>Then <code>roux --help</code> should work from any terminal.</p>
 <h2 id="what-it-can-do">What it can do<a class="headerlink" href="#what-it-can-do" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Create a new session in a given project</li>
-<li>Split the active pane horizontally or vertically</li>
-<li>Send text to a target pane (useful for pasting a prompt from a script)</li>
-<li>Focus a pane by id or direction</li>
-<li>Run a shell command in a new pane</li>
+<li>Open / focus a session for a directory and raise the app window (<code>roux app .</code>)</li>
+<li>Create, list, and poll sessions (<code>roux session create|list|poll</code>)</li>
+<li>Send keystrokes to a specific session's PTY (<code>roux session send</code>)</li>
+<li>List and create panes inside a session (<code>roux session panes list|create</code>)</li>
+<li>Split the active pane horizontally or vertically (<code>roux split</code>)</li>
+<li>Focus a pane by id (<code>roux focus</code>)</li>
+<li>Run a shell command in a new pane (<code>roux run</code>)</li>
+<li>Push notifications (<code>roux notify</code>)</li>
 </ul>
-<h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
-<p>Open a new session in the current directory:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>roux<span class="w"> </span>session<span class="w"> </span>new<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">&quot;</span>
+<h2 id="scripting-agent-to-agent-examples">Scripting &amp; agent-to-agent examples<a class="headerlink" href="#scripting-agent-to-agent-examples" title="Permanent link">&para;</a></h2>
+<p>Open (or focus) Roux at the current directory:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>roux<span class="w"> </span>app<span class="w"> </span>.
 </span></code></pre></div>
-<p>Split the active pane and run <code>npm run test:watch</code> inside it:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>roux<span class="w"> </span>split<span class="w"> </span>--direction<span class="w"> </span>vertical<span class="w"> </span>--command<span class="w"> </span><span class="s2">&quot;npm run test:watch&quot;</span>
+<p>Create a new session with a fresh worktree:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;review&quot;</span><span class="w"> </span>--worktree-branch<span class="w"> </span>feat/review
 </span></code></pre></div>
+<p>Poll a session's status from another agent:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nv">status</span><span class="o">=</span><span class="k">$(</span>roux<span class="w"> </span>session<span class="w"> </span>poll<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$OTHER_SESSION_ID</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span>.status<span class="k">)</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$status</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;idle&quot;</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s2">&quot;review this PR&quot;</span><span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$OTHER_SESSION_ID</span><span class="s2">&quot;</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">fi</span>
+</span></code></pre></div>
+<p>Send raw bytes without appending Enter:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s1">$&#39;\x03&#39;</span><span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--no-enter<span class="w">   </span><span class="c1"># ctrl-c</span>
+</span></code></pre></div>
+<p>List panes in a session (live snapshot from the UI):</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>list<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
+</span></code></pre></div>
+<p>Open a new shell pane alongside the main agent:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>plain-shell<span class="w"> </span>--direction<span class="w"> </span>vertical
+</span></code></pre></div>
+<p>Inside a Roux-managed PTY, <code>$ROUX_SESSION_ID</code> and <code>$ROUX_PANE_ID</code> are set, so most <code>-s</code> / <code>-p</code> flags are optional.</p>
 <p>See <code>roux --help</code> and <code>roux &lt;subcommand&gt; --help</code> for the authoritative list of commands and flags.</p>
 
 
