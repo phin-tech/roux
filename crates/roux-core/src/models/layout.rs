@@ -686,6 +686,8 @@ fn parse_inline_profile(
         cwd_override: None,
         icon: None,
         provider: kind,
+        nono_profile: None,
+        nono_allow_dirs: None,
         source: ProfileSource::Inline,
     })
 }

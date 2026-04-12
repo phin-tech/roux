@@ -44,12 +44,16 @@ export async function createSessionShell(
   name: string,
   worktreePath: string | null,
   branch: string | null,
+  nonoProfile?: string | null,
+  nonoAllowDirs?: string[] | null,
 ): Promise<Session> {
   return invoke("create_session_shell", {
     repoPath,
     name,
     worktreePath,
     branch,
+    nonoProfile: nonoProfile ?? null,
+    nonoAllowDirs: nonoAllowDirs ?? null,
   });
 }
 
@@ -79,8 +83,12 @@ export async function reconnectSessionPty(
  * spawn profiles — the caller replays the profile's setup / startup
  * commands into the fresh shell after this resolves.
  */
-export async function reconnectSessionShellPty(id: string): Promise<Session> {
-  return invoke("reconnect_session_shell", { id });
+export async function reconnectSessionShellPty(
+  id: string,
+  nonoProfile?: string | null,
+  nonoAllowDirs?: string[] | null,
+): Promise<Session> {
+  return invoke("reconnect_session_shell", { id, nonoProfile: nonoProfile ?? null, nonoAllowDirs: nonoAllowDirs ?? null });
 }
 
 export async function writeToSession(
@@ -120,8 +128,10 @@ export async function spawnShell(
   workingDir: string,
   sessionId: string | null,
   paneId: string | null,
+  nonoProfile?: string | null,
+  nonoAllowDirs?: string[] | null,
 ): Promise<void> {
-  return invoke("spawn_shell", { id, workingDir, sessionId, paneId });
+  return invoke("spawn_shell", { id, workingDir, sessionId, paneId, nonoProfile: nonoProfile ?? null, nonoAllowDirs: nonoAllowDirs ?? null });
 }
 
 export async function spawnTask(
@@ -362,6 +372,20 @@ export interface RouxCommand {
   direction?: string;
   command?: string;
   workingDir?: string;
+  profileId?: string;
+  requestId?: string;
+}
+
+/**
+ * Reply to a socket-initiated request/response round-trip. The `requestId`
+ * comes from the matching `roux-command` event; `data` is the JSON payload
+ * the waiting CLI caller will receive.
+ */
+export async function submitRouxReply(
+  requestId: string,
+  data: unknown,
+): Promise<void> {
+  return invoke("submit_roux_reply", { requestId, data });
 }
 
 export function onRouxCommand(

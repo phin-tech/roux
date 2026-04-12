@@ -367,6 +367,43 @@ pub fn cwd_for_pid(_pid: u32) -> Option<String> {
     None
 }
 
+/// Nono sandbox configuration for a shell PTY. When present, the shell
+/// is spawned inside `nono run` with the given profile and directory
+/// allowances.
+#[derive(Debug, Clone)]
+pub struct NonoConfig {
+    pub profile: String,
+    pub allow_dirs: Vec<String>,
+}
+
+impl NonoConfig {
+    /// Resolve `~` to the user's home directory and relative paths
+    /// against `working_dir`. Nono receives arguments via CommandBuilder
+    /// (no shell expansion), so tilde must be expanded here.
+    pub fn resolved_allow_dirs(&self, working_dir: &str) -> Vec<String> {
+        let home = dirs::home_dir().unwrap_or_default();
+        self.allow_dirs
+            .iter()
+            .map(|d| {
+                if d == "~" {
+                    home.to_string_lossy().into_owned()
+                } else if d.starts_with("~/") {
+                    home.join(d.strip_prefix("~/").unwrap())
+                        .to_string_lossy()
+                        .into_owned()
+                } else if !d.starts_with('/') {
+                    std::path::Path::new(working_dir)
+                        .join(d)
+                        .to_string_lossy()
+                        .into_owned()
+                } else {
+                    d.clone()
+                }
+            })
+            .collect()
+    }
+}
+
 pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
@@ -481,6 +518,7 @@ impl PtyManager {
         working_dir: &str,
         session_id: Option<&str>,
         pane_id: Option<&str>,
+        nono: Option<&NonoConfig>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
@@ -491,9 +529,25 @@ impl PtyManager {
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let user_path = get_user_path();
-        rlog!("Spawning shell '{}' for pane '{}' in '{}'", shell, id, working_dir);
+        let nono_label = nono.map(|n| format!(" (nono profile={})", n.profile)).unwrap_or_default();
+        rlog!("Spawning shell '{}' for pane '{}' in '{}'{}", shell, id, working_dir, nono_label);
 
-        let mut cmd = CommandBuilder::new(&shell);
+        let mut cmd = if let Some(nono) = nono {
+            let mut c = CommandBuilder::new("nono");
+            c.arg("run");
+            c.arg("--profile");
+            c.arg(&nono.profile);
+            c.arg("--allow-cwd");
+            for dir in &nono.resolved_allow_dirs(working_dir) {
+                c.arg("--allow-dir");
+                c.arg(dir);
+            }
+            c.arg("--");
+            c.arg(&shell);
+            c
+        } else {
+            CommandBuilder::new(&shell)
+        };
         apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
         cmd.cwd(working_dir);
 
@@ -974,5 +1028,63 @@ mod tests {
     fn cwd_for_pid_returns_none_for_nonexistent_pid() {
         // PID 0 is never a real process on macOS or Linux.
         assert!(cwd_for_pid(0).is_none());
+    }
+}
+
+#[cfg(test)]
+mod nono_tests {
+    use super::*;
+
+    #[test]
+    fn resolved_allow_dirs_expands_tilde() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec!["~/data".into()],
+        };
+        let resolved = nono.resolved_allow_dirs("/work");
+        assert!(resolved[0].starts_with('/'), "should be absolute: {}", resolved[0]);
+        assert!(resolved[0].ends_with("/data"), "should end with /data: {}", resolved[0]);
+        assert!(!resolved[0].contains('~'), "should not contain tilde: {}", resolved[0]);
+    }
+
+    #[test]
+    fn resolved_allow_dirs_resolves_relative() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec!["local/dir".into()],
+        };
+        let resolved = nono.resolved_allow_dirs("/work/project");
+        assert_eq!(resolved[0], "/work/project/local/dir");
+    }
+
+    #[test]
+    fn resolved_allow_dirs_passes_absolute_through() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec!["/tmp/scratch".into()],
+        };
+        let resolved = nono.resolved_allow_dirs("/work");
+        assert_eq!(resolved[0], "/tmp/scratch");
+    }
+
+    #[test]
+    fn resolved_allow_dirs_handles_bare_tilde() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec!["~".into()],
+        };
+        let resolved = nono.resolved_allow_dirs("/work");
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(resolved[0], home.to_string_lossy());
+    }
+
+    #[test]
+    fn resolved_allow_dirs_handles_empty() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec![],
+        };
+        let resolved = nono.resolved_allow_dirs("/work");
+        assert!(resolved.is_empty());
     }
 }
