@@ -19,7 +19,7 @@
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
   import { getXtermTheme } from "$lib/themes";
-  import { reconnectSession, reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
+  import { reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
   import { log, logError } from "$lib/logging";
   import SessionPicker from "./SessionPicker.svelte";
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
@@ -184,7 +184,7 @@
   async function reconnect(extraFlags?: string[]) {
     if (!session) return;
     try {
-      await reconnectSession(session, extraFlags);
+      await reconnectSessionShell(session, extraFlags);
     } catch (e: any) {
       if (e?.message?.includes("already in progress")) {
         log(`Reconnect for ${sessionId} skipped — already in progress`);

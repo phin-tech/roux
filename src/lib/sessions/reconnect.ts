@@ -1,11 +1,11 @@
 import { get } from "svelte/store";
 import type { Session } from "$lib/types";
 import { updateSessionStatus } from "$lib/stores/sessions";
-import { reconnectSessionPty, reconnectSessionShellPty, spawnShell } from "$lib/tauri";
+import { reconnectSessionShellPty, spawnShell } from "$lib/tauri";
 import { replacePty, createPane, updateInstance, getInstance } from "$lib/panes/instances";
 import { sessionLayouts, collectLeafIds, type LayoutNode } from "$lib/panes/layout";
 import { loadPaneState, stripCommandPanes, type PaneDescriptor, type PaneStatePayload } from "$lib/panes/persistence";
-import { resolveProfileRef } from "$lib/panes/profiles";
+import { resolveProfileRef, type SpawnProfile } from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
 import { log } from "$lib/logging";
 
@@ -131,6 +131,8 @@ async function rehydratePane(
         descriptor.workingDir ?? sessionWorktreePath,
         sessionId,
         paneId,
+        descriptor.nonoProfile ?? null,
+        descriptor.nonoAllowDirs ?? null,
       );
       createPane({
         id: paneId,
@@ -143,6 +145,8 @@ async function rehydratePane(
         // restart. Dropping this silently reverted every restored
         // pane to "plain shell" in the UI.
         spawnProfileRef: descriptor.spawnProfileRef,
+        nonoProfile: descriptor.nonoProfile,
+        nonoAllowDirs: descriptor.nonoAllowDirs,
       });
     } catch (e) {
       const errMsg = String(e);
@@ -154,6 +158,8 @@ async function rehydratePane(
         name: descriptor.name,
         workingDir: descriptor.workingDir,
         spawnProfileRef: descriptor.spawnProfileRef,
+        nonoProfile: descriptor.nonoProfile,
+        nonoAllowDirs: descriptor.nonoAllowDirs,
       });
       updateInstance(paneId, { restoreError: errMsg });
     }
@@ -163,8 +169,16 @@ async function rehydratePane(
   // command panes are stripped before rehydration; this branch is unreachable
 }
 
-// ── Primary-pane-only reconnect (extracted from original reconnectSession) ──
+// ── Primary-pane-only reconnect (shell path) ────────────────────────────────
 
+/**
+ * Reconnect the session-owned primary PTY by respawning a plain shell on
+ * the backend, re-attaching pane listeners, and replaying the pane's
+ * resolved spawn profile. Extra flags (Continue / Resume / New from the
+ * Claude-builtin SessionPicker) are appended to the profile's startup
+ * command before replay, so the flags are typed into the shell rather
+ * than passed to a direct binary launch.
+ */
 async function reconnectPrimaryPaneOnly(
   session: Session,
   extraFlags?: string[],
@@ -175,12 +189,47 @@ async function reconnectPrimaryPaneOnly(
       `reconnectSession(${session.id}): no primary pane found to reconnect`,
     );
   }
+
+  // Read nono config from the live primary pane instance so the respawn
+  // lands in the same sandbox the pane started in.
+  const instance = getInstance(primaryPaneId);
+  const nonoProfile = instance?.nonoProfile ?? null;
+  const nonoAllowDirs = instance?.nonoAllowDirs ?? null;
+
   replacePty(primaryPaneId, session.id);
-  const updated = await reconnectSessionPty(session.id, extraFlags);
+  const updated = await reconnectSessionShellPty(
+    session.id,
+    nonoProfile,
+    nonoAllowDirs,
+  );
   const { attachPtyListeners } = await import("$lib/panes/terminals");
   await attachPtyListeners(primaryPaneId);
   updateSessionStatus(session.id, updated.status as Session["status"]);
-  log(`Session ${session.id} reconnected (primary pane only)`);
+
+  // Replay the primary pane's profile, appending any extra flags to the
+  // startup command so Claude's Continue/Resume/New flows still work.
+  // A replay failure is logged, not surfaced — the shell itself is alive.
+  const profile = resolveProfileRef(instance?.spawnProfileRef);
+  if (profile) {
+    let effectiveProfile: SpawnProfile = profile;
+    if (extraFlags?.length) {
+      const baseCmd = profile.startupCommand ?? "";
+      const combined = `${baseCmd} ${extraFlags.join(" ")}`.trim();
+      effectiveProfile = {
+        ...profile,
+        startupCommand: combined.length ? combined : undefined,
+      };
+    }
+    try {
+      await runProfileInPane(session.id, effectiveProfile);
+    } catch (e) {
+      log(
+        `reconnectPrimaryPaneOnly(${session.id}): profile "${profile.id}" replay failed — ${e}`,
+      );
+    }
+  }
+
+  log(`Session ${session.id} reconnected (primary pane only, shell path)`);
   return updated;
 }
 
@@ -302,53 +351,17 @@ export async function reconnectSession(
  * on the primary pane's spawnProfileRef — Claude-builtin uses
  * `reconnectSession`, everything else uses this one.
  */
-export async function reconnectSessionShell(session: Session): Promise<Session> {
+export async function reconnectSessionShell(
+  session: Session,
+  extraStartupFlags?: string[],
+): Promise<Session> {
   if (reconnecting.has(session.id)) {
     throw new Error(`Reconnect already in progress for ${session.id}`);
   }
   reconnecting.add(session.id);
   try {
     log(`Reconnecting shell session ${session.id} (${session.name})`);
-
-    const primaryPaneId = findSessionPrimaryPaneId(session.id);
-    if (!primaryPaneId) {
-      throw new Error(
-        `reconnectSessionShell(${session.id}): no primary pane found to reconnect`,
-      );
-    }
-
-    // Point the frontend pane at the same session id — the Rust side
-    // keys the shell PTY under session.id, identical to create_session
-    // and create_session_shell. `replacePty` clears any stale listeners
-    // before we attach the fresh ones.
-    replacePty(primaryPaneId, session.id);
-
-    const updated = await reconnectSessionShellPty(session.id);
-
-    const { attachPtyListeners } = await import("$lib/panes/terminals");
-    await attachPtyListeners(primaryPaneId);
-    updateSessionStatus(session.id, updated.status as Session["status"]);
-
-    // Re-run the pane's profile commands so the agent (Codex, a user
-    // profile, etc.) comes back up automatically. Plain-shell panes
-    // have no commands so this is a no-op for them. A profile-replay
-    // failure during reconnect is logged but not fatal: the shell is
-    // alive, and firing a startup-time notification before the window
-    // has any UI context is worse than quiet.
-    const instance = getInstance(primaryPaneId);
-    const profile = resolveProfileRef(instance?.spawnProfileRef);
-    if (profile) {
-      try {
-        await runProfileInPane(session.id, profile);
-      } catch (e) {
-        log(
-          `reconnectSessionShell(${session.id}): profile "${profile.id}" replay failed — ${e}`,
-        );
-      }
-    }
-
-    log(`Session ${session.id} reconnected (shell path)`);
-    return updated;
+    return await reconnectPrimaryPaneOnly(session, extraStartupFlags);
   } finally {
     reconnecting.delete(session.id);
   }
@@ -360,7 +373,14 @@ export async function retryShellPane(paneId: string, sessionId: string): Promise
 
   const ptyId = crypto.randomUUID();
   try {
-    await spawnShell(ptyId, instance.workingDir ?? "", sessionId, paneId);
+    await spawnShell(
+      ptyId,
+      instance.workingDir ?? "",
+      sessionId,
+      paneId,
+      instance.nonoProfile ?? null,
+      instance.nonoAllowDirs ?? null,
+    );
     updateInstance(paneId, { ptyId, restoreError: undefined });
     const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
     initTerminal(paneId);

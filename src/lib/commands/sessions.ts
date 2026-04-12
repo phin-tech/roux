@@ -5,7 +5,7 @@ import { initSessionWithProfile } from "$lib/panes/actions";
 import { createSessionShell, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
 import type { SpawnProfileRef } from "$lib/panes/profiles";
 import { closeSession } from "$lib/sessions/close";
-import { reconnectSession } from "$lib/sessions/reconnect";
+import { reconnectSessionShell } from "$lib/sessions/reconnect";
 
 export function registerSessionCommands() {
   // -- Multi-step: Switch Session --
@@ -42,7 +42,7 @@ export function registerSessionCommands() {
     available: () => queries.activeSession()?.status === "disconnected",
     execute: async () => {
       const session = queries.activeSession();
-      if (session) await reconnectSession(session);
+      if (session) await reconnectSessionShell(session);
     },
   });
 
