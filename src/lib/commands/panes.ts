@@ -434,7 +434,7 @@ export function registerPaneCommands() {
     label: "Toggle Stack",
     shortcut: "cmd+shift+s",
     category: "Panes",
-    available: () => queries.canSplitPane(),
+    available: () => queries.canTogglePaneStack(),
     execute: () => {
       const activeId = queries.activeSessionId();
       if (activeId) toggleStack(activeId);

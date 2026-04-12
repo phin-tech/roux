@@ -1,4 +1,5 @@
 mod events;
+mod layout;
 mod notification;
 mod profile;
 mod session;
@@ -9,6 +10,10 @@ mod watch;
 mod task;
 
 pub use events::{SessionExitPayload, SessionExitReason, RouxCommand};
+pub use layout::{
+    parse_layout_kdl, LayoutPaneNode, LayoutParseError, LayoutProfileRef, LayoutSource,
+    LayoutSpec, LayoutSplitDirection,
+};
 pub use notification::{
     ActionKind, Notification, NotificationAction, NotificationEvent, NotificationLevel,
     NotificationRequest, NotificationSource,

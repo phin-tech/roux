@@ -19,6 +19,34 @@ The full set of built-in shortcuts. All shortcuts are also visible in the comman
 
 The pane-focus shortcuts target the Nth visible pane in the active session (depth-first, left-to-right). Hold ++alt++ on its own to see each pane's digit drawn centered over it.
 
+## Leader mode
+
+Roux also has a Vimish leader-mode surface for pane and session commands:
+
+- ++cmd+;++ — open leader mode
+- ++escape++ — cancel leader mode
+- ++backspace++ — move back up one leader level
+- ++space++ — expand into the full command palette
+
+### Pane leader keys
+
+- ++cmd+; w++ — pane commands
+- ++h++ / ++j++ / ++k++ / ++l++ — move focus between panes
+- ++s++ — split horizontally
+- ++v++ — split vertically
+- ++r++ — rename the active pane inline
+- ++d++ — close the active pane
+- ++f++ — toggle fullscreen on the active pane
+- ++t++ — toggle stack when the focused pane belongs to a splittable parent
+
+### Session leader keys
+
+- ++cmd+; b++ — session commands
+- ++n++ — new session
+- ++d++ — close session
+- ++r++ — reconnect session
+- ++e++ — open the session worktree in your editor
+
 ## Sessions and windows
 
 | Action | Shortcut |

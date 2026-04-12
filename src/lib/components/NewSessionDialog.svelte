@@ -9,8 +9,11 @@
     listNonoProfiles,
     checkIsGitRepo,
     gitInit,
+    killSession,
   } from "$lib/tauri";
-  import { addSession } from "$lib/stores/sessions";
+  import { addSession, removeSession } from "$lib/stores/sessions";
+  import { layoutList, type LayoutSpec } from "$lib/panes/layouts";
+  import { applyLayoutToSession, type LayoutApplyError } from "$lib/panes/layoutRunner";
   import { initSessionWithProfile } from "$lib/panes/actions";
   import { settings } from "$lib/stores/settings";
   import {
@@ -46,6 +49,13 @@
   let selectedProfileId = $state<string>("claude");
   let inlineProfile = $state<SpawnProfile | null>(null);
   let showCustomEditor = $state(false);
+
+  // Layout selection
+  let selectedLayoutId = $state<string>("");
+  let selectedLayout = $derived.by<LayoutSpec | null>(() => {
+    if (!selectedLayoutId) return null;
+    return $layoutList.find((l) => l.id === selectedLayoutId) ?? null;
+  });
 
   // Resolve the currently-selected profile object. Built-in / user profiles
   // come from the registry; inline ones from local state.
@@ -130,7 +140,7 @@
       error = "Branch name is required for new worktrees";
       return;
     }
-    if (!selectedProfile) {
+    if (!selectedLayout && !selectedProfile) {
       error = "Pick a spawn profile (or use Custom…).";
       return;
     }
@@ -146,13 +156,44 @@
               "-" +
               (mode === "new" ? branchName : selectedWorktree?.branch ?? "main"));
 
-      log(
-        `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, profile=${selectedProfile.id}`,
-      );
-
       const worktreePathArg =
         mode === "existing" ? selectedWorktree?.path ?? null : null;
       const branchArg = mode === "new" ? branchName.trim() : null;
+
+      if (selectedLayout) {
+        log(
+          `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, layout=${selectedLayout.id}`,
+        );
+        const session = await createSessionShell(
+          repoPath,
+          name,
+          worktreePathArg,
+          branchArg,
+        );
+        log(`Session created via layout: ${session.id}`);
+        addSession(session);
+
+        const layoutResult = await applyLayoutToSession(session, selectedLayout);
+        if (!layoutResult.ok) {
+          try { await killSession(session.id); } catch { /* best-effort */ }
+          removeSession(session.id);
+          error = renderLayoutError(layoutResult.error);
+          return;
+        }
+        if (layoutResult.warnings.length > 0) {
+          log(`Layout applied with ${layoutResult.warnings.length} warning(s): ${layoutResult.warnings.join("; ")}`);
+        }
+        resetAndClose();
+        return;
+      }
+
+      // Past this point selectedLayout is null, so the validation guard
+      // above guarantees selectedProfile is non-null.
+      const profile = selectedProfile!;
+
+      log(
+        `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, profile=${profile.id}`,
+      );
 
       let session: Awaited<ReturnType<typeof createSession>>;
       if (useLegacyClaudePath) {
@@ -188,9 +229,9 @@
       // Attach the chosen profile to the session's primary pane. Inline
       // profiles travel as full captures so they survive restart.
       const profileRef: SpawnProfileRef =
-        selectedProfile.source === "inline"
-          ? { kind: "inline", profile: selectedProfile }
-          : { kind: "registered", id: selectedProfile.id };
+        profile.source === "inline"
+          ? { kind: "inline", profile: profile }
+          : { kind: "registered", id: profile.id };
 
       const mainPaneId = initSessionWithProfile(session.id, profileRef);
       const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
@@ -202,7 +243,7 @@
       // claude directly, so there's nothing to type.
       if (!useLegacyClaudePath) {
         // session.id is also the PTY id for the session-owned shell.
-        await runProfileInPane(session.id, selectedProfile);
+        await runProfileInPane(session.id, profile);
       }
 
       resetAndClose();
@@ -211,6 +252,17 @@
       error = String(e);
     } finally {
       creating = false;
+    }
+  }
+
+  function renderLayoutError(err: LayoutApplyError): string {
+    switch (err.kind) {
+      case "missingProfile":
+        return `Layout references unknown profile "${err.profileId}"${err.paneName ? ` (pane "${err.paneName}")` : ""}`;
+      case "spawnFailed":
+        return `Failed to spawn pane${err.paneName ? ` "${err.paneName}"` : ""}: ${err.cause}`;
+      case "empty":
+        return "Layout is empty — no panes to create";
     }
   }
 
@@ -237,6 +289,7 @@
     error = "";
     selectedNonoProfile = null;
     skipPermissions = false;
+    selectedLayoutId = "";
     selectedProfileId = "claude";
     inlineProfile = null;
     showCustomEditor = false;
@@ -377,80 +430,110 @@
           </fieldset>
         {/if}
 
-        <!-- Spawn profile picker -->
+        <!-- Layout picker -->
         <div class="flex flex-col gap-1.5">
           <label
-            for="new-session-profile"
+            for="new-session-layout"
             class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
           >
-            Spawn profile
+            Layout
           </label>
           <select
-            id="new-session-profile"
+            id="new-session-layout"
             class="bg-bg-deep border border-border rounded-md px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim appearance-none cursor-pointer"
-            onchange={(e) => handleProfileSelect(e.currentTarget.value)}
+            onchange={(e) => { selectedLayoutId = e.currentTarget.value; }}
           >
-            {#each $profileList as profile}
+            <option value="">None (single pane)</option>
+            {#each $layoutList as layout}
               <option
-                value={profile.id}
-                selected={selectedProfileId === profile.id}
+                value={layout.id}
+                selected={selectedLayoutId === layout.id}
               >
-                {profile.name} {profile.source === "user" ? "(user)" : ""}
+                {layout.name}
               </option>
             {/each}
-            {#if inlineProfile}
-              <option value="__inline__" selected={selectedProfileId === "__inline__"}>
-                {inlineProfile.name} (custom)
-              </option>
-            {/if}
-            <option value="__custom__">Custom…</option>
           </select>
-          {#if selectedProfile && selectedProfile.startupCommand}
-            <p class="truncate font-mono text-[11px] text-text-muted">
-              $ {selectedProfile.startupCommand}
-            </p>
+          {#if selectedLayout?.description}
+            <p class="text-[11px] text-text-muted">{selectedLayout.description}</p>
           {/if}
         </div>
 
-        <!-- Nono sandbox profile -->
-        {#if nonoInstalled && useLegacyClaudePath}
+        {#if !selectedLayout}
+          <!-- Spawn profile picker -->
           <div class="flex flex-col gap-1.5">
             <label
-              for="new-session-nono"
+              for="new-session-profile"
               class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
             >
-              Sandbox Profile
-              <span class="font-normal normal-case tracking-normal">(nono.sh)</span>
+              Spawn profile
             </label>
             <select
-              id="new-session-nono"
+              id="new-session-profile"
               class="bg-bg-deep border border-border rounded-md px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim appearance-none cursor-pointer"
-              onchange={(e) => {
-                const val = e.currentTarget.value;
-                selectedNonoProfile = val === "" ? null : val;
-              }}
+              onchange={(e) => handleProfileSelect(e.currentTarget.value)}
             >
-              <option value="">None (bare claude)</option>
-              {#each nonoProfiles as profile}
-                <option value={profile} selected={selectedNonoProfile === profile}>{profile}</option>
+              {#each $profileList as profile}
+                <option
+                  value={profile.id}
+                  selected={selectedProfileId === profile.id}
+                >
+                  {profile.name} {profile.source === "user" ? "(user)" : ""}
+                </option>
               {/each}
+              {#if inlineProfile}
+                <option value="__inline__" selected={selectedProfileId === "__inline__"}>
+                  {inlineProfile.name} (custom)
+                </option>
+              {/if}
+              <option value="__custom__">Custom…</option>
             </select>
+            {#if selectedProfile && selectedProfile.startupCommand}
+              <p class="truncate font-mono text-[11px] text-text-muted">
+                $ {selectedProfile.startupCommand}
+              </p>
+            {/if}
           </div>
-        {/if}
 
-        <!-- Skip permissions checkbox (claude built-in path only) -->
-        {#if useLegacyClaudePath}
-          <label class="flex items-center gap-2.5 cursor-pointer group">
-            <input
-              type="checkbox"
-              bind:checked={skipPermissions}
-              class="w-4 h-4 rounded border border-border bg-bg-deep accent-amber-500 cursor-pointer"
-            />
-            <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">
-              Skip permission prompts
-            </span>
-            <span class="text-[10px] text-amber-400/70 font-mono">--dangerously-skip-permissions</span>
-          </label>
+          <!-- Nono sandbox profile -->
+          {#if nonoInstalled && useLegacyClaudePath}
+            <div class="flex flex-col gap-1.5">
+              <label
+                for="new-session-nono"
+                class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+              >
+                Sandbox Profile
+                <span class="font-normal normal-case tracking-normal">(nono.sh)</span>
+              </label>
+              <select
+                id="new-session-nono"
+                class="bg-bg-deep border border-border rounded-md px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim appearance-none cursor-pointer"
+                onchange={(e) => {
+                  const val = e.currentTarget.value;
+                  selectedNonoProfile = val === "" ? null : val;
+                }}
+              >
+                <option value="">None (bare claude)</option>
+                {#each nonoProfiles as profile}
+                  <option value={profile} selected={selectedNonoProfile === profile}>{profile}</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
+
+          <!-- Skip permissions checkbox (claude built-in path only) -->
+          {#if useLegacyClaudePath}
+            <label class="flex items-center gap-2.5 cursor-pointer group">
+              <input
+                type="checkbox"
+                bind:checked={skipPermissions}
+                class="w-4 h-4 rounded border border-border bg-bg-deep accent-amber-500 cursor-pointer"
+              />
+              <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">
+                Skip permission prompts
+              </span>
+              <span class="text-[10px] text-amber-400/70 font-mono">--dangerously-skip-permissions</span>
+            </label>
+          {/if}
         {/if}
 
         <!-- Session name -->

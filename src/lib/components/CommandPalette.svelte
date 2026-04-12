@@ -12,7 +12,13 @@
     onCheckForUpdates: () => void;
   }
 
-  let { open, onclose, onNewSession, onSettings, onCheckForUpdates }: Props = $props();
+  let {
+    open,
+    onclose,
+    onNewSession,
+    onSettings,
+    onCheckForUpdates,
+  }: Props = $props();
 
   let stepStack = $state<{ label: string; items: CmdItem[]; sourceCmd?: Cmd }[]>([]);
   let inputValue = $state("");
@@ -191,7 +197,9 @@
         loop={true}
         vimBindings={true}
       >
-        <div class="flex items-center gap-2 border-b border-border-subtle bg-bg-surface/55 px-5 py-4">
+        <div
+          class="flex items-center gap-2 border-b border-border-subtle bg-bg-surface/55 px-5 py-4"
+        >
           {#if inDrillStep}
             <button
               class="text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0 text-sm"

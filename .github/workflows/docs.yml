@@ -4,14 +4,15 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
     paths:
       - docs/**
       - mkdocs.yml
       - .github/workflows/docs.yml
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -25,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,8 +39,44 @@ jobs:
       - name: Install dependencies
         run: pip install -r docs/requirements.txt
 
-      - name: Build site
-        run: mkdocs build --strict
+      - name: Configure Git author
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+
+      - name: Fetch existing versioned docs
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages --depth=1
+          fi
+
+      - name: Publish dev docs
+        if: github.ref_type != 'tag'
+        run: |
+          mike deploy dev
+          if mike list latest >/dev/null 2>&1; then
+            echo "latest alias already exists; keeping it as the default."
+          else
+            mike set-default dev
+          fi
+
+      - name: Publish release docs
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          mike deploy --update-aliases "$VERSION" latest
+          mike set-default latest
+
+      - name: Archive versioned site
+        run: |
+          rm -rf site
+          mkdir -p site
+          git archive gh-pages | tar -x -C site
+
+      - name: Push gh-pages history
+        run: git push origin gh-pages
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

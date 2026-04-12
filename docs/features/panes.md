@@ -22,6 +22,15 @@ Move focus between panes using Alt + vim direction keys:
 - ++alt+k++ up
 - ++alt+l++ right
 
+For structural pane commands, use leader mode with ++cmd+;++. The pane group under ++w++ gives you a compact, keyboard-first command surface for focus movement, splits, rename, close, fullscreen, and stack toggling. Context-sensitive actions only appear when they make sense for the currently focused pane.
+
+Examples:
+
+- ++cmd+; w s++ split horizontally
+- ++cmd+; w v++ split vertically
+- ++cmd+; w r++ rename the active pane inline
+- ++cmd+; w d++ close the active pane
+
 ## Closing
 
 ++cmd+w++ closes the focused pane. If a pane hosts a Claude session, the session is stopped. If it hosts a shell, the shell is terminated.

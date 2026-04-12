@@ -1,6 +1,6 @@
 import { get } from "svelte/store";
 import { sessionState } from "$lib/stores/sessions";
-import { sessionLayouts } from "$lib/panes/layout";
+import { canToggleStack, sessionLayouts } from "$lib/panes/layout";
 import { focusedPaneId } from "$lib/panes/focus";
 import { getInstance } from "$lib/panes/instances";
 
@@ -36,6 +36,12 @@ export const queries = {
     const id = this.activeSessionId();
     if (!id) return false;
     return this.focusedPaneId() !== null;
+  },
+
+  canTogglePaneStack() {
+    const id = this.activeSessionId();
+    if (!id) return false;
+    return canToggleStack(id);
   },
 
   focusedPane() {

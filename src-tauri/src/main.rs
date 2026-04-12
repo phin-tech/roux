@@ -5,6 +5,7 @@ mod hooks;
 mod logging;
 mod platform;
 mod commands;
+mod layouts;
 mod notifications;
 mod pane_state;
 mod paths;
@@ -81,6 +82,8 @@ fn main() {
             commands::sessions::list_sessions,
             commands::sessions::list_claude_sessions,
             commands::sessions::get_builtin_profiles,
+            commands::layouts::get_builtin_layouts,
+            commands::layouts::get_user_layouts,
             commands::docs::read_file,
             commands::docs::write_file,
             commands::docs::list_docs,
@@ -168,6 +171,8 @@ fn main() {
             commands::sessions::list_sessions,
             commands::sessions::list_claude_sessions,
             commands::sessions::get_builtin_profiles,
+            commands::layouts::get_builtin_layouts,
+            commands::layouts::get_user_layouts,
             commands::docs::read_file,
             commands::docs::write_file,
             commands::docs::list_docs,
