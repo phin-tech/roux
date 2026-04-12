@@ -33,7 +33,7 @@ pub(crate) fn spawn_shell(
 ) -> Result<(), String> {
     state
         .pty_manager
-        .spawn_shell(&id, &working_dir, session_id.as_deref(), pane_id.as_deref(), app.clone())
+        .spawn_shell(&id, &working_dir, session_id.as_deref(), pane_id.as_deref(), None, app.clone())
         .map_err(|e| e.to_string())
 }
 

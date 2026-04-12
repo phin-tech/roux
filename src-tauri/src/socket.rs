@@ -240,6 +240,7 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         &working_dir,
         Some(session_id),
         Some(&pane_id),
+        None,
         app.clone(),
     ) {
         return Response::err(format!("Failed to spawn shell: {}", e));

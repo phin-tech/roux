@@ -188,6 +188,7 @@ pub(crate) async fn create_session_shell(
         &work_dir,
         Some(&session_id),
         Some(&pane_id),
+        None,
         app.clone(),
     );
 
@@ -313,6 +314,7 @@ pub(crate) async fn reconnect_session_shell(
             &session.worktree_path,
             Some(id),
             Some(&pane_id),
+            None,
             app.clone(),
         )
         .map_err(|e| anyhow!("{}", e))?;
