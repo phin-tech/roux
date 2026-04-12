@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://phin-tech.github.io/roux/dev/features/panes/">
+        <link rel="canonical" href="https://phin-tech.github.io/roux/dev/features/layouts/">
       
       
-        <link rel="prev" href="../../getting-started/">
+        <link rel="prev" href="../sessions/">
       
       
-        <link rel="next" href="../sessions/">
+        <link rel="next" href="../worktrees/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Panes - Roux</title>
+        <title>Layouts - Roux</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#panes" class="md-skip">
+        <a href="#layouts" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Panes
+              Layouts
             
           </span>
         </div>
@@ -278,7 +278,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+        <a href="../panes/" class="md-tabs__link">
           
   
     
@@ -512,30 +512,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    Panes
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../panes/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -544,71 +524,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#splitting" class="md-nav__link">
-    <span class="md-ellipsis">
-      Splitting
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#stacking" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stacking
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#focus" class="md-nav__link">
-    <span class="md-ellipsis">
-      Focus
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#closing" class="md-nav__link">
-    <span class="md-ellipsis">
-      Closing
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#persistence" class="md-nav__link">
-    <span class="md-ellipsis">
-      Persistence
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -639,10 +554,30 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../layouts/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Layouts
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -651,6 +586,137 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-layout-files-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      Where layout files live
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-layouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using layouts
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kdl-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      KDL schema
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="KDL schema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#leaf-panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Leaf panes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#split-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Split containers
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#built-in-layouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Built-in layouts
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Built-in layouts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#claude-shell" class="md-nav__link">
+    <span class="md-ellipsis">
+      Claude + shell
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent comparison
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Full example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      See also
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-v1-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Known v1 limitations
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -834,45 +900,111 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#splitting" class="md-nav__link">
+  <a href="#where-layout-files-live" class="md-nav__link">
     <span class="md-ellipsis">
-      Splitting
+      Where layout files live
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#stacking" class="md-nav__link">
+  <a href="#using-layouts" class="md-nav__link">
     <span class="md-ellipsis">
-      Stacking
+      Using layouts
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#focus" class="md-nav__link">
+  <a href="#kdl-schema" class="md-nav__link">
     <span class="md-ellipsis">
-      Focus
+      KDL schema
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="KDL schema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#leaf-panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Leaf panes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#split-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Split containers
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#built-in-layouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Built-in layouts
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Built-in layouts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#claude-shell" class="md-nav__link">
+    <span class="md-ellipsis">
+      Claude + shell
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent comparison
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Full example
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#closing" class="md-nav__link">
+  <a href="#see-also" class="md-nav__link">
     <span class="md-ellipsis">
-      Closing
+      See also
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#persistence" class="md-nav__link">
+  <a href="#known-v1-limitations" class="md-nav__link">
     <span class="md-ellipsis">
-      Persistence
+      Known v1 limitations
     </span>
   </a>
   
@@ -893,7 +1025,7 @@
                   
 
   
-    <a href="https://github.com/phin-tech/roux/edit/main/docs/features/panes.md" title="Edit this page" class="md-content__button md-icon">
+    <a href="https://github.com/phin-tech/roux/edit/main/docs/features/layouts.md" title="Edit this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -901,36 +1033,159 @@
   
 
 
-<h1 id="panes">Panes<a class="headerlink" href="#panes" title="Permanent link">&para;</a></h1>
-<p>Panes are the basic building block of a Roux window. Every Claude Code session, shell, document, or command runner lives inside a pane.</p>
-<h2 id="splitting">Splitting<a class="headerlink" href="#splitting" title="Permanent link">&para;</a></h2>
+<h1 id="layouts">Layouts<a class="headerlink" href="#layouts" title="Permanent link">&para;</a></h1>
+<p>A <strong>layout</strong> is a file-based session template that defines a pane tree with spawn profiles. Layouts are inputs, not state — they describe what to create, and user edits to panes after creation don't write back to the layout file.</p>
+<h2 id="where-layout-files-live">Where layout files live<a class="headerlink" href="#where-layout-files-live" title="Permanent link">&para;</a></h2>
 <ul>
-<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-d">D</kbd></span> — split horizontally (new pane to the right)</li>
-<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-d">D</kbd></span> — split vertically (new pane below)</li>
+<li><strong>Built-in layouts</strong> ship with the binary (two are included).</li>
+<li><strong>User layouts</strong> go in <code>~/.config/roux/layouts/*.kdl</code>. The directory is created automatically on first launch.</li>
 </ul>
-<p>Consecutive splits in the same direction are flattened into a single row or column, so your layout never accumulates redundant nesting.</p>
-<h2 id="stacking">Stacking<a class="headerlink" href="#stacking" title="Permanent link">&para;</a></h2>
-<p>Toggle stacking with <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-s">S</kbd></span>. Stacked panes behave like Zellij tabs: the active pane fills the space while inactive panes collapse into a title bar strip. Click a title bar to activate that pane.</p>
-<h2 id="focus">Focus<a class="headerlink" href="#focus" title="Permanent link">&para;</a></h2>
-<p>Move focus between panes using Alt + vim direction keys:</p>
+<p>User layouts override built-in layouts on id collision (the id is the filename stem, lowercased).</p>
+<h2 id="using-layouts">Using layouts<a class="headerlink" href="#using-layouts" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Open the new-session dialog (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-n">N</kbd></span>).</li>
+<li>Pick a layout from the <strong>Layout</strong> dropdown. The description appears below.</li>
+<li>When a layout is selected, the spawn-profile picker is hidden — the layout defines its own panes.</li>
+<li>Click <strong>Create Session</strong>. Roux creates the session, then splits and populates panes according to the layout.</li>
+</ol>
+<h2 id="kdl-schema">KDL schema<a class="headerlink" href="#kdl-schema" title="Permanent link">&para;</a></h2>
+<p>Layouts are written in <a href="https://kdl.dev">KDL</a>. The top-level node is <code>layout</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>layout {
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    name &quot;My Layout&quot;
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    description &quot;Optional one-liner shown in the picker&quot;
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    // pane tree goes here
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>}
+</span></code></pre></div>
+<h3 id="leaf-panes">Leaf panes<a class="headerlink" href="#leaf-panes" title="Permanent link">&para;</a></h3>
+<p>Reference a registered spawn profile by id:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pane profile=&quot;claude&quot;
+</span></code></pre></div>
+<p>Or define an inline profile:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pane name=&quot;my agent&quot; {
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    display_name &quot;My Agent&quot;
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    kind &quot;shell&quot;
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    setup_command &quot;export FOO=bar&quot;
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    startup_command &quot;my-agent start&quot;
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    startup_behavior &quot;run&quot;
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    env {
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>        KEY &quot;value&quot;
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    }
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>}
+</span></code></pre></div>
+<p>Inline profile fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>display_name</code></td>
+<td>no</td>
+<td>Shown in the pane title bar</td>
+</tr>
+<tr>
+<td><code>kind</code></td>
+<td>no</td>
+<td><code>shell</code> (default), <code>claude</code>, or <code>codex</code></td>
+</tr>
+<tr>
+<td><code>setup_command</code></td>
+<td>no</td>
+<td>Typed into the shell before the startup command</td>
+</tr>
+<tr>
+<td><code>startup_command</code></td>
+<td>no</td>
+<td>The main command to launch</td>
+</tr>
+<tr>
+<td><code>startup_behavior</code></td>
+<td>no</td>
+<td><code>run</code> (default), <code>auto_run</code>, or <code>type_only</code></td>
+</tr>
+<tr>
+<td><code>env</code></td>
+<td>no</td>
+<td>Child node with <code>KEY "value"</code> entries for environment variables</td>
+</tr>
+</tbody>
+</table>
+<h3 id="split-containers">Split containers<a class="headerlink" href="#split-containers" title="Permanent link">&para;</a></h3>
+<p>Wrap child panes in a split container:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pane split_direction=&quot;horizontal&quot; {
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    pane profile=&quot;claude&quot;      size=60
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    pane profile=&quot;plain-shell&quot; size=40
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>}
+</span></code></pre></div>
 <ul>
-<li><span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-h">H</kbd></span> left</li>
-<li><span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-j">J</kbd></span> down</li>
-<li><span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-k">K</kbd></span> up</li>
-<li><span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-l">L</kbd></span> right</li>
+<li><code>split_direction</code> — <code>horizontal</code> (left/right) or <code>vertical</code> (top/bottom).</li>
+<li><code>size</code> — proportional weight (0–100). Sibling sizes are normalized to fractions, so <code>60</code>/<code>40</code> gives a 60/40 split. If omitted, siblings share space equally.</li>
 </ul>
-<p>For structural pane commands, use leader mode with ++cmd+;++. The pane group under <span class="keys"><kbd class="key-w">W</kbd></span> gives you a compact, keyboard-first command surface for focus movement, splits, rename, close, fullscreen, and stack toggling. Context-sensitive actions only appear when they make sense for the currently focused pane.</p>
-<p>Examples:</p>
+<p>Splits can nest arbitrarily.</p>
+<h2 id="built-in-layouts">Built-in layouts<a class="headerlink" href="#built-in-layouts" title="Permanent link">&para;</a></h2>
+<h3 id="claude-shell">Claude + shell<a class="headerlink" href="#claude-shell" title="Permanent link">&para;</a></h3>
+<p>Claude on the left (60%), plain shell on the right (40%).</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>layout {
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    name &quot;Claude + shell&quot;
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    description &quot;Claude on the left, plain shell on the right&quot;
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    pane split_direction=&quot;horizontal&quot; {
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>        pane profile=&quot;claude&quot;      size=60
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>        pane profile=&quot;plain-shell&quot; size=40
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    }
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>}
+</span></code></pre></div>
+<h3 id="agent-comparison">Agent comparison<a class="headerlink" href="#agent-comparison" title="Permanent link">&para;</a></h3>
+<p>Claude and Codex side-by-side (50/50).</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>layout {
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    name &quot;Agent comparison&quot;
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    description &quot;Claude and Codex side-by-side (nono wrapping not applied in v1)&quot;
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    pane split_direction=&quot;horizontal&quot; {
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>        pane profile=&quot;claude&quot; name=&quot;claude&quot; size=50
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>        pane profile=&quot;codex&quot;  name=&quot;codex&quot;  size=50
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    }
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>}
+</span></code></pre></div>
+<h2 id="full-example">Full example<a class="headerlink" href="#full-example" title="Permanent link">&para;</a></h2>
+<p>A three-pane layout with Claude on the left, a shell and a test runner stacked vertically on the right:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>layout {
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    name &quot;Dev setup&quot;
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    description &quot;Claude + shell + tests&quot;
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    pane split_direction=&quot;horizontal&quot; {
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>        pane profile=&quot;claude&quot; size=60
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>        pane split_direction=&quot;vertical&quot; size=40 {
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>            pane profile=&quot;plain-shell&quot; size=50
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>            pane name=&quot;tests&quot; size=50 {
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>                kind &quot;shell&quot;
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>                startup_command &quot;npm run test:watch&quot;
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>                startup_behavior &quot;run&quot;
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>            }
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>        }
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>    }
+</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>}
+</span></code></pre></div>
+<p>Save this as <code>~/.config/roux/layouts/dev_setup.kdl</code> and it will appear in the layout dropdown next time you open the new-session dialog.</p>
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
-<li>++cmd+; w s++ split horizontally</li>
-<li>++cmd+; w v++ split vertically</li>
-<li>++cmd+; w r++ rename the active pane inline</li>
-<li>++cmd+; w d++ close the active pane</li>
+<li><a href="../panes/">Panes</a> — how splits and stacking work once the layout is applied</li>
+<li><a href="../sessions/">Sessions</a> — session lifecycle and persistence</li>
 </ul>
-<h2 id="closing">Closing<a class="headerlink" href="#closing" title="Permanent link">&para;</a></h2>
-<p><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-w">W</kbd></span> closes the focused pane. If a pane hosts a Claude session, the session is stopped. If it hosts a shell, the shell is terminated.</p>
-<h2 id="persistence">Persistence<a class="headerlink" href="#persistence" title="Permanent link">&para;</a></h2>
-<p>Layouts persist across restarts. Shell panes are respawned automatically; Claude session panes are recreated empty and you can start a new session inside them.</p>
+<h2 id="known-v1-limitations">Known v1 limitations<a class="headerlink" href="#known-v1-limitations" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Claude panes inside layouts are not nono-wrapped.</li>
+<li><code>cwd</code> attribute is reserved but not honored yet.</li>
+<li>Layouts only apply at session creation — no "apply to existing session."</li>
+<li>No "save current layout as file" — edit the <code>.kdl</code> files directly.</li>
+<li>No inline layout editor in the UI.</li>
+</ul>
 
 
 
