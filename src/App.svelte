@@ -490,6 +490,11 @@
               const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
               initTerminal(mainPaneId);
               await attachPtyListeners(mainPaneId);
+              // Replay the default Claude profile into the new shell
+              const { resolveProfileRef } = await import("$lib/panes/profiles");
+              const { runProfileInPane } = await import("$lib/panes/profileRunner");
+              const profile = resolveProfileRef({ kind: "registered", id: "claude" });
+              if (profile) await runProfileInPane(newSession.id, profile);
             }
           });
           break;

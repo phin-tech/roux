@@ -1,8 +1,9 @@
 import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { addSession, setActiveSession, triggerRename, setSessionProject } from "$lib/stores/sessions";
-import { initSession } from "$lib/panes/actions";
-import { createSession, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
+import { initSessionWithProfile } from "$lib/panes/actions";
+import { createSessionShell, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
+import type { SpawnProfileRef } from "$lib/panes/profiles";
 import { closeSession } from "$lib/sessions/close";
 import { reconnectSession } from "$lib/sessions/reconnect";
 
@@ -126,9 +127,17 @@ export function registerSessionCommands() {
         action: async () => {
           const repo = session.repoRoot;
           const name = repo.split("/").pop() + "-" + branch;
-          const newSession = await createSession(repo, name, null, branch);
+          const newSession = await createSessionShell(repo, name, null, branch);
           addSession(newSession);
-          initSession(newSession.id);
+          const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
+          const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
+          const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+          initTerminal(mainPaneId);
+          await attachPtyListeners(mainPaneId);
+          const { resolveProfileRef } = await import("$lib/panes/profiles");
+          const { runProfileInPane } = await import("$lib/panes/profileRunner");
+          const profile = resolveProfileRef(profileRef);
+          if (profile) await runProfileInPane(newSession.id, profile);
         },
       }));
     },
@@ -137,9 +146,17 @@ export function registerSessionCommands() {
       if (!session) return;
       const repo = session.repoRoot;
       const name = repo.split("/").pop() + "-" + branch;
-      const newSession = await createSession(repo, name, null, branch);
+      const newSession = await createSessionShell(repo, name, null, branch);
       addSession(newSession);
-      initSession(newSession.id);
+      const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
+      const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
+      const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+      initTerminal(mainPaneId);
+      await attachPtyListeners(mainPaneId);
+      const { resolveProfileRef } = await import("$lib/panes/profiles");
+      const { runProfileInPane } = await import("$lib/panes/profileRunner");
+      const profile = resolveProfileRef(profileRef);
+      if (profile) await runProfileInPane(newSession.id, profile);
     },
   });
 

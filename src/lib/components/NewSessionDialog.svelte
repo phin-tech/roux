@@ -2,7 +2,6 @@
   import { fade, scale } from "svelte/transition";
   import { open } from "@tauri-apps/plugin-dialog";
   import {
-    createSession,
     createSessionShell,
     listWorktrees,
     checkNonoInstalled,
@@ -64,26 +63,10 @@
     return $profileList.find((p) => p.id === selectedProfileId) ?? null;
   });
 
-  // True when the selected profile's startup behavior should go through
-  // the legacy Claude-spawning backend path (preserves nono wrapping).
-  // Any other profile uses createSessionShell + runProfileInPane.
-  //
-  // Gated on source === "builtin" too, because a user profile named
-  // "claude" overrides the built-in on id collision (see profiles.ts
-  // registry derived). Sending a user profile through the legacy path
-  // would silently ignore its setupCommand / startupCommand and respawn
-  // the real Claude binary, which is obviously not what the user wrote.
-  let useLegacyClaudePath = $derived(
-    !!selectedProfile &&
-      selectedProfile.id === "claude" &&
-      selectedProfile.source === "builtin",
-  );
-
   // Nono sandbox integration
   let nonoInstalled = $state(false);
   let nonoProfiles = $state<string[]>([]);
   let selectedNonoProfile = $state<string | null>(null);
-  let skipPermissions = $state(false);
 
   // Check for nono on mount and detect git repo for default path
   $effect(() => {
@@ -195,33 +178,16 @@
         `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, profile=${profile.id}`,
       );
 
-      let session: Awaited<ReturnType<typeof createSession>>;
-      if (useLegacyClaudePath) {
-        // Claude built-in profile + optional nono wrapping. Goes through
-        // the existing provider-aware spawn so nono and additional-flags
-        // continue to work exactly as before.
-        const extraFlags: string[] = [];
-        if (skipPermissions) {
-          extraFlags.push("--dangerously-skip-permissions");
-        }
-        session = await createSession(
-          repoPath,
-          name,
-          worktreePathArg,
-          branchArg,
-          extraFlags.length > 0 ? extraFlags : undefined,
-          selectedNonoProfile,
-        );
-      } else {
-        // Any other profile: spawn a plain shell, then type the profile's
-        // setup / startup commands into it after the PTY is attached.
-        session = await createSessionShell(
-          repoPath,
-          name,
-          worktreePathArg,
-          branchArg,
-        );
-      }
+      // Spawn a shell (optionally nono-wrapped), then type the profile's
+      // setup / startup commands into it after the PTY is attached.
+      const session = await createSessionShell(
+        repoPath,
+        name,
+        worktreePathArg,
+        branchArg,
+        selectedNonoProfile ?? undefined,
+        undefined,
+      );
 
       log(`Session created: ${session.id}`);
       addSession(session);
@@ -238,13 +204,9 @@
       initTerminal(mainPaneId);
       await attachPtyListeners(mainPaneId);
 
-      // For non-Claude paths, type the profile's commands into the new
-      // shell. Claude built-in + legacy path: backend already launched
-      // claude directly, so there's nothing to type.
-      if (!useLegacyClaudePath) {
-        // session.id is also the PTY id for the session-owned shell.
-        await runProfileInPane(session.id, profile);
-      }
+      // Type the profile's commands into the new shell.
+      // session.id is also the PTY id for the session-owned shell.
+      await runProfileInPane(session.id, profile);
 
       resetAndClose();
     } catch (e) {
@@ -288,7 +250,6 @@
     isGitRepo = false;
     error = "";
     selectedNonoProfile = null;
-    skipPermissions = false;
     selectedLayoutId = "";
     selectedProfileId = "claude";
     inlineProfile = null;
@@ -495,7 +456,7 @@
           </div>
 
           <!-- Nono sandbox profile -->
-          {#if nonoInstalled && useLegacyClaudePath}
+          {#if nonoInstalled}
             <div class="flex flex-col gap-1.5">
               <label
                 for="new-session-nono"
@@ -520,20 +481,6 @@
             </div>
           {/if}
 
-          <!-- Skip permissions checkbox (claude built-in path only) -->
-          {#if useLegacyClaudePath}
-            <label class="flex items-center gap-2.5 cursor-pointer group">
-              <input
-                type="checkbox"
-                bind:checked={skipPermissions}
-                class="w-4 h-4 rounded border border-border bg-bg-deep accent-amber-500 cursor-pointer"
-              />
-              <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">
-                Skip permission prompts
-              </span>
-              <span class="text-[10px] text-amber-400/70 font-mono">--dangerously-skip-permissions</span>
-            </label>
-          {/if}
         {/if}
 
         <!-- Session name -->

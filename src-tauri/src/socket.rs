@@ -181,14 +181,13 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         _ => SessionTarget::Repo,
     };
 
-    let session = match svc::create_session(
+    let session = match svc::create_session_shell(
         &state.pty_manager,
         &state.session_handle,
         &settings,
         &repo_path,
         &name,
         target,
-        &[],
         None,
         app,
     )
