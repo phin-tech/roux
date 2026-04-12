@@ -40,6 +40,7 @@
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, flushPaneState, loadPaneState } from "$lib/panes/persistence";
   import { loadBuiltinProfiles } from "$lib/panes/profiles";
+  import { loadBuiltinLayouts, loadUserLayouts } from "$lib/panes/layouts";
   import {
     customProfileModalState,
     submitCustomProfile,
@@ -405,6 +406,8 @@
     // restored panes can resolve { kind: "registered", id: "claude" } etc.
     // User profiles are already loaded by initSettings via setUserProfiles.
     void loadBuiltinProfiles();
+    void loadBuiltinLayouts();
+    void loadUserLayouts();
 
     // Start watching agent-state transitions so per-pane generating→idle
     // transitions fire a completion notification. Window-focus suppression

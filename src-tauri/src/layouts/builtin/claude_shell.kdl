@@ -1,0 +1,9 @@
+layout {
+    name "Claude + shell"
+    description "Claude on the left, plain shell on the right"
+
+    pane split_direction="horizontal" {
+        pane profile="claude"      size=60
+        pane profile="plain-shell" size=40
+    }
+}

@@ -66,6 +66,18 @@ export const commands = {
 	 *  has no side effects.
 	 */
 	getBuiltinProfiles: () => __TAURI_INVOKE<SpawnProfile[]>("get_builtin_profiles"),
+	/**
+	 *  Return the bundled built-in layouts. Parse errors here would be a
+	 *  programming bug (we shipped KDL that doesn't parse); they are logged to
+	 *  stderr so they show up in the dev console but the command still returns
+	 *  the successfully-parsed layouts.
+	 */
+	getBuiltinLayouts: () => __TAURI_INVOKE<LayoutSpec[]>("get_builtin_layouts"),
+	/**
+	 *  Return user-authored layouts from `~/.config/roux/layouts/*.kdl`. Same
+	 *  v1 policy as `get_builtin_layouts` — failures are logged, not surfaced.
+	 */
+	getUserLayouts: () => __TAURI_INVOKE<LayoutSpec[]>("get_user_layouts"),
 	readFile: (path: string) => typedError<string, string>(__TAURI_INVOKE("read_file", { path })),
 	writeFile: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file", { path, contents })),
 	listDocs: (dir: string) => typedError<DocFile[], string>(__TAURI_INVOKE("list_docs", { dir })),
@@ -153,6 +165,55 @@ export type GithubJob = {
 export type GroupBy = "repo" | "project";
 
 export type KeepOpen = "always" | "on-error" | "never";
+
+/**
+ *  A node in a layout's pane tree. Leaves spawn a single shell seeded from a
+ *  profile; splits hold ordered children and a direction. The `size` field is
+ *  a raw proportional weight in `[0, 100]`; normalization to pane-tree
+ *  fractions happens later in the frontend walker, not here.
+ * 
+ *  `Eq` is deliberately omitted: `size` is an `Option<f32>` and `f32` does
+ *  not implement `Eq`. Tests use `PartialEq` with exact float values, which
+ *  is fine because sizes come directly from literal tokens in the KDL source.
+ */
+export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
+
+/**
+ *  How a leaf pane references a spawn profile. Registered ids are looked up
+ *  at session-creation time against the merged profile registry; inline
+ *  profiles are authored directly in the layout file and carry their own
+ *  source = [`ProfileSource::Inline`].
+ */
+export type LayoutProfileRef = { kind: "registered"; id: string } | { kind: "inline"; profile: SpawnProfile };
+
+/**
+ *  Where a layout came from. Built-in layouts are bundled with the app;
+ *  user layouts live under `<config>/roux/layouts/` (Phase 2).
+ */
+export type LayoutSource = "builtin" | "user";
+
+/**
+ *  A parsed layout. `id` is derived by the loader from the filename stem
+ *  (Phase 2) and passed in to [`parse_layout_kdl`] — it is intentionally not
+ *  read from the KDL source itself so renaming a file renames the layout.
+ * 
+ *  `Eq` is omitted because the embedded [`LayoutPaneNode`] carries
+ *  `Option<f32>` sizes; see the note on [`LayoutPaneNode`].
+ */
+export type LayoutSpec = {
+	id: string,
+	name: string,
+	description?: string | null,
+	source: LayoutSource,
+	root: LayoutPaneNode,
+};
+
+/**
+ *  Direction of a split node in a layout. Matches `SplitDirection`
+ *  in `src/lib/panes/layout.ts` (`h`/`v`) but spelled out for KDL
+ *  authors who will reach for the Zellij spellings.
+ */
+export type LayoutSplitDirection = "horizontal" | "vertical";
 
 export type Notification = {
 	id: string,

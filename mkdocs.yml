@@ -78,6 +78,7 @@ nav:
   - Features:
       - Panes: features/panes.md
       - Sessions: features/sessions.md
+      - Layouts: features/layouts.md
       - Worktrees: features/worktrees.md
       - Watches: features/watches.md
       - CLI: features/cli.md
