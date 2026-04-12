@@ -225,7 +225,7 @@
     }
 
     // Leader mode
-    if (e.metaKey && e.key === ";") {
+    if (hasPrimaryModifier(e) && e.key === ";") {
       e.preventDefault();
       toggleCommandSurface("leader");
       return;

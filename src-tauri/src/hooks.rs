@@ -43,7 +43,14 @@ fn roux_cli_path() -> Result<PathBuf, String> {
 /// including the platform-specific install path, a sibling binary, Cargo's bin
 /// directory, or `PATH`.
 pub fn cli_is_installed() -> bool {
-    roux_cli_path().is_ok()
+    #[cfg(windows)]
+    let candidates = [cargo_cli_install_path()];
+    #[cfg(not(windows))]
+    let candidates = [unix_cli_install_path(), cargo_cli_install_path()];
+
+    first_existing_path(candidates)
+        .or_else(|| platform::find_executable_on_path(platform::roux_cli_file_name()))
+        .is_some()
 }
 
 #[cfg(windows)]

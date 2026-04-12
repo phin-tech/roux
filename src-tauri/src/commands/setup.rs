@@ -19,7 +19,7 @@ pub(crate) fn check_setup_status() -> SetupStatus {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn check_setup_needed() -> bool {
-    !svc::is_setup_complete()
+    !svc::is_cli_installed()
 }
 
 #[tauri::command]
