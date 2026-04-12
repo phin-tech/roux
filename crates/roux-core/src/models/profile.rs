@@ -75,6 +75,10 @@ pub struct SpawnProfile {
     pub icon: Option<String>,
     #[serde(default)]
     pub provider: Option<Provider>,
+    #[serde(default)]
+    pub nono_profile: Option<String>,
+    #[serde(default)]
+    pub nono_allow_dirs: Option<Vec<String>>,
     pub source: ProfileSource,
 }
 
@@ -91,6 +95,8 @@ impl SpawnProfile {
             cwd_override: None,
             icon: None,
             provider: None,
+            nono_profile: None,
+            nono_allow_dirs: None,
             source: ProfileSource::Builtin,
         }
     }

@@ -49,6 +49,8 @@ fn plain_shell_profile() -> SpawnProfile {
         cwd_override: None,
         icon: None,
         provider: None,
+        nono_profile: None,
+        nono_allow_dirs: None,
         source: ProfileSource::Builtin,
     }
 }
