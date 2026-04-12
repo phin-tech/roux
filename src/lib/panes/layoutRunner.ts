@@ -301,3 +301,60 @@ export async function applyLayoutToSession(
 function node(layout: LayoutSpec): LayoutPaneNode {
   return layout.root;
 }
+
+/**
+ * Resolve the effective nono (profile + allow_dirs) for the first leaf of a
+ * layout. Used by the new-session dialog so the session's primary PTY —
+ * which is spawned by `createSessionShell` BEFORE `applyLayoutToSession`
+ * runs — actually honors nono set on the first leaf (or its profile).
+ *
+ * Mirrors the leaf-wins-over-profile + union-of-allow_dirs resolution used
+ * by `collectLeaves`.
+ */
+export function resolveFirstLeafNono(
+  layout: LayoutSpec,
+): { nonoProfile: string | undefined; nonoAllowDirs: string[] | undefined } {
+  function findFirstLeaf(n: LayoutPaneNode): LayoutPaneNode | null {
+    if (n.kind === "leaf") return n;
+    for (const c of n.children) {
+      const r = findFirstLeaf(c);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  const leaf = findFirstLeaf(layout.root);
+  if (!leaf || leaf.kind !== "leaf") {
+    return { nonoProfile: undefined, nonoAllowDirs: undefined };
+  }
+
+  const registry = get(profileRegistry);
+  let profile: SpawnProfile | null = null;
+  const ref = leaf.profile_ref;
+  if (ref.kind === "registered") {
+    profile = registry.get(ref.id) ?? null;
+  } else {
+    profile = ref.profile;
+  }
+
+  const leafNono = leaf.nono_profile;
+  const profileNono = profile?.nonoProfile ?? null;
+
+  if (leafNono) {
+    const leafDirs = leaf.nono_allow_dirs ?? [];
+    const profileDirs = profile?.nonoAllowDirs ?? [];
+    const merged = [...new Set([...leafDirs, ...profileDirs])];
+    return {
+      nonoProfile: leafNono,
+      nonoAllowDirs: merged.length > 0 ? merged : undefined,
+    };
+  } else if (profileNono) {
+    return {
+      nonoProfile: profileNono,
+      nonoAllowDirs: profile?.nonoAllowDirs?.length
+        ? profile.nonoAllowDirs
+        : undefined,
+    };
+  }
+  return { nonoProfile: undefined, nonoAllowDirs: undefined };
+}

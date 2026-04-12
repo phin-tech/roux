@@ -12,7 +12,7 @@
   } from "$lib/tauri";
   import { addSession, removeSession } from "$lib/stores/sessions";
   import { layoutList, type LayoutSpec } from "$lib/panes/layouts";
-  import { applyLayoutToSession, type LayoutApplyError } from "$lib/panes/layoutRunner";
+  import { applyLayoutToSession, resolveFirstLeafNono, type LayoutApplyError } from "$lib/panes/layoutRunner";
   import { initSessionWithProfile } from "$lib/panes/actions";
   import { settings } from "$lib/stores/settings";
   import {
@@ -147,11 +147,17 @@
         log(
           `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, layout=${selectedLayout.id}`,
         );
+        // Resolve the first leaf's effective nono up-front — the session's
+        // primary PTY is spawned now by createSessionShell, not by the
+        // layout walker (which only spawns PTYs for leaves 2..N).
+        const firstLeafNono = resolveFirstLeafNono(selectedLayout);
         const session = await createSessionShell(
           repoPath,
           name,
           worktreePathArg,
           branchArg,
+          firstLeafNono.nonoProfile ?? undefined,
+          firstLeafNono.nonoAllowDirs ?? undefined,
         );
         log(`Session created via layout: ${session.id}`);
         addSession(session);
@@ -178,6 +184,12 @@
         `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, profile=${profile.id}`,
       );
 
+      // Effective nono: dialog dropdown takes precedence over the profile's
+      // own nono_profile. In either case we thread along the profile's
+      // allow_dirs — they describe what that profile needs to work, and
+      // aren't tied to a specific sandbox profile name.
+      const effectiveNono = resolveNonoForProfile(profile, selectedNonoProfile);
+
       // Spawn a shell (optionally nono-wrapped), then type the profile's
       // setup / startup commands into it after the PTY is attached.
       const session = await createSessionShell(
@@ -185,8 +197,8 @@
         name,
         worktreePathArg,
         branchArg,
-        selectedNonoProfile ?? undefined,
-        undefined,
+        effectiveNono.nonoProfile,
+        effectiveNono.nonoAllowDirs,
       );
 
       log(`Session created: ${session.id}`);
@@ -199,7 +211,7 @@
           ? { kind: "inline", profile: profile }
           : { kind: "registered", id: profile.id };
 
-      const mainPaneId = initSessionWithProfile(session.id, profileRef);
+      const mainPaneId = initSessionWithProfile(session.id, profileRef, effectiveNono);
       const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
       initTerminal(mainPaneId);
       await attachPtyListeners(mainPaneId);
@@ -215,6 +227,39 @@
     } finally {
       creating = false;
     }
+  }
+
+  /**
+   * Resolve the effective nono for the non-layout creation path.
+   *
+   * - Dialog dropdown wins when set: the user is explicit about which
+   *   sandbox profile wraps the shell. We still pass the profile's
+   *   allow_dirs because they describe what the spawn profile itself
+   *   needs (e.g. a scratch dir) — they aren't coupled to a specific
+   *   sandbox profile name.
+   * - Otherwise fall back to whatever nono the SpawnProfile declares.
+   */
+  function resolveNonoForProfile(
+    profile: SpawnProfile,
+    dialogNonoProfile: string | null,
+  ): { nonoProfile: string | undefined; nonoAllowDirs: string[] | undefined } {
+    if (dialogNonoProfile) {
+      return {
+        nonoProfile: dialogNonoProfile,
+        nonoAllowDirs: profile.nonoAllowDirs?.length
+          ? profile.nonoAllowDirs
+          : undefined,
+      };
+    }
+    if (profile.nonoProfile) {
+      return {
+        nonoProfile: profile.nonoProfile,
+        nonoAllowDirs: profile.nonoAllowDirs?.length
+          ? profile.nonoAllowDirs
+          : undefined,
+      };
+    }
+    return { nonoProfile: undefined, nonoAllowDirs: undefined };
   }
 
   function renderLayoutError(err: LayoutApplyError): string {

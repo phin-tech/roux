@@ -460,6 +460,12 @@ fn parse_split_pane(
             "`name` is only valid on leaf panes",
         ));
     }
+    if attrs.nono.is_some() {
+        return Err(LayoutParseError::schema(
+            node_loc(src, node),
+            "`nono` is only valid on leaf panes; a split pane applies no sandboxing of its own",
+        ));
+    }
     if !has_children {
         return Err(LayoutParseError::schema(
             node_loc(src, node),
@@ -470,12 +476,18 @@ fn parse_split_pane(
     let kdl_children = node.children().expect("has_children verified above");
     let mut children = Vec::new();
     for child in kdl_children.nodes() {
-        if child.name().value() != "pane" {
+        let cname = child.name().value();
+        if cname == "nono_flags" {
+            return Err(LayoutParseError::schema(
+                node_loc(src, child),
+                "`nono_flags` is only valid inside a leaf pane; a split pane does not accept sandbox flags",
+            ));
+        }
+        if cname != "pane" {
             return Err(LayoutParseError::schema(
                 node_loc(src, child),
                 format!(
-                    "unexpected child `{}` inside split pane; only `pane` is allowed",
-                    child.name().value()
+                    "unexpected child `{cname}` inside split pane; only `pane` is allowed"
                 ),
             ));
         }
@@ -1022,6 +1034,47 @@ mod tests {
         assert!(line > 0 && column > 0);
         assert!(message.contains("horizontal"), "should list valid values: {message}");
         assert!(message.contains("vertical"), "should list valid values: {message}");
+    }
+
+    #[test]
+    fn rejects_nono_on_split_pane() {
+        // nono only affects PTY spawn, which happens on leaves. Accepting
+        // it on a split would silently drop the sandbox, which is worse
+        // than rejecting at parse time.
+        let src = r#"layout {
+            name "bad"
+            pane split_direction="horizontal" nono="default" {
+                pane profile="claude"
+                pane profile="plain-shell"
+            }
+        }"#;
+        let (line, column, message) = expect_schema_err(parse(src));
+        assert!(line > 0 && column > 0);
+        assert!(
+            message.to_lowercase().contains("nono"),
+            "message should mention nono; got: {message}"
+        );
+    }
+
+    #[test]
+    fn rejects_nono_flags_on_split_pane() {
+        // Same rationale: flags are meaningless without a leaf PTY.
+        let src = r#"layout {
+            name "bad"
+            pane split_direction="horizontal" {
+                nono_flags {
+                    allow_dir "/tmp"
+                }
+                pane profile="claude"
+                pane profile="plain-shell"
+            }
+        }"#;
+        let (line, column, message) = expect_schema_err(parse(src));
+        assert!(line > 0 && column > 0);
+        assert!(
+            message.to_lowercase().contains("nono"),
+            "message should mention nono_flags; got: {message}"
+        );
     }
 
     #[test]

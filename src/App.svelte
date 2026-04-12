@@ -39,7 +39,7 @@
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, flushPaneState, loadPaneState } from "$lib/panes/persistence";
-  import { loadBuiltinProfiles } from "$lib/panes/profiles";
+  import { loadBuiltinProfiles, type SpawnProfileRef } from "$lib/panes/profiles";
   import { loadBuiltinLayouts, loadUserLayouts } from "$lib/panes/layouts";
   import {
     customProfileModalState,
@@ -486,14 +486,20 @@
             const newSession = sessions.find((s) => s.id === cmd.sessionId);
             if (newSession) {
               addSession(newSession);
-              const mainPaneId = initSession(newSession.id);
+              // Use initSessionWithProfile so the pane instance carries the
+              // spawnProfileRef — persistence + reconnect read it from there
+              // to replay the startup command on reconnect. Bare initSession
+              // drops the ref, so socket-created sessions would come back as
+              // plain shells after restart.
+              const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
+              const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
               const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
               initTerminal(mainPaneId);
               await attachPtyListeners(mainPaneId);
-              // Replay the default Claude profile into the new shell
+              // Replay the Claude profile into the new shell for this session.
               const { resolveProfileRef } = await import("$lib/panes/profiles");
               const { runProfileInPane } = await import("$lib/panes/profileRunner");
-              const profile = resolveProfileRef({ kind: "registered", id: "claude" });
+              const profile = resolveProfileRef(profileRef);
               if (profile) await runProfileInPane(newSession.id, profile);
             }
           });
