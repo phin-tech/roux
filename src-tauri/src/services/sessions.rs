@@ -117,6 +117,8 @@ pub(crate) async fn create_session(
         created_at: now,
         project_id: None,
         is_git_repo: is_git_repo(repo_path),
+        layout_id: None,
+        layout_name: None,
     };
 
     if let Err(e) = session_handle.add(session.clone()).await {
@@ -218,6 +220,8 @@ pub(crate) async fn create_session_shell(
         created_at: now,
         project_id: None,
         is_git_repo: is_git_repo(repo_path),
+        layout_id: None,
+        layout_name: None,
     };
 
     if let Err(e) = session_handle.add(session.clone()).await {
