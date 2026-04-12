@@ -13,14 +13,59 @@ export const commands = {
 	cmdListWorktrees: (repoPath: string) => typedError<Worktree[], string>(__TAURI_INVOKE("cmd_list_worktrees", { repoPath })),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
-	spawnShell: (id: string, workingDir: string) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir })),
-	spawnTask: (id: string, command: string, workingDir: string) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir })),
+	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId })),
+	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId })),
 	killSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_session", { id })),
+	/**
+	 *  Kill only the PTY for `id`, leaving session state, pane-state files, and
+	 *  the session record untouched. Used by `disposePane` on the frontend so
+	 *  closing a pane never accidentally destroys its session — even when the
+	 *  pane's `ptyId === sessionId` (the session-owned PTY spawned by
+	 *  `create_session` / `create_session_shell`).
+	 * 
+	 *  Prior to this command, `disposePane` called `kill_session`, which tore
+	 *  down `session_handle` and `pane_state` as a side effect. That was fine
+	 *  for non-primary shells whose ptyId was a random UUID (not in
+	 *  `session_handle`) but catastrophic for primary panes, where
+	 *  `ptyId == sessionId` matched a real session record and deleted it.
+	 */
+	killPty: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_pty", { id })),
 	getPtyGeneration: (id: string) => __TAURI_INVOKE<number | null>("get_pty_generation", { id }),
+	/**
+	 *  Live cwd of a PTY-backed process, resolved from the OS (no shell hooks).
+	 *  Used at pane-state save time so that reconnecting a session restores the
+	 *  directory the shell is actually in (after `cd`s), not just the directory
+	 *  it was spawned in.
+	 */
+	getPtyCwd: (id: string) => __TAURI_INVOKE<string | null>("get_pty_cwd", { id }),
 	createSession: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, extraFlags: string[] | null, nonoProfile: string | null) => typedError<Session, string>(__TAURI_INVOKE("create_session", { repoPath, name, worktreePath, branch, extraFlags, nonoProfile })),
+	/**
+	 *  Parallel to `create_session`, but spawns a plain shell in the session's
+	 *  primary PTY instead of the claude binary. The frontend attaches the
+	 *  selected spawn profile and types setup / startup commands after the
+	 *  shell is ready. Used for every non-claude profile in the new-session
+	 *  picker (Codex, Plain shell, user profiles, inline Custom…).
+	 */
+	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch })),
 	reconnectSession: (id: string, extraFlags: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session", { id, extraFlags })),
+	/**
+	 *  Parallel to `reconnect_session`, but respawns a plain shell in the
+	 *  session's primary PTY instead of the claude binary. The frontend
+	 *  replays the pane's spawn profile commands into the fresh shell after
+	 *  this call returns, so agents come back up the same way they were
+	 *  originally launched via `create_session_shell`.
+	 */
+	reconnectSessionShell: (id: string) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id })),
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),
 	listClaudeSessions: (cwd: string) => typedError<ClaudeSession[], string>(__TAURI_INVOKE("list_claude_sessions", { cwd })),
+	/**
+	 *  Return the built-in spawn profile registry, assembled from each provider
+	 *  module plus the catch-all "Plain shell". Called once at frontend startup
+	 *  to populate the built-in segment of the pane-picker registry. Safe to
+	 *  call again any time — the result is derived from current settings and
+	 *  has no side effects.
+	 */
+	getBuiltinProfiles: () => __TAURI_INVOKE<SpawnProfile[]>("get_builtin_profiles"),
 	readFile: (path: string) => typedError<string, string>(__TAURI_INVOKE("read_file", { path })),
 	writeFile: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file", { path, contents })),
 	listDocs: (dir: string) => typedError<DocFile[], string>(__TAURI_INVOKE("list_docs", { dir })),
@@ -34,18 +79,38 @@ export const commands = {
 	cmdDiscoverTasks: (dir: string) => __TAURI_INVOKE<TaskGroup[]>("cmd_discover_tasks", { dir }),
 	cmdLoadTaskOverrides: () => __TAURI_INVOKE<{ [key in string]: { [key in string]: string } }>("cmd_load_task_overrides"),
 	cmdSaveTaskOverrides: (overrides: { [key in string]: { [key in string]: string } }) => typedError<null, string>(__TAURI_INVOKE("cmd_save_task_overrides", { overrides })),
-	listProjects: () => __TAURI_INVOKE<Project[]>("list_projects"),
-	createProject: (name: string) => __TAURI_INVOKE<Project>("create_project", { name }),
-	removeProject: (id: string) => __TAURI_INVOKE<void>("remove_project", { id }),
-	renameProject: (id: string, name: string) => __TAURI_INVOKE<void>("rename_project", { id, name }),
+	listProjects: () => typedError<Project[], string>(__TAURI_INVOKE("list_projects")),
+	createProject: (name: string) => typedError<Project, string>(__TAURI_INVOKE("create_project", { name })),
+	removeProject: (id: string) => typedError<null, string>(__TAURI_INVOKE("remove_project", { id })),
+	renameProject: (id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("rename_project", { id, name })),
 	setSessionProject: (sessionId: string, projectId: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_project", { sessionId, projectId })),
 	getProjectNotes: (projectId: string) => typedError<string, string>(__TAURI_INVOKE("get_project_notes", { projectId })),
 	setProjectNotes: (projectId: string, content: string) => typedError<null, string>(__TAURI_INVOKE("set_project_notes", { projectId, content })),
 	cmdCreateWatch: (config: CreateWatchConfig) => typedError<Watch, string>(__TAURI_INVOKE("cmd_create_watch", { config })),
-	cmdRemoveWatch: (id: string) => __TAURI_INVOKE<void>("cmd_remove_watch", { id }),
-	cmdListWatches: () => __TAURI_INVOKE<Watch[]>("cmd_list_watches"),
-	cmdPauseWatch: (id: string) => __TAURI_INVOKE<void>("cmd_pause_watch", { id }),
+	cmdRemoveWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_watch", { id })),
+	cmdListWatches: () => typedError<Watch[], string>(__TAURI_INVOKE("cmd_list_watches")),
+	cmdPauseWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_pause_watch", { id })),
 	cmdResumeWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_resume_watch", { id })),
+	notificationsList: () => typedError<Notification[], string>(__TAURI_INVOKE("notifications_list")),
+	notificationsListForSession: (sessionId: string | null) => typedError<Notification[], string>(__TAURI_INVOKE("notifications_list_for_session", { sessionId })),
+	notificationsUnreadCount: (sessionId: string | null, global: boolean | null) => typedError<number, string>(__TAURI_INVOKE("notifications_unread_count", { sessionId, global })),
+	notificationsMarkRead: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("notifications_mark_read", { id })),
+	notificationsMarkAllRead: (sessionId: string | null, global: boolean | null) => typedError<number, string>(__TAURI_INVOKE("notifications_mark_all_read", { sessionId, global })),
+	notificationsRemove: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("notifications_remove", { id })),
+	notificationsClear: (sessionId: string | null, global: boolean | null) => typedError<number, string>(__TAURI_INVOKE("notifications_clear", { sessionId, global })),
+	/**
+	 *  Push a notification from the frontend. Primarily intended for testing,
+	 *  demos, and the eventual `roux notify` CLI bridge; production notifications
+	 *  originate in Rust (watches, hooks, tasks, OSC parser).
+	 */
+	notificationsPush: (request: NotificationRequest) => typedError<Notification, string>(__TAURI_INVOKE("notifications_push", { request })),
+	/**
+	 *  Remove all notifications whose source matches the given source variant.
+	 *  Only the variant is compared — inner fields (e.g. `watch_id`, `pane_id`)
+	 *  are ignored — because the `DismissSource` action is "dismiss all of this
+	 *  kind", not "dismiss all from exactly this id".
+	 */
+	notificationsDismissSource: (source: NotificationSource) => typedError<number, string>(__TAURI_INVOKE("notifications_dismiss_source", { source })),
 	checkIsGitRepo: (path: string) => __TAURI_INVOKE<boolean>("check_is_git_repo", { path }),
 	gitInit: (path: string) => typedError<null, string>(__TAURI_INVOKE("git_init", { path })),
 	refreshSessionGitStatus: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("refresh_session_git_status", { id })),
@@ -53,6 +118,8 @@ export const commands = {
 };
 
 /* Types */
+export type ActionKind = { type: "focusSession"; sessionId: string } | { type: "focusPane"; paneId: string } | { type: "openUrl"; url: string } | { type: "openPath"; path: string } | { type: "runCommand"; commandId: string } | { type: "retryWatch"; watchId: string } | { type: "dismiss" } | { type: "dismissSource" } | { type: "markRead" };
+
 export type ClaudeSession = {
 	sessionId: string,
 	summary: string,
@@ -64,7 +131,7 @@ export type CreateWatchConfig = {
 	kind: WatchKind,
 	mode: WatchMode,
 	scope: WatchScope,
-	notify: NotifyConfig | null,
+	notify?: NotifyConfig | null,
 };
 
 export type CursorStyle = "block" | "underline" | "bar";
@@ -87,6 +154,41 @@ export type GroupBy = "repo" | "project";
 
 export type KeepOpen = "always" | "on-error" | "never";
 
+export type Notification = {
+	id: string,
+	createdAt: number,
+	level: NotificationLevel,
+	source: NotificationSource,
+	title: string,
+	subtitle: string | null,
+	body: string | null,
+	sessionId: string | null,
+	read: boolean,
+	actions: NotificationAction[],
+};
+
+export type NotificationAction = {
+	id: string,
+	label: string,
+	kind: ActionKind,
+	primary: boolean,
+};
+
+export type NotificationLevel = "info" | "success" | "attention" | "warning" | "error";
+
+// Write-side struct used by ingress paths. The store fills in id, created_at, and read=false.
+export type NotificationRequest = {
+	level: NotificationLevel,
+	source: NotificationSource,
+	title: string,
+	subtitle: string | null,
+	body: string | null,
+	sessionId: string | null,
+	actions: NotificationAction[],
+};
+
+export type NotificationSource = { type: "hook"; provider: string } | { type: "watch"; watchId: string } | { type: "task"; paneId: string } | { type: "cli" } | { type: "osc"; code: number; senderId: string | null } | { type: "internal" };
+
 export type NotifyConfig = {
 	desktopNotification: boolean,
 	onFailure: boolean,
@@ -105,10 +207,29 @@ export type PrReview = {
 	url: string | null,
 };
 
+/**
+ *  Origin of a profile in the registry. Built-in profiles are contributed by
+ *  provider modules at compile time; user profiles live in
+ *  `RouxSettings.spawn_profiles`; project profiles (reserved) will live in
+ *  `.roux/profiles.json` behind a workspace-trust prompt; inline profiles are
+ *  ad-hoc from the "Custom…" picker and never registered.
+ */
+export type ProfileSource = "builtin" | "user" | "project" | "inline";
+
 export type Project = {
 	id: string,
 	name: string,
 };
+
+/**
+ *  Agent providers that Roux knows how to light up first-class UI for.
+ * 
+ *  User-defined profiles may omit `provider` entirely (→ plain shell with
+ *  agent UI dark) or piggyback on an existing variant (→ misleading if the
+ *  agent does not actually speak the same hook protocol). A truly new agent
+ *  requires a provider module — see `src-tauri/src/providers/`.
+ */
+export type Provider = "claude" | "codex";
 
 export type RouxSettings = {
 	tabPosition: TabPosition,
@@ -131,9 +252,36 @@ export type RouxSettings = {
 	additionalFlags: string[],
 	taskPanelSplit: number,
 	taskPanelCollapsed: boolean,
+	sidebarCollapsed?: boolean,
 	enableLogging?: boolean,
 	groupBy?: GroupBy,
 	confirmOnQuit?: boolean,
+	/**
+	 *  Master kill-switch for the notification service's OS-notification
+	 *  fan-out. When false, notifications still land in the in-app pane but
+	 *  `tauri-plugin-notification` is never invoked. Defaults to true.
+	 */
+	notificationsEnabled?: boolean,
+	/**
+	 *  Whether Roux checks for updates silently on launch. Manual checks via
+	 *  Settings / command palette remain available regardless.
+	 */
+	updateCheckOnLaunch?: boolean,
+	/**
+	 *  User-defined spawn profiles. Edited as raw JSON in the settings file
+	 *  in v1 — the "Save as user profile" UI is a later addition. The settings
+	 *  loader force-sets `source: "user"` on each entry regardless of what
+	 *  the file says, so users can't forge a `"builtin"` marker.
+	 */
+	spawnProfiles?: SpawnProfile[],
+	/**
+	 *  Absolute paths of workspaces the user has marked trusted for the
+	 *  future project-profile loader (`.roux/profiles.json`). Reserved in
+	 *  phase 3; the loader that consumes this list ships later. Storing the
+	 *  field now means the trust prompt and its toggles will not require a
+	 *  settings schema bump when they arrive.
+	 */
+	trustedWorkspaces?: string[],
 };
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
@@ -159,6 +307,35 @@ export type SetupStatus = {
 	cliInstalled: boolean,
 	ghAvailable: boolean,
 };
+
+/**
+ *  A named recipe for launching something inside a shell pane. Orthogonal to
+ *  pane type: every launched pane is a shell, and a profile is just optional
+ *  metadata attached at creation describing how the shell was seeded.
+ * 
+ *  Provider-specific UI (Claude Allow/Deny, resume picker) is gated on
+ *  observed [`crate::...`]-style runtime agent state, not on this `provider`
+ *  field — the field is a UX hint saying "panes launched from this profile
+ *  are *expected* to produce hook events from this provider".
+ */
+export type SpawnProfile = {
+	id: string,
+	name: string,
+	setupCommand?: string | null,
+	startupCommand?: string | null,
+	startupBehavior?: StartupBehavior | null,
+	env?: { [key in string]: string } | null,
+	cwdOverride?: string | null,
+	icon?: string | null,
+	provider?: Provider | null,
+	source: ProfileSource,
+};
+
+/**
+ *  Controls whether the profile's `startup_command` runs immediately or is
+ *  only typed into the shell for the user to review before pressing Enter.
+ */
+export type StartupBehavior = "autoRun" | "typeOnly";
 
 export type TabPosition = "left" | "right";
 

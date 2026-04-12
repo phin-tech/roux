@@ -1,5 +1,11 @@
 import { get } from "svelte/store";
-import { createPane, disposePane, getInstance, type CreatePaneOpts } from "./instances";
+import {
+  createPane,
+  disposePane,
+  getInstance,
+  registerDisposeHook,
+  type CreatePaneOpts,
+} from "./instances";
 import {
   sessionLayouts,
   initSessionLayout,
@@ -11,13 +17,40 @@ import {
   type SplitDirection,
 } from "./layout";
 import { focusedPaneId, setLogicalFocus } from "./focus";
-import { killSession } from "$lib/tauri";
+import { disposeAgentState } from "./agentState";
+import { forgetLastStatus } from "./agentNotifications";
+import type { SpawnProfileRef } from "./profiles";
+import { killPty } from "$lib/tauri";
+
+// Register cleanup hooks on disposePane so every path that disposes a
+// pane (closePane, closeSessionPanes, splitPane rollback, anything
+// future) also clears downstream state. Hooks live here instead of in
+// instances.ts to avoid a circular dep (instances → agentState → layout
+// → instances).
+registerDisposeHook(disposeAgentState);
+registerDisposeHook(forgetLastStatus);
 
 export function initSession(sessionId: string): string {
+  return initSessionWithProfile(sessionId, { kind: "registered", id: "claude" });
+}
+
+/**
+ * Create the session's primary pane with a specific spawn profile ref.
+ * Used by the new-session dialog after the user picks a profile. Call
+ * `initSession` directly for the default Claude path (restore flows, etc).
+ */
+export function initSessionWithProfile(
+  sessionId: string,
+  spawnProfileRef: SpawnProfileRef,
+): string {
   const mainPaneId = `${sessionId}-main`;
-  // Only create if not already exists
   if (!getInstance(mainPaneId)) {
-    createPane({ id: mainPaneId, type: "claude", ptyId: sessionId });
+    createPane({
+      id: mainPaneId,
+      type: "shell",
+      ptyId: sessionId,
+      spawnProfileRef,
+    });
   }
   initSessionLayout(sessionId, mainPaneId);
   setLogicalFocus(mainPaneId);
@@ -34,7 +67,17 @@ export function splitPane(
   let inserted = false;
   sessionLayouts.update((m) => {
     const tree = m.get(sessionId);
-    if (!tree) return m;
+
+    // Zero-pane recovery: when the session's last pane was closed, the
+    // layout entry is gone. Seed a fresh single-leaf layout with the new
+    // pane as the sole leaf instead of dropping the split on the floor.
+    // The spec explicitly allows zero-pane sessions as a transient state,
+    // so splitting into one must re-populate it.
+    if (!tree) {
+      m.set(sessionId, { kind: "leaf", paneId: newPaneId });
+      inserted = true;
+      return new Map(m);
+    }
 
     // Fix #4: Ensure focused pane belongs to this session's layout.
     // If focus is on a different session, fall back to the first leaf.
@@ -54,7 +97,7 @@ export function splitPane(
   });
 
   if (!inserted) {
-    disposePane(newPaneId, killSession);
+    disposePane(newPaneId, killPty);
     return null;
   }
 
@@ -66,11 +109,6 @@ export function closePane(sessionId: string, paneId: string): boolean {
   const instance = getInstance(paneId);
   if (!instance) return false;
 
-  // Don't close the main claude pane
-  if (instance.type === "claude" && instance.id === `${sessionId}-main`) {
-    return false;
-  }
-
   sessionLayouts.update((m) => {
     const tree = m.get(sessionId);
     if (!tree) return m;
@@ -80,7 +118,7 @@ export function closePane(sessionId: string, paneId: string): boolean {
     return new Map(m);
   });
 
-  disposePane(paneId, killSession);
+  disposePane(paneId, killPty);
 
   if (get(focusedPaneId) === paneId) {
     const tree = get(sessionLayouts).get(sessionId);
@@ -100,7 +138,7 @@ export function closeSessionPanes(sessionId: string) {
   const tree = get(sessionLayouts).get(sessionId);
   if (tree) {
     const ids = collectLeafIds(tree);
-    for (const id of ids) disposePane(id, killSession);
+    for (const id of ids) disposePane(id, killPty);
   }
   sessionLayouts.update((m) => {
     m.delete(sessionId);

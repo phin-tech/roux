@@ -10,7 +10,6 @@
   } from "$lib/stores/sessions";
   import { initSession as initSessionPanes } from "$lib/panes/actions";
   import {
-    writeToSession,
     createSession,
     openInEditor,
     refreshSessionGitStatus,
@@ -20,11 +19,12 @@
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
   import { projects, createProject } from "$lib/stores/projects";
-  import { setSessionProject, updateSessionPermission, respondToPermission } from "$lib/stores/sessions";
+  import { setSessionProject } from "$lib/stores/sessions";
   import { setSessionProject as tauriSetSessionProject } from "$lib/tauri";
   import { log, logError } from "$lib/logging";
   import { failureCount } from "$lib/stores/watches";
   import type { Session } from "$lib/types";
+  import { getGroupedSessions } from "$lib/sessions/order";
 
   interface Props {
     onNewSession: () => void;
@@ -38,55 +38,30 @@
   let containerEl: HTMLDivElement | undefined = $state();
   let collapsedGroups = $state(new Set<string>());
 
-  let groupedByRepo = $derived.by(() => {
-    const map = new Map<string, { name: string; key: string; sessions: Session[]; latest: number }>();
-    for (const s of $sessionState.sessions) {
-      let group = map.get(s.repoRoot);
-      if (!group) {
-        group = {
-          name: s.repoRoot.split("/").pop() || s.repoRoot,
-          key: s.repoRoot,
-          sessions: [],
-          latest: 0,
-        };
-        map.set(s.repoRoot, group);
-      }
-      group.sessions.push(s);
-      if (s.createdAt > group.latest) group.latest = s.createdAt;
-    }
-    return [...map.values()].sort((a, b) => b.latest - a.latest);
-  });
-
-  let groupedByProject = $derived.by(() => {
-    const map = new Map<string, { name: string; key: string; sessions: Session[]; latest: number }>();
-    for (const s of $sessionState.sessions) {
-      const key = s.projectId ?? "__untagged__";
-      let group = map.get(key);
-      if (!group) {
-        const project = $projects.find((p) => p.id === s.projectId);
-        group = {
-          name: project?.name ?? "Untagged",
-          key,
-          sessions: [],
-          latest: 0,
-        };
-        map.set(key, group);
-      }
-      group.sessions.push(s);
-      if (s.createdAt > group.latest) group.latest = s.createdAt;
-    }
-    const groups = [...map.values()].sort((a, b) => b.latest - a.latest);
-    // Move "Untagged" to the bottom
-    const untaggedIdx = groups.findIndex((g) => g.key === "__untagged__");
-    if (untaggedIdx > 0) {
-      const [untagged] = groups.splice(untaggedIdx, 1);
-      groups.push(untagged);
-    }
-    return groups;
-  });
-
-  let grouped = $derived($settings.groupBy === "project" ? groupedByProject : groupedByRepo);
+  let grouped = $derived(
+    getGroupedSessions(
+      $sessionState.sessions,
+      $projects,
+      $settings.groupBy ?? "repo",
+    ),
+  );
   let showGroupHeaders = $derived(grouped.length > 0);
+
+  // Map of session id -> slot number (1..10) in sidebar visual order.
+  // Collapsed groups are intentionally counted so Cmd+N shortcuts do not
+  // renumber when groups are collapsed.
+  let slotById = $derived.by(() => {
+    const map = new Map<string, number>();
+    let slot = 1;
+    for (const group of grouped) {
+      for (const session of group.sessions) {
+        if (slot > 10) return map;
+        map.set(session.id, slot);
+        slot += 1;
+      }
+    }
+    return map;
+  });
 
   function toggleGroup(key: string) {
     const next = new Set(collapsedGroups);
@@ -217,21 +192,6 @@
     await closeSession(session);
   }
 
-  async function handleApprove(id: string) {
-    respondToPermission(id);
-    await writeToSession(id, "\r");
-  }
-
-  async function handleAlways(id: string) {
-    respondToPermission(id);
-    await writeToSession(id, "\x1b[Z");
-  }
-
-  async function handleDeny(id: string) {
-    respondToPermission(id);
-    await writeToSession(id, "\x1b[B\x1b[B\r");
-  }
-
   async function handleReconnect(id: string) {
     const session = $sessionState.sessions.find((s) => s.id === id);
     if (!session) return;
@@ -306,14 +266,11 @@
             <SessionCard
               {session}
               active={session.id === $sessionState.activeSessionId}
+              slotNumber={slotById.get(session.id)}
               onselect={() => setActiveSession(session.id)}
               onclose={() => handleClose(session.id)}
               onrename={(newName) => renameSession(session.id, newName)}
               onreconnect={() => handleReconnect(session.id)}
-              onapprove={() => handleApprove(session.id)}
-              onalways={() => handleAlways(session.id)}
-              ondeny={() => handleDeny(session.id)}
-              ondismiss={() => updateSessionPermission(session.id, null)}
               oncontextmenu={(e) => handleContextMenu(e, session)}
             />
           {/each}

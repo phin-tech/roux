@@ -98,5 +98,3 @@ Or do signing and publishing together:
 ```bash
 task publish:op
 ```
-
-See [docs/macos-signing.md](docs/macos-signing.md) for macOS signing and notarization setup.

@@ -169,7 +169,13 @@ fn spawn_flusher(
 }
 
 /// Spawn a reader thread that blocks on PTY reads and sends chunks to the flusher.
-fn spawn_reader(mut reader: Box<dyn Read + Send>, tx: mpsc::Sender<PtyChunk>) {
+/// If `sniffer` is provided, every chunk is also fed through the OSC parser
+/// before being forwarded (non-consuming — bytes pass through unchanged).
+fn spawn_reader(
+    mut reader: Box<dyn Read + Send>,
+    tx: mpsc::Sender<PtyChunk>,
+    mut sniffer: Option<crate::notifications::OscSniffer>,
+) {
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
         loop {
@@ -179,6 +185,9 @@ fn spawn_reader(mut reader: Box<dyn Read + Send>, tx: mpsc::Sender<PtyChunk>) {
                     break;
                 }
                 Ok(n) => {
+                    if let Some(ref mut s) = sniffer {
+                        s.feed(&buf[..n]);
+                    }
                     if tx.send(PtyChunk::Data(buf[..n].to_vec())).is_err() {
                         break;
                     }
@@ -282,6 +291,89 @@ pub enum PtyError {
     },
 }
 
+/// Look up the current working directory of an OS process by PID.
+///
+/// Used to report live cwd for shell panes at save time so reconnecting a
+/// session restores the user's actual directory (after `cd`s), not just the
+/// directory the shell was originally spawned in. The kernel tracks cwd on
+/// the shell process itself, so this pulls directly from OS-level process
+/// info — no shell integration or OSC 7 cooperation required.
+///
+/// Returns `None` if the PID doesn't exist, the caller lacks permission, or
+/// the OS refuses.
+#[cfg(target_os = "macos")]
+pub fn cwd_for_pid(pid: u32) -> Option<String> {
+    // proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &mut info, sizeof(info))
+    // fills a proc_vnodepathinfo struct; its pvi_cdir.vip_path is the cwd as
+    // a NUL-terminated C string of length MAXPATHLEN (1024 on Darwin).
+    //
+    // We only need the cwd byte range, not the full struct layout, so we
+    // define a minimally-sufficient stand-in whose size matches the real
+    // struct. proc_vnodepathinfo is two vnode_info_path structs back-to-back;
+    // the first is pvi_cdir (what we want). Each vnode_info_path is
+    // sizeof(vnode_info) + MAXPATHLEN; vnode_info is 152 bytes on Darwin.
+    const MAXPATHLEN: usize = 1024;
+    const VNODE_INFO_SIZE: usize = 152;
+    const VNODE_INFO_PATH_SIZE: usize = VNODE_INFO_SIZE + MAXPATHLEN;
+    const PROC_PIDVNODEPATHINFO: libc::c_int = 9;
+
+    #[repr(C)]
+    struct ProcVnodePathInfo {
+        pvi_cdir: [u8; VNODE_INFO_PATH_SIZE],
+        pvi_rdir: [u8; VNODE_INFO_PATH_SIZE],
+    }
+
+    extern "C" {
+        fn proc_pidinfo(
+            pid: libc::c_int,
+            flavor: libc::c_int,
+            arg: u64,
+            buffer: *mut libc::c_void,
+            buffersize: libc::c_int,
+        ) -> libc::c_int;
+    }
+
+    let mut info = ProcVnodePathInfo {
+        pvi_cdir: [0u8; VNODE_INFO_PATH_SIZE],
+        pvi_rdir: [0u8; VNODE_INFO_PATH_SIZE],
+    };
+    let size = std::mem::size_of::<ProcVnodePathInfo>() as libc::c_int;
+
+    let ret = unsafe {
+        proc_pidinfo(
+            pid as libc::c_int,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            size,
+        )
+    };
+    if ret <= 0 {
+        return None;
+    }
+
+    // vip_path starts at offset VNODE_INFO_SIZE within vnode_info_path and is
+    // a C string (MAXPATHLEN bytes, NUL-terminated).
+    let path_bytes = &info.pvi_cdir[VNODE_INFO_SIZE..];
+    let nul = path_bytes.iter().position(|&b| b == 0).unwrap_or(path_bytes.len());
+    if nul == 0 {
+        return None;
+    }
+    std::str::from_utf8(&path_bytes[..nul]).ok().map(|s| s.to_string())
+}
+
+#[cfg(target_os = "linux")]
+pub fn cwd_for_pid(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{}/cwd", pid))
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn cwd_for_pid(_pid: u32) -> Option<String> {
+    None
+}
+
 pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
@@ -342,13 +434,10 @@ impl PtyManager {
         } else {
             CommandBuilder::new(&claude_cmd)
         };
-        cmd.env("PATH", &user_path);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env("ROUX_SESSION", "1");
-        cmd.env("ROUX_SOCKET", socket_path_str());
-        cmd.env("ROUX_SESSION_ID", session_id);
-        cmd.env("ROUX_PANE_ID", format!("{}-main", session_id));
+        // Until spawn profiles land in phase 4, the claude pane id is still
+        // derived from the session id. Phase 4 will take pane_id as a param.
+        let pane_id = format!("{}-main", session_id);
+        apply_roux_env(&mut cmd, &user_path, Some(session_id), Some(&pane_id));
         if let Some(m) = model {
             cmd.arg("--model");
             cmd.arg(m);
@@ -384,7 +473,11 @@ impl PtyManager {
             Some((format!("session-exit:{}", session_id), gen)),
             app.clone(),
         );
-        spawn_reader(reader, tx);
+        let sniffer = crate::notifications::OscSniffer::new(
+            app.clone(),
+            Some(session_id.to_string()),
+        );
+        spawn_reader(reader, tx, Some(sniffer));
 
         Ok(())
     }
@@ -394,6 +487,7 @@ impl PtyManager {
         id: &str,
         working_dir: &str,
         session_id: Option<&str>,
+        pane_id: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
@@ -408,14 +502,7 @@ impl PtyManager {
 
         let mut cmd = CommandBuilder::new(&shell);
         apply_shell_command_flags(&mut cmd, &shell);
-        cmd.env("PATH", &user_path);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env("ROUX_SESSION", "1");
-        cmd.env("ROUX_SOCKET", socket_path_str());
-        if let Some(sid) = session_id {
-            cmd.env("ROUX_SESSION_ID", sid);
-        }
+        apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
         cmd.cwd(working_dir);
 
         let child = pair.slave.spawn_command(cmd).map_err(|source| {
@@ -443,7 +530,11 @@ impl PtyManager {
 
         let tx =
             spawn_flusher(output.clone(), Some((format!("session-exit:{}", id), gen)), app.clone());
-        spawn_reader(reader, tx);
+        let sniffer = crate::notifications::OscSniffer::new(
+            app.clone(),
+            session_id.map(|s| s.to_string()),
+        );
+        spawn_reader(reader, tx, Some(sniffer));
 
         Ok(())
     }
@@ -456,6 +547,7 @@ impl PtyManager {
         command: &str,
         working_dir: &str,
         session_id: Option<&str>,
+        pane_id: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
@@ -469,14 +561,7 @@ impl PtyManager {
 
         let mut cmd = CommandBuilder::new(&shell);
         apply_task_command_args(&mut cmd, &shell, command);
-        cmd.env("PATH", &user_path);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env("ROUX_SESSION", "1");
-        cmd.env("ROUX_SOCKET", socket_path_str());
-        if let Some(sid) = session_id {
-            cmd.env("ROUX_SESSION_ID", sid);
-        }
+        apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
         cmd.cwd(working_dir);
 
         let mut child =
@@ -502,7 +587,11 @@ impl PtyManager {
         self.attach_pending_output(id, &output);
 
         let tx = spawn_flusher(output.clone(), None, app.clone());
-        spawn_reader(reader, tx);
+        let sniffer = crate::notifications::OscSniffer::new(
+            app.clone(),
+            session_id.map(|s| s.to_string()),
+        );
+        spawn_reader(reader, tx, Some(sniffer));
 
         // Wait for the child process in a background thread and emit exit code
         let exit_event_name = format!("session-exit:{}", id);
@@ -603,6 +692,15 @@ impl PtyManager {
         self.sessions.lock().unwrap().get(session_id).map(|s| s.generation)
     }
 
+    /// Resolve the current working directory of the shell (or claude) process
+    /// attached to `pty_id`, by walking `portable_pty::Child::process_id` →
+    /// OS-level cwd lookup. Returns `None` if the session doesn't exist, the
+    /// child has exited, or the OS refuses.
+    pub fn get_cwd(&self, pty_id: &str) -> Option<String> {
+        let pid = self.sessions.lock().unwrap().get(pty_id).and_then(|s| s.child.process_id())?;
+        cwd_for_pid(pid)
+    }
+
     /// Kill all active PTY sessions. Called during app shutdown.
     pub fn shutdown_all(&self) {
         let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
@@ -617,6 +715,143 @@ impl PtyManager {
 fn socket_path_str() -> String {
     platform::resolve_socket_endpoint()
         .unwrap_or_else(|| platform::socket_path().to_string_lossy().to_string())
+}
+
+/// Eager trigger for the roux-cli shim. Called from `main.rs` setup so the
+/// shim dir is ready before any PTY spawns and so we log the result at
+/// startup for debugging. Safe to call repeatedly — cached behind a OnceLock.
+pub fn ensure_roux_cli_shim() {
+    let _ = roux_cli_shim();
+}
+
+/// Cached pair of (bin-dir-to-prepend-to-PATH, full-path-to-roux-cli).
+/// Set up once at first PTY spawn: creates `~/.config/roux/bin/` and places
+/// launcher shims there so PTYs can invoke `roux` / `roux-cli` without a
+/// separate user install. Returning `None` means we couldn't find the bundled
+/// roux-cli next to the running app.
+fn roux_cli_shim() -> Option<(String, String)> {
+    use std::sync::OnceLock;
+
+    static CACHE: OnceLock<Option<(String, String)>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let source = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join(platform::roux_cli_file_name())))?;
+            if !source.exists() {
+                rlog!("roux_cli_shim: bundled roux-cli not found at {}", source.display());
+                return None;
+            }
+
+            let bin_dir = crate::paths::roux_config_dir().join("bin");
+            if let Err(e) = std::fs::create_dir_all(&bin_dir) {
+                rlog!("roux_cli_shim: failed to create {}: {}", bin_dir.display(), e);
+                return None;
+            }
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs as unix_fs;
+
+                for alias in ["roux-cli", "roux"] {
+                    let link = bin_dir.join(alias);
+                    let _ = std::fs::remove_file(&link);
+                    if let Err(e) = unix_fs::symlink(&source, &link) {
+                        rlog!(
+                            "roux_cli_shim: failed to symlink {} -> {}: {}",
+                            link.display(),
+                            source.display(),
+                            e
+                        );
+                        return None;
+                    }
+                }
+            }
+
+            #[cfg(windows)]
+            {
+                for alias in ["roux-cli.exe", "roux.exe"] {
+                    let target = bin_dir.join(alias);
+                    let should_copy = if target.exists() {
+                        let src_modified = std::fs::metadata(&source).and_then(|m| m.modified()).ok();
+                        let dst_modified = std::fs::metadata(&target).and_then(|m| m.modified()).ok();
+                        match (src_modified, dst_modified) {
+                            (Some(src), Some(dst)) => src > dst,
+                            _ => true,
+                        }
+                    } else {
+                        true
+                    };
+                    if should_copy && std::fs::copy(&source, &target).is_err() {
+                        rlog!(
+                            "roux_cli_shim: failed to copy {} -> {}",
+                            source.display(),
+                            target.display()
+                        );
+                        return None;
+                    }
+                }
+            }
+
+            let bin_dir_str = bin_dir.to_string_lossy().to_string();
+            let source_str = source.to_string_lossy().to_string();
+            rlog!("roux_cli_shim: installed {} (source: {})", bin_dir_str, source_str);
+            Some((bin_dir_str, source_str))
+        })
+        .clone()
+}
+
+/// Build the PATH value to hand to a PTY child. Prepends the roux-cli shim
+/// directory (if available) to the user's login-shell PATH so scripts
+/// running inside any Roux pane can invoke `roux notify`, `roux-cli focus`,
+/// etc. without a separate install step.
+fn build_pty_path(user_path: &str) -> String {
+    let Some((bin_dir, _)) = roux_cli_shim() else {
+        return user_path.to_string();
+    };
+
+    let mut paths: Vec<_> = std::env::split_paths(user_path).collect();
+    let bin_dir_path = std::path::PathBuf::from(&bin_dir);
+    if paths.iter().any(|path| path == &bin_dir_path) {
+        return user_path.to_string();
+    }
+
+    paths.insert(0, bin_dir_path);
+    std::env::join_paths(paths)
+        .ok()
+        .and_then(|value| value.into_string().ok())
+        .unwrap_or_else(|| user_path.to_string())
+}
+
+/// Apply the common Roux env vars to a `CommandBuilder`: PATH with shim dir
+/// prepended, `ROUX_CLI` pointing at the absolute roux-cli path, and the
+/// standard `ROUX_*` markers. Called by every `spawn_*` method so the three
+/// paths stay in sync.
+///
+/// `session_id` and `pane_id` are threaded through so every shell/task/agent
+/// PTY hosts `ROUX_SESSION_ID` and `ROUX_PANE_ID` in its env unconditionally.
+/// Hooks and `roux notify` read them to route events back to the correct
+/// pane without cwd heuristics.
+fn apply_roux_env(
+    cmd: &mut CommandBuilder,
+    user_path: &str,
+    session_id: Option<&str>,
+    pane_id: Option<&str>,
+) {
+    cmd.env("PATH", build_pty_path(user_path));
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("ROUX_SESSION", "1");
+    cmd.env("ROUX_SOCKET", socket_path_str());
+    if let Some((_, cli_path)) = roux_cli_shim() {
+        cmd.env("ROUX_CLI", cli_path);
+    }
+    if let Some(sid) = session_id {
+        cmd.env("ROUX_SESSION_ID", sid);
+    }
+    if let Some(pid) = pane_id {
+        cmd.env("ROUX_PANE_ID", pid);
+    }
 }
 
 /// Get the user's login shell PATH by invoking their actual shell (from $SHELL)
@@ -818,5 +1053,35 @@ mod tests {
 
         let io_error = PtyError::WriteFailed { source: io::Error::other("broken pipe") };
         assert_eq!(io_error.to_string(), "Write failed: broken pipe");
+    }
+
+    #[test]
+    fn cwd_for_pid_returns_current_process_cwd() {
+        let pid = std::process::id();
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            let cwd = cwd_for_pid(pid).expect("cwd_for_pid should resolve for self");
+            let expected = std::env::current_dir().expect("current_dir");
+            assert_eq!(
+                std::fs::canonicalize(&cwd).unwrap(),
+                std::fs::canonicalize(&expected).unwrap(),
+                "cwd_for_pid(self) should match std::env::current_dir()"
+            );
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            assert!(
+                cwd_for_pid(pid).is_none(),
+                "cwd_for_pid is currently unsupported on this platform and should return None"
+            );
+        }
+    }
+
+    #[test]
+    fn cwd_for_pid_returns_none_for_nonexistent_pid() {
+        // On supported platforms, PID 0 is never a real user process. On
+        // unsupported platforms, cwd_for_pid is a stub that always returns None.
+        assert!(cwd_for_pid(0).is_none());
     }
 }

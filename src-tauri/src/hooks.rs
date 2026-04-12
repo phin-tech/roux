@@ -99,7 +99,8 @@ fn claude_settings_path() -> Result<PathBuf, String> {
 }
 
 fn status_dir() -> Result<(), String> {
-    platform::ensure_status_dir()?;
+    let dir = crate::paths::roux_config_dir().join("status");
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create status dir: {}", e))?;
     Ok(())
 }
 

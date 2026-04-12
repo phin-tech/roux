@@ -129,8 +129,7 @@ async fn service_loop(
 }
 
 fn persistence_path() -> PathBuf {
-    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("roux").join("projects.json")
+    crate::paths::roux_config_dir().join("projects.json")
 }
 
 fn write_to_path(projects: &[Project], path: &std::path::Path) {

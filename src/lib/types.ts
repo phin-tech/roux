@@ -29,6 +29,12 @@ export type {
   KeepOpen,
   DocFile,
   SetupStatus,
+  Notification,
+  NotificationAction,
+  NotificationLevel,
+  NotificationRequest,
+  NotificationSource,
+  ActionKind,
 } from "./bindings";
 
 // Frontend-only types (not defined in Rust)
@@ -44,16 +50,9 @@ export type ThemePreset =
   | "paper-ink"
   | "github-day";
 
-export interface PermissionInfo {
-  toolName: string;
-  toolInput: Record<string, any>;
-  message: string;
-}
-
-// Session from Rust + frontend-only permissionInfo field
-export type Session = import("./bindings").Session & {
-  permissionInfo: PermissionInfo | null;
-};
+// Session is exactly the Rust type; permission state now lives in the
+// notification service (Phase 3 retired the inline Allow/Deny flow).
+export type Session = import("./bindings").Session;
 
 export interface SessionStatusPayload {
   status: string;
@@ -82,9 +81,14 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   additionalFlags: [],
   taskPanelSplit: 0.4,
   taskPanelCollapsed: false,
+  sidebarCollapsed: false,
   enableLogging: false,
   groupBy: "repo",
   confirmOnQuit: true,
+  notificationsEnabled: true,
+  updateCheckOnLaunch: true,
+  spawnProfiles: [],
+  trustedWorkspaces: [],
 };
 
 // Re-export frontend-only task types

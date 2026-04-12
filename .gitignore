@@ -5,6 +5,7 @@ node_modules/
 dist/
 
 # Tauri / Rust
+/target/
 src-tauri/target/
 src-tauri/gen/schemas/
 src-tauri/binaries/
@@ -33,3 +34,7 @@ Thumbs.db
 
 # Worktrees
 .worktrees/
+
+# Docs site
+site/
+.mkdocs-venv/

@@ -1,4 +1,5 @@
 import { writable, get } from "svelte/store";
+import type { SpawnProfileRef } from "./profiles";
 
 // Use `any` for xterm types to keep this module importable in test environments
 // without pulling in the full xterm bundle.
@@ -9,7 +10,7 @@ type FitAddon = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type OutputChannel = any;
 
-export type PaneType = "claude" | "shell" | "markdown" | "command";
+export type PaneType = "shell" | "markdown" | "command";
 
 export type CommandStatus = "idle" | "running" | "success" | "error";
 
@@ -32,6 +33,20 @@ export interface PaneInstance {
   command?: string;
   docPath?: string;
 
+  /**
+   * Optional pointer to the spawn profile this pane was launched from.
+   * `registered` refs are re-resolved from the profile registry at render /
+   * re-run time; `inline` refs carry the entire profile so ad-hoc "Custom…"
+   * panes survive restore without depending on settings state. Absent for
+   * plain shell panes launched without a profile.
+   */
+  spawnProfileRef?: SpawnProfileRef;
+
+  // Set when a shell pane failed to spawn during session restore.
+  // Causes PaneShell to render the DeadPaneView instead of xterm.
+  // Not persisted — only lives in runtime state.
+  restoreError?: string;
+
   // Command-pane runtime state
   commandStatus?: CommandStatus;
   commandExitCode?: number | null;
@@ -47,6 +62,7 @@ export interface CreatePaneOpts {
   workingDir?: string;
   command?: string;
   docPath?: string;
+  spawnProfileRef?: SpawnProfileRef;
 }
 
 // ── Store ──────────────────────────────────────────────────
@@ -81,6 +97,7 @@ export function createPane(opts: CreatePaneOpts): string {
     workingDir: opts.workingDir,
     command: opts.command,
     docPath: opts.docPath,
+    spawnProfileRef: opts.spawnProfileRef,
     commandStatus: "idle",
     commandExitCode: null,
     commandStartedAt: null,
@@ -95,17 +112,40 @@ export function createPane(opts: CreatePaneOpts): string {
 }
 
 /**
+ * Extra cleanup hooks run after a pane instance is removed. Actions.ts
+ * registers `disposeAgentState` here at startup so that every disposal
+ * path — `closePane`, `closeSessionPanes`, splitPane rollback, and any
+ * future caller — clears runtime agent state for the pane without
+ * instances.ts needing to import agentState.ts (which would create an
+ * instances → agentState → layout → instances cycle).
+ */
+const postDisposeHooks: Array<(paneId: string) => void> = [];
+
+export function registerDisposeHook(hook: (paneId: string) => void): void {
+  if (!postDisposeHooks.includes(hook)) postDisposeHooks.push(hook);
+}
+
+/** Test-only: drop registered dispose hooks so Vitest runs stay isolated. */
+export function resetDisposeHooks(): void {
+  postDisposeHooks.length = 0;
+}
+
+/**
  * Dispose a pane instance — idempotent.
  * Cleans up unlisteners, clears elapsed timer, disposes terminal, kills PTY
- * for shell/command types, and removes from the store.
+ * for shell/command types, removes from the store, and runs any registered
+ * post-dispose hooks (e.g. agent-state cleanup).
  */
 export function disposePane(id: string, killPty?: (ptyId: string) => Promise<void>): void {
   const map = get(paneInstances);
   const inst = map.get(id);
   if (!inst) return;
 
-  // Kill PTY for shell/command panes (claude PTYs are session-level, killed separately)
-  if (killPty && (inst.type === "shell" || inst.type === "command")) {
+  // Kill the underlying PTY for any pane that hosts one. Markdown panes
+  // carry an empty ptyId so the killer is skipped implicitly.
+  // Note: agents now live inside the shell PTY, so killing the pane kills
+  // the agent — there is no separate session-level PTY to preserve.
+  if (killPty && inst.ptyId && (inst.type === "shell" || inst.type === "command")) {
     killPty(inst.ptyId).catch(() => { /* best-effort */ });
   }
 
@@ -137,6 +177,12 @@ export function disposePane(id: string, killPty?: (ptyId: string) => Promise<voi
     next.delete(id);
     return next;
   });
+
+  for (const hook of postDisposeHooks) {
+    try {
+      hook(id);
+    } catch { /* best-effort */ }
+  }
 }
 
 /**

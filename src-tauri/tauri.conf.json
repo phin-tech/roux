@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/.vscode/tauri.conf.schema.json",
   "productName": "Roux",
-  "version": "0.2.3",
+  "version": "0.3.2",
   "identifier": "com.phin-tech.roux",
   "build": {
     "frontendDist": "../dist",
@@ -36,6 +36,7 @@
         "installMode": "currentUser"
       }
     },
+    "createUpdaterArtifacts": true,
     "macOS": {
       "files": {
         "MacOS/roux-cli": "binaries/roux-cli"
@@ -49,5 +50,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJENDQ5MzY2QzUyQkE0MzkKUldRNXBDdkZacE5FTGJWdU1IZEgxMmFxRXVueEp4V1pBZCtad1J4bGlHOGlCeEU2OHdnREpGMlQK",
+      "endpoints": [
+        "https://github.com/phin-tech/roux/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

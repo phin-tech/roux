@@ -172,6 +172,7 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "focus" => handle_focus(req, app),
         "run" => handle_run(req, app).await,
         "send" => handle_send(req, app),
+        "notify" => handle_notify(req, app).await,
         _ => Response::err(format!("unknown command: {}", req.command)),
     }
 }
@@ -288,9 +289,13 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     let pane_id = crypto_random_uuid();
     let pty_id = crypto_random_uuid();
 
-    if let Err(e) =
-        state.pty_manager.spawn_shell(&pty_id, &working_dir, Some(session_id), app.clone())
-    {
+    if let Err(e) = state.pty_manager.spawn_shell(
+        &pty_id,
+        &working_dir,
+        Some(session_id),
+        Some(&pane_id),
+        app.clone(),
+    ) {
         return Response::err(format!("Failed to spawn shell: {}", e));
     }
 
@@ -355,9 +360,14 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
     );
 
-    if let Err(e) =
-        state.pty_manager.spawn_task(&pty_id, &command, &working_dir, Some(session_id), app.clone())
-    {
+    if let Err(e) = state.pty_manager.spawn_task(
+        &pty_id,
+        &command,
+        &working_dir,
+        Some(session_id),
+        Some(&pane_id),
+        app.clone(),
+    ) {
         return Response::err(format!("Failed to spawn task: {}", e));
     }
 
@@ -397,6 +407,93 @@ fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
     } else {
         Response::err("session_id required")
     }
+}
+
+async fn handle_notify(req: Request, app: &tauri::AppHandle) -> Response {
+    use roux_core::{
+        ActionKind, NotificationAction, NotificationLevel, NotificationRequest as NReq,
+        NotificationSource,
+    };
+
+    let payload = match req.args.get("payload") {
+        Some(p) => p.clone(),
+        None => return Response::err("payload required"),
+    };
+
+    // Required
+    let title = match payload.get("title").and_then(|t| t.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return Response::err("payload.title required"),
+    };
+
+    // Severity — default to info.
+    let level = match payload.get("level").and_then(|l| l.as_str()).unwrap_or("info") {
+        "info" => NotificationLevel::Info,
+        "success" => NotificationLevel::Success,
+        "attention" => NotificationLevel::Attention,
+        "warning" => NotificationLevel::Warning,
+        "error" => NotificationLevel::Error,
+        other => {
+            return Response::err(format!(
+                "invalid level: {}, expected info|success|attention|warning|error",
+                other
+            ));
+        }
+    };
+
+    let subtitle = payload.get("subtitle").and_then(|s| s.as_str()).map(String::from);
+    let body = payload.get("body").and_then(|s| s.as_str()).map(String::from);
+
+    // Session resolution:
+    //   1. explicit sessionId in payload
+    //   2. --cwd lookup against session list
+    //   3. None (global)
+    let state: tauri::State<AppState> = app.state();
+    let session_id = if let Some(sid) = payload.get("sessionId").and_then(|s| s.as_str()) {
+        Some(sid.to_string())
+    } else if let Some(cwd) = req.args.get("cwd").and_then(|c| c.as_str()) {
+        match state.session_handle.list().await {
+            Ok(sessions) => sessions
+                .into_iter()
+                .find(|s| s.worktree_path == cwd || s.repo_root == cwd)
+                .map(|s| s.id),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    // Default actions: Focus (if session resolved) + Dismiss.
+    let mut actions: Vec<NotificationAction> = Vec::new();
+    if let Some(ref sid) = session_id {
+        actions.push(NotificationAction {
+            id: "focus".into(),
+            label: "Focus session".into(),
+            kind: ActionKind::FocusSession { session_id: sid.clone() },
+            primary: true,
+        });
+    }
+    actions.push(NotificationAction {
+        id: "dismiss".into(),
+        label: "Dismiss".into(),
+        kind: ActionKind::Dismiss,
+        primary: actions.is_empty(),
+    });
+
+    let notification = state.notification_manager.push(
+        NReq {
+            level,
+            source: NotificationSource::Cli,
+            title,
+            subtitle,
+            body,
+            session_id,
+            actions,
+        },
+        Some(app),
+    );
+
+    Response::success(serde_json::json!({ "id": notification.id }))
 }
 
 fn crypto_random_uuid() -> String {

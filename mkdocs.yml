@@ -1,0 +1,83 @@
+site_name: Roux
+site_description: A desktop terminal multiplexer for Claude Code
+site_url: https://phin-tech.github.io/roux/
+repo_url: https://github.com/phin-tech/roux
+repo_name: phin-tech/roux
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+exclude_docs: |
+  plans/
+  v2/
+  superpowers/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - Install: install.md
+  - Getting Started: getting-started.md
+  - Features:
+      - Panes: features/panes.md
+      - Sessions: features/sessions.md
+      - Worktrees: features/worktrees.md
+      - Watches: features/watches.md
+      - CLI: features/cli.md
+      - Notes: features/notes.md
+  - Keyboard Shortcuts: keyboard-shortcuts.md
+  - Settings: settings.md
+  - Troubleshooting: troubleshooting.md

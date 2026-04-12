@@ -1,6 +1,6 @@
 import { get } from "svelte/store";
 import { sessionState } from "$lib/stores/sessions";
-import { sessionLayouts, hasSplitPanes } from "$lib/panes/layout";
+import { sessionLayouts } from "$lib/panes/layout";
 import { focusedPaneId } from "$lib/panes/focus";
 import { getInstance } from "$lib/panes/instances";
 
@@ -35,18 +35,12 @@ export const queries = {
   canClosePane() {
     const id = this.activeSessionId();
     if (!id) return false;
-    const focused = this.focusedPaneId();
-    if (!focused) return false;
-    return focused !== id + "-main" && hasSplitPanes(id);
+    return this.focusedPaneId() !== null;
   },
 
   focusedPane() {
     const paneId = this.focusedPaneId();
     if (!paneId) return null;
     return getInstance(paneId) ?? null;
-  },
-
-  hasAttentionSession() {
-    return this.sessions().some((s) => s.status === "attention");
   },
 };

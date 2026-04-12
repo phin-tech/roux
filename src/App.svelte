@@ -3,35 +3,56 @@
   import { get } from "svelte/store";
   import Layout from "$lib/components/Layout.svelte";
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
+  import ProfileCustomEditor from "$lib/components/ProfileCustomEditor.svelte";
   import SetupPrompt from "$lib/components/SetupPrompt.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
   import WatchesPane from "$lib/components/WatchesPane.svelte";
+  import NotificationsPane from "$lib/components/NotificationsPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import QuitDialog from "$lib/components/QuitDialog.svelte";
+  import UpdateBanner from "$lib/components/UpdateBanner.svelte";
+  import { runStartupCheck, runManualCheck } from "$lib/stores/updater";
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
-  import { addSession, setActiveSession, sessionState, updateSessionStatus, updateSessionPermission } from "$lib/stores/sessions";
+  import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
-  import { initSession, splitPane } from "$lib/panes/actions";
+  import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
+  import { initSession, initSessionWithProfile, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
-  import { initPersistence, loadLayout, clearLayout } from "$lib/panes/persistence";
-  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, quitApp } from "$lib/tauri";
+  import { initPersistence, flushPaneState, loadPaneState } from "$lib/panes/persistence";
+  import { loadBuiltinProfiles } from "$lib/panes/profiles";
+  import {
+    customProfileModalState,
+    submitCustomProfile,
+    closeCustomProfileEditor,
+  } from "$lib/stores/customProfileModal";
+  import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
+  import { initAgentNotifications } from "$lib/panes/agentNotifications";
+  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp } from "$lib/tauri";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { registerCommands, registry } from "$lib/commands";
   import { closeFocusedPane } from "$lib/panes/actions";
-  import { closeSession } from "$lib/sessions/close";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
   import { initLogging, log, logError } from "$lib/logging";
   import { hasPrimaryModifier, isMacPlatform } from "$lib/platform";
+  import {
+    armSessionHints,
+    hideSessionHints,
+    armPaneHints,
+    hidePaneHints,
+    paneSlotById,
+  } from "$lib/stores/ui";
+  import { getVisualSessionOrder } from "$lib/sessions/order";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
   let showNotes = $state(false);
   let showWatches = $state(false);
+  let showNotifications = $state(false);
   let showPalette = $state(false);
   let showSetupPrompt = $state(false);
   let showQuitDialog = $state(false);
@@ -62,10 +83,11 @@
   }
 
   async function forceQuit() {
-    const state = get(sessionState);
-    for (const session of [...state.sessions]) {
-      try { await closeSession(session, { force: true }); } catch {}
-    }
+    // Flush any pending pane state debounce before quitting.
+    try { await flushPaneState(); } catch {}
+    // Do NOT close/remove sessions here. The Rust quit_app command kills PTYs
+    // and persists sessions to disk (they load as "disconnected" on next launch).
+    // Removing sessions before quit empties sessions.json, breaking restore.
     quitApp();
   }
 
@@ -95,6 +117,19 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // Arm the session-hint overlay when the platform primary modifier is
+    // pressed on its own. The store handles the 200ms delay; quick chords
+    // like Cmd/Ctrl+K or Cmd/Ctrl+1 release before the delay elapses and
+    // never reveal the overlay.
+    if ((isMacPlatform() && e.key === "Meta") || (!isMacPlatform() && e.key === "Control")) {
+      armSessionHints();
+    }
+
+    // Same deal for Alt / Option → pane hint overlay.
+    if (e.key === "Alt") {
+      armPaneHints();
+    }
+
     // Cmd+Q: quit
     if (e.metaKey && e.key === "q") {
       e.preventDefault();
@@ -111,6 +146,52 @@
 
     // Don't intercept shortcuts when palette is open
     if (showPalette) return;
+
+    // Primary+1..9 / Primary+0: switch to the Nth session in sidebar visual
+    // order. 0 maps to slot 10. Slots past the available session count are
+    // no-ops but still consume the key so nothing else reacts.
+    if (
+      hasPrimaryModifier(e) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !(isMacPlatform() ? e.ctrlKey : e.metaKey) &&
+      /^[0-9]$/.test(e.key)
+    ) {
+      const slot = e.key === "0" ? 10 : parseInt(e.key, 10);
+      const order = getVisualSessionOrder(
+        get(sessionState).sessions,
+        get(projects),
+        get(settings).groupBy ?? "repo",
+      );
+      const target = order[slot - 1];
+      e.preventDefault();
+      if (target) setActiveSession(target.id);
+      return;
+    }
+
+    // Alt+1..9 / Alt+0: focus the Nth visible pane in the active session.
+    // Uses e.code because macOS Option produces special characters in e.key
+    // (Option+1 → ¡, Option+2 → ™, etc.), and we need the physical digit.
+    if (
+      e.altKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      !e.ctrlKey &&
+      /^Digit[0-9]$/.test(e.code)
+    ) {
+      const digit = e.code.slice(5);
+      const slot = digit === "0" ? 10 : parseInt(digit, 10);
+      e.preventDefault();
+      // paneSlotById is already keyed to the active session's visible DFS order.
+      const slots = get(paneSlotById);
+      for (const [paneId, s] of slots) {
+        if (s === slot) {
+          setLogicalFocus(paneId);
+          break;
+        }
+      }
+      return;
+    }
 
     // Prevent WebKit from blurring xterm's hidden textarea on Escape.
     // Without this, pressing Escape (e.g. to leave vim insert mode) causes
@@ -144,7 +225,12 @@
       }
       if (cmd.id === "ui.toggle-watches") {
         showWatches = !showWatches;
-        if (showWatches) { showSettings = false; showNotes = false; }
+        if (showWatches) { showSettings = false; showNotes = false; showNotifications = false; }
+        return;
+      }
+      if (cmd.id === "ui.toggle-notifications") {
+        showNotifications = !showNotifications;
+        if (showNotifications) { showSettings = false; showNotes = false; showWatches = false; }
         return;
       }
       if (cmd.id === "app.command-palette") {
@@ -154,6 +240,18 @@
 
       if (cmd.execute) void cmd.execute();
     }
+  }
+
+  function handleKeyUp(e: KeyboardEvent) {
+    if ((isMacPlatform() && e.key === "Meta") || (!isMacPlatform() && e.key === "Control")) {
+      hideSessionHints();
+    }
+    if (e.key === "Alt") hidePaneHints();
+  }
+
+  function handleWindowBlur() {
+    hideSessionHints();
+    hidePaneHints();
   }
 
   $effect(() => {
@@ -166,12 +264,23 @@
 
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);
+    window.removeEventListener("keyup", handleKeyUp, true);
+    window.removeEventListener("blur", handleWindowBlur);
   });
 
   onMount(async () => {
+    // One-shot cleanup of old localStorage-backed pane state keys.
+    // These were used before pane state moved to disk (per-session JSON files).
+    try {
+      localStorage.removeItem("roux:pane-layouts-v2");
+      localStorage.removeItem("roux:pane-descriptors");
+    } catch {}
+
     registerCommands();
     // Use capture phase so we intercept before xterm.js swallows the event
     window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("blur", handleWindowBlur);
 
     // Listen for Tauri close-requested event (red button / Cmd+W)
     await listen("close-requested", () => void handleCloseRequested());
@@ -181,6 +290,19 @@
     const loadedSettings = await initSettings();
     await initLogging(loadedSettings.enableLogging ?? false);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
+
+    // Populate the built-in spawn-profile registry so pane pickers and
+    // restored panes can resolve { kind: "registered", id: "claude" } etc.
+    // User profiles are already loaded by initSettings via setUserProfiles.
+    void loadBuiltinProfiles();
+
+    // Start watching agent-state transitions so per-pane generating→idle
+    // transitions fire a completion notification. Window-focus suppression
+    // and OS fan-out happen on the Rust side of notificationsPush.
+    initAgentNotifications();
+
+    // Kick off a silent background update check (5s debounce, respects user toggle)
+    runStartupCheck();
 
     // Check CLI setup and tool availability
     const status = await checkSetupStatus();
@@ -201,19 +323,22 @@
       const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
       for (const s of sessions) {
         addSession(s);
-        const mainPaneId = initSession(s.id);
+        // Look up the persisted primary descriptor so the restored pane
+        // keeps its spawnProfileRef. Without this, every session would
+        // come back tagged as the Claude built-in profile regardless of
+        // what the user actually chose at creation time, and the re-run
+        // button + provider-specific UI would lie.
+        const persisted = await loadPaneState(s.id);
+        const primaryDescriptor = persisted?.descriptors.find(
+          (d) => d.ptyId === s.id,
+        );
+        const mainPaneId = primaryDescriptor?.spawnProfileRef
+          ? initSessionWithProfile(s.id, primaryDescriptor.spawnProfileRef)
+          : initSession(s.id);
         initTerminal(mainPaneId);
         await attachPtyListeners(mainPaneId);
-
-        // Restore persisted layout if available (shell panes get fresh layouts;
-        // command panes are stripped since their processes are gone)
-        const persisted = loadLayout(s.id);
-        if (persisted) {
-          // For now we just use the fresh single-pane layout created by
-          // initSession. Full shell pane restore (spawn fresh PTYs for each
-          // persisted shell) is deferred to a later iteration.
-          clearLayout(s.id);
-        }
+        // Full layout restore (shell PTY re-spawn etc.) happens on reconnect click.
+        // Startup only sets up the main pane in disconnected state.
       }
     }
 
@@ -228,11 +353,12 @@
           const sessionId = cmd.sessionId;
           if (!sessionId) break;
           const ptyId = crypto.randomUUID();
+          const paneId = crypto.randomUUID();
           const session = $sessionState.sessions.find((s) => s.id === sessionId);
           if (!session) break;
-          spawnShell(ptyId, session.worktreePath).then(async () => {
+          spawnShell(ptyId, session.worktreePath, session.id, paneId).then(async () => {
             const direction = cmd.direction === "vertical" ? "v" : "h";
-            const newPaneId = splitPane(sessionId, direction, { type: "shell", ptyId });
+            const newPaneId = splitPane(sessionId, direction, { id: paneId, type: "shell", ptyId });
             if (newPaneId) {
               const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
               initTerminal(newPaneId);
@@ -321,31 +447,31 @@
       }
     });
 
-    // Listen for global status updates from hooks and match by cwd
+    // Hydrate + subscribe to notifications
+    await hydrateNotifications();
+    await onNotificationEvent((payload) => {
+      applyNotificationEvent(payload);
+    });
+
+    // Listen for global status updates from hooks. Tier-1 routing (with a
+    // `rouxPaneId` in the payload) updates the pane's runtime agentState so
+    // the session-card aggregate and provider-specific UI light up. Legacy
+    // events without a pane id fall through to cwd-based session status,
+    // which still drives notification fan-out.
     await onRouxStatusUpdate((update) => {
+      const routing = applyStatusRouting(routeStatusUpdate(update));
+      if (routing.kind === "pane") {
+        // Tier-1 routing already wrote to agentState; the session aggregate
+        // is derived from pane state so we don't also poke session.status.
+        return;
+      }
+
       const sessions = $sessionState.sessions;
       const match = sessions.find(
-        (s) => s.worktreePath === update.cwd || s.repoRoot === update.cwd
+        (s) => s.worktreePath === update.cwd || s.repoRoot === update.cwd,
       );
       if (match) {
         updateSessionStatus(match.id, update.status as any, null, null);
-        if (update.status === "attention") {
-          if (update.toolName) {
-            updateSessionPermission(match.id, {
-              toolName: update.toolName,
-              toolInput: update.toolInput ?? {},
-              message: update.message ?? "",
-            });
-          } else if (update.message && !match.permissionInfo) {
-            updateSessionPermission(match.id, {
-              toolName: "",
-              toolInput: {},
-              message: update.message,
-            });
-          }
-        } else {
-          updateSessionPermission(match.id, null);
-        }
       }
     });
   });
@@ -369,6 +495,10 @@
       visible={showWatches}
       onclose={() => (showWatches = false)}
     />
+    <NotificationsPane
+      visible={showNotifications}
+      onclose={() => (showNotifications = false)}
+    />
   {/snippet}
 </Layout>
 
@@ -377,12 +507,24 @@
   onclose={() => (showNewSessionDialog = false)}
 />
 
+<!-- Global custom-profile editor host. Opened by palette flows
+     (split-with-profile) that can't mount their own modal. Resolves
+     the pending `openCustomProfileEditor()` promise on submit/cancel. -->
+<ProfileCustomEditor
+  visible={$customProfileModalState.visible}
+  onclose={closeCustomProfileEditor}
+  onsubmit={submitCustomProfile}
+/>
+
 <CommandPalette
   open={showPalette}
   onclose={() => (showPalette = false)}
   onNewSession={() => (showNewSessionDialog = true)}
   onSettings={() => (showSettings = !showSettings)}
+  onCheckForUpdates={() => { showSettings = true; void runManualCheck(); }}
 />
+
+<UpdateBanner />
 
 <QuitDialog
   visible={showQuitDialog}

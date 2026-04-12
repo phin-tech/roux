@@ -43,19 +43,21 @@
     class:flex-row={$settings.tabPosition === "left"}
     class:flex-row-reverse={$settings.tabPosition === "right"}
   >
-    <div style="width: {sidebarWidth}px" class="shrink-0">
-      <SessionTabs {onNewSession} {onOpenSettings} {onToggleWatches} />
-    </div>
+    {#if !$settings.sidebarCollapsed}
+      <div style="width: {sidebarWidth}px" class="shrink-0">
+        <SessionTabs {onNewSession} {onOpenSettings} {onToggleWatches} />
+      </div>
 
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="group relative flex w-1 shrink-0 cursor-col-resize items-stretch justify-center"
-      onmousedown={onDragStart}
-    >
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="my-2 w-px rounded-full transition-all duration-150 {dragging ? 'bg-white/30' : 'bg-white/20 group-hover:bg-white/40'}"
-      ></div>
-    </div>
+        class="group relative flex w-1 shrink-0 cursor-col-resize items-stretch justify-center"
+        onmousedown={onDragStart}
+      >
+        <div
+          class="my-2 w-px rounded-full transition-all duration-150 {dragging ? 'bg-white/30' : 'bg-white/20 group-hover:bg-white/40'}"
+        ></div>
+      </div>
+    {/if}
 
     <div class="relative flex min-w-0 flex-1 flex-col bg-bg-deep">
       {#if $sessionState.sessions.length === 0}
@@ -67,7 +69,13 @@
             <p class="text-base font-semibold tracking-tight text-text-primary">No active sessions</p>
             <p class="text-sm text-text-secondary">Start a new session to open a terminal workspace.</p>
           </div>
-          <p class="text-[12px] font-semibold uppercase tracking-[0.2em] text-text-secondary">Click "New" in the sidebar</p>
+          <button
+            type="button"
+            onclick={onNewSession}
+            class="rounded-lg border border-border-subtle bg-bg-surface/80 px-4 py-2 text-sm font-semibold text-text-primary shadow-[0_18px_40px_rgba(2,6,23,0.45)] transition-colors hover:border-accent hover:text-accent"
+          >
+            New Session
+          </button>
         </div>
       {:else}
         {#each $sessionState.sessions as session (session.id)}
@@ -80,6 +88,7 @@
               <SplitPane
                 node={tree}
                 sessionId={session.id}
+                visible={session.id === $sessionState.activeSessionId}
               />
             </div>
           {/if}

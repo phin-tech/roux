@@ -1,6 +1,6 @@
 [package]
 name = "roux"
-version = "0.2.2"
+version = "0.3.2"
 description = "A multi-session Claude Code terminal manager"
 authors = ["phin-tech"]
 edition = "2021"
@@ -35,6 +35,7 @@ base64 = "0.22"
 dirs = "6"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
 notify = "7"
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["net", "io-util", "macros", "rt-multi-thread", "process", "time", "sync"] }
@@ -47,6 +48,10 @@ roux-core = { path = "../crates/roux-core" }
 specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }
 specta-typescript = "0.0.11"
 tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }
+vte = "0.15"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

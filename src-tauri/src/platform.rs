@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 const APP_DIR_NAME: &str = "roux";
 
 pub fn app_config_dir() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join(APP_DIR_NAME)
+    crate::paths::roux_config_dir()
 }
 
 pub fn status_dir() -> PathBuf {

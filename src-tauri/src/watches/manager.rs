@@ -1,18 +1,20 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::Emitter;
-use tauri_plugin_notification::NotificationExt;
+use tauri::{Emitter, Manager};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
 use roux_core::{
-    RuntimeState, Watch, WatchKind, WatchMode, WatchOutcome, WatchResult, WatchUpdateEvent,
+    ActionKind, NotificationAction, NotificationLevel, NotificationRequest, NotificationSource,
+    RuntimeState, Watch, WatchKind, WatchMode, WatchOutcome, WatchResult, WatchScope,
+    WatchUpdateEvent,
 };
 
 use super::checks;
 use super::flap::FlapTracker;
 use super::store::WatchStoreHandle;
+use crate::state::AppState;
 
 #[allow(dead_code)]
 pub struct WatchHandle {
@@ -212,7 +214,67 @@ impl WatchManager {
                                 }
                                 None => String::new(),
                             };
-                            let _ = app.notification().builder().title(&title).body(&body).show();
+                            // Push through the notification service. The policy
+                            // layer inside the service decides whether to fan
+                            // out to the OS (respecting focus + kill switch).
+                            let state = app.state::<AppState>();
+                            let session_id = match &updated_watch.scope {
+                                WatchScope::Session { session_id } => Some(session_id.clone()),
+                                _ => None,
+                            };
+                            let level = match outcome {
+                                Some(WatchOutcome::Failure) => NotificationLevel::Error,
+                                Some(WatchOutcome::Success) => NotificationLevel::Success,
+                                _ => NotificationLevel::Info,
+                            };
+                            let mut actions: Vec<NotificationAction> = Vec::new();
+                            if let Some(ref sid) = session_id {
+                                actions.push(NotificationAction {
+                                    id: "focus".into(),
+                                    label: "Focus session".into(),
+                                    kind: ActionKind::FocusSession {
+                                        session_id: sid.clone(),
+                                    },
+                                    primary: true,
+                                });
+                            }
+                            if matches!(outcome, Some(WatchOutcome::Failure)) {
+                                actions.push(NotificationAction {
+                                    id: "retry".into(),
+                                    label: "Retry".into(),
+                                    kind: ActionKind::RetryWatch {
+                                        watch_id: updated_watch.id.clone(),
+                                    },
+                                    primary: actions.is_empty(),
+                                });
+                                actions.push(NotificationAction {
+                                    id: "dismiss_source".into(),
+                                    label: "Dismiss all from source".into(),
+                                    kind: ActionKind::DismissSource,
+                                    primary: false,
+                                });
+                            } else {
+                                actions.push(NotificationAction {
+                                    id: "dismiss".into(),
+                                    label: "Dismiss".into(),
+                                    kind: ActionKind::Dismiss,
+                                    primary: false,
+                                });
+                            }
+                            state.notification_manager.push(
+                                NotificationRequest {
+                                    level,
+                                    source: NotificationSource::Watch {
+                                        watch_id: updated_watch.id.clone(),
+                                    },
+                                    title,
+                                    subtitle: None,
+                                    body: Some(body),
+                                    session_id,
+                                    actions,
+                                },
+                                Some(&app),
+                            );
                         }
                     }
                 }

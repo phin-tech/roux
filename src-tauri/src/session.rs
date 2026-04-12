@@ -1,8 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::platform;
-
 pub use roux_core::Session;
 
 /// Load persisted sessions from disk. All restored sessions are marked as "disconnected".
@@ -21,7 +19,7 @@ pub fn load_persisted_sessions() -> Vec<Session> {
 }
 
 pub fn persistence_path() -> PathBuf {
-    platform::sessions_path()
+    crate::paths::roux_config_dir().join("sessions.json")
 }
 
 

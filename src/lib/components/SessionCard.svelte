@@ -1,55 +1,40 @@
 <script lang="ts">
-  import type { Session, PermissionInfo, WatchOutcome } from "$lib/types";
+  import type { Session, WatchOutcome } from "$lib/types";
   import { renameSignal } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
   import { watchState, flashingSessions } from "$lib/stores/watches";
+  import { unreadBySession } from "$lib/stores/notifications";
+  import { showSessionHints } from "$lib/stores/ui";
+  import {
+    sessionAgentStatus,
+    computeEffectiveSessionStatus,
+  } from "$lib/panes/agentState";
 
   interface Props {
     session: Session;
     active: boolean;
+    slotNumber?: number;
     onselect: () => void;
     onclose: () => void;
     onrename: (newName: string) => void;
     onreconnect: () => void;
-    onapprove: () => void;
-    onalways: () => void;
-    ondeny: () => void;
-    ondismiss: () => void;
     oncontextmenu?: (e: MouseEvent) => void;
   }
 
   let {
     session,
     active,
+    slotNumber,
     onselect,
     onclose,
     onrename,
     onreconnect,
-    onapprove,
-    onalways,
-    ondeny,
-    ondismiss,
     oncontextmenu,
   }: Props = $props();
 
-  function formatPermission(info: PermissionInfo): string {
-    if (info.toolName === "Bash" && info.toolInput?.command) {
-      return `Bash: ${info.toolInput.command}`;
-    }
-    if (info.toolName === "Read" && info.toolInput?.file_path) {
-      return `Read: ${info.toolInput.file_path}`;
-    }
-    if (info.toolName === "Write" && info.toolInput?.file_path) {
-      return `Write: ${info.toolInput.file_path}`;
-    }
-    if (info.toolName === "Edit" && info.toolInput?.file_path) {
-      return `Edit: ${info.toolInput.file_path}`;
-    }
-    if (info.message) {
-      return info.message;
-    }
-    return info.toolName || "Permission needed";
-  }
+  let slotLabel = $derived(
+    slotNumber == null ? null : slotNumber === 10 ? "0" : String(slotNumber),
+  );
 
   function pathLabel(path: string): string {
     const parts = path.split("/").filter(Boolean);
@@ -129,6 +114,19 @@
 
   let isFlashing = $derived($flashingSessions.has(session.id));
 
+  let unreadCount = $derived($unreadBySession.get(session.id) ?? 0);
+
+  // Effective status combines tier-1 agent aggregate (generating/idle from
+  // pane-level agentState) with the backend Session.status. Precedence is
+  // defined once in `computeEffectiveSessionStatus`: disconnected/error
+  // from the backend always wins (so a stale agent entry that predates
+  // the disconnect can't repaint the card), and a live agent aggregate
+  // beats a stale legacy value otherwise.
+  let agentAggregate = $derived($sessionAgentStatus.get(session.id) ?? null);
+  let effectiveStatus = $derived(
+    computeEffectiveSessionStatus(session.status, agentAggregate),
+  );
+
   let flashColor = $derived.by(() => {
     if (!isFlashing) return "";
     const hasFailure = watchOutcomes.includes("failure");
@@ -158,18 +156,18 @@
   }}
   title={session.worktreePath}
 >
-  {#if active || pulsingStatuses.includes(session.status) || session.status === "error"}
+  {#if active || pulsingStatuses.includes(effectiveStatus) || effectiveStatus === "error"}
     <div
-      class="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full {active ? 'bg-accent shadow-[0_0_6px_var(--color-blue-dim)]' : railClasses[session.status]}"
+      class="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full {active ? 'bg-accent shadow-[0_0_6px_var(--color-blue-dim)]' : railClasses[effectiveStatus]}"
     ></div>
   {/if}
 
   <div class="mb-1 flex items-start gap-2">
     <div class="relative mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-      {#if pulsingStatuses.includes(session.status)}
-        <span class="absolute inline-flex h-2 w-2 rounded-full {statusClasses[session.status]} animate-ping opacity-50"></span>
+      {#if pulsingStatuses.includes(effectiveStatus)}
+        <span class="absolute inline-flex h-2 w-2 rounded-full {statusClasses[effectiveStatus]} animate-ping opacity-50"></span>
       {/if}
-      <span class="relative inline-flex h-2 w-2 rounded-full {statusClasses[session.status]}"></span>
+      <span class="relative inline-flex h-2 w-2 rounded-full {statusClasses[effectiveStatus]}"></span>
     </div>
 
     {#if editing}
@@ -198,6 +196,12 @@
       </span>
     {/if}
 
+    {#if unreadCount > 0}
+      <span
+        class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full bg-accent-dim/30 px-1 text-[9px] font-semibold text-accent"
+        title="{unreadCount} unread notification{unreadCount === 1 ? '' : 's'}"
+      >{unreadCount > 99 ? "99+" : unreadCount}</span>
+    {/if}
     {#if session.status === "disconnected"}
       <button
         class="cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
@@ -247,54 +251,15 @@
     {/if}
   </div>
 
-  {#if session.permissionInfo}
-    <div class="mt-1.5 border border-amber/10 bg-amber/10 px-2.5 py-1.5">
-      <div class="flex items-start gap-1">
-        <span
-          class="block flex-1 truncate font-mono text-[10px] text-amber"
-          title={JSON.stringify(session.permissionInfo.toolInput, null, 2)}
-        >
-          {formatPermission(session.permissionInfo)}
-        </span>
-        <button
-          class="cursor-pointer shrink-0 bg-transparent text-[10px] leading-none text-amber/60 hover:text-amber"
-          onclick={(e) => {
-            e.stopPropagation();
-            ondismiss();
-          }}
-        >&times;</button>
-      </div>
-      {#if session.status === "attention"}
-        <div class="mt-1.5 flex gap-1">
-          <button
-            class="cursor-pointer bg-green/10 px-2.5 py-1 text-[11px] font-semibold text-green transition-colors hover:bg-green/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-            onclick={(e) => {
-              e.stopPropagation();
-              onapprove();
-            }}
-          >
-            &#10003; Allow
-          </button>
-          <button
-            class="cursor-pointer bg-accent-dim/15 px-2.5 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-            onclick={(e) => {
-              e.stopPropagation();
-              onalways();
-            }}
-          >
-            &#10003; Always
-          </button>
-          <button
-            class="cursor-pointer bg-red/10 px-2.5 py-1 text-[11px] font-semibold text-red transition-colors hover:bg-red/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-            onclick={(e) => {
-              e.stopPropagation();
-              ondeny();
-            }}
-          >
-            &#10007; Deny
-          </button>
-        </div>
-      {/if}
+  {#if slotLabel}
+    <div
+      class="slot-hint-overlay pointer-events-none absolute inset-0 flex items-center justify-center bg-bg-deep/75 backdrop-blur-[1px] transition-opacity duration-[120ms]"
+      class:slot-hint-visible={$showSessionHints}
+      aria-hidden="true"
+    >
+      <span class="font-mono text-[28px] font-bold leading-none text-text-primary drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+        &#8984;{slotLabel}
+      </span>
     </div>
   {/if}
 </div>
@@ -307,5 +272,13 @@
   @keyframes watch-flash-anim {
     0% { background-color: var(--flash-color); }
     100% { background-color: transparent; }
+  }
+
+  .slot-hint-overlay {
+    opacity: 0;
+  }
+
+  .slot-hint-overlay.slot-hint-visible {
+    opacity: 1;
   }
 </style>

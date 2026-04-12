@@ -3,6 +3,7 @@ import { get } from "svelte/store";
 
 vi.mock("$lib/tauri", () => ({
   killSession: vi.fn().mockResolvedValue(undefined),
+  killPty: vi.fn().mockResolvedValue(undefined),
   removeWorktree: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -28,7 +29,6 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     status: "idle",
     model: null,
     cost: null,
-    permissionInfo: null,
     createdAt: 1,
     projectId: null,
     isGitRepo: true,

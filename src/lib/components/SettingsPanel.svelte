@@ -3,6 +3,47 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { THEME_DEFINITIONS } from "$lib/themes";
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
+  import { notificationsPush } from "$lib/tauri";
+  import { updateStatus, runManualCheck, performInstall } from "$lib/stores/updater";
+  import { getVersion } from "@tauri-apps/api/app";
+  import { quitApp } from "$lib/tauri";
+  import { onMount } from "svelte";
+
+  let appVersion = $state<string>("…");
+  onMount(async () => {
+    try { appVersion = await getVersion(); } catch { appVersion = "unknown"; }
+  });
+
+  function describeError(reason: "network" | "signature-invalid" | "unknown"): string {
+    switch (reason) {
+      case "network": return "Couldn't reach the update server.";
+      case "signature-invalid": return "Update signature invalid. Download blocked.";
+      case "unknown": return "Update check failed.";
+    }
+  }
+
+  let notifTestStatus = $state<"idle" | "sent" | "error">("idle");
+  let notifTestError = $state<string | null>(null);
+
+  async function sendTestNotification() {
+    notifTestStatus = "idle";
+    notifTestError = null;
+    try {
+      await notificationsPush({
+        level: "attention",
+        source: { type: "cli" },
+        title: "Roux notification test",
+        subtitle: null,
+        body: "If you saw a macOS notification, permissions are set up correctly.",
+        sessionId: null,
+        actions: [],
+      });
+      notifTestStatus = "sent";
+    } catch (e) {
+      notifTestStatus = "error";
+      notifTestError = e instanceof Error ? e.message : String(e);
+    }
+  }
 
   interface Props {
     visible: boolean;
@@ -258,6 +299,140 @@
           oninput={(e) => updateSetting("additionalFlags", e.currentTarget.value.split(" ").filter(Boolean))}
           placeholder="--verbose"
         />
+      </div>
+    </section>
+
+    <!-- Notifications -->
+    <section class="mb-6">
+      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Notifications</h3>
+
+      <div class="flex items-center justify-between py-2">
+        <div>
+          <div class="text-[13px]">Enable OS notifications</div>
+          <div class="text-[11px] text-text-muted mt-0.5">Master switch for macOS notification fan-out. The in-app pane always works.</div>
+        </div>
+        <button
+          aria-label="Toggle OS notifications"
+          class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+            {$settings.notificationsEnabled
+              ? 'bg-accent-dim border-accent'
+              : 'bg-bg-deep border-border'}"
+          onclick={() => updateSetting("notificationsEnabled", !$settings.notificationsEnabled)}
+        >
+          <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+            {$settings.notificationsEnabled
+              ? 'left-[18px] bg-accent'
+              : 'left-0.5 bg-text-secondary'}"></div>
+        </button>
+      </div>
+
+      <div class="mt-3 rounded-lg border border-amber/20 bg-amber/5 p-3 text-[11px] text-text-secondary">
+        <div class="mb-1 font-semibold text-amber">macOS quirk</div>
+        <div class="leading-relaxed">
+          In dev mode Roux borrows <span class="font-mono text-[10px]">com.apple.Terminal</span>'s notification identity (unsigned binaries can't own a bundle id). If you don't see the test notification below, open <span class="text-text-primary">System Settings → Notifications → Terminal</span> and make sure "Allow Notifications" is on. Bundled release builds use <span class="font-mono text-[10px]">com.phin-tech.roux</span>.
+        </div>
+      </div>
+
+      <div class="mt-3 flex items-center justify-between gap-3">
+        <div>
+          <div class="text-[13px]">Test notification</div>
+          <div class="text-[11px] text-text-muted mt-0.5">
+            {#if notifTestStatus === "sent"}
+              Test fired — check macOS notification center. If nothing shows, fix permissions above.
+            {:else if notifTestStatus === "error"}
+              <span class="text-red">Failed: {notifTestError}</span>
+            {:else}
+              Pushes an Attention-level notification through the service
+            {/if}
+          </div>
+        </div>
+        <button
+          class="shrink-0 cursor-pointer rounded-lg border border-border-subtle bg-bg-deep px-3 py-1.5 text-[12px] font-semibold text-text-primary hover:border-accent hover:bg-bg-hover"
+          onclick={sendTestNotification}
+        >
+          Send test
+        </button>
+      </div>
+    </section>
+
+    <!-- Updates -->
+    <section class="mb-6">
+      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Updates</h3>
+
+      <div class="flex items-center justify-between py-2">
+        <div>
+          <div class="text-[13px]">Current version</div>
+          <div class="text-[11px] text-text-muted mt-0.5 font-mono">{appVersion}</div>
+        </div>
+        <button
+          class="rounded border border-border px-2.5 py-1 text-[11px] text-text-primary hover:bg-bg-hover disabled:opacity-50"
+          disabled={$updateStatus.kind === "checking" || $updateStatus.kind === "downloading"}
+          onclick={() => void runManualCheck()}
+        >
+          {$updateStatus.kind === "checking" ? "Checking…" : "Check for updates"}
+        </button>
+      </div>
+
+      {#if $updateStatus.kind === "no-update"}
+        <div class="mt-2 text-[11px] text-text-secondary">You're on the latest version.</div>
+      {:else if $updateStatus.kind === "available"}
+        <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
+          <div class="text-[12px] font-semibold text-text-primary">Update available: {$updateStatus.version}</div>
+          {#if $updateStatus.notes}
+            <pre class="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] text-text-secondary">{$updateStatus.notes}</pre>
+          {/if}
+          <button
+            class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
+            onclick={() => void performInstall()}
+          >
+            Install and restart
+          </button>
+        </div>
+      {:else if $updateStatus.kind === "downloading"}
+        <div class="mt-3 rounded-lg border border-border-subtle bg-bg-surface/35 p-3">
+          <div class="text-[11px] text-text-secondary">
+            Downloading update{$updateStatus.progress !== null ? ` (${Math.round($updateStatus.progress * 100)}%)` : "…"}
+          </div>
+          <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-bg-deep">
+            <div
+              class="h-full bg-accent transition-[width] duration-200"
+              style="width: {$updateStatus.progress !== null ? Math.round($updateStatus.progress * 100) : 30}%"
+            ></div>
+          </div>
+        </div>
+      {:else if $updateStatus.kind === "installed-restart-required"}
+        <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
+          <div class="text-[12px] font-semibold text-text-primary">Update installed</div>
+          <div class="text-[11px] text-text-secondary mt-0.5">Quit and reopen Roux to finish.</div>
+          <button
+            class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
+            onclick={() => void quitApp()}
+          >
+            Quit Roux
+          </button>
+        </div>
+      {:else if $updateStatus.kind === "error"}
+        <div class="mt-2 text-[11px] text-red">{describeError($updateStatus.reason)}</div>
+      {/if}
+
+      <div class="mt-4 flex items-center justify-between py-2">
+        <div>
+          <div class="text-[13px]">Check for updates on launch</div>
+          <div class="text-[11px] text-text-muted mt-0.5">Silently check in the background when Roux starts</div>
+        </div>
+        <button
+          aria-label="Toggle auto-check on launch"
+          class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+            {($settings.updateCheckOnLaunch ?? true)
+              ? 'bg-accent-dim border-accent'
+              : 'bg-bg-deep border-border'}"
+          onclick={() => updateSetting('updateCheckOnLaunch', !($settings.updateCheckOnLaunch ?? true))}
+        >
+          <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+            {($settings.updateCheckOnLaunch ?? true)
+              ? 'left-[18px] bg-accent'
+              : 'left-0.5 bg-text-secondary'}"></div>
+        </button>
       </div>
     </section>
 

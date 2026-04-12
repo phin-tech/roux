@@ -7,8 +7,6 @@ import {
   removeSession,
   setActiveSession,
   updateSessionStatus,
-  updateSessionPermission,
-  respondToPermission,
   setSessionDisconnected,
   renameSession,
   updateSessionGitStatus,
@@ -26,7 +24,6 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     status: "idle",
     model: null,
     cost: null,
-    permissionInfo: null,
     createdAt: Date.now(),
     projectId: null,
     isGitRepo: true,
@@ -141,58 +138,6 @@ describe("sessions store", () => {
     renameSession(s.id, "new-name");
 
     expect(get(sessionState).sessions[0].name).toBe("new-name");
-  });
-
-  it("updates permission info", () => {
-    const s = makeSession();
-    addSession(s);
-
-    updateSessionPermission(s.id, {
-      toolName: "Bash",
-      toolInput: { command: "npm install" },
-      message: "wants to run",
-    });
-
-    const session = get(sessionState).sessions[0];
-    expect(session.permissionInfo).not.toBeNull();
-    expect(session.permissionInfo!.toolName).toBe("Bash");
-  });
-
-  it("clears permission info", () => {
-    const s = makeSession();
-    addSession(s);
-    updateSessionPermission(s.id, {
-      toolName: "Bash",
-      toolInput: {},
-      message: "",
-    });
-    updateSessionPermission(s.id, null);
-
-    expect(get(sessionState).sessions[0].permissionInfo).toBeNull();
-  });
-
-  it("clears permission info when responding to a permission request", () => {
-    const s = makeSession({ status: "attention" });
-    addSession(s);
-    updateSessionPermission(s.id, {
-      toolName: "Bash",
-      toolInput: { command: "rm -rf /" },
-      message: "wants to run",
-    });
-
-    // Simulate responding (approve/always/deny should clear permissionInfo)
-    respondToPermission(s.id);
-
-    const session = get(sessionState).sessions[0];
-    expect(session.permissionInfo).toBeNull();
-  });
-
-  it("does not throw when responding to a session with no permission info", () => {
-    const s = makeSession({ status: "idle" });
-    addSession(s);
-
-    expect(() => respondToPermission(s.id)).not.toThrow();
-    expect(get(sessionState).sessions[0].permissionInfo).toBeNull();
   });
 
   it("derives active session correctly", () => {

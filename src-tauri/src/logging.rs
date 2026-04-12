@@ -4,11 +4,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use crate::platform;
-
 static LOG_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 static ENABLED: AtomicBool = AtomicBool::new(false);
-
 /// Initialize logging. Call once at startup.
 pub fn init(enabled: bool) {
     ENABLED.store(enabled, Ordering::Relaxed);
@@ -97,5 +94,5 @@ macro_rules! rlog {
 }
 
 fn log_dir() -> PathBuf {
-    platform::log_dir()
+    crate::paths::roux_config_dir().join("logs")
 }

@@ -34,8 +34,36 @@ export async function createSession(
   });
 }
 
+/**
+ * Parallel to `createSession`, but spawns a plain shell in the session's
+ * primary PTY. Caller then attaches a spawn profile and types its setup /
+ * startup commands into the shell.
+ */
+export async function createSessionShell(
+  repoPath: string,
+  name: string,
+  worktreePath: string | null,
+  branch: string | null,
+): Promise<Session> {
+  return invoke("create_session_shell", {
+    repoPath,
+    name,
+    worktreePath,
+    branch,
+  });
+}
+
 export async function killSession(id: string): Promise<void> {
   return invoke("kill_session", { id });
+}
+
+/**
+ * Kill only the PTY `id`, leaving the session record and pane-state files
+ * alone. Use this for pane disposal — `killSession` removes the session
+ * too, which is almost never what a pane-level close wants.
+ */
+export async function killPty(id: string): Promise<void> {
+  return invoke("kill_pty", { id });
 }
 
 export async function reconnectSessionPty(
@@ -43,6 +71,16 @@ export async function reconnectSessionPty(
   extraFlags?: string[],
 ): Promise<Session> {
   return invoke("reconnect_session", { id, extraFlags: extraFlags ?? null });
+}
+
+/**
+ * Parallel to `reconnectSessionPty`, but respawns a plain shell in the
+ * session's primary PTY instead of the claude binary. Used by non-Claude
+ * spawn profiles — the caller replays the profile's setup / startup
+ * commands into the fresh shell after this resolves.
+ */
+export async function reconnectSessionShellPty(id: string): Promise<Session> {
+  return invoke("reconnect_session_shell", { id });
 }
 
 export async function writeToSession(
@@ -77,12 +115,23 @@ export async function attachPtyOutput(
   return invoke("attach_pty_output", { id, onEvent });
 }
 
-export async function spawnShell(id: string, workingDir: string): Promise<void> {
-  return invoke("spawn_shell", { id, workingDir });
+export async function spawnShell(
+  id: string,
+  workingDir: string,
+  sessionId: string | null,
+  paneId: string | null,
+): Promise<void> {
+  return invoke("spawn_shell", { id, workingDir, sessionId, paneId });
 }
 
-export async function spawnTask(id: string, command: string, workingDir: string): Promise<void> {
-  return invoke("spawn_task", { id, command, workingDir });
+export async function spawnTask(
+  id: string,
+  command: string,
+  workingDir: string,
+  sessionId: string | null,
+  paneId: string | null,
+): Promise<void> {
+  return invoke("spawn_task", { id, command, workingDir, sessionId, paneId });
 }
 
 export async function listSessions(): Promise<Session[]> {
@@ -280,7 +329,18 @@ export function onSettingsChanged(
 export interface StatusUpdate {
   status: string;
   cwd: string;
-  claudeSessionId: string;
+  /**
+   * Provider-internal session id (Claude's `session_id`, Codex's equivalent,
+   * etc.). `null` when the hook didn't carry one. Formerly `claudeSessionId`
+   * — renamed so non-Claude hooks don't have to masquerade as Claude.
+   */
+  providerSessionId: string | null;
+  /** Provider that emitted the hook (e.g. `"claude"`). Empty string for legacy payloads. */
+  provider: string;
+  /** Roux session id captured from `ROUX_SESSION_ID` at hook time. */
+  rouxSessionId: string | null;
+  /** Roux pane id captured from `ROUX_PANE_ID` at hook time. Tier-1 routing key. */
+  rouxPaneId: string | null;
   toolName: string | null;
   toolInput: Record<string, any> | null;
   message: string | null;
@@ -340,4 +400,96 @@ export function onWatchUpdate(
   return listen<WatchUpdateEvent>("watch-update", (event) => {
     callback(event.payload);
   });
+}
+
+// Notification events
+import type { NotificationEvent } from "./types/notifications";
+import type { Notification, NotificationRequest, NotificationSource } from "./bindings";
+
+export function onNotificationEvent(
+  callback: (payload: NotificationEvent) => void
+): Promise<UnlistenFn> {
+  return listen<NotificationEvent>("notification-event", (event) => {
+    callback(event.payload);
+  });
+}
+
+// Notification commands — thin wrappers that unwrap the typed-error envelope.
+// Errors are surfaced as rejected promises so callers can try/catch as usual.
+async function unwrap<T>(
+  p: Promise<{ status: "ok"; data: T } | { status: "error"; error: string }>,
+): Promise<T> {
+  const r = await p;
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function listNotifications(): Promise<Notification[]> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsList());
+}
+
+export async function listNotificationsForSession(
+  sessionId: string | null,
+): Promise<Notification[]> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsListForSession(sessionId));
+}
+
+export async function notificationsMarkRead(id: string): Promise<boolean> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsMarkRead(id));
+}
+
+export async function notificationsMarkAllRead(
+  sessionId: string | null,
+  global: boolean | null,
+): Promise<number> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsMarkAllRead(sessionId, global));
+}
+
+export async function notificationsRemove(id: string): Promise<boolean> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsRemove(id));
+}
+
+export async function notificationsClear(
+  sessionId: string | null,
+  global: boolean | null,
+): Promise<number> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsClear(sessionId, global));
+}
+
+export async function notificationsDismissSource(
+  source: NotificationSource,
+): Promise<number> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsDismissSource(source));
+}
+
+export async function notificationsPush(
+  request: NotificationRequest,
+): Promise<Notification> {
+  const { commands } = await import("./bindings");
+  return unwrap(commands.notificationsPush(request));
+}
+
+export async function getPtyCwd(id: string): Promise<string | null> {
+  return invoke("get_pty_cwd", { id });
+}
+
+// ── Pane state persistence ────────────────────────────────────────────────────
+
+export async function loadPaneStateRaw(sessionId: string): Promise<unknown | null> {
+  return invoke("load_pane_state", { sessionId });
+}
+
+export async function savePaneStateRaw(sessionId: string, data: unknown): Promise<void> {
+  return invoke("save_pane_state", { sessionId, data });
+}
+
+export async function deletePaneStateRaw(sessionId: string): Promise<void> {
+  return invoke("delete_pane_state", { sessionId });
 }

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod platform;
+mod paths;
 
 #[derive(Parser)]
 #[command(name = "roux-cli", about = "Roux terminal manager CLI")]
@@ -65,6 +66,34 @@ enum Commands {
     Send {
         /// The text to send
         text: String,
+    },
+    /// Push a notification into Roux's notification service
+    Notify {
+        /// Notification title (required unless --json is used)
+        #[arg(short = 't', long)]
+        title: Option<String>,
+        /// Notification body
+        #[arg(short = 'b', long)]
+        body: Option<String>,
+        /// Optional subtitle (renders between title and body)
+        #[arg(long)]
+        subtitle: Option<String>,
+        /// Severity: info | success | attention | warning | error
+        #[arg(short = 'l', long, default_value = "info")]
+        level: String,
+        /// Explicit session id; falls back to --cwd, then $ROUX_SESSION_ID, then global
+        #[arg(short = 's', long)]
+        session: Option<String>,
+        /// Working directory used to resolve a session if --session is not given
+        #[arg(long)]
+        cwd: Option<String>,
+        /// Free-form source tag (used as the NotificationSource::Cli provider hint in logs)
+        #[arg(long)]
+        source: Option<String>,
+        /// Read a JSON payload from stdin instead of individual flags.
+        /// The JSON should match NotificationRequest: {level, title, body?, subtitle?, sessionId?, source?}
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -233,10 +262,26 @@ fn handle_hook(status: &str) {
 
     let mut out = serde_json::json!({
         "status": status,
-        "claude_session_id": sid,
+        "provider": "claude",
+        // Provider-agnostic key; the old `claude_session_id` name was
+        // confusing once we picked up non-Claude agents. The watcher still
+        // accepts the legacy key so an older roux-cli shim paired with a
+        // newer desktop binary keeps working.
+        "provider_session_id": sid,
         "cwd": cwd,
         "timestamp": timestamp,
     });
+
+    // Pane-scoped routing fields. Present when the agent was launched inside
+    // a Roux-managed PTY (which injects both env vars unconditionally). Absent
+    // for legacy or external installs — status_watcher falls back to cwd
+    // matching in that case, for notifications only.
+    if let Some(roux_sid) = get_session_id() {
+        out["roux_session_id"] = Value::String(roux_sid);
+    }
+    if let Some(pane) = get_pane_id() {
+        out["roux_pane_id"] = Value::String(pane);
+    }
 
     if status == "attention" {
         if let Some(tn) = data.get("tool_name") {
@@ -387,6 +432,66 @@ fn main() {
                 "session_id": get_session_id(),
                 "pane_id": get_pane_id(),
                 "args": { "text": text },
+            }));
+        }
+
+        Commands::Notify { title, body, subtitle, level, session, cwd, source, json } => {
+            let mut payload = if json {
+                let mut input = String::new();
+                if std::io::stdin().read_to_string(&mut input).is_err() {
+                    eprintln!("Error: failed to read JSON from stdin");
+                    std::process::exit(1);
+                }
+                match serde_json::from_str::<Value>(&input) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("Error: invalid JSON: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                let Some(title) = title else {
+                    eprintln!("Error: --title is required unless --json is used");
+                    std::process::exit(1);
+                };
+                let mut obj = serde_json::Map::new();
+                obj.insert("title".into(), Value::String(title));
+                obj.insert("level".into(), Value::String(level));
+                if let Some(b) = body {
+                    obj.insert("body".into(), Value::String(b));
+                }
+                if let Some(s) = subtitle {
+                    obj.insert("subtitle".into(), Value::String(s));
+                }
+                if let Some(s) = source {
+                    obj.insert("source".into(), Value::String(s));
+                }
+                Value::Object(obj)
+            };
+
+            // Resolve the session to attach to:
+            //   1. explicit --session flag
+            //   2. payload already has sessionId (from --json)
+            //   3. --cwd flag (server-side cwd → session match)
+            //   4. env ROUX_SESSION_ID
+            if let Some(s) = session {
+                payload["sessionId"] = Value::String(s);
+            }
+            if payload.get("sessionId").is_none() {
+                if let Some(sid) = get_session_id() {
+                    payload["sessionId"] = Value::String(sid);
+                }
+            }
+
+            let mut args = serde_json::Map::new();
+            args.insert("payload".into(), payload);
+            if let Some(c) = cwd {
+                args.insert("cwd".into(), Value::String(c));
+            }
+
+            run_socket_command(serde_json::json!({
+                "command": "notify",
+                "args": Value::Object(args),
             }));
         }
     }

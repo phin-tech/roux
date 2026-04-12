@@ -1,10 +1,13 @@
 use std::fs;
+use std::path::PathBuf;
 use thiserror::Error;
 
-use crate::platform;
-
 pub use roux_core::RouxSettings;
+use crate::paths::roux_config_dir;
 
+fn settings_path() -> PathBuf {
+    roux_config_dir().join("settings.json")
+}
 #[derive(Debug, Error)]
 pub enum SettingsError {
     #[error("{source}")]
@@ -25,7 +28,7 @@ pub enum SettingsError {
 }
 
 pub fn load_settings() -> RouxSettings {
-    let path = platform::settings_path();
+    let path = settings_path();
     if path.exists() {
         let content = fs::read_to_string(&path).unwrap_or_default();
         serde_json::from_str::<RouxSettings>(&content).unwrap_or_default().normalized()
@@ -35,7 +38,7 @@ pub fn load_settings() -> RouxSettings {
 }
 
 pub fn save_settings(settings: &RouxSettings) -> Result<(), SettingsError> {
-    let path = platform::settings_path();
+    let path = settings_path();
     fs::create_dir_all(path.parent().unwrap())
         .map_err(|source| SettingsError::CreateSettingsDir { source })?;
     let json = serde_json::to_string_pretty(&settings.clone().normalized())

@@ -1,9 +1,14 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
   import { sessionState } from "$lib/stores/sessions";
-  import { closeSession } from "$lib/sessions/close";
   import { updateSetting } from "$lib/stores/settings";
   import { quitApp } from "$lib/tauri";
+  import { flushPaneState } from "$lib/panes/persistence";
+  import {
+    sessionAgentStatus,
+    computeEffectiveSessionStatus,
+  } from "$lib/panes/agentState";
+  import type { SessionStatus } from "$lib/bindings";
 
   interface Props {
     visible: boolean;
@@ -14,12 +19,23 @@
   let quitting = $state(false);
   let skipNextTime = $state(false);
 
+  // "Busy" needs to reflect per-pane agent activity, not just the legacy
+  // Session.status field. A session whose primary pane is idle at the
+  // session level but whose secondary pane is actively generating should
+  // still warn "still working" on quit.
+  function effective(id: string, raw: SessionStatus): SessionStatus {
+    return computeEffectiveSessionStatus(raw, $sessionAgentStatus.get(id) ?? null);
+  }
+
   let activeSessions = $derived(
-    $sessionState.sessions.filter((s) => s.status !== "disconnected")
+    $sessionState.sessions.filter((s) => s.status !== "disconnected"),
   );
 
   let busySessions = $derived(
-    activeSessions.filter((s) => s.status === "thinking" || s.status === "generating")
+    activeSessions.filter((s) => {
+      const e = effective(s.id, s.status);
+      return e === "thinking" || e === "generating";
+    }),
   );
 
   async function handleQuit() {
@@ -27,14 +43,10 @@
     if (skipNextTime) {
       updateSetting("confirmOnQuit", false);
     }
-    // Close all sessions with force (skip individual confirmations)
-    for (const session of [...$sessionState.sessions]) {
-      try {
-        await closeSession(session, { force: true });
-      } catch {
-        // Best effort — continue closing remaining sessions
-      }
-    }
+    // Do NOT remove sessions — the Rust quit_app command kills PTYs and persists
+    // session state so sessions reload as "disconnected" on next launch. Removing
+    // them here empties sessions.json and breaks restore.
+    try { await flushPaneState(); } catch {}
     quitApp();
   }
 
@@ -77,10 +89,11 @@
       {#if activeSessions.length > 0}
         <div class="px-6 py-4 flex flex-col gap-1.5 max-h-40 overflow-y-auto">
           {#each activeSessions as session}
+            {@const eff = effective(session.id, session.status)}
             <div class="flex items-center gap-2 text-xs">
-              <span class="inline-block h-1.5 w-1.5 rounded-full {session.status === 'thinking' || session.status === 'generating' ? 'bg-amber animate-pulse' : 'bg-green'}"></span>
+              <span class="inline-block h-1.5 w-1.5 rounded-full {eff === 'thinking' || eff === 'generating' ? 'bg-amber animate-pulse' : 'bg-green'}"></span>
               <span class="font-medium text-text-secondary truncate">{session.name}</span>
-              <span class="text-text-muted ml-auto">{session.status}</span>
+              <span class="text-text-muted ml-auto">{eff}</span>
             </div>
           {/each}
         </div>
