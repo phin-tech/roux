@@ -338,7 +338,10 @@ export type RouxSettings = {
 	 *  settings schema bump when they arrive.
 	 */
 	trustedWorkspaces?: string[],
+	statusBarPosition?: StatusBarPosition,
 };
+
+export type StatusBarPosition = "top" | "bottom";
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
 

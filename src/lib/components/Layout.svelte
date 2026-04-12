@@ -18,6 +18,7 @@
 
   let dragging = $state(false);
   let sidebarWidth = $derived($settings.tabWidth);
+  let statusBarPosition = $derived($settings.statusBarPosition ?? "bottom");
 
   function onDragStart(e: MouseEvent) {
     dragging = true;
@@ -60,6 +61,9 @@
     {/if}
 
     <div class="relative flex min-w-0 flex-1 flex-col bg-bg-deep">
+      {#if statusBarPosition === "top"}
+        <StatusBar position="top" />
+      {/if}
       {#if $sessionState.sessions.length === 0}
         <div class="flex flex-1 flex-col items-center justify-center gap-4 text-center text-text-secondary">
           <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_18px_40px_rgba(2,6,23,0.45)]">
@@ -98,8 +102,10 @@
       {#if settingsPanel}
         {@render settingsPanel()}
       {/if}
+
+      {#if statusBarPosition === "bottom"}
+        <StatusBar position="bottom" />
+      {/if}
     </div>
   </div>
-
-  <StatusBar />
 </div>

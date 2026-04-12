@@ -120,6 +120,17 @@
           <option value="right">Right</option>
         </select>
       </div>
+      <div class="flex items-center justify-between py-2">
+        <span class="text-[13px]">Status bar position</span>
+        <select
+          class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+          value={$settings.statusBarPosition ?? "bottom"}
+          onchange={(e) => updateSetting("statusBarPosition", e.currentTarget.value as "top" | "bottom")}
+        >
+          <option value="top">Top</option>
+          <option value="bottom">Bottom</option>
+        </select>
+      </div>
     </section>
 
     <!-- Worktrees -->
