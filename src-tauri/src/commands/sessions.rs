@@ -28,12 +28,19 @@ pub(crate) fn spawn_shell(
     working_dir: String,
     session_id: Option<String>,
     pane_id: Option<String>,
+    nono_profile: Option<String>,
+    nono_allow_dirs: Option<Vec<String>>,
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    use crate::pty::NonoConfig;
+    let nono = nono_profile.map(|profile| NonoConfig {
+        profile,
+        allow_dirs: nono_allow_dirs.unwrap_or_default(),
+    });
     state
         .pty_manager
-        .spawn_shell(&id, &working_dir, session_id.as_deref(), pane_id.as_deref(), None, app.clone())
+        .spawn_shell(&id, &working_dir, session_id.as_deref(), pane_id.as_deref(), nono.as_ref(), app.clone())
         .map_err(|e| e.to_string())
 }
 
@@ -146,11 +153,18 @@ pub(crate) async fn create_session_shell(
     name: String,
     worktree_path: Option<String>,
     branch: Option<String>,
+    nono_profile: Option<String>,
+    nono_allow_dirs: Option<Vec<String>>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
+    use crate::pty::NonoConfig;
     // Clone before await — the MutexGuard is not Send.
     let settings = state.settings.lock().unwrap().clone();
+    let nono = nono_profile.map(|profile| NonoConfig {
+        profile,
+        allow_dirs: nono_allow_dirs.unwrap_or_default(),
+    });
 
     let target = if let Some(ref wt_path) = worktree_path {
         svc::SessionTarget::ExistingWorktree { path: wt_path }
@@ -167,6 +181,7 @@ pub(crate) async fn create_session_shell(
         &repo_path,
         &name,
         target,
+        nono.as_ref(),
         &app,
     )
     .await
@@ -204,10 +219,17 @@ pub(crate) async fn reconnect_session(
 #[specta::specta]
 pub(crate) async fn reconnect_session_shell(
     id: String,
+    nono_profile: Option<String>,
+    nono_allow_dirs: Option<Vec<String>>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
-    svc::reconnect_session_shell(&state.pty_manager, &state.session_handle, &id, &app)
+    use crate::pty::NonoConfig;
+    let nono = nono_profile.map(|profile| NonoConfig {
+        profile,
+        allow_dirs: nono_allow_dirs.unwrap_or_default(),
+    });
+    svc::reconnect_session_shell(&state.pty_manager, &state.session_handle, &id, nono.as_ref(), &app)
         .await
         .map_err(|e| e.to_string())
 }

@@ -148,6 +148,7 @@ pub(crate) async fn create_session_shell(
     repo_path: &str,
     name: &str,
     target: SessionTarget<'_>,
+    nono: Option<&crate::pty::NonoConfig>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -188,7 +189,7 @@ pub(crate) async fn create_session_shell(
         &work_dir,
         Some(&session_id),
         Some(&pane_id),
-        None,
+        nono,
         app.clone(),
     );
 
@@ -288,6 +289,7 @@ pub(crate) async fn reconnect_session_shell(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
     id: &str,
+    nono: Option<&crate::pty::NonoConfig>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
     let session = session_handle
@@ -314,7 +316,7 @@ pub(crate) async fn reconnect_session_shell(
             &session.worktree_path,
             Some(id),
             Some(&pane_id),
-            None,
+            nono,
             app.clone(),
         )
         .map_err(|e| anyhow!("{}", e))?;
