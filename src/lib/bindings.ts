@@ -21,7 +21,7 @@ export const commands = {
 	 *  the session record untouched. Used by `disposePane` on the frontend so
 	 *  closing a pane never accidentally destroys its session — even when the
 	 *  pane's `ptyId === sessionId` (the session-owned PTY spawned by
-	 *  `create_session_shell`).
+	 *  `create_session` / `create_session_shell`).
 	 * 
 	 *  Prior to this command, `disposePane` called `kill_session`, which tore
 	 *  down `session_handle` and `pane_state` as a side effect. That was fine
@@ -39,16 +39,18 @@ export const commands = {
 	 */
 	getPtyCwd: (id: string) => __TAURI_INVOKE<string | null>("get_pty_cwd", { id }),
 	/**
-	 *  Create a session with a plain shell in its primary PTY, optionally
-	 *  nono-wrapped. The frontend attaches a spawn profile and types setup /
-	 *  startup commands after the shell is ready. This is the only session
-	 *  creation path.
+	 *  Spawns a plain shell in the session's
+	 *  primary PTY instead of the claude binary. The frontend attaches the
+	 *  selected spawn profile and types setup / startup commands after the
+	 *  shell is ready. Used for every non-claude profile in the new-session
+	 *  picker (Codex, Plain shell, user profiles, inline Custom…).
 	 */
 	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, nonoProfile, nonoAllowDirs })),
 	/**
-	 *  Reconnect a session by respawning its primary shell PTY, optionally
-	 *  nono-wrapped. The frontend replays the pane's spawn profile commands
-	 *  into the fresh shell after this call returns.
+	 *  Respawns a plain shell in the session's primary PTY. The frontend
+	 *  replays the pane's spawn profile commands into the fresh shell after
+	 *  this call returns, so agents come back up the same way they were
+	 *  originally launched via `create_session_shell`.
 	 */
 	reconnectSessionShell: (id: string, nonoProfile: string | null, nonoAllowDirs: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, nonoProfile, nonoAllowDirs })),
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),
@@ -171,7 +173,11 @@ export type KeepOpen = "always" | "on-error" | "never";
  *  not implement `Eq`. Tests use `PartialEq` with exact float values, which
  *  is fine because sizes come directly from literal tokens in the KDL source.
  */
-export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null; nono_profile?: string | null; nono_allow_dirs?: string[] | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
+export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null; 
+// Optional nono sandbox profile name (e.g. "default", "permissive").
+nono_profile?: string | null; 
+// Optional allow_dir entries from a `nono_flags` child block.
+nono_allow_dirs?: string[] | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
 
 /**
  *  How a leaf pane references a spawn profile. Registered ids are looked up
@@ -341,8 +347,6 @@ export type RouxSettings = {
 	statusBarPosition?: StatusBarPosition,
 };
 
-export type StatusBarPosition = "top" | "bottom";
-
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
 
 export type Session = {
@@ -397,6 +401,8 @@ export type SpawnProfile = {
  *  only typed into the shell for the user to review before pressing Enter.
  */
 export type StartupBehavior = "autoRun" | "typeOnly";
+
+export type StatusBarPosition = "top" | "bottom";
 
 export type TabPosition = "left" | "right";
 
