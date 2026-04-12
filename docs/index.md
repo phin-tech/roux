@@ -17,6 +17,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Stacked panes** — Zellij-style tab stacking
 - **Shell terminals** — open shell panes alongside Claude for running commands
 - **Command palette** — quick access to every action via ++cmd+k++
+- **Leader mode** — Vimish pane and session actions via ++cmd+;++ with inline pane rename
 - **Layout persistence** — pane layouts survive app restarts; shell panes respawn automatically
 - **Projects** — tag sessions with projects to organize related work across repos and worktrees
 - **Project notes** — per-project plain-text notes sidebar (++cmd+b++) shared across all sessions in a project
