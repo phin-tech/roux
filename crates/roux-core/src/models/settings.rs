@@ -41,6 +41,19 @@ impl Default for TabPosition {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+pub enum StatusBarPosition {
+    Top,
+    Bottom,
+}
+
+impl Default for StatusBarPosition {
+    fn default() -> Self {
+        Self::Bottom
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub enum GroupBy {
     Repo,
     Project,
@@ -107,6 +120,8 @@ pub struct RouxSettings {
     /// settings schema bump when they arrive.
     #[serde(default)]
     pub trusted_workspaces: Vec<String>,
+    #[serde(default)]
+    pub status_bar_position: StatusBarPosition,
 }
 
 impl Default for RouxSettings {
@@ -140,6 +155,7 @@ impl Default for RouxSettings {
             update_check_on_launch: true,
             spawn_profiles: Vec::new(),
             trusted_workspaces: Vec::new(),
+            status_bar_position: StatusBarPosition::Bottom,
         }
     }
 }

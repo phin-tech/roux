@@ -8,12 +8,13 @@
     addSession,
     updateSessionGitStatus,
   } from "$lib/stores/sessions";
-  import { initSession as initSessionPanes } from "$lib/panes/actions";
+  import { initSessionWithProfile } from "$lib/panes/actions";
   import {
-    createSession,
+    createSessionShell,
     openInEditor,
     refreshSessionGitStatus,
   } from "$lib/tauri";
+  import type { SpawnProfileRef } from "$lib/panes/profiles";
   import { settings, updateSetting } from "$lib/stores/settings";
   import { reconnectSession } from "$lib/sessions/reconnect";
   import { closeSession } from "$lib/sessions/close";
@@ -133,13 +134,30 @@
       const branch = branchName.trim();
       const name = repo.split("/").pop() + "-" + branch;
       log(`Creating worktree session: repo=${repo}, branch=${branch}`);
-      const session = await createSession(repo, name, null, branch);
+
+      // Resolve Claude profile's nono config up-front so the primary shell
+      // is sandboxed from the start (matches the layout/dialog paths).
+      const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
+      const { resolveProfileRef } = await import("$lib/panes/profiles");
+      const { runProfileInPane } = await import("$lib/panes/profileRunner");
+      const profile = resolveProfileRef(profileRef);
+      const nonoProfile = profile?.nonoProfile ?? undefined;
+      const nonoAllowDirs = profile?.nonoAllowDirs ?? undefined;
+
+      const session = await createSessionShell(
+        repo, name, null, branch,
+        nonoProfile, nonoAllowDirs,
+      );
       log(`Worktree session created: ${session.id}`);
       addSession(session);
-      const mainPaneId = initSessionPanes(session.id);
+      const mainPaneId = initSessionWithProfile(session.id, profileRef, {
+        nonoProfile,
+        nonoAllowDirs,
+      });
       const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
       initTerminal(mainPaneId);
       await attachPtyListeners(mainPaneId);
+      if (profile) await runProfileInPane(session.id, profile);
       closeContextMenu();
     } catch (e) {
       logError("Failed to create worktree session", e);

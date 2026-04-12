@@ -225,6 +225,7 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), StatusWatcherError> {
                     let tool_name_for_task = tool_name.clone();
                     let tool_input_for_task = tool_input.clone();
                     let message_for_task = message.clone();
+                    let roux_pane_id_for_task = update.roux_pane_id.clone();
                     tauri::async_runtime::spawn(async move {
                         push_attention_notification(
                             &app_for_task,
@@ -232,6 +233,7 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), StatusWatcherError> {
                             tool_name_for_task,
                             tool_input_for_task,
                             message_for_task,
+                            roux_pane_id_for_task,
                         )
                         .await;
                     });
@@ -243,44 +245,149 @@ pub fn start_watching(app: tauri::AppHandle) -> Result<(), StatusWatcherError> {
     Ok(())
 }
 
+/// Picks the most useful "which workspace is this from?" label for the
+/// notification subtitle. Prefers the user-assigned Roux session name; falls
+/// back to the basename of the cwd (so external-claude invocations that don't
+/// match a Roux session still get a project hint instead of nothing).
+fn session_label(session_name: Option<&str>, cwd: &str) -> Option<String> {
+    if let Some(name) = session_name.filter(|s| !s.is_empty()) {
+        return Some(name.to_string());
+    }
+    let trimmed = cwd.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    let basename = trimmed.rsplit('/').next().unwrap_or(trimmed);
+    if basename.is_empty() { None } else { Some(basename.to_string()) }
+}
+
+/// Builds a human-readable (title, body) for a permission-request notification.
+///
+/// Claude Code's PreToolUse / Notification payload has `tool_name` plus a
+/// `tool_input` JSON blob whose shape varies per tool. The previous behavior
+/// dumped that blob verbatim into the body, producing notifications like
+/// `Bash` / `{"command":"echo \"...\""}`. This formatter keeps the body in
+/// plain English: the title becomes a short verb phrase ("Run command",
+/// "Edit file"), and the body becomes the most informative single field
+/// for that tool (the command, the file path, the URL, etc.).
+fn humanize_attention(
+    tool_name: Option<&str>,
+    tool_input: Option<&Value>,
+    message: Option<&str>,
+) -> (String, Option<String>) {
+    fn s<'a>(input: Option<&'a Value>, key: &str) -> Option<&'a str> {
+        input.and_then(|v| v.get(key)).and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+    }
+    fn truncate(s: &str, max: usize) -> String {
+        // Char-boundary safe truncation; avoids slicing inside multibyte chars.
+        if s.chars().count() <= max {
+            return s.to_string();
+        }
+        let mut out: String = s.chars().take(max).collect();
+        out.push('…');
+        out
+    }
+
+    let Some(tool) = tool_name else {
+        let title = message.unwrap_or("Permission requested").to_string();
+        return (title, None);
+    };
+
+    let input = tool_input;
+    match tool {
+        "Bash" => {
+            let body = s(input, "command").map(|c| truncate(c, 200));
+            ("Run command".to_string(), body)
+        }
+        "Read" => ("Read file".to_string(), s(input, "file_path").map(|p| p.to_string())),
+        "Write" => ("Write file".to_string(), s(input, "file_path").map(|p| p.to_string())),
+        "Edit" | "MultiEdit" => {
+            ("Edit file".to_string(), s(input, "file_path").map(|p| p.to_string()))
+        }
+        "Glob" => {
+            let pattern = s(input, "pattern").unwrap_or("").to_string();
+            let body = match s(input, "path") {
+                Some(p) => Some(format!("{} in {}", pattern, p)),
+                None if !pattern.is_empty() => Some(pattern),
+                None => None,
+            };
+            ("Find files".to_string(), body)
+        }
+        "Grep" => {
+            let pattern = s(input, "pattern").unwrap_or("").to_string();
+            let body = match s(input, "path") {
+                Some(p) => Some(format!("{} in {}", pattern, p)),
+                None if !pattern.is_empty() => Some(pattern),
+                None => None,
+            };
+            ("Search files".to_string(), body)
+        }
+        "WebFetch" => ("Fetch URL".to_string(), s(input, "url").map(|u| u.to_string())),
+        "WebSearch" => ("Web search".to_string(), s(input, "query").map(|q| q.to_string())),
+        "Task" => {
+            let body = s(input, "description")
+                .or_else(|| s(input, "prompt"))
+                .map(|t| truncate(t, 200));
+            ("Run task".to_string(), body)
+        }
+        "TodoWrite" => ("Update todos".to_string(), None),
+        "NotebookEdit" => {
+            ("Edit notebook".to_string(), s(input, "notebook_path").map(|p| p.to_string()))
+        }
+        // Unknown tool: keep the tool name as the title, and try to pick a
+        // sensible single string field rather than dumping JSON.
+        other => {
+            let body = input.and_then(|v| v.as_object()).and_then(|obj| {
+                for key in ["command", "file_path", "path", "url", "query", "pattern", "description", "prompt"] {
+                    if let Some(val) = obj.get(key).and_then(|v| v.as_str()) {
+                        if !val.is_empty() {
+                            return Some(truncate(val, 200));
+                        }
+                    }
+                }
+                None
+            });
+            (other.to_string(), body.or_else(|| message.map(|m| m.to_string())))
+        }
+    }
+}
+
 async fn push_attention_notification(
     app: &tauri::AppHandle,
     cwd: &str,
     tool_name: Option<String>,
     tool_input: Option<Value>,
     message: Option<String>,
+    roux_pane_id: Option<String>,
 ) {
     let state = app.state::<AppState>();
 
     // Match the cwd to a known session by worktree_path or repo_root — the
     // same match the frontend has been doing for status updates.
-    let session_id = match state.session_handle.list().await {
+    let matched_session = match state.session_handle.list().await {
         Ok(sessions) => sessions
             .into_iter()
-            .find(|s| s.worktree_path == cwd || s.repo_root == cwd)
-            .map(|s| s.id),
+            .find(|s| s.worktree_path == cwd || s.repo_root == cwd),
         Err(_) => None,
     };
+    let session_id = matched_session.as_ref().map(|s| s.id.clone());
+    let session_name = matched_session.as_ref().map(|s| s.name.clone());
 
-    let title = tool_name
-        .clone()
-        .or_else(|| message.clone())
-        .unwrap_or_else(|| "Permission requested".to_string());
+    let (title, body) = humanize_attention(tool_name.as_deref(), tool_input.as_ref(), message.as_deref());
+    let subtitle = session_label(session_name.as_deref(), cwd);
 
-    let body = match (&tool_name, &tool_input) {
-        (Some(_), Some(input)) => {
-            let serialized = serde_json::to_string(input).unwrap_or_default();
-            if serialized.len() > 200 {
-                Some(format!("{}…", &serialized[..200]))
-            } else {
-                Some(serialized)
-            }
-        }
-        _ => message.clone(),
-    };
-
+    // Prefer pane-level focus when the hook carried a roux_pane_id (Claude
+    // launched inside a Roux-managed PTY). Fall back to session focus for
+    // legacy or external installs.
     let mut actions: Vec<NotificationAction> = Vec::new();
-    if let Some(ref sid) = session_id {
+    if let Some(pane_id) = roux_pane_id {
+        actions.push(NotificationAction {
+            id: "focus".into(),
+            label: "Focus pane".into(),
+            kind: ActionKind::FocusPane { pane_id },
+            primary: true,
+        });
+    } else if let Some(ref sid) = session_id {
         actions.push(NotificationAction {
             id: "focus".into(),
             label: "Focus session".into(),
@@ -302,7 +409,7 @@ async fn push_attention_notification(
                 provider: "claude".to_string(),
             },
             title,
-            subtitle: None,
+            subtitle,
             body,
             session_id,
             actions,
@@ -417,6 +524,109 @@ mod tests {
         assert_eq!(update.provider_session_id, None);
         assert_eq!(update.roux_session_id, None);
         assert_eq!(update.roux_pane_id, None);
+    }
+
+    #[test]
+    fn session_label_prefers_session_name() {
+        assert_eq!(session_label(Some("auth-rewrite"), "/repo/x"), Some("auth-rewrite".into()));
+    }
+
+    #[test]
+    fn session_label_falls_back_to_cwd_basename_when_no_session() {
+        assert_eq!(session_label(None, "/Users/me/src/roux"), Some("roux".into()));
+    }
+
+    #[test]
+    fn session_label_handles_trailing_slash() {
+        assert_eq!(session_label(None, "/Users/me/src/roux/"), Some("roux".into()));
+    }
+
+    #[test]
+    fn session_label_treats_empty_session_name_as_missing() {
+        assert_eq!(session_label(Some(""), "/repo/proj"), Some("proj".into()));
+    }
+
+    #[test]
+    fn session_label_returns_none_for_empty_cwd_and_no_name() {
+        assert_eq!(session_label(None, ""), None);
+    }
+
+    #[test]
+    fn humanize_bash_uses_command_string() {
+        let input = json!({ "command": "echo hello", "description": "say hi" });
+        let (title, body) = humanize_attention(Some("Bash"), Some(&input), None);
+        assert_eq!(title, "Run command");
+        assert_eq!(body.as_deref(), Some("echo hello"));
+    }
+
+    #[test]
+    fn humanize_bash_truncates_long_commands_at_char_boundary() {
+        let cmd = "x".repeat(500);
+        let input = json!({ "command": cmd });
+        let (_, body) = humanize_attention(Some("Bash"), Some(&input), None);
+        let body = body.unwrap();
+        assert!(body.ends_with('…'));
+        assert_eq!(body.chars().count(), 201);
+    }
+
+    #[test]
+    fn humanize_edit_uses_file_path() {
+        let input = json!({ "file_path": "/repo/src/main.rs", "old_string": "a", "new_string": "b" });
+        let (title, body) = humanize_attention(Some("Edit"), Some(&input), None);
+        assert_eq!(title, "Edit file");
+        assert_eq!(body.as_deref(), Some("/repo/src/main.rs"));
+    }
+
+    #[test]
+    fn humanize_grep_combines_pattern_and_path() {
+        let input = json!({ "pattern": "TODO", "path": "src/" });
+        let (title, body) = humanize_attention(Some("Grep"), Some(&input), None);
+        assert_eq!(title, "Search files");
+        assert_eq!(body.as_deref(), Some("TODO in src/"));
+    }
+
+    #[test]
+    fn humanize_unknown_tool_picks_known_field_not_json() {
+        let input = json!({ "url": "https://example.com", "extra": 1 });
+        let (title, body) = humanize_attention(Some("MyCustomTool"), Some(&input), None);
+        assert_eq!(title, "MyCustomTool");
+        assert_eq!(body.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn humanize_unknown_tool_with_no_recognizable_field_falls_back_to_message() {
+        let input = json!({ "weird_field": "x" });
+        let (title, body) = humanize_attention(Some("MyCustomTool"), Some(&input), Some("explain"));
+        assert_eq!(title, "MyCustomTool");
+        assert_eq!(body.as_deref(), Some("explain"));
+    }
+
+    #[test]
+    fn humanize_no_tool_falls_back_to_message() {
+        let (title, body) = humanize_attention(None, None, Some("Permission needed for X"));
+        assert_eq!(title, "Permission needed for X");
+        assert_eq!(body, None);
+    }
+
+    #[test]
+    fn humanize_body_never_contains_raw_json_braces() {
+        // Regression: the old implementation produced bodies like
+        // `{"command":"…"}`. None of the tool-specific paths should ever
+        // emit a body that starts with `{`.
+        let cases = vec![
+            ("Bash", json!({ "command": "ls" })),
+            ("Read", json!({ "file_path": "/x" })),
+            ("Edit", json!({ "file_path": "/x" })),
+            ("Glob", json!({ "pattern": "*.rs" })),
+            ("Grep", json!({ "pattern": "fn", "path": "src/" })),
+            ("WebFetch", json!({ "url": "https://x" })),
+            ("Task", json!({ "description": "do stuff" })),
+        ];
+        for (tool, input) in cases {
+            let (_, body) = humanize_attention(Some(tool), Some(&input), None);
+            let body = body.unwrap_or_default();
+            assert!(!body.starts_with('{'), "tool {} produced JSON-looking body: {}", tool, body);
+        }
     }
 
     #[test]

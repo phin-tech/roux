@@ -104,7 +104,7 @@ Claude and Codex side-by-side (50/50).
 ```kdl
 layout {
     name "Agent comparison"
-    description "Claude and Codex side-by-side (nono wrapping not applied in v1)"
+    description "Claude and Codex side-by-side"
 
     pane split_direction="horizontal" {
         pane profile="claude" name="claude" size=50
@@ -144,9 +144,45 @@ Save this as `~/.config/roux/layouts/dev_setup.kdl` and it will appear in the la
 - [Panes](panes.md) — how splits and stacking work once the layout is applied
 - [Sessions](sessions.md) — session lifecycle and persistence
 
-## Known v1 limitations
+## Nono sandbox integration
 
-- Claude panes inside layouts are not nono-wrapped.
+Any pane in a layout can be wrapped in the [nono](https://nono.sh) sandbox by adding a `nono` attribute:
+
+```kdl
+pane profile="claude" nono="default"
+```
+
+The shell itself is spawned inside `nono run --profile <name> --allow-cwd -- $SHELL`, so everything typed into it — including the agent command — runs under the sandbox policy.
+
+For profiles that need access to directories outside the session's working directory, add a `nono_flags` child block:
+
+```kdl
+pane profile="claude" nono="permissive" {
+    nono_flags {
+        allow_dir "/tmp/scratch"
+        allow_dir "~/data"
+    }
+}
+```
+
+`~` expands to the user's home directory. Relative paths are resolved against the session's working directory.
+
+### Resolution order
+
+Nono config can come from three places, resolved in this order:
+
+1. **Layout leaf** — `nono="..."` on the pane in the `.kdl` file.
+2. **Spawn profile** — the `nonoProfile` / `nonoAllowDirs` fields on a `SpawnProfile`.
+3. **Dialog dropdown** — when creating a session without a layout.
+
+Layout leaf wins over profile. `allow_dirs` from layout and profile are merged (union).
+
+### `--dangerously-skip-permissions`
+
+This Claude flag is a profile-level concern, not a layout-level one. Create a user profile with the flag in its `startup_command` (or `additional_flags`) and use that profile in your layout.
+
+## Known limitations
+
 - `cwd` attribute is reserved but not honored yet.
 - Layouts only apply at session creation — no "apply to existing session."
 - No "save current layout as file" — edit the `.kdl` files directly.

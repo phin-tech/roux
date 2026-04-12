@@ -37,110 +37,14 @@ pub(crate) enum SessionTarget<'a> {
     NewWorktree { branch: &'a str },
 }
 
-pub(crate) async fn create_session(
-    pty_manager: &PtyManager,
-    session_handle: &SessionHandle,
-    settings: &RouxSettings,
-    repo_path: &str,
-    name: &str,
-    target: SessionTarget<'_>,
-    extra_flags: &[String],
-    nono_profile: Option<&str>,
-    app: &tauri::AppHandle,
-) -> anyhow::Result<Session> {
-    let session_id = uuid::Uuid::new_v4().to_string();
-
-    // Determine working directory based on session target
-    let (work_dir, actual_branch, is_wt) = match target {
-        SessionTarget::ExistingWorktree { path } => {
-            let br = get_current_branch(path).unwrap_or_else(|| "main".to_string());
-            (path.to_string(), br, false)
-        }
-        SessionTarget::NewWorktree { branch } => {
-            let base = settings.worktree_base_path.as_deref();
-            let wt_path = crate::worktree::create_worktree(repo_path, branch, base)?;
-            (wt_path, branch.to_string(), true)
-        }
-        SessionTarget::Repo => {
-            let br = get_current_branch(repo_path).unwrap_or_else(|| "main".to_string());
-            (repo_path.to_string(), br, false)
-        }
-    };
-
-    // Merge settings flags with per-session extra flags
-    let mut all_flags = settings.additional_flags.clone();
-    all_flags.extend_from_slice(extra_flags);
-
-    rlog!("Creating session '{}' (id={}) in '{}'", name, session_id, work_dir);
-    rlog!(
-        "  branch={}, flags={:?}, claude_binary={:?}",
-        actual_branch,
-        all_flags,
-        settings.claude_binary_path
-    );
-
-    // Spawn PTY
-    let spawn_result = pty_manager.spawn(
-        &session_id,
-        &work_dir,
-        settings.default_model.as_deref(),
-        &all_flags,
-        nono_profile,
-        settings.claude_binary_path.as_deref(),
-        app.clone(),
-    );
-
-    if let Err(e) = spawn_result {
-        rlog!("Session spawn failed: {}", e);
-        if is_wt {
-            let _ = crate::worktree::remove_worktree(&work_dir);
-        }
-        return Err(anyhow!("{}", e));
-    }
-    rlog!("Session '{}' spawned successfully", session_id);
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    let session = Session {
-        id: session_id,
-        name: name.to_string(),
-        repo_root: repo_path.to_string(),
-        worktree_path: work_dir,
-        branch: actual_branch,
-        is_worktree: is_wt,
-        status: roux_core::SessionStatus::Idle,
-        model: None,
-        cost: None,
-        created_at: now,
-        project_id: None,
-        is_git_repo: is_git_repo(repo_path),
-    };
-
-    if let Err(e) = session_handle.add(session.clone()).await {
-        pty_manager.kill(&session.id);
-        if is_wt {
-            let _ = crate::worktree::remove_worktree(&session.worktree_path);
-        }
-        return Err(e.into());
-    }
-    Ok(session)
-}
-
-/// Create a session that hosts a **plain shell** in its primary PTY,
-/// instead of the claude binary. The frontend attaches a spawn profile and
-/// writes setup / startup commands into the shell after it comes up. Used
-/// for every non-Claude profile in the new-session picker.
+/// Create a session with a plain shell in its primary PTY. The shell is
+/// optionally wrapped in `nono run` via [`NonoConfig`]. The frontend
+/// attaches a spawn profile and writes setup / startup commands into the
+/// shell after it comes up. This is the one and only session creation
+/// path.
 ///
-/// Parallel shape to [`create_session`] minus the Claude-specific inputs
-/// (default model, additional flags, nono profile, claude binary path),
-/// but settings-aware for anything non-Claude-specific — notably
-/// `worktree_base_path` so new worktrees land in the user's configured
-/// base directory regardless of which profile spawned them.
-/// Emits the same Session record so the rest of the app doesn't need to
-/// know which creation path was used.
+/// Settings-aware for `worktree_base_path` so new worktrees land in the
+/// user's configured base directory.
 pub(crate) async fn create_session_shell(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
@@ -148,13 +52,12 @@ pub(crate) async fn create_session_shell(
     repo_path: &str,
     name: &str,
     target: SessionTarget<'_>,
+    nono: Option<&crate::pty::NonoConfig>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    // Determine working directory based on session target. Same logic as
-    // create_session; cheaper than extracting a helper because the shape
-    // is small and the two callers diverge quickly after this step.
+    // Determine working directory based on session target.
     let (work_dir, actual_branch, is_wt) = match target {
         SessionTarget::ExistingWorktree { path } => {
             let br = get_current_branch(path).unwrap_or_else(|| "main".to_string());
@@ -188,6 +91,7 @@ pub(crate) async fn create_session_shell(
         &work_dir,
         Some(&session_id),
         Some(&pane_id),
+        nono,
         app.clone(),
     );
 
@@ -230,63 +134,16 @@ pub(crate) async fn create_session_shell(
     Ok(session)
 }
 
-pub(crate) async fn reconnect_session(
-    pty_manager: &PtyManager,
-    session_handle: &SessionHandle,
-    settings: &RouxSettings,
-    id: &str,
-    extra_flags: &[String],
-    app: &tauri::AppHandle,
-) -> anyhow::Result<Session> {
-    let session = session_handle
-        .get(id)
-        .await?
-        .ok_or_else(|| anyhow!("Session {} not found", id))?;
-
-    pty_manager.kill(id);
-
-    let mut all_flags = settings.additional_flags.clone();
-    all_flags.extend_from_slice(extra_flags);
-
-    rlog!("Reconnecting session '{}' (id={}) in '{}'", session.name, id, session.worktree_path);
-
-    pty_manager
-        .spawn(
-            id,
-            &session.worktree_path,
-            settings.default_model.as_deref(),
-            &all_flags,
-            None,
-            settings.claude_binary_path.as_deref(),
-            app.clone(),
-        )
-        .map_err(|e| anyhow!("{}", e))?;
-
-    session_handle.update_status(id, roux_core::SessionStatus::Idle).await?;
-
-    rlog!("Session '{}' reconnected successfully", id);
-
-    let mut updated = session;
-    updated.status = roux_core::SessionStatus::Idle;
-    Ok(updated)
-}
-
-/// Reconnect a session by respawning a **plain shell** in its primary PTY,
-/// without running the claude binary directly. Used by any session whose
-/// primary pane was originally created via `create_session_shell` — i.e.
-/// every non-Claude-builtin profile (Codex, Plain shell, user profiles,
-/// inline Custom…). The frontend re-runs the pane's profile commands
-/// into the fresh shell after this call, so agents like Codex come back
-/// up by typing their startup command rather than being re-execed
-/// directly by the backend.
-///
-/// Parallel to [`reconnect_session`] minus the Claude-specific inputs.
-/// Both functions kill the old PTY first so the session id is free for a
-/// fresh `spawn`/`spawn_shell`.
+/// Reconnect a session by respawning its primary shell PTY, optionally
+/// nono-wrapped. The frontend re-runs the pane's profile commands into
+/// the fresh shell after this call, so agents come back up by typing
+/// their startup command. Kills the old PTY first so the session id is
+/// free for a fresh `spawn_shell`.
 pub(crate) async fn reconnect_session_shell(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
     id: &str,
+    nono: Option<&crate::pty::NonoConfig>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
     let session = session_handle
@@ -313,6 +170,7 @@ pub(crate) async fn reconnect_session_shell(
             &session.worktree_path,
             Some(id),
             Some(&pane_id),
+            nono,
             app.clone(),
         )
         .map_err(|e| anyhow!("{}", e))?;

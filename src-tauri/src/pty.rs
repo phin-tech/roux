@@ -247,11 +247,6 @@ pub enum PtyError {
         #[source]
         source: anyhow::Error,
     },
-    #[error("Failed to spawn claude: {source}")]
-    SpawnClaude {
-        #[source]
-        source: anyhow::Error,
-    },
     #[error("Failed to spawn shell: {source}")]
     SpawnShell {
         #[source]
@@ -374,6 +369,49 @@ pub fn cwd_for_pid(_pid: u32) -> Option<String> {
     None
 }
 
+/// Nono sandbox configuration for a shell PTY. When present, the shell
+/// is spawned inside `nono run` with the given profile and directory
+/// allowances.
+#[derive(Debug, Clone)]
+pub struct NonoConfig {
+    pub profile: String,
+    pub allow_dirs: Vec<String>,
+}
+
+impl NonoConfig {
+    /// Resolve `~` to the user's home directory and relative paths
+    /// against `working_dir`. Nono receives arguments via CommandBuilder
+    /// (no shell expansion), so tilde must be expanded here.
+    ///
+    /// Uses `Path::is_absolute()` for portability: on Windows this
+    /// correctly treats `C:\foo` as absolute. Falls back to silently
+    /// dropping `~`-prefixed entries when `HOME` is unavailable rather
+    /// than emitting a bogus `--allow-dir` with a relative path.
+    pub fn resolved_allow_dirs(&self, working_dir: &str) -> Vec<String> {
+        let home = dirs::home_dir();
+        self.allow_dirs
+            .iter()
+            .filter_map(|d| {
+                if d == "~" {
+                    home.as_ref().map(|h| h.to_string_lossy().into_owned())
+                } else if let Some(tail) = d.strip_prefix("~/") {
+                    home.as_ref()
+                        .map(|h| h.join(tail).to_string_lossy().into_owned())
+                } else if std::path::Path::new(d).is_absolute() {
+                    Some(d.clone())
+                } else {
+                    Some(
+                        std::path::Path::new(working_dir)
+                            .join(d)
+                            .to_string_lossy()
+                            .into_owned(),
+                    )
+                }
+            })
+            .collect()
+    }
+}
+
 pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
@@ -395,99 +433,13 @@ impl PtyManager {
         }
     }
 
-    pub fn spawn(
-        &self,
-        session_id: &str,
-        working_dir: &str,
-        model: Option<&str>,
-        additional_flags: &[String],
-        nono_profile: Option<&str>,
-        claude_binary_path: Option<&str>,
-        app: tauri::AppHandle,
-    ) -> Result<(), PtyError> {
-        let pty_system = native_pty_system();
-
-        let pair = pty_system
-            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-            .map_err(|source| PtyError::OpenPty { source })?;
-
-        let user_path = get_user_path();
-        let claude_cmd = resolve_claude_command(claude_binary_path);
-        rlog!(
-            "Spawning claude session '{}' in '{}' with cmd='{}'",
-            session_id,
-            working_dir,
-            claude_cmd
-        );
-        rlog!("  PATH: {}", user_path);
-
-        let mut cmd = if let Some(profile) = nono_profile {
-            // Wrap with nono: nono run --profile <profile> --allow-cwd -- claude [args]
-            let mut c = CommandBuilder::new("nono");
-            c.arg("run");
-            c.arg("--profile");
-            c.arg(profile);
-            c.arg("--allow-cwd");
-            c.arg("--");
-            c.arg(&claude_cmd);
-            c
-        } else {
-            CommandBuilder::new(&claude_cmd)
-        };
-        // Until spawn profiles land in phase 4, the claude pane id is still
-        // derived from the session id. Phase 4 will take pane_id as a param.
-        let pane_id = format!("{}-main", session_id);
-        apply_roux_env(&mut cmd, &user_path, Some(session_id), Some(&pane_id));
-        if let Some(m) = model {
-            cmd.arg("--model");
-            cmd.arg(m);
-        }
-        for flag in additional_flags {
-            cmd.arg(flag);
-        }
-        cmd.cwd(working_dir);
-
-        let child =
-            pair.slave.spawn_command(cmd).map_err(|source| PtyError::SpawnClaude { source })?;
-
-        let writer = pair.master.take_writer().map_err(|source| PtyError::GetWriter { source })?;
-
-        let reader =
-            pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
-
-        let output = PtyOutput::new();
-        let gen = self.generation.fetch_add(1, Ordering::Relaxed);
-
-        let session = PtySession {
-            master: pair.master,
-            child,
-            writer: Arc::new(Mutex::new(writer)),
-            output: output.clone(),
-            generation: gen,
-        };
-        self.sessions.lock().unwrap().insert(session_id.to_string(), session);
-        self.attach_pending_output(session_id, &output);
-
-        let tx = spawn_flusher(
-            output.clone(),
-            Some((format!("session-exit:{}", session_id), gen)),
-            app.clone(),
-        );
-        let sniffer = crate::notifications::OscSniffer::new(
-            app.clone(),
-            Some(session_id.to_string()),
-        );
-        spawn_reader(reader, tx, Some(sniffer));
-
-        Ok(())
-    }
-
     pub fn spawn_shell(
         &self,
         id: &str,
         working_dir: &str,
         session_id: Option<&str>,
         pane_id: Option<&str>,
+        nono: Option<&NonoConfig>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
@@ -498,9 +450,30 @@ impl PtyManager {
 
         let shell = resolve_default_shell();
         let user_path = get_user_path();
-        rlog!("Spawning shell '{}' for pane '{}' in '{}'", shell, id, working_dir);
+        let nono_label = nono.map(|n| format!(" (nono profile={})", n.profile)).unwrap_or_default();
+        let pane_label = pane_id.map(|p| format!(", pane '{}'", p)).unwrap_or_default();
+        let session_label = session_id.map(|s| format!(", session '{}'", s)).unwrap_or_default();
+        rlog!(
+            "Spawning shell '{}' for PTY '{}'{}{} in '{}'{}",
+            shell, id, pane_label, session_label, working_dir, nono_label
+        );
 
-        let mut cmd = CommandBuilder::new(&shell);
+        let mut cmd = if let Some(nono) = nono {
+            let mut c = CommandBuilder::new("nono");
+            c.arg("run");
+            c.arg("--profile");
+            c.arg(&nono.profile);
+            c.arg("--allow-cwd");
+            for dir in &nono.resolved_allow_dirs(working_dir) {
+                c.arg("--allow-dir");
+                c.arg(dir);
+            }
+            c.arg("--");
+            c.arg(&shell);
+            c
+        } else {
+            CommandBuilder::new(&shell)
+        };
         apply_shell_command_flags(&mut cmd, &shell);
         apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
         cmd.cwd(working_dir);
@@ -718,7 +691,7 @@ fn socket_path_str() -> String {
 }
 
 /// Eager trigger for the roux-cli shim. Called from `main.rs` setup so the
-/// shim dir is ready before any PTY spawns and so we log the result at
+/// symlink dir is ready before any PTY spawns and so we log the result at
 /// startup for debugging. Safe to call repeatedly — cached behind a OnceLock.
 pub fn ensure_roux_cli_shim() {
     let _ = roux_cli_shim();
@@ -726,15 +699,16 @@ pub fn ensure_roux_cli_shim() {
 
 /// Cached pair of (bin-dir-to-prepend-to-PATH, full-path-to-roux-cli).
 /// Set up once at first PTY spawn: creates `~/.config/roux/bin/` and places
-/// launcher shims there so PTYs can invoke `roux` / `roux-cli` without a
-/// separate user install. Returning `None` means we couldn't find the bundled
-/// roux-cli next to the running app.
+/// `roux-cli` + `roux` symlinks there, both pointing at the roux-cli binary
+/// built next to the currently running `roux` exe. Returning `None` means
+/// we couldn't find the bundled roux-cli (e.g. a dev build where it wasn't
+/// compiled yet) — callers skip the PATH injection gracefully.
 fn roux_cli_shim() -> Option<(String, String)> {
     use std::sync::OnceLock;
-
     static CACHE: OnceLock<Option<(String, String)>> = OnceLock::new();
     CACHE
         .get_or_init(|| {
+            // 1. Find the bundled roux-cli next to the currently running exe.
             let source = std::env::current_exe()
                 .ok()
                 .and_then(|p| p.parent().map(|d| d.join(platform::roux_cli_file_name())))?;
@@ -743,18 +717,23 @@ fn roux_cli_shim() -> Option<(String, String)> {
                 return None;
             }
 
+            // 2. Ensure ~/.config/roux/bin/ exists.
             let bin_dir = crate::paths::roux_config_dir().join("bin");
             if let Err(e) = std::fs::create_dir_all(&bin_dir) {
                 rlog!("roux_cli_shim: failed to create {}: {}", bin_dir.display(), e);
                 return None;
             }
 
+            // 3. Install symlinks: `roux-cli` and short alias `roux` both
+            //    pointing at the bundled source. We re-create the links every
+            //    startup so the PTY always sees the freshest binary, even
+            //    after a version bump.
             #[cfg(unix)]
             {
                 use std::os::unix::fs as unix_fs;
-
                 for alias in ["roux-cli", "roux"] {
                     let link = bin_dir.join(alias);
+                    // Remove any existing symlink/file so we can re-point it.
                     let _ = std::fs::remove_file(&link);
                     if let Err(e) = unix_fs::symlink(&source, &link) {
                         rlog!(
@@ -868,6 +847,8 @@ fn get_user_path_impl() -> String {
 #[cfg(not(windows))]
 fn get_user_path_impl() -> String {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    // Fish outputs $PATH as a space-separated list; other shells use colons.
+    // Use fish's `string join` to get colon-separated output.
     let path_cmd = if shell.contains("fish") { "string join : $PATH" } else { "echo $PATH" };
     rlog!("Resolving PATH via login shell: {} -l -c '{}'", shell, path_cmd);
     let result = std::process::Command::new(&shell).args(["-l", "-c", path_cmd]).output();
@@ -890,15 +871,6 @@ fn get_user_path_impl() -> String {
         .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
     rlog!("  resolved PATH: {}", path);
     path
-}
-
-/// Resolve the claude binary command. If a custom path is configured, use it directly.
-/// Otherwise fall back to "claude" (resolved via PATH).
-pub fn resolve_claude_command(custom_path: Option<&str>) -> String {
-    match custom_path {
-        Some(p) if !p.is_empty() => p.to_string(),
-        _ => "claude".to_string(),
-    }
 }
 
 fn resolve_default_shell() -> String {
@@ -1017,33 +989,15 @@ mod tests {
     }
 
     #[test]
-    fn resolve_claude_command_uses_custom_path_when_set() {
-        let result = resolve_claude_command(Some("/usr/local/bin/claude"));
-        assert_eq!(result, "/usr/local/bin/claude");
-    }
-
-    #[test]
-    fn resolve_claude_command_uses_custom_path_with_home_dir() {
-        let result = resolve_claude_command(Some("/Users/sam/.node_modules/bin/claude"));
-        assert_eq!(result, "/Users/sam/.node_modules/bin/claude");
-    }
-
-    #[test]
-    fn resolve_claude_command_falls_back_to_claude_when_none() {
-        let result = resolve_claude_command(None);
-        assert_eq!(result, "claude");
-    }
-
-    #[test]
-    fn resolve_claude_command_falls_back_to_claude_when_empty() {
-        let result = resolve_claude_command(Some(""));
-        assert_eq!(result, "claude");
-    }
-
-    #[test]
     fn get_user_path_returns_nonempty_string() {
         let path = get_user_path();
         assert!(!path.is_empty(), "PATH should not be empty");
+        // Should contain at least /usr/bin which is always on PATH
+        assert!(
+            path.contains("/usr/bin") || path.contains("/bin"),
+            "PATH should contain standard bin directories, got: {}",
+            path
+        );
     }
 
     #[test]
@@ -1058,30 +1012,76 @@ mod tests {
     #[test]
     fn cwd_for_pid_returns_current_process_cwd() {
         let pid = std::process::id();
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
-        {
-            let cwd = cwd_for_pid(pid).expect("cwd_for_pid should resolve for self");
-            let expected = std::env::current_dir().expect("current_dir");
-            assert_eq!(
-                std::fs::canonicalize(&cwd).unwrap(),
-                std::fs::canonicalize(&expected).unwrap(),
-                "cwd_for_pid(self) should match std::env::current_dir()"
-            );
-        }
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        {
-            assert!(
-                cwd_for_pid(pid).is_none(),
-                "cwd_for_pid is currently unsupported on this platform and should return None"
-            );
-        }
+        let cwd = cwd_for_pid(pid).expect("cwd_for_pid should resolve for self");
+        let expected = std::env::current_dir().expect("current_dir");
+        assert_eq!(
+            std::fs::canonicalize(&cwd).unwrap(),
+            std::fs::canonicalize(&expected).unwrap(),
+            "cwd_for_pid(self) should match std::env::current_dir()"
+        );
     }
 
     #[test]
     fn cwd_for_pid_returns_none_for_nonexistent_pid() {
-        // On supported platforms, PID 0 is never a real user process. On
-        // unsupported platforms, cwd_for_pid is a stub that always returns None.
+        // PID 0 is never a real process on macOS or Linux.
         assert!(cwd_for_pid(0).is_none());
+    }
+}
+
+#[cfg(test)]
+mod nono_tests {
+    use super::*;
+
+    #[test]
+    fn resolved_allow_dirs_expands_tilde() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec!["~/data".into()],
+        };
+        let resolved = nono.resolved_allow_dirs("/work");
+        assert!(resolved[0].starts_with('/'), "should be absolute: {}", resolved[0]);
+        assert!(resolved[0].ends_with("/data"), "should end with /data: {}", resolved[0]);
+        assert!(!resolved[0].contains('~'), "should not contain tilde: {}", resolved[0]);
+    }
+
+    #[test]
+    fn resolved_allow_dirs_resolves_relative() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec!["local/dir".into()],
+        };
+        let resolved = nono.resolved_allow_dirs("/work/project");
+        assert_eq!(resolved[0], "/work/project/local/dir");
+    }
+
+    #[test]
+    fn resolved_allow_dirs_passes_absolute_through() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec!["/tmp/scratch".into()],
+        };
+        let resolved = nono.resolved_allow_dirs("/work");
+        assert_eq!(resolved[0], "/tmp/scratch");
+    }
+
+    #[test]
+    fn resolved_allow_dirs_handles_bare_tilde() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec!["~".into()],
+        };
+        let resolved = nono.resolved_allow_dirs("/work");
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(resolved[0], home.to_string_lossy());
+    }
+
+    #[test]
+    fn resolved_allow_dirs_handles_empty() {
+        let nono = NonoConfig {
+            profile: "test".into(),
+            allow_dirs: vec![],
+        };
+        let resolved = nono.resolved_allow_dirs("/work");
+        assert!(resolved.is_empty());
     }
 }

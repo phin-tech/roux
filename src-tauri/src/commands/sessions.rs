@@ -8,6 +8,30 @@ pub(crate) fn write_to_session(id: String, data: String, state: tauri::State<App
     state.pty_manager.write(&id, data.as_bytes()).map_err(|e| e.to_string())
 }
 
+/// Frontend reply for a socket-initiated round-trip (e.g. panes list / create).
+/// `request_id` was sent in the matching `roux-command` event; the frontend
+/// answers by calling this command with the serialized data.
+// No #[specta::specta] — serde_json::Value produces invalid TypeScript.
+#[tauri::command]
+pub(crate) fn submit_roux_reply(
+    request_id: String,
+    data: serde_json::Value,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let sender = {
+        let mut map = state.pending_replies.lock().map_err(|e| e.to_string())?;
+        map.remove(&request_id)
+    };
+    match sender {
+        Some(tx) => tx.send(data).map_err(|_| {
+            // Receiver dropped — the socket handler already timed out and
+            // cleaned its end. The frontend reply arrived too late to matter.
+            format!("reply for request_id {} arrived after timeout", request_id)
+        }),
+        None => Err(format!("no pending reply for request_id {}", request_id)),
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn resize_session(id: String, cols: u16, rows: u16, state: tauri::State<AppState>) -> Result<(), String> {
@@ -28,12 +52,19 @@ pub(crate) fn spawn_shell(
     working_dir: String,
     session_id: Option<String>,
     pane_id: Option<String>,
+    nono_profile: Option<String>,
+    nono_allow_dirs: Option<Vec<String>>,
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    use crate::pty::NonoConfig;
+    let nono = nono_profile.map(|profile| NonoConfig {
+        profile,
+        allow_dirs: nono_allow_dirs.unwrap_or_default(),
+    });
     state
         .pty_manager
-        .spawn_shell(&id, &working_dir, session_id.as_deref(), pane_id.as_deref(), app.clone())
+        .spawn_shell(&id, &working_dir, session_id.as_deref(), pane_id.as_deref(), nono.as_ref(), app.clone())
         .map_err(|e| e.to_string())
 }
 
@@ -96,45 +127,7 @@ pub(crate) fn kill_pty(id: String, state: tauri::State<AppState>) -> Result<(), 
     Ok(())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn create_session(
-    repo_path: String,
-    name: String,
-    worktree_path: Option<String>,
-    branch: Option<String>,
-    extra_flags: Option<Vec<String>>,
-    nono_profile: Option<String>,
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<Session, String> {
-    let settings = state.settings.lock().unwrap().clone();
-    let flags = extra_flags.unwrap_or_default();
-
-    let target = if let Some(ref wt_path) = worktree_path {
-        svc::SessionTarget::ExistingWorktree { path: wt_path }
-    } else if let Some(ref br) = branch {
-        svc::SessionTarget::NewWorktree { branch: br }
-    } else {
-        svc::SessionTarget::Repo
-    };
-
-    svc::create_session(
-        &state.pty_manager,
-        &state.session_handle,
-        &settings,
-        &repo_path,
-        &name,
-        target,
-        &flags,
-        nono_profile.as_deref(),
-        &app,
-    )
-    .await
-    .map_err(|e| e.to_string())
-}
-
-/// Parallel to `create_session`, but spawns a plain shell in the session's
+/// Spawns a plain shell in the session's
 /// primary PTY instead of the claude binary. The frontend attaches the
 /// selected spawn profile and types setup / startup commands after the
 /// shell is ready. Used for every non-claude profile in the new-session
@@ -146,11 +139,18 @@ pub(crate) async fn create_session_shell(
     name: String,
     worktree_path: Option<String>,
     branch: Option<String>,
+    nono_profile: Option<String>,
+    nono_allow_dirs: Option<Vec<String>>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
+    use crate::pty::NonoConfig;
     // Clone before await — the MutexGuard is not Send.
     let settings = state.settings.lock().unwrap().clone();
+    let nono = nono_profile.map(|profile| NonoConfig {
+        profile,
+        allow_dirs: nono_allow_dirs.unwrap_or_default(),
+    });
 
     let target = if let Some(ref wt_path) = worktree_path {
         svc::SessionTarget::ExistingWorktree { path: wt_path }
@@ -167,36 +167,14 @@ pub(crate) async fn create_session_shell(
         &repo_path,
         &name,
         target,
+        nono.as_ref(),
         &app,
     )
     .await
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn reconnect_session(
-    id: String,
-    extra_flags: Option<Vec<String>>,
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<Session, String> {
-    let settings = state.settings.lock().unwrap().clone();
-    let flags = extra_flags.unwrap_or_default();
-    svc::reconnect_session(
-        &state.pty_manager,
-        &state.session_handle,
-        &settings,
-        &id,
-        &flags,
-        &app,
-    )
-    .await
-    .map_err(|e| e.to_string())
-}
-
-/// Parallel to `reconnect_session`, but respawns a plain shell in the
-/// session's primary PTY instead of the claude binary. The frontend
+/// Respawns a plain shell in the session's primary PTY. The frontend
 /// replays the pane's spawn profile commands into the fresh shell after
 /// this call returns, so agents come back up the same way they were
 /// originally launched via `create_session_shell`.
@@ -204,10 +182,17 @@ pub(crate) async fn reconnect_session(
 #[specta::specta]
 pub(crate) async fn reconnect_session_shell(
     id: String,
+    nono_profile: Option<String>,
+    nono_allow_dirs: Option<Vec<String>>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
-    svc::reconnect_session_shell(&state.pty_manager, &state.session_handle, &id, &app)
+    use crate::pty::NonoConfig;
+    let nono = nono_profile.map(|profile| NonoConfig {
+        profile,
+        allow_dirs: nono_allow_dirs.unwrap_or_default(),
+    });
+    svc::reconnect_session_shell(&state.pty_manager, &state.session_handle, &id, nono.as_ref(), &app)
         .await
         .map_err(|e| e.to_string())
 }

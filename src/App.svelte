@@ -39,7 +39,7 @@
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
   import { initPersistence, flushPaneState, loadPaneState } from "$lib/panes/persistence";
-  import { loadBuiltinProfiles } from "$lib/panes/profiles";
+  import { loadBuiltinProfiles, type SpawnProfileRef } from "$lib/panes/profiles";
   import { loadBuiltinLayouts, loadUserLayouts } from "$lib/panes/layouts";
   import {
     customProfileModalState,
@@ -48,7 +48,10 @@
   } from "$lib/stores/customProfileModal";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
-  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
+  import { collectPaneTree } from "$lib/panes/query";
+  import { profileRegistry } from "$lib/panes/profiles";
+  import { runProfileInPane } from "$lib/panes/profileRunner";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { registerCommands, registry } from "$lib/commands";
@@ -487,14 +490,36 @@
         }
         case "session-created": {
           // Reload sessions to pick up the newly created one
+          const profileId = cmd.profileId;
           listSessions().then(async (sessions) => {
             const newSession = sessions.find((s) => s.id === cmd.sessionId);
-            if (newSession) {
-              addSession(newSession);
-              const mainPaneId = initSession(newSession.id);
-              const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-              initTerminal(mainPaneId);
-              await attachPtyListeners(mainPaneId);
+            if (!newSession) return;
+            addSession(newSession);
+            // Default to the Claude built-in if the socket didn't specify a
+            // profile. Use initSessionWithProfile so the pane instance carries
+            // the spawnProfileRef — persistence + reconnect read it from
+            // there to replay the startup command on reconnect. Bare
+            // initSession drops the ref, so socket-created sessions would
+            // come back as plain shells after restart.
+            const effectiveProfileId = profileId ?? "claude";
+            const profileRef: SpawnProfileRef = { kind: "registered", id: effectiveProfileId };
+            const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
+            const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+            initTerminal(mainPaneId);
+            await attachPtyListeners(mainPaneId);
+            // Backend spawned a bare shell via create_session_shell; the
+            // frontend replays every profile's startup command into it,
+            // including Claude (the legacy direct-spawn path is gone).
+            const profile = get(profileRegistry).get(effectiveProfileId);
+            if (profile) {
+              runProfileInPane(newSession.id, profile).catch((e) =>
+                logError(`runProfileInPane failed for ${effectiveProfileId}`, e),
+              );
+            } else {
+              logError(
+                `session-created: profile '${effectiveProfileId}' not in registry; startup commands skipped`,
+                null,
+              );
             }
           });
           break;
@@ -546,6 +571,73 @@
           }
           if (cmd.paneId) {
             setLogicalFocus(cmd.paneId);
+          }
+          break;
+        }
+        case "panes-list-request": {
+          if (!cmd.sessionId || !cmd.requestId) break;
+          try {
+            const snapshot = collectPaneTree(cmd.sessionId);
+            await submitRouxReply(cmd.requestId, snapshot);
+          } catch (e) {
+            logError("panes-list-request failed", e);
+            await submitRouxReply(cmd.requestId, { error: String(e) }).catch(() => {});
+          }
+          break;
+        }
+        case "pane-create": {
+          if (!cmd.sessionId || !cmd.requestId) break;
+          const requestId = cmd.requestId;
+          const sessionId = cmd.sessionId;
+          try {
+            const session = $sessionState.sessions.find((s) => s.id === sessionId);
+            if (!session) throw new Error("session not found");
+            const workingDir = cmd.workingDir ?? session.worktreePath;
+            const direction = cmd.direction === "vertical" ? "v" : "h";
+            const profileId = cmd.profileId ?? "plain-shell";
+
+            const ptyId = crypto.randomUUID();
+            const paneId = crypto.randomUUID();
+            await spawnShell(ptyId, workingDir, sessionId, paneId);
+
+            // Bare shell marker — no profile startup commands. Any other id
+            // is backend-validated, so the registry lookup should succeed;
+            // throw if it doesn't so the CLI caller sees the failure.
+            let profile = null;
+            if (profileId !== "plain-shell") {
+              profile = get(profileRegistry).get(profileId) ?? null;
+              if (!profile) {
+                throw new Error(`profile '${profileId}' not found in registry`);
+              }
+            }
+
+            const newPaneId = splitPane(sessionId, direction, {
+              id: paneId,
+              type: "shell",
+              ptyId,
+              workingDir,
+              spawnProfileRef: profile
+                ? { kind: "registered", id: profile.id }
+                : undefined,
+            });
+            if (!newPaneId) throw new Error("splitPane returned null");
+
+            const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+            initTerminal(newPaneId);
+            await attachPtyListeners(newPaneId);
+
+            if (profile) {
+              // Fire-and-forget: startup commands are typed into the live PTY;
+              // the CLI caller doesn't wait for them to finish running.
+              runProfileInPane(ptyId, profile).catch((e) =>
+                logError(`runProfileInPane failed for ${profile.id}`, e),
+              );
+            }
+
+            await submitRouxReply(requestId, { pane_id: paneId, pty_id: ptyId });
+          } catch (e) {
+            logError("pane-create failed", e);
+            await submitRouxReply(requestId, { error: String(e) }).catch(() => {});
           }
           break;
         }

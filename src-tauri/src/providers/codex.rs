@@ -29,6 +29,8 @@ pub fn default_profiles(_settings: &RouxSettings) -> Vec<SpawnProfile> {
         cwd_override: None,
         icon: None,
         provider: Some(Provider::Codex),
+        nono_profile: None,
+        nono_allow_dirs: None,
         source: ProfileSource::Builtin,
     }]
 }

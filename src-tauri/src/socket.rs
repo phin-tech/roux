@@ -173,8 +173,343 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "run" => handle_run(req, app).await,
         "send" => handle_send(req, app),
         "notify" => handle_notify(req, app).await,
+        "session-list" => handle_session_list(req, app).await,
+        "session-poll" => handle_session_poll(req, app).await,
+        "session-panes-list" => handle_session_panes_list(req, app).await,
+        "session-panes-create" => handle_session_panes_create(req, app).await,
+        "app-open" => handle_app_open(req, app).await,
         _ => Response::err(format!("unknown command: {}", req.command)),
     }
+}
+
+async fn handle_session_list(_req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    match state.session_handle.list().await {
+        Ok(sessions) => match serde_json::to_value(&sessions) {
+            Ok(v) => Response::success(v),
+            Err(e) => Response::err(format!("failed to serialize sessions: {}", e)),
+        },
+        Err(e) => Response::err(format!("{}", e)),
+    }
+}
+
+async fn handle_session_poll(req: Request, app: &tauri::AppHandle) -> Response {
+    let session_id = match req.session_id.as_deref() {
+        Some(id) => id,
+        None => return Response::err("session_id required"),
+    };
+    let state: tauri::State<AppState> = app.state();
+    match state.session_handle.get(session_id).await {
+        Ok(Some(s)) => match serde_json::to_value(&s) {
+            Ok(v) => Response::success(v),
+            Err(e) => Response::err(format!("failed to serialize session: {}", e)),
+        },
+        Ok(None) => Response::err("session not found"),
+        Err(e) => Response::err(format!("{}", e)),
+    }
+}
+
+/// Register a pending-reply oneshot channel and return its request_id + receiver.
+/// Pure over the `PendingReplies` map so it's testable without an AppState.
+fn register_pending_reply_in(
+    map: &crate::state::PendingReplies,
+) -> (String, tokio::sync::oneshot::Receiver<serde_json::Value>) {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    map.lock().unwrap().insert(request_id.clone(), tx);
+    (request_id, rx)
+}
+
+fn register_pending_reply(
+    app: &tauri::AppHandle,
+) -> (String, tokio::sync::oneshot::Receiver<serde_json::Value>) {
+    let state: tauri::State<AppState> = app.state();
+    register_pending_reply_in(&state.pending_replies)
+}
+
+fn drop_pending_reply_in(map: &crate::state::PendingReplies, request_id: &str) {
+    map.lock().unwrap().remove(request_id);
+}
+
+fn drop_pending_reply(app: &tauri::AppHandle, request_id: &str) {
+    let state: tauri::State<AppState> = app.state();
+    drop_pending_reply_in(&state.pending_replies, request_id);
+}
+
+async fn await_frontend_reply_in(
+    map: &crate::state::PendingReplies,
+    request_id: String,
+    rx: tokio::sync::oneshot::Receiver<serde_json::Value>,
+    timeout_ms: u64,
+) -> Response {
+    match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), rx).await {
+        Ok(Ok(data)) => {
+            // The frontend conventionally replies with `{ error: "..." }` on
+            // failure so the CLI sees a non-zero exit, rather than succeeding
+            // with a bogus payload. Any other shape is treated as success.
+            if let Some(err) = data.get("error").and_then(|e| e.as_str()) {
+                Response::err(err.to_string())
+            } else {
+                Response::success(data)
+            }
+        }
+        Ok(Err(_)) => {
+            drop_pending_reply_in(map, &request_id);
+            Response::err("frontend dropped reply channel")
+        }
+        Err(_) => {
+            drop_pending_reply_in(map, &request_id);
+            Response::err("timed out waiting for frontend reply")
+        }
+    }
+}
+
+async fn await_frontend_reply(
+    app: &tauri::AppHandle,
+    request_id: String,
+    rx: tokio::sync::oneshot::Receiver<serde_json::Value>,
+    timeout_ms: u64,
+) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    // Need to clone the Arc-like Mutex handle reference but tauri::State is a ref;
+    // bind explicitly so the borrow lives through the await.
+    let map = &state.pending_replies;
+    await_frontend_reply_in(map, request_id, rx, timeout_ms).await
+}
+
+async fn handle_session_panes_list(req: Request, app: &tauri::AppHandle) -> Response {
+    let session_id = match req.session_id.as_deref() {
+        Some(id) => id.to_string(),
+        None => return Response::err("session_id required"),
+    };
+
+    // Verify the session exists before asking the frontend — otherwise a bad
+    // id would return a successful empty snapshot, which is a confusing UX
+    // for CLI scripts ("session not found" beats a misleading empty list).
+    {
+        let state: tauri::State<AppState> = app.state();
+        match state.session_handle.get(&session_id).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return Response::err("session not found"),
+            Err(e) => return Response::err(format!("{}", e)),
+        }
+    }
+
+    let (request_id, rx) = register_pending_reply(app);
+
+    use tauri::Emitter;
+    let cmd = roux_core::RouxCommand::new("panes-list-request")
+        .session_id(&session_id)
+        .request_id(&request_id);
+    if let Err(e) = app.emit("roux-command", &cmd) {
+        drop_pending_reply(app, &request_id);
+        return Response::err(format!("failed to emit event: {}", e));
+    }
+
+    await_frontend_reply(app, request_id, rx, 2_000).await
+}
+
+async fn handle_session_panes_create(req: Request, app: &tauri::AppHandle) -> Response {
+    let session_id = match req.session_id.as_deref() {
+        Some(id) => id.to_string(),
+        None => return Response::err("session_id required"),
+    };
+
+    // Verify session exists before round-tripping to the frontend.
+    {
+        let state: tauri::State<AppState> = app.state();
+        match state.session_handle.get(&session_id).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return Response::err("session not found"),
+            Err(e) => return Response::err(format!("{}", e)),
+        }
+    }
+
+    let profile =
+        req.args.get("profile").and_then(|p| p.as_str()).unwrap_or("plain-shell").to_string();
+
+    // Validate against known builtins + user profiles. Rejects typos like
+    // "shell" (correct id is "plain-shell") instead of silently falling back.
+    {
+        let state: tauri::State<AppState> = app.state();
+        let settings = state.settings.lock().unwrap().clone();
+        if let Err(e) = validate_profile_id(&profile, &settings) {
+            return Response::err(e);
+        }
+    }
+
+    let direction = req
+        .args
+        .get("direction")
+        .and_then(|d| d.as_str())
+        .unwrap_or("horizontal")
+        .to_string();
+    if direction != "horizontal" && direction != "vertical" {
+        return Response::err("direction must be horizontal or vertical");
+    }
+    let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(String::from);
+
+    let (request_id, rx) = register_pending_reply(app);
+
+    use tauri::Emitter;
+    let mut cmd = roux_core::RouxCommand::new("pane-create")
+        .session_id(&session_id)
+        .direction(&direction)
+        .profile_id(&profile)
+        .request_id(&request_id);
+    if let Some(ref wd) = working_dir {
+        cmd = cmd.working_dir(wd);
+    }
+    if let Err(e) = app.emit("roux-command", &cmd) {
+        drop_pending_reply(app, &request_id);
+        return Response::err(format!("failed to emit event: {}", e));
+    }
+
+    await_frontend_reply(app, request_id, rx, 5_000).await
+}
+
+fn bring_window_to_front(app: &tauri::AppHandle) {
+    for window in app.webview_windows().values() {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Validate that a profile id is known — either a built-in or a user-defined
+/// profile in settings. Returns `Ok(())` on match, or a descriptive error
+/// listing every known id so a CLI caller can correct typos like "shell"
+/// (the correct built-in id is "plain-shell").
+fn validate_profile_id(
+    id: &str,
+    settings: &crate::settings::RouxSettings,
+) -> Result<(), String> {
+    let builtin_ids: Vec<String> = crate::providers::builtin_profiles(settings)
+        .into_iter()
+        .map(|p| p.id)
+        .collect();
+    if builtin_ids.iter().any(|b| b == id) {
+        return Ok(());
+    }
+    let user_ids: Vec<String> =
+        settings.spawn_profiles.iter().map(|p| p.id.clone()).collect();
+    if user_ids.iter().any(|u| u == id) {
+        return Ok(());
+    }
+    let mut msg = format!(
+        "unknown profile id '{}'. Known built-ins: {}",
+        id,
+        builtin_ids.join(", ")
+    );
+    if !user_ids.is_empty() {
+        msg.push_str(&format!(". User profiles: {}", user_ids.join(", ")));
+    }
+    Err(msg)
+}
+
+/// Canonicalize a path to an absolute form, falling back to the input if
+/// the path doesn't exist on disk. Used to compare directory arguments
+/// against persisted session paths without false negatives from `.`,
+/// trailing slashes, or symlink differences.
+fn canonicalize_or_passthrough(path: &str) -> String {
+    let p = std::path::PathBuf::from(path);
+    p.canonicalize()
+        .map(|c| c.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string())
+}
+
+/// Find the first session whose worktree_path or repo_root matches `path`.
+/// Compares canonicalized forms so `/foo/bar`, `/foo/bar/`, and a symlink
+/// resolving to the same directory all match. Extracted for unit tests.
+fn find_session_for_path(
+    sessions: &[crate::session::Session],
+    path: &str,
+) -> Option<crate::session::Session> {
+    let target = canonicalize_or_passthrough(path);
+    sessions
+        .iter()
+        .find(|s| {
+            canonicalize_or_passthrough(&s.worktree_path) == target
+                || canonicalize_or_passthrough(&s.repo_root) == target
+        })
+        .cloned()
+}
+
+/// Derive a default session name from a directory path (basename, or
+/// "New Session" if the path has no basename).
+fn default_session_name_for_path(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "New Session".to_string())
+}
+
+async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
+    use crate::services::sessions::{self as svc, SessionTarget};
+
+    let path = match req.args.get("path").and_then(|p| p.as_str()) {
+        Some(p) if !p.is_empty() => p.to_string(),
+        _ => return Response::err("path required"),
+    };
+
+    let state: tauri::State<AppState> = app.state();
+    let handle = state.session_handle.clone();
+
+    let sessions = match handle.list().await {
+        Ok(s) => s,
+        Err(e) => return Response::err(format!("{}", e)),
+    };
+
+    // Match against worktree_path or repo_root (first match wins).
+    if let Some(existing) = find_session_for_path(&sessions, &path) {
+        use tauri::Emitter;
+        let _ = app.emit(
+            "roux-command",
+            &roux_core::RouxCommand::new("focus").session_id(&existing.id),
+        );
+        bring_window_to_front(app);
+        return Response::success(serde_json::json!({
+            "session_id": existing.id,
+            "created": false,
+            "focused": true,
+        }));
+    }
+
+    // No match — create a new session at this path.
+    let name = default_session_name_for_path(&path);
+
+    let settings = state.settings.lock().unwrap().clone();
+
+    let session = match svc::create_session_shell(
+        &state.pty_manager,
+        &state.session_handle,
+        &settings,
+        &path,
+        &name,
+        SessionTarget::Repo,
+        None,
+        app,
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => return Response::err(format!("{}", e)),
+    };
+
+    use tauri::Emitter;
+    let _ = app.emit(
+        "roux-command",
+        &roux_core::RouxCommand::new("session-created").session_id(&session.id),
+    );
+
+    bring_window_to_front(app);
+
+    Response::success(serde_json::json!({
+        "session_id": session.id,
+        "created": true,
+        "focused": true,
+    }))
 }
 
 fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
@@ -211,8 +546,24 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     let handle = state.session_handle.clone();
 
     let name = req.args.get("name").and_then(|n| n.as_str()).unwrap_or("New Session").to_string();
-
     let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
+    let worktree_branch =
+        req.args.get("worktree_branch").and_then(|d| d.as_str()).map(|s| s.to_string());
+    let profile = req.args.get("profile").and_then(|p| p.as_str()).unwrap_or("claude").to_string();
+    let flags: Vec<String> = req
+        .args
+        .get("flags")
+        .and_then(|f| f.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let nono_profile =
+        req.args.get("nono_profile").and_then(|p| p.as_str()).map(|s| s.to_string());
+    let nono_allow_dirs: Vec<String> = req
+        .args
+        .get("nono_allow_dirs")
+        .and_then(|f| f.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
 
     // Resolve repo_path: use the requesting session's repo_root, or the working_dir
     let repo_path = match req.session_id.as_deref() {
@@ -224,26 +575,49 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     };
 
     if repo_path.is_empty() {
-        return Response::err("working_dir or session_id required");
+        return Response::err("working_dir, worktree_branch, or session_id required");
     }
 
     let settings = state.settings.lock().unwrap().clone();
 
-    // If working_dir differs from repo_path, treat it as an existing worktree
-    let target = match &working_dir {
-        Some(dir) if dir != &repo_path => SessionTarget::ExistingWorktree { path: dir },
-        _ => SessionTarget::Repo,
+    if let Err(e) = validate_profile_id(&profile, &settings) {
+        return Response::err(e);
+    }
+
+    // Build the session target. worktree_branch wins; else treat a distinct
+    // working_dir as an existing worktree; else use the repo directly.
+    let target = if let Some(branch) = worktree_branch.as_deref() {
+        SessionTarget::NewWorktree { branch }
+    } else {
+        match &working_dir {
+            Some(dir) if dir != &repo_path => SessionTarget::ExistingWorktree { path: dir },
+            _ => SessionTarget::Repo,
+        }
     };
 
-    let session = match svc::create_session(
+    // `flags` were only meaningful for the legacy Claude spawn path
+    // (passed directly as args to the claude binary). That path is gone;
+    // flags now belong on a SpawnProfile's `startup_command` or
+    // `additional_flags`. Reject them here rather than silently dropping.
+    if !flags.is_empty() {
+        return Response::err(
+            "--flag/-f is no longer supported at session creation; bake flags into a spawn profile's startup_command instead",
+        );
+    }
+
+    let nono_config = nono_profile.as_ref().map(|p| crate::pty::NonoConfig {
+        profile: p.clone(),
+        allow_dirs: nono_allow_dirs.clone(),
+    });
+
+    let session = match svc::create_session_shell(
         &state.pty_manager,
         &state.session_handle,
         &settings,
         &repo_path,
         &name,
         target,
-        &[],
-        None,
+        nono_config.as_ref(),
         app,
     )
     .await
@@ -255,7 +629,10 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     let session_id = session.id.clone();
 
     use tauri::Emitter;
-    let cmd = roux_core::RouxCommand::new("session-created").session_id(&session_id);
+    let mut cmd = roux_core::RouxCommand::new("session-created").session_id(&session_id);
+    if profile != "claude" {
+        cmd = cmd.profile_id(&profile);
+    }
     if let Err(e) = app.emit("roux-command", &cmd) {
         rlog!("Warning: failed to emit session-created event: {}", e);
     }
@@ -294,6 +671,7 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         &working_dir,
         Some(session_id),
         Some(&pane_id),
+        None,
         app.clone(),
     ) {
         return Response::err(format!("Failed to spawn shell: {}", e));
@@ -385,6 +763,13 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
     Response::success(serde_json::json!({ "pane_id": pane_id, "pty_id": pty_id }))
 }
 
+/// Compose the bytes written to the PTY for a `send` request. Factored
+/// out so the enter/no-enter contract can be unit-tested without a real
+/// PtyManager.
+fn format_send_data(text: &str, enter: bool) -> String {
+    if enter { format!("{}\r", text) } else { text.to_string() }
+}
+
 fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
     let text = match req.args.get("text").and_then(|t| t.as_str()) {
         Some(t) => t.to_string(),
@@ -398,8 +783,9 @@ fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
     if let Some(session_id) = &req.session_id {
         // Write directly to the session's PTY (the main Claude pane uses session_id as pty_id)
         let target_id = req.pane_id.as_deref().unwrap_or(session_id);
-        // Append \r to simulate Enter
-        let data = format!("{}\r", text);
+        // Append \r to simulate Enter unless caller explicitly opts out.
+        let cr = req.args.get("enter").and_then(|v| v.as_bool()).unwrap_or(true);
+        let data = format_send_data(&text, cr);
         if let Err(e) = state.pty_manager.write(target_id, data.as_bytes()) {
             return Response::err(format!("Failed to write to session: {}", e));
         }
@@ -579,6 +965,425 @@ mod tests {
         let json = r#"{"command": "status"}"#;
         let req: Request = serde_json::from_str(json).unwrap();
         assert!(req.args.is_null());
+    }
+
+    // ── format_send_data ─────────────────────────────────────
+
+    #[test]
+    fn format_send_data_appends_cr_when_enter_true() {
+        assert_eq!(format_send_data("hi", true), "hi\r");
+    }
+
+    #[test]
+    fn format_send_data_returns_raw_when_enter_false() {
+        assert_eq!(format_send_data("hi", false), "hi");
+    }
+
+    #[test]
+    fn format_send_data_preserves_embedded_newlines() {
+        // Embedded newlines must survive verbatim; the flag only controls
+        // the *trailing* Enter.
+        assert_eq!(format_send_data("a\nb", true), "a\nb\r");
+        assert_eq!(format_send_data("a\nb", false), "a\nb");
+    }
+
+    #[test]
+    fn format_send_data_empty_text_still_appends_cr() {
+        assert_eq!(format_send_data("", true), "\r");
+        assert_eq!(format_send_data("", false), "");
+    }
+
+    // ── Request deserialization for new commands ─────────────
+
+    #[test]
+    fn request_send_with_enter_false_deserializes() {
+        let json = r#"{
+            "command": "send",
+            "session_id": "s1",
+            "args": {"text": "hi", "enter": false}
+        }"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.command, "send");
+        assert_eq!(req.args["text"], "hi");
+        assert_eq!(req.args["enter"], false);
+    }
+
+    #[test]
+    fn request_send_without_enter_defaults_to_true_at_handler() {
+        // Request itself doesn't default enter; the handler does. Document
+        // that absence of the key is equivalent to true via the read pattern.
+        let json = r#"{"command": "send", "session_id": "s1", "args": {"text": "x"}}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        let cr = req.args.get("enter").and_then(|v| v.as_bool()).unwrap_or(true);
+        assert!(cr);
+    }
+
+    #[test]
+    fn request_app_open_deserializes() {
+        let json = r#"{"command": "app-open", "args": {"path": "/tmp/x"}}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.command, "app-open");
+        assert_eq!(req.args["path"], "/tmp/x");
+    }
+
+    #[test]
+    fn request_session_list_deserializes_without_args() {
+        let json = r#"{"command": "session-list"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.command, "session-list");
+        assert!(req.session_id.is_none());
+        assert!(req.args.is_null());
+    }
+
+    #[test]
+    fn request_session_poll_requires_session_id() {
+        let json = r#"{"command": "session-poll", "session_id": "sid-abc"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.command, "session-poll");
+        assert_eq!(req.session_id.as_deref(), Some("sid-abc"));
+    }
+
+    #[test]
+    fn request_session_panes_list_deserializes() {
+        let json = r#"{"command": "session-panes-list", "session_id": "sid-1"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.command, "session-panes-list");
+        assert_eq!(req.session_id.as_deref(), Some("sid-1"));
+    }
+
+    #[test]
+    fn request_session_panes_create_with_profile_deserializes() {
+        let json = r#"{
+            "command": "session-panes-create",
+            "session_id": "sid-1",
+            "args": {"profile": "shell", "direction": "vertical", "working_dir": "/tmp"}
+        }"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.args["profile"], "shell");
+        assert_eq!(req.args["direction"], "vertical");
+        assert_eq!(req.args["working_dir"], "/tmp");
+    }
+
+    #[test]
+    fn request_session_create_with_full_args_deserializes() {
+        let json = r#"{
+            "command": "session-create",
+            "args": {
+                "name": "feat-x",
+                "worktree_branch": "feat/x",
+                "profile": "claude",
+                "flags": ["--debug", "--model=opus"],
+                "nono_profile": "strict",
+                "nono_allow_dirs": ["~/work", "/tmp"]
+            }
+        }"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.args["name"], "feat-x");
+        assert_eq!(req.args["worktree_branch"], "feat/x");
+        assert_eq!(req.args["profile"], "claude");
+        assert_eq!(req.args["flags"].as_array().unwrap().len(), 2);
+        assert_eq!(req.args["nono_allow_dirs"].as_array().unwrap().len(), 2);
+    }
+
+    // ── Pending-reply round-trip primitives ──────────────────
+
+    // ── Frontend error replies propagate as errors, not successes ───
+
+    #[tokio::test]
+    async fn pending_reply_with_error_field_surfaces_as_err() {
+        // The frontend conventionally replies with `{ error: "..." }` on
+        // failure. The CLI caller must see exit 1, not exit 0 + an error blob.
+        let map: crate::state::PendingReplies =
+            std::sync::Mutex::new(std::collections::HashMap::new());
+        let (rid, rx) = register_pending_reply_in(&map);
+        let tx = map.lock().unwrap().remove(&rid).unwrap();
+        tx.send(serde_json::json!({"error": "pane-create failed"})).unwrap();
+
+        let resp = await_frontend_reply_in(&map, rid, rx, 500).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["ok"], false);
+        assert_eq!(json["error"], "pane-create failed");
+    }
+
+    #[tokio::test]
+    async fn pending_reply_without_error_field_is_success() {
+        // A reply that happens to contain other fields but no `error` key
+        // remains a success — e.g. a pane snapshot with an `errors` array.
+        let map: crate::state::PendingReplies =
+            std::sync::Mutex::new(std::collections::HashMap::new());
+        let (rid, rx) = register_pending_reply_in(&map);
+        let tx = map.lock().unwrap().remove(&rid).unwrap();
+        tx.send(serde_json::json!({"descriptors": []})).unwrap();
+
+        let resp = await_frontend_reply_in(&map, rid, rx, 500).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["ok"], true);
+    }
+
+    // ── Profile id validation ────────────────────────────────
+
+    #[test]
+    fn validate_profile_id_accepts_claude_builtin() {
+        let settings = crate::settings::RouxSettings::default();
+        assert!(validate_profile_id("claude", &settings).is_ok());
+    }
+
+    #[test]
+    fn validate_profile_id_accepts_plain_shell_builtin() {
+        let settings = crate::settings::RouxSettings::default();
+        assert!(validate_profile_id("plain-shell", &settings).is_ok());
+    }
+
+    #[test]
+    fn validate_profile_id_rejects_unknown_id_with_helpful_message() {
+        let settings = crate::settings::RouxSettings::default();
+        let err = validate_profile_id("shell", &settings).unwrap_err();
+        // Common typo: "shell" instead of "plain-shell". The message should
+        // point callers at the known builtins.
+        assert!(err.contains("shell"));
+        assert!(err.contains("plain-shell"), "error must list builtins: {}", err);
+    }
+
+    #[test]
+    fn validate_profile_id_accepts_user_profile() {
+        let mut settings = crate::settings::RouxSettings::default();
+        settings.spawn_profiles.push(roux_core::SpawnProfile {
+            id: "my-profile".into(),
+            name: "Mine".into(),
+            setup_command: None,
+            startup_command: None,
+            startup_behavior: None,
+            env: None,
+            cwd_override: None,
+            icon: None,
+            provider: None,
+            nono_profile: None,
+            nono_allow_dirs: None,
+            source: roux_core::ProfileSource::User,
+        });
+        assert!(validate_profile_id("my-profile", &settings).is_ok());
+    }
+
+    #[test]
+    fn validate_profile_id_error_lists_user_profiles_when_present() {
+        let mut settings = crate::settings::RouxSettings::default();
+        settings.spawn_profiles.push(roux_core::SpawnProfile {
+            id: "my-profile".into(),
+            name: "Mine".into(),
+            setup_command: None,
+            startup_command: None,
+            startup_behavior: None,
+            env: None,
+            cwd_override: None,
+            icon: None,
+            provider: None,
+            nono_profile: None,
+            nono_allow_dirs: None,
+            source: roux_core::ProfileSource::User,
+        });
+        let err = validate_profile_id("typo", &settings).unwrap_err();
+        assert!(err.contains("User profiles"), "err should mention user profiles: {}", err);
+        assert!(err.contains("my-profile"), "err should list user profile id: {}", err);
+    }
+
+    #[test]
+    fn validate_profile_id_error_omits_user_section_when_no_user_profiles() {
+        let settings = crate::settings::RouxSettings::default();
+        let err = validate_profile_id("typo", &settings).unwrap_err();
+        assert!(!err.contains("User profiles"), "err should not mention user profiles when empty: {}", err);
+    }
+
+    // ── Canonicalized path matching ──────────────────────────
+
+    #[test]
+    fn canonicalize_or_passthrough_returns_input_for_missing_path() {
+        // Non-existent path — cannot canonicalize, so the input is returned verbatim.
+        let got = canonicalize_or_passthrough("/nonexistent/roux-test-path");
+        assert_eq!(got, "/nonexistent/roux-test-path");
+    }
+
+    #[test]
+    fn canonicalize_or_passthrough_resolves_dot() {
+        let got = canonicalize_or_passthrough("/tmp/./");
+        // Whether it exists depends on platform, but on all supported ones /tmp resolves.
+        // Accept either /tmp or /private/tmp (macOS symlink) or the passthrough input.
+        assert!(got == "/tmp" || got == "/private/tmp" || got.contains("tmp"));
+    }
+
+    #[tokio::test]
+    async fn pending_reply_resolves_when_frontend_replies() {
+        let map: crate::state::PendingReplies =
+            std::sync::Mutex::new(std::collections::HashMap::new());
+        let (rid, rx) = register_pending_reply_in(&map);
+
+        // Pull the sender back out and deliver a reply, as `submit_roux_reply`
+        // would do from the frontend side.
+        let tx = map.lock().unwrap().remove(&rid).unwrap();
+        let payload = serde_json::json!({"pane_id": "p", "pty_id": "t"});
+        tx.send(payload.clone()).unwrap();
+
+        let resp = await_frontend_reply_in(&map, rid, rx, 500).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["data"]["pane_id"], "p");
+        assert_eq!(json["data"]["pty_id"], "t");
+    }
+
+    #[tokio::test]
+    async fn pending_reply_times_out_and_cleans_up_map() {
+        let map: crate::state::PendingReplies =
+            std::sync::Mutex::new(std::collections::HashMap::new());
+        let (rid, rx) = register_pending_reply_in(&map);
+        assert_eq!(map.lock().unwrap().len(), 1);
+
+        let resp = await_frontend_reply_in(&map, rid.clone(), rx, 50).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["ok"], false);
+        assert!(json["error"].as_str().unwrap().contains("timed out"));
+
+        // Timed-out entry must not leak.
+        assert!(map.lock().unwrap().is_empty(), "timeout must drop the entry");
+    }
+
+    #[tokio::test]
+    async fn pending_reply_reports_dropped_channel() {
+        let map: crate::state::PendingReplies =
+            std::sync::Mutex::new(std::collections::HashMap::new());
+        let (rid, rx) = register_pending_reply_in(&map);
+
+        // Drop the sender without sending — simulates a crashed frontend
+        // handler that never called submit_roux_reply.
+        let _ = map.lock().unwrap().remove(&rid);
+        // tx is dropped here when the HashMap entry goes out of scope.
+
+        let resp = await_frontend_reply_in(&map, rid, rx, 500).await;
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["ok"], false);
+        assert!(json["error"].as_str().unwrap().contains("dropped"));
+    }
+
+    #[test]
+    fn register_pending_reply_in_generates_unique_ids() {
+        let map: crate::state::PendingReplies =
+            std::sync::Mutex::new(std::collections::HashMap::new());
+        let (r1, _rx1) = register_pending_reply_in(&map);
+        let (r2, _rx2) = register_pending_reply_in(&map);
+        assert_ne!(r1, r2);
+        assert_eq!(map.lock().unwrap().len(), 2);
+    }
+
+    // ── app-open session matching ────────────────────────────
+
+    fn make_session(id: &str, repo: &str, worktree: &str) -> crate::session::Session {
+        crate::session::Session {
+            id: id.to_string(),
+            name: id.to_string(),
+            repo_root: repo.to_string(),
+            worktree_path: worktree.to_string(),
+            branch: "main".to_string(),
+            is_worktree: repo != worktree,
+            status: roux_core::SessionStatus::Idle,
+            model: None,
+            cost: None,
+            created_at: 0,
+            project_id: None,
+            is_git_repo: true,
+        }
+    }
+
+    #[test]
+    fn find_session_matches_on_worktree_path() {
+        let sessions = vec![
+            make_session("a", "/repo", "/repo"),
+            make_session("b", "/repo", "/wt/feat"),
+        ];
+        let got = find_session_for_path(&sessions, "/wt/feat").unwrap();
+        assert_eq!(got.id, "b");
+    }
+
+    #[test]
+    fn find_session_matches_on_repo_root_when_no_worktree_match() {
+        let sessions = vec![make_session("a", "/repo", "/repo")];
+        let got = find_session_for_path(&sessions, "/repo").unwrap();
+        assert_eq!(got.id, "a");
+    }
+
+    #[test]
+    fn find_session_returns_none_when_no_match() {
+        let sessions = vec![make_session("a", "/repo", "/wt/feat")];
+        assert!(find_session_for_path(&sessions, "/other").is_none());
+    }
+
+    #[test]
+    fn find_session_returns_first_on_multiple_matches() {
+        let sessions = vec![
+            make_session("a", "/repo", "/repo"),
+            make_session("b", "/repo", "/repo"),
+        ];
+        let got = find_session_for_path(&sessions, "/repo").unwrap();
+        assert_eq!(got.id, "a");
+    }
+
+    #[test]
+    fn default_session_name_uses_basename() {
+        assert_eq!(default_session_name_for_path("/tmp/my-repo"), "my-repo");
+    }
+
+    #[test]
+    fn default_session_name_handles_trailing_slash() {
+        assert_eq!(default_session_name_for_path("/tmp/my-repo/"), "my-repo");
+    }
+
+    #[test]
+    fn default_session_name_fallback_for_root() {
+        // "/" has no file_name on Unix.
+        let got = default_session_name_for_path("/");
+        assert!(got == "New Session" || got == "/");
+    }
+
+    // ── RouxCommand builder / serde ──────────────────────────
+
+    #[test]
+    fn roux_command_profile_id_and_request_id_builders() {
+        let cmd = roux_core::RouxCommand::new("pane-create")
+            .session_id("s")
+            .profile_id("claude")
+            .request_id("req-1")
+            .direction("horizontal");
+        assert_eq!(cmd.profile_id.as_deref(), Some("claude"));
+        assert_eq!(cmd.request_id.as_deref(), Some("req-1"));
+        assert_eq!(cmd.direction.as_deref(), Some("horizontal"));
+    }
+
+    #[test]
+    fn roux_command_serializes_camel_case_and_skips_none() {
+        let cmd = roux_core::RouxCommand::new("focus").session_id("sid-1");
+        let json = serde_json::to_value(&cmd).unwrap();
+        assert_eq!(json["action"], "focus");
+        assert_eq!(json["sessionId"], "sid-1");
+        assert!(json.get("profileId").is_none());
+        assert!(json.get("requestId").is_none());
+        assert!(json.get("paneId").is_none());
+    }
+
+    #[test]
+    fn roux_command_serializes_profile_and_request_id_as_camel_case() {
+        let cmd = roux_core::RouxCommand::new("pane-create")
+            .profile_id("shell")
+            .request_id("r1");
+        let json = serde_json::to_value(&cmd).unwrap();
+        assert_eq!(json["profileId"], "shell");
+        assert_eq!(json["requestId"], "r1");
+    }
+
+    #[test]
+    fn drop_pending_reply_in_removes_entry() {
+        let map: crate::state::PendingReplies =
+            std::sync::Mutex::new(std::collections::HashMap::new());
+        let (rid, _rx) = register_pending_reply_in(&map);
+        assert_eq!(map.lock().unwrap().len(), 1);
+        drop_pending_reply_in(&map, &rid);
+        assert!(map.lock().unwrap().is_empty());
     }
 
     #[cfg(not(windows))]

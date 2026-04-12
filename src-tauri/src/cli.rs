@@ -28,13 +28,19 @@ enum Commands {
     Clear,
 
     // ── Socket commands ──────────────────────────────────────
+    /// Open (or focus) a Roux session for a directory, then bring the app to front
+    App {
+        /// Directory path. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: String,
+    },
     /// Split the current pane
     Split {
         /// Direction: horizontal or vertical
         #[arg(short, long, default_value = "horizontal")]
         direction: String,
     },
-    /// Create a new Claude session
+    /// Session management and introspection
     Session {
         #[command(subcommand)]
         action: SessionAction,
@@ -61,11 +67,6 @@ enum Commands {
         /// Working directory
         #[arg(short, long)]
         working_dir: Option<String>,
-    },
-    /// Send text to the active Claude pane
-    Send {
-        /// The text to send
-        text: String,
     },
     /// Push a notification into Roux's notification service
     Notify {
@@ -104,7 +105,74 @@ enum SessionAction {
         /// Session name
         #[arg(short, long)]
         name: Option<String>,
-        /// Working directory
+        /// Working directory (existing worktree path or repo path). Default: cwd
+        #[arg(short, long)]
+        working_dir: Option<String>,
+        /// Create a new worktree from this branch. Uses --working-dir (or cwd) as the repo to branch from.
+        #[arg(long)]
+        worktree_branch: Option<String>,
+        /// Spawn profile id (e.g. "claude", "plain-shell", "codex", user profile id). Default: claude
+        #[arg(short = 'P', long)]
+        profile: Option<String>,
+        /// Extra flag passed to the agent binary (repeatable; values may begin with --)
+        #[arg(short = 'f', long = "flag", allow_hyphen_values = true)]
+        flags: Vec<String>,
+        /// Nono sandbox profile name
+        #[arg(long)]
+        nono_profile: Option<String>,
+        /// Extra directory to allow under nono (repeatable)
+        #[arg(long = "nono-allow-dir")]
+        nono_allow_dirs: Vec<String>,
+    },
+    /// Send text to a session's PTY (appends \r by default; use --no-enter for raw)
+    Send {
+        /// The text to send
+        text: String,
+        /// Session id (falls back to $ROUX_SESSION_ID)
+        #[arg(short, long)]
+        session: Option<String>,
+        /// Pane id (falls back to $ROUX_PANE_ID)
+        #[arg(short, long)]
+        pane: Option<String>,
+        /// Send raw text without appending \r (Enter). By default Enter is sent.
+        #[arg(long = "no-enter")]
+        no_enter: bool,
+    },
+    /// Get the current state of a session (JSON)
+    Poll {
+        /// Session id (falls back to $ROUX_SESSION_ID)
+        #[arg(short, long)]
+        session: Option<String>,
+    },
+    /// List all sessions (JSON)
+    List,
+    /// Pane commands for a session
+    Panes {
+        #[command(subcommand)]
+        action: PaneAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum PaneAction {
+    /// List panes for a session (JSON)
+    List {
+        /// Session id (falls back to $ROUX_SESSION_ID)
+        #[arg(short, long)]
+        session: Option<String>,
+    },
+    /// Create a new pane in a session
+    Create {
+        /// Session id (falls back to $ROUX_SESSION_ID)
+        #[arg(short, long)]
+        session: Option<String>,
+        /// Spawn profile id (e.g. "plain-shell", "claude", "codex", user profile id). Default: plain-shell
+        #[arg(short = 'P', long)]
+        profile: Option<String>,
+        /// Split direction from the active pane (horizontal|vertical). Default: horizontal
+        #[arg(short, long, default_value = "horizontal")]
+        direction: String,
+        /// Working directory for the new pane. Default: session's worktree_path
         #[arg(short, long)]
         working_dir: Option<String>,
     },
@@ -208,6 +276,20 @@ fn send_socket_command(request: Value) -> Result<Value, String> {
 
         serde_json::from_str(&response).map_err(|e| format!("Invalid response: {}", e))
     }
+}
+
+fn resolve_path(path: &str) -> String {
+    let p = std::path::PathBuf::from(path);
+    let absolute = if p.is_absolute() {
+        p
+    } else {
+        std::env::current_dir().unwrap_or_default().join(p)
+    };
+    absolute
+        .canonicalize()
+        .unwrap_or(absolute)
+        .to_string_lossy()
+        .to_string()
 }
 
 fn get_session_id() -> Option<String> {
@@ -358,12 +440,267 @@ fn clear_status() {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    // ── resolve_path ────────────────────────────────────────
+
+    #[test]
+    fn resolve_path_keeps_absolute_path_as_is() {
+        // "/" always exists on Unix, canonicalize succeeds.
+        let got = resolve_path("/");
+        assert!(got.starts_with('/'));
+    }
+
+    #[test]
+    fn resolve_path_turns_relative_into_absolute() {
+        let got = resolve_path(".");
+        assert!(std::path::Path::new(&got).is_absolute(), "got {}", got);
+    }
+
+    #[test]
+    fn resolve_path_nonexistent_falls_back_to_uncanonicalized_absolute() {
+        // canonicalize() fails on missing paths; resolve_path must still
+        // return an absolute string rather than panicking or returning "".
+        let got = resolve_path("/definitely/not/a/real/path/roux-test");
+        assert!(std::path::Path::new(&got).is_absolute(), "got {}", got);
+        assert!(got.contains("roux-test"));
+    }
+
+    // ── Cli parsing ─────────────────────────────────────────
+
+    #[test]
+    fn cli_parses_app_with_default_path() {
+        let cli = Cli::try_parse_from(["roux-cli", "app"]).unwrap();
+        match cli.command {
+            Commands::App { path } => assert_eq!(path, "."),
+            other => panic!("expected App, got {:?}", std::mem::discriminant(&other)),
+        }
+    }
+
+    #[test]
+    fn cli_parses_app_with_explicit_path() {
+        let cli = Cli::try_parse_from(["roux-cli", "app", "/tmp/foo"]).unwrap();
+        match cli.command {
+            Commands::App { path } => assert_eq!(path, "/tmp/foo"),
+            _ => panic!("expected App"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_list() {
+        let cli = Cli::try_parse_from(["roux-cli", "session", "list"]).unwrap();
+        match cli.command {
+            Commands::Session { action: SessionAction::List } => {}
+            _ => panic!("expected Session::List"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_poll_with_session_id() {
+        let cli =
+            Cli::try_parse_from(["roux-cli", "session", "poll", "-s", "sid-1"]).unwrap();
+        match cli.command {
+            Commands::Session { action: SessionAction::Poll { session } } => {
+                assert_eq!(session.as_deref(), Some("sid-1"));
+            }
+            _ => panic!("expected Session::Poll"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_send_default_has_enter_true() {
+        let cli = Cli::try_parse_from(["roux-cli", "session", "send", "hello"]).unwrap();
+        match cli.command {
+            Commands::Session {
+                action: SessionAction::Send { text, no_enter, .. },
+            } => {
+                assert_eq!(text, "hello");
+                assert!(!no_enter, "--no-enter not passed, so no_enter must be false");
+            }
+            _ => panic!("expected Session::Send"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_send_with_no_enter_flag() {
+        let cli = Cli::try_parse_from([
+            "roux-cli", "session", "send", "hello", "--no-enter",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Session {
+                action: SessionAction::Send { no_enter, .. },
+            } => assert!(no_enter),
+            _ => panic!("expected Session::Send"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_send_with_session_and_pane() {
+        let cli = Cli::try_parse_from([
+            "roux-cli", "session", "send", "hi",
+            "-s", "sid", "-p", "pid",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Session {
+                action: SessionAction::Send { session, pane, .. },
+            } => {
+                assert_eq!(session.as_deref(), Some("sid"));
+                assert_eq!(pane.as_deref(), Some("pid"));
+            }
+            _ => panic!("expected Session::Send"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_create_with_full_options() {
+        let cli = Cli::try_parse_from([
+            "roux-cli", "session", "create",
+            "--name", "feat-x",
+            "--worktree-branch", "feat/x",
+            "--profile", "claude",
+            "-f", "--debug",
+            "-f", "--model=opus",
+            "--nono-profile", "strict",
+            "--nono-allow-dir", "~/work",
+            "--nono-allow-dir", "/tmp",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Session {
+                action:
+                    SessionAction::Create {
+                        name,
+                        worktree_branch,
+                        profile,
+                        flags,
+                        nono_profile,
+                        nono_allow_dirs,
+                        working_dir,
+                    },
+            } => {
+                assert_eq!(name.as_deref(), Some("feat-x"));
+                assert_eq!(worktree_branch.as_deref(), Some("feat/x"));
+                assert_eq!(profile.as_deref(), Some("claude"));
+                assert_eq!(flags, vec!["--debug", "--model=opus"]);
+                assert_eq!(nono_profile.as_deref(), Some("strict"));
+                assert_eq!(nono_allow_dirs, vec!["~/work", "/tmp"]);
+                assert!(working_dir.is_none());
+            }
+            _ => panic!("expected Session::Create"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_panes_list_with_session() {
+        let cli = Cli::try_parse_from([
+            "roux-cli", "session", "panes", "list", "-s", "sid",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Session {
+                action: SessionAction::Panes { action: PaneAction::List { session } },
+            } => {
+                assert_eq!(session.as_deref(), Some("sid"));
+            }
+            _ => panic!("expected Session::Panes::List"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_panes_create_defaults() {
+        let cli = Cli::try_parse_from([
+            "roux-cli", "session", "panes", "create", "-s", "sid",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Session {
+                action:
+                    SessionAction::Panes {
+                        action:
+                            PaneAction::Create {
+                                session,
+                                profile,
+                                direction,
+                                working_dir,
+                            },
+                    },
+            } => {
+                assert_eq!(session.as_deref(), Some("sid"));
+                assert!(profile.is_none());
+                assert_eq!(direction, "horizontal");
+                assert!(working_dir.is_none());
+            }
+            _ => panic!("expected Session::Panes::Create"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_panes_create_with_all_options() {
+        let cli = Cli::try_parse_from([
+            "roux-cli", "session", "panes", "create",
+            "-s", "sid",
+            "-P", "shell",
+            "-d", "vertical",
+            "-w", "/tmp",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Session {
+                action:
+                    SessionAction::Panes {
+                        action:
+                            PaneAction::Create {
+                                profile,
+                                direction,
+                                working_dir,
+                                ..
+                            },
+                    },
+            } => {
+                assert_eq!(profile.as_deref(), Some("shell"));
+                assert_eq!(direction, "vertical");
+                assert_eq!(working_dir.as_deref(), Some("/tmp"));
+            }
+            _ => panic!("expected Session::Panes::Create"),
+        }
+    }
+
+    #[test]
+    fn cli_rejects_removed_top_level_send() {
+        // `roux send "x"` used to work; now it must live under `session`.
+        let err = Cli::try_parse_from(["roux-cli", "send", "x"]);
+        assert!(err.is_err(), "top-level `send` must no longer parse");
+    }
+
+    #[test]
+    fn cli_split_still_parses_with_direction() {
+        let cli = Cli::try_parse_from(["roux-cli", "split", "-d", "vertical"]).unwrap();
+        match cli.command {
+            Commands::Split { direction } => assert_eq!(direction, "vertical"),
+            _ => panic!("expected Split"),
+        }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
         Commands::Hook { status } => handle_hook(&status),
         Commands::Status => show_status(),
         Commands::Clear => clear_status(),
+
+        Commands::App { path } => {
+            let resolved = resolve_path(&path);
+            run_socket_command(serde_json::json!({
+                "command": "app-open",
+                "args": { "path": resolved },
+            }));
+        }
 
         Commands::Split { direction } => {
             run_socket_command(serde_json::json!({
@@ -375,13 +712,51 @@ fn main() {
         }
 
         Commands::Session { action } => match action {
-            SessionAction::Create { name, working_dir } => {
+            SessionAction::Create {
+                name,
+                working_dir,
+                worktree_branch,
+                profile,
+                flags,
+                nono_profile,
+                nono_allow_dirs,
+            } => {
+                // Default working_dir to the current directory when the caller
+                // is not already inside a Roux session (which lets the backend
+                // inherit repo_root from $ROUX_SESSION_ID). With --worktree-branch
+                // the working_dir still becomes the repo to branch off.
+                let working_dir = match working_dir {
+                    Some(d) => Some(d),
+                    None if get_session_id().is_some() => None,
+                    None => Some(resolve_path(".")),
+                };
                 let mut args = serde_json::Map::new();
                 if let Some(n) = name {
                     args.insert("name".into(), Value::String(n));
                 }
                 if let Some(d) = working_dir {
                     args.insert("working_dir".into(), Value::String(d));
+                }
+                if let Some(b) = worktree_branch {
+                    args.insert("worktree_branch".into(), Value::String(b));
+                }
+                if let Some(p) = profile {
+                    args.insert("profile".into(), Value::String(p));
+                }
+                if !flags.is_empty() {
+                    args.insert(
+                        "flags".into(),
+                        Value::Array(flags.into_iter().map(Value::String).collect()),
+                    );
+                }
+                if let Some(p) = nono_profile {
+                    args.insert("nono_profile".into(), Value::String(p));
+                }
+                if !nono_allow_dirs.is_empty() {
+                    args.insert(
+                        "nono_allow_dirs".into(),
+                        Value::Array(nono_allow_dirs.into_iter().map(Value::String).collect()),
+                    );
                 }
                 run_socket_command(serde_json::json!({
                     "command": "session-create",
@@ -390,6 +765,48 @@ fn main() {
                     "args": args,
                 }));
             }
+            SessionAction::Send { text, session, pane, no_enter } => {
+                run_socket_command(serde_json::json!({
+                    "command": "send",
+                    "session_id": session.or_else(get_session_id),
+                    "pane_id": pane.or_else(get_pane_id),
+                    "args": { "text": text, "enter": !no_enter },
+                }));
+            }
+            SessionAction::Poll { session } => {
+                run_socket_command(serde_json::json!({
+                    "command": "session-poll",
+                    "session_id": session.or_else(get_session_id),
+                }));
+            }
+            SessionAction::List => {
+                run_socket_command(serde_json::json!({
+                    "command": "session-list",
+                }));
+            }
+            SessionAction::Panes { action } => match action {
+                PaneAction::List { session } => {
+                    run_socket_command(serde_json::json!({
+                        "command": "session-panes-list",
+                        "session_id": session.or_else(get_session_id),
+                    }));
+                }
+                PaneAction::Create { session, profile, direction, working_dir } => {
+                    let mut args = serde_json::Map::new();
+                    args.insert("direction".into(), Value::String(direction));
+                    if let Some(p) = profile {
+                        args.insert("profile".into(), Value::String(p));
+                    }
+                    if let Some(d) = working_dir {
+                        args.insert("working_dir".into(), Value::String(d));
+                    }
+                    run_socket_command(serde_json::json!({
+                        "command": "session-panes-create",
+                        "session_id": session.or_else(get_session_id),
+                        "args": args,
+                    }));
+                }
+            },
         },
 
         Commands::Shell { working_dir } => {
@@ -423,15 +840,6 @@ fn main() {
                 "session_id": get_session_id(),
                 "pane_id": get_pane_id(),
                 "args": args,
-            }));
-        }
-
-        Commands::Send { text } => {
-            run_socket_command(serde_json::json!({
-                "command": "send",
-                "session_id": get_session_id(),
-                "pane_id": get_pane_id(),
-                "args": { "text": text },
             }));
         }
 

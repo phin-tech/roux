@@ -19,7 +19,7 @@
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
   import { getXtermTheme } from "$lib/themes";
-  import { reconnectSession, reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
+  import { reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
   import { log, logError } from "$lib/logging";
   import SessionPicker from "./SessionPicker.svelte";
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
@@ -73,12 +73,12 @@
     !!activeProfile && (!!activeProfile.setupCommand || !!activeProfile.startupCommand),
   );
 
-  // Dispatch for the disconnected reconnect UI: Claude built-in takes the
-  // legacy SessionPicker (Continue/Resume/New via `claude --continue` etc.)
-  // because the backend spawns the claude binary directly. Every other
-  // profile — Codex, Plain shell, user-defined, inline — takes the
-  // generic shell-reconnect path, which respawns a plain shell and
-  // replays the profile's commands.
+  // Dispatch for the disconnected reconnect UI: Claude built-in shows the
+  // SessionPicker (Continue/Resume/New) so the user can pick which Claude
+  // session to resume. The chosen flags get appended to the startup command
+  // typed into the freshly respawned shell. Every other profile — Codex,
+  // Plain shell, user-defined, inline — takes the simple reconnect path
+  // with no flags. Both paths call `reconnectSessionShell` under the hood.
   const isClaudeBuiltinPrimary = $derived(
     isSessionPrimary &&
       activeProfile?.id === "claude" &&
@@ -184,7 +184,7 @@
   async function reconnect(extraFlags?: string[]) {
     if (!session) return;
     try {
-      await reconnectSession(session, extraFlags);
+      await reconnectSessionShell(session, extraFlags);
     } catch (e: any) {
       if (e?.message?.includes("already in progress")) {
         log(`Reconnect for ${sessionId} skipped — already in progress`);

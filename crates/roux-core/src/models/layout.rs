@@ -67,6 +67,12 @@ pub enum LayoutPaneNode {
         // without another migration.
         #[serde(default)]
         cwd: Option<String>,
+        /// Optional nono sandbox profile name (e.g. "default", "permissive").
+        #[serde(default)]
+        nono_profile: Option<String>,
+        /// Optional allow_dir entries from a `nono_flags` child block.
+        #[serde(default)]
+        nono_allow_dirs: Option<Vec<String>>,
     },
     Split {
         direction: LayoutSplitDirection,
@@ -338,6 +344,8 @@ struct PaneAttrs {
     // Captured here so we can reject with a precise error instead of the
     // generic "unknown attribute" message.
     has_cwd: bool,
+    /// The `nono="profile_name"` attribute on a leaf pane.
+    nono: Option<String>,
 }
 
 /// Parse a single `pane` node — either a leaf or a container.
@@ -377,11 +385,14 @@ fn parse_pane_node(
             "cwd" => {
                 attrs.has_cwd = true;
             }
+            "nono" => {
+                attrs.nono = Some(string_value(src, entry, "nono")?);
+            }
             other => {
                 return Err(LayoutParseError::schema(
                     entry_loc(src, entry),
                     format!(
-                        "unknown `pane` attribute `{other}`; valid: profile, split_direction, name, size"
+                        "unknown `pane` attribute `{other}`; valid: profile, split_direction, name, size, nono"
                     ),
                 ));
             }
@@ -449,6 +460,12 @@ fn parse_split_pane(
             "`name` is only valid on leaf panes",
         ));
     }
+    if attrs.nono.is_some() {
+        return Err(LayoutParseError::schema(
+            node_loc(src, node),
+            "`nono` is only valid on leaf panes; a split pane applies no sandboxing of its own",
+        ));
+    }
     if !has_children {
         return Err(LayoutParseError::schema(
             node_loc(src, node),
@@ -459,12 +476,18 @@ fn parse_split_pane(
     let kdl_children = node.children().expect("has_children verified above");
     let mut children = Vec::new();
     for child in kdl_children.nodes() {
-        if child.name().value() != "pane" {
+        let cname = child.name().value();
+        if cname == "nono_flags" {
+            return Err(LayoutParseError::schema(
+                node_loc(src, child),
+                "`nono_flags` is only valid inside a leaf pane; a split pane does not accept sandbox flags",
+            ));
+        }
+        if cname != "pane" {
             return Err(LayoutParseError::schema(
                 node_loc(src, child),
                 format!(
-                    "unexpected child `{}` inside split pane; only `pane` is allowed",
-                    child.name().value()
+                    "unexpected child `{cname}` inside split pane; only `pane` is allowed"
                 ),
             ));
         }
@@ -484,23 +507,33 @@ fn parse_leaf_pane(
     attrs: &PaneAttrs,
     has_children: bool,
 ) -> Result<LayoutPaneNode, LayoutParseError> {
-    // A pane with children but no split_direction is almost certainly a
-    // container the author forgot to annotate; but it could also be an inline
-    // profile body. We distinguish by whether `profile="id"` is set: if yes,
-    // both styles of profile spec are present — error. If no, treat the body
-    // as an inline profile.
+    // Body disambiguation: a pane's child block can contain inline-profile
+    // fields, `nono_flags` metadata, or both (when no registered profile is
+    // set). When `profile="id"` IS set, only `nono_flags` nodes are
+    // permitted — any inline-profile field is a mutual-exclusivity error.
+    let mut nono_allow_dirs: Option<Vec<String>> = None;
+
     let profile_ref = match (&attrs.profile, has_children) {
-        (Some(_), true) => {
-            return Err(LayoutParseError::schema(
-                node_loc(src, node),
-                "leaf pane cannot set both `profile=\"id\"` and an inline profile body (they are mutually exclusive)",
-            ));
+        (Some(id), true) => {
+            // Registered profile + body: only `nono_flags` children allowed.
+            let body = node.children().expect("has_children is true");
+            let has_inline_fields = body.nodes().iter().any(|c| c.name().value() != "nono_flags");
+            if has_inline_fields {
+                return Err(LayoutParseError::schema(
+                    node_loc(src, node),
+                    "leaf pane cannot set both `profile=\"id\"` and an inline profile body (they are mutually exclusive)",
+                ));
+            }
+            // Parse nono_flags if present.
+            nono_allow_dirs = parse_nono_flags_from_children(src, body)?;
+            LayoutProfileRef::Registered { id: id.clone() }
         }
         (Some(id), false) => LayoutProfileRef::Registered { id: id.clone() },
         (None, true) => {
-            let body = node
-                .children()
-                .expect("has_children is true");
+            let body = node.children().expect("has_children is true");
+            // Parse nono_flags before handing body to inline profile parser
+            // (which will skip nono_flags nodes).
+            nono_allow_dirs = parse_nono_flags_from_children(src, body)?;
             let profile = parse_inline_profile(src, node, attrs.name.as_deref(), body)?;
             LayoutProfileRef::Inline { profile }
         }
@@ -516,12 +549,81 @@ fn parse_leaf_pane(
         }
     };
 
+    // Validate: nono_flags without nono attribute is meaningless.
+    if nono_allow_dirs.is_some() && attrs.nono.is_none() {
+        return Err(LayoutParseError::schema(
+            node_loc(src, node),
+            "`nono_flags` requires a `nono=\"...\"` attribute on the pane",
+        ));
+    }
+
     Ok(LayoutPaneNode::Leaf {
         profile_ref,
         name: attrs.name.clone(),
         size: attrs.size,
         cwd: None,
+        nono_profile: attrs.nono.clone(),
+        nono_allow_dirs,
     })
+}
+
+/// Scan a pane's child document for `nono_flags` nodes and parse `allow_dir`
+/// entries. Returns `None` if no `nono_flags` block is present; returns
+/// `Some(dirs)` if one is found. Multiple `nono_flags` blocks are an error.
+fn parse_nono_flags_from_children(
+    src: &str,
+    body: &kdl::KdlDocument,
+) -> Result<Option<Vec<String>>, LayoutParseError> {
+    let nono_nodes: Vec<&kdl::KdlNode> = body
+        .nodes()
+        .iter()
+        .filter(|n| n.name().value() == "nono_flags")
+        .collect();
+
+    let nono_node = match nono_nodes.as_slice() {
+        [] => return Ok(None),
+        [single] => *single,
+        [_, dup, ..] => {
+            return Err(LayoutParseError::schema(
+                node_loc(src, dup),
+                "only one `nono_flags` block is allowed per pane",
+            ));
+        }
+    };
+
+    // nono_flags must not have attributes
+    if let Some(entry) = nono_node.entries().iter().next() {
+        return Err(LayoutParseError::schema(
+            entry_loc(src, entry),
+            "`nono_flags` takes no attributes",
+        ));
+    }
+
+    let flags_body = nono_node.children().ok_or_else(|| {
+        LayoutParseError::schema(
+            node_loc(src, nono_node),
+            "`nono_flags` requires a body `{ ... }`",
+        )
+    })?;
+
+    let mut dirs = Vec::new();
+    for child in flags_body.nodes() {
+        match child.name().value() {
+            "allow_dir" => {
+                dirs.push(single_string_arg(src, child, "allow_dir")?);
+            }
+            other => {
+                return Err(LayoutParseError::schema(
+                    node_loc(src, child),
+                    format!(
+                        "unknown `nono_flags` child `{other}`; valid: allow_dir"
+                    ),
+                ));
+            }
+        }
+    }
+
+    Ok(Some(dirs))
 }
 
 fn string_value(
@@ -645,6 +747,8 @@ fn parse_inline_profile(
                 }
                 env = Some(map);
             }
+            // nono_flags is parsed by the caller (parse_leaf_pane); skip it here.
+            "nono_flags" => {}
             other => {
                 return Err(LayoutParseError::schema(
                     node_loc(src, child),
@@ -686,6 +790,8 @@ fn parse_inline_profile(
         cwd_override: None,
         icon: None,
         provider: kind,
+        nono_profile: None,
+        nono_allow_dirs: None,
         source: ProfileSource::Inline,
     })
 }
@@ -728,7 +834,7 @@ mod tests {
         assert_eq!(spec.description, None);
         assert_eq!(spec.source, LayoutSource::User);
         match spec.root {
-            LayoutPaneNode::Leaf { profile_ref, name, size, cwd } => {
+            LayoutPaneNode::Leaf { profile_ref, name, size, cwd, nono_profile, nono_allow_dirs } => {
                 assert_eq!(
                     profile_ref,
                     LayoutProfileRef::Registered { id: "claude".into() }
@@ -736,6 +842,8 @@ mod tests {
                 assert_eq!(name, None);
                 assert_eq!(size, None);
                 assert_eq!(cwd, None);
+                assert_eq!(nono_profile, None);
+                assert_eq!(nono_allow_dirs, None);
             }
             other => panic!("expected Leaf, got {other:?}"),
         }
@@ -929,6 +1037,47 @@ mod tests {
     }
 
     #[test]
+    fn rejects_nono_on_split_pane() {
+        // nono only affects PTY spawn, which happens on leaves. Accepting
+        // it on a split would silently drop the sandbox, which is worse
+        // than rejecting at parse time.
+        let src = r#"layout {
+            name "bad"
+            pane split_direction="horizontal" nono="default" {
+                pane profile="claude"
+                pane profile="plain-shell"
+            }
+        }"#;
+        let (line, column, message) = expect_schema_err(parse(src));
+        assert!(line > 0 && column > 0);
+        assert!(
+            message.to_lowercase().contains("nono"),
+            "message should mention nono; got: {message}"
+        );
+    }
+
+    #[test]
+    fn rejects_nono_flags_on_split_pane() {
+        // Same rationale: flags are meaningless without a leaf PTY.
+        let src = r#"layout {
+            name "bad"
+            pane split_direction="horizontal" {
+                nono_flags {
+                    allow_dir "/tmp"
+                }
+                pane profile="claude"
+                pane profile="plain-shell"
+            }
+        }"#;
+        let (line, column, message) = expect_schema_err(parse(src));
+        assert!(line > 0 && column > 0);
+        assert!(
+            message.to_lowercase().contains("nono"),
+            "message should mention nono_flags; got: {message}"
+        );
+    }
+
+    #[test]
     fn rejects_out_of_range_size_negative() {
         let src = r#"layout {
             name "neg"
@@ -1060,5 +1209,118 @@ mod tests {
         }"#;
         let spec = parse(src).unwrap();
         assert!(matches!(spec.root, LayoutPaneNode::Leaf { .. }));
+    }
+
+    // -----------------------------------------------------------------------
+    // nono attribute and nono_flags tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parses_nono_attribute_on_leaf() {
+        let src = r#"layout { name "test"; pane profile="claude" nono="default" }"#;
+        let got = parse(src).unwrap();
+        match &got.root {
+            LayoutPaneNode::Leaf { nono_profile, nono_allow_dirs, .. } => {
+                assert_eq!(nono_profile.as_deref(), Some("default"));
+                assert!(nono_allow_dirs.is_none());
+            }
+            _ => panic!("expected leaf"),
+        }
+    }
+
+    #[test]
+    fn parses_nono_flags_with_registered_profile() {
+        let src = r#"
+            layout {
+                name "test"
+                pane profile="claude" nono="permissive" {
+                    nono_flags {
+                        allow_dir "/tmp/scratch"
+                        allow_dir "/opt/tools"
+                    }
+                }
+            }
+        "#;
+        let got = parse(src).unwrap();
+        match &got.root {
+            LayoutPaneNode::Leaf { nono_profile, nono_allow_dirs, profile_ref, .. } => {
+                assert_eq!(nono_profile.as_deref(), Some("permissive"));
+                assert!(matches!(profile_ref, LayoutProfileRef::Registered { .. }));
+                let dirs = nono_allow_dirs.as_ref().unwrap();
+                assert_eq!(dirs.len(), 2);
+                assert!(dirs.contains(&"/tmp/scratch".to_string()));
+                assert!(dirs.contains(&"/opt/tools".to_string()));
+            }
+            _ => panic!("expected leaf"),
+        }
+    }
+
+    #[test]
+    fn parses_nono_with_inline_profile() {
+        let src = r#"
+            layout {
+                name "test"
+                pane nono="default" {
+                    kind "shell"
+                    startup_command "my-agent"
+                    nono_flags {
+                        allow_dir "/opt"
+                    }
+                }
+            }
+        "#;
+        let got = parse(src).unwrap();
+        match &got.root {
+            LayoutPaneNode::Leaf { nono_profile, nono_allow_dirs, profile_ref, .. } => {
+                assert_eq!(nono_profile.as_deref(), Some("default"));
+                assert!(matches!(profile_ref, LayoutProfileRef::Inline { .. }));
+                assert_eq!(nono_allow_dirs.as_ref().unwrap().len(), 1);
+            }
+            _ => panic!("expected leaf"),
+        }
+    }
+
+    #[test]
+    fn rejects_nono_flags_without_nono_attribute() {
+        let src = r#"
+            layout {
+                name "test"
+                pane profile="claude" {
+                    nono_flags { allow_dir "/tmp" }
+                }
+            }
+        "#;
+        let err = parse(src).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("nono"));
+    }
+
+    #[test]
+    fn rejects_registered_profile_with_inline_fields_and_nono_flags() {
+        let src = r#"
+            layout {
+                name "test"
+                pane profile="claude" nono="default" {
+                    startup_command "echo hi"
+                    nono_flags { allow_dir "/tmp" }
+                }
+            }
+        "#;
+        let err = parse(src).unwrap_err();
+        // Should reject because you can't mix inline profile fields with profile="id"
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("mutually exclusive") || msg.contains("cannot") || msg.contains("profile"));
+    }
+
+    #[test]
+    fn leaf_without_nono_has_none_fields() {
+        let src = r#"layout { name "test"; pane profile="claude" }"#;
+        let got = parse(src).unwrap();
+        match &got.root {
+            LayoutPaneNode::Leaf { nono_profile, nono_allow_dirs, .. } => {
+                assert!(nono_profile.is_none());
+                assert!(nono_allow_dirs.is_none());
+            }
+            _ => panic!("expected leaf"),
+        }
     }
 }

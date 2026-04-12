@@ -8,6 +8,26 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { quitApp } from "$lib/tauri";
   import { onMount } from "svelte";
+  import Settings from "@lucide/svelte/icons/settings";
+  import FolderTree from "@lucide/svelte/icons/folder-tree";
+  import TerminalIcon from "@lucide/svelte/icons/terminal";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
+  import Bell from "@lucide/svelte/icons/bell";
+  import Wrench from "@lucide/svelte/icons/wrench";
+  import X from "@lucide/svelte/icons/x";
+
+  type CategoryId = "general" | "sessions" | "terminal" | "claude" | "notifications" | "advanced";
+
+  const CATEGORIES: { id: CategoryId; label: string; icon: typeof Settings }[] = [
+    { id: "general", label: "General", icon: Settings },
+    { id: "sessions", label: "Sessions", icon: FolderTree },
+    { id: "terminal", label: "Terminal", icon: TerminalIcon },
+    { id: "claude", label: "Claude", icon: Sparkles },
+    { id: "notifications", label: "Notifications", icon: Bell },
+    { id: "advanced", label: "Advanced", icon: Wrench },
+  ];
+
+  let selected = $state<CategoryId>("general");
 
   let appVersion = $state<string>("…");
   onMount(async () => {
@@ -52,6 +72,17 @@
 
   let { visible, onclose }: Props = $props();
 
+  $effect(() => {
+    if (visible) selected = "general";
+  });
+
+  function handleKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onclose();
+    }
+  }
+
   async function browseClaudeBinary() {
     const selected = await open({ directory: false, title: "Select Claude Binary" });
     if (selected) updateSetting("claudeBinaryPath", selected as string);
@@ -68,403 +99,396 @@
   }
 </script>
 
-<div
-  class="absolute top-2 right-2 bottom-2 z-50 flex w-[380px] flex-col rounded-2xl border border-hairline bg-bg-deep shadow-[-8px_8px_48px_rgba(2,6,23,0.55),0_0_0_1px_rgba(255,255,255,0.04)] transition-transform duration-250
-    {visible ? 'translate-x-0' : 'translate-x-[calc(100%+8px)]'}"
->
-  <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3 rounded-t-2xl">
-    <span class="text-sm font-semibold tracking-tight">Settings</span>
-    <button
-      class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
-      onclick={onclose}
-    >&times;</button>
-  </div>
+<svelte:window onkeydown={visible ? handleKey : undefined} />
 
-  <div class="app-scrollbar flex-1 overflow-y-auto px-5 py-4">
-    <!-- Preferences -->
-    <section class="mb-6">
-      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Preferences</h3>
-      <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="text-[13px]">Theme</div>
-            <div class="text-[11px] text-text-muted mt-0.5">Choose the color preset for the app chrome and terminals</div>
-          </div>
-          <select
-            class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
-            value={$settings.theme}
-            onchange={(e) => updateSetting("theme", e.currentTarget.value as typeof $settings.theme)}
+{#if visible}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+    role="presentation"
+    onclick={onclose}
+  >
+    <div
+      class="flex h-[520px] w-[720px] overflow-hidden rounded-2xl border border-hairline bg-bg-deep shadow-[0_24px_64px_rgba(2,6,23,0.6),0_0_0_1px_rgba(255,255,255,0.04)]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+      tabindex="-1"
+    >
+      <!-- Sidebar -->
+      <aside class="flex w-[180px] shrink-0 flex-col border-r border-hairline bg-bg-surface/30 py-3">
+        <div class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-widest text-text-muted">Settings</div>
+        <nav class="flex flex-col gap-0.5 px-2">
+          {#each CATEGORIES as cat}
+            {@const Icon = cat.icon}
+            <button
+              class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors
+                {selected === cat.id
+                  ? 'bg-accent-dim text-text-primary'
+                  : 'text-text-secondary hover:bg-bg-hover'}"
+              onclick={() => (selected = cat.id)}
+            >
+              <Icon size={14} />
+              <span>{cat.label}</span>
+            </button>
+          {/each}
+        </nav>
+      </aside>
+
+      <!-- Detail pane -->
+      <div class="flex min-w-0 flex-1 flex-col">
+        <div class="flex h-10 shrink-0 items-center justify-between border-b border-hairline px-4">
+          <h2 class="text-sm font-semibold tracking-tight">
+            {CATEGORIES.find((c) => c.id === selected)?.label}
+          </h2>
+          <button
+            aria-label="Close settings"
+            class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1 text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
+            onclick={onclose}
           >
-            {#each THEME_DEFINITIONS as theme}
-              <option value={theme.id}>{theme.label}</option>
-            {/each}
-          </select>
+            <X size={14} />
+          </button>
         </div>
-        <p class="mt-2 text-[11px] text-text-muted">
-          {THEME_DEFINITIONS.find((theme) => theme.id === $settings.theme)?.description}
-        </p>
-      </div>
-    </section>
 
-    <!-- Layout -->
-    <section class="mb-6">
-      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Layout</h3>
-      <div class="flex items-center justify-between py-2">
-        <span class="text-[13px]">Tab position</span>
-        <select
-          class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
-          value={$settings.tabPosition}
-          onchange={(e) => updateSetting("tabPosition", e.currentTarget.value as "left" | "right")}
-        >
-          <option value="left">Left</option>
-          <option value="right">Right</option>
-        </select>
-      </div>
-    </section>
+        <div class="app-scrollbar flex-1 overflow-y-auto px-5 py-4">
+          {#if selected === "general"}
+            <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="text-[13px]">Theme</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">Choose the color preset for the app chrome and terminals</div>
+                </div>
+                <select
+                  class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                  value={$settings.theme}
+                  onchange={(e) => updateSetting("theme", e.currentTarget.value as typeof $settings.theme)}
+                >
+                  {#each THEME_DEFINITIONS as theme}
+                    <option value={theme.id}>{theme.label}</option>
+                  {/each}
+                </select>
+              </div>
+              <p class="mt-2 text-[11px] text-text-muted">
+                {THEME_DEFINITIONS.find((theme) => theme.id === $settings.theme)?.description}
+              </p>
+            </div>
 
-    <!-- Worktrees -->
-    <section class="mb-6">
-      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Worktrees</h3>
-      <div class="flex items-center justify-between py-2">
-        <div>
-          <div class="text-[13px]">Base path</div>
-          <div class="text-[11px] text-text-muted mt-0.5">Where to create new worktrees</div>
-        </div>
-        <div class="flex gap-1">
-          <input
-            class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-28 text-right focus:border-accent-dim"
-            value={$settings.worktreeBasePath ?? ""}
-            oninput={(e) => updateSetting("worktreeBasePath", e.currentTarget.value || null)}
-            placeholder="~/worktrees"
-          />
-          <button
-            class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
-            onclick={browseWorktreeBase}
-          >...</button>
-        </div>
-      </div>
-      <div class="flex items-center justify-between py-2">
-        <div>
-          <div class="text-[13px]">Cleanup on close</div>
-          <div class="text-[11px] text-text-muted mt-0.5">Auto-remove worktrees when closing sessions</div>
-        </div>
-        <button
-          aria-label="Toggle cleanup worktrees on close"
-          class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-            {$settings.cleanupWorktreesOnClose
-              ? 'bg-accent-dim border-accent'
-              : 'bg-bg-deep border-border'}"
-          onclick={() => updateSetting("cleanupWorktreesOnClose", !$settings.cleanupWorktreesOnClose)}
-        >
-          <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-            {$settings.cleanupWorktreesOnClose
-              ? 'left-[18px] bg-accent'
-              : 'left-0.5 bg-text-secondary'}"></div>
-        </button>
-      </div>
-    </section>
+            <div class="mt-4 flex items-center justify-between py-2">
+              <span class="text-[13px]">Tab position</span>
+              <select
+                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                value={$settings.tabPosition}
+                onchange={(e) => updateSetting("tabPosition", e.currentTarget.value as "left" | "right")}
+              >
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <span class="text-[13px]">Status bar position</span>
+              <select
+                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                value={$settings.statusBarPosition ?? "bottom"}
+                onchange={(e) => updateSetting("statusBarPosition", e.currentTarget.value as "top" | "bottom")}
+              >
+                <option value="top">Top</option>
+                <option value="bottom">Bottom</option>
+              </select>
+            </div>
+          {:else if selected === "sessions"}
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Confirm on close</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Prompt before closing active sessions</div>
+              </div>
+              <button
+                aria-label="Toggle confirm on close"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {$settings.confirmOnClose ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => updateSetting("confirmOnClose", !$settings.confirmOnClose)}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {$settings.confirmOnClose ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+              </button>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Restore on launch</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Show previous sessions on startup</div>
+              </div>
+              <button
+                aria-label="Toggle restore sessions on launch"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {$settings.restoreSessionsOnLaunch ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => updateSetting("restoreSessionsOnLaunch", !$settings.restoreSessionsOnLaunch)}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {$settings.restoreSessionsOnLaunch ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+              </button>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <span class="text-[13px]">Default project path</span>
+              <div class="flex gap-1">
+                <input
+                  class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-48 text-right focus:border-accent-dim"
+                  value={$settings.defaultProjectPath ?? ""}
+                  oninput={(e) => updateSetting("defaultProjectPath", e.currentTarget.value || null)}
+                  placeholder="~/src"
+                />
+                <button
+                  class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                  onclick={browseDefaultProject}
+                >...</button>
+              </div>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Worktree base path</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Where to create new worktrees</div>
+              </div>
+              <div class="flex gap-1">
+                <input
+                  class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-48 text-right focus:border-accent-dim"
+                  value={$settings.worktreeBasePath ?? ""}
+                  oninput={(e) => updateSetting("worktreeBasePath", e.currentTarget.value || null)}
+                  placeholder="~/worktrees"
+                />
+                <button
+                  class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                  onclick={browseWorktreeBase}
+                >...</button>
+              </div>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Cleanup worktrees on close</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Auto-remove worktrees when closing sessions</div>
+              </div>
+              <button
+                aria-label="Toggle cleanup worktrees on close"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {$settings.cleanupWorktreesOnClose ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => updateSetting("cleanupWorktreesOnClose", !$settings.cleanupWorktreesOnClose)}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {$settings.cleanupWorktreesOnClose ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+              </button>
+            </div>
+          {:else if selected === "terminal"}
+            <div class="flex items-center justify-between py-2">
+              <span class="text-[13px]">Font size</span>
+              <input
+                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-20 text-right focus:border-accent-dim"
+                type="number"
+                value={$settings.fontSize}
+                oninput={(e) => updateSetting("fontSize", parseInt(e.currentTarget.value) || 14)}
+              />
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <span class="text-[13px]">Terminal font</span>
+              <input
+                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-56 text-right focus:border-accent-dim"
+                value={$settings.fontFamily}
+                oninput={(e) => updateSetting("fontFamily", e.currentTarget.value)}
+              />
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <span class="text-[13px]">UI font</span>
+              <input
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-56 text-right focus:border-accent-dim"
+                value={$settings.uiFontFamily}
+                oninput={(e) => updateSetting("uiFontFamily", e.currentTarget.value)}
+              />
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <span class="text-[13px]">Scrollback lines</span>
+              <input
+                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-24 text-right focus:border-accent-dim"
+                type="number"
+                value={$settings.scrollback}
+                oninput={(e) => updateSetting("scrollback", parseInt(e.currentTarget.value) || 5000)}
+              />
+            </div>
+          {:else if selected === "claude"}
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Binary path</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Leave blank to auto-detect from PATH</div>
+              </div>
+              <div class="flex gap-1">
+                <input
+                  class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-48 text-right focus:border-accent-dim"
+                  value={$settings.claudeBinaryPath ?? ""}
+                  oninput={(e) => updateSetting("claudeBinaryPath", e.currentTarget.value || null)}
+                  placeholder="/usr/local/bin/claude"
+                />
+                <button
+                  class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                  onclick={browseClaudeBinary}
+                >...</button>
+              </div>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <span class="text-[13px]">Default model</span>
+              <input
+                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-40 text-right focus:border-accent-dim"
+                value={$settings.defaultModel ?? ""}
+                oninput={(e) => updateSetting("defaultModel", e.currentTarget.value || null)}
+                placeholder="opus"
+              />
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <span class="text-[13px]">Additional flags</span>
+              <input
+                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-56 text-right focus:border-accent-dim"
+                value={$settings.additionalFlags.join(" ")}
+                oninput={(e) => updateSetting("additionalFlags", e.currentTarget.value.split(" ").filter(Boolean))}
+                placeholder="--verbose"
+              />
+            </div>
+          {:else if selected === "notifications"}
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Enable OS notifications</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Master switch for macOS notification fan-out. The in-app pane always works.</div>
+              </div>
+              <button
+                aria-label="Toggle OS notifications"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {$settings.notificationsEnabled ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => updateSetting("notificationsEnabled", !$settings.notificationsEnabled)}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {$settings.notificationsEnabled ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+              </button>
+            </div>
 
-    <!-- Terminal -->
-    <section class="mb-6">
-      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Terminal</h3>
-      <div class="flex items-center justify-between py-2">
-        <span class="text-[13px]">Font size</span>
-        <input
-          class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-15 text-right focus:border-accent-dim"
-          type="number"
-          value={$settings.fontSize}
-          oninput={(e) => updateSetting("fontSize", parseInt(e.currentTarget.value) || 14)}
-        />
-      </div>
-      <div class="flex items-center justify-between py-2">
-        <span class="text-[13px]">Terminal font</span>
-        <input
-          class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-35 text-right focus:border-accent-dim"
-          value={$settings.fontFamily}
-          oninput={(e) => updateSetting("fontFamily", e.currentTarget.value)}
-        />
-      </div>
-      <div class="flex items-center justify-between py-2">
-        <span class="text-[13px]">UI font</span>
-        <input
-          class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-35 text-right focus:border-accent-dim"
-          value={$settings.uiFontFamily}
-          oninput={(e) => updateSetting("uiFontFamily", e.currentTarget.value)}
-        />
-      </div>
-      <div class="flex items-center justify-between py-2">
-        <span class="text-[13px]">Scrollback lines</span>
-        <input
-          class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-20 text-right focus:border-accent-dim"
-          type="number"
-          value={$settings.scrollback}
-          oninput={(e) => updateSetting("scrollback", parseInt(e.currentTarget.value) || 5000)}
-        />
-      </div>
-    </section>
+            <div class="mt-3 rounded-lg border border-amber/20 bg-amber/5 p-3 text-[11px] text-text-secondary">
+              <div class="mb-1 font-semibold text-amber">macOS quirk</div>
+              <div class="leading-relaxed">
+                In dev mode Roux borrows <span class="font-mono text-[10px]">com.apple.Terminal</span>'s notification identity (unsigned binaries can't own a bundle id). If you don't see the test notification below, open <span class="text-text-primary">System Settings → Notifications → Terminal</span> and make sure "Allow Notifications" is on. Bundled release builds use <span class="font-mono text-[10px]">com.phin-tech.roux</span>.
+              </div>
+            </div>
 
-    <!-- Sessions -->
-    <section class="mb-6">
-      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Sessions</h3>
-      <div class="flex items-center justify-between py-2">
-        <div>
-          <div class="text-[13px]">Confirm on close</div>
-          <div class="text-[11px] text-text-muted mt-0.5">Prompt before closing active sessions</div>
-        </div>
-        <button
-          aria-label="Toggle confirm on close"
-          class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-            {$settings.confirmOnClose
-              ? 'bg-accent-dim border-accent'
-              : 'bg-bg-deep border-border'}"
-          onclick={() => updateSetting("confirmOnClose", !$settings.confirmOnClose)}
-        >
-          <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-            {$settings.confirmOnClose
-              ? 'left-[18px] bg-accent'
-              : 'left-0.5 bg-text-secondary'}"></div>
-        </button>
-      </div>
-      <div class="flex items-center justify-between py-2">
-        <div>
-          <div class="text-[13px]">Restore on launch</div>
-          <div class="text-[11px] text-text-muted mt-0.5">Show previous sessions on startup</div>
-        </div>
-        <button
-          aria-label="Toggle restore sessions on launch"
-          class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-            {$settings.restoreSessionsOnLaunch
-              ? 'bg-accent-dim border-accent'
-              : 'bg-bg-deep border-border'}"
-          onclick={() => updateSetting("restoreSessionsOnLaunch", !$settings.restoreSessionsOnLaunch)}
-        >
-          <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-            {$settings.restoreSessionsOnLaunch
-              ? 'left-[18px] bg-accent'
-              : 'left-0.5 bg-text-secondary'}"></div>
-        </button>
-      </div>
-      <div class="flex items-center justify-between py-2">
-        <span class="text-[13px]">Default project path</span>
-        <div class="flex gap-1">
-          <input
-            class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-28 text-right focus:border-accent-dim"
-            value={$settings.defaultProjectPath ?? ""}
-            oninput={(e) => updateSetting("defaultProjectPath", e.currentTarget.value || null)}
-            placeholder="~/src"
-          />
-          <button
-            class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
-            onclick={browseDefaultProject}
-          >...</button>
-        </div>
-      </div>
-    </section>
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <div>
+                <div class="text-[13px]">Test notification</div>
+                <div class="text-[11px] text-text-muted mt-0.5">
+                  {#if notifTestStatus === "sent"}
+                    Test fired — check macOS notification center. If nothing shows, fix permissions above.
+                  {:else if notifTestStatus === "error"}
+                    <span class="text-red">Failed: {notifTestError}</span>
+                  {:else}
+                    Pushes an Attention-level notification through the service
+                  {/if}
+                </div>
+              </div>
+              <button
+                class="shrink-0 cursor-pointer rounded-lg border border-border-subtle bg-bg-deep px-3 py-1.5 text-[12px] font-semibold text-text-primary hover:border-accent hover:bg-bg-hover"
+                onclick={sendTestNotification}
+              >
+                Send test
+              </button>
+            </div>
+          {:else if selected === "advanced"}
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Current version</div>
+                <div class="text-[11px] text-text-muted mt-0.5 font-mono">{appVersion}</div>
+              </div>
+              <button
+                class="rounded border border-border px-2.5 py-1 text-[11px] text-text-primary hover:bg-bg-hover disabled:opacity-50"
+                disabled={$updateStatus.kind === "checking" || $updateStatus.kind === "downloading"}
+                onclick={() => void runManualCheck()}
+              >
+                {$updateStatus.kind === "checking" ? "Checking…" : "Check for updates"}
+              </button>
+            </div>
 
-    <!-- Claude -->
-    <section class="mb-6">
-      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Claude</h3>
-      <div class="flex items-center justify-between py-2">
-        <div>
-          <div class="text-[13px]">Binary path</div>
-          <div class="text-[11px] text-text-muted mt-0.5">Leave blank to auto-detect from PATH</div>
-        </div>
-        <div class="flex gap-1">
-          <input
-            class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-28 text-right focus:border-accent-dim"
-            value={$settings.claudeBinaryPath ?? ""}
-            oninput={(e) => updateSetting("claudeBinaryPath", e.currentTarget.value || null)}
-            placeholder="/usr/local/bin/claude"
-          />
-          <button
-            class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
-            onclick={browseClaudeBinary}
-          >...</button>
-        </div>
-      </div>
-      <div class="flex items-center justify-between py-2">
-        <span class="text-[13px]">Default model</span>
-        <input
-          class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-25 text-right focus:border-accent-dim"
-          value={$settings.defaultModel ?? ""}
-          oninput={(e) => updateSetting("defaultModel", e.currentTarget.value || null)}
-          placeholder="opus"
-        />
-      </div>
-      <div class="flex items-center justify-between py-2">
-        <span class="text-[13px]">Additional flags</span>
-        <input
-          class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-35 text-right focus:border-accent-dim"
-          value={$settings.additionalFlags.join(" ")}
-          oninput={(e) => updateSetting("additionalFlags", e.currentTarget.value.split(" ").filter(Boolean))}
-          placeholder="--verbose"
-        />
-      </div>
-    </section>
-
-    <!-- Notifications -->
-    <section class="mb-6">
-      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Notifications</h3>
-
-      <div class="flex items-center justify-between py-2">
-        <div>
-          <div class="text-[13px]">Enable OS notifications</div>
-          <div class="text-[11px] text-text-muted mt-0.5">Master switch for macOS notification fan-out. The in-app pane always works.</div>
-        </div>
-        <button
-          aria-label="Toggle OS notifications"
-          class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-            {$settings.notificationsEnabled
-              ? 'bg-accent-dim border-accent'
-              : 'bg-bg-deep border-border'}"
-          onclick={() => updateSetting("notificationsEnabled", !$settings.notificationsEnabled)}
-        >
-          <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-            {$settings.notificationsEnabled
-              ? 'left-[18px] bg-accent'
-              : 'left-0.5 bg-text-secondary'}"></div>
-        </button>
-      </div>
-
-      <div class="mt-3 rounded-lg border border-amber/20 bg-amber/5 p-3 text-[11px] text-text-secondary">
-        <div class="mb-1 font-semibold text-amber">macOS quirk</div>
-        <div class="leading-relaxed">
-          In dev mode Roux borrows <span class="font-mono text-[10px]">com.apple.Terminal</span>'s notification identity (unsigned binaries can't own a bundle id). If you don't see the test notification below, open <span class="text-text-primary">System Settings → Notifications → Terminal</span> and make sure "Allow Notifications" is on. Bundled release builds use <span class="font-mono text-[10px]">com.phin-tech.roux</span>.
-        </div>
-      </div>
-
-      <div class="mt-3 flex items-center justify-between gap-3">
-        <div>
-          <div class="text-[13px]">Test notification</div>
-          <div class="text-[11px] text-text-muted mt-0.5">
-            {#if notifTestStatus === "sent"}
-              Test fired — check macOS notification center. If nothing shows, fix permissions above.
-            {:else if notifTestStatus === "error"}
-              <span class="text-red">Failed: {notifTestError}</span>
-            {:else}
-              Pushes an Attention-level notification through the service
+            {#if $updateStatus.kind === "no-update"}
+              <div class="mt-2 text-[11px] text-text-secondary">You're on the latest version.</div>
+            {:else if $updateStatus.kind === "available"}
+              <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
+                <div class="text-[12px] font-semibold text-text-primary">Update available: {$updateStatus.version}</div>
+                {#if $updateStatus.notes}
+                  <pre class="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] text-text-secondary">{$updateStatus.notes}</pre>
+                {/if}
+                <button
+                  class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
+                  onclick={() => void performInstall()}
+                >
+                  Install and restart
+                </button>
+              </div>
+            {:else if $updateStatus.kind === "downloading"}
+              <div class="mt-3 rounded-lg border border-border-subtle bg-bg-surface/35 p-3">
+                <div class="text-[11px] text-text-secondary">
+                  Downloading update{$updateStatus.progress !== null ? ` (${Math.round($updateStatus.progress * 100)}%)` : "…"}
+                </div>
+                <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-bg-deep">
+                  <div
+                    class="h-full bg-accent transition-[width] duration-200"
+                    style="width: {$updateStatus.progress !== null ? Math.round($updateStatus.progress * 100) : 30}%"
+                  ></div>
+                </div>
+              </div>
+            {:else if $updateStatus.kind === "installed-restart-required"}
+              <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
+                <div class="text-[12px] font-semibold text-text-primary">Update installed</div>
+                <div class="text-[11px] text-text-secondary mt-0.5">Quit and reopen Roux to finish.</div>
+                <button
+                  class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
+                  onclick={() => void quitApp()}
+                >
+                  Quit Roux
+                </button>
+              </div>
+            {:else if $updateStatus.kind === "error"}
+              <div class="mt-2 text-[11px] text-red">{describeError($updateStatus.reason)}</div>
             {/if}
-          </div>
-        </div>
-        <button
-          class="shrink-0 cursor-pointer rounded-lg border border-border-subtle bg-bg-deep px-3 py-1.5 text-[12px] font-semibold text-text-primary hover:border-accent hover:bg-bg-hover"
-          onclick={sendTestNotification}
-        >
-          Send test
-        </button>
-      </div>
-    </section>
 
-    <!-- Updates -->
-    <section class="mb-6">
-      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Updates</h3>
+            <div class="mt-4 flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Check for updates on launch</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Silently check in the background when Roux starts</div>
+              </div>
+              <button
+                aria-label="Toggle auto-check on launch"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {($settings.updateCheckOnLaunch ?? true) ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => updateSetting('updateCheckOnLaunch', !($settings.updateCheckOnLaunch ?? true))}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {($settings.updateCheckOnLaunch ?? true) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+              </button>
+            </div>
 
-      <div class="flex items-center justify-between py-2">
-        <div>
-          <div class="text-[13px]">Current version</div>
-          <div class="text-[11px] text-text-muted mt-0.5 font-mono">{appVersion}</div>
-        </div>
-        <button
-          class="rounded border border-border px-2.5 py-1 text-[11px] text-text-primary hover:bg-bg-hover disabled:opacity-50"
-          disabled={$updateStatus.kind === "checking" || $updateStatus.kind === "downloading"}
-          onclick={() => void runManualCheck()}
-        >
-          {$updateStatus.kind === "checking" ? "Checking…" : "Check for updates"}
-        </button>
-      </div>
-
-      {#if $updateStatus.kind === "no-update"}
-        <div class="mt-2 text-[11px] text-text-secondary">You're on the latest version.</div>
-      {:else if $updateStatus.kind === "available"}
-        <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
-          <div class="text-[12px] font-semibold text-text-primary">Update available: {$updateStatus.version}</div>
-          {#if $updateStatus.notes}
-            <pre class="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] text-text-secondary">{$updateStatus.notes}</pre>
+            <div class="mt-4 flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Enable logging</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Write logs to disk for debugging</div>
+              </div>
+              <button
+                aria-label="Toggle logging"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {$settings.enableLogging ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => {
+                  const next = !$settings.enableLogging;
+                  setLoggingEnabled(next);
+                  updateSetting("enableLogging", next);
+                }}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {$settings.enableLogging ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+              </button>
+            </div>
+            {#if $settings.enableLogging}
+              <div class="text-[11px] text-text-muted font-mono mt-1 break-all">{getLogPath()}</div>
+            {/if}
           {/if}
-          <button
-            class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
-            onclick={() => void performInstall()}
-          >
-            Install and restart
-          </button>
         </div>
-      {:else if $updateStatus.kind === "downloading"}
-        <div class="mt-3 rounded-lg border border-border-subtle bg-bg-surface/35 p-3">
-          <div class="text-[11px] text-text-secondary">
-            Downloading update{$updateStatus.progress !== null ? ` (${Math.round($updateStatus.progress * 100)}%)` : "…"}
-          </div>
-          <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-bg-deep">
-            <div
-              class="h-full bg-accent transition-[width] duration-200"
-              style="width: {$updateStatus.progress !== null ? Math.round($updateStatus.progress * 100) : 30}%"
-            ></div>
-          </div>
-        </div>
-      {:else if $updateStatus.kind === "installed-restart-required"}
-        <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
-          <div class="text-[12px] font-semibold text-text-primary">Update installed</div>
-          <div class="text-[11px] text-text-secondary mt-0.5">Quit and reopen Roux to finish.</div>
-          <button
-            class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
-            onclick={() => void quitApp()}
-          >
-            Quit Roux
-          </button>
-        </div>
-      {:else if $updateStatus.kind === "error"}
-        <div class="mt-2 text-[11px] text-red">{describeError($updateStatus.reason)}</div>
-      {/if}
-
-      <div class="mt-4 flex items-center justify-between py-2">
-        <div>
-          <div class="text-[13px]">Check for updates on launch</div>
-          <div class="text-[11px] text-text-muted mt-0.5">Silently check in the background when Roux starts</div>
-        </div>
-        <button
-          aria-label="Toggle auto-check on launch"
-          class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-            {($settings.updateCheckOnLaunch ?? true)
-              ? 'bg-accent-dim border-accent'
-              : 'bg-bg-deep border-border'}"
-          onclick={() => updateSetting('updateCheckOnLaunch', !($settings.updateCheckOnLaunch ?? true))}
-        >
-          <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-            {($settings.updateCheckOnLaunch ?? true)
-              ? 'left-[18px] bg-accent'
-              : 'left-0.5 bg-text-secondary'}"></div>
-        </button>
       </div>
-    </section>
-
-    <!-- Debug -->
-    <section class="mb-6">
-      <h3 class="text-[11px] font-semibold uppercase tracking-widest text-text-muted mb-3">Debug</h3>
-      <div class="flex items-center justify-between py-2">
-        <div>
-          <div class="text-[13px]">Enable logging</div>
-          <div class="text-[11px] text-text-muted mt-0.5">Write logs to disk for debugging</div>
-        </div>
-        <button
-          aria-label="Toggle logging"
-          class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-            {$settings.enableLogging
-              ? 'bg-accent-dim border-accent'
-              : 'bg-bg-deep border-border'}"
-          onclick={() => {
-            const next = !$settings.enableLogging;
-            setLoggingEnabled(next);
-            updateSetting("enableLogging", next);
-          }}
-        >
-          <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-            {$settings.enableLogging
-              ? 'left-[18px] bg-accent'
-              : 'left-0.5 bg-text-secondary'}"></div>
-        </button>
-      </div>
-      {#if $settings.enableLogging}
-        <div class="text-[11px] text-text-muted font-mono mt-1 break-all">{getLogPath()}</div>
-      {/if}
-    </section>
+    </div>
   </div>
-</div>
+{/if}
