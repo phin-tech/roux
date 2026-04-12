@@ -28,6 +28,8 @@ interface LeafInfo {
   spawnProfileRef: SpawnProfileRef;
   name: string | undefined;
   isFirst: boolean;
+  nonoProfile: string | undefined;
+  nonoAllowDirs: string[] | undefined;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -72,6 +74,25 @@ function collectLeaves(
         spawnProfileRef = { kind: "inline", profile: ref.profile };
       }
 
+      // Nono resolution: layout leaf wins, profile is fallback
+      let nonoProfile: string | undefined;
+      let nonoAllowDirs: string[] | undefined;
+
+      const leafNono = n.nono_profile;
+      const profileNono = profile.nonoProfile;
+
+      if (leafNono) {
+        nonoProfile = leafNono;
+        // Merge allow_dirs: leaf dirs + profile dirs (union)
+        const leafDirs = n.nono_allow_dirs ?? [];
+        const profileDirs = profile.nonoAllowDirs ?? [];
+        const merged = [...new Set([...leafDirs, ...profileDirs])];
+        nonoAllowDirs = merged.length > 0 ? merged : undefined;
+      } else if (profileNono) {
+        nonoProfile = profileNono;
+        nonoAllowDirs = profile.nonoAllowDirs?.length ? profile.nonoAllowDirs : undefined;
+      }
+
       const isFirst = leaves.length === 0;
       const paneId = isFirst ? `${sessionId}-main` : crypto.randomUUID();
       const ptyId = isFirst ? sessionId : crypto.randomUUID();
@@ -83,6 +104,8 @@ function collectLeaves(
         spawnProfileRef,
         name: n.name ?? undefined,
         isFirst,
+        nonoProfile,
+        nonoAllowDirs,
       });
       return null;
     }
@@ -184,7 +207,7 @@ export async function applyLayoutToSession(
   for (const leaf of leaves) {
     if (leaf.isFirst) continue;
     try {
-      await spawnShell(leaf.ptyId, session.worktreePath, session.id, leaf.paneId);
+      await spawnShell(leaf.ptyId, session.worktreePath, session.id, leaf.paneId, leaf.nonoProfile, leaf.nonoAllowDirs);
       spawned.push(leaf.ptyId);
     } catch (e) {
       // Step 5: Unwind on failure
@@ -212,6 +235,8 @@ export async function applyLayoutToSession(
       ptyId: leaf.ptyId,
       name: leaf.name,
       spawnProfileRef: leaf.spawnProfileRef,
+      nonoProfile: leaf.nonoProfile,
+      nonoAllowDirs: leaf.nonoAllowDirs,
     });
   }
 

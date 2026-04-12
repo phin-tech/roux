@@ -176,7 +176,7 @@ export type KeepOpen = "always" | "on-error" | "never";
  *  not implement `Eq`. Tests use `PartialEq` with exact float values, which
  *  is fine because sizes come directly from literal tokens in the KDL source.
  */
-export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
+export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null; nono_profile?: string | null; nono_allow_dirs?: string[] | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
 
 /**
  *  How a leaf pane references a spawn profile. Registered ids are looked up
