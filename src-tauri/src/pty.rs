@@ -240,11 +240,6 @@ pub enum PtyError {
         #[source]
         source: anyhow::Error,
     },
-    #[error("Failed to spawn claude: {source}")]
-    SpawnClaude {
-        #[source]
-        source: anyhow::Error,
-    },
     #[error("Failed to spawn shell: {source}")]
     SpawnShell {
         #[source]
@@ -423,93 +418,6 @@ impl PtyManager {
         if let Some(channel) = self.pending_outputs.lock().unwrap().remove(session_id) {
             output.attach(channel);
         }
-    }
-
-    pub fn spawn(
-        &self,
-        session_id: &str,
-        working_dir: &str,
-        model: Option<&str>,
-        additional_flags: &[String],
-        nono_profile: Option<&str>,
-        claude_binary_path: Option<&str>,
-        app: tauri::AppHandle,
-    ) -> Result<(), PtyError> {
-        let pty_system = native_pty_system();
-
-        let pair = pty_system
-            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-            .map_err(|source| PtyError::OpenPty { source })?;
-
-        let user_path = get_user_path();
-        let claude_cmd = resolve_claude_command(claude_binary_path);
-        rlog!(
-            "Spawning claude session '{}' in '{}' with cmd='{}'",
-            session_id,
-            working_dir,
-            claude_cmd
-        );
-        rlog!("  PATH: {}", user_path);
-
-        let mut cmd = if let Some(profile) = nono_profile {
-            // Wrap with nono: nono run --profile <profile> --allow-cwd -- claude [args]
-            let mut c = CommandBuilder::new("nono");
-            c.arg("run");
-            c.arg("--profile");
-            c.arg(profile);
-            c.arg("--allow-cwd");
-            c.arg("--");
-            c.arg(&claude_cmd);
-            c
-        } else {
-            CommandBuilder::new(&claude_cmd)
-        };
-        // Until spawn profiles land in phase 4, the claude pane id is still
-        // derived from the session id. Phase 4 will take pane_id as a param.
-        let pane_id = format!("{}-main", session_id);
-        apply_roux_env(&mut cmd, &user_path, Some(session_id), Some(&pane_id));
-        if let Some(m) = model {
-            cmd.arg("--model");
-            cmd.arg(m);
-        }
-        for flag in additional_flags {
-            cmd.arg(flag);
-        }
-        cmd.cwd(working_dir);
-
-        let child =
-            pair.slave.spawn_command(cmd).map_err(|source| PtyError::SpawnClaude { source })?;
-
-        let writer = pair.master.take_writer().map_err(|source| PtyError::GetWriter { source })?;
-
-        let reader =
-            pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
-
-        let output = PtyOutput::new();
-        let gen = self.generation.fetch_add(1, Ordering::Relaxed);
-
-        let session = PtySession {
-            master: pair.master,
-            child,
-            writer: Arc::new(Mutex::new(writer)),
-            output: output.clone(),
-            generation: gen,
-        };
-        self.sessions.lock().unwrap().insert(session_id.to_string(), session);
-        self.attach_pending_output(session_id, &output);
-
-        let tx = spawn_flusher(
-            output.clone(),
-            Some((format!("session-exit:{}", session_id), gen)),
-            app.clone(),
-        );
-        let sniffer = crate::notifications::OscSniffer::new(
-            app.clone(),
-            Some(session_id.to_string()),
-        );
-        spawn_reader(reader, tx, Some(sniffer));
-
-        Ok(())
     }
 
     pub fn spawn_shell(
@@ -901,15 +809,6 @@ pub fn get_user_path() -> String {
     path
 }
 
-/// Resolve the claude binary command. If a custom path is configured, use it directly.
-/// Otherwise fall back to "claude" (resolved via PATH).
-pub fn resolve_claude_command(custom_path: Option<&str>) -> String {
-    match custom_path {
-        Some(p) if !p.is_empty() => p.to_string(),
-        _ => "claude".to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -965,30 +864,6 @@ mod tests {
         output.send(vec![9, 8, 7]);
 
         assert_eq!(*received.lock().unwrap(), vec![vec![9, 8, 7]]);
-    }
-
-    #[test]
-    fn resolve_claude_command_uses_custom_path_when_set() {
-        let result = resolve_claude_command(Some("/usr/local/bin/claude"));
-        assert_eq!(result, "/usr/local/bin/claude");
-    }
-
-    #[test]
-    fn resolve_claude_command_uses_custom_path_with_home_dir() {
-        let result = resolve_claude_command(Some("/Users/sam/.node_modules/bin/claude"));
-        assert_eq!(result, "/Users/sam/.node_modules/bin/claude");
-    }
-
-    #[test]
-    fn resolve_claude_command_falls_back_to_claude_when_none() {
-        let result = resolve_claude_command(None);
-        assert_eq!(result, "claude");
-    }
-
-    #[test]
-    fn resolve_claude_command_falls_back_to_claude_when_empty() {
-        let result = resolve_claude_command(Some(""));
-        assert_eq!(result, "claude");
     }
 
     #[test]

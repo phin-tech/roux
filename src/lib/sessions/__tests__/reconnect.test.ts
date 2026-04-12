@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
 
 vi.mock("$lib/tauri", () => ({
-  reconnectSessionPty: vi.fn(),
   reconnectSessionShellPty: vi.fn(),
   killSession: vi.fn(),
   killPty: vi.fn().mockResolvedValue(undefined),

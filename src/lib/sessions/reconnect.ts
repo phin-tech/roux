@@ -340,16 +340,15 @@ export async function reconnectSession(
 
 /**
  * Reconnect a session whose primary pane was created via
- * `createSessionShell` (i.e. every non-Claude-builtin profile). Kills
- * the old PTY, spawns a fresh plain shell on the backend, re-attaches
- * pane listeners, and replays the pane's profile commands so agents
- * like Codex come back up the way they were first launched.
+ * `createSessionShell`. Kills the old PTY, spawns a fresh plain shell on
+ * the backend, re-attaches pane listeners, and replays the pane's profile
+ * commands so agents like Codex (or Claude in a shell) come back up the
+ * way they were first launched.
  *
- * Separate from `reconnectSession` so that the legacy Claude spawn
- * path (which runs the claude binary directly, via `pty_manager.spawn`
- * with flags + nono wrapping) stays undisturbed. Callers dispatch based
- * on the primary pane's spawnProfileRef — Claude-builtin uses
- * `reconnectSession`, everything else uses this one.
+ * Distinct from `reconnectSession`: the latter does full layout
+ * rehydration from persisted pane state, while this one is the
+ * lightweight primary-pane-only path used by explicit per-pane
+ * re-run/reconnect flows.
  */
 export async function reconnectSessionShell(
   session: Session,

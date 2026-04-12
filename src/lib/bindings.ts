@@ -38,7 +38,6 @@ export const commands = {
 	 *  it was spawned in.
 	 */
 	getPtyCwd: (id: string) => __TAURI_INVOKE<string | null>("get_pty_cwd", { id }),
-	createSession: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, extraFlags: string[] | null, nonoProfile: string | null) => typedError<Session, string>(__TAURI_INVOKE("create_session", { repoPath, name, worktreePath, branch, extraFlags, nonoProfile })),
 	/**
 	 *  Parallel to `create_session`, but spawns a plain shell in the session's
 	 *  primary PTY instead of the claude binary. The frontend attaches the
@@ -47,7 +46,6 @@ export const commands = {
 	 *  picker (Codex, Plain shell, user profiles, inline Custom…).
 	 */
 	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, nonoProfile, nonoAllowDirs })),
-	reconnectSession: (id: string, extraFlags: string[] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session", { id, extraFlags })),
 	/**
 	 *  Parallel to `reconnect_session`, but respawns a plain shell in the
 	 *  session's primary PTY instead of the claude binary. The frontend
