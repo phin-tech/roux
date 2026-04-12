@@ -1,6 +1,11 @@
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
+type DownloadEvent =
+  | { event: "Started"; data: { contentLength?: number } }
+  | { event: "Progress"; data: { chunkLength: number } }
+  | { event: "Finished" };
+
 export type UpdaterError = "network" | "signature-invalid" | "unknown";
 
 export type UpdateStatus =
@@ -78,7 +83,7 @@ export async function installUpdate(
   let contentLength: number | undefined;
   let downloaded = 0;
 
-  await update.downloadAndInstall((event) => {
+  await update.downloadAndInstall((event: DownloadEvent) => {
     switch (event.event) {
       case "Started": {
         contentLength = event.data.contentLength;

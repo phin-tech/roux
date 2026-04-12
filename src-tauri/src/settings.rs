@@ -3,13 +3,11 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 pub use roux_core::RouxSettings;
-
 use crate::paths::roux_config_dir;
 
 fn settings_path() -> PathBuf {
     roux_config_dir().join("settings.json")
 }
-
 #[derive(Debug, Error)]
 pub enum SettingsError {
     #[error("{source}")]

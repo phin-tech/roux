@@ -6,11 +6,6 @@ use std::sync::Mutex;
 
 static LOG_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 static ENABLED: AtomicBool = AtomicBool::new(false);
-
-fn log_dir() -> PathBuf {
-    crate::paths::roux_config_dir().join("logs")
-}
-
 /// Initialize logging. Call once at startup.
 pub fn init(enabled: bool) {
     ENABLED.store(enabled, Ordering::Relaxed);
@@ -96,4 +91,8 @@ macro_rules! rlog {
     ($($arg:tt)*) => {
         $crate::logging::log(&format!($($arg)*))
     };
+}
+
+fn log_dir() -> PathBuf {
+    crate::paths::roux_config_dir().join("logs")
 }

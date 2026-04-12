@@ -59,6 +59,7 @@
   import { queries } from "$lib/queries";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
   import { initLogging, log, logError } from "$lib/logging";
+  import { hasPrimaryModifier, isMacPlatform } from "$lib/platform";
   import {
     armSessionHints,
     hideSessionHints,
@@ -79,10 +80,11 @@
 
   function buildShortcutString(e: KeyboardEvent): string {
     const parts: string[] = [];
-    if (e.metaKey) parts.push("cmd");
+    if (hasPrimaryModifier(e)) parts.push("cmd");
     if (e.shiftKey) parts.push("shift");
     if (e.altKey) parts.push("alt");
-    if (e.ctrlKey) parts.push("ctrl");
+    if (e.ctrlKey && isMacPlatform()) parts.push("ctrl");
+    if (e.metaKey && !isMacPlatform()) parts.push("meta");
     // On macOS, Alt produces special characters (e.g. Alt+h → ˙).
     // Use the physical key (e.code) when Alt is held so shortcuts work.
     let key = e.key.toLowerCase();
@@ -198,10 +200,11 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    // Arm the session-hint overlay when Cmd is pressed on its own.
-    // The store handles the 200ms delay; quick chords like Cmd+K or Cmd+1
-    // release before the delay elapses and never reveal the overlay.
-    if (e.key === "Meta") {
+    // Arm the session-hint overlay when the platform primary modifier is
+    // pressed on its own. The store handles the 200ms delay; quick chords
+    // like Cmd/Ctrl+K or Cmd/Ctrl+1 release before the delay elapses and
+    // never reveal the overlay.
+    if ((isMacPlatform() && e.key === "Meta") || (!isMacPlatform() && e.key === "Control")) {
       armSessionHints();
     }
 
@@ -218,14 +221,14 @@
     }
 
     // Command palette toggle
-    if (e.metaKey && e.key === "k") {
+    if (hasPrimaryModifier(e) && e.key === "k") {
       e.preventDefault();
       toggleCommandSurface("palette");
       return;
     }
 
     // Leader mode
-    if (e.metaKey && e.key === ";") {
+    if (hasPrimaryModifier(e) && e.key === ";") {
       e.preventDefault();
       toggleCommandSurface("leader");
       return;
@@ -294,14 +297,14 @@
       return;
     }
 
-    // Cmd+1..9 / Cmd+0: switch to the Nth session in sidebar visual order.
-    // Cmd+0 maps to slot 10. Slots past the available session count are
+    // Primary+1..9 / Primary+0: switch to the Nth session in sidebar visual
+    // order. 0 maps to slot 10. Slots past the available session count are
     // no-ops but still consume the key so nothing else reacts.
     if (
-      e.metaKey &&
+      hasPrimaryModifier(e) &&
       !e.shiftKey &&
       !e.altKey &&
-      !e.ctrlKey &&
+      !(isMacPlatform() ? e.ctrlKey : e.metaKey) &&
       /^[0-9]$/.test(e.key)
     ) {
       const slot = e.key === "0" ? 10 : parseInt(e.key, 10);
@@ -359,7 +362,9 @@
   }
 
   function handleKeyUp(e: KeyboardEvent) {
-    if (e.key === "Meta") hideSessionHints();
+    if ((isMacPlatform() && e.key === "Meta") || (!isMacPlatform() && e.key === "Control")) {
+      hideSessionHints();
+    }
     if (e.key === "Alt") hidePaneHints();
   }
 

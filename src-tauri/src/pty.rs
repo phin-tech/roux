@@ -12,6 +12,8 @@ use tauri::{
 };
 use thiserror::Error;
 
+use crate::platform;
+
 enum PtyChunk {
     Data(Vec<u8>),
     Eof,
@@ -220,6 +222,11 @@ impl portable_pty::Child for WaitedChild {
         Err(std::io::Error::new(std::io::ErrorKind::Other, "child already waited"))
     }
     fn process_id(&self) -> Option<u32> {
+        None
+    }
+
+    #[cfg(windows)]
+    fn as_raw_handle(&self) -> Option<*mut std::ffi::c_void> {
         None
     }
 }
@@ -441,7 +448,7 @@ impl PtyManager {
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
             .map_err(|source| PtyError::OpenPty { source })?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let shell = resolve_default_shell();
         let user_path = get_user_path();
         let nono_label = nono.map(|n| format!(" (nono profile={})", n.profile)).unwrap_or_default();
         let pane_label = pane_id.map(|p| format!(", pane '{}'", p)).unwrap_or_default();
@@ -467,6 +474,7 @@ impl PtyManager {
         } else {
             CommandBuilder::new(&shell)
         };
+        apply_shell_command_flags(&mut cmd, &shell);
         apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
         cmd.cwd(working_dir);
 
@@ -521,11 +529,11 @@ impl PtyManager {
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
             .map_err(|source| PtyError::OpenPty { source })?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let shell = resolve_default_shell();
         let user_path = get_user_path();
 
         let mut cmd = CommandBuilder::new(&shell);
-        cmd.args(["-c", command]);
+        apply_task_command_args(&mut cmd, &shell, command);
         apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
         cmd.cwd(working_dir);
 
@@ -678,7 +686,8 @@ impl PtyManager {
 
 /// Get the socket path as a string for setting env vars.
 fn socket_path_str() -> String {
-    crate::paths::roux_config_dir().join("roux.sock").to_string_lossy().to_string()
+    platform::resolve_socket_endpoint()
+        .unwrap_or_else(|| platform::socket_path().to_string_lossy().to_string())
 }
 
 /// Eager trigger for the roux-cli shim. Called from `main.rs` setup so the
@@ -702,7 +711,7 @@ fn roux_cli_shim() -> Option<(String, String)> {
             // 1. Find the bundled roux-cli next to the currently running exe.
             let source = std::env::current_exe()
                 .ok()
-                .and_then(|p| p.parent().map(|d| d.join("roux-cli")))?;
+                .and_then(|p| p.parent().map(|d| d.join(platform::roux_cli_file_name())))?;
             if !source.exists() {
                 rlog!("roux_cli_shim: bundled roux-cli not found at {}", source.display());
                 return None;
@@ -738,6 +747,31 @@ fn roux_cli_shim() -> Option<(String, String)> {
                 }
             }
 
+            #[cfg(windows)]
+            {
+                for alias in ["roux-cli.exe", "roux.exe"] {
+                    let target = bin_dir.join(alias);
+                    let should_copy = if target.exists() {
+                        let src_modified = std::fs::metadata(&source).and_then(|m| m.modified()).ok();
+                        let dst_modified = std::fs::metadata(&target).and_then(|m| m.modified()).ok();
+                        match (src_modified, dst_modified) {
+                            (Some(src), Some(dst)) => src > dst,
+                            _ => true,
+                        }
+                    } else {
+                        true
+                    };
+                    if should_copy && std::fs::copy(&source, &target).is_err() {
+                        rlog!(
+                            "roux_cli_shim: failed to copy {} -> {}",
+                            source.display(),
+                            target.display()
+                        );
+                        return None;
+                    }
+                }
+            }
+
             let bin_dir_str = bin_dir.to_string_lossy().to_string();
             let source_str = source.to_string_lossy().to_string();
             rlog!("roux_cli_shim: installed {} (source: {})", bin_dir_str, source_str);
@@ -751,12 +785,21 @@ fn roux_cli_shim() -> Option<(String, String)> {
 /// running inside any Roux pane can invoke `roux notify`, `roux-cli focus`,
 /// etc. without a separate install step.
 fn build_pty_path(user_path: &str) -> String {
-    match roux_cli_shim() {
-        Some((bin_dir, _)) if !user_path.split(':').any(|p| p == bin_dir) => {
-            format!("{}:{}", bin_dir, user_path)
-        }
-        _ => user_path.to_string(),
+    let Some((bin_dir, _)) = roux_cli_shim() else {
+        return user_path.to_string();
+    };
+
+    let mut paths: Vec<_> = std::env::split_paths(user_path).collect();
+    let bin_dir_path = std::path::PathBuf::from(&bin_dir);
+    if paths.iter().any(|path| path == &bin_dir_path) {
+        return user_path.to_string();
     }
+
+    paths.insert(0, bin_dir_path);
+    std::env::join_paths(paths)
+        .ok()
+        .and_then(|value| value.into_string().ok())
+        .unwrap_or_else(|| user_path.to_string())
 }
 
 /// Apply the common Roux env vars to a `CommandBuilder`: PATH with shim dir
@@ -793,6 +836,16 @@ fn apply_roux_env(
 /// Get the user's login shell PATH by invoking their actual shell (from $SHELL)
 /// instead of hardcoding /bin/bash. This ensures paths added in .zshrc etc. are found.
 pub fn get_user_path() -> String {
+    get_user_path_impl()
+}
+
+#[cfg(windows)]
+fn get_user_path_impl() -> String {
+    std::env::var("PATH").unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+fn get_user_path_impl() -> String {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     // Fish outputs $PATH as a space-separated list; other shells use colons.
     // Use fish's `string join` to get colon-separated output.
@@ -818,6 +871,64 @@ pub fn get_user_path() -> String {
         .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
     rlog!("  resolved PATH: {}", path);
     path
+}
+
+fn resolve_default_shell() -> String {
+    #[cfg(windows)]
+    {
+        if platform::find_executable_on_path("pwsh").is_some()
+            || platform::find_executable_on_path("pwsh.exe").is_some()
+        {
+            return "pwsh".to_string();
+        }
+        if platform::find_executable_on_path("powershell.exe").is_some() {
+            return "powershell.exe".to_string();
+        }
+        return std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+    }
+
+    #[cfg(not(windows))]
+    {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    }
+}
+
+fn apply_shell_command_flags(cmd: &mut CommandBuilder, shell: &str) {
+    #[cfg(windows)]
+    {
+        let shell_lower = shell.to_ascii_lowercase();
+        if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
+            cmd.arg("-NoLogo");
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (cmd, shell);
+    }
+}
+
+fn apply_task_command_args(cmd: &mut CommandBuilder, shell: &str, command: &str) {
+    #[cfg(windows)]
+    {
+        let shell_lower = shell.to_ascii_lowercase();
+        if shell_lower.contains("pwsh") {
+            cmd.args(["-NoLogo", "-NoProfile", "-Command", command]);
+            return;
+        }
+        if shell_lower.contains("powershell") {
+            cmd.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]);
+            return;
+        }
+        cmd.args(["/C", command]);
+        return;
+    }
+
+    #[cfg(not(windows))]
+    {
+        cmd.args(["-c", command]);
+        let _ = shell;
+    }
 }
 
 #[cfg(test)]

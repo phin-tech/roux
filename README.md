@@ -12,7 +12,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Split panes** -- Horizontal and vertical splits with same-direction flattening
 - **Stacked panes** -- Zellij-style tab stacking where collapsed title bars show inactive panes
 - **Shell terminals** -- Open shell panes alongside Claude for running commands
-- **Command palette** -- Quick access to all actions via `cmd+k`
+- **Command palette** -- Quick access to all actions via the primary shortcut (`cmd+k` on macOS, `ctrl+k` on Windows/Linux)
 - **Layout persistence** -- Pane layouts survive app restarts; shell panes respawn automatically
 - **Themes** -- Multiple built-in color schemes
 - **Projects** -- Tag sessions with projects to organize related work across repos and worktrees
@@ -20,7 +20,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Command panes** -- Run shell commands in dedicated panes with rerun support
 - **Task runner** -- Run predefined commands from configuration files
 - **Document viewer** -- Open markdown files in dedicated panes
-- **CLI** -- `roux-cli` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal via Unix socket
+- **CLI** -- `roux-cli` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal via the local Roux command channel
 
 ## Keybindings
 
@@ -55,10 +55,21 @@ task dev
 ### Tests
 
 ```bash
-npm run test          # run once
-npm run test:watch    # watch mode
+task test             # full frontend + Rust gate
+npm run test          # frontend tests only
+npm run test:watch    # frontend watch mode
 npm run check         # svelte type check
 ```
+
+### Windows
+
+Native Windows x64 builds are supported with a per-user NSIS installer:
+
+```powershell
+task windows:build
+```
+
+See [docs/windows-build.md](docs/windows-build.md) for prerequisites and runtime notes.
 
 ## Release
 

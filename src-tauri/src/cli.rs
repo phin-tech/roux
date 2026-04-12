@@ -4,7 +4,9 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use thiserror::Error;
+
+mod platform;
+mod paths;
 
 #[derive(Parser)]
 #[command(name = "roux-cli", about = "Roux terminal manager CLI")]
@@ -177,96 +179,103 @@ enum PaneAction {
 }
 
 fn status_dir() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".config").join("roux").join("status")
+    platform::status_dir()
 }
 
-fn socket_path() -> PathBuf {
-    if let Ok(path) = std::env::var("ROUX_SOCKET") {
-        return PathBuf::from(path);
-    }
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".config").join("roux").join("roux.sock")
-}
+fn send_socket_command(request: Value) -> Result<Value, String> {
+    #[cfg(windows)]
+    {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        use std::time::Duration;
 
-#[derive(Debug, Error)]
-enum CliError {
-    #[error("Roux is not running")]
-    RouxNotRunning,
-    #[error("Failed to connect to Roux: {source}")]
-    Connect {
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Failed to set timeout: {source}")]
-    SetTimeout {
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Failed to serialize command: {source}")]
-    SerializeCommand {
-        #[source]
-        source: serde_json::Error,
-    },
-    #[error("Failed to send command: {source}")]
-    SendCommand {
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Failed to shutdown write: {source}")]
-    ShutdownWrite {
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Failed to read response: {source}")]
-    ReadResponse {
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Invalid response: {source}")]
-    InvalidResponse {
-        #[source]
-        source: serde_json::Error,
-    },
-}
-
-fn send_socket_command(request: Value) -> Result<Value, CliError> {
-    use std::io::Write;
-    use std::os::unix::net::UnixStream;
-    use std::time::Duration;
-
-    let path = socket_path();
-    let stream = UnixStream::connect(&path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound
-            || e.kind() == std::io::ErrorKind::ConnectionRefused
-        {
-            CliError::RouxNotRunning
-        } else {
-            CliError::Connect { source: e }
+        let mut request = request;
+        let auth_token = platform::load_socket_auth_token()
+            .ok_or_else(|| "Roux command channel token not found".to_string())?;
+        if let Some(request_obj) = request.as_object_mut() {
+            request_obj.insert("auth_token".to_string(), Value::String(auth_token));
         }
-    })?;
 
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .map_err(|source| CliError::SetTimeout { source })?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
-        .map_err(|source| CliError::SetTimeout { source })?;
+        let endpoint =
+            platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
+        let mut stream = TcpStream::connect(&endpoint).map_err(|e| {
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::NotFound
+                    | std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::AddrNotAvailable
+            ) {
+                "Roux is not running".to_string()
+            } else {
+                format!("Failed to connect to Roux: {}", e)
+            }
+        })?;
 
-    let json =
-        serde_json::to_string(&request).map_err(|source| CliError::SerializeCommand { source })?;
-    let mut stream_ref = &stream;
-    stream_ref.write_all(json.as_bytes()).map_err(|source| CliError::SendCommand { source })?;
-    stream_ref.write_all(b"\n").map_err(|source| CliError::SendCommand { source })?;
-    stream
-        .shutdown(std::net::Shutdown::Write)
-        .map_err(|source| CliError::ShutdownWrite { source })?;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .map_err(|e| format!("Failed to set timeout: {}", e))?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .map_err(|e| format!("Failed to set timeout: {}", e))?;
 
-    let mut response = String::new();
-    let mut reader = std::io::BufReader::new(&stream);
-    reader.read_to_string(&mut response).map_err(|source| CliError::ReadResponse { source })?;
+        let json = serde_json::to_string(&request).unwrap();
+        stream.write_all(json.as_bytes()).map_err(|e| format!("Failed to send command: {}", e))?;
+        stream.write_all(b"\n").map_err(|e| format!("Failed to send command: {}", e))?;
+        stream
+            .shutdown(std::net::Shutdown::Write)
+            .map_err(|e| format!("Failed to shutdown write: {}", e))?;
 
-    serde_json::from_str(&response).map_err(|source| CliError::InvalidResponse { source })
+        let mut response = String::new();
+        let mut reader = std::io::BufReader::new(stream);
+        reader
+            .read_to_string(&mut response)
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        return serde_json::from_str(&response).map_err(|e| format!("Invalid response: {}", e));
+    }
+
+    #[cfg(not(windows))]
+    {
+        use std::io::Write;
+        use std::os::unix::net::UnixStream;
+        use std::time::Duration;
+
+        let path = platform::socket_path();
+        let stream = UnixStream::connect(&path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound
+                || e.kind() == std::io::ErrorKind::ConnectionRefused
+            {
+                "Roux is not running".to_string()
+            } else {
+                format!("Failed to connect to Roux: {}", e)
+            }
+        })?;
+
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .map_err(|e| format!("Failed to set timeout: {}", e))?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .map_err(|e| format!("Failed to set timeout: {}", e))?;
+
+        let json = serde_json::to_string(&request).unwrap();
+        let mut stream_ref = &stream;
+        stream_ref
+            .write_all(json.as_bytes())
+            .map_err(|e| format!("Failed to send command: {}", e))?;
+        stream_ref.write_all(b"\n").map_err(|e| format!("Failed to send command: {}", e))?;
+        stream
+            .shutdown(std::net::Shutdown::Write)
+            .map_err(|e| format!("Failed to shutdown write: {}", e))?;
+
+        let mut response = String::new();
+        let mut reader = std::io::BufReader::new(&stream);
+        reader
+            .read_to_string(&mut response)
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        serde_json::from_str(&response).map_err(|e| format!("Invalid response: {}", e))
+    }
 }
 
 fn resolve_path(path: &str) -> String {

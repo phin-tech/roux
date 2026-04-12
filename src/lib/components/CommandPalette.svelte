@@ -2,6 +2,7 @@
   import { fade, scale } from "svelte/transition";
   import { Command } from "bits-ui";
   import { registry, type Command as Cmd, type CommandItem as CmdItem } from "$lib/commands/registry";
+  import { formatShortcut } from "$lib/platform";
 
   interface Props {
     open: boolean;
@@ -49,21 +50,6 @@
       });
     }
   });
-
-  function formatShortcut(shortcut: string): string {
-    return shortcut
-      .split("+")
-      .map((part) => {
-        switch (part) {
-          case "cmd": return "\u2318";
-          case "shift": return "\u21e7";
-          case "alt": return "\u2325";
-          case "ctrl": return "\u2303";
-          default: return part.toUpperCase();
-        }
-      })
-      .join("");
-  }
 
   async function handleCommandSelect(cmd: Cmd) {
     if (cmd.getItems) {

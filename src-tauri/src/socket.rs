@@ -3,8 +3,12 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(windows)]
+use tokio::net::TcpListener;
+#[cfg(not(windows))]
 use tokio::net::UnixListener;
 
+use crate::platform;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -12,6 +16,7 @@ struct Request {
     command: String,
     session_id: Option<String>,
     pane_id: Option<String>,
+    auth_token: Option<String>,
     #[serde(default)]
     args: serde_json::Value,
 }
@@ -40,7 +45,7 @@ impl Response {
 }
 
 pub fn socket_path() -> PathBuf {
-    crate::paths::roux_config_dir().join("roux.sock")
+    platform::socket_path()
 }
 
 pub fn start_socket_server(app: tauri::AppHandle) {
@@ -52,15 +57,52 @@ pub fn start_socket_server(app: tauri::AppHandle) {
             let _ = fs::create_dir_all(parent);
         }
 
-        // Remove stale socket file
-        let _ = fs::remove_file(&path);
+        #[cfg(not(windows))]
+        let listener = {
+            let _ = fs::remove_file(&path);
 
-        let listener = match UnixListener::bind(&path) {
-            Ok(l) => l,
-            Err(e) => {
-                rlog!("Failed to bind socket at {:?}: {}", path, e);
+            match UnixListener::bind(&path) {
+                Ok(l) => l,
+                Err(e) => {
+                    rlog!("Failed to bind socket at {:?}: {}", path, e);
+                    return;
+                }
+            }
+        };
+
+        #[cfg(windows)]
+        let listener = {
+            let listener = match TcpListener::bind("127.0.0.1:0").await {
+                Ok(l) => l,
+                Err(e) => {
+                    rlog!("Failed to bind socket server on localhost: {}", e);
+                    return;
+                }
+            };
+
+            let addr = match listener.local_addr() {
+                Ok(addr) => addr.to_string(),
+                Err(e) => {
+                    rlog!("Failed to resolve socket listener address: {}", e);
+                    return;
+                }
+            };
+
+            if let Some(parent) = platform::socket_addr_file_path().parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if let Err(e) = fs::write(platform::socket_addr_file_path(), &addr) {
+                rlog!("Failed to write socket address file: {}", e);
                 return;
             }
+            let auth_token = uuid::Uuid::new_v4().to_string();
+            if let Err(e) = fs::write(platform::socket_auth_token_file_path(), &auth_token) {
+                rlog!("Failed to write socket auth token file: {}", e);
+                return;
+            }
+
+            rlog!("Socket server listening on {}", addr);
+            listener
         };
 
         // Set permissions to owner-only (0600)
@@ -70,6 +112,7 @@ pub fn start_socket_server(app: tauri::AppHandle) {
             let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
         }
 
+        #[cfg(not(windows))]
         rlog!("Socket server listening on {:?}", path);
 
         loop {
@@ -111,6 +154,17 @@ pub fn start_socket_server(app: tauri::AppHandle) {
 }
 
 async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
+    #[cfg(windows)]
+    {
+        let Some(expected_token) = platform::load_socket_auth_token() else {
+            return Response::err("Socket auth token unavailable");
+        };
+
+        if req.auth_token.as_deref() != Some(expected_token.as_str()) {
+            return Response::err("unauthorized");
+        }
+    }
+
     match req.command.as_str() {
         "split" => handle_split(req, app),
         "session-create" => handle_session_create(req, app).await,
@@ -836,6 +890,11 @@ fn crypto_random_uuid() -> String {
 pub fn cleanup_socket() {
     let path = socket_path();
     let _ = fs::remove_file(path);
+    #[cfg(windows)]
+    {
+        let _ = fs::remove_file(platform::socket_addr_file_path());
+        let _ = fs::remove_file(platform::socket_auth_token_file_path());
+    }
 }
 
 #[cfg(test)]
@@ -845,12 +904,7 @@ mod tests {
     #[test]
     fn socket_path_is_under_config() {
         let path = socket_path();
-        let path_str = path.to_string_lossy();
-        assert!(
-            path_str.contains(".config/roux/roux.sock"),
-            "Expected .config/roux/roux.sock, got {}",
-            path_str
-        );
+        assert_eq!(path, platform::socket_path());
     }
 
     #[test]
@@ -887,6 +941,7 @@ mod tests {
         assert_eq!(req.command, "split");
         assert!(req.session_id.is_none());
         assert!(req.pane_id.is_none());
+        assert!(req.auth_token.is_none());
     }
 
     #[test]
@@ -901,6 +956,7 @@ mod tests {
         assert_eq!(req.command, "split");
         assert_eq!(req.session_id.as_deref(), Some("abc123"));
         assert_eq!(req.pane_id.as_deref(), Some("pane-1"));
+        assert!(req.auth_token.is_none());
         assert_eq!(req.args["direction"], "horizontal");
     }
 
@@ -1330,6 +1386,7 @@ mod tests {
         assert!(map.lock().unwrap().is_empty());
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn socket_roundtrip() {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

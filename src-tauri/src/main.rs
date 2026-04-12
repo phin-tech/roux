@@ -3,6 +3,7 @@
 mod hooks;
 #[macro_use]
 mod logging;
+mod platform;
 mod commands;
 mod layouts;
 mod notifications;
@@ -25,6 +26,7 @@ mod worktree;
 
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
+#[cfg(debug_assertions)]
 use tauri_specta::{Builder, collect_commands};
 
 use crate::pty::PtyManager;
@@ -55,6 +57,7 @@ fn main() {
     let persisted_projects = project_service::load_persisted();
     let (project_handle, _project_join) = project_service::spawn(persisted_projects);
 
+    #[cfg(debug_assertions)]
     let builder = Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             commands::misc::get_log_path,

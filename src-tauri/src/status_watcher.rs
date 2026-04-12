@@ -65,7 +65,6 @@ fn status_dir() -> Result<PathBuf, StatusWatcherError> {
     fs::create_dir_all(&dir).map_err(|source| StatusWatcherError::CreateStatusDir { source })?;
     Ok(dir)
 }
-
 fn map_status(raw: &str) -> &str {
     match raw {
         "working" => "generating",
