@@ -143,6 +143,7 @@ fn main() {
             project_handle,
             watch_manager: watches::WatchManager::new(watch_store_handle),
             notification_manager: notifications::NotificationManager::new(),
+            pending_replies: Mutex::new(std::collections::HashMap::new()),
         })
         .invoke_handler(tauri::generate_handler![
             commands::misc::get_log_path,
@@ -211,6 +212,7 @@ fn main() {
             commands::pane_state::load_pane_state,
             commands::pane_state::save_pane_state,
             commands::pane_state::delete_pane_state,
+            commands::sessions::submit_roux_reply,
         ])
         .setup(|app| {
             // Install the roux-cli shim dir (~/.config/roux/bin) with

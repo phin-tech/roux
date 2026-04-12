@@ -372,6 +372,20 @@ export interface RouxCommand {
   direction?: string;
   command?: string;
   workingDir?: string;
+  profileId?: string;
+  requestId?: string;
+}
+
+/**
+ * Reply to a socket-initiated request/response round-trip. The `requestId`
+ * comes from the matching `roux-command` event; `data` is the JSON payload
+ * the waiting CLI caller will receive.
+ */
+export async function submitRouxReply(
+  requestId: string,
+  data: unknown,
+): Promise<void> {
+  return invoke("submit_roux_reply", { requestId, data });
 }
 
 export function onRouxCommand(

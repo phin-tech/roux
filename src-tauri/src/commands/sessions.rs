@@ -8,6 +8,30 @@ pub(crate) fn write_to_session(id: String, data: String, state: tauri::State<App
     state.pty_manager.write(&id, data.as_bytes()).map_err(|e| e.to_string())
 }
 
+/// Frontend reply for a socket-initiated round-trip (e.g. panes list / create).
+/// `request_id` was sent in the matching `roux-command` event; the frontend
+/// answers by calling this command with the serialized data.
+// No #[specta::specta] — serde_json::Value produces invalid TypeScript.
+#[tauri::command]
+pub(crate) fn submit_roux_reply(
+    request_id: String,
+    data: serde_json::Value,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let sender = {
+        let mut map = state.pending_replies.lock().map_err(|e| e.to_string())?;
+        map.remove(&request_id)
+    };
+    match sender {
+        Some(tx) => tx.send(data).map_err(|_| {
+            // Receiver dropped — the socket handler already timed out and
+            // cleaned its end. The frontend reply arrived too late to matter.
+            format!("reply for request_id {} arrived after timeout", request_id)
+        }),
+        None => Err(format!("no pending reply for request_id {}", request_id)),
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn resize_session(id: String, cols: u16, rows: u16, state: tauri::State<AppState>) -> Result<(), String> {

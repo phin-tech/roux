@@ -34,6 +34,12 @@ pub struct RouxCommand {
     pub command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+    /// Profile id for pane/session creation (e.g. "claude", "shell", user profile id)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    /// Correlation id for request/response round-trips with the frontend
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 impl RouxCommand {
@@ -46,7 +52,19 @@ impl RouxCommand {
             direction: None,
             command: None,
             working_dir: None,
+            profile_id: None,
+            request_id: None,
         }
+    }
+
+    pub fn profile_id(mut self, id: impl Into<String>) -> Self {
+        self.profile_id = Some(id.into());
+        self
+    }
+
+    pub fn request_id(mut self, id: impl Into<String>) -> Self {
+        self.request_id = Some(id.into());
+        self
     }
 
     pub fn session_id(mut self, id: impl Into<String>) -> Self {
