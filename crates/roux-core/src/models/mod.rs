@@ -21,7 +21,7 @@ pub use notification::{
 pub use profile::{ProfileSource, Provider, SpawnProfile, StartupBehavior};
 pub use session::{Session, SessionStatus};
 pub use project::Project;
-pub use settings::{RouxSettings, CursorStyle, TabPosition, GroupBy};
+pub use settings::{RouxSettings, CursorStyle, TabPosition, GroupBy, StatusBarPosition};
 pub use worktree::Worktree;
 pub use watch::*;
 pub use task::{TaskDefinition, TaskGroup, KeepOpen};

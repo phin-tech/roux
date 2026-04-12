@@ -1,5 +1,11 @@
 <script lang="ts">
   import { activeSession } from "$lib/stores/sessions";
+  import type { StatusBarPosition } from "$lib/types";
+
+  interface Props {
+    position?: StatusBarPosition;
+  }
+  let { position = "bottom" }: Props = $props();
 
   const statusDotClass: Record<string, string> = {
     idle: "bg-green",
@@ -11,7 +17,12 @@
   };
 </script>
 
-<div class="flex h-6 items-center gap-3 border-t border-border-subtle bg-bg-base px-3 text-[11px] text-text-muted">
+<div
+  class="flex h-6 items-center gap-3 bg-bg-base px-3 text-[11px] text-text-muted"
+  class:border-t={position === "bottom"}
+  class:border-b={position === "top"}
+  class:border-border-subtle={true}
+>
   {#if $activeSession}
     <div class="flex items-center gap-1.5">
       <div class="w-1.5 h-1.5 rounded-full {statusDotClass[$activeSession.status] ?? 'bg-gray'}"></div>

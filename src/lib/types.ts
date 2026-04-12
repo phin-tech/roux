@@ -9,6 +9,7 @@ export type {
   Project,
   CursorStyle,
   TabPosition,
+  StatusBarPosition,
   GroupBy,
   Worktree,
   ClaudeSession,
@@ -89,6 +90,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   updateCheckOnLaunch: true,
   spawnProfiles: [],
   trustedWorkspaces: [],
+  statusBarPosition: "bottom",
 };
 
 // Re-export frontend-only task types
