@@ -11,10 +11,11 @@
     onNewSession: () => void;
     onOpenSettings: () => void;
     onToggleWatches: () => void;
+    onToggleNotifications: () => void;
     settingsPanel?: Snippet;
   }
 
-  let { onNewSession, onOpenSettings, onToggleWatches, settingsPanel }: Props = $props();
+  let { onNewSession, onOpenSettings, onToggleWatches, onToggleNotifications, settingsPanel }: Props = $props();
 
   let dragging = $state(false);
   let sidebarWidth = $derived($settings.tabWidth);
@@ -46,7 +47,7 @@
   >
     {#if !$settings.sidebarCollapsed}
       <div style="width: {sidebarWidth}px" class="shrink-0">
-        <SessionTabs {onNewSession} {onOpenSettings} {onToggleWatches} />
+        <SessionTabs {onNewSession} {onOpenSettings} {onToggleWatches} {onToggleNotifications} />
       </div>
 
       <!-- svelte-ignore a11y_no_static_element_interactions -->

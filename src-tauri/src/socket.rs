@@ -848,7 +848,7 @@ async fn handle_notify(req: Request, app: &tauri::AppHandle) -> Response {
     });
 
     let notification = state.notification_manager.push(
-        NReq { level, source: NotificationSource::Cli, title, subtitle, body, session_id, actions },
+        NReq { level, source: NotificationSource::Cli, title, subtitle, body, session_id, actions, dedup_key: None },
         Some(app),
     );
 

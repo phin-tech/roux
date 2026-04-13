@@ -42,6 +42,7 @@ impl NotificationStore {
             session_id: req.session_id,
             read: false,
             actions: req.actions,
+            dedup_key: req.dedup_key,
         };
 
         self.entries.push_back(notification.clone());
@@ -49,6 +50,36 @@ impl NotificationStore {
             self.entries.pop_front();
         }
         notification
+    }
+
+    /// Update an existing unread notification with the given dedup key in-place.
+    /// Returns the updated notification, or `None` if no matching unread entry exists.
+    /// The caller is responsible for emitting the `Updated` event.
+    pub fn update_by_dedup_key(
+        &mut self,
+        key: &str,
+        req: &NotificationRequest,
+    ) -> Option<Notification> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let entry = self
+            .entries
+            .iter_mut()
+            .rev()
+            .find(|n| !n.read && n.dedup_key.as_deref() == Some(key))?;
+
+        entry.level = req.level;
+        entry.source = req.source.clone();
+        entry.title = req.title.clone();
+        entry.subtitle = req.subtitle.clone();
+        entry.body = req.body.clone();
+        entry.session_id = req.session_id.clone();
+        entry.actions = req.actions.clone();
+        entry.created_at = now_ms;
+        Some(entry.clone())
     }
 
     /// Return a snapshot of all notifications, newest first.
@@ -119,11 +150,19 @@ impl NotificationStore {
     /// Remove all notifications with a source that matches the given source variant.
     /// Variant equality only — e.g. removing with `Source::Watch { watch_id: "abc" }`
     /// removes all `Source::Watch` entries, regardless of which watch_id they carry.
-    /// This matches the "dismiss all from source X" UX.
-    pub fn remove_by_source_variant(&mut self, source: &NotificationSource) -> usize {
-        let before = self.entries.len();
-        self.entries.retain(|n| !same_source_variant(&n.source, source));
-        before - self.entries.len()
+    /// This matches the "dismiss all from source X" UX. Returns the ids of the
+    /// removed notifications so the caller can emit per-id `Removed` events.
+    pub fn remove_by_source_variant(&mut self, source: &NotificationSource) -> Vec<String> {
+        let mut removed = Vec::new();
+        self.entries.retain(|n| {
+            if same_source_variant(&n.source, source) {
+                removed.push(n.id.clone());
+                false
+            } else {
+                true
+            }
+        });
+        removed
     }
 
     pub fn clear(&mut self, session_filter: Option<Option<&str>>) -> usize {
@@ -143,8 +182,9 @@ impl NotificationStore {
         self.entries.len()
     }
 
-    /// Get a notification by id. Used by tests today; reserved for Phase 2
-    /// frontend command routing (e.g. focusing by notification id).
+    /// Get a notification by id. Currently used only by tests — kept because
+    /// any future per-id command routing (e.g. focus-by-notification) would
+    /// want a direct lookup rather than scanning `list()`.
     #[allow(dead_code)]
     pub fn get(&self, id: &str) -> Option<Notification> {
         self.entries.iter().find(|n| n.id == id).cloned()
@@ -187,6 +227,7 @@ pub(crate) fn test_request(
         body: None,
         session_id: session_id.map(String::from),
         actions: Vec::new(),
+        dedup_key: None,
     }
 }
 
@@ -228,6 +269,44 @@ mod tests {
         let list = store.list();
         assert_eq!(list[0].title, "second");
         assert_eq!(list[1].title, "first");
+    }
+
+    fn req_with_key(title: &str, key: &str) -> NotificationRequest {
+        let mut r = test_request(L::Info, S::Cli, title, None);
+        r.dedup_key = Some(key.to_string());
+        r
+    }
+
+    #[test]
+    fn update_by_dedup_key_refreshes_existing_unread() {
+        let mut store = NotificationStore::new();
+        let first = store.push(req_with_key("first", "abc"));
+        let next_req = req_with_key("second", "abc");
+        let updated = store.update_by_dedup_key("abc", &next_req).expect("match");
+        assert_eq!(store.len(), 1, "should update in place, not append");
+        assert_eq!(updated.id, first.id, "id preserved");
+        assert_eq!(updated.title, "second", "title refreshed");
+        assert!(updated.created_at >= first.created_at);
+    }
+
+    #[test]
+    fn update_by_dedup_key_does_not_match_read_entries() {
+        let mut store = NotificationStore::new();
+        let first = store.push(req_with_key("first", "abc"));
+        store.mark_read(&first.id);
+        let next_req = req_with_key("second", "abc");
+        assert!(store.update_by_dedup_key("abc", &next_req).is_none());
+        // Caller falls back to push; simulate that here to lock behavior.
+        store.push(next_req);
+        assert_eq!(store.len(), 2);
+    }
+
+    #[test]
+    fn update_by_dedup_key_returns_none_without_match() {
+        let mut store = NotificationStore::new();
+        store.push(req_with_key("first", "abc"));
+        assert!(store.update_by_dedup_key("different", &req_with_key("x", "abc")).is_none());
+        assert_eq!(store.len(), 1);
     }
 
     #[test]
@@ -278,7 +357,7 @@ mod tests {
         store.push(test_request(L::Info, S::Watch { watch_id: "w2".into() }, "watch-2", None));
 
         let removed = store.remove_by_source_variant(&S::Watch { watch_id: "irrelevant".into() });
-        assert_eq!(removed, 2);
+        assert_eq!(removed.len(), 2);
         assert_eq!(store.len(), 2);
         let remaining: Vec<_> = store.list().iter().map(|n| n.title.clone()).collect();
         assert_eq!(remaining, vec!["cli-2", "cli-1"]);

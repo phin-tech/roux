@@ -111,6 +111,7 @@
             primary: true,
           },
         ],
+        dedupKey: null,
       }).catch((pushErr) =>
         logError("re-run profile: notificationsPush failed", pushErr),
       );

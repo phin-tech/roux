@@ -111,6 +111,7 @@ async function fireCompletionNotification(
           primary: false,
         },
       ],
+      dedupKey: `completion:pane:${paneId}`,
     });
     log(`agentNotifications: fired generating→idle notification for pane ${paneId}`);
   } catch (e) {

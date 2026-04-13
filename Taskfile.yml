@@ -29,8 +29,26 @@ tasks:
           echo "No installed app found at $APP"
         fi
 
+  cli:ensure-placeholder:
+    desc: "Ensure a placeholder binary exists so Tauri build.rs doesn't fail on fresh checkouts"
+    cmds:
+      - cmd: |
+          TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
+          mkdir -p src-tauri/binaries
+          if [ ! -f "src-tauri/binaries/roux-cli-${TARGET}" ]; then
+            touch "src-tauri/binaries/roux-cli-${TARGET}"
+            chmod +x "src-tauri/binaries/roux-cli-${TARGET}"
+            echo "Created placeholder for roux-cli-${TARGET}"
+          fi
+        platforms: [darwin, linux]
+      - cmd: |
+          if not exist src-tauri\binaries mkdir src-tauri\binaries
+          if not exist src-tauri\binaries\roux-cli.exe echo. > src-tauri\binaries\roux-cli.exe
+        platforms: [windows]
+
   cli:install:
     desc: "Build and prepare roux-cli for local development"
+    deps: [cli:ensure-placeholder]
     cmds:
       - cargo build --manifest-path src-tauri/Cargo.toml --bin roux-cli
       - cmd: |

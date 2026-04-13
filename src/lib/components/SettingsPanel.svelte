@@ -58,6 +58,7 @@
         body: "If you saw a macOS notification, permissions are set up correctly.",
         sessionId: null,
         actions: [],
+        dedupKey: null,
       });
       notifTestStatus = "sent";
     } catch (e) {

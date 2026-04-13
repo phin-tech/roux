@@ -24,6 +24,7 @@
   import { setSessionProject as tauriSetSessionProject } from "$lib/tauri";
   import { log, logError } from "$lib/logging";
   import { failureCount } from "$lib/stores/watches";
+  import { unreadTotal } from "$lib/stores/notifications";
   import type { Session } from "$lib/types";
   import { getGroupedSessions } from "$lib/sessions/order";
 
@@ -31,9 +32,10 @@
     onNewSession: () => void;
     onOpenSettings: () => void;
     onToggleWatches: () => void;
+    onToggleNotifications: () => void;
   }
 
-  let { onNewSession, onOpenSettings, onToggleWatches }: Props = $props();
+  let { onNewSession, onOpenSettings, onToggleWatches, onToggleNotifications }: Props = $props();
 
   let dragging = $state(false);
   let containerEl: HTMLDivElement | undefined = $state();
@@ -336,6 +338,22 @@
       {#if $failureCount > 0}
         <span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red px-1 text-[10px] font-bold text-white">
           {$failureCount}
+        </span>
+      {/if}
+    </button>
+    <button
+      class="flex items-center justify-center gap-1 bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      onclick={onToggleNotifications}
+      title="Toggle notifications (⌘I)"
+      aria-label="Toggle notifications"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+        <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+      </svg>
+      {#if $unreadTotal > 0}
+        <span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
+          {$unreadTotal}
         </span>
       {/if}
     </button>

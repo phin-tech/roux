@@ -228,6 +228,12 @@ export type Notification = {
 	sessionId: string | null,
 	read: boolean,
 	actions: NotificationAction[],
+	/**
+	 *  When set, a subsequent push with the same `dedup_key` updates this
+	 *  notification in place instead of creating a new one. Cleared when the
+	 *  user reads or dismisses the notification (tracked via `read`).
+	 */
+	dedupKey?: string | null,
 };
 
 export type NotificationAction = {
@@ -248,6 +254,13 @@ export type NotificationRequest = {
 	body: string | null,
 	sessionId: string | null,
 	actions: NotificationAction[],
+	/**
+	 *  Optional dedup key. When set, `NotificationManager::push` will update
+	 *  an existing unread notification carrying the same key instead of
+	 *  creating a new one. Useful for flood-prone sources like permission
+	 *  prompts that fire repeatedly for the same pane.
+	 */
+	dedupKey?: string | null,
 };
 
 export type NotificationSource = { type: "hook"; provider: string } | { type: "watch"; watchId: string } | { type: "task"; paneId: string } | { type: "cli" } | { type: "osc"; code: number; senderId: string | null } | { type: "internal" };

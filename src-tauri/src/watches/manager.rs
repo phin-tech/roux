@@ -301,6 +301,7 @@ impl WatchManager {
                                     body: Some(body),
                                     session_id,
                                     actions,
+                                    dedup_key: None,
                                 },
                                 Some(&app),
                             );
