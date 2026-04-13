@@ -4,7 +4,9 @@ tasks:
   dev:
     desc: "Run Tauri in development mode (also rebuilds roux-cli)"
     cmds:
+      - task: frontend:ensure
       - task: cli:install
+      - task: cli:stage-dev-binary
       - npm run tauri dev
 
   dev:up:
@@ -40,6 +42,40 @@ tasks:
           chmod +x ~/.local/bin/roux-cli
           echo "Installed roux-cli to ~/.local/bin/roux-cli"
         platforms: [darwin, linux]
+
+  frontend:ensure:
+    desc: "Install frontend dependencies when node_modules is missing"
+    cmds:
+      - cmd: |
+          if [ ! -d node_modules ]; then
+            npm install
+          fi
+        platforms: [darwin, linux]
+      - cmd: |
+          cmd /c "if not exist node_modules npm install"
+        platforms: [windows]
+
+  cli:stage-dev-binary:
+    desc: "Stage debug roux-cli for Tauri externalBin in dev"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
+          mkdir -p src-tauri/binaries
+          cp target/debug/roux-cli src-tauri/binaries/roux-cli
+          cp target/debug/roux-cli "src-tauri/binaries/roux-cli-${TARGET}"
+          chmod +x src-tauri/binaries/roux-cli "src-tauri/binaries/roux-cli-${TARGET}"
+          echo "Prepared dev roux-cli binaries for ${TARGET}"
+        platforms: [darwin, linux]
+      - cmd: |
+          for /f "tokens=2 delims=: " %%a in ('rustc -vV ^| findstr /b "host:"') do set HOST=%%a
+          if not defined HOST set HOST=%TAURI_TARGET%
+          if not defined HOST set HOST=x86_64-pc-windows-msvc
+          if not exist src-tauri\binaries mkdir src-tauri\binaries
+          copy /Y target\debug\roux-cli.exe src-tauri\binaries\roux-cli.exe >nul
+          copy /Y target\debug\roux-cli.exe src-tauri\binaries\roux-cli-%HOST%.exe >nul
+          echo Prepared dev roux-cli binaries for %HOST%
+        platforms: [windows]
 
   dev:install:
     desc: "Build and install the desktop app and CLI locally (unsigned, no updater artifacts)"

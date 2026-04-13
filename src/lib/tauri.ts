@@ -200,6 +200,13 @@ export async function checkIsGitRepo(path: string): Promise<boolean> {
   return invoke("check_is_git_repo", { path });
 }
 
+export async function listGitReposInRoots(
+  roots: string[],
+  excludeWorktrees: boolean,
+): Promise<string[]> {
+  return invoke("list_git_repos_in_roots", { roots, excludeWorktrees });
+}
+
 export async function gitInit(path: string): Promise<void> {
   return invoke("git_init", { path });
 }

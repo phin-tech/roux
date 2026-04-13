@@ -1,4 +1,6 @@
 use anyhow::anyhow;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
 use crate::pty::PtyManager;
 use crate::session::Session;
@@ -106,10 +108,7 @@ pub(crate) async fn create_session_shell(
     }
     rlog!("Shell session '{}' spawned", session_id);
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
     let session = Session {
         id: session_id,
@@ -149,10 +148,8 @@ pub(crate) async fn reconnect_session_shell(
     initial_size: Option<(u16, u16)>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
-    let session = session_handle
-        .get(id)
-        .await?
-        .ok_or_else(|| anyhow!("Session {} not found", id))?;
+    let session =
+        session_handle.get(id).await?.ok_or_else(|| anyhow!("Session {} not found", id))?;
 
     pty_manager.kill(id);
 
@@ -179,9 +176,7 @@ pub(crate) async fn reconnect_session_shell(
         )
         .map_err(|e| anyhow!("{}", e))?;
 
-    session_handle
-        .update_status(id, roux_core::SessionStatus::Idle)
-        .await?;
+    session_handle.update_status(id, roux_core::SessionStatus::Idle).await?;
 
     rlog!("Shell session '{}' reconnected successfully", id);
 
@@ -299,4 +294,145 @@ pub(crate) fn list_claude_sessions(cwd: &str) -> anyhow::Result<Vec<ClaudeSessio
 
     sessions.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
     Ok(sessions)
+}
+
+pub(crate) fn list_git_repos_in_roots(roots: &[String], exclude_worktrees: bool) -> Vec<String> {
+    let mut repos = BTreeSet::new();
+    for root in roots {
+        let trimmed = root.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let root_path = PathBuf::from(trimmed);
+        if !root_path.is_dir() {
+            continue;
+        }
+        collect_git_repos(&root_path, 3, exclude_worktrees, &mut repos);
+    }
+    repos.into_iter().collect()
+}
+
+fn collect_git_repos(
+    start: &Path,
+    max_depth: usize,
+    exclude_worktrees: bool,
+    out: &mut BTreeSet<String>,
+) {
+    let mut stack = vec![(start.to_path_buf(), 0usize)];
+    while let Some((path, depth)) = stack.pop() {
+        if is_git_dir(&path) {
+            if exclude_worktrees && is_git_worktree(&path) {
+                continue;
+            }
+            out.insert(path.to_string_lossy().to_string());
+            continue;
+        }
+        if depth >= max_depth {
+            continue;
+        }
+        let entries = match std::fs::read_dir(&path) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => continue,
+            };
+            let child = entry.path();
+            if !child.is_dir() {
+                continue;
+            }
+            if should_skip_dir(&child) {
+                continue;
+            }
+            stack.push((child, depth + 1));
+        }
+    }
+}
+
+fn is_git_dir(path: &Path) -> bool {
+    let dot_git = path.join(".git");
+    dot_git.is_dir() || dot_git.is_file()
+}
+
+fn is_git_worktree(path: &Path) -> bool {
+    let dot_git = path.join(".git");
+    if !dot_git.is_file() {
+        return false;
+    }
+    let content = match std::fs::read_to_string(dot_git) {
+        Ok(content) => content,
+        Err(_) => return false,
+    };
+    let Some(gitdir) = content.strip_prefix("gitdir:") else {
+        return false;
+    };
+    let normalized = gitdir.trim().replace('\\', "/");
+    normalized.contains("/worktrees/")
+}
+
+fn should_skip_dir(path: &Path) -> bool {
+    let name = match path.file_name().and_then(|n| n.to_str()) {
+        Some(name) => name,
+        None => return true,
+    };
+    matches!(name, ".git" | "node_modules" | "target" | "dist" | ".svelte-kit" | ".next")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::list_git_repos_in_roots;
+
+    #[test]
+    fn list_git_repos_in_roots_finds_nested_repos() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("src");
+        std::fs::create_dir_all(root.join("org1/repo-a/.git")).unwrap();
+        std::fs::create_dir_all(root.join("org2/repo-b/.git")).unwrap();
+
+        let repos = list_git_repos_in_roots(&[root.to_string_lossy().to_string()], false);
+
+        assert_eq!(repos.len(), 2);
+        assert!(repos.iter().any(|p| p.ends_with("org1/repo-a")));
+        assert!(repos.iter().any(|p| p.ends_with("org2/repo-b")));
+    }
+
+    #[test]
+    fn list_git_repos_in_roots_dedupes_and_ignores_invalid_roots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repos");
+        std::fs::create_dir_all(root.join("repo/.git")).unwrap();
+
+        let root_str = root.to_string_lossy().to_string();
+        let missing = tmp.path().join("missing").to_string_lossy().to_string();
+        let repos =
+            list_git_repos_in_roots(&["".to_string(), root_str.clone(), root_str, missing], false);
+
+        assert_eq!(repos.len(), 1);
+        assert!(repos[0].ends_with("repos/repo"));
+    }
+
+    #[test]
+    fn list_git_repos_in_roots_excludes_worktree_repos_when_enabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("src");
+
+        std::fs::create_dir_all(root.join("repo-main/.git")).unwrap();
+        std::fs::create_dir_all(root.join("repo-wt")).unwrap();
+        std::fs::write(
+            root.join("repo-wt/.git"),
+            "gitdir: /tmp/project/.git/worktrees/repo-wt\n",
+        )
+        .unwrap();
+
+        let roots = [root.to_string_lossy().to_string()];
+        let included = list_git_repos_in_roots(&roots, false);
+        let excluded = list_git_repos_in_roots(&roots, true);
+
+        assert!(included.iter().any(|p| p.ends_with("repo-main")));
+        assert!(included.iter().any(|p| p.ends_with("repo-wt")));
+        assert!(excluded.iter().any(|p| p.ends_with("repo-main")));
+        assert!(!excluded.iter().any(|p| p.ends_with("repo-wt")));
+    }
 }
