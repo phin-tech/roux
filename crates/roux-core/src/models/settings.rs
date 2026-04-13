@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use super::profile::{ProfileSource, SpawnProfile};
 
@@ -12,57 +13,37 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum CursorStyle {
+    #[default]
     Block,
     Underline,
     Bar,
 }
 
-impl Default for CursorStyle {
-    fn default() -> Self {
-        Self::Block
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum TabPosition {
+    #[default]
     Left,
     Right,
 }
 
-impl Default for TabPosition {
-    fn default() -> Self {
-        Self::Left
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum StatusBarPosition {
     Top,
+    #[default]
     Bottom,
 }
 
-impl Default for StatusBarPosition {
-    fn default() -> Self {
-        Self::Bottom
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum GroupBy {
+    #[default]
     Repo,
     Project,
-}
-
-impl Default for GroupBy {
-    fn default() -> Self {
-        Self::Repo
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -79,6 +60,10 @@ pub struct RouxSettings {
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
     pub default_project_path: Option<String>,
+    #[serde(default)]
+    pub repo_roots: Vec<String>,
+    #[serde(default = "default_true")]
+    pub exclude_worktrees_from_repo_roots: bool,
     pub confirm_on_close: bool,
     pub restore_sessions_on_launch: bool,
     pub worktree_base_path: Option<String>,
@@ -137,6 +122,8 @@ impl Default for RouxSettings {
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
             default_project_path: None,
+            repo_roots: Vec::new(),
+            exclude_worktrees_from_repo_roots: true,
             confirm_on_close: true,
             restore_sessions_on_launch: true,
             worktree_base_path: None,
@@ -169,8 +156,24 @@ impl RouxSettings {
         for profile in &mut s.spawn_profiles {
             profile.source = ProfileSource::User;
         }
+        s.repo_roots = normalize_repo_roots(&s.repo_roots);
         s
     }
+}
+
+fn normalize_repo_roots(roots: &[String]) -> Vec<String> {
+    let mut dedup = HashSet::new();
+    let mut cleaned = Vec::new();
+    for root in roots {
+        let trimmed = root.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if dedup.insert(trimmed.to_string()) {
+            cleaned.push(trimmed.to_string());
+        }
+    }
+    cleaned
 }
 
 fn normalize_theme(theme: &str) -> String {
@@ -179,5 +182,53 @@ fn normalize_theme(theme: &str) -> String {
         "steel-amber" | "slate-emerald" | "graphite-rose" | "nordic-night" | "cyber-audit"
         | "mocha-soft" | "paper-ink" | "github-day" => theme.to_string(),
         _ => DEFAULT_THEME.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RouxSettings;
+
+    #[test]
+    fn normalized_repo_roots_trims_empty_and_duplicates() {
+        let settings = RouxSettings {
+            repo_roots: vec![
+                "  /tmp/src  ".to_string(),
+                "".to_string(),
+                " /tmp/src ".to_string(),
+                "/tmp/other".to_string(),
+            ],
+            ..RouxSettings::default()
+        };
+
+        let normalized = settings.normalized();
+        assert_eq!(normalized.repo_roots, vec!["/tmp/src", "/tmp/other"]);
+    }
+
+    #[test]
+    fn settings_without_repo_roots_deserializes_with_default() {
+        let json = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.4,
+            "taskPanelCollapsed": false
+        }"#;
+
+        let settings: RouxSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.repo_roots.is_empty());
     }
 }

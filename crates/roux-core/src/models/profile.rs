@@ -31,17 +31,12 @@ pub enum ProfileSource {
 
 /// Controls whether the profile's `startup_command` runs immediately or is
 /// only typed into the shell for the user to review before pressing Enter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum StartupBehavior {
+    #[default]
     AutoRun,
     TypeOnly,
-}
-
-impl Default for StartupBehavior {
-    fn default() -> Self {
-        Self::AutoRun
-    }
 }
 
 /// A named recipe for launching something inside a shell pane. Orthogonal to

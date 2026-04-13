@@ -1,20 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionStatus {
+    #[default]
     Idle,
     Thinking,
     Generating,
     Error,
     Disconnected,
     Attention,
-}
-
-impl Default for SessionStatus {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 impl std::fmt::Display for SessionStatus {
