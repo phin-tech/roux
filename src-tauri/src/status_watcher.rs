@@ -387,11 +387,11 @@ async fn push_attention_notification(
     // launched inside a Roux-managed PTY). Fall back to session focus for
     // legacy or external installs.
     let mut actions: Vec<NotificationAction> = Vec::new();
-    if let Some(pane_id) = roux_pane_id {
+    if let Some(ref pane_id) = roux_pane_id {
         actions.push(NotificationAction {
             id: "focus".into(),
             label: "Focus pane".into(),
-            kind: ActionKind::FocusPane { pane_id },
+            kind: ActionKind::FocusPane { pane_id: pane_id.clone() },
             primary: true,
         });
     } else if let Some(ref sid) = session_id {
@@ -409,6 +409,21 @@ async fn push_attention_notification(
         primary: actions.is_empty(),
     });
 
+    // Dedup by pane (tier-1) or session (tier-2 fallback). If neither is
+    // available we fall back to the cwd so at least the same project stops
+    // stacking identical cards.
+    let dedup_key = roux_pane_id
+        .as_ref()
+        .map(|p| format!("attention:pane:{}", p))
+        .or_else(|| session_id.as_ref().map(|s| format!("attention:session:{}", s)))
+        .or_else(|| {
+            if cwd.is_empty() {
+                None
+            } else {
+                Some(format!("attention:cwd:{}", cwd))
+            }
+        });
+
     state.notification_manager.push(
         NotificationRequest {
             level: NotificationLevel::Attention,
@@ -418,6 +433,7 @@ async fn push_attention_notification(
             body,
             session_id,
             actions,
+            dedup_key,
         },
         Some(app),
     );

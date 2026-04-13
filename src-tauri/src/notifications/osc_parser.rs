@@ -26,9 +26,6 @@ struct Osc99Buffer {
     title: Option<String>,
     subtitle: Option<String>,
     body: Option<String>,
-    /// Existing notification id in the store if this buffer has been flushed
-    /// at least once — subsequent packets update in place.
-    notification_id: Option<String>,
 }
 
 pub struct OscSniffer {
@@ -188,30 +185,25 @@ impl OscState {
         }
         let subtitle = buf.subtitle.clone();
         let body = if buf.title.is_some() { buf.body.clone() } else { None };
-        let existing_id = buf.notification_id.clone();
 
-        // If we've already pushed an earlier version of this notification,
-        // remove it so the update appears fresh (Phase 2 pane doesn't yet
-        // support in-place replacement via Updated, but Removed + Added is
-        // semantically correct and already wired).
-        if let Some(ref old_id) = existing_id {
-            let state = self.app.state::<AppState>();
-            state.notification_manager.remove(old_id, Some(&self.app));
-        }
+        // Sender-addressable OSC 99 notifications dedup in place via the
+        // store's dedup_key mechanism — a repeat packet for the same `i=<id>`
+        // updates the existing entry and emits `Updated` rather than
+        // stacking up duplicates. Anonymous packets (no id) fall back to
+        // new-entry-every-time, which matches how plain OSC 9 / 777 behave.
+        let dedup_key = id.as_ref().map(|sender| format!("osc:99:{sender}"));
 
-        let pushed = self.push_returning(
+        self.push_returning(
             NotificationSource::Osc { code: 99, sender_id: id.clone() },
             title,
             subtitle,
             body,
-            id.clone(),
+            dedup_key,
         );
 
-        // Re-fetch the entry (we held a &mut borrow that dropped at self.push).
+        // Clear field accumulators so the next OSC 99 with the same id
+        // starts fresh (the sender always includes the fields it wants).
         if let Some(buf) = self.osc99_buffers.get_mut(&key) {
-            buf.notification_id = Some(pushed);
-            // Clear field accumulators so the next OSC 99 with the same id
-            // starts fresh (the sender always includes the fields it wants).
             buf.title = None;
             buf.subtitle = None;
             buf.body = None;
@@ -224,9 +216,9 @@ impl OscState {
         title: String,
         subtitle: Option<String>,
         body: Option<String>,
-        _sender_id: Option<String>,
+        dedup_key: Option<String>,
     ) {
-        let _ = self.push_returning(source, title, subtitle, body, _sender_id);
+        let _ = self.push_returning(source, title, subtitle, body, dedup_key);
     }
 
     fn push_returning(
@@ -235,7 +227,7 @@ impl OscState {
         title: String,
         subtitle: Option<String>,
         body: Option<String>,
-        _sender_id: Option<String>,
+        dedup_key: Option<String>,
     ) -> String {
         let state = self.app.state::<AppState>();
         let mut actions = Vec::new();
@@ -263,6 +255,7 @@ impl OscState {
                 body,
                 session_id: self.session_id.clone(),
                 actions,
+                dedup_key,
             },
             Some(&self.app),
         );

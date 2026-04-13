@@ -28,6 +28,27 @@ impl NotificationManager {
     /// Also fans out to an OS notification when the policy says so. Returns
     /// the stored notification (with id + created_at filled in).
     pub fn push(&self, req: NotificationRequest, app: Option<&AppHandle>) -> Notification {
+        // Dedup fast path: if the request carries a dedup_key and an unread
+        // entry with that key already exists, update it in place instead of
+        // creating a new notification. Keeps permission-prompt floods from
+        // stacking up dozens of identical cards.
+        if let Some(key) = req.dedup_key.clone() {
+            let updated = {
+                let mut store = self.inner.lock().expect("notification store poisoned");
+                store.update_by_dedup_key(&key, &req)
+            };
+            if let Some(notification) = updated {
+                if let Some(app) = app {
+                    let _ = app.emit(
+                        NOTIFICATION_EVENT,
+                        &NotificationEvent::Updated { notification: notification.clone() },
+                    );
+                    self.maybe_fan_out_to_os(app, &notification);
+                }
+                return notification;
+            }
+        }
+
         let notification = {
             let mut store = self.inner.lock().expect("notification store poisoned");
             store.push(req)
@@ -154,19 +175,19 @@ impl NotificationManager {
         source: &NotificationSource,
         app: Option<&AppHandle>,
     ) -> usize {
-        let removed = {
+        let removed_ids = {
             let mut store = self.inner.lock().expect("notification store poisoned");
             store.remove_by_source_variant(source)
         };
-        if removed > 0 {
-            if let Some(app) = app {
-                // Emit Cleared for now — frontend can re-query if it needs
-                // fine-grained per-id events. Phase 2 may expand this.
-                let _ =
-                    app.emit(NOTIFICATION_EVENT, &NotificationEvent::Cleared { session_id: None });
+        if let Some(app) = app {
+            for id in &removed_ids {
+                let _ = app.emit(
+                    NOTIFICATION_EVENT,
+                    &NotificationEvent::Removed { id: id.clone() },
+                );
             }
         }
-        removed
+        removed_ids.len()
     }
 
     pub fn clear(&self, session_filter: Option<Option<&str>>, app: Option<&AppHandle>) -> usize {
@@ -233,6 +254,7 @@ mod tests {
             body: None,
             session_id: session.map(String::from),
             actions: Vec::new(),
+            dedup_key: None,
         }
     }
 
@@ -260,5 +282,34 @@ mod tests {
         let n = mgr.push(req("hello", None), None);
         assert!(mgr.remove(&n.id, None));
         assert!(mgr.get(&n.id).is_none());
+    }
+
+    #[test]
+    fn manager_push_with_dedup_key_updates_in_place() {
+        let mgr = NotificationManager::new();
+        let mut first_req = req("first", None);
+        first_req.dedup_key = Some("key-1".into());
+        let first = mgr.push(first_req, None);
+
+        let mut second_req = req("second", None);
+        second_req.dedup_key = Some("key-1".into());
+        let second = mgr.push(second_req, None);
+
+        // Same id, refreshed title, store length unchanged.
+        assert_eq!(first.id, second.id);
+        assert_eq!(second.title, "second");
+        assert_eq!(mgr.list().len(), 1);
+    }
+
+    #[test]
+    fn manager_push_with_different_dedup_keys_appends() {
+        let mgr = NotificationManager::new();
+        let mut a = req("a", None);
+        a.dedup_key = Some("ka".into());
+        let mut b = req("b", None);
+        b.dedup_key = Some("kb".into());
+        mgr.push(a, None);
+        mgr.push(b, None);
+        assert_eq!(mgr.list().len(), 2);
     }
 }

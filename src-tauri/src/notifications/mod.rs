@@ -1,9 +1,10 @@
 //! Notification service — in-memory store, event emitter, and Tauri commands.
 //!
-//! Phase 1 scope: service skeleton, specta-bound types, Tauri commands, and
-//! wiring the existing watch desktop-notification path so each fired watch
-//! notification also lands in the store. The frontend pane, OSC parser,
-//! `roux notify` CLI, and focus-gated policy all arrive in later phases.
+//! Ingress paths: watches, status-watcher hook bridge, OSC sniffer, `roux
+//! notify` CLI, and frontend `notificationsPush`. All routes funnel through
+//! `NotificationManager::push`, which applies dedup (via `dedup_key`),
+//! emits an `Added`/`Updated` event to the frontend, and fans out to the
+//! OS notification center when focus policy allows.
 
 pub mod manager;
 pub mod osc_parser;

@@ -100,6 +100,7 @@ async function spawnShellPaneWithProfile(
           primary: true,
         },
       ],
+      dedupKey: null,
     }).catch((pushErr) =>
       logError("split-with-profile: notificationsPush failed", pushErr),
     );
