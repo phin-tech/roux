@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Command } from "bits-ui";
+  import { tick } from "svelte";
   import { fade, scale } from "svelte/transition";
   import { open } from "@tauri-apps/plugin-dialog";
   import {
@@ -7,6 +9,7 @@
     checkNonoInstalled,
     listNonoProfiles,
     checkIsGitRepo,
+    listGitReposInRoots,
     gitInit,
     killSession,
   } from "$lib/tauri";
@@ -35,13 +38,83 @@
 
   let repoPath = $state($settings.defaultProjectPath ?? "");
   let isGitRepo = $state(false);
-  let mode = $state<"new" | "existing" | "plain">("plain");
-  let branchName = $state("");
   let sessionName = $state("");
   let worktrees = $state<Worktree[]>([]);
+  let worktreeFilterInput = $state("");
+  let worktreePickOpen = $state(true);
+  let worktreeActiveIndex = $state(0);
   let selectedWorktree = $state<Worktree | null>(null);
   let error = $state("");
   let creating = $state(false);
+  let rootRepoPaths = $state<string[]>([]);
+  let rootReposLoading = $state(false);
+  let rootReposError = $state("");
+  let repoPickerOpen = $state(true);
+  let layoutPickInput = $state("");
+  let layoutPickOpen = $state(false);
+  let profilePickInput = $state("");
+  let profilePickOpen = $state(false);
+  let nonoPickInput = $state("");
+  let nonoPickOpen = $state(false);
+  const pickerShellClass = "min-w-0 overflow-hidden rounded-md border border-border bg-bg-deep";
+  const pickerInputRowClass = "flex min-w-0 items-center gap-2 border-b border-border px-2 py-1.5";
+  const pickerInputClass =
+    "min-w-0 flex-1 bg-transparent px-1 py-1 font-mono text-[12px] text-text-primary outline-none placeholder:text-text-muted";
+  const pickerListClass = "app-scrollbar overflow-y-auto p-1";
+  const pickerItemClass =
+    "flex cursor-pointer items-center rounded-md border border-border-subtle bg-bg-surface/50 px-2.5 py-2 text-left transition-colors hover:bg-bg-hover";
+  let quickPickOptions = $derived.by<{ label: string; path: string }[]>(() =>
+    buildQuickPickOptions(rootRepoPaths),
+  );
+  let filteredWorktrees = $derived.by<Worktree[]>(() => {
+    const q = worktreeFilterInput.trim().toLowerCase();
+    if (!q) return worktrees;
+    return worktrees.filter(
+      (wt) =>
+        wt.branch.toLowerCase().includes(q) ||
+        wt.path.toLowerCase().includes(q),
+    );
+  });
+  let layoutOptions = $derived.by<{ value: string; label: string }[]>(() => [
+    { value: "", label: "None (single pane)" },
+    ...$layoutList.map((layout) => ({ value: layout.id, label: layout.name })),
+  ]);
+  let profileOptions = $derived.by<{ value: string; label: string }[]>(() => {
+    const options = $profileList.map((profile) => ({
+      value: profile.id,
+      label: `${profile.name}${profile.source === "user" ? " (user)" : ""}`,
+    }));
+    if (inlineProfile) {
+      options.push({ value: "__inline__", label: `${inlineProfile.name} (custom)` });
+    }
+    options.push({ value: "__custom__", label: "Custom…" });
+    return options;
+  });
+  let nonoOptions = $derived.by<{ value: string; label: string }[]>(() => [
+    { value: "", label: "None (bare claude)" },
+    ...nonoProfiles.map((profile) => ({ value: profile, label: profile })),
+  ]);
+
+  $effect(() => {
+    const len = filteredWorktrees.length;
+    if (len === 0) {
+      worktreeActiveIndex = 0;
+      return;
+    }
+    if (worktreeActiveIndex < 0) worktreeActiveIndex = 0;
+    if (worktreeActiveIndex >= len) worktreeActiveIndex = len - 1;
+  });
+
+  $effect(() => {
+    if (!isGitRepo) return;
+    if (filteredWorktrees.length === 0) {
+      selectedWorktree = null;
+      return;
+    }
+    if (!selectedWorktree || !filteredWorktrees.some((wt) => wt.path === selectedWorktree?.path)) {
+      selectedWorktree = filteredWorktrees[Math.min(worktreeActiveIndex, filteredWorktrees.length - 1)] ?? null;
+    }
+  });
 
   // Spawn profile selection. Defaults to the claude built-in so first-time
   // users see familiar behavior. An inline profile from the Custom… editor
@@ -86,14 +159,59 @@
     }
   });
 
+  $effect(() => {
+    const rootsKey = ($settings.repoRoots ?? []).join("\n");
+    const excludeWorktrees = $settings.excludeWorktreesFromRepoRoots ?? true;
+    if (!visible) return;
+    void rootsKey;
+    void excludeWorktrees;
+    loadRootRepoOptions();
+  });
+
+  $effect(() => {
+    if (!visible) return;
+    void autofocusOnOpen();
+  });
+
+  $effect(() => {
+    if (!visible) return;
+    if (!layoutPickOpen) {
+      layoutPickInput = selectedLayout?.name ?? "None (single pane)";
+    }
+    if (!profilePickOpen) {
+      if (selectedProfileId === "__inline__" && inlineProfile) {
+        profilePickInput = `${inlineProfile.name} (custom)`;
+      } else {
+        const selected = $profileList.find((p) => p.id === selectedProfileId);
+        profilePickInput = selected
+          ? `${selected.name}${selected.source === "user" ? " (user)" : ""}`
+          : "Custom…";
+      }
+    }
+    if (!nonoPickOpen) {
+      nonoPickInput = selectedNonoProfile ?? "None (bare claude)";
+    }
+  });
+
+  async function autofocusOnOpen() {
+    await tick();
+    const quickPickEl = document.getElementById("new-session-repo-picker") as HTMLInputElement | null;
+    if (quickPickEl) {
+      quickPickEl.focus();
+      quickPickEl.select();
+      return;
+    }
+    focusDirectoryInput();
+  }
+
   async function detectGitRepo(path: string) {
     isGitRepo = await checkIsGitRepo(path);
     if (isGitRepo) {
-      mode = "new";
       await loadWorktrees();
     } else {
-      mode = "plain";
       worktrees = [];
+      selectedWorktree = null;
+      worktreeFilterInput = "";
     }
   }
 
@@ -109,19 +227,169 @@
     if (!repoPath) return;
     try {
       worktrees = await listWorktrees(repoPath);
+      worktreePickOpen = true;
+      worktreeActiveIndex = 0;
       selectedWorktree = worktrees.find((w) => w.isMain) ?? worktrees[0] ?? null;
     } catch {
       worktrees = [];
     }
   }
 
+  async function loadRootRepoOptions() {
+    const roots = ($settings.repoRoots ?? []).map((r) => r.trim()).filter(Boolean);
+    const excludeWorktrees = $settings.excludeWorktreesFromRepoRoots ?? true;
+    if (roots.length === 0) {
+      rootRepoPaths = [];
+      rootReposError = "";
+      return;
+    }
+    rootReposLoading = true;
+    rootReposError = "";
+    try {
+      rootRepoPaths = await listGitReposInRoots(roots, excludeWorktrees);
+    } catch (e) {
+      rootRepoPaths = [];
+      rootReposError = String(e);
+    } finally {
+      rootReposLoading = false;
+    }
+  }
+
+  async function pickRepoFromRoots(path: string) {
+    if (!path) return;
+    repoPath = path;
+    await detectGitRepo(path);
+  }
+
+  function findQuickPickMatch(queryRaw: string): { label: string; path: string } | null {
+    const query = queryRaw.trim();
+    if (!query) return null;
+    const lower = query.toLowerCase();
+    const exactPath = quickPickOptions.find((o) => o.path === query);
+    if (exactPath) return exactPath;
+    const exactLabel = quickPickOptions.find((o) => o.label.toLowerCase() === lower);
+    if (exactLabel) return exactLabel;
+    return (
+      quickPickOptions.find(
+        (o) => o.label.toLowerCase().includes(lower) || o.path.toLowerCase().includes(lower),
+      ) ?? null
+    );
+  }
+
+  function focusDirectoryInput() {
+    const inputEl = document.getElementById("new-session-repo-picker") as HTMLInputElement | null;
+    inputEl?.focus();
+    inputEl?.select();
+  }
+
+  async function selectQuickPick(path: string, label?: string) {
+    await pickRepoFromRoots(path);
+    if (label) repoPath = path;
+    repoPickerOpen = false;
+    focusDirectoryInput();
+  }
+
+  function findOptionMatch(
+    queryRaw: string,
+    options: { value: string; label: string }[],
+  ): { value: string; label: string } | null {
+    const query = queryRaw.trim();
+    if (!query) return options[0] ?? null;
+    const lower = query.toLowerCase();
+    const exactValue = options.find((o) => o.value === query);
+    if (exactValue) return exactValue;
+    const exactLabel = options.find((o) => o.label.toLowerCase() === lower);
+    if (exactLabel) return exactLabel;
+    return options.find((o) => o.label.toLowerCase().includes(lower)) ?? null;
+  }
+
+  function selectLayoutOption(value: string, label: string) {
+    selectedLayoutId = value;
+    layoutPickInput = label;
+    layoutPickOpen = false;
+  }
+
+  function selectProfileOption(value: string, label: string) {
+    handleProfileSelect(value);
+    profilePickInput = label;
+    profilePickOpen = false;
+  }
+
+  function selectNonoOption(value: string, label: string) {
+    selectedNonoProfile = value === "" ? null : value;
+    nonoPickInput = label;
+    nonoPickOpen = false;
+  }
+
+  function handleDialogKeydown(e: KeyboardEvent) {
+    if (!visible || showCustomEditor) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      resetAndClose();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (!creating) void handleCreate();
+    }
+  }
+
+  function moveWorktreeActive(delta: number) {
+    if (filteredWorktrees.length === 0) return;
+    const next = Math.max(0, Math.min(filteredWorktrees.length - 1, worktreeActiveIndex + delta));
+    worktreeActiveIndex = next;
+    selectedWorktree = filteredWorktrees[next] ?? null;
+  }
+
+  function selectActiveWorktree() {
+    if (filteredWorktrees.length === 0) return;
+    selectedWorktree = filteredWorktrees[worktreeActiveIndex] ?? null;
+    if (selectedWorktree) worktreeFilterInput = selectedWorktree.branch;
+    worktreePickOpen = false;
+  }
+
+  function resolveGitTarget(): {
+    worktreePathArg: string | null;
+    branchArg: string | null;
+    label: string;
+  } {
+    const query = worktreeFilterInput.trim();
+    const exact =
+      worktrees.find((wt) => wt.path === query || wt.branch === query) ??
+      (query.length === 0 ? selectedWorktree : null);
+    if (exact) {
+      return { worktreePathArg: exact.path, branchArg: null, label: exact.branch };
+    }
+    if (!query) {
+      return { worktreePathArg: null, branchArg: null, label: "main" };
+    }
+    return { worktreePathArg: null, branchArg: query, label: query };
+  }
+
+  function formatRepoShortLabel(path: string, depth: number = 2): string {
+    const normalized = path.replaceAll("\\", "/");
+    const segments = normalized.split("/").filter(Boolean);
+    if (segments.length === 0) return path;
+    if (segments.length === 1) return segments[0];
+    return segments.slice(Math.max(segments.length - depth, 0)).join("/");
+  }
+
+  function buildQuickPickOptions(paths: string[]): { label: string; path: string }[] {
+    const firstPass = paths.map((path) => ({ path, label: formatRepoShortLabel(path, 2) }));
+    const counts = new Map<string, number>();
+    for (const item of firstPass) {
+      counts.set(item.label, (counts.get(item.label) ?? 0) + 1);
+    }
+    return firstPass.map((item) => {
+      if ((counts.get(item.label) ?? 0) === 1) return item;
+      const deeper = formatRepoShortLabel(item.path, 3);
+      return deeper === item.label ? { ...item, label: item.path } : { ...item, label: deeper };
+    });
+  }
+
   async function handleCreate() {
     if (!repoPath) {
       error = "Please select a directory";
-      return;
-    }
-    if (mode === "new" && !branchName.trim()) {
-      error = "Branch name is required for new worktrees";
       return;
     }
     if (!selectedLayout && !selectedProfile) {
@@ -132,17 +400,15 @@
     creating = true;
 
     try {
+      const gitTarget = isGitRepo ? resolveGitTarget() : null;
       const name =
         sessionName ||
-        (mode === "plain"
-          ? repoPath.split("/").pop() ?? "session"
-          : repoPath.split("/").pop() +
-              "-" +
-              (mode === "new" ? branchName : selectedWorktree?.branch ?? "main"));
+        (isGitRepo
+          ? `${repoPath.split("/").pop() ?? "session"}-${gitTarget?.label ?? "main"}`
+          : repoPath.split("/").pop() ?? "session");
 
-      const worktreePathArg =
-        mode === "existing" ? selectedWorktree?.path ?? null : null;
-      const branchArg = mode === "new" ? branchName.trim() : null;
+      const worktreePathArg = gitTarget?.worktreePathArg ?? null;
+      const branchArg = gitTarget?.branchArg ?? null;
 
       // Best-effort estimate of the pane's cell size so the backend spawns
       // the PTY at roughly the right dimensions. Eliminates the 80-col →
@@ -155,7 +421,7 @@
 
       if (selectedLayout) {
         log(
-          `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, layout=${selectedLayout.id}`,
+          `Creating new session: repo=${repoPath}, target=${gitTarget?.label ?? "plain"}, name=${name}, layout=${selectedLayout.id}`,
         );
         // Resolve the first leaf's effective nono up-front — the session's
         // primary PTY is spawned now by createSessionShell, not by the
@@ -192,7 +458,7 @@
       const profile = selectedProfile!;
 
       log(
-        `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, profile=${profile.id}`,
+        `Creating new session: repo=${repoPath}, target=${gitTarget?.label ?? "plain"}, name=${name}, profile=${profile.id}`,
       );
 
       // Effective nono: dialog dropdown takes precedence over the profile's
@@ -301,9 +567,7 @@
   }
 
   function resetAndClose() {
-    branchName = "";
     sessionName = "";
-    mode = "plain";
     isGitRepo = false;
     error = "";
     selectedNonoProfile = null;
@@ -311,9 +575,22 @@
     selectedProfileId = "claude";
     inlineProfile = null;
     showCustomEditor = false;
+    rootReposError = "";
+    repoPickerOpen = true;
+    layoutPickInput = "";
+    layoutPickOpen = false;
+    profilePickInput = "";
+    profilePickOpen = false;
+    nonoPickInput = "";
+    nonoPickOpen = false;
+    worktreeFilterInput = "";
+    worktreePickOpen = true;
+    worktreeActiveIndex = 0;
     onclose();
   }
 </script>
+
+<svelte:window on:keydown|capture={handleDialogKeydown} />
 
 {#if visible}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -338,26 +615,78 @@
         <!-- Repo picker -->
         <div class="flex flex-col gap-1.5">
           <label
-            for="new-session-repo"
+            for="new-session-repo-picker"
             class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
           >
-            Directory
+            Repository
           </label>
-          <div class="flex gap-2">
-            <input
-              id="new-session-repo"
-              class="flex-1 rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
-              value={repoPath}
-              oninput={(e) => (repoPath = e.currentTarget.value)}
-              placeholder="~/src/my-project"
-            />
-            <button
-              class="cursor-pointer rounded-md border border-border-subtle bg-bg-surface px-3 py-2 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-              onclick={pickRepo}
-            >
-              Browse
-            </button>
+          <div class={pickerShellClass}>
+            <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
+              <div class={pickerInputRowClass}>
+                <Command.Input
+                  id="new-session-repo-picker"
+                  bind:value={repoPath}
+                  placeholder="Type path or search configured repo roots"
+                  class={pickerInputClass}
+                  onfocus={() => { repoPickerOpen = true; }}
+                  oninput={() => { repoPickerOpen = true; }}
+                  onkeydown={(e) => {
+                    if (e.key !== "Enter") return;
+                    const match = findQuickPickMatch(repoPath);
+                    e.preventDefault();
+                    if (match) {
+                      void selectQuickPick(match.path, match.label);
+                      return;
+                    }
+                    repoPickerOpen = false;
+                    void detectGitRepo(repoPath);
+                  }}
+                />
+                <button
+                  class="cursor-pointer rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                  onclick={loadRootRepoOptions}
+                  disabled={rootReposLoading}
+                >
+                  {rootReposLoading ? "..." : "Refresh"}
+                </button>
+                <button
+                  class="cursor-pointer rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                  onclick={pickRepo}
+                >
+                  Browse
+                </button>
+              </div>
+              {#if repoPickerOpen && ($settings.repoRoots ?? []).length > 0}
+                <Command.List class={`${pickerListClass} max-h-36`}>
+                  <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
+                    No matching repositories
+                  </Command.Empty>
+                  <Command.Group>
+                    <Command.GroupItems>
+                      {#each quickPickOptions as opt (opt.path)}
+                        <Command.Item
+                          value={opt.label}
+                          keywords={[opt.path]}
+                          onSelect={() => {
+                            void selectQuickPick(opt.path, opt.label);
+                          }}
+                          class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
+                        >
+                          <span class="truncate font-mono text-[12px] text-text-primary">{opt.label}</span>
+                          <span class="ml-2 max-w-40 truncate font-mono text-[10px] text-text-muted">{opt.path}</span>
+                        </Command.Item>
+                      {/each}
+                    </Command.GroupItems>
+                  </Command.Group>
+                </Command.List>
+              {/if}
+            </Command.Root>
           </div>
+          {#if rootReposError}
+            <p class="text-[11px] text-red">{rootReposError}</p>
+          {:else if ($settings.repoRoots ?? []).length > 0 && !rootReposLoading && rootRepoPaths.length === 0}
+            <p class="text-[11px] text-text-muted">No git repositories found under configured roots.</p>
+          {/if}
         </div>
 
         <!-- Non-git directory notice -->
@@ -380,69 +709,69 @@
           </div>
         {/if}
 
-        <!-- Mode toggle (only for git repos) -->
         {#if isGitRepo}
           <fieldset class="flex flex-col gap-1.5">
-            <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Mode</legend>
-            <div class="flex rounded-xl border border-border-subtle bg-bg-deep/80 p-1">
-              <button
-                class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
-                  {mode === 'new' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary hover:text-text-primary'}"
-                onclick={() => (mode = "new")}
-              >
-                New Worktree
-              </button>
-              <button
-                class="flex-1 rounded-lg border-none px-3 py-2 text-xs font-medium cursor-pointer transition-all
-                  {mode === 'existing' ? 'bg-bg-active text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'bg-transparent text-text-secondary hover:text-text-primary'}"
-                onclick={() => { mode = "existing"; loadWorktrees(); }}
-              >
-                Existing Directory
-              </button>
-            </div>
-          </fieldset>
-        {/if}
-
-        <!-- New worktree: branch input -->
-        {#if mode === "new"}
-          <div class="flex flex-col gap-1.5">
-            <label
-              for="new-session-branch"
-              class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
-            >
-              Branch name
-            </label>
-            <input
-              id="new-session-branch"
-              class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
-              bind:value={branchName}
-              placeholder="feature/my-feature"
-            />
-          </div>
-        {/if}
-
-        <!-- Existing worktree: picker -->
-        {#if mode === "existing"}
-          <fieldset class="flex flex-col gap-1.5">
-            <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Select worktree</legend>
-            <div class="flex flex-col gap-1 max-h-30 overflow-y-auto">
-              {#each worktrees as wt}
-                <button
-                  class="flex items-center gap-2 rounded-md border px-2.5 py-2 text-left cursor-pointer transition-colors
-                    {selectedWorktree?.path === wt.path
-                      ? 'bg-bg-active border-border'
-                      : 'border-border-subtle bg-bg-surface/50 hover:bg-bg-hover'}"
-                  onclick={() => (selectedWorktree = wt)}
-                >
-                  {#if wt.isMain}
-                    <span class="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-green/10 text-green">main</span>
+            <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Worktree / Branch</legend>
+            <p class="text-[11px] text-text-muted">Pick an existing worktree, or type a new branch name to create one.</p>
+            <div class={pickerShellClass}>
+              <div class={pickerInputRowClass}>
+                <input
+                  id="new-session-worktree-picker"
+                  bind:value={worktreeFilterInput}
+                  placeholder="e.g. feat/my-branch"
+                  class={pickerInputClass}
+                  onfocus={() => { worktreePickOpen = true; }}
+                  oninput={() => { worktreePickOpen = true; }}
+                  onkeydown={(e) => {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      moveWorktreeActive(1);
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      moveWorktreeActive(-1);
+                      return;
+                    }
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (filteredWorktrees.length > 0) selectActiveWorktree();
+                      worktreePickOpen = false;
+                    }
+                  }}
+                />
+              </div>
+              {#if worktreePickOpen}
+                <div class={`${pickerListClass} max-h-30`}>
+                  {#if worktrees.length === 0}
+                    <p class="px-3 py-2 text-[11px] text-text-muted">No worktrees found.</p>
+                  {:else if filteredWorktrees.length === 0}
+                    <p class="px-3 py-2 text-[11px] text-text-muted">No matching worktrees.</p>
+                  {:else}
+                    {#each filteredWorktrees as wt, idx (wt.path)}
+                      <button
+                        class={`${pickerItemClass} w-full gap-2
+                          {selectedWorktree?.path === wt.path
+                            ? 'bg-bg-active border-border'
+                            : idx === worktreeActiveIndex
+                              ? 'border-border bg-bg-hover'
+                              : 'border-border-subtle bg-bg-surface/50 hover:bg-bg-hover'}`}
+                        onclick={() => {
+                          worktreeActiveIndex = idx;
+                          selectedWorktree = wt;
+                          worktreeFilterInput = wt.branch;
+                          worktreePickOpen = false;
+                        }}
+                      >
+                        {#if wt.isMain}
+                          <span class="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-green/10 text-green">main</span>
+                        {/if}
+                        <span class="font-mono text-xs text-accent">{wt.branch}</span>
+                        <span class="ml-auto max-w-40 truncate font-mono text-[10px] text-text-muted">{wt.path}</span>
+                      </button>
+                    {/each}
                   {/if}
-                  <span class="font-mono text-xs text-accent">{wt.branch}</span>
-                  <span class="font-mono text-[10px] text-text-muted ml-auto truncate max-w-40">{wt.path}</span>
-                </button>
-              {/each}
-              {#if worktrees.length === 0}
-                <p class="text-xs text-text-muted py-2 text-center">No worktrees found.</p>
+                </div>
               {/if}
             </div>
           </fieldset>
@@ -456,21 +785,51 @@
           >
             Layout
           </label>
-          <select
-            id="new-session-layout"
-            class="bg-bg-deep border border-border rounded-md px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim appearance-none cursor-pointer"
-            onchange={(e) => { selectedLayoutId = e.currentTarget.value; }}
-          >
-            <option value="">None (single pane)</option>
-            {#each $layoutList as layout}
-              <option
-                value={layout.id}
-                selected={selectedLayoutId === layout.id}
-              >
-                {layout.name}
-              </option>
-            {/each}
-          </select>
+          <div class={pickerShellClass}>
+            <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
+              <div class={pickerInputRowClass}>
+                <Command.Input
+                  id="new-session-layout"
+                  bind:value={layoutPickInput}
+                  placeholder="Pick layout"
+                  class={pickerInputClass}
+                  onfocus={() => { layoutPickOpen = true; }}
+                  oninput={() => { layoutPickOpen = true; }}
+                  onkeydown={(e) => {
+                    if (e.key !== "Enter") return;
+                    const match = findOptionMatch(layoutPickInput, layoutOptions);
+                    if (!match) return;
+                    e.preventDefault();
+                    selectLayoutOption(match.value, match.label);
+                  }}
+                />
+              </div>
+              {#if layoutPickOpen}
+                <Command.List class={`${pickerListClass} max-h-32`}>
+                  <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
+                    No matching layouts
+                  </Command.Empty>
+                  <Command.Group>
+                    <Command.GroupItems>
+                      {#each layoutOptions as option (option.value)}
+                        <Command.Item
+                          value={option.label}
+                          keywords={[option.value]}
+                          onSelect={() => selectLayoutOption(option.value, option.label)}
+                          class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
+                        >
+                          <span class="truncate font-mono text-[12px] text-text-primary">{option.label}</span>
+                          {#if selectedLayoutId === option.value}
+                            <span class="ml-2 text-[10px] text-accent">selected</span>
+                          {/if}
+                        </Command.Item>
+                      {/each}
+                    </Command.GroupItems>
+                  </Command.Group>
+                </Command.List>
+              {/if}
+            </Command.Root>
+          </div>
           {#if selectedLayout?.description}
             <p class="text-[11px] text-text-muted">{selectedLayout.description}</p>
           {/if}
@@ -485,26 +844,51 @@
             >
               Spawn profile
             </label>
-            <select
-              id="new-session-profile"
-              class="bg-bg-deep border border-border rounded-md px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim appearance-none cursor-pointer"
-              onchange={(e) => handleProfileSelect(e.currentTarget.value)}
-            >
-              {#each $profileList as profile}
-                <option
-                  value={profile.id}
-                  selected={selectedProfileId === profile.id}
-                >
-                  {profile.name} {profile.source === "user" ? "(user)" : ""}
-                </option>
-              {/each}
-              {#if inlineProfile}
-                <option value="__inline__" selected={selectedProfileId === "__inline__"}>
-                  {inlineProfile.name} (custom)
-                </option>
-              {/if}
-              <option value="__custom__">Custom…</option>
-            </select>
+            <div class={pickerShellClass}>
+              <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
+                <div class={pickerInputRowClass}>
+                  <Command.Input
+                    id="new-session-profile"
+                    bind:value={profilePickInput}
+                    placeholder="Pick spawn profile"
+                    class={pickerInputClass}
+                    onfocus={() => { profilePickOpen = true; }}
+                    oninput={() => { profilePickOpen = true; }}
+                    onkeydown={(e) => {
+                      if (e.key !== "Enter") return;
+                      const match = findOptionMatch(profilePickInput, profileOptions);
+                      if (!match) return;
+                      e.preventDefault();
+                      selectProfileOption(match.value, match.label);
+                    }}
+                  />
+                </div>
+                {#if profilePickOpen}
+                  <Command.List class={`${pickerListClass} max-h-36`}>
+                    <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
+                      No matching profiles
+                    </Command.Empty>
+                    <Command.Group>
+                      <Command.GroupItems>
+                        {#each profileOptions as option (option.value)}
+                          <Command.Item
+                            value={option.label}
+                            keywords={[option.value]}
+                            onSelect={() => selectProfileOption(option.value, option.label)}
+                            class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
+                          >
+                            <span class="truncate font-mono text-[12px] text-text-primary">{option.label}</span>
+                            {#if selectedProfileId === option.value}
+                              <span class="ml-2 text-[10px] text-accent">selected</span>
+                            {/if}
+                          </Command.Item>
+                        {/each}
+                      </Command.GroupItems>
+                    </Command.Group>
+                  </Command.List>
+                {/if}
+              </Command.Root>
+            </div>
             {#if selectedProfile && selectedProfile.startupCommand}
               <p class="truncate font-mono text-[11px] text-text-muted">
                 $ {selectedProfile.startupCommand}
@@ -522,19 +906,51 @@
                 Sandbox Profile
                 <span class="font-normal normal-case tracking-normal">(nono.sh)</span>
               </label>
-              <select
-                id="new-session-nono"
-                class="bg-bg-deep border border-border rounded-md px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim appearance-none cursor-pointer"
-                onchange={(e) => {
-                  const val = e.currentTarget.value;
-                  selectedNonoProfile = val === "" ? null : val;
-                }}
-              >
-                <option value="">None (bare claude)</option>
-                {#each nonoProfiles as profile}
-                  <option value={profile} selected={selectedNonoProfile === profile}>{profile}</option>
-                {/each}
-              </select>
+              <div class={pickerShellClass}>
+                <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
+                  <div class={pickerInputRowClass}>
+                    <Command.Input
+                      id="new-session-nono"
+                      bind:value={nonoPickInput}
+                      placeholder="Pick sandbox profile"
+                      class={pickerInputClass}
+                      onfocus={() => { nonoPickOpen = true; }}
+                      oninput={() => { nonoPickOpen = true; }}
+                      onkeydown={(e) => {
+                        if (e.key !== "Enter") return;
+                        const match = findOptionMatch(nonoPickInput, nonoOptions);
+                        if (!match) return;
+                        e.preventDefault();
+                        selectNonoOption(match.value, match.label);
+                      }}
+                    />
+                  </div>
+                  {#if nonoPickOpen}
+                    <Command.List class={`${pickerListClass} max-h-32`}>
+                      <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
+                        No matching sandbox profiles
+                      </Command.Empty>
+                      <Command.Group>
+                        <Command.GroupItems>
+                          {#each nonoOptions as option (option.value)}
+                            <Command.Item
+                              value={option.label}
+                              keywords={[option.value]}
+                              onSelect={() => selectNonoOption(option.value, option.label)}
+                              class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
+                            >
+                              <span class="truncate font-mono text-[12px] text-text-primary">{option.label}</span>
+                              {#if (selectedNonoProfile ?? "") === option.value}
+                                <span class="ml-2 text-[10px] text-accent">selected</span>
+                              {/if}
+                            </Command.Item>
+                          {/each}
+                        </Command.GroupItems>
+                      </Command.Group>
+                    </Command.List>
+                  {/if}
+                </Command.Root>
+              </div>
             </div>
           {/if}
 
@@ -563,6 +979,7 @@
 
       <!-- Footer -->
       <div class="flex justify-end gap-2 border-t border-hairline px-6 py-4">
+        <div class="mr-auto self-center text-[11px] text-text-muted">Esc to close • Cmd/Ctrl+Enter to create</div>
         <button
           class="cursor-pointer rounded-xl border border-border-subtle bg-bg-surface px-5 py-2 text-[13px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
           onclick={resetAndClose}
