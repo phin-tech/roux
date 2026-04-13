@@ -1,5 +1,6 @@
 import { writable, get } from "svelte/store";
 import type { SpawnProfileRef } from "./profiles";
+import { clearPtyOutputBuffer } from "./ptyOutputBus";
 
 // Use `any` for xterm types to keep this module importable in test environments
 // without pulling in the full xterm bundle.
@@ -208,6 +209,12 @@ export function replacePty(paneId: string, newPtyId: string): void {
       } catch { /* best-effort */ }
     }
     inst.outputChannel = null;
+
+    // Drop the PTY output replay buffer so a subsequent readiness-wait
+    // on the fresh PTY doesn't see stale bytes from the prior process
+    // (reconnect/rerun may reuse the same id).
+    clearPtyOutputBuffer(inst.ptyId);
+    if (inst.ptyId !== newPtyId) clearPtyOutputBuffer(newPtyId);
 
     const next = new Map(map);
     next.set(paneId, { ...inst, ptyId: newPtyId, unlisteners: [] });

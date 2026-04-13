@@ -17,9 +17,19 @@ export type { PtyOutputPayload } from "./ptyOutput";
 
 // Commands (frontend → backend)
 
+export interface InitialPtySize {
+  cols: number;
+  rows: number;
+}
+
 /**
  * Spawns a plain shell in the session's primary PTY. Caller then attaches
  * a spawn profile and types its setup / startup commands into the shell.
+ *
+ * `initialSize` seeds the PTY's cell dimensions to avoid a post-spawn
+ * SIGWINCH that otherwise triggers `zle reset-prompt` in zsh and causes
+ * async prompt frameworks to paint over typed input. Pass the pane's
+ * estimated size when a pane is available.
  */
 export async function createSessionShell(
   repoPath: string,
@@ -28,6 +38,7 @@ export async function createSessionShell(
   branch: string | null,
   nonoProfile?: string | null,
   nonoAllowDirs?: string[] | null,
+  initialSize?: InitialPtySize | null,
 ): Promise<Session> {
   return invoke("create_session_shell", {
     repoPath,
@@ -36,6 +47,8 @@ export async function createSessionShell(
     branch,
     nonoProfile: nonoProfile ?? null,
     nonoAllowDirs: nonoAllowDirs ?? null,
+    initialCols: initialSize?.cols ?? null,
+    initialRows: initialSize?.rows ?? null,
   });
 }
 
@@ -61,8 +74,15 @@ export async function reconnectSessionShellPty(
   id: string,
   nonoProfile?: string | null,
   nonoAllowDirs?: string[] | null,
+  initialSize?: InitialPtySize | null,
 ): Promise<Session> {
-  return invoke("reconnect_session_shell", { id, nonoProfile: nonoProfile ?? null, nonoAllowDirs: nonoAllowDirs ?? null });
+  return invoke("reconnect_session_shell", {
+    id,
+    nonoProfile: nonoProfile ?? null,
+    nonoAllowDirs: nonoAllowDirs ?? null,
+    initialCols: initialSize?.cols ?? null,
+    initialRows: initialSize?.rows ?? null,
+  });
 }
 
 export async function writeToSession(
@@ -104,8 +124,18 @@ export async function spawnShell(
   paneId: string | null,
   nonoProfile?: string | null,
   nonoAllowDirs?: string[] | null,
+  initialSize?: InitialPtySize | null,
 ): Promise<void> {
-  return invoke("spawn_shell", { id, workingDir, sessionId, paneId, nonoProfile: nonoProfile ?? null, nonoAllowDirs: nonoAllowDirs ?? null });
+  return invoke("spawn_shell", {
+    id,
+    workingDir,
+    sessionId,
+    paneId,
+    nonoProfile: nonoProfile ?? null,
+    nonoAllowDirs: nonoAllowDirs ?? null,
+    initialCols: initialSize?.cols ?? null,
+    initialRows: initialSize?.rows ?? null,
+  });
 }
 
 export async function spawnTask(
@@ -114,8 +144,17 @@ export async function spawnTask(
   workingDir: string,
   sessionId: string | null,
   paneId: string | null,
+  initialSize?: InitialPtySize | null,
 ): Promise<void> {
-  return invoke("spawn_task", { id, command, workingDir, sessionId, paneId });
+  return invoke("spawn_task", {
+    id,
+    command,
+    workingDir,
+    sessionId,
+    paneId,
+    initialCols: initialSize?.cols ?? null,
+    initialRows: initialSize?.rows ?? null,
+  });
 }
 
 export async function listSessions(): Promise<Session[]> {
