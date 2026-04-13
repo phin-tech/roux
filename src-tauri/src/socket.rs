@@ -489,6 +489,8 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
         &name,
         SessionTarget::Repo,
         None,
+        // CLI-initiated sessions have no pane context yet.
+        None,
         app,
     )
     .await
@@ -618,6 +620,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         &name,
         target,
         nono_config.as_ref(),
+        None,
         app,
     )
     .await
@@ -671,6 +674,7 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         &working_dir,
         Some(session_id),
         Some(&pane_id),
+        None,
         None,
         app.clone(),
     ) {
@@ -744,6 +748,7 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         &working_dir,
         Some(session_id),
         Some(&pane_id),
+        None,
         app.clone(),
     ) {
         return Response::err(format!("Failed to spawn task: {}", e));

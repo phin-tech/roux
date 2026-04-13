@@ -13,6 +13,72 @@ use tauri::{
 use thiserror::Error;
 
 use crate::platform;
+use crate::pty_ready_gate::ShellReadyGate;
+
+type PtyWriter = Arc<Mutex<Box<dyn std::io::Write + Send>>>;
+type ReadyGate = Arc<Mutex<ShellReadyGate>>;
+
+const GATE_QUIET: Duration = Duration::from_millis(200);
+const GATE_TIMEOUT: Duration = Duration::from_secs(5);
+const GATE_TICK: Duration = Duration::from_millis(75);
+
+/// Fallback PTY size for spawn paths that don't have a measured pane size.
+/// Callers should pass the pane's actual `(cols, rows)` whenever possible
+/// — starting at the real size avoids a post-spawn SIGWINCH, which
+/// otherwise triggers `zle reset-prompt` in zsh and causes async prompt
+/// frameworks (oh-my-zsh git, p10k without instant-prompt, etc.) to
+/// redraw on top of any keystrokes the user has already typed.
+const DEFAULT_PTY_COLS: u16 = 80;
+const DEFAULT_PTY_ROWS: u16 = 24;
+
+fn pty_size_from(initial: Option<(u16, u16)>) -> PtySize {
+    let (cols, rows) = initial.unwrap_or((DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS));
+    PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 }
+}
+
+/// Best-effort flush of bytes the gate released. Errors are logged but
+/// swallowed: the reader/tick threads can't do anything useful with a
+/// broken writer, and panicking would take the PTY thread down.
+fn flush_to_writer(writer: &PtyWriter, bytes: &[u8], context: &str) {
+    if bytes.is_empty() {
+        return;
+    }
+    use std::io::Write;
+    let mut w = match writer.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            rlog!("pty_ready_gate: writer mutex poisoned ({}): {}", context, e);
+            return;
+        }
+    };
+    if let Err(e) = w.write_all(bytes).and_then(|_| w.flush()) {
+        rlog!("pty_ready_gate: flush failed ({}): {}", context, e);
+    }
+}
+
+/// Periodic tick until the gate opens via quiescence or timeout. Self-
+/// terminates as soon as `poll()` reports open — no long-lived thread
+/// per session.
+fn spawn_gate_ticker(gate: ReadyGate, writer: PtyWriter, session_id: String) {
+    thread::spawn(move || loop {
+        thread::sleep(GATE_TICK);
+        let (opened_now, bytes) = {
+            let mut g = match gate.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            if g.is_open() {
+                return;
+            }
+            let flush = g.poll(Instant::now());
+            (g.is_open(), flush)
+        };
+        flush_to_writer(&writer, &bytes, &format!("tick({})", session_id));
+        if opened_now {
+            return;
+        }
+    });
+}
 
 enum PtyChunk {
     Data(Vec<u8>),
@@ -175,6 +241,7 @@ fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
     tx: mpsc::Sender<PtyChunk>,
     mut sniffer: Option<crate::notifications::OscSniffer>,
+    gate: Option<(ReadyGate, PtyWriter, String)>,
 ) {
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
@@ -187,6 +254,24 @@ fn spawn_reader(
                 Ok(n) => {
                     if let Some(ref mut s) = sniffer {
                         s.feed(&buf[..n]);
+                    }
+                    // Feed the readiness gate. If this output opens the
+                    // gate and had writes buffered, flush them back into
+                    // the PTY so the user's typed command actually runs.
+                    // Must not short-circuit the tx.send below — a
+                    // poisoned gate mutex would otherwise silently stop
+                    // output forwarding for the session.
+                    if let Some((ref g, ref w, ref id)) = gate {
+                        if let Ok(mut guard) = g.lock() {
+                            let flush = guard.on_output(&buf[..n], Instant::now());
+                            drop(guard);
+                            flush_to_writer(w, &flush, &format!("reader({})", id));
+                        } else {
+                            rlog!(
+                                "pty_ready_gate: reader saw poisoned gate mutex, skipping feed for {}",
+                                id,
+                            );
+                        }
                     }
                     if tx.send(PtyChunk::Data(buf[..n].to_vec())).is_err() {
                         break;
@@ -238,6 +323,11 @@ struct PtySession {
     writer: Arc<Mutex<Box<dyn std::io::Write + Send>>>,
     output: PtyOutput,
     generation: u64,
+    /// Write-side readiness gate. Present only for shell spawns, which
+    /// are the only PTYs where early-write races bite (shells take time
+    /// to initialise ZLE/readline and drop stdin that arrives before).
+    /// `None` means writes pass through unchecked.
+    ready_gate: Option<ReadyGate>,
 }
 
 #[derive(Debug, Error)]
@@ -440,12 +530,13 @@ impl PtyManager {
         session_id: Option<&str>,
         pane_id: Option<&str>,
         nono: Option<&NonoConfig>,
+        initial_size: Option<(u16, u16)>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
-            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .openpty(pty_size_from(initial_size))
             .map_err(|source| PtyError::OpenPty { source })?;
 
         let shell = resolve_default_shell();
@@ -491,12 +582,20 @@ impl PtyManager {
         let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
+        let writer = Arc::new(Mutex::new(writer));
+        let gate = Arc::new(Mutex::new(ShellReadyGate::new(
+            Instant::now(),
+            GATE_QUIET,
+            GATE_TIMEOUT,
+        )));
+
         let session = PtySession {
             master: pair.master,
             child,
-            writer: Arc::new(Mutex::new(writer)),
+            writer: Arc::clone(&writer),
             output: output.clone(),
             generation: gen,
+            ready_gate: Some(Arc::clone(&gate)),
         };
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
@@ -507,7 +606,13 @@ impl PtyManager {
             app.clone(),
             session_id.map(|s| s.to_string()),
         );
-        spawn_reader(reader, tx, Some(sniffer));
+        spawn_reader(
+            reader,
+            tx,
+            Some(sniffer),
+            Some((Arc::clone(&gate), Arc::clone(&writer), id.to_string())),
+        );
+        spawn_gate_ticker(gate, writer, id.to_string());
 
         Ok(())
     }
@@ -521,12 +626,13 @@ impl PtyManager {
         working_dir: &str,
         session_id: Option<&str>,
         pane_id: Option<&str>,
+        initial_size: Option<(u16, u16)>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
-            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .openpty(pty_size_from(initial_size))
             .map_err(|source| PtyError::OpenPty { source })?;
 
         let shell = resolve_default_shell();
@@ -555,6 +661,9 @@ impl PtyManager {
             writer: Arc::new(Mutex::new(writer)),
             output: output.clone(),
             generation: gen,
+            // One-shot tasks run the command as argv to the shell
+            // (non-interactive), so there is no ZLE/readline init to race.
+            ready_gate: None,
         };
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
@@ -564,7 +673,7 @@ impl PtyManager {
             app.clone(),
             session_id.map(|s| s.to_string()),
         );
-        spawn_reader(reader, tx, Some(sniffer));
+        spawn_reader(reader, tx, Some(sniffer), None);
 
         // Wait for the child process in a background thread and emit exit code
         let exit_event_name = format!("session-exit:{}", id);
@@ -595,17 +704,34 @@ impl PtyManager {
     }
 
     pub fn write(&self, session_id: &str, data: &[u8]) -> Result<(), PtyError> {
-        let writer = {
+        let (writer, gate) = {
             let sessions = self.sessions.lock().unwrap();
             let session = sessions
                 .get(session_id)
                 .ok_or_else(|| PtyError::SessionNotFound { session_id: session_id.to_string() })?;
-            Arc::clone(&session.writer)
+            (Arc::clone(&session.writer), session.ready_gate.clone())
         };
-        // Global lock released — only per-session writer lock held
+
+        // For shell sessions, run the write through the readiness gate
+        // first. While the shell's prompt isn't up yet, the gate buffers
+        // the bytes and returns an empty slice; they get flushed later
+        // by the reader thread (on prompt detection) or the tick thread
+        // (on quiescence / timeout). Once open, it returns bytes through.
+        let bytes_to_write: Vec<u8> = match gate {
+            Some(g) => {
+                let mut guard = g.lock().unwrap();
+                guard.on_write(data, Instant::now())
+            }
+            None => data.to_vec(),
+        };
+
+        if bytes_to_write.is_empty() {
+            return Ok(());
+        }
+
         let mut writer = writer.lock().unwrap();
         use std::io::Write;
-        writer.write_all(data).map_err(|source| PtyError::WriteFailed { source })?;
+        writer.write_all(&bytes_to_write).map_err(|source| PtyError::WriteFailed { source })?;
         writer.flush().map_err(|source| PtyError::FlushFailed { source })
     }
 

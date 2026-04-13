@@ -14,6 +14,7 @@ mod project_service;
 mod providers;
 mod services;
 mod pty;
+mod pty_ready_gate;
 mod session;
 mod session_service;
 mod settings;

@@ -25,6 +25,7 @@ import {
 } from "$lib/tauri";
 import type { CreateWatchConfig } from "$lib/types";
 import { getInstance, updateInstance } from "./instances";
+import { emitPtyOutput } from "./ptyOutputBus";
 import { focusedPaneId } from "./focus";
 import { log } from "$lib/logging";
 import { sessionState } from "$lib/stores/sessions";
@@ -226,6 +227,10 @@ export async function attachPtyListeners(
 
   if (!inst2.outputChannel) {
     const channel = createPtyOutputChannel((bytes) => {
+      // Fan out to the readiness / output-wait observers before xterm
+      // writes, so consumers tied to the bus can react even if xterm is
+      // torn down between chunks.
+      emitPtyOutput(targetPtyId, bytes);
       // Re-read instance in case it was replaced (reconnect, rerun)
       const inst = getInstance(paneId);
       inst?.terminal?.write(bytes);

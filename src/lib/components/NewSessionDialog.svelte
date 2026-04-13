@@ -21,6 +21,7 @@
     type SpawnProfileRef,
   } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
+  import { estimatePaneSize } from "$lib/panes/estimatePaneSize";
   import type { Worktree } from "$lib/types";
   import { log, logError } from "$lib/logging";
   import ProfileCustomEditor from "./ProfileCustomEditor.svelte";
@@ -143,6 +144,15 @@
         mode === "existing" ? selectedWorktree?.path ?? null : null;
       const branchArg = mode === "new" ? branchName.trim() : null;
 
+      // Best-effort estimate of the pane's cell size so the backend spawns
+      // the PTY at roughly the right dimensions. Eliminates the 80-col →
+      // actual SIGWINCH that triggers `zle reset-prompt` and causes async
+      // prompt frameworks to paint over typed input.
+      const initialSize = estimatePaneSize({
+        fontSize: $settings.fontSize,
+        lineHeight: $settings.lineHeight,
+      });
+
       if (selectedLayout) {
         log(
           `Creating new session: repo=${repoPath}, mode=${mode}, name=${name}, layout=${selectedLayout.id}`,
@@ -158,6 +168,7 @@
           branchArg,
           firstLeafNono.nonoProfile ?? undefined,
           firstLeafNono.nonoAllowDirs ?? undefined,
+          initialSize,
         );
         log(`Session created via layout: ${session.id}`);
         addSession(session);
@@ -199,6 +210,7 @@
         branchArg,
         effectiveNono.nonoProfile,
         effectiveNono.nonoAllowDirs,
+        initialSize,
       );
 
       log(`Session created: ${session.id}`);

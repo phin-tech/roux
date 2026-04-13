@@ -54,6 +54,8 @@ pub(crate) fn spawn_shell(
     pane_id: Option<String>,
     nono_profile: Option<String>,
     nono_allow_dirs: Option<Vec<String>>,
+    initial_cols: Option<u16>,
+    initial_rows: Option<u16>,
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -62,9 +64,18 @@ pub(crate) fn spawn_shell(
         profile,
         allow_dirs: nono_allow_dirs.unwrap_or_default(),
     });
+    let initial_size = initial_cols.zip(initial_rows);
     state
         .pty_manager
-        .spawn_shell(&id, &working_dir, session_id.as_deref(), pane_id.as_deref(), nono.as_ref(), app.clone())
+        .spawn_shell(
+            &id,
+            &working_dir,
+            session_id.as_deref(),
+            pane_id.as_deref(),
+            nono.as_ref(),
+            initial_size,
+            app.clone(),
+        )
         .map_err(|e| e.to_string())
 }
 
@@ -76,12 +87,23 @@ pub(crate) fn spawn_task(
     working_dir: String,
     session_id: Option<String>,
     pane_id: Option<String>,
+    initial_cols: Option<u16>,
+    initial_rows: Option<u16>,
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    let initial_size = initial_cols.zip(initial_rows);
     state
         .pty_manager
-        .spawn_task(&id, &command, &working_dir, session_id.as_deref(), pane_id.as_deref(), app.clone())
+        .spawn_task(
+            &id,
+            &command,
+            &working_dir,
+            session_id.as_deref(),
+            pane_id.as_deref(),
+            initial_size,
+            app.clone(),
+        )
         .map_err(|e| e.to_string())
 }
 
@@ -141,6 +163,8 @@ pub(crate) async fn create_session_shell(
     branch: Option<String>,
     nono_profile: Option<String>,
     nono_allow_dirs: Option<Vec<String>>,
+    initial_cols: Option<u16>,
+    initial_rows: Option<u16>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
@@ -151,6 +175,7 @@ pub(crate) async fn create_session_shell(
         profile,
         allow_dirs: nono_allow_dirs.unwrap_or_default(),
     });
+    let initial_size = initial_cols.zip(initial_rows);
 
     let target = if let Some(ref wt_path) = worktree_path {
         svc::SessionTarget::ExistingWorktree { path: wt_path }
@@ -168,6 +193,7 @@ pub(crate) async fn create_session_shell(
         &name,
         target,
         nono.as_ref(),
+        initial_size,
         &app,
     )
     .await
@@ -184,6 +210,8 @@ pub(crate) async fn reconnect_session_shell(
     id: String,
     nono_profile: Option<String>,
     nono_allow_dirs: Option<Vec<String>>,
+    initial_cols: Option<u16>,
+    initial_rows: Option<u16>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
@@ -192,9 +220,17 @@ pub(crate) async fn reconnect_session_shell(
         profile,
         allow_dirs: nono_allow_dirs.unwrap_or_default(),
     });
-    svc::reconnect_session_shell(&state.pty_manager, &state.session_handle, &id, nono.as_ref(), &app)
-        .await
-        .map_err(|e| e.to_string())
+    let initial_size = initial_cols.zip(initial_rows);
+    svc::reconnect_session_shell(
+        &state.pty_manager,
+        &state.session_handle,
+        &id,
+        nono.as_ref(),
+        initial_size,
+        &app,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
