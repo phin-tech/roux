@@ -75,11 +75,9 @@ pub fn migrate_legacy_config_dir() {
             // Legacy dir exists but everything already lives at the new
             // location — the common case after the first migration.
         }
-        Err(e) => eprintln!(
-            "roux: migration from {} to {} failed: {e}",
-            legacy.display(),
-            new.display(),
-        ),
+        Err(e) => {
+            eprintln!("roux: migration from {} to {} failed: {e}", legacy.display(), new.display(),)
+        }
     }
 }
 
@@ -161,10 +159,7 @@ mod tests {
         let count = copy_dir_skip_existing(src.path(), dst.path()).unwrap();
         assert_eq!(count, 2);
         assert_eq!(fs::read_to_string(dst.path().join("top.json")).unwrap(), "{}");
-        assert_eq!(
-            fs::read_to_string(dst.path().join("nested/inner.txt")).unwrap(),
-            "x",
-        );
+        assert_eq!(fs::read_to_string(dst.path().join("nested/inner.txt")).unwrap(), "x",);
     }
 
     #[test]

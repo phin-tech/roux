@@ -10,10 +10,7 @@ pub(crate) fn load_pane_state(session_id: String) -> Option<serde_json::Value> {
 }
 
 #[tauri::command]
-pub(crate) fn save_pane_state(
-    session_id: String,
-    data: serde_json::Value,
-) -> Result<(), String> {
+pub(crate) fn save_pane_state(session_id: String, data: serde_json::Value) -> Result<(), String> {
     crate::pane_state::save_pane_state(&session_id, data)
 }
 

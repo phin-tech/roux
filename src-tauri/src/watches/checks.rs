@@ -2,9 +2,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::process::Command as TokioCommand;
 
-use roux_core::{
-    GithubJob, PrCheckRun, PrReview, WatchKind, WatchOutcome, WatchResult,
-};
+use roux_core::{GithubJob, PrCheckRun, PrReview, WatchKind, WatchOutcome, WatchResult};
 
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 
@@ -187,7 +185,12 @@ async fn execute_github_check(
                     .ok()
                     .and_then(|v| v.as_str().map(|s| s.to_string()))
                     .unwrap_or_default();
-                GithubJob { name: j.name.clone(), status: job_status, conclusion: job_conclusion, failed_step }
+                GithubJob {
+                    name: j.name.clone(),
+                    status: job_status,
+                    conclusion: job_conclusion,
+                    failed_step,
+                }
             })
             .collect(),
         Err(_) => vec![],
@@ -244,7 +247,9 @@ async fn execute_github_pr_check(repo: &str, pr_number: u64) -> WatchResult {
                     .unwrap_or_else(|| "unknown".to_string());
                 let state_str = match review.state {
                     Some(octocrab::models::pulls::ReviewState::Approved) => "approved",
-                    Some(octocrab::models::pulls::ReviewState::ChangesRequested) => "changes_requested",
+                    Some(octocrab::models::pulls::ReviewState::ChangesRequested) => {
+                        "changes_requested"
+                    }
                     Some(octocrab::models::pulls::ReviewState::Commented) => "commented",
                     Some(octocrab::models::pulls::ReviewState::Dismissed) => "dismissed",
                     Some(octocrab::models::pulls::ReviewState::Pending) => "pending",
@@ -292,7 +297,17 @@ async fn execute_github_pr_check(repo: &str, pr_number: u64) -> WatchResult {
 
     let outcome = compute_pr_outcome(&state, &reviews, &checks);
 
-    WatchResult::GithubPr { pr_number, state, title, url, head_sha, draft, reviews, checks, outcome }
+    WatchResult::GithubPr {
+        pr_number,
+        state,
+        title,
+        url,
+        head_sha,
+        draft,
+        reviews,
+        checks,
+        outcome,
+    }
 }
 
 fn compute_pr_outcome(state: &str, reviews: &[PrReview], checks: &[PrCheckRun]) -> WatchOutcome {

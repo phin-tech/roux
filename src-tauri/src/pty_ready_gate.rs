@@ -302,11 +302,7 @@ mod tests {
     #[test]
     fn buffered_writes_are_capped_oldest_bytes_drop_first() {
         let t0 = Instant::now();
-        let mut g = ShellReadyGate::new(
-            t0,
-            Duration::from_millis(200),
-            Duration::from_secs(5),
-        );
+        let mut g = ShellReadyGate::new(t0, Duration::from_millis(200), Duration::from_secs(5));
         // Fill well past the cap. Each chunk is distinguishable so we can
         // verify which bytes survived.
         let big = vec![b'A'; BUFFER_CAP_BYTES];
@@ -316,15 +312,8 @@ mod tests {
         // Gate opens; flushed bytes are at most cap, and include the most
         // recent write (oldest bytes dropped).
         let flushed = g.on_output(b"\x1b]133;A", t0);
-        assert!(
-            flushed.len() <= BUFFER_CAP_BYTES,
-            "buffer exceeded cap: {}",
-            flushed.len(),
-        );
-        assert!(
-            flushed.ends_with(tail),
-            "most recent write should survive the cap",
-        );
+        assert!(flushed.len() <= BUFFER_CAP_BYTES, "buffer exceeded cap: {}", flushed.len(),);
+        assert!(flushed.ends_with(tail), "most recent write should survive the cap",);
     }
 
     #[test]

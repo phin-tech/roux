@@ -32,9 +32,7 @@ pub async fn notifications_list_for_session(
     session_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Notification>, String> {
-    Ok(state
-        .notification_manager
-        .list_for_session(session_id.as_deref()))
+    Ok(state.notification_manager.list_for_session(session_id.as_deref()))
 }
 
 #[tauri::command]
@@ -79,9 +77,7 @@ pub async fn notifications_mark_all_read(
         (None, Some(true)) => Some(None),
         (None, _) => None,
     };
-    Ok(state
-        .notification_manager
-        .mark_all_read(filter, Some(&app)) as u32)
+    Ok(state.notification_manager.mark_all_read(filter, Some(&app)) as u32)
 }
 
 #[tauri::command]
@@ -134,7 +130,5 @@ pub async fn notifications_dismiss_source(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<u32, String> {
-    Ok(state
-        .notification_manager
-        .remove_by_source_variant(&source, Some(&app)) as u32)
+    Ok(state.notification_manager.remove_by_source_variant(&source, Some(&app)) as u32)
 }

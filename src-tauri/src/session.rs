@@ -21,5 +21,3 @@ pub fn load_persisted_sessions() -> Vec<Session> {
 pub fn persistence_path() -> PathBuf {
     crate::paths::roux_config_dir().join("sessions.json")
 }
-
-

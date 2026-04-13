@@ -338,12 +338,8 @@ async fn handle_session_panes_create(req: Request, app: &tauri::AppHandle) -> Re
         }
     }
 
-    let direction = req
-        .args
-        .get("direction")
-        .and_then(|d| d.as_str())
-        .unwrap_or("horizontal")
-        .to_string();
+    let direction =
+        req.args.get("direction").and_then(|d| d.as_str()).unwrap_or("horizontal").to_string();
     if direction != "horizontal" && direction != "vertical" {
         return Response::err("direction must be horizontal or vertical");
     }
@@ -380,27 +376,18 @@ fn bring_window_to_front(app: &tauri::AppHandle) {
 /// profile in settings. Returns `Ok(())` on match, or a descriptive error
 /// listing every known id so a CLI caller can correct typos like "shell"
 /// (the correct built-in id is "plain-shell").
-fn validate_profile_id(
-    id: &str,
-    settings: &crate::settings::RouxSettings,
-) -> Result<(), String> {
-    let builtin_ids: Vec<String> = crate::providers::builtin_profiles(settings)
-        .into_iter()
-        .map(|p| p.id)
-        .collect();
+fn validate_profile_id(id: &str, settings: &crate::settings::RouxSettings) -> Result<(), String> {
+    let builtin_ids: Vec<String> =
+        crate::providers::builtin_profiles(settings).into_iter().map(|p| p.id).collect();
     if builtin_ids.iter().any(|b| b == id) {
         return Ok(());
     }
-    let user_ids: Vec<String> =
-        settings.spawn_profiles.iter().map(|p| p.id.clone()).collect();
+    let user_ids: Vec<String> = settings.spawn_profiles.iter().map(|p| p.id.clone()).collect();
     if user_ids.iter().any(|u| u == id) {
         return Ok(());
     }
-    let mut msg = format!(
-        "unknown profile id '{}'. Known built-ins: {}",
-        id,
-        builtin_ids.join(", ")
-    );
+    let mut msg =
+        format!("unknown profile id '{}'. Known built-ins: {}", id, builtin_ids.join(", "));
     if !user_ids.is_empty() {
         msg.push_str(&format!(". User profiles: {}", user_ids.join(", ")));
     }
@@ -413,9 +400,7 @@ fn validate_profile_id(
 /// trailing slashes, or symlink differences.
 fn canonicalize_or_passthrough(path: &str) -> String {
     let p = std::path::PathBuf::from(path);
-    p.canonicalize()
-        .map(|c| c.to_string_lossy().to_string())
-        .unwrap_or_else(|_| path.to_string())
+    p.canonicalize().map(|c| c.to_string_lossy().to_string()).unwrap_or_else(|_| path.to_string())
 }
 
 /// Find the first session whose worktree_path or repo_root matches `path`.
@@ -464,10 +449,8 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
     // Match against worktree_path or repo_root (first match wins).
     if let Some(existing) = find_session_for_path(&sessions, &path) {
         use tauri::Emitter;
-        let _ = app.emit(
-            "roux-command",
-            &roux_core::RouxCommand::new("focus").session_id(&existing.id),
-        );
+        let _ = app
+            .emit("roux-command", &roux_core::RouxCommand::new("focus").session_id(&existing.id));
         bring_window_to_front(app);
         return Response::success(serde_json::json!({
             "session_id": existing.id,
@@ -530,9 +513,7 @@ fn handle_split(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     use tauri::Emitter;
-    let mut cmd = roux_core::RouxCommand::new("split")
-        .session_id(session_id)
-        .direction(direction);
+    let mut cmd = roux_core::RouxCommand::new("split").session_id(session_id).direction(direction);
     if let Some(ref pane_id) = req.pane_id {
         cmd = cmd.pane_id(pane_id);
     }
@@ -558,8 +539,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         .and_then(|f| f.as_array())
         .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
-    let nono_profile =
-        req.args.get("nono_profile").and_then(|p| p.as_str()).map(|s| s.to_string());
+    let nono_profile = req.args.get("nono_profile").and_then(|p| p.as_str()).map(|s| s.to_string());
     let nono_allow_dirs: Vec<String> = req
         .args
         .get("nono_allow_dirs")
@@ -652,11 +632,7 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
     let handle = state.session_handle.clone();
 
-    let working_dir = req
-        .args
-        .get("working_dir")
-        .and_then(|d| d.as_str())
-        .map(|s| s.to_string());
+    let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
     let working_dir = match working_dir {
         Some(dir) => dir,
         None => match handle.get(session_id).await {
@@ -721,11 +697,7 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
     let handle = state.session_handle.clone();
 
-    let working_dir = req
-        .args
-        .get("working_dir")
-        .and_then(|d| d.as_str())
-        .map(|s| s.to_string());
+    let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
     let working_dir = match working_dir {
         Some(dir) => dir,
         None => match handle.get(session_id).await {
@@ -772,7 +744,11 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
 /// out so the enter/no-enter contract can be unit-tested without a real
 /// PtyManager.
 fn format_send_data(text: &str, enter: bool) -> String {
-    if enter { format!("{}\r", text) } else { text.to_string() }
+    if enter {
+        format!("{}\r", text)
+    } else {
+        text.to_string()
+    }
 }
 
 fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
@@ -872,15 +848,7 @@ async fn handle_notify(req: Request, app: &tauri::AppHandle) -> Response {
     });
 
     let notification = state.notification_manager.push(
-        NReq {
-            level,
-            source: NotificationSource::Cli,
-            title,
-            subtitle,
-            body,
-            session_id,
-            actions,
-        },
+        NReq { level, source: NotificationSource::Cli, title, subtitle, body, session_id, actions },
         Some(app),
     );
 
@@ -1195,7 +1163,11 @@ mod tests {
     fn validate_profile_id_error_omits_user_section_when_no_user_profiles() {
         let settings = crate::settings::RouxSettings::default();
         let err = validate_profile_id("typo", &settings).unwrap_err();
-        assert!(!err.contains("User profiles"), "err should not mention user profiles when empty: {}", err);
+        assert!(
+            !err.contains("User profiles"),
+            "err should not mention user profiles when empty: {}",
+            err
+        );
     }
 
     // ── Canonicalized path matching ──────────────────────────
@@ -1298,10 +1270,8 @@ mod tests {
 
     #[test]
     fn find_session_matches_on_worktree_path() {
-        let sessions = vec![
-            make_session("a", "/repo", "/repo"),
-            make_session("b", "/repo", "/wt/feat"),
-        ];
+        let sessions =
+            vec![make_session("a", "/repo", "/repo"), make_session("b", "/repo", "/wt/feat")];
         let got = find_session_for_path(&sessions, "/wt/feat").unwrap();
         assert_eq!(got.id, "b");
     }
@@ -1321,10 +1291,8 @@ mod tests {
 
     #[test]
     fn find_session_returns_first_on_multiple_matches() {
-        let sessions = vec![
-            make_session("a", "/repo", "/repo"),
-            make_session("b", "/repo", "/repo"),
-        ];
+        let sessions =
+            vec![make_session("a", "/repo", "/repo"), make_session("b", "/repo", "/repo")];
         let got = find_session_for_path(&sessions, "/repo").unwrap();
         assert_eq!(got.id, "a");
     }
@@ -1373,9 +1341,7 @@ mod tests {
 
     #[test]
     fn roux_command_serializes_profile_and_request_id_as_camel_case() {
-        let cmd = roux_core::RouxCommand::new("pane-create")
-            .profile_id("shell")
-            .request_id("r1");
+        let cmd = roux_core::RouxCommand::new("pane-create").profile_id("shell").request_id("r1");
         let json = serde_json::to_value(&cmd).unwrap();
         assert_eq!(json["profileId"], "shell");
         assert_eq!(json["requestId"], "r1");

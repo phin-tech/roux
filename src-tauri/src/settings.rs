@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 use thiserror::Error;
 
-pub use roux_core::RouxSettings;
 use crate::paths::roux_config_dir;
+pub use roux_core::RouxSettings;
 
 fn settings_path() -> PathBuf {
     roux_config_dir().join("settings.json")

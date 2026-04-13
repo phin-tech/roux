@@ -21,9 +21,7 @@ pub struct NotificationManager {
 
 impl NotificationManager {
     pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(NotificationStore::new())),
-        }
+        Self { inner: Arc::new(Mutex::new(NotificationStore::new())) }
     }
 
     /// Push a new notification and emit an `Added` event to the frontend.
@@ -37,9 +35,7 @@ impl NotificationManager {
         if let Some(app) = app {
             let _ = app.emit(
                 NOTIFICATION_EVENT,
-                &NotificationEvent::Added {
-                    notification: notification.clone(),
-                },
+                &NotificationEvent::Added { notification: notification.clone() },
             );
             self.maybe_fan_out_to_os(app, &notification);
         }
@@ -57,10 +53,8 @@ impl NotificationManager {
         // Iterate all webview windows — tauri.conf.json doesn't pin a label,
         // so the window label is not reliably "main". We report "focused" if
         // any of the app's windows currently has focus.
-        let window_focused = app
-            .webview_windows()
-            .values()
-            .any(|w| w.is_focused().unwrap_or(false));
+        let window_focused =
+            app.webview_windows().values().any(|w| w.is_focused().unwrap_or(false));
 
         let should = should_fan_out_to_os(PolicyInput {
             level: notification.level,
@@ -112,10 +106,8 @@ impl NotificationManager {
         };
         if changed {
             if let Some(app) = app {
-                let _ = app.emit(
-                    NOTIFICATION_EVENT,
-                    &NotificationEvent::Read { id: id.to_string() },
-                );
+                let _ =
+                    app.emit(NOTIFICATION_EVENT, &NotificationEvent::Read { id: id.to_string() });
             }
         }
         changed
@@ -150,10 +142,8 @@ impl NotificationManager {
         };
         if removed {
             if let Some(app) = app {
-                let _ = app.emit(
-                    NOTIFICATION_EVENT,
-                    &NotificationEvent::Removed { id: id.to_string() },
-                );
+                let _ = app
+                    .emit(NOTIFICATION_EVENT, &NotificationEvent::Removed { id: id.to_string() });
             }
         }
         removed
@@ -172,10 +162,8 @@ impl NotificationManager {
             if let Some(app) = app {
                 // Emit Cleared for now — frontend can re-query if it needs
                 // fine-grained per-id events. Phase 2 may expand this.
-                let _ = app.emit(
-                    NOTIFICATION_EVENT,
-                    &NotificationEvent::Cleared { session_id: None },
-                );
+                let _ =
+                    app.emit(NOTIFICATION_EVENT, &NotificationEvent::Cleared { session_id: None });
             }
         }
         removed

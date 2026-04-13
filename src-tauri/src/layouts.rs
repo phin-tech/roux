@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use roux_core::{LayoutSource, LayoutSpec, parse_layout_kdl};
+use roux_core::{parse_layout_kdl, LayoutSource, LayoutSpec};
 
 /// Result of loading a set of layouts from disk (or `include_str!`). Holds
 /// successful parses and parse failures separately so callers can show good
@@ -40,10 +40,7 @@ pub struct LayoutLoadError {
 /// new `.kdl` file under `layouts/builtin/`.
 const BUILTIN_LAYOUTS: &[(&str, &str)] = &[
     ("claude_shell", include_str!("layouts/builtin/claude_shell.kdl")),
-    (
-        "agent_comparison",
-        include_str!("layouts/builtin/agent_comparison.kdl"),
-    ),
+    ("agent_comparison", include_str!("layouts/builtin/agent_comparison.kdl")),
 ];
 
 /// Load all built-in layouts. The result is deterministic — same layouts in
@@ -57,10 +54,9 @@ pub fn load_builtin_layouts() -> LoadedLayouts {
         let synthetic_path = PathBuf::from(format!("<builtin>/{stem}.kdl"));
         match parse_layout_kdl(*stem, LayoutSource::Builtin, src) {
             Ok(spec) => out.layouts.push(spec),
-            Err(e) => out.errors.push(LayoutLoadError {
-                path: synthetic_path,
-                message: e.to_string(),
-            }),
+            Err(e) => {
+                out.errors.push(LayoutLoadError { path: synthetic_path, message: e.to_string() })
+            }
         }
     }
     out
@@ -171,10 +167,7 @@ pub fn load_user_layouts_in(dir: &Path) -> LoadedLayouts {
         // Only `.kdl` files. Extension match is case-insensitive only in
         // intent — we lowercase the comparison to keep `Layout.KDL` from
         // tripping up authors on case-preserving filesystems.
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_ascii_lowercase());
+        let ext = path.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase());
         if ext.as_deref() != Some("kdl") {
             continue;
         }
@@ -197,10 +190,9 @@ pub fn load_user_layouts_in(dir: &Path) -> LoadedLayouts {
 
         match parse_layout_kdl(&stem, LayoutSource::User, &src) {
             Ok(spec) => out.layouts.push(spec),
-            Err(e) => out.errors.push(LayoutLoadError {
-                path: path.clone(),
-                message: e.to_string(),
-            }),
+            Err(e) => {
+                out.errors.push(LayoutLoadError { path: path.clone(), message: e.to_string() })
+            }
         }
     }
 
@@ -231,10 +223,7 @@ mod tests {
             result.errors
         );
         let ids: Vec<&str> = result.layouts.iter().map(|l| l.id.as_str()).collect();
-        assert!(
-            ids.contains(&"claude_shell"),
-            "expected claude_shell in built-ins; got {ids:?}"
-        );
+        assert!(ids.contains(&"claude_shell"), "expected claude_shell in built-ins; got {ids:?}");
         assert!(
             ids.contains(&"agent_comparison"),
             "expected agent_comparison in built-ins; got {ids:?}"
@@ -260,10 +249,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         write(&tmp.path().join("good.kdl"), VALID_KDL);
         // Malformed KDL: unterminated string and missing braces.
-        write(
-            &tmp.path().join("bad.kdl"),
-            r#"layout { name "oops "#,
-        );
+        write(&tmp.path().join("bad.kdl"), r#"layout { name "oops "#);
 
         let result = load_user_layouts_in(tmp.path());
         assert_eq!(
@@ -273,12 +259,7 @@ mod tests {
             result.layouts
         );
         assert_eq!(result.layouts[0].id, "good");
-        assert_eq!(
-            result.errors.len(),
-            1,
-            "expected exactly one error; got {:?}",
-            result.errors
-        );
+        assert_eq!(result.errors.len(), 1, "expected exactly one error; got {:?}", result.errors);
         let err_path = &result.errors[0].path;
         assert!(
             err_path.ends_with("bad.kdl"),
@@ -314,11 +295,7 @@ mod tests {
         let result = load_user_layouts_in(tmp.path());
         assert!(result.errors.is_empty(), "got errors: {:?}", result.errors);
         let ids: Vec<&str> = result.layouts.iter().map(|l| l.id.as_str()).collect();
-        assert_eq!(
-            ids,
-            vec!["good"],
-            "nested file should be ignored; got {ids:?}"
-        );
+        assert_eq!(ids, vec!["good"], "nested file should be ignored; got {ids:?}");
     }
 
     #[test]
@@ -342,11 +319,7 @@ mod tests {
         let result = load_user_layouts_in(tmp.path());
         assert!(result.errors.is_empty(), "got errors: {:?}", result.errors);
         let ids: Vec<&str> = result.layouts.iter().map(|l| l.id.as_str()).collect();
-        assert_eq!(
-            ids,
-            vec!["real"],
-            "symlink should be skipped; got {ids:?}"
-        );
+        assert_eq!(ids, vec!["real"], "symlink should be skipped; got {ids:?}");
     }
 
     #[test]

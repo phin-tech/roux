@@ -21,46 +21,21 @@
 //! 5. Include a `Shutdown` variant for graceful cleanup
 
 use std::path::PathBuf;
-use tokio::sync::{mpsc, oneshot};
 use tauri::async_runtime::JoinHandle;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{interval, Duration};
 
 use crate::session::Session;
 
 enum SessionMsg {
-    Add {
-        session: Session,
-        reply: oneshot::Sender<()>,
-    },
-    Remove {
-        id: String,
-        reply: oneshot::Sender<()>,
-    },
-    Get {
-        id: String,
-        reply: oneshot::Sender<Option<Session>>,
-    },
-    List {
-        reply: oneshot::Sender<Vec<Session>>,
-    },
-    UpdateStatus {
-        id: String,
-        status: roux_core::SessionStatus,
-        reply: oneshot::Sender<()>,
-    },
-    SetGitRepo {
-        id: String,
-        is_git_repo: bool,
-        reply: oneshot::Sender<()>,
-    },
-    SetProject {
-        id: String,
-        project_id: Option<String>,
-        reply: oneshot::Sender<()>,
-    },
-    Shutdown {
-        reply: oneshot::Sender<()>,
-    },
+    Add { session: Session, reply: oneshot::Sender<()> },
+    Remove { id: String, reply: oneshot::Sender<()> },
+    Get { id: String, reply: oneshot::Sender<Option<Session>> },
+    List { reply: oneshot::Sender<Vec<Session>> },
+    UpdateStatus { id: String, status: roux_core::SessionStatus, reply: oneshot::Sender<()> },
+    SetGitRepo { id: String, is_git_repo: bool, reply: oneshot::Sender<()> },
+    SetProject { id: String, project_id: Option<String>, reply: oneshot::Sender<()> },
+    Shutdown { reply: oneshot::Sender<()> },
 }
 
 /// Error returned when the session service is unavailable (task exited or channel closed).
@@ -102,33 +77,29 @@ impl SessionHandle {
         reply_rx.await.map_err(|_| ServiceError)
     }
 
-    pub async fn update_status(&self, id: &str, status: roux_core::SessionStatus) -> Result<(), ServiceError> {
+    pub async fn update_status(
+        &self,
+        id: &str,
+        status: roux_core::SessionStatus,
+    ) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(SessionMsg::UpdateStatus {
-            id: id.to_string(),
-            status,
-            reply: reply_tx,
-        })?;
+        self.send(SessionMsg::UpdateStatus { id: id.to_string(), status, reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
     pub async fn set_git_repo(&self, id: &str, is_git_repo: bool) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(SessionMsg::SetGitRepo {
-            id: id.to_string(),
-            is_git_repo,
-            reply: reply_tx,
-        })?;
+        self.send(SessionMsg::SetGitRepo { id: id.to_string(), is_git_repo, reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
-    pub async fn set_project(&self, id: &str, project_id: Option<String>) -> Result<(), ServiceError> {
+    pub async fn set_project(
+        &self,
+        id: &str,
+        project_id: Option<String>,
+    ) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(SessionMsg::SetProject {
-            id: id.to_string(),
-            project_id,
-            reply: reply_tx,
-        })?;
+        self.send(SessionMsg::SetProject { id: id.to_string(), project_id, reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 

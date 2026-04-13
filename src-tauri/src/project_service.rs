@@ -41,7 +41,11 @@ impl ProjectHandle {
 
     pub async fn rename(&self, id: &str, name: &str) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(ProjectMsg::Rename { id: id.to_string(), name: name.to_string(), reply: reply_tx })?;
+        self.send(ProjectMsg::Rename {
+            id: id.to_string(),
+            name: name.to_string(),
+            reply: reply_tx,
+        })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 

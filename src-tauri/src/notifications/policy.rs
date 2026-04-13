@@ -44,12 +44,11 @@ pub fn should_fan_out_to_os(input: PolicyInput<'_>) -> bool {
     }
 
     match input.level {
-        NotificationLevel::Attention
-        | NotificationLevel::Warning
-        | NotificationLevel::Error => true,
+        NotificationLevel::Attention | NotificationLevel::Warning | NotificationLevel::Error => {
+            true
+        }
         NotificationLevel::Info | NotificationLevel::Success => {
-            matches!(input.source, NotificationSource::Watch { .. })
-                && !input.window_focused
+            matches!(input.source, NotificationSource::Watch { .. }) && !input.window_focused
         }
     }
 }
@@ -74,22 +73,12 @@ mod tests {
 
     #[test]
     fn kill_switch_suppresses_everything() {
-        assert!(!input(
-            NotificationLevel::Error,
-            NotificationSource::Internal,
-            false,
-            false,
-        ));
+        assert!(!input(NotificationLevel::Error, NotificationSource::Internal, false, false,));
     }
 
     #[test]
     fn error_fires_even_when_focused() {
-        assert!(input(
-            NotificationLevel::Error,
-            NotificationSource::Internal,
-            true,
-            true,
-        ));
+        assert!(input(NotificationLevel::Error, NotificationSource::Internal, true, true,));
     }
 
     #[test]
@@ -124,12 +113,7 @@ mod tests {
 
     #[test]
     fn error_fires_when_unfocused() {
-        assert!(input(
-            NotificationLevel::Error,
-            NotificationSource::Cli,
-            false,
-            true,
-        ));
+        assert!(input(NotificationLevel::Error, NotificationSource::Cli, false, true,));
     }
 
     #[test]
@@ -156,12 +140,7 @@ mod tests {
 
     #[test]
     fn info_from_internal_source_does_not_fire() {
-        assert!(!input(
-            NotificationLevel::Info,
-            NotificationSource::Internal,
-            false,
-            true,
-        ));
+        assert!(!input(NotificationLevel::Info, NotificationSource::Internal, false, true,));
     }
 
     #[test]

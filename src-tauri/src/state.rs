@@ -11,8 +11,7 @@ use crate::session_service::SessionHandle;
 /// Correlation map for socket-driven request/response round-trips with the
 /// frontend. Used by `session-panes-list` / `session-panes-create` where the
 /// reply data lives in Svelte stores.
-pub(crate) type PendingReplies =
-    Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>;
+pub(crate) type PendingReplies = Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>;
 
 pub(crate) struct AppState {
     pub(crate) settings: Mutex<crate::settings::RouxSettings>,

@@ -5,8 +5,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-mod platform;
 mod paths;
+mod platform;
 
 #[derive(Parser)]
 #[command(name = "roux-cli", about = "Roux terminal manager CLI")]
@@ -280,16 +280,9 @@ fn send_socket_command(request: Value) -> Result<Value, String> {
 
 fn resolve_path(path: &str) -> String {
     let p = std::path::PathBuf::from(path);
-    let absolute = if p.is_absolute() {
-        p
-    } else {
-        std::env::current_dir().unwrap_or_default().join(p)
-    };
-    absolute
-        .canonicalize()
-        .unwrap_or(absolute)
-        .to_string_lossy()
-        .to_string()
+    let absolute =
+        if p.is_absolute() { p } else { std::env::current_dir().unwrap_or_default().join(p) };
+    absolute.canonicalize().unwrap_or(absolute).to_string_lossy().to_string()
 }
 
 fn get_session_id() -> Option<String> {
@@ -500,8 +493,7 @@ mod tests {
 
     #[test]
     fn cli_parses_session_poll_with_session_id() {
-        let cli =
-            Cli::try_parse_from(["roux-cli", "session", "poll", "-s", "sid-1"]).unwrap();
+        let cli = Cli::try_parse_from(["roux-cli", "session", "poll", "-s", "sid-1"]).unwrap();
         match cli.command {
             Commands::Session { action: SessionAction::Poll { session } } => {
                 assert_eq!(session.as_deref(), Some("sid-1"));
@@ -514,9 +506,7 @@ mod tests {
     fn cli_parses_session_send_default_has_enter_true() {
         let cli = Cli::try_parse_from(["roux-cli", "session", "send", "hello"]).unwrap();
         match cli.command {
-            Commands::Session {
-                action: SessionAction::Send { text, no_enter, .. },
-            } => {
+            Commands::Session { action: SessionAction::Send { text, no_enter, .. } } => {
                 assert_eq!(text, "hello");
                 assert!(!no_enter, "--no-enter not passed, so no_enter must be false");
             }
@@ -526,29 +516,21 @@ mod tests {
 
     #[test]
     fn cli_parses_session_send_with_no_enter_flag() {
-        let cli = Cli::try_parse_from([
-            "roux-cli", "session", "send", "hello", "--no-enter",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["roux-cli", "session", "send", "hello", "--no-enter"]).unwrap();
         match cli.command {
-            Commands::Session {
-                action: SessionAction::Send { no_enter, .. },
-            } => assert!(no_enter),
+            Commands::Session { action: SessionAction::Send { no_enter, .. } } => assert!(no_enter),
             _ => panic!("expected Session::Send"),
         }
     }
 
     #[test]
     fn cli_parses_session_send_with_session_and_pane() {
-        let cli = Cli::try_parse_from([
-            "roux-cli", "session", "send", "hi",
-            "-s", "sid", "-p", "pid",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["roux-cli", "session", "send", "hi", "-s", "sid", "-p", "pid"])
+                .unwrap();
         match cli.command {
-            Commands::Session {
-                action: SessionAction::Send { session, pane, .. },
-            } => {
+            Commands::Session { action: SessionAction::Send { session, pane, .. } } => {
                 assert_eq!(session.as_deref(), Some("sid"));
                 assert_eq!(pane.as_deref(), Some("pid"));
             }
@@ -559,15 +541,25 @@ mod tests {
     #[test]
     fn cli_parses_session_create_with_full_options() {
         let cli = Cli::try_parse_from([
-            "roux-cli", "session", "create",
-            "--name", "feat-x",
-            "--worktree-branch", "feat/x",
-            "--profile", "claude",
-            "-f", "--debug",
-            "-f", "--model=opus",
-            "--nono-profile", "strict",
-            "--nono-allow-dir", "~/work",
-            "--nono-allow-dir", "/tmp",
+            "roux-cli",
+            "session",
+            "create",
+            "--name",
+            "feat-x",
+            "--worktree-branch",
+            "feat/x",
+            "--profile",
+            "claude",
+            "-f",
+            "--debug",
+            "-f",
+            "--model=opus",
+            "--nono-profile",
+            "strict",
+            "--nono-allow-dir",
+            "~/work",
+            "--nono-allow-dir",
+            "/tmp",
         ])
         .unwrap();
         match cli.command {
@@ -597,10 +589,8 @@ mod tests {
 
     #[test]
     fn cli_parses_session_panes_list_with_session() {
-        let cli = Cli::try_parse_from([
-            "roux-cli", "session", "panes", "list", "-s", "sid",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["roux-cli", "session", "panes", "list", "-s", "sid"]).unwrap();
         match cli.command {
             Commands::Session {
                 action: SessionAction::Panes { action: PaneAction::List { session } },
@@ -613,21 +603,13 @@ mod tests {
 
     #[test]
     fn cli_parses_session_panes_create_defaults() {
-        let cli = Cli::try_parse_from([
-            "roux-cli", "session", "panes", "create", "-s", "sid",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["roux-cli", "session", "panes", "create", "-s", "sid"]).unwrap();
         match cli.command {
             Commands::Session {
                 action:
                     SessionAction::Panes {
-                        action:
-                            PaneAction::Create {
-                                session,
-                                profile,
-                                direction,
-                                working_dir,
-                            },
+                        action: PaneAction::Create { session, profile, direction, working_dir },
                     },
             } => {
                 assert_eq!(session.as_deref(), Some("sid"));
@@ -642,10 +624,7 @@ mod tests {
     #[test]
     fn cli_parses_session_panes_create_with_all_options() {
         let cli = Cli::try_parse_from([
-            "roux-cli", "session", "panes", "create",
-            "-s", "sid",
-            "-P", "shell",
-            "-d", "vertical",
+            "roux-cli", "session", "panes", "create", "-s", "sid", "-P", "shell", "-d", "vertical",
             "-w", "/tmp",
         ])
         .unwrap();
@@ -653,13 +632,7 @@ mod tests {
             Commands::Session {
                 action:
                     SessionAction::Panes {
-                        action:
-                            PaneAction::Create {
-                                profile,
-                                direction,
-                                working_dir,
-                                ..
-                            },
+                        action: PaneAction::Create { profile, direction, working_dir, .. },
                     },
             } => {
                 assert_eq!(profile.as_deref(), Some("shell"));

@@ -21,10 +21,7 @@ impl NotificationStore {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            entries: VecDeque::with_capacity(capacity.min(64)),
-            capacity,
-        }
+        Self { entries: VecDeque::with_capacity(capacity.min(64)), capacity }
     }
 
     /// Push a new notification. Returns the stored notification (with id/created_at filled in).
@@ -125,8 +122,7 @@ impl NotificationStore {
     /// This matches the "dismiss all from source X" UX.
     pub fn remove_by_source_variant(&mut self, source: &NotificationSource) -> usize {
         let before = self.entries.len();
-        self.entries
-            .retain(|n| !same_source_variant(&n.source, source));
+        self.entries.retain(|n| !same_source_variant(&n.source, source));
         before - self.entries.len()
     }
 
@@ -135,8 +131,7 @@ impl NotificationStore {
         match session_filter {
             None => self.entries.clear(),
             Some(filter) => {
-                self.entries
-                    .retain(|n| n.session_id.as_deref() != filter);
+                self.entries.retain(|n| n.session_id.as_deref() != filter);
             }
         }
         before - self.entries.len()
@@ -279,22 +274,10 @@ mod tests {
         let mut store = NotificationStore::new();
         store.push(test_request(L::Info, S::Cli, "cli-1", None));
         store.push(test_request(L::Info, S::Cli, "cli-2", None));
-        store.push(test_request(
-            L::Info,
-            S::Watch { watch_id: "w1".into() },
-            "watch-1",
-            None,
-        ));
-        store.push(test_request(
-            L::Info,
-            S::Watch { watch_id: "w2".into() },
-            "watch-2",
-            None,
-        ));
+        store.push(test_request(L::Info, S::Watch { watch_id: "w1".into() }, "watch-1", None));
+        store.push(test_request(L::Info, S::Watch { watch_id: "w2".into() }, "watch-2", None));
 
-        let removed = store.remove_by_source_variant(&S::Watch {
-            watch_id: "irrelevant".into(),
-        });
+        let removed = store.remove_by_source_variant(&S::Watch { watch_id: "irrelevant".into() });
         assert_eq!(removed, 2);
         assert_eq!(store.len(), 2);
         let remaining: Vec<_> = store.list().iter().map(|n| n.title.clone()).collect();

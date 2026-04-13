@@ -71,16 +71,22 @@ impl WatchManager {
 
     pub async fn pause_watch(&self, id: &str, app: &tauri::AppHandle) {
         self.cancel_watch(id);
-        let _ = self.store.update(id, |w| {
-            w.runtime_state = RuntimeState::Paused;
-        }).await;
+        let _ = self
+            .store
+            .update(id, |w| {
+                w.runtime_state = RuntimeState::Paused;
+            })
+            .await;
         self.emit_watch_update(id, app).await;
     }
 
     pub async fn resume_watch(&self, id: &str, app: tauri::AppHandle) {
-        let _ = self.store.update(id, |w| {
-            w.runtime_state = RuntimeState::Active;
-        }).await;
+        let _ = self
+            .store
+            .update(id, |w| {
+                w.runtime_state = RuntimeState::Active;
+            })
+            .await;
         self.emit_watch_update(id, &app).await;
         self.spawn_watch(id.to_string(), None, app);
     }
@@ -156,15 +162,20 @@ impl WatchManager {
                     .as_millis() as u64;
 
                 let result_clone = result.clone();
-                let _ = store.update(&watch_id, move |w| {
-                    w.last_result = Some(result_clone);
-                    w.last_checked = Some(now);
-                    w.runtime_state = RuntimeState::Active;
-                }).await;
+                let _ = store
+                    .update(&watch_id, move |w| {
+                        w.last_result = Some(result_clone);
+                        w.last_checked = Some(now);
+                        w.runtime_state = RuntimeState::Active;
+                    })
+                    .await;
 
                 if let Ok(Some(updated_watch)) = store.get(&watch_id).await {
-                    let event =
-                        WatchUpdateEvent { watch: updated_watch.clone(), changed, previous_outcome };
+                    let event = WatchUpdateEvent {
+                        watch: updated_watch.clone(),
+                        changed,
+                        previous_outcome,
+                    };
                     let _ = app.emit("watch-update", &event);
 
                     // Desktop notification with flap debouncing
@@ -184,10 +195,12 @@ impl WatchManager {
                         let should_notify = !suppress
                             && match outcome {
                                 Some(WatchOutcome::Failure) => {
-                                    updated_watch.notify.desktop_notification && updated_watch.notify.on_failure
+                                    updated_watch.notify.desktop_notification
+                                        && updated_watch.notify.on_failure
                                 }
                                 Some(WatchOutcome::Success) => {
-                                    updated_watch.notify.desktop_notification && updated_watch.notify.on_success
+                                    updated_watch.notify.desktop_notification
+                                        && updated_watch.notify.on_success
                                 }
                                 _ => false,
                             };
@@ -199,18 +212,36 @@ impl WatchManager {
                             };
                             let body = match &updated_watch.last_result {
                                 Some(WatchResult::GithubRun { conclusion, url, .. }) => {
-                                    format!("{} — {}", conclusion.as_deref().unwrap_or("unknown"), url)
+                                    format!(
+                                        "{} — {}",
+                                        conclusion.as_deref().unwrap_or("unknown"),
+                                        url
+                                    )
                                 }
-                                Some(WatchResult::HttpCheck { status_code, response_time_ms, .. }) => {
+                                Some(WatchResult::HttpCheck {
+                                    status_code,
+                                    response_time_ms,
+                                    ..
+                                }) => {
                                     format!("HTTP {} ({}ms)", status_code, response_time_ms)
                                 }
                                 Some(WatchResult::CommandRun { exit_code, .. }) => {
                                     format!("Exit code: {}", exit_code)
                                 }
                                 Some(WatchResult::GithubPr { state, checks, reviews, .. }) => {
-                                    let passed = checks.iter().filter(|c| c.conclusion.as_deref() == Some("success")).count();
-                                    let approvals = reviews.iter().filter(|r| r.state == "approved").count();
-                                    format!("{} — {}/{} checks passed, {} approval(s)", state, passed, checks.len(), approvals)
+                                    let passed = checks
+                                        .iter()
+                                        .filter(|c| c.conclusion.as_deref() == Some("success"))
+                                        .count();
+                                    let approvals =
+                                        reviews.iter().filter(|r| r.state == "approved").count();
+                                    format!(
+                                        "{} — {}/{} checks passed, {} approval(s)",
+                                        state,
+                                        passed,
+                                        checks.len(),
+                                        approvals
+                                    )
                                 }
                                 None => String::new(),
                             };
@@ -232,9 +263,7 @@ impl WatchManager {
                                 actions.push(NotificationAction {
                                     id: "focus".into(),
                                     label: "Focus session".into(),
-                                    kind: ActionKind::FocusSession {
-                                        session_id: sid.clone(),
-                                    },
+                                    kind: ActionKind::FocusSession { session_id: sid.clone() },
                                     primary: true,
                                 });
                             }
@@ -283,7 +312,10 @@ impl WatchManager {
                 let should_stop = matches!(watch.mode, WatchMode::OneShot)
                     || matches!(
                         (&watch.kind, &new_outcome),
-                        (WatchKind::GithubAction { .. }, WatchOutcome::Success | WatchOutcome::Failure)
+                        (
+                            WatchKind::GithubAction { .. },
+                            WatchOutcome::Success | WatchOutcome::Failure
+                        )
                     )
                     || matches!(
                         (&watch.kind, &result),
@@ -291,9 +323,11 @@ impl WatchManager {
                         if state == "merged" || state == "closed"
                     );
                 if should_stop {
-                    let _ = store.update(&watch_id, |w| {
-                        w.runtime_state = RuntimeState::Stopped;
-                    }).await;
+                    let _ = store
+                        .update(&watch_id, |w| {
+                            w.runtime_state = RuntimeState::Stopped;
+                        })
+                        .await;
                     break;
                 }
 

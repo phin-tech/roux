@@ -113,26 +113,14 @@ pub struct LayoutSpec {
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum LayoutParseError {
     #[error("kdl parse error at {line}:{column}: {message}")]
-    Syntax {
-        line: usize,
-        column: usize,
-        message: String,
-    },
+    Syntax { line: usize, column: usize, message: String },
     #[error("{message} at {line}:{column}")]
-    Schema {
-        line: usize,
-        column: usize,
-        message: String,
-    },
+    Schema { line: usize, column: usize, message: String },
 }
 
 impl LayoutParseError {
     fn schema(loc: (usize, usize), message: impl Into<String>) -> Self {
-        Self::Schema {
-            line: loc.0,
-            column: loc.1,
-            message: message.into(),
-        }
+        Self::Schema { line: loc.0, column: loc.1, message: message.into() }
     }
 }
 
@@ -154,20 +142,10 @@ pub fn parse_layout_kdl(
             .first()
             .map(|d| {
                 let (l, c) = offset_to_line_col(src, d.span.offset());
-                (
-                    l,
-                    c,
-                    d.message
-                        .clone()
-                        .unwrap_or_else(|| "invalid KDL syntax".to_string()),
-                )
+                (l, c, d.message.clone().unwrap_or_else(|| "invalid KDL syntax".to_string()))
             })
             .unwrap_or_else(|| (0, 0, "invalid KDL syntax".to_string()));
-        LayoutParseError::Syntax {
-            line,
-            column,
-            message,
-        }
+        LayoutParseError::Syntax { line, column, message }
     })?;
 
     let top_nodes: Vec<&kdl::KdlNode> = doc.nodes().iter().collect();
@@ -245,10 +223,7 @@ fn parse_layout_node(
     }
 
     let children = node.children().ok_or_else(|| {
-        LayoutParseError::schema(
-            node_loc(src, node),
-            "`layout` must have a body `{ ... }`",
-        )
+        LayoutParseError::schema(node_loc(src, node), "`layout` must have a body `{ ... }`")
     })?;
 
     let mut name: Option<String> = None;
@@ -296,13 +271,7 @@ fn parse_layout_node(
         )
     })?;
 
-    Ok(LayoutSpec {
-        id,
-        name,
-        description,
-        source,
-        root,
-    })
+    Ok(LayoutSpec { id, name, description, source, root })
 }
 
 /// Expect a node with exactly one positional string argument and no
@@ -349,10 +318,7 @@ struct PaneAttrs {
 }
 
 /// Parse a single `pane` node — either a leaf or a container.
-fn parse_pane_node(
-    src: &str,
-    node: &kdl::KdlNode,
-) -> Result<LayoutPaneNode, LayoutParseError> {
+fn parse_pane_node(src: &str, node: &kdl::KdlNode) -> Result<LayoutPaneNode, LayoutParseError> {
     let mut attrs = PaneAttrs::default();
 
     for entry in node.entries() {
@@ -406,10 +372,7 @@ fn parse_pane_node(
         ));
     }
 
-    let has_children = node
-        .children()
-        .map(|d| !d.nodes().is_empty())
-        .unwrap_or(false);
+    let has_children = node.children().map(|d| !d.nodes().is_empty()).unwrap_or(false);
 
     // Decision tree: split vs leaf vs inline-profile leaf.
     //
@@ -441,9 +404,7 @@ fn parse_split_pane(
         other => {
             return Err(LayoutParseError::schema(
                 node_loc(src, node),
-                format!(
-                    "invalid `split_direction` `{other}`; valid values: horizontal, vertical"
-                ),
+                format!("invalid `split_direction` `{other}`; valid values: horizontal, vertical"),
             ));
         }
     };
@@ -486,19 +447,13 @@ fn parse_split_pane(
         if cname != "pane" {
             return Err(LayoutParseError::schema(
                 node_loc(src, child),
-                format!(
-                    "unexpected child `{cname}` inside split pane; only `pane` is allowed"
-                ),
+                format!("unexpected child `{cname}` inside split pane; only `pane` is allowed"),
             ));
         }
         children.push(parse_pane_node(src, child)?);
     }
 
-    Ok(LayoutPaneNode::Split {
-        direction,
-        size: attrs.size,
-        children,
-    })
+    Ok(LayoutPaneNode::Split { direction, size: attrs.size, children })
 }
 
 fn parse_leaf_pane(
@@ -574,11 +529,8 @@ fn parse_nono_flags_from_children(
     src: &str,
     body: &kdl::KdlDocument,
 ) -> Result<Option<Vec<String>>, LayoutParseError> {
-    let nono_nodes: Vec<&kdl::KdlNode> = body
-        .nodes()
-        .iter()
-        .filter(|n| n.name().value() == "nono_flags")
-        .collect();
+    let nono_nodes: Vec<&kdl::KdlNode> =
+        body.nodes().iter().filter(|n| n.name().value() == "nono_flags").collect();
 
     let nono_node = match nono_nodes.as_slice() {
         [] => return Ok(None),
@@ -600,10 +552,7 @@ fn parse_nono_flags_from_children(
     }
 
     let flags_body = nono_node.children().ok_or_else(|| {
-        LayoutParseError::schema(
-            node_loc(src, nono_node),
-            "`nono_flags` requires a body `{ ... }`",
-        )
+        LayoutParseError::schema(node_loc(src, nono_node), "`nono_flags` requires a body `{ ... }`")
     })?;
 
     let mut dirs = Vec::new();
@@ -615,9 +564,7 @@ fn parse_nono_flags_from_children(
             other => {
                 return Err(LayoutParseError::schema(
                     node_loc(src, child),
-                    format!(
-                        "unknown `nono_flags` child `{other}`; valid: allow_dir"
-                    ),
+                    format!("unknown `nono_flags` child `{other}`; valid: allow_dir"),
                 ));
             }
         }
@@ -626,11 +573,7 @@ fn parse_nono_flags_from_children(
     Ok(Some(dirs))
 }
 
-fn string_value(
-    src: &str,
-    entry: &kdl::KdlEntry,
-    what: &str,
-) -> Result<String, LayoutParseError> {
+fn string_value(src: &str, entry: &kdl::KdlEntry, what: &str) -> Result<String, LayoutParseError> {
     match entry.value() {
         kdl::KdlValue::String(s) => Ok(s.clone()),
         _ => Err(LayoutParseError::schema(
@@ -640,11 +583,7 @@ fn string_value(
     }
 }
 
-fn number_value(
-    src: &str,
-    entry: &kdl::KdlEntry,
-    what: &str,
-) -> Result<f32, LayoutParseError> {
+fn number_value(src: &str, entry: &kdl::KdlEntry, what: &str) -> Result<f32, LayoutParseError> {
     match entry.value() {
         kdl::KdlValue::Integer(i) => Ok(*i as f32),
         kdl::KdlValue::Float(f) => Ok(*f as f32),
@@ -770,12 +709,10 @@ fn parse_inline_profile(
     // that's the profile's display name. Falls back to an explicit
     // `display_name` child, then to a generic label anchored to the pane
     // node's location.
-    let name = display_name
-        .or_else(|| pane_name.map(|s| s.to_string()))
-        .unwrap_or_else(|| {
-            let (line, _) = node_loc(src, pane_node);
-            format!("inline pane at line {line}")
-        });
+    let name = display_name.or_else(|| pane_name.map(|s| s.to_string())).unwrap_or_else(|| {
+        let (line, _) = node_loc(src, pane_node);
+        format!("inline pane at line {line}")
+    });
 
     Ok(SpawnProfile {
         // Inline profiles have no registry id. We mint a synthetic one so
@@ -834,11 +771,15 @@ mod tests {
         assert_eq!(spec.description, None);
         assert_eq!(spec.source, LayoutSource::User);
         match spec.root {
-            LayoutPaneNode::Leaf { profile_ref, name, size, cwd, nono_profile, nono_allow_dirs } => {
-                assert_eq!(
-                    profile_ref,
-                    LayoutProfileRef::Registered { id: "claude".into() }
-                );
+            LayoutPaneNode::Leaf {
+                profile_ref,
+                name,
+                size,
+                cwd,
+                nono_profile,
+                nono_allow_dirs,
+            } => {
+                assert_eq!(profile_ref, LayoutProfileRef::Registered { id: "claude".into() });
                 assert_eq!(name, None);
                 assert_eq!(size, None);
                 assert_eq!(cwd, None);
@@ -912,20 +853,14 @@ mod tests {
                 assert_eq!(inner.len(), 2);
                 match &inner[0] {
                     LayoutPaneNode::Leaf { profile_ref, size, .. } => {
-                        assert_eq!(
-                            profile_ref,
-                            &LayoutProfileRef::Registered { id: "b".into() }
-                        );
+                        assert_eq!(profile_ref, &LayoutProfileRef::Registered { id: "b".into() });
                         assert_eq!(*size, Some(60.0));
                     }
                     other => panic!("expected inner Leaf b, got {other:?}"),
                 }
                 match &inner[1] {
                     LayoutPaneNode::Leaf { profile_ref, size, .. } => {
-                        assert_eq!(
-                            profile_ref,
-                            &LayoutProfileRef::Registered { id: "c".into() }
-                        );
+                        assert_eq!(profile_ref, &LayoutProfileRef::Registered { id: "c".into() });
                         assert_eq!(*size, Some(40.0));
                     }
                     other => panic!("expected inner Leaf c, got {other:?}"),
@@ -1138,10 +1073,7 @@ mod tests {
         }"#;
         let (line, column, message) = expect_schema_err(parse(src));
         assert!(line > 0 && column > 0);
-        assert!(
-            message.contains("name"),
-            "should mention missing name: {message}"
-        );
+        assert!(message.contains("name"), "should mention missing name: {message}");
     }
 
     #[test]
@@ -1170,10 +1102,7 @@ mod tests {
         }"#;
         let (line, column, message) = expect_schema_err(parse(src));
         assert!(line > 0 && column > 0);
-        assert!(
-            message.contains("cwd"),
-            "should mention cwd: {message}"
-        );
+        assert!(message.contains("cwd"), "should mention cwd: {message}");
     }
 
     #[test]
@@ -1308,7 +1237,9 @@ mod tests {
         let err = parse(src).unwrap_err();
         // Should reject because you can't mix inline profile fields with profile="id"
         let msg = err.to_string().to_lowercase();
-        assert!(msg.contains("mutually exclusive") || msg.contains("cannot") || msg.contains("profile"));
+        assert!(
+            msg.contains("mutually exclusive") || msg.contains("cannot") || msg.contains("profile")
+        );
     }
 
     #[test]

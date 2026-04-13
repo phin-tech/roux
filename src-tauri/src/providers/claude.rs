@@ -33,11 +33,8 @@ pub fn default_profiles(settings: &RouxSettings) -> Vec<SpawnProfile> {
 }
 
 fn build_startup_command(settings: &RouxSettings) -> String {
-    let binary = settings
-        .claude_binary_path
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .unwrap_or("claude");
+    let binary =
+        settings.claude_binary_path.as_deref().filter(|s| !s.is_empty()).unwrap_or("claude");
     let mut cmd = shell_quote(binary);
     if let Some(model) = settings.default_model.as_deref().filter(|s| !s.is_empty()) {
         cmd.push_str(" --model ");

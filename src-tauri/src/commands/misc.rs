@@ -24,7 +24,10 @@ pub(crate) fn cmd_open_in_editor(path: String) -> Result<(), String> {
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn quit_app(state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) async fn quit_app(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     state.pty_manager.shutdown_all();
     state.session_handle.shutdown().await;
     state.project_handle.shutdown().await;

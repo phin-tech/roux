@@ -52,7 +52,11 @@ pub async fn cmd_list_watches(state: tauri::State<'_, AppState>) -> Result<Vec<W
 
 #[tauri::command]
 #[specta::specta]
-pub async fn cmd_pause_watch(id: String, state: tauri::State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
+pub async fn cmd_pause_watch(
+    id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     state.watch_manager.pause_watch(&id, &app).await;
     Ok(())
 }

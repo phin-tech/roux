@@ -6,13 +6,34 @@ use tokio::time::{interval, Duration};
 use roux_core::{RuntimeState, Watch, WatchScope};
 
 enum WatchMsg {
-    Add { watch: Watch, reply: oneshot::Sender<()> },
-    Remove { id: String, reply: oneshot::Sender<()> },
-    Get { id: String, reply: oneshot::Sender<Option<Watch>> },
-    List { reply: oneshot::Sender<Vec<Watch>> },
-    Update { id: String, f: Box<dyn FnOnce(&mut Watch) + Send>, reply: oneshot::Sender<()> },
-    CleanupOrphans { session_ids: Vec<String>, project_ids: Vec<String>, reply: oneshot::Sender<()> },
-    Shutdown { reply: oneshot::Sender<()> },
+    Add {
+        watch: Watch,
+        reply: oneshot::Sender<()>,
+    },
+    Remove {
+        id: String,
+        reply: oneshot::Sender<()>,
+    },
+    Get {
+        id: String,
+        reply: oneshot::Sender<Option<Watch>>,
+    },
+    List {
+        reply: oneshot::Sender<Vec<Watch>>,
+    },
+    Update {
+        id: String,
+        f: Box<dyn FnOnce(&mut Watch) + Send>,
+        reply: oneshot::Sender<()>,
+    },
+    CleanupOrphans {
+        session_ids: Vec<String>,
+        project_ids: Vec<String>,
+        reply: oneshot::Sender<()>,
+    },
+    Shutdown {
+        reply: oneshot::Sender<()>,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -53,13 +74,21 @@ impl WatchStoreHandle {
         reply_rx.await.map_err(|_| ServiceError)
     }
 
-    pub async fn update(&self, id: &str, f: impl FnOnce(&mut Watch) + Send + 'static) -> Result<(), ServiceError> {
+    pub async fn update(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut Watch) + Send + 'static,
+    ) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(WatchMsg::Update { id: id.to_string(), f: Box::new(f), reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
-    pub async fn cleanup_orphans(&self, session_ids: Vec<String>, project_ids: Vec<String>) -> Result<(), ServiceError> {
+    pub async fn cleanup_orphans(
+        &self,
+        session_ids: Vec<String>,
+        project_ids: Vec<String>,
+    ) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(WatchMsg::CleanupOrphans { session_ids, project_ids, reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
@@ -197,7 +226,10 @@ mod tests {
         Watch {
             id: id.to_string(),
             name: format!("Watch {}", id),
-            kind: WatchKind::HttpHealth { url: "http://localhost".to_string(), expected_status: 200 },
+            kind: WatchKind::HttpHealth {
+                url: "http://localhost".to_string(),
+                expected_status: 200,
+            },
             mode: WatchMode::Recurring { interval_secs: 30 },
             scope: WatchScope::Global,
             runtime_state: RuntimeState::Pending,

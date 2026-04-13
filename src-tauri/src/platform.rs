@@ -135,7 +135,11 @@ fn windows_command_candidates(file_name: &str) -> Vec<String> {
                 .split(';')
                 .filter_map(|ext| {
                     let ext = ext.trim();
-                    if ext.is_empty() { None } else { Some(ext.to_string()) }
+                    if ext.is_empty() {
+                        None
+                    } else {
+                        Some(ext.to_string())
+                    }
                 })
                 .collect::<Vec<_>>()
         })

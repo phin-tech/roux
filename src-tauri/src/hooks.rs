@@ -324,8 +324,8 @@ fn hook_entry_contains_command(entry: &Value, expected: &str) -> bool {
 }
 
 fn hook_entry_matches_expected(entry: &Value, expected: &Value) -> bool {
-    let matcher_matches =
-        entry.get("matcher").and_then(|m| m.as_str()) == expected.get("matcher").and_then(|m| m.as_str());
+    let matcher_matches = entry.get("matcher").and_then(|m| m.as_str())
+        == expected.get("matcher").and_then(|m| m.as_str());
     matcher_matches
         && expected
             .get("hooks")
@@ -351,8 +351,10 @@ fn hook_config_contains_expected_entries(settings: &Value, expected: &Value) -> 
         let Some(expected_entries) = expected_entries.as_array() else {
             return false;
         };
-        let Some(existing_entries) =
-            settings.get("hooks").and_then(|h| h.get(event_name)).and_then(|entries| entries.as_array())
+        let Some(existing_entries) = settings
+            .get("hooks")
+            .and_then(|h| h.get(event_name))
+            .and_then(|entries| entries.as_array())
         else {
             return false;
         };

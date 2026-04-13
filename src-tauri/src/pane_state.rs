@@ -23,9 +23,7 @@ struct Envelope {
 fn is_safe_session_id(session_id: &str) -> bool {
     !session_id.is_empty()
         && session_id.len() <= 128
-        && session_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && session_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 fn pane_state_dir(base: &Path) -> PathBuf {
@@ -77,12 +75,8 @@ pub fn save_to(base: &Path, session_id: &str, data: serde_json::Value) -> Result
     let dir = pane_state_dir(base);
     fs::create_dir_all(&dir).map_err(|e| format!("create_dir_all {dir:?}: {e}"))?;
 
-    let envelope = Envelope {
-        version: CURRENT_VERSION,
-        data,
-    };
-    let serialized =
-        serde_json::to_vec_pretty(&envelope).map_err(|e| format!("serialize: {e}"))?;
+    let envelope = Envelope { version: CURRENT_VERSION, data };
+    let serialized = serde_json::to_vec_pretty(&envelope).map_err(|e| format!("serialize: {e}"))?;
 
     let target = pane_state_file(base, session_id);
     // Tmp file must live in the same directory as the target so rename stays
@@ -90,12 +84,9 @@ pub fn save_to(base: &Path, session_id: &str, data: serde_json::Value) -> Result
     let tmp = dir.join(format!("{session_id}.json.tmp.{}", std::process::id()));
 
     {
-        let mut f =
-            fs::File::create(&tmp).map_err(|e| format!("create tmp {tmp:?}: {e}"))?;
-        f.write_all(&serialized)
-            .map_err(|e| format!("write tmp {tmp:?}: {e}"))?;
-        f.sync_all()
-            .map_err(|e| format!("sync tmp {tmp:?}: {e}"))?;
+        let mut f = fs::File::create(&tmp).map_err(|e| format!("create tmp {tmp:?}: {e}"))?;
+        f.write_all(&serialized).map_err(|e| format!("write tmp {tmp:?}: {e}"))?;
+        f.sync_all().map_err(|e| format!("sync tmp {tmp:?}: {e}"))?;
     }
 
     fs::rename(&tmp, &target).map_err(|e| {
@@ -169,11 +160,8 @@ mod tests {
         let state_dir = pane_state_dir(dir.path());
         fs::create_dir_all(&state_dir).unwrap();
         let path = pane_state_file(dir.path(), "sess1");
-        fs::write(
-            &path,
-            serde_json::to_string(&json!({ "version": 999, "data": {} })).unwrap(),
-        )
-        .unwrap();
+        fs::write(&path, serde_json::to_string(&json!({ "version": 999, "data": {} })).unwrap())
+            .unwrap();
 
         assert!(load_from(dir.path(), "sess1").is_none());
     }

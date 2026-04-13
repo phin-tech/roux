@@ -46,11 +46,7 @@ impl OscSniffer {
     pub fn new(app: AppHandle, session_id: Option<String>) -> Self {
         Self {
             parser: Parser::new(),
-            state: OscState {
-                app,
-                session_id,
-                osc99_buffers: HashMap::new(),
-            },
+            state: OscState { app, session_id, osc99_buffers: HashMap::new() },
         }
     }
 
@@ -107,13 +103,7 @@ impl OscState {
             return;
         }
 
-        self.push(
-            NotificationSource::Osc { code: 9, sender_id: None },
-            raw,
-            None,
-            None,
-            None,
-        );
+        self.push(NotificationSource::Osc { code: 9, sender_id: None }, raw, None, None, None);
     }
 
     fn handle_osc_777(&mut self, rest: &[&[u8]]) {
@@ -125,22 +115,12 @@ impl OscState {
         if kind != "notify" {
             return;
         }
-        let title = rest
-            .get(1)
-            .and_then(|b| std::str::from_utf8(b).ok())
-            .unwrap_or("")
-            .to_string();
+        let title = rest.get(1).and_then(|b| std::str::from_utf8(b).ok()).unwrap_or("").to_string();
         if title.is_empty() {
             return;
         }
         let body = rest.get(2).and_then(|b| std::str::from_utf8(b).ok()).map(String::from);
-        self.push(
-            NotificationSource::Osc { code: 777, sender_id: None },
-            title,
-            None,
-            body,
-            None,
-        );
+        self.push(NotificationSource::Osc { code: 777, sender_id: None }, title, None, body, None);
     }
 
     fn handle_osc_99(&mut self, rest: &[&[u8]]) {
@@ -200,11 +180,7 @@ impl OscState {
         }
 
         // Commit: if title absent, use body as title; if both absent, skip.
-        let title = buf
-            .title
-            .clone()
-            .or_else(|| buf.body.clone())
-            .unwrap_or_default();
+        let title = buf.title.clone().or_else(|| buf.body.clone()).unwrap_or_default();
         if title.is_empty() {
             // Nothing useful — reset the buffer slot and bail.
             self.osc99_buffers.remove(&key);
@@ -325,11 +301,7 @@ fn parse_osc9_payload(raw: &str) -> Option<ParsedOsc9Payload> {
             if s.is_empty() {
                 return None;
             }
-            Some(ParsedOsc9Payload {
-                title: s.to_string(),
-                subtitle: None,
-                body: None,
-            })
+            Some(ParsedOsc9Payload { title: s.to_string(), subtitle: None, body: None })
         }
         Value::Object(obj) => {
             let subtitle = first_string(&obj, &["subtitle", "subTitle"]);
@@ -344,21 +316,14 @@ fn parse_osc9_payload(raw: &str) -> Option<ParsedOsc9Payload> {
                 _ => None,
             };
 
-            Some(ParsedOsc9Payload {
-                title: final_title,
-                subtitle,
-                body,
-            })
+            Some(ParsedOsc9Payload { title: final_title, subtitle, body })
         }
         _ => None,
     }
 }
 
 fn join_params(parts: &[&[u8]]) -> String {
-    let strs: Vec<String> = parts
-        .iter()
-        .map(|p| String::from_utf8_lossy(p).into_owned())
-        .collect();
+    let strs: Vec<String> = parts.iter().map(|p| String::from_utf8_lossy(p).into_owned()).collect();
     strs.join(";")
 }
 

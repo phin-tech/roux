@@ -94,11 +94,7 @@ fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
-    let provider = parsed
-        .get("provider")
-        .and_then(|s| s.as_str())
-        .unwrap_or("")
-        .to_string();
+    let provider = parsed.get("provider").and_then(|s| s.as_str()).unwrap_or("").to_string();
 
     let roux_session_id = parsed
         .get("roux_session_id")
@@ -258,7 +254,11 @@ fn session_label(session_name: Option<&str>, cwd: &str) -> Option<String> {
         return None;
     }
     let basename = trimmed.rsplit('/').next().unwrap_or(trimmed);
-    if basename.is_empty() { None } else { Some(basename.to_string()) }
+    if basename.is_empty() {
+        None
+    } else {
+        Some(basename.to_string())
+    }
 }
 
 /// Builds a human-readable (title, body) for a permission-request notification.
@@ -325,9 +325,8 @@ fn humanize_attention(
         "WebFetch" => ("Fetch URL".to_string(), s(input, "url").map(|u| u.to_string())),
         "WebSearch" => ("Web search".to_string(), s(input, "query").map(|q| q.to_string())),
         "Task" => {
-            let body = s(input, "description")
-                .or_else(|| s(input, "prompt"))
-                .map(|t| truncate(t, 200));
+            let body =
+                s(input, "description").or_else(|| s(input, "prompt")).map(|t| truncate(t, 200));
             ("Run task".to_string(), body)
         }
         "TodoWrite" => ("Update todos".to_string(), None),
@@ -338,7 +337,16 @@ fn humanize_attention(
         // sensible single string field rather than dumping JSON.
         other => {
             let body = input.and_then(|v| v.as_object()).and_then(|obj| {
-                for key in ["command", "file_path", "path", "url", "query", "pattern", "description", "prompt"] {
+                for key in [
+                    "command",
+                    "file_path",
+                    "path",
+                    "url",
+                    "query",
+                    "pattern",
+                    "description",
+                    "prompt",
+                ] {
                     if let Some(val) = obj.get(key).and_then(|v| v.as_str()) {
                         if !val.is_empty() {
                             return Some(truncate(val, 200));
@@ -365,15 +373,14 @@ async fn push_attention_notification(
     // Match the cwd to a known session by worktree_path or repo_root — the
     // same match the frontend has been doing for status updates.
     let matched_session = match state.session_handle.list().await {
-        Ok(sessions) => sessions
-            .into_iter()
-            .find(|s| s.worktree_path == cwd || s.repo_root == cwd),
+        Ok(sessions) => sessions.into_iter().find(|s| s.worktree_path == cwd || s.repo_root == cwd),
         Err(_) => None,
     };
     let session_id = matched_session.as_ref().map(|s| s.id.clone());
     let session_name = matched_session.as_ref().map(|s| s.name.clone());
 
-    let (title, body) = humanize_attention(tool_name.as_deref(), tool_input.as_ref(), message.as_deref());
+    let (title, body) =
+        humanize_attention(tool_name.as_deref(), tool_input.as_ref(), message.as_deref());
     let subtitle = session_label(session_name.as_deref(), cwd);
 
     // Prefer pane-level focus when the hook carried a roux_pane_id (Claude
@@ -405,9 +412,7 @@ async fn push_attention_notification(
     state.notification_manager.push(
         NotificationRequest {
             level: NotificationLevel::Attention,
-            source: NotificationSource::Hook {
-                provider: "claude".to_string(),
-            },
+            source: NotificationSource::Hook { provider: "claude".to_string() },
             title,
             subtitle,
             body,
@@ -571,7 +576,8 @@ mod tests {
 
     #[test]
     fn humanize_edit_uses_file_path() {
-        let input = json!({ "file_path": "/repo/src/main.rs", "old_string": "a", "new_string": "b" });
+        let input =
+            json!({ "file_path": "/repo/src/main.rs", "old_string": "a", "new_string": "b" });
         let (title, body) = humanize_attention(Some("Edit"), Some(&input), None);
         assert_eq!(title, "Edit file");
         assert_eq!(body.as_deref(), Some("/repo/src/main.rs"));

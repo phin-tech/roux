@@ -206,11 +206,14 @@ fn spawn_flusher(
                         output.send(std::mem::take(&mut batch));
                     }
                     if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(evt, &roux_core::SessionExitPayload {
-                            code: None,
-                            generation: *gen,
-                            reason: roux_core::SessionExitReason::Exit,
-                        });
+                        let _ = app.emit(
+                            evt,
+                            &roux_core::SessionExitPayload {
+                                code: None,
+                                generation: *gen,
+                                reason: roux_core::SessionExitReason::Exit,
+                            },
+                        );
                     }
                     break;
                 }
@@ -219,11 +222,14 @@ fn spawn_flusher(
                         output.send(std::mem::take(&mut batch));
                     }
                     if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(evt, &roux_core::SessionExitPayload {
-                            code: None,
-                            generation: *gen,
-                            reason: roux_core::SessionExitReason::IoError,
-                        });
+                        let _ = app.emit(
+                            evt,
+                            &roux_core::SessionExitPayload {
+                                code: None,
+                                generation: *gen,
+                                reason: roux_core::SessionExitReason::IoError,
+                            },
+                        );
                     }
                     break;
                 }
@@ -449,9 +455,7 @@ pub fn cwd_for_pid(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 pub fn cwd_for_pid(pid: u32) -> Option<String> {
-    std::fs::read_link(format!("/proc/{}/cwd", pid))
-        .ok()
-        .map(|p| p.to_string_lossy().into_owned())
+    std::fs::read_link(format!("/proc/{}/cwd", pid)).ok().map(|p| p.to_string_lossy().into_owned())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -485,17 +489,11 @@ impl NonoConfig {
                 if d == "~" {
                     home.as_ref().map(|h| h.to_string_lossy().into_owned())
                 } else if let Some(tail) = d.strip_prefix("~/") {
-                    home.as_ref()
-                        .map(|h| h.join(tail).to_string_lossy().into_owned())
+                    home.as_ref().map(|h| h.join(tail).to_string_lossy().into_owned())
                 } else if std::path::Path::new(d).is_absolute() {
                     Some(d.clone())
                 } else {
-                    Some(
-                        std::path::Path::new(working_dir)
-                            .join(d)
-                            .to_string_lossy()
-                            .into_owned(),
-                    )
+                    Some(std::path::Path::new(working_dir).join(d).to_string_lossy().into_owned())
                 }
             })
             .collect()
@@ -546,7 +544,12 @@ impl PtyManager {
         let session_label = session_id.map(|s| format!(", session '{}'", s)).unwrap_or_default();
         rlog!(
             "Spawning shell '{}' for PTY '{}'{}{} in '{}'{}",
-            shell, id, pane_label, session_label, working_dir, nono_label
+            shell,
+            id,
+            pane_label,
+            session_label,
+            working_dir,
+            nono_label
         );
 
         let mut cmd = if let Some(nono) = nono {
@@ -583,11 +586,8 @@ impl PtyManager {
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
         let writer = Arc::new(Mutex::new(writer));
-        let gate = Arc::new(Mutex::new(ShellReadyGate::new(
-            Instant::now(),
-            GATE_QUIET,
-            GATE_TIMEOUT,
-        )));
+        let gate =
+            Arc::new(Mutex::new(ShellReadyGate::new(Instant::now(), GATE_QUIET, GATE_TIMEOUT)));
 
         let session = PtySession {
             master: pair.master,
@@ -602,10 +602,8 @@ impl PtyManager {
 
         let tx =
             spawn_flusher(output.clone(), Some((format!("session-exit:{}", id), gen)), app.clone());
-        let sniffer = crate::notifications::OscSniffer::new(
-            app.clone(),
-            session_id.map(|s| s.to_string()),
-        );
+        let sniffer =
+            crate::notifications::OscSniffer::new(app.clone(), session_id.map(|s| s.to_string()));
         spawn_reader(
             reader,
             tx,
@@ -669,10 +667,8 @@ impl PtyManager {
         self.attach_pending_output(id, &output);
 
         let tx = spawn_flusher(output.clone(), None, app.clone());
-        let sniffer = crate::notifications::OscSniffer::new(
-            app.clone(),
-            session_id.map(|s| s.to_string()),
-        );
+        let sniffer =
+            crate::notifications::OscSniffer::new(app.clone(), session_id.map(|s| s.to_string()));
         spawn_reader(reader, tx, Some(sniffer), None);
 
         // Wait for the child process in a background thread and emit exit code
@@ -878,8 +874,10 @@ fn roux_cli_shim() -> Option<(String, String)> {
                 for alias in ["roux-cli.exe", "roux.exe"] {
                     let target = bin_dir.join(alias);
                     let should_copy = if target.exists() {
-                        let src_modified = std::fs::metadata(&source).and_then(|m| m.modified()).ok();
-                        let dst_modified = std::fs::metadata(&target).and_then(|m| m.modified()).ok();
+                        let src_modified =
+                            std::fs::metadata(&source).and_then(|m| m.modified()).ok();
+                        let dst_modified =
+                            std::fs::metadata(&target).and_then(|m| m.modified()).ok();
                         match (src_modified, dst_modified) {
                             (Some(src), Some(dst)) => src > dst,
                             _ => true,
@@ -1160,10 +1158,7 @@ mod nono_tests {
 
     #[test]
     fn resolved_allow_dirs_expands_tilde() {
-        let nono = NonoConfig {
-            profile: "test".into(),
-            allow_dirs: vec!["~/data".into()],
-        };
+        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["~/data".into()] };
         let resolved = nono.resolved_allow_dirs("/work");
         assert!(resolved[0].starts_with('/'), "should be absolute: {}", resolved[0]);
         assert!(resolved[0].ends_with("/data"), "should end with /data: {}", resolved[0]);
@@ -1172,30 +1167,21 @@ mod nono_tests {
 
     #[test]
     fn resolved_allow_dirs_resolves_relative() {
-        let nono = NonoConfig {
-            profile: "test".into(),
-            allow_dirs: vec!["local/dir".into()],
-        };
+        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["local/dir".into()] };
         let resolved = nono.resolved_allow_dirs("/work/project");
         assert_eq!(resolved[0], "/work/project/local/dir");
     }
 
     #[test]
     fn resolved_allow_dirs_passes_absolute_through() {
-        let nono = NonoConfig {
-            profile: "test".into(),
-            allow_dirs: vec!["/tmp/scratch".into()],
-        };
+        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["/tmp/scratch".into()] };
         let resolved = nono.resolved_allow_dirs("/work");
         assert_eq!(resolved[0], "/tmp/scratch");
     }
 
     #[test]
     fn resolved_allow_dirs_handles_bare_tilde() {
-        let nono = NonoConfig {
-            profile: "test".into(),
-            allow_dirs: vec!["~".into()],
-        };
+        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["~".into()] };
         let resolved = nono.resolved_allow_dirs("/work");
         let home = dirs::home_dir().unwrap();
         assert_eq!(resolved[0], home.to_string_lossy());
@@ -1203,10 +1189,7 @@ mod nono_tests {
 
     #[test]
     fn resolved_allow_dirs_handles_empty() {
-        let nono = NonoConfig {
-            profile: "test".into(),
-            allow_dirs: vec![],
-        };
+        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec![] };
         let resolved = nono.resolved_allow_dirs("/work");
         assert!(resolved.is_empty());
     }

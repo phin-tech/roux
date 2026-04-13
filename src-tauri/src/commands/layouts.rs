@@ -17,11 +17,7 @@ use roux_core::LayoutSpec;
 pub(crate) fn get_builtin_layouts() -> Vec<LayoutSpec> {
     let result = crate::layouts::load_builtin_layouts();
     for err in &result.errors {
-        eprintln!(
-            "roux: built-in layout failed to load {}: {}",
-            err.path.display(),
-            err.message
-        );
+        eprintln!("roux: built-in layout failed to load {}: {}", err.path.display(), err.message);
     }
     result.layouts
 }
@@ -33,11 +29,7 @@ pub(crate) fn get_builtin_layouts() -> Vec<LayoutSpec> {
 pub(crate) fn get_user_layouts() -> Vec<LayoutSpec> {
     let result = crate::layouts::load_user_layouts();
     for err in &result.errors {
-        eprintln!(
-            "roux: user layout failed to parse {}: {}",
-            err.path.display(),
-            err.message
-        );
+        eprintln!("roux: user layout failed to parse {}: {}", err.path.display(), err.message);
     }
     result.layouts
 }
