@@ -23,6 +23,13 @@
     onPromptSubmit,
   }: Props = $props();
   let inputEl: HTMLInputElement | undefined = $state();
+  let captureEl: HTMLInputElement | undefined = $state();
+
+  $effect(() => {
+    if (!promptLabel) {
+      requestAnimationFrame(() => captureEl?.focus());
+    }
+  });
 
   function formatKey(key: string): string {
     return key === "SPC" ? "Space" : key;
@@ -38,6 +45,14 @@
     }
   });
 </script>
+
+<input
+  bind:this={captureEl}
+  type="text"
+  aria-hidden="true"
+  tabindex="-1"
+  class="pointer-events-none fixed -left-[9999px] top-0 h-0 w-0 opacity-0"
+/>
 
 <div class="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
   <div class="pointer-events-none flex max-w-[min(1080px,100%)] flex-wrap items-start gap-x-3 gap-y-2 rounded-2xl border border-border-subtle bg-bg-panel/92 px-4 py-3 shadow-[0_16px_40px_rgba(0,0,0,0.22),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-md">

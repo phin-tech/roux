@@ -373,6 +373,20 @@
     hidePaneHints();
   }
 
+  let prevSurfaceOpen = $state(false);
+  $effect(() => {
+    const open = $commandSurface.open;
+    if (prevSurfaceOpen && !open) {
+      queueMicrotask(() => {
+        const active = document.activeElement as HTMLElement | null;
+        if (active && active !== document.body && active.tagName !== "HTML") return;
+        const focused = get(focusedPaneId);
+        if (focused) setLogicalFocus(focused);
+      });
+    }
+    prevSurfaceOpen = open;
+  });
+
   $effect(() => {
     const theme = normalizeTheme($settings.theme);
     document.documentElement.dataset.theme = theme;

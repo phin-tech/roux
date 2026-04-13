@@ -36,7 +36,7 @@ tasks:
         platforms: [windows]
       - cmd: |
           mkdir -p ~/.local/bin
-          cp src-tauri/target/debug/roux-cli ~/.local/bin/roux-cli
+          cp target/debug/roux-cli ~/.local/bin/roux-cli
           chmod +x ~/.local/bin/roux-cli
           echo "Installed roux-cli to ~/.local/bin/roux-cli"
         platforms: [darwin, linux]
@@ -153,11 +153,11 @@ tasks:
     cmds:
       - cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli
       - cmd: |
-          cmd /c "if not exist src-tauri\binaries mkdir src-tauri\binaries && copy /Y src-tauri\target\release\roux-cli.exe src-tauri\binaries\roux-cli.exe >nul && echo Prepared bundled roux-cli.exe"
+          cmd /c "if not exist src-tauri\binaries mkdir src-tauri\binaries && copy /Y target\release\roux-cli.exe src-tauri\binaries\roux-cli.exe >nul && echo Prepared bundled roux-cli.exe"
         platforms: [windows]
       - cmd: |
           mkdir -p src-tauri/binaries
-          cp src-tauri/target/release/roux-cli src-tauri/binaries/roux-cli
+          cp target/release/roux-cli src-tauri/binaries/roux-cli
           chmod +x src-tauri/binaries/roux-cli
           echo "Prepared bundled roux-cli"
         platforms: [darwin, linux]
