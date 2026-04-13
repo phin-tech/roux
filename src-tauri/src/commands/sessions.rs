@@ -1,10 +1,14 @@
-use crate::session::Session;
 use crate::services::sessions as svc;
+use crate::session::Session;
 use crate::state::AppState;
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn write_to_session(id: String, data: String, state: tauri::State<AppState>) -> Result<(), String> {
+pub(crate) fn write_to_session(
+    id: String,
+    data: String,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
     state.pty_manager.write(&id, data.as_bytes()).map_err(|e| e.to_string())
 }
 
@@ -34,13 +38,22 @@ pub(crate) fn submit_roux_reply(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn resize_session(id: String, cols: u16, rows: u16, state: tauri::State<AppState>) -> Result<(), String> {
+pub(crate) fn resize_session(
+    id: String,
+    cols: u16,
+    rows: u16,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
     state.pty_manager.resize(&id, cols, rows).map_err(|e| e.to_string())
 }
 
 // No #[specta::specta] — Channel<Response> doesn't implement specta::Type
 #[tauri::command]
-pub(crate) fn attach_pty_output(id: String, on_event: tauri::ipc::Channel<tauri::ipc::Response>, state: tauri::State<AppState>) -> Result<(), String> {
+pub(crate) fn attach_pty_output(
+    id: String,
+    on_event: tauri::ipc::Channel<tauri::ipc::Response>,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
     state.pty_manager.attach_output_channel(&id, on_event);
     Ok(())
 }
@@ -60,10 +73,8 @@ pub(crate) fn spawn_shell(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     use crate::pty::NonoConfig;
-    let nono = nono_profile.map(|profile| NonoConfig {
-        profile,
-        allow_dirs: nono_allow_dirs.unwrap_or_default(),
-    });
+    let nono = nono_profile
+        .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
     let initial_size = initial_cols.zip(initial_rows);
     state
         .pty_manager
@@ -125,7 +136,10 @@ pub(crate) fn get_pty_cwd(id: String, state: tauri::State<AppState>) -> Option<S
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn kill_session(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub(crate) async fn kill_session(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
     svc::kill_session(&state.pty_manager, &state.session_handle, &id)
         .await
         .map_err(|e| e.to_string())
@@ -171,10 +185,8 @@ pub(crate) async fn create_session_shell(
     use crate::pty::NonoConfig;
     // Clone before await — the MutexGuard is not Send.
     let settings = state.settings.lock().unwrap().clone();
-    let nono = nono_profile.map(|profile| NonoConfig {
-        profile,
-        allow_dirs: nono_allow_dirs.unwrap_or_default(),
-    });
+    let nono = nono_profile
+        .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
     let initial_size = initial_cols.zip(initial_rows);
 
     let target = if let Some(ref wt_path) = worktree_path {
@@ -216,10 +228,8 @@ pub(crate) async fn reconnect_session_shell(
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
     use crate::pty::NonoConfig;
-    let nono = nono_profile.map(|profile| NonoConfig {
-        profile,
-        allow_dirs: nono_allow_dirs.unwrap_or_default(),
-    });
+    let nono = nono_profile
+        .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
     let initial_size = initial_cols.zip(initial_rows);
     svc::reconnect_session_shell(
         &state.pty_manager,
@@ -235,22 +245,34 @@ pub(crate) async fn reconnect_session_shell(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn list_sessions(state: tauri::State<'_, AppState>) -> Result<Vec<Session>, String> {
+pub(crate) async fn list_sessions(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Session>, String> {
     state.session_handle.list().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn refresh_session_git_status(id: String, state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    svc::refresh_git_status(&state.session_handle, &id)
-        .await
-        .map_err(|e| e.to_string())
+pub(crate) async fn refresh_session_git_status(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, String> {
+    svc::refresh_git_status(&state.session_handle, &id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn check_is_git_repo(path: String) -> bool {
     svc::is_git_repo(&path)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn list_git_repos_in_roots(
+    roots: Vec<String>,
+    exclude_worktrees: bool,
+) -> Vec<String> {
+    svc::list_git_repos_in_roots(&roots, exclude_worktrees)
 }
 
 #[tauri::command]

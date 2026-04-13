@@ -30,6 +30,7 @@
   let selected = $state<CategoryId>("general");
 
   let appVersion = $state<string>("…");
+  let repoRootDraft = $state("");
   onMount(async () => {
     try { appVersion = await getVersion(); } catch { appVersion = "unknown"; }
   });
@@ -96,6 +97,34 @@
   async function browseDefaultProject() {
     const selected = await open({ directory: true, title: "Select Default Project Directory" });
     if (selected) updateSetting("defaultProjectPath", selected as string);
+  }
+
+  function sanitizePathInput(path: string): string {
+    return path.trim();
+  }
+
+  function addRepoRoot(path: string) {
+    const nextPath = sanitizePathInput(path);
+    if (!nextPath) return;
+    const existing = $settings.repoRoots ?? [];
+    if (existing.includes(nextPath)) {
+      repoRootDraft = "";
+      return;
+    }
+    updateSetting("repoRoots", [...existing, nextPath]);
+    repoRootDraft = "";
+  }
+
+  function removeRepoRoot(path: string) {
+    updateSetting(
+      "repoRoots",
+      ($settings.repoRoots ?? []).filter((root) => root !== path),
+    );
+  }
+
+  async function browseAndAddRepoRoot() {
+    const selected = await open({ directory: true, title: "Select Repo Root Directory" });
+    if (selected) addRepoRoot(selected as string);
   }
 </script>
 
@@ -241,6 +270,60 @@
                   onclick={browseDefaultProject}
                 >...</button>
               </div>
+            </div>
+            <div class="py-2">
+              <div class="text-[13px]">Repository roots</div>
+              <div class="text-[11px] text-text-muted mt-0.5">Quick-pick sources for New Session (keeps file picker available)</div>
+              <div class="mt-2 flex gap-1">
+                <input
+                  class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none flex-1 focus:border-accent-dim"
+                  value={repoRootDraft}
+                  oninput={(e) => (repoRootDraft = e.currentTarget.value)}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addRepoRoot(repoRootDraft);
+                    }
+                  }}
+                  placeholder="~/src"
+                />
+                <button
+                  class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                  onclick={() => addRepoRoot(repoRootDraft)}
+                >Add</button>
+                <button
+                  class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                  onclick={browseAndAddRepoRoot}
+                >...</button>
+              </div>
+              {#if ($settings.repoRoots ?? []).length > 0}
+                <div class="mt-2 flex flex-col gap-1">
+                  {#each ($settings.repoRoots ?? []) as root (root)}
+                    <div class="flex items-center gap-2 rounded border border-border-subtle bg-bg-surface/35 px-2 py-1">
+                      <span class="font-mono text-[11px] text-text-secondary flex-1 truncate" title={root}>{root}</span>
+                      <button
+                        class="text-[10px] text-text-muted hover:text-red cursor-pointer"
+                        onclick={() => removeRepoRoot(root)}
+                      >Remove</button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Exclude worktrees from roots</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Hide linked git worktrees from root-folder quick-pick results</div>
+              </div>
+              <button
+                aria-label="Toggle excluding worktrees from root discovery"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {($settings.excludeWorktreesFromRepoRoots ?? true) ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => updateSetting("excludeWorktreesFromRepoRoots", !($settings.excludeWorktreesFromRepoRoots ?? true))}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {($settings.excludeWorktreesFromRepoRoots ?? true) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+              </button>
             </div>
             <div class="flex items-center justify-between py-2">
               <div>

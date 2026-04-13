@@ -72,6 +72,8 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   cursorStyle: "block",
   cursorBlink: true,
   defaultProjectPath: null,
+  repoRoots: [],
+  excludeWorktreesFromRepoRoots: true,
   confirmOnClose: true,
   restoreSessionsOnLaunch: true,
   worktreeBasePath: null,

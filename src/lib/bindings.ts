@@ -121,6 +121,7 @@ export const commands = {
 	 */
 	notificationsDismissSource: (source: NotificationSource) => typedError<number, string>(__TAURI_INVOKE("notifications_dismiss_source", { source })),
 	checkIsGitRepo: (path: string) => __TAURI_INVOKE<boolean>("check_is_git_repo", { path }),
+	listGitReposInRoots: (roots: string[], excludeWorktrees: boolean) => __TAURI_INVOKE<string[]>("list_git_repos_in_roots", { roots, excludeWorktrees }),
 	gitInit: (path: string) => typedError<null, string>(__TAURI_INVOKE("git_init", { path })),
 	refreshSessionGitStatus: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("refresh_session_git_status", { id })),
 	quitApp: () => typedError<null, string>(__TAURI_INVOKE("quit_app")),
@@ -304,6 +305,8 @@ export type RouxSettings = {
 	cursorStyle: CursorStyle,
 	cursorBlink: boolean,
 	defaultProjectPath: string | null,
+	repoRoots?: string[],
+	excludeWorktreesFromRepoRoots?: boolean,
 	confirmOnClose: boolean,
 	restoreSessionsOnLaunch: boolean,
 	worktreeBasePath: string | null,
