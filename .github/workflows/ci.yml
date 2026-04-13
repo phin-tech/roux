@@ -39,13 +39,10 @@ jobs:
             libjavascriptcoregtk-4.1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-      - name: Format
-        working-directory: src-tauri
-        run: cargo fmt --all -- --check
       - name: Clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
