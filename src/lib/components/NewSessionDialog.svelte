@@ -2,6 +2,7 @@
   import { Command } from "bits-ui";
   import { tick } from "svelte";
   import { fade, scale } from "svelte/transition";
+  import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
   import {
     createSessionShell,
@@ -9,7 +10,6 @@
     checkNonoInstalled,
     listNonoProfiles,
     checkIsGitRepo,
-    listGitReposInRoots,
     gitInit,
     killSession,
   } from "$lib/tauri";
@@ -262,7 +262,10 @@
     rootReposLoading = true;
     rootReposError = "";
     try {
-      rootRepoPaths = await listGitReposInRoots(roots, excludeWorktrees);
+      rootRepoPaths = await invoke<string[]>("list_git_repos_in_roots", {
+        roots,
+        excludeWorktrees,
+      });
     } catch (e) {
       rootRepoPaths = [];
       rootReposError = String(e);
