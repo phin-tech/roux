@@ -141,6 +141,22 @@
   let nonoInstalled = $state(false);
   let nonoProfiles = $state<string[]>([]);
   let selectedNonoProfile = $state<string | null>(null);
+  const compatSettings = $derived.by<{
+    repoRoots: string[];
+    excludeWorktreesFromRepoRoots: boolean;
+  }>(() => {
+    const raw = $settings as unknown as {
+      repoRoots?: string[];
+      excludeWorktreesFromRepoRoots?: boolean;
+    };
+    return {
+      repoRoots: Array.isArray(raw.repoRoots) ? raw.repoRoots : [],
+      excludeWorktreesFromRepoRoots:
+        typeof raw.excludeWorktreesFromRepoRoots === "boolean"
+          ? raw.excludeWorktreesFromRepoRoots
+          : true,
+    };
+  });
 
   // Check for nono on mount and detect git repo for default path
   $effect(() => {
@@ -160,8 +176,8 @@
   });
 
   $effect(() => {
-    const rootsKey = ($settings.repoRoots ?? []).join("\n");
-    const excludeWorktrees = $settings.excludeWorktreesFromRepoRoots ?? true;
+    const rootsKey = compatSettings.repoRoots.join("\n");
+    const excludeWorktrees = compatSettings.excludeWorktreesFromRepoRoots;
     if (!visible) return;
     void rootsKey;
     void excludeWorktrees;
@@ -236,8 +252,8 @@
   }
 
   async function loadRootRepoOptions() {
-    const roots = ($settings.repoRoots ?? []).map((r) => r.trim()).filter(Boolean);
-    const excludeWorktrees = $settings.excludeWorktreesFromRepoRoots ?? true;
+    const roots = compatSettings.repoRoots.map((r) => r.trim()).filter(Boolean);
+    const excludeWorktrees = compatSettings.excludeWorktreesFromRepoRoots;
     if (roots.length === 0) {
       rootRepoPaths = [];
       rootReposError = "";
@@ -656,7 +672,7 @@
                   Browse
                 </button>
               </div>
-              {#if repoPickerOpen && ($settings.repoRoots ?? []).length > 0}
+              {#if repoPickerOpen && compatSettings.repoRoots.length > 0}
                 <Command.List class={`${pickerListClass} max-h-36`}>
                   <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
                     No matching repositories
@@ -684,7 +700,7 @@
           </div>
           {#if rootReposError}
             <p class="text-[11px] text-red">{rootReposError}</p>
-          {:else if ($settings.repoRoots ?? []).length > 0 && !rootReposLoading && rootRepoPaths.length === 0}
+          {:else if compatSettings.repoRoots.length > 0 && !rootReposLoading && rootRepoPaths.length === 0}
             <p class="text-[11px] text-text-muted">No git repositories found under configured roots.</p>
           {/if}
         </div>
