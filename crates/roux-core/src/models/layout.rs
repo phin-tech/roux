@@ -29,6 +29,7 @@ pub enum LayoutSplitDirection {
 /// profiles are authored directly in the layout file and carry their own
 /// source = [`ProfileSource::Inline`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[allow(clippy::large_enum_variant)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum LayoutProfileRef {
     Registered { id: String },

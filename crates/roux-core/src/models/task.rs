@@ -1,17 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum KeepOpen {
     Always,
+    #[default]
     OnError,
     Never,
-}
-
-impl Default for KeepOpen {
-    fn default() -> Self {
-        Self::OnError
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
