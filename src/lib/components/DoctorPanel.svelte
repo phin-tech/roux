@@ -80,6 +80,8 @@
         return "Installed";
       case "missing":
         return "Not installed";
+      case "stale":
+        return "Update available";
       case "unavailable":
         return "Not found";
       default:
@@ -92,11 +94,23 @@
       case "installed":
         return "text-green-400";
       case "missing":
+      case "stale":
         return "text-amber";
       case "unavailable":
         return "text-text-muted";
       default:
         return "text-text-secondary";
+    }
+  }
+
+  function actionLabel(s: string) {
+    switch (s) {
+      case "installed":
+        return "Reinstall";
+      case "stale":
+        return "Update";
+      default:
+        return "Install";
     }
   }
 
@@ -135,11 +149,7 @@
               onclick={() => handleReinstall(item)}
               disabled={busy !== null}
             >
-              {busy === item.id
-                ? "Installing…"
-                : item.status === "installed"
-                  ? "Reinstall"
-                  : "Install"}
+              {busy === item.id ? "Installing…" : actionLabel(item.status)}
             </button>
           {/if}
         </div>

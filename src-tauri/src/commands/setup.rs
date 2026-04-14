@@ -19,7 +19,10 @@ pub(crate) fn check_setup_status() -> SetupStatus {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn check_setup_needed() -> bool {
-    !svc::is_cli_installed() || !svc::is_hooks_installed() || !svc::is_skill_installed()
+    !svc::is_cli_installed()
+        || !svc::is_cli_current()
+        || !svc::is_hooks_installed()
+        || !svc::is_skill_installed()
 }
 
 #[tauri::command]
@@ -69,9 +72,26 @@ pub(crate) struct DoctorStatus {
 #[specta::specta]
 pub(crate) fn check_doctor_status() -> DoctorStatus {
     let cli_installed = svc::is_cli_installed();
+    let cli_installed_version = svc::installed_cli_version();
+    let cli_bundled_version = svc::bundled_cli_version();
+    let cli_current = cli_installed_version.as_deref() == Some(cli_bundled_version);
     let hooks_installed = svc::is_hooks_installed();
     let skill_installed = svc::is_skill_installed();
     let gh_available = svc::is_command_available("gh");
+
+    let cli_status = if !cli_installed {
+        "missing"
+    } else if !cli_current {
+        "stale"
+    } else {
+        "installed"
+    };
+    let cli_detail = match (&cli_installed_version, cli_current) {
+        (Some(v), true) => Some(format!("version {}", v)),
+        (Some(v), false) => Some(format!("installed {} — bundled {}", v, cli_bundled_version)),
+        (None, _) if cli_installed => Some("version unknown".to_string()),
+        _ => None,
+    };
 
     let skill_detail = crate::skill::installed_version()
         .map(|v| format!("version {}", v))
@@ -82,8 +102,8 @@ pub(crate) fn check_doctor_status() -> DoctorStatus {
             DoctorItem {
                 id: "cli".to_string(),
                 label: "Roux CLI".to_string(),
-                status: if cli_installed { "installed" } else { "missing" }.to_string(),
-                detail: None,
+                status: cli_status.to_string(),
+                detail: cli_detail,
                 installable: true,
             },
             DoctorItem {
@@ -139,7 +159,9 @@ pub(crate) fn reinstall_skill() -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn install_all_missing() -> Result<(), String> {
-    if !svc::is_cli_installed() || !svc::is_hooks_installed() {
+    // install_hooks copies the CLI to ~/.local/bin as a side effect, so this
+    // also covers "CLI is stale" (version mismatch with bundled).
+    if !svc::is_cli_installed() || !svc::is_cli_current() || !svc::is_hooks_installed() {
         svc::install_hooks().map_err(|e| e.to_string())?;
     }
     if !svc::is_skill_installed() {
