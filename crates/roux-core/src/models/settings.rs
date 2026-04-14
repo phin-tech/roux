@@ -109,6 +109,12 @@ pub struct RouxSettings {
     /// `tauri-plugin-notification` is never invoked. Defaults to true.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
+    /// When a background agent leaves the "attention" (waiting-for-answer)
+    /// state, also clear the pane's `permissionInfo` so the Claude
+    /// Allow/Deny affordance disappears alongside the notification.
+    /// Defaults to true — rollback insurance only.
+    #[serde(default = "default_true")]
+    pub auto_clear_attention_state: bool,
     /// Whether Roux checks for updates silently on launch. Manual checks via
     /// Settings / command palette remain available regardless.
     #[serde(default = "default_true")]
@@ -169,6 +175,7 @@ impl Default for RouxSettings {
             group_by: GroupBy::Repo,
             confirm_on_quit: true,
             notifications_enabled: true,
+            auto_clear_attention_state: true,
             update_check_on_launch: true,
             spawn_profiles: Vec::new(),
             trusted_workspaces: Vec::new(),

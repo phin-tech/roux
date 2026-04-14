@@ -48,7 +48,8 @@
   } from "$lib/stores/customProfileModal";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
-  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
+  import { clearPermissionInfo } from "$lib/panes/agentState";
+  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
   import { profileRegistry } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -697,6 +698,15 @@
       if (match) {
         updateSessionStatus(match.id, update.status as any, null, null);
       }
+    });
+
+    // Backend FSM tells us when a pane exited `Attention`; clear any
+    // stale `permissionInfo` so the Allow/Deny affordance disappears
+    // alongside the auto-dismissed notification. Backend already gates
+    // on the `autoClearAttentionState` setting — the event simply
+    // doesn't fire when it's off.
+    await onAgentAttentionCleared(({ paneId }) => {
+      clearPermissionInfo(paneId);
     });
   });
 </script>

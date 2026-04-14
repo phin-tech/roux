@@ -158,10 +158,15 @@ impl PtyOutput {
 
 /// Spawn a flusher thread that batches chunks from the reader and sends them to the frontend
 /// at ~16ms intervals. Returns the sender for the reader thread to push data into.
+/// Optional "let the agent registry know this session is gone"
+/// plumbing, bundled alongside the Tauri event emission at EOF.
+type ExitRegistryHook = (mpsc::Sender<crate::agent_registry::RegistryMessage>, String);
+
 fn spawn_flusher(
     output: PtyOutput,
     exit_event: Option<(String, u64)>, // (event_name, generation)
     app: tauri::AppHandle,
+    exit_registry_hook: Option<ExitRegistryHook>,
 ) -> mpsc::Sender<PtyChunk> {
     let (tx, rx) = mpsc::channel::<PtyChunk>();
 
@@ -215,6 +220,13 @@ fn spawn_flusher(
                             },
                         );
                     }
+                    if let Some((tx, sid)) = &exit_registry_hook {
+                        let _ = tx.send(
+                            crate::agent_registry::RegistryMessage::SessionEnded {
+                                session_id: sid.clone(),
+                            },
+                        );
+                    }
                     break;
                 }
                 PtyChunk::Error => {
@@ -228,6 +240,13 @@ fn spawn_flusher(
                                 code: None,
                                 generation: *gen,
                                 reason: roux_core::SessionExitReason::IoError,
+                            },
+                        );
+                    }
+                    if let Some((tx, sid)) = &exit_registry_hook {
+                        let _ = tx.send(
+                            crate::agent_registry::RegistryMessage::SessionEnded {
+                                session_id: sid.clone(),
                             },
                         );
                     }
@@ -504,6 +523,13 @@ pub struct PtyManager {
     sessions: Mutex<HashMap<String, PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
     generation: AtomicU64,
+    /// Set once at app startup. When present, PTY exit triggers a
+    /// `RegistryMessage::SessionEnded` broadcast so the agent FSM can
+    /// dismiss any lingering attention notifications for this
+    /// session's panes. Held in a mutex purely to accommodate the
+    /// "construct PtyManager, then later plumb the channel" order that
+    /// falls out of Tauri's setup flow.
+    agent_sender: Mutex<Option<mpsc::Sender<crate::agent_registry::RegistryMessage>>>,
 }
 
 impl PtyManager {
@@ -512,7 +538,27 @@ impl PtyManager {
             sessions: Mutex::new(HashMap::new()),
             pending_outputs: Mutex::new(HashMap::new()),
             generation: AtomicU64::new(0),
+            agent_sender: Mutex::new(None),
         }
+    }
+
+    /// Install the registry sender. Any PTY spawned after this is
+    /// wired to broadcast `SessionEnded` when it exits. Safe to call
+    /// multiple times — last writer wins.
+    pub fn set_agent_sender(
+        &self,
+        sender: mpsc::Sender<crate::agent_registry::RegistryMessage>,
+    ) {
+        *self.agent_sender.lock().unwrap() = Some(sender);
+    }
+
+    fn exit_registry_info(
+        &self,
+        session_id: Option<&str>,
+    ) -> Option<(mpsc::Sender<crate::agent_registry::RegistryMessage>, String)> {
+        let sid = session_id?.to_string();
+        let sender = self.agent_sender.lock().unwrap().clone()?;
+        Some((sender, sid))
     }
 
     fn attach_pending_output(&self, session_id: &str, output: &PtyOutput) {
@@ -602,8 +648,12 @@ impl PtyManager {
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
-        let tx =
-            spawn_flusher(output.clone(), Some((format!("session-exit:{}", id), gen)), app.clone());
+        let tx = spawn_flusher(
+            output.clone(),
+            Some((format!("session-exit:{}", id), gen)),
+            app.clone(),
+            self.exit_registry_info(session_id),
+        );
         let sniffer =
             crate::notifications::OscSniffer::new(app.clone(), session_id.map(|s| s.to_string()));
         spawn_reader(
@@ -670,7 +720,15 @@ impl PtyManager {
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
-        let tx = spawn_flusher(output.clone(), None, app.clone());
+        // One-shot tasks don't carry hooks but we still wire the
+        // registry sender so any stray attention notification keyed by
+        // the task's session id gets cleared when it finishes.
+        let tx = spawn_flusher(
+            output.clone(),
+            None,
+            app.clone(),
+            self.exit_registry_info(session_id),
+        );
         let sniffer =
             crate::notifications::OscSniffer::new(app.clone(), session_id.map(|s| s.to_string()));
         spawn_reader(reader, tx, Some(sniffer), None);

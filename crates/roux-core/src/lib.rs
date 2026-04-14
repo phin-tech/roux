@@ -4,6 +4,7 @@
 //! the Rust backend and the TypeScript frontend. It has no dependency on
 //! Tauri, so it can be used by the CLI, tests, and future tooling.
 
+pub mod agent_fsm;
 pub mod models;
 pub mod worktree;
 

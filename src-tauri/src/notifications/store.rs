@@ -147,6 +147,18 @@ impl NotificationStore {
         false
     }
 
+    /// Remove the most recent unread notification carrying the given dedup
+    /// key. Returns the removed notification's id so the caller can emit
+    /// the `Removed` event. Read entries are skipped: matches
+    /// `update_by_dedup_key` semantics — a dedup key is a handle to a
+    /// live notification, not to user-acknowledged history.
+    pub fn remove_by_dedup_key(&mut self, key: &str) -> Option<String> {
+        let pos = self.entries.iter().rposition(|n| {
+            !n.read && n.dedup_key.as_deref() == Some(key)
+        })?;
+        self.entries.remove(pos).map(|n| n.id)
+    }
+
     /// Remove all notifications with a source that matches the given source variant.
     /// Variant equality only — e.g. removing with `Source::Watch { watch_id: "abc" }`
     /// removes all `Source::Watch` entries, regardless of which watch_id they carry.
@@ -376,6 +388,39 @@ mod tests {
         let removed = store.clear(None);
         assert_eq!(removed, 2);
         assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn remove_by_dedup_key_removes_matching_unread_entry() {
+        let mut store = NotificationStore::new();
+        let a = store.push(req_with_key("a", "key-a"));
+        let b = store.push(req_with_key("b", "key-b"));
+
+        let removed = store.remove_by_dedup_key("key-a");
+        assert_eq!(removed, Some(a.id.clone()));
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.list()[0].id, b.id, "unrelated entry must survive");
+    }
+
+    #[test]
+    fn remove_by_dedup_key_returns_none_without_match() {
+        let mut store = NotificationStore::new();
+        store.push(req_with_key("a", "key-a"));
+        assert_eq!(store.remove_by_dedup_key("nope"), None);
+        assert_eq!(store.len(), 1);
+    }
+
+    /// Matches `update_by_dedup_key` semantics: dedup keys only apply to
+    /// live (unread) notifications. If the user already dismissed the
+    /// attention notification themselves, an `Exit(Attention)` emitted
+    /// seconds later must not silently retract history.
+    #[test]
+    fn remove_by_dedup_key_skips_read_entries() {
+        let mut store = NotificationStore::new();
+        let a = store.push(req_with_key("a", "key-a"));
+        store.mark_read(&a.id);
+        assert_eq!(store.remove_by_dedup_key("key-a"), None);
+        assert_eq!(store.len(), 1);
     }
 
     #[test]

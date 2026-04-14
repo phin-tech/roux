@@ -389,6 +389,13 @@ export type RouxSettings = {
 	 */
 	notificationsEnabled?: boolean,
 	/**
+	 *  When a background agent leaves the "attention" (waiting-for-answer)
+	 *  state, also clear the pane's `permissionInfo` so the Claude
+	 *  Allow/Deny affordance disappears alongside the notification.
+	 *  Defaults to true — rollback insurance only.
+	 */
+	autoClearAttentionState?: boolean,
+	/**
 	 *  Whether Roux checks for updates silently on launch. Manual checks via
 	 *  Settings / command palette remain available regardless.
 	 */
