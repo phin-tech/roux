@@ -1289,6 +1289,7 @@ mod tests {
             created_at: 0,
             project_id: None,
             is_git_repo: true,
+            name_override: None,
         }
     }
 

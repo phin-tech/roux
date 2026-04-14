@@ -174,6 +174,20 @@ pub(crate) fn kill_pty(id: String, state: tauri::State<AppState>) -> Result<(), 
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn set_session_name_override(
+    session_id: String,
+    name_override: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .session_handle
+        .set_name_override(&session_id, name_override)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Spawns a plain shell in the session's
 /// primary PTY instead of the claude binary. The frontend attaches the
 /// selected spawn profile and types setup / startup commands after the

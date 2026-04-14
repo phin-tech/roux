@@ -296,6 +296,13 @@ export async function setSessionProject(
   return invoke("set_session_project", { sessionId, projectId });
 }
 
+export async function setSessionNameOverride(
+  sessionId: string,
+  nameOverride: string | null,
+): Promise<void> {
+  return invoke("set_session_name_override", { sessionId, nameOverride });
+}
+
 // Project notes
 export async function getProjectNotes(projectId: string): Promise<string> {
   return invoke("get_project_notes", { projectId });

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { Session, WatchOutcome } from "$lib/types";
-  import { renameSignal } from "$lib/stores/sessions";
+  import type { Session } from "$lib/types";
+  import { renameSignal, sessionDisplayName } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
-  import { watchState, flashingSessions } from "$lib/stores/watches";
+  import { flashingSessions } from "$lib/stores/watches";
   import { unreadBySession } from "$lib/stores/notifications";
   import { showSessionHints } from "$lib/stores/ui";
   import {
@@ -14,6 +14,7 @@
     session: Session;
     active: boolean;
     slotNumber?: number;
+    hideProjectTag?: boolean;
     onselect: () => void;
     onclose: () => void;
     onrename: (newName: string) => void;
@@ -25,6 +26,7 @@
     session,
     active,
     slotNumber,
+    hideProjectTag = false,
     onselect,
     onclose,
     onrename,
@@ -36,27 +38,21 @@
     slotNumber == null ? null : slotNumber === 10 ? "0" : String(slotNumber),
   );
 
-  function pathLabel(path: string): string {
-    const parts = path.split("/").filter(Boolean);
-    return parts.length > 0 ? parts[parts.length - 1] : path;
-  }
+  let displayName = $derived(sessionDisplayName(session));
 
   let editing = $state(false);
   let editName = $state("");
 
   $effect(() => {
-    if (!editing) {
-      editName = session.name;
-    }
+    if (!editing) editName = displayName;
   });
 
-  // Listen for rename signal from command palette
   let lastSignal = $state($renameSignal);
   $effect(() => {
     if ($renameSignal !== lastSignal) {
       lastSignal = $renameSignal;
       if (active) {
-        editName = session.name;
+        editName = displayName;
         editing = true;
       }
     }
@@ -64,89 +60,58 @@
 
   function startEditing(e: MouseEvent) {
     e.stopPropagation();
-    editName = session.name;
+    editName = displayName;
     editing = true;
   }
 
   function commitRename() {
     editing = false;
     const trimmed = editName.trim();
-    if (trimmed && trimmed !== session.name) {
-      onrename(trimmed);
-    }
+    if (trimmed && trimmed !== displayName) onrename(trimmed);
   }
 
-  const statusClasses: Record<Session["status"], string> = {
-    idle: "bg-green shadow-[0_0_6px_var(--color-green-dim)]",
-    thinking: "bg-amber shadow-[0_0_8px_var(--color-amber-dim)]",
-    generating: "bg-blue shadow-[0_0_8px_var(--color-blue-dim)]",
-    error: "bg-red shadow-[0_0_4px_var(--color-red-dim)]",
+  // Only "attention" animates. All other statuses use a solid dot.
+  const statusDotClasses: Record<Session["status"], string> = {
+    idle: "bg-green",
+    thinking: "bg-amber",
+    generating: "bg-blue",
+    error: "bg-red",
     disconnected: "bg-gray",
     attention: "bg-amber shadow-[0_0_8px_var(--color-amber-dim)]",
   };
 
-  const railClasses: Record<Session["status"], string> = {
-    idle: "bg-accent shadow-[0_0_6px_var(--color-blue-dim)]",
-    thinking: "bg-accent shadow-[0_0_6px_var(--color-blue-dim)]",
-    generating: "bg-accent shadow-[0_0_6px_var(--color-blue-dim)]",
-    error: "bg-red shadow-[0_0_6px_var(--color-red-dim)]",
-    disconnected: "bg-gray",
-    attention: "bg-amber shadow-[0_0_6px_var(--color-amber-dim)]",
-  };
-
-  const pulsingStatuses: Session["status"][] = ["thinking", "generating", "attention"];
-
   let projectName = $derived(
     session.projectId ? $projects.find((p) => p.id === session.projectId)?.name ?? null : null
   );
-
-  let sessionWatches = $derived(
-    $watchState.filter(
-      (w) => w.scope.type === "session" && w.scope.sessionId === session.id
-    )
-  );
-
-  let watchOutcomes = $derived(
-    sessionWatches
-      .map((w) => w.lastResult?.outcome ?? null)
-      .filter((o): o is WatchOutcome => o !== null)
-  );
+  let showProjectTag = $derived(!hideProjectTag && projectName != null);
 
   let isFlashing = $derived($flashingSessions.has(session.id));
-
   let unreadCount = $derived($unreadBySession.get(session.id) ?? 0);
 
-  // Effective status combines tier-1 agent aggregate (generating/idle from
-  // pane-level agentState) with the backend Session.status. Precedence is
-  // defined once in `computeEffectiveSessionStatus`: disconnected/error
-  // from the backend always wins (so a stale agent entry that predates
-  // the disconnect can't repaint the card), and a live agent aggregate
-  // beats a stale legacy value otherwise.
   let agentAggregate = $derived($sessionAgentStatus.get(session.id) ?? null);
   let effectiveStatus = $derived(
     computeEffectiveSessionStatus(session.status, agentAggregate),
   );
 
-  let flashColor = $derived.by(() => {
-    if (!isFlashing) return "";
-    const hasFailure = watchOutcomes.includes("failure");
-    const hasSuccess = watchOutcomes.includes("success");
-    if (hasFailure) return "var(--color-red-dim, rgba(239,68,68,0.15))";
-    if (hasSuccess) return "var(--color-green-dim, rgba(34,197,94,0.15))";
-    return "var(--color-amber-dim, rgba(245,158,11,0.15))";
-  });
+  let showRow2 = $derived(
+    session.isWorktree || showProjectTag || session.cost != null
+  );
+
+  let tooltip = $derived(
+    session.isGitRepo && session.branch
+      ? `${session.branch} · ${session.worktreePath}`
+      : session.worktreePath,
+  );
 </script>
 
-<!-- Use div, not button, to avoid invalid nested <button> for the close control -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="group relative mb-1 w-full cursor-pointer overflow-hidden px-3 py-2 text-left transition-colors duration-150
+  class="group relative mb-1 flex w-full cursor-pointer overflow-hidden text-left transition-colors duration-150
     {active
       ? 'bg-bg-active shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
       : 'bg-transparent hover:bg-bg-active/40'}
     {isFlashing ? 'watch-flash' : ''}"
-  style:--flash-color={flashColor}
   onclick={onselect}
   oncontextmenu={(e) => {
     if (oncontextmenu) {
@@ -154,99 +119,78 @@
       oncontextmenu(e);
     }
   }}
-  title={session.worktreePath}
+  title={tooltip}
 >
-  {#if active || pulsingStatuses.includes(effectiveStatus) || effectiveStatus === "error"}
-    <div
-      class="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full {active ? 'bg-accent shadow-[0_0_6px_var(--color-blue-dim)]' : railClasses[effectiveStatus]}"
-    ></div>
-  {/if}
-
-  <div class="mb-1 flex items-start gap-2">
-    <div class="relative mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-      {#if pulsingStatuses.includes(effectiveStatus)}
-        <span class="absolute inline-flex h-2 w-2 rounded-full {statusClasses[effectiveStatus]} animate-ping opacity-50"></span>
+  <!-- Left gutter: persistent status dot -->
+  <div class="flex w-5 shrink-0 items-center justify-center pt-[10px] self-start">
+    <span class="relative inline-flex h-2 w-2 items-center justify-center">
+      {#if effectiveStatus === "attention"}
+        <span class="absolute inline-flex h-2 w-2 rounded-full {statusDotClasses[effectiveStatus]} animate-ping opacity-60"></span>
       {/if}
-      <span class="relative inline-flex h-2 w-2 rounded-full {statusClasses[effectiveStatus]}"></span>
-    </div>
-
-    {#if editing}
-      <input
-        class="flex-1 border border-accent-dim/30 bg-bg-deep px-2 py-1.5 text-[13px] font-semibold tracking-tight text-text-primary outline-none"
-        bind:value={editName}
-        onblur={commitRename}
-        onkeydown={(e) => {
-          if (e.key === "Enter") {
-            e.stopPropagation();
-            commitRename();
-          }
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            editing = false;
-          }
-        }}
-      />
-    {:else}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <span
-        class="flex-1 truncate text-[13px] font-semibold tracking-tight {active ? 'text-text-primary' : 'text-text-secondary'}"
-        ondblclick={startEditing}
-      >
-        {session.name}
-      </span>
-    {/if}
-
-    {#if unreadCount > 0}
-      <span
-        class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full bg-accent-dim/30 px-1 text-[9px] font-semibold text-accent"
-        title="{unreadCount} unread notification{unreadCount === 1 ? '' : 's'}"
-      >{unreadCount > 99 ? "99+" : unreadCount}</span>
-    {/if}
-    {#if session.status === "disconnected"}
-      <button
-        class="cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-        onclick={(e) => {
-          e.stopPropagation();
-          onreconnect();
-        }}
-      >
-        reconnect
-      </button>
-    {/if}
-    <button
-      class="cursor-pointer flex h-5 w-5 items-center justify-center bg-transparent text-[11px] leading-none text-text-secondary opacity-80 transition-all duration-150 group-hover:opacity-100 hover:bg-bg-hover hover:text-red focus-visible:opacity-100 focus-visible:outline-none"
-      onclick={(e) => {
-        e.stopPropagation();
-        onclose();
-      }}
-    >
-      &times;
-    </button>
+      <span class="relative inline-flex h-2 w-2 rounded-full {statusDotClasses[effectiveStatus]}"></span>
+    </span>
   </div>
 
-  <div class="flex items-center gap-1.5 pl-4">
-    {#if session.isGitRepo}
-      <span class="flex items-center gap-1 font-mono text-[11px] {active ? 'text-text-secondary' : 'text-text-muted'}">
-        <span class="text-[10px] text-text-secondary">&#9095;</span>
-        {session.branch}
-      </span>
-    {/if}
-    <span class="truncate text-[10px] text-text-muted">{pathLabel(session.worktreePath)}</span>
-    {#if projectName}
-      <span class="bg-accent-dim/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{projectName}</span>
-    {/if}
-    <span class="ml-auto text-[10px] font-semibold text-text-muted">
-      {session.cost != null ? `$${session.cost.toFixed(2)}` : ""}
-    </span>
-    {#if watchOutcomes.length > 0}
-      <div class="flex items-center gap-1">
-        {#each watchOutcomes as outcome}
-          <span
-            class="inline-block h-1.5 w-1.5 rounded-full
-              {outcome === 'success' ? 'bg-green' : outcome === 'failure' ? 'bg-red' : 'bg-amber'}"
-            class:animate-pulse={outcome === "inProgress"}
-          ></span>
-        {/each}
+  <!-- Body -->
+  <div class="min-w-0 flex-1 py-2 pr-2">
+    <div class="flex items-center gap-2">
+      {#if editing}
+        <input
+          class="flex-1 border border-accent-dim/30 bg-bg-deep px-2 py-1 text-[13px] font-semibold tracking-tight text-text-primary outline-none"
+          bind:value={editName}
+          onblur={commitRename}
+          onkeydown={(e) => {
+            if (e.key === "Enter") { e.stopPropagation(); commitRename(); }
+            if (e.key === "Escape") { e.stopPropagation(); editing = false; }
+          }}
+        />
+      {:else}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span
+          class="flex-1 truncate text-[13px] font-semibold tracking-tight {active ? 'text-text-primary' : 'text-text-secondary'}"
+          ondblclick={startEditing}
+        >
+          {displayName}
+        </span>
+      {/if}
+
+      {#if unreadCount > 0}
+        <span
+          class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full bg-accent-dim/30 px-1 text-[9px] font-semibold text-accent"
+          title="{unreadCount} unread notification{unreadCount === 1 ? '' : 's'}"
+        >{unreadCount > 99 ? "99+" : unreadCount}</span>
+      {/if}
+      {#if session.status === "disconnected"}
+        <button
+          class="cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2 py-0.5 text-[11px] font-semibold text-accent hover:bg-accent-dim/24"
+          onclick={(e) => { e.stopPropagation(); onreconnect(); }}
+        >
+          reconnect
+        </button>
+      {/if}
+      <button
+        class="flex h-5 w-5 cursor-pointer items-center justify-center bg-transparent text-[11px] leading-none text-text-secondary opacity-70 transition-all duration-150 group-hover:opacity-100 hover:bg-bg-hover hover:text-red"
+        onclick={(e) => { e.stopPropagation(); onclose(); }}
+        aria-label="Close session"
+      >
+        &times;
+      </button>
+    </div>
+
+    {#if showRow2}
+      <div class="mt-1 flex items-center gap-2 text-[10px] text-text-muted">
+        {#if session.isWorktree}
+          <span class="flex items-center gap-1 font-mono text-text-secondary">
+            <span class="opacity-70">&#9095;</span>
+            <span>worktree</span>
+          </span>
+        {/if}
+        {#if showProjectTag}
+          <span class="bg-accent-dim/15 px-1.5 py-0.5 font-semibold text-accent">{projectName}</span>
+        {/if}
+        {#if session.cost != null}
+          <span class="ml-auto font-semibold">${session.cost.toFixed(2)}</span>
+        {/if}
       </div>
     {/if}
   </div>
@@ -256,6 +200,7 @@
       class="slot-hint-overlay pointer-events-none absolute inset-0 flex items-center justify-center bg-bg-deep/75 backdrop-blur-[1px] transition-opacity duration-[120ms]"
       class:slot-hint-visible={$showSessionHints}
       aria-hidden="true"
+      style:--flash-color="transparent"
     >
       <span class="font-mono text-[28px] font-bold leading-none text-text-primary drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
         &#8984;{slotLabel}
@@ -270,7 +215,7 @@
   }
 
   @keyframes watch-flash-anim {
-    0% { background-color: var(--flash-color); }
+    0% { background-color: var(--color-amber-dim, rgba(245,158,11,0.15)); }
     100% { background-color: transparent; }
   }
 
