@@ -250,7 +250,25 @@
   bind:this={containerEl}
 >
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
-    <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Sessions</span>
+    <div class="flex items-center gap-2">
+      <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Sessions</span>
+      <button
+        class="relative flex items-center justify-center text-text-secondary cursor-pointer transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+        onclick={onToggleNotifications}
+        title="Toggle notifications (⌘I)"
+        aria-label="Toggle notifications"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+        {#if $unreadTotal > 0}
+          <span class="absolute -right-1.5 -top-1 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-white">
+            {$unreadTotal}
+          </span>
+        {/if}
+      </button>
+    </div>
     <div class="flex items-center gap-1.5">
       <button
         class="border border-border-subtle bg-bg-surface px-2 py-1 text-[13px] font-medium text-text-secondary cursor-pointer transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
@@ -263,6 +281,33 @@
         {$sessionState.sessions.length}
       </span>
     </div>
+  </div>
+
+  <div class="flex shrink-0 gap-1 border-b border-hairline p-2">
+    <button
+      class="flex flex-1 items-center justify-center gap-1.5 bg-bg-active/50 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      onclick={onNewSession}
+    >
+      <span class="text-sm">+</span> New
+    </button>
+    <button
+      class="flex items-center justify-center gap-1 bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      onclick={onToggleWatches}
+      title="Toggle watches"
+    >
+      Watches
+      {#if $failureCount > 0}
+        <span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red px-1 text-[10px] font-bold text-white">
+          {$failureCount}
+        </span>
+      {/if}
+    </button>
+    <button
+      class="flex items-center justify-center bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      onclick={onOpenSettings}
+    >
+      &#9881;
+    </button>
   </div>
 
   <div
@@ -322,48 +367,6 @@
     {/if}
   {/if}
 
-  <div class="flex shrink-0 gap-1 border-t border-hairline p-2">
-    <button
-      class="flex flex-1 items-center justify-center gap-1.5 bg-bg-active/50 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-      onclick={onNewSession}
-    >
-      <span class="text-sm">+</span> New
-    </button>
-    <button
-      class="flex items-center justify-center gap-1 bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-      onclick={onToggleWatches}
-      title="Toggle watches"
-    >
-      Watches
-      {#if $failureCount > 0}
-        <span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red px-1 text-[10px] font-bold text-white">
-          {$failureCount}
-        </span>
-      {/if}
-    </button>
-    <button
-      class="flex items-center justify-center gap-1 bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-      onclick={onToggleNotifications}
-      title="Toggle notifications (⌘I)"
-      aria-label="Toggle notifications"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-        <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-      </svg>
-      {#if $unreadTotal > 0}
-        <span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
-          {$unreadTotal}
-        </span>
-      {/if}
-    </button>
-    <button
-      class="flex items-center justify-center bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-      onclick={onOpenSettings}
-    >
-      &#9881;
-    </button>
-  </div>
 </div>
 
 {#if contextMenu}
