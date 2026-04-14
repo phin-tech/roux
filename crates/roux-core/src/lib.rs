@@ -8,4 +8,7 @@ pub mod models;
 pub mod worktree;
 
 pub use models::*;
-pub use worktree::{create_worktree, list_worktrees, remove_worktree, WorktreeError};
+pub use worktree::{
+    create_worktree, expand_base_template, list_worktrees, preview_worktree_base, remove_worktree,
+    WorktreeError,
+};

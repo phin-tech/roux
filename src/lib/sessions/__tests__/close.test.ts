@@ -105,9 +105,9 @@ describe("closeSession", () => {
     expect(get(sessionState).sessions).toHaveLength(0);
   });
 
-  it("prompts about worktree removal when isWorktree and not auto-cleanup", async () => {
+  it("prompts about worktree removal when mode is prompt", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    settings.update((s) => ({ ...s, cleanupWorktreesOnClose: false }));
+    settings.update((s) => ({ ...s, worktreeCleanupOnClose: "prompt", cleanupWorktreesOnClose: false }));
 
     const session = makeSession({ isWorktree: true, worktreePath: "/repo-wt" });
     addSession(session);
@@ -119,9 +119,9 @@ describe("closeSession", () => {
     expect(removeWorktree).toHaveBeenCalledWith("/repo-wt");
   });
 
-  it("auto-removes worktree when cleanupWorktreesOnClose is true", async () => {
+  it("auto-removes worktree when mode is always", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    settings.update((s) => ({ ...s, cleanupWorktreesOnClose: true }));
+    settings.update((s) => ({ ...s, worktreeCleanupOnClose: "always", cleanupWorktreesOnClose: true }));
 
     const session = makeSession({ isWorktree: true, worktreePath: "/repo-wt" });
     addSession(session);
@@ -136,7 +136,7 @@ describe("closeSession", () => {
 
   it("skips worktree prompt when force is true", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    settings.update((s) => ({ ...s, cleanupWorktreesOnClose: false }));
+    settings.update((s) => ({ ...s, worktreeCleanupOnClose: "prompt", cleanupWorktreesOnClose: false }));
 
     const session = makeSession({ isWorktree: true, worktreePath: "/repo-wt" });
     addSession(session);

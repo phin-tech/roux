@@ -34,24 +34,77 @@ fn repo_name(repo_path: &str) -> String {
         .unwrap_or_else(|| "repo".to_string())
 }
 
+/// Resolve the `git_root` for a repo path by asking git. Falls back to the
+/// path itself if the shell-out fails (e.g. in tests, or when the directory
+/// does not yet exist).
+fn git_root(repo_path: &str) -> String {
+    Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| repo_path.to_string())
+}
+
+/// Expand `{project_dir}`, `{git_root}`, `{project_name}`, `{home}` and a
+/// leading `~` / `~/` in a worktree-base-path template relative to
+/// `repo_path`. Pure-ish: shells out to git only when `{git_root}` is used.
+pub fn expand_base_template(template: &str, repo_path: &str) -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let home_str = home.to_string_lossy().to_string();
+    let project_name = repo_name(repo_path);
+
+    // Tilde only expands at the very start — matches shell semantics and
+    // avoids accidentally rewriting `foo/~bar`.
+    let (prefix, rest) = if template == "~" {
+        (home_str.clone(), String::new())
+    } else if let Some(rest) = template.strip_prefix("~/") {
+        (home_str.clone(), format!("/{}", rest))
+    } else {
+        (String::new(), template.to_string())
+    };
+
+    // Lazy: only resolve git_root if the template actually references it.
+    let git_root_str = if rest.contains("{git_root}") || prefix.contains("{git_root}") {
+        git_root(repo_path)
+    } else {
+        String::new()
+    };
+
+    let expanded = format!("{}{}", prefix, rest)
+        .replace("{project_dir}", repo_path)
+        .replace("{git_root}", &git_root_str)
+        .replace("{project_name}", &project_name)
+        .replace("{home}", &home_str);
+
+    PathBuf::from(expanded)
+}
+
+/// Produce the resolved base directory a user's template would land in for
+/// a given repo, without picking a concrete worktree leaf. Used by the
+/// Settings UI preview.
+pub fn preview_worktree_base(template: &str, repo_path: &str) -> String {
+    if template.is_empty() {
+        return Path::new(repo_path)
+            .parent()
+            .unwrap_or(Path::new("."))
+            .to_string_lossy()
+            .to_string();
+    }
+    expand_base_template(template, repo_path).to_string_lossy().to_string()
+}
+
 fn resolve_worktree_path(repo_path: &str, branch: &str, base_path: Option<&str>) -> PathBuf {
     let sanitized = sanitize_branch_for_path(branch);
     let name = repo_name(repo_path);
     let dir_name = format!("{}-{}", name, sanitized);
 
     let base = match base_path {
-        Some(p) => {
-            let expanded = if p == "~" {
-                dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
-            } else if let Some(rest) = p.strip_prefix("~/") {
-                let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-                home.join(rest)
-            } else {
-                PathBuf::from(p)
-            };
-            expanded
-        }
-        None => Path::new(repo_path).parent().unwrap_or(Path::new(".")).to_path_buf(),
+        Some(p) if !p.is_empty() => expand_base_template(p, repo_path),
+        _ => Path::new(repo_path).parent().unwrap_or(Path::new(".")).to_path_buf(),
     };
 
     let mut target = base.join(&dir_name);
@@ -243,6 +296,47 @@ mod tests {
         let home = dirs::home_dir().unwrap();
         let expected = home.join("worktrees").join("repo-main");
         assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn test_expand_base_template_project_name() {
+        let p = expand_base_template("/tmp/{project_name}/.worktrees", "/Users/dev/my-project");
+        assert_eq!(p, PathBuf::from("/tmp/my-project/.worktrees"));
+    }
+
+    #[test]
+    fn test_expand_base_template_project_dir() {
+        let p = expand_base_template("{project_dir}/.worktrees", "/Users/dev/my-project");
+        assert_eq!(p, PathBuf::from("/Users/dev/my-project/.worktrees"));
+    }
+
+    #[test]
+    fn test_expand_base_template_home() {
+        let home = dirs::home_dir().unwrap();
+        let p = expand_base_template("{home}/worktrees/{project_name}", "/tmp/repo");
+        assert_eq!(p, home.join("worktrees").join("repo"));
+    }
+
+    #[test]
+    fn test_expand_base_template_tilde_not_in_middle() {
+        let p = expand_base_template("/tmp/~foo", "/tmp/repo");
+        assert_eq!(p, PathBuf::from("/tmp/~foo"));
+    }
+
+    #[test]
+    fn test_preview_empty_template_uses_parent() {
+        let p = preview_worktree_base("", "/Users/dev/repo");
+        assert_eq!(p, "/Users/dev");
+    }
+
+    #[test]
+    fn test_resolve_worktree_path_with_template_base() {
+        let path = resolve_worktree_path(
+            "/Users/dev/repo",
+            "feature/auth",
+            Some("{project_dir}/.worktrees"),
+        );
+        assert_eq!(path, PathBuf::from("/Users/dev/repo/.worktrees/repo-feature-auth"));
     }
 
     #[test]

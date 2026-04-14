@@ -4,6 +4,8 @@
   import { THEME_DEFINITIONS } from "$lib/themes";
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import { notificationsPush } from "$lib/tauri";
+  import { commands } from "$lib/bindings";
+  import type { WorktreeCleanupMode } from "$lib/bindings";
   import { updateStatus, runManualCheck, performInstall } from "$lib/stores/updater";
   import { getVersion } from "@tauri-apps/api/app";
   import { quitApp } from "$lib/tauri";
@@ -124,6 +126,37 @@
       "repoRoots",
       ($settings.repoRoots ?? []).filter((root) => root !== path),
     );
+  }
+
+  // Pick a repo path to use for the Settings worktree-base-path preview.
+  // Falls back to an illustrative placeholder when the user hasn't
+  // configured any repo roots or a default project yet — the preview is
+  // purely informational, so a made-up path is fine.
+  const PREVIEW_FALLBACK = "/Users/you/src/my-project";
+  let previewText = $state<string>("");
+  function previewRepoPath(): string {
+    const roots = $settings.repoRoots ?? [];
+    if (roots.length > 0) return roots[0];
+    if ($settings.defaultProjectPath) return $settings.defaultProjectPath;
+    return PREVIEW_FALLBACK;
+  }
+  $effect(() => {
+    const tpl = $settings.worktreeBasePath ?? "";
+    const repo = previewRepoPath();
+    // Cancel-on-stale guard: only keep the latest preview result.
+    let stale = false;
+    commands
+      .cmdPreviewWorktreeBase(tpl, repo)
+      .then((r) => { if (!stale) previewText = r; })
+      .catch(() => { if (!stale) previewText = ""; });
+    return () => { stale = true; };
+  });
+
+  function setCleanupMode(mode: WorktreeCleanupMode) {
+    updateSetting("worktreeCleanupOnClose", mode);
+    // Keep the legacy boolean in sync so any older readers (settings files,
+    // pre-migration code) still agree with the frontend.
+    updateSetting("cleanupWorktreesOnClose", mode === "always");
   }
 
   async function browseAndAddRepoRoot() {
@@ -329,38 +362,56 @@
                   {($settings.excludeWorktreesFromRepoRoots ?? true) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
               </button>
             </div>
-            <div class="flex items-center justify-between py-2">
-              <div>
-                <div class="text-[13px]">Worktree base path</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Where to create new worktrees</div>
+            <div class="py-2">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="text-[13px]">Worktree base path</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">
+                    Where to create new worktrees. Supports
+                    <code class="font-mono">{'{project_dir}'}</code>,
+                    <code class="font-mono">{'{git_root}'}</code>,
+                    <code class="font-mono">{'{project_name}'}</code>,
+                    <code class="font-mono">{'{home}'}</code>.
+                  </div>
+                </div>
+                <div class="flex gap-1">
+                  <input
+                    class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-64 text-right focus:border-accent-dim"
+                    value={$settings.worktreeBasePath ?? ""}
+                    oninput={(e) => updateSetting("worktreeBasePath", e.currentTarget.value || null)}
+                    placeholder="{'{project_dir}'}/.worktrees"
+                  />
+                  <button
+                    class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                    onclick={browseWorktreeBase}
+                  >...</button>
+                </div>
               </div>
-              <div class="flex gap-1">
-                <input
-                  class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-48 text-right focus:border-accent-dim"
-                  value={$settings.worktreeBasePath ?? ""}
-                  oninput={(e) => updateSetting("worktreeBasePath", e.currentTarget.value || null)}
-                  placeholder="~/worktrees"
-                />
-                <button
-                  class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
-                  onclick={browseWorktreeBase}
-                >...</button>
-              </div>
+              {#if previewText}
+                <div class="mt-1.5 text-[11px] text-text-muted font-mono truncate" title={previewText}>
+                  → {previewText}
+                </div>
+              {/if}
             </div>
             <div class="flex items-center justify-between py-2">
               <div>
-                <div class="text-[13px]">Cleanup worktrees on close</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Auto-remove worktrees when closing sessions</div>
+                <div class="text-[13px]">On session close</div>
+                <div class="text-[11px] text-text-muted mt-0.5">What to do with the session's worktree</div>
               </div>
-              <button
-                aria-label="Toggle cleanup worktrees on close"
-                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-                  {$settings.cleanupWorktreesOnClose ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
-                onclick={() => updateSetting("cleanupWorktreesOnClose", !$settings.cleanupWorktreesOnClose)}
-              >
-                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-                  {$settings.cleanupWorktreesOnClose ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
-              </button>
+              <div class="flex rounded border border-border bg-bg-deep overflow-hidden">
+                {#each [
+                  { id: "never", label: "Keep" },
+                  { id: "prompt", label: "Ask" },
+                  { id: "always", label: "Remove" },
+                ] as const as opt}
+                  {@const active = ($settings.worktreeCleanupOnClose ?? "prompt") === opt.id}
+                  <button
+                    class="px-2.5 py-1 text-[11px] cursor-pointer transition-colors
+                      {active ? 'bg-accent-dim text-text-primary' : 'text-text-secondary hover:bg-bg-hover'}"
+                    onclick={() => setCleanupMode(opt.id)}
+                  >{opt.label}</button>
+                {/each}
+              </div>
             </div>
           {:else if selected === "terminal"}
             <div class="flex items-center justify-between py-2">
