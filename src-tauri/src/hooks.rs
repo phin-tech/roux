@@ -184,12 +184,19 @@ fn roux_hooks_config(cli_path: &Path) -> Value {
                     ]
                 }
             ],
+            // SessionEnd fires on /clear, /logout, and CLI shutdown. /clear
+            // does NOT exit the claude process, so mapping to "disconnected"
+            // was wrong: it flipped session.status and rendered the Session
+            // Disconnected screen over a live Claude. "idle" is accurate for
+            // /clear (Claude is waiting for input) and harmless for /logout
+            // (the PTY-shell stays alive; any follow-up input goes to the
+            // shell prompt).
             "SessionEnd": [
                 {
                     "hooks": [
                         {
                             "type": "command",
-                            "command": hook_command(cli_path, "disconnected")
+                            "command": hook_command(cli_path, "idle")
                         }
                     ]
                 }
