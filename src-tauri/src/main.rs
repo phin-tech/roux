@@ -18,6 +18,7 @@ mod services;
 mod session;
 mod session_service;
 mod settings;
+mod skill;
 mod socket;
 mod state;
 mod status_watcher;
