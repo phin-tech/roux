@@ -107,6 +107,14 @@ pub struct RouxSettings {
     pub trusted_workspaces: Vec<String>,
     #[serde(default)]
     pub status_bar_position: StatusBarPosition,
+    /// Reveal the pane-number overlay while Option (⌥) is held. The
+    /// `Option+digit` / `Option+HJKL` chord shortcuts are unaffected either way.
+    #[serde(default)]
+    pub show_pane_hints_on_option: bool,
+    /// Reveal the session-shortcut overlay while the primary modifier
+    /// (⌘ on macOS, Ctrl elsewhere) is held. Chord shortcuts are unaffected.
+    #[serde(default = "default_true")]
+    pub show_session_hints_on_command: bool,
 }
 
 impl Default for RouxSettings {
@@ -143,6 +151,8 @@ impl Default for RouxSettings {
             spawn_profiles: Vec::new(),
             trusted_workspaces: Vec::new(),
             status_bar_position: StatusBarPosition::Bottom,
+            show_pane_hints_on_option: false,
+            show_session_hints_on_command: true,
         }
     }
 }
@@ -188,6 +198,37 @@ fn normalize_theme(theme: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::RouxSettings;
+
+    #[test]
+    fn hint_overlay_defaults_preserve_command_drop_option() {
+        let defaults = RouxSettings::default();
+        assert!(!defaults.show_pane_hints_on_option);
+        assert!(defaults.show_session_hints_on_command);
+
+        let legacy = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.5,
+            "taskPanelCollapsed": true
+        }"#;
+        let parsed: RouxSettings = serde_json::from_str(legacy).unwrap();
+        assert!(!parsed.show_pane_hints_on_option);
+        assert!(parsed.show_session_hints_on_command);
+    }
 
     #[test]
     fn normalized_repo_roots_trims_empty_and_duplicates() {
