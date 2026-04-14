@@ -11,6 +11,7 @@ export const commands = {
 	cmdCreateWorktree: (repoPath: string, branch: string) => typedError<string, string>(__TAURI_INVOKE("cmd_create_worktree", { repoPath, branch })),
 	cmdRemoveWorktree: (worktreePath: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { worktreePath })),
 	cmdListWorktrees: (repoPath: string) => typedError<Worktree[], string>(__TAURI_INVOKE("cmd_list_worktrees", { repoPath })),
+	cmdPreviewWorktreeBase: (template: string, repoPath: string) => __TAURI_INVOKE<string>("cmd_preview_worktree_base", { template, repoPath }),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
 	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, initialCols: number | null, initialRows: number | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, nonoProfile, nonoAllowDirs, initialCols, initialRows })),
@@ -346,7 +347,9 @@ export type RouxSettings = {
 	confirmOnClose: boolean,
 	restoreSessionsOnLaunch: boolean,
 	worktreeBasePath: string | null,
+	/** Legacy boolean; use `worktreeCleanupOnClose` instead. Kept in sync by the Rust migration for backward compat. */
 	cleanupWorktreesOnClose: boolean,
+	worktreeCleanupOnClose?: WorktreeCleanupMode,
 	theme: string,
 	defaultModel: string | null,
 	claudeBinaryPath?: string | null,
@@ -445,6 +448,8 @@ export type StartupBehavior = "autoRun" | "typeOnly";
 export type StatusBarPosition = "top" | "bottom";
 
 export type TabPosition = "left" | "right";
+
+export type WorktreeCleanupMode = "never" | "prompt" | "always";
 
 export type TaskDefinition = {
 	id: string,

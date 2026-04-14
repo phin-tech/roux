@@ -37,9 +37,13 @@ export async function closeSession(session: Session, opts?: { force?: boolean })
   await killSession(session.id);
 
   if (session.isWorktree) {
-    if (s.cleanupWorktreesOnClose) {
+    // Prefer the new three-state enum; fall back to the legacy boolean for
+    // settings files written before the migration ran.
+    const mode =
+      s.worktreeCleanupOnClose ?? (s.cleanupWorktreesOnClose ? "always" : "prompt");
+    if (mode === "always") {
       await removeWorktree(session.worktreePath).catch(() => {});
-    } else if (!force) {
+    } else if (mode === "prompt" && !force) {
       const remove = window.confirm(
         `Also remove the worktree at ${session.worktreePath}?`
       );

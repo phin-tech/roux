@@ -38,6 +38,21 @@ pub enum StatusBarPosition {
     Bottom,
 }
 
+/// Behavior when a session that owns a worktree is closed.
+///
+/// - `Never` — leave the worktree on disk
+/// - `Prompt` — ask the user via a confirm dialog (current default, matches
+///   the legacy `cleanupWorktreesOnClose: false` behavior)
+/// - `Always` — remove without asking (matches legacy `true`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum WorktreeCleanupMode {
+    Never,
+    #[default]
+    Prompt,
+    Always,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum GroupBy {
@@ -67,7 +82,13 @@ pub struct RouxSettings {
     pub confirm_on_close: bool,
     pub restore_sessions_on_launch: bool,
     pub worktree_base_path: Option<String>,
+    /// Legacy boolean kept for backward compatibility with settings files
+    /// written before `worktree_cleanup_on_close` existed. The frontend no
+    /// longer reads this directly; `normalized()` migrates it into the new
+    /// enum and keeps the two in sync for older readers.
     pub cleanup_worktrees_on_close: bool,
+    #[serde(default)]
+    pub worktree_cleanup_on_close: WorktreeCleanupMode,
     pub theme: String,
     pub default_model: Option<String>,
     #[serde(default)]
@@ -128,6 +149,7 @@ impl Default for RouxSettings {
             restore_sessions_on_launch: true,
             worktree_base_path: None,
             cleanup_worktrees_on_close: false,
+            worktree_cleanup_on_close: WorktreeCleanupMode::Prompt,
             theme: DEFAULT_THEME.to_string(),
             default_model: None,
             claude_binary_path: None,
@@ -157,6 +179,15 @@ impl RouxSettings {
             profile.source = ProfileSource::User;
         }
         s.repo_roots = normalize_repo_roots(&s.repo_roots);
+        // One-way migration: if an older settings file only has the legacy
+        // `cleanupWorktreesOnClose: true` flag, promote the new enum to
+        // Always. The `Prompt` default already matches legacy `false`, so
+        // no migration is needed in that direction. Keep the legacy bool
+        // in sync so older code paths and pre-migration consumers agree.
+        if s.cleanup_worktrees_on_close && s.worktree_cleanup_on_close == WorktreeCleanupMode::Prompt {
+            s.worktree_cleanup_on_close = WorktreeCleanupMode::Always;
+        }
+        s.cleanup_worktrees_on_close = s.worktree_cleanup_on_close == WorktreeCleanupMode::Always;
         s
     }
 }

@@ -38,3 +38,12 @@ pub(crate) fn cmd_list_branches(repo_path: String) -> Result<Vec<String>, String
 pub(crate) fn git_init(path: String) -> Result<(), String> {
     svc::git_init(&path).map_err(|e| e.to_string())
 }
+
+/// Resolve a worktree-base-path template (`{project_dir}`, `{git_root}`,
+/// `{project_name}`, `{home}`, leading `~/`) against a sample repo path so
+/// Settings can show a live preview.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_preview_worktree_base(template: String, repo_path: String) -> String {
+    roux_core::preview_worktree_base(&template, &repo_path)
+}
