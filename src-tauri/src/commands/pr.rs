@@ -4,7 +4,7 @@ use crate::services::setup as svc;
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn check_gh_installed() -> bool {
-    svc::is_command_available("gh")
+    svc::is_gh_available()
 }
 
 #[tauri::command]

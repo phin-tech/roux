@@ -17,16 +17,18 @@
   import Bell from "@lucide/svelte/icons/bell";
   import Keyboard from "@lucide/svelte/icons/keyboard";
   import Wrench from "@lucide/svelte/icons/wrench";
+  import Plug from "@lucide/svelte/icons/plug";
   import X from "@lucide/svelte/icons/x";
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
 
-  type CategoryId = "general" | "sessions" | "terminal" | "claude" | "notifications" | "keyboard" | "advanced";
+  type CategoryId = "general" | "sessions" | "terminal" | "claude" | "integrations" | "notifications" | "keyboard" | "advanced";
 
   const CATEGORIES: { id: CategoryId; label: string; icon: typeof Settings }[] = [
     { id: "general", label: "General", icon: Settings },
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "terminal", label: "Terminal", icon: TerminalIcon },
     { id: "claude", label: "Claude", icon: Sparkles },
+    { id: "integrations", label: "Integrations", icon: Plug },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "keyboard", label: "Keyboard", icon: Keyboard },
     { id: "advanced", label: "Advanced", icon: Wrench },
@@ -93,6 +95,11 @@
   async function browseClaudeBinary() {
     const selected = await open({ directory: false, title: "Select Claude Binary" });
     if (selected) updateSetting("claudeBinaryPath", selected as string);
+  }
+
+  async function browseGhBinary() {
+    const selected = await open({ directory: false, title: "Select gh (GitHub CLI) Binary" });
+    if (selected) updateSetting("ghBinaryPath", selected as string);
   }
 
   async function browseWorktreeBase() {
@@ -484,6 +491,31 @@
                 oninput={(e) => updateSetting("additionalFlags", e.currentTarget.value.split(" ").filter(Boolean))}
                 placeholder="--verbose"
               />
+            </div>
+          {:else if selected === "integrations"}
+            <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="text-[13px] font-semibold">GitHub CLI</div>
+              <div class="mt-0.5 text-[11px] text-text-muted">
+                Used for "Session from PR" and PR watches. Roux auto-detects
+                <code class="font-mono">gh</code> via your login shell's PATH (including fish). Set this only if
+                auto-detection misses your install — paste the output of <code class="font-mono">which gh</code>.
+                Takes effect after restarting Roux.
+              </div>
+              <div class="mt-3 flex items-center justify-between gap-2">
+                <span class="text-[13px]">Binary path</span>
+                <div class="flex gap-1">
+                  <input
+                    class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-64 text-right focus:border-accent-dim"
+                    value={$settings.ghBinaryPath ?? ""}
+                    oninput={(e) => updateSetting("ghBinaryPath", e.currentTarget.value || null)}
+                    placeholder="/opt/homebrew/bin/gh"
+                  />
+                  <button
+                    class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                    onclick={browseGhBinary}
+                  >...</button>
+                </div>
+              </div>
             </div>
           {:else if selected === "notifications"}
             <div class="flex items-center justify-between py-2">

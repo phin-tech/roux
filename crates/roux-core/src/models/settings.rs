@@ -93,6 +93,13 @@ pub struct RouxSettings {
     pub default_model: Option<String>,
     #[serde(default)]
     pub claude_binary_path: Option<String>,
+    /// Absolute path to the `gh` (GitHub CLI) binary. When set and non-empty,
+    /// Roux uses it directly instead of resolving `gh` from `PATH`. macOS
+    /// GUI apps inherit a minimal PATH that often excludes `/opt/homebrew/bin`
+    /// and other shell-managed prefixes, so users on fish/zsh with Homebrew
+    /// typically need to set this explicitly.
+    #[serde(default)]
+    pub gh_binary_path: Option<String>,
     pub additional_flags: Vec<String>,
     pub task_panel_split: f64,
     pub task_panel_collapsed: bool,
@@ -167,6 +174,7 @@ impl Default for RouxSettings {
             theme: DEFAULT_THEME.to_string(),
             default_model: None,
             claude_binary_path: None,
+            gh_binary_path: None,
             additional_flags: Vec::new(),
             task_panel_split: 0.5,
             task_panel_collapsed: true,

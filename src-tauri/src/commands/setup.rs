@@ -12,7 +12,7 @@ pub(crate) struct SetupStatus {
 pub(crate) fn check_setup_status() -> SetupStatus {
     SetupStatus {
         cli_installed: svc::is_cli_installed(),
-        gh_available: svc::is_command_available("gh"),
+        gh_available: svc::is_gh_available(),
     }
 }
 
@@ -77,7 +77,7 @@ pub(crate) fn check_doctor_status() -> DoctorStatus {
     let cli_current = cli_installed_version.as_deref() == Some(cli_bundled_version);
     let hooks_installed = svc::is_hooks_installed();
     let skill_installed = svc::is_skill_installed();
-    let gh_available = svc::is_command_available("gh");
+    let gh_available = svc::is_gh_available();
 
     let cli_status = if !cli_installed {
         "missing"

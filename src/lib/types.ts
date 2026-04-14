@@ -83,6 +83,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   theme: "deep-blue",
   defaultModel: null,
   claudeBinaryPath: null,
+  ghBinaryPath: null,
   additionalFlags: [],
   taskPanelSplit: 0.4,
   taskPanelCollapsed: false,

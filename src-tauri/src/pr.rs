@@ -89,7 +89,7 @@ pub(crate) fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> 
         .ok_or_else(|| anyhow!("Not a valid GitHub PR URL or shortform"))?;
 
     let repo_slug = format!("{}/{}", pr_ref.owner, pr_ref.repo);
-    let mut cmd = Command::new("gh");
+    let mut cmd = Command::new(crate::services::setup::gh_command());
     cmd.args([
         "pr",
         "view",
@@ -208,7 +208,7 @@ pub(crate) fn clone_repo(owner: &str, repo: &str, target_dir: &str) -> Result<St
         }
     }
     let slug = format!("{}/{}", owner, repo);
-    let output = Command::new("gh")
+    let output = Command::new(crate::services::setup::gh_command())
         .args(["repo", "clone", &slug, target_dir])
         .output()
         .map_err(|e| anyhow!("Failed to run gh: {}", e))?;

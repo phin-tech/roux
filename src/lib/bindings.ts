@@ -375,6 +375,14 @@ export type RouxSettings = {
 	theme: string,
 	defaultModel: string | null,
 	claudeBinaryPath?: string | null,
+	/**
+	 *  Absolute path to the `gh` (GitHub CLI) binary. When set and non-empty,
+	 *  Roux uses it directly instead of resolving `gh` from `PATH`. macOS
+	 *  GUI apps inherit a minimal PATH that often excludes `/opt/homebrew/bin`
+	 *  and other shell-managed prefixes, so users on fish/zsh with Homebrew
+	 *  typically need to set this explicitly.
+	 */
+	ghBinaryPath?: string | null,
 	additionalFlags: string[],
 	taskPanelSplit: number,
 	taskPanelCollapsed: boolean,

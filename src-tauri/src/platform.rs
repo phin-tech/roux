@@ -155,6 +155,17 @@ fn windows_command_candidates(file_name: &str) -> Vec<String> {
 
 pub fn find_executable_on_path(file_name: &str) -> Option<PathBuf> {
     let paths = std::env::var_os("PATH")?;
+    find_executable_in_paths(&paths, file_name)
+}
+
+/// Search a specific `PATH` string (colon-separated on Unix, semicolon on
+/// Windows) for `file_name`. Used when the process-inherited PATH is not
+/// sufficient — notably for macOS GUI apps where the user's login-shell
+/// PATH is richer than what Launch Services hands us.
+pub fn find_executable_in_paths<P: AsRef<std::ffi::OsStr>>(
+    paths: P,
+    file_name: &str,
+) -> Option<PathBuf> {
     let candidates = if cfg!(windows) {
         windows_command_candidates(file_name)
     } else {
