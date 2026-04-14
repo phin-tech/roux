@@ -158,6 +158,23 @@ export type DocFile = {
 	modified: number,
 };
 
+export type DoctorItem = {
+	// Stable id used by the frontend to dispatch reinstall actions.
+	id: string,
+	// Human-readable label.
+	label: string,
+	// "installed" | "missing" | "unavailable"
+	status: string,
+	// Optional detail string (install path, version, reason).
+	detail: string | null,
+	// Whether this item has a reinstall action.
+	installable: boolean,
+};
+
+export type DoctorStatus = {
+	items: DoctorItem[],
+};
+
 export type GithubJob = {
 	name: string,
 	status: string,
@@ -390,18 +407,6 @@ export type SessionStatus = "idle" | "thinking" | "generating" | "error" | "disc
 export type SetupStatus = {
 	cliInstalled: boolean,
 	ghAvailable: boolean,
-};
-
-export type DoctorItem = {
-	id: string,
-	label: string,
-	status: string,
-	detail?: string | null,
-	installable: boolean,
-};
-
-export type DoctorStatus = {
-	items: DoctorItem[],
 };
 
 /**
