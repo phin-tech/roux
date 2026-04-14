@@ -9,6 +9,7 @@ mod notifications;
 mod pane_state;
 mod paths;
 mod platform;
+mod pr;
 mod project_service;
 mod projects;
 mod providers;
@@ -100,6 +101,10 @@ fn main() {
         commands::setup::reinstall_hooks,
         commands::setup::reinstall_skill,
         commands::setup::install_all_missing,
+        commands::pr::check_gh_installed,
+        commands::pr::lookup_pr,
+        commands::pr::fetch_pr_branch,
+        commands::pr::clone_repo,
         tasks::cmd_discover_tasks,
         tasks::cmd_load_task_overrides,
         tasks::cmd_save_task_overrides,
@@ -193,6 +198,9 @@ fn main() {
             commands::setup::reinstall_hooks,
             commands::setup::reinstall_skill,
             commands::setup::install_all_missing,
+            commands::pr::check_gh_installed,
+            commands::pr::lookup_pr,
+            commands::pr::fetch_pr_branch,
             tasks::cmd_discover_tasks,
             tasks::cmd_load_task_overrides,
             tasks::cmd_save_task_overrides,

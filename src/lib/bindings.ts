@@ -11,6 +11,11 @@ export const commands = {
 	cmdCreateWorktree: (repoPath: string, branch: string) => typedError<string, string>(__TAURI_INVOKE("cmd_create_worktree", { repoPath, branch })),
 	cmdRemoveWorktree: (worktreePath: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { worktreePath })),
 	cmdListWorktrees: (repoPath: string) => typedError<Worktree[], string>(__TAURI_INVOKE("cmd_list_worktrees", { repoPath })),
+	/**
+	 *  Resolve a worktree-base-path template (`{project_dir}`, `{git_root}`,
+	 *  `{project_name}`, `{home}`, leading `~/`) against a sample repo path so
+	 *  Settings can show a live preview.
+	 */
 	cmdPreviewWorktreeBase: (template: string, repoPath: string) => __TAURI_INVOKE<string>("cmd_preview_worktree_base", { template, repoPath }),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
@@ -92,6 +97,10 @@ export const commands = {
 	reinstallHooks: () => typedError<null, string>(__TAURI_INVOKE("reinstall_hooks")),
 	reinstallSkill: () => typedError<null, string>(__TAURI_INVOKE("reinstall_skill")),
 	installAllMissing: () => typedError<null, string>(__TAURI_INVOKE("install_all_missing")),
+	checkGhInstalled: () => __TAURI_INVOKE<boolean>("check_gh_installed"),
+	lookupPr: (repoPath: string | null, url: string) => typedError<PrInfo, string>(__TAURI_INVOKE("lookup_pr", { repoPath, url })),
+	fetchPrBranch: (repoPath: string, number: number, headRef: string, isCrossRepository: boolean) => typedError<string, string>(__TAURI_INVOKE("fetch_pr_branch", { repoPath, number, headRef, isCrossRepository })),
+	cloneRepo: (owner: string, repo: string, targetDir: string) => typedError<string, string>(__TAURI_INVOKE("clone_repo", { owner, repo, targetDir })),
 	cmdDiscoverTasks: (dir: string) => __TAURI_INVOKE<TaskGroup[]>("cmd_discover_tasks", { dir }),
 	cmdLoadTaskOverrides: () => __TAURI_INVOKE<{ [key in string]: { [key in string]: string } }>("cmd_load_task_overrides"),
 	cmdSaveTaskOverrides: (overrides: { [key in string]: { [key in string]: string } }) => typedError<null, string>(__TAURI_INVOKE("cmd_save_task_overrides", { overrides })),
@@ -301,6 +310,14 @@ export type PrCheckRun = {
 	url: string | null,
 };
 
+export type PrInfo = {
+	number: number,
+	title: string,
+	headRef: string,
+	headOwner: string,
+	isCrossRepository: boolean,
+};
+
 export type PrReview = {
 	reviewer: string,
 	state: string,
@@ -347,7 +364,12 @@ export type RouxSettings = {
 	confirmOnClose: boolean,
 	restoreSessionsOnLaunch: boolean,
 	worktreeBasePath: string | null,
-	/** Legacy boolean; use `worktreeCleanupOnClose` instead. Kept in sync by the Rust migration for backward compat. */
+	/**
+	 *  Legacy boolean kept for backward compatibility with settings files
+	 *  written before `worktree_cleanup_on_close` existed. The frontend no
+	 *  longer reads this directly; `normalized()` migrates it into the new
+	 *  enum and keeps the two in sync for older readers.
+	 */
 	cleanupWorktreesOnClose: boolean,
 	worktreeCleanupOnClose?: WorktreeCleanupMode,
 	theme: string,
@@ -459,8 +481,6 @@ export type StatusBarPosition = "top" | "bottom";
 
 export type TabPosition = "left" | "right";
 
-export type WorktreeCleanupMode = "never" | "prompt" | "always";
-
 export type TaskDefinition = {
 	id: string,
 	name: string,
@@ -504,6 +524,16 @@ export type Worktree = {
 	branch: string,
 	isMain: boolean,
 };
+
+/**
+ *  Behavior when a session that owns a worktree is closed.
+ * 
+ *  - `Never` — leave the worktree on disk
+ *  - `Prompt` — ask the user via a confirm dialog (current default, matches
+ *    the legacy `cleanupWorktreesOnClose: false` behavior)
+ *  - `Always` — remove without asking (matches legacy `true`)
+ */
+export type WorktreeCleanupMode = "never" | "prompt" | "always";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
