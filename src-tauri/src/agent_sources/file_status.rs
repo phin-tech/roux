@@ -73,8 +73,13 @@ pub fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
     let raw_status = parsed.get("status").and_then(|s| s.as_str())?.to_string();
     let cwd = parsed.get("cwd").and_then(|s| s.as_str()).unwrap_or("").to_string();
 
+    // Prefer the provider-agnostic key, but fall back to the legacy
+    // `claude_session_id` so an older roux-cli shim paired with a newer
+    // desktop binary keeps routing correctly. `cli.rs`'s hook writer
+    // comment documents the contract.
     let provider_session_id = parsed
         .get("provider_session_id")
+        .or_else(|| parsed.get("claude_session_id"))
         .and_then(|s| s.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
@@ -307,6 +312,36 @@ mod tests {
         assert_eq!(update.provider, "claude");
         assert_eq!(update.roux_session_id.as_deref(), Some("sess-1"));
         assert_eq!(update.roux_pane_id.as_deref(), Some("pane-1"));
+    }
+
+    #[test]
+    fn parse_payload_accepts_legacy_claude_session_id_key() {
+        // Backcompat: a roux-cli shim from before the rename still
+        // writes `claude_session_id`. The parser reads either key so a
+        // half-upgraded install keeps routing correctly.
+        let payload = json!({
+            "status": "idle",
+            "cwd": "/repo",
+            "claude_session_id": "claude-legacy",
+            "provider": "claude",
+        });
+        let update = parse_status_payload(&payload).expect("parse ok");
+        assert_eq!(update.provider_session_id.as_deref(), Some("claude-legacy"));
+    }
+
+    #[test]
+    fn parse_payload_prefers_provider_session_id_over_legacy_key() {
+        // Rolling upgrade: if both keys are present (a shim that writes
+        // both during transition), the canonical key wins so stale data
+        // from the shim's legacy field can't overwrite a fresh id.
+        let payload = json!({
+            "status": "idle",
+            "cwd": "/repo",
+            "claude_session_id": "stale-legacy",
+            "provider_session_id": "new-canonical",
+        });
+        let update = parse_status_payload(&payload).expect("parse ok");
+        assert_eq!(update.provider_session_id.as_deref(), Some("new-canonical"));
     }
 
     #[test]
