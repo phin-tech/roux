@@ -632,15 +632,25 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
     let handle = state.session_handle.clone();
 
-    let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
-    let working_dir = match working_dir {
-        Some(dir) => dir,
-        None => match handle.get(session_id).await {
-            Ok(Some(s)) => s.worktree_path.clone(),
-            Ok(None) => return Response::err("could not determine working directory"),
-            Err(e) => return Response::err(format!("{}", e)),
-        },
+    let working_dir_arg =
+        req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
+    let session_record = match handle.get(session_id).await {
+        Ok(s) => s,
+        Err(e) => return Response::err(format!("{}", e)),
     };
+    let working_dir = match (working_dir_arg, session_record.as_ref()) {
+        (Some(dir), _) => dir,
+        (None, Some(s)) => s.worktree_path.clone(),
+        (None, None) => return Response::err("could not determine working directory"),
+    };
+    let project_id = session_record.as_ref().and_then(|s| s.project_id.clone());
+    let worktree_env = session_record.as_ref().and_then(|s| {
+        if s.is_worktree {
+            Some(s.worktree_path.clone())
+        } else {
+            None
+        }
+    });
 
     let pane_id = crypto_random_uuid();
     let pty_id = crypto_random_uuid();
@@ -650,6 +660,8 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         &working_dir,
         Some(session_id),
         Some(&pane_id),
+        project_id.as_deref(),
+        worktree_env.as_deref(),
         None,
         None,
         app.clone(),
@@ -697,15 +709,25 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
     let handle = state.session_handle.clone();
 
-    let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
-    let working_dir = match working_dir {
-        Some(dir) => dir,
-        None => match handle.get(session_id).await {
-            Ok(Some(s)) => s.worktree_path.clone(),
-            Ok(None) => return Response::err("could not determine working directory"),
-            Err(e) => return Response::err(format!("{}", e)),
-        },
+    let working_dir_arg =
+        req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
+    let session_record = match handle.get(session_id).await {
+        Ok(s) => s,
+        Err(e) => return Response::err(format!("{}", e)),
     };
+    let working_dir = match (working_dir_arg, session_record.as_ref()) {
+        (Some(dir), _) => dir,
+        (None, Some(s)) => s.worktree_path.clone(),
+        (None, None) => return Response::err("could not determine working directory"),
+    };
+    let project_id = session_record.as_ref().and_then(|s| s.project_id.clone());
+    let worktree_env = session_record.as_ref().and_then(|s| {
+        if s.is_worktree {
+            Some(s.worktree_path.clone())
+        } else {
+            None
+        }
+    });
 
     let pane_id = format!("cmd-{}", crypto_random_uuid());
     let pty_id = format!(
@@ -720,6 +742,8 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         &working_dir,
         Some(session_id),
         Some(&pane_id),
+        project_id.as_deref(),
+        worktree_env.as_deref(),
         None,
         app.clone(),
     ) {

@@ -527,6 +527,8 @@ impl PtyManager {
         working_dir: &str,
         session_id: Option<&str>,
         pane_id: Option<&str>,
+        project_id: Option<&str>,
+        worktree_path: Option<&str>,
         nono: Option<&NonoConfig>,
         initial_size: Option<(u16, u16)>,
         app: tauri::AppHandle,
@@ -569,7 +571,7 @@ impl PtyManager {
             CommandBuilder::new(&shell)
         };
         apply_shell_command_flags(&mut cmd, &shell);
-        apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
+        apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path);
         cmd.cwd(working_dir);
 
         let child = pair.slave.spawn_command(cmd).map_err(|source| {
@@ -624,6 +626,8 @@ impl PtyManager {
         working_dir: &str,
         session_id: Option<&str>,
         pane_id: Option<&str>,
+        project_id: Option<&str>,
+        worktree_path: Option<&str>,
         initial_size: Option<(u16, u16)>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
@@ -638,7 +642,7 @@ impl PtyManager {
 
         let mut cmd = CommandBuilder::new(&shell);
         apply_task_command_args(&mut cmd, &shell, command);
-        apply_roux_env(&mut cmd, &user_path, session_id, pane_id);
+        apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path);
         cmd.cwd(working_dir);
 
         let mut child =
@@ -940,6 +944,8 @@ fn apply_roux_env(
     user_path: &str,
     session_id: Option<&str>,
     pane_id: Option<&str>,
+    project_id: Option<&str>,
+    worktree_path: Option<&str>,
 ) {
     cmd.env("PATH", build_pty_path(user_path));
     cmd.env("TERM", "xterm-256color");
@@ -954,6 +960,12 @@ fn apply_roux_env(
     }
     if let Some(pid) = pane_id {
         cmd.env("ROUX_PANE_ID", pid);
+    }
+    if let Some(pid) = project_id {
+        cmd.env("ROUX_PROJECT_ID", pid);
+    }
+    if let Some(wt) = worktree_path {
+        cmd.env("ROUX_WORKTREE_PATH", wt);
     }
 }
 

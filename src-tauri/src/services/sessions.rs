@@ -89,11 +89,14 @@ pub(crate) async fn create_session_shell(
     // actions.ts::initSession). Passing both ids into the PTY env keeps
     // tier-1 hook routing happy the moment the user starts an agent.
     let pane_id = format!("{}-main", session_id);
+    let worktree_env = if is_wt { Some(work_dir.as_str()) } else { None };
     let spawn_result = pty_manager.spawn_shell(
         &session_id,
         &work_dir,
         Some(&session_id),
         Some(&pane_id),
+        None,
+        worktree_env,
         nono,
         initial_size,
         app.clone(),
@@ -164,12 +167,15 @@ pub(crate) async fn reconnect_session_shell(
     // id matches the frontend's formula so tier-1 hook routing stays
     // deterministic the moment the user starts an agent in the shell.
     let pane_id = format!("{}-main", id);
+    let worktree_env = if session.is_worktree { Some(session.worktree_path.as_str()) } else { None };
     pty_manager
         .spawn_shell(
             id,
             &session.worktree_path,
             Some(id),
             Some(&pane_id),
+            session.project_id.as_deref(),
+            worktree_env,
             nono,
             initial_size,
             app.clone(),
