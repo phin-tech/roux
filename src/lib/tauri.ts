@@ -272,6 +272,40 @@ export async function listNonoProfiles(): Promise<string[]> {
   return invoke("list_nono_profiles");
 }
 
+// GitHub PR integration
+export interface PrInfo {
+  number: number;
+  title: string;
+  headRef: string;
+  headOwner: string;
+  isCrossRepository: boolean;
+}
+
+export async function checkGhInstalled(): Promise<boolean> {
+  return invoke("check_gh_installed");
+}
+
+export async function lookupPr(repoPath: string | null, url: string): Promise<PrInfo> {
+  return invoke("lookup_pr", { repoPath, url });
+}
+
+export async function cloneRepo(
+  owner: string,
+  repo: string,
+  targetDir: string,
+): Promise<string> {
+  return invoke("clone_repo", { owner, repo, targetDir });
+}
+
+export async function fetchPrBranch(
+  repoPath: string,
+  number: number,
+  headRef: string,
+  isCrossRepository: boolean,
+): Promise<string> {
+  return invoke("fetch_pr_branch", { repoPath, number, headRef, isCrossRepository });
+}
+
 // Projects
 export async function listProjects(): Promise<Project[]> {
   return invoke("list_projects");
