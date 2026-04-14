@@ -73,6 +73,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - What's New: whats-new.md
   - Install: install.md
   - Getting Started: getting-started.md
   - Features:

@@ -11,8 +11,10 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Multi-session** -- Run independent Claude Code sessions, each with its own git worktree
 - **Split panes** -- Horizontal and vertical splits with same-direction flattening
 - **Stacked panes** -- Zellij-style tab stacking where collapsed title bars show inactive panes
+- **Session restore on reconnect** -- Restore full split/shell layouts when reconnecting a saved session
 - **Shell terminals** -- Open shell panes alongside Claude for running commands
 - **Command palette** -- Quick access to all actions via the primary shortcut (`cmd+k` on macOS, `ctrl+k` on Windows/Linux)
+- **Leader mode** -- Vimish pane/session commands via `cmd+;`
 - **Layout persistence** -- Pane layouts survive app restarts; shell panes respawn automatically
 - **Themes** -- Multiple built-in color schemes
 - **Projects** -- Tag sessions with projects to organize related work across repos and worktrees
@@ -20,6 +22,10 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Command panes** -- Run shell commands in dedicated panes with rerun support
 - **Task runner** -- Run predefined commands from configuration files
 - **Document viewer** -- Open markdown files in dedicated panes
+- **Session from PR URL** -- Paste a GitHub PR URL in New Session and auto-prepare a local review worktree
+- **Doctor panel + setup automation** -- Verify/reinstall CLI, hooks, and Claude skill from Settings
+- **Worktree templates + close policy** -- Use path templates and choose keep/ask/remove behavior on close
+- **Notification center** -- In-app notifications, unread badges, and OS notification fan-out
 - **CLI** -- `roux-cli` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal via the local Roux command channel
 
 ## Keybindings

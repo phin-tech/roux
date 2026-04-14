@@ -18,6 +18,7 @@ The full set of built-in shortcuts. All shortcuts are also visible in the comman
 | Focus pane 10 | ++alt+0++ |
 
 The pane-focus shortcuts target the Nth visible pane in the active session (depth-first, left-to-right). Hold ++alt++ on its own to see each pane's digit drawn centered over it.
+You can disable this overlay in **Settings → Keyboard** without disabling the shortcuts themselves.
 
 ## Leader mode
 
@@ -57,6 +58,7 @@ Roux also has a Vimish leader-mode surface for pane and session commands:
 | Settings | ++cmd+","++ |
 
 The session-switch shortcuts target the Nth session in the sidebar's top-to-bottom order. Hold ++cmd++ on its own for a moment to see the digit for each session drawn as an overlay on top of the card.
+You can disable this overlay in **Settings → Keyboard** while keeping ++cmd+digit++ session switching enabled.
 
 ## Navigation
 

@@ -15,6 +15,8 @@ ln -sf /Applications/Roux.app/Contents/MacOS/roux-cli /usr/local/bin/roux
 
 Then `roux --help` should work from any terminal.
 
+Inside Roux-managed panes, both `roux` and `roux-cli` are injected automatically, so you can call them without adding your own PATH shim.
+
 ## What it can do
 
 - Open / focus a session for a directory and raise the app window (`roux app .`)
@@ -25,6 +27,7 @@ Then `roux --help` should work from any terminal.
 - Focus a pane by id (`roux focus`)
 - Run a shell command in a new pane (`roux run`)
 - Push notifications (`roux notify`)
+- Emit hook status transitions (`roux hook`)
 
 ## Scripting & agent-to-agent examples
 
@@ -67,6 +70,6 @@ Open a new shell pane alongside the main agent:
 roux session panes create -s "$SID" --profile plain-shell --direction vertical
 ```
 
-Inside a Roux-managed PTY, `$ROUX_SESSION_ID` and `$ROUX_PANE_ID` are set, so most `-s` / `-p` flags are optional.
+Inside a Roux-managed PTY, `ROUX_*` variables are set (including `$ROUX_SESSION_ID` and `$ROUX_PANE_ID`), so most `-s` / `-p` flags are optional and scripting context is preserved.
 
 See `roux --help` and `roux <subcommand> --help` for the authoritative list of commands and flags.

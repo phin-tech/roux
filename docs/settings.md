@@ -2,21 +2,31 @@
 
 Open settings with ++cmd+","++ or from the command palette.
 
-!!! note "Stub page"
-    This page is a placeholder. Detailed documentation for each settings section is still being written.
-
 ## Overview
 
-Settings are grouped into sections for appearance, terminal behavior, sessions, and integrations. Changes are persisted immediately.
+Settings are grouped into categories in a sidebar modal. Changes are persisted automatically.
 
 ## Sections
 
-- **Appearance** — theme and color scheme
-- **Terminal** — font, scrollback, cursor behavior
-- **Sessions** — default shell, Claude Code command, startup behavior
-- **Projects** — per-project defaults
-- **Notifications** — OS notification preferences
-- **Updates** — current version, manual update checks, auto-check toggle
+- **General** — theme, tab position, status bar position.
+- **Sessions** — close/reconnect behavior, default project path, repo roots quick-pick sources, worktree base template, and worktree cleanup mode.
+- **Terminal** — font, scrollback, and cursor settings.
+- **Claude** — binary path override, default model, additional flags.
+- **Integrations** — GitHub CLI (`gh`) path override for PR/session integrations.
+- **Notifications** — OS notification master switch and test notification trigger.
+- **Keyboard** — toggles for Option-pane and Command-session hint overlays.
+- **Advanced** — app version and updater controls.
+
+## Doctor panel
+
+The **Advanced** section includes a **Doctor** panel that checks integration health for:
+
+- Roux CLI install/version
+- hook install state
+- Claude Code skill install state
+- GitHub CLI availability
+
+Use **Install / Update / Reinstall** actions per item if anything is missing or stale.
 
 ## Updates
 

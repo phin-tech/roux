@@ -14,9 +14,32 @@ When creating a new session you can choose:
 - **Existing worktree** — attach the session to a worktree you already have on disk.
 - **New worktree** — Roux creates a new worktree for you at a path you choose, branching from a ref you pick.
 
+The New Session dialog also supports pasting a GitHub PR URL. Roux can resolve the PR refs and create (or reuse) an appropriate local worktree for review.
+
+## Worktree base path templates
+
+In **Settings → Sessions**, `Worktree base path` supports template variables:
+
+- `{project_dir}`
+- `{git_root}`
+- `{project_name}`
+- `{home}`
+
+Example:
+
+```text
+{project_dir}/.worktrees
+```
+
+Roux previews the resolved path in Settings as you edit the template.
+
 ## Cleanup
 
-Removing a session does not delete its worktree. Use the worktree management UI (or `git worktree remove` from a shell pane) when you're done with one.
+Use **Settings → Sessions → On session close** to choose worktree cleanup behavior:
+
+- **Keep** — never remove worktrees automatically
+- **Ask** — prompt each time a worktree-backed session closes
+- **Remove** — always remove the worktree on close
 
 ## Caveats
 
