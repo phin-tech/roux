@@ -5,6 +5,7 @@ import {
   agentStates,
   updateAgentState,
   disposeAgentState,
+  clearPermissionInfo,
   getSessionAgentStatus,
   sessionAgentStatus,
   resetAgentStates,
@@ -91,6 +92,42 @@ describe("agentState store", () => {
         source: "hook",
       });
       expect(get(agentStates).get("pane-1")?.permissionInfo?.toolName).toBe("Bash");
+    });
+  });
+
+  describe("clearPermissionInfo", () => {
+    it("clears permissionInfo without touching status", () => {
+      updateAgentState("pane-1", {
+        provider: "claude",
+        status: "generating",
+        permissionInfo: { toolName: "Bash", toolInput: { command: "rm -rf /" } },
+        source: "hook",
+      });
+      expect(get(agentStates).get("pane-1")?.permissionInfo?.toolName).toBe("Bash");
+
+      clearPermissionInfo("pane-1");
+      const entry = get(agentStates).get("pane-1");
+      expect(entry?.permissionInfo).toBeUndefined();
+      expect(entry?.status).toBe("generating");
+      expect(entry?.provider).toBe("claude");
+    });
+
+    it("is a no-op when the pane has no entry", () => {
+      expect(() => clearPermissionInfo("never-seen")).not.toThrow();
+      expect(get(agentStates).has("never-seen")).toBe(false);
+    });
+
+    it("is a no-op when permissionInfo is already undefined", () => {
+      updateAgentState("pane-1", {
+        provider: "claude",
+        status: "generating",
+        source: "hook",
+      });
+      const before = get(agentStates).get("pane-1");
+      clearPermissionInfo("pane-1");
+      const after = get(agentStates).get("pane-1");
+      // Map reference unchanged when nothing moved — updatedAt stays stable.
+      expect(after?.updatedAt).toBe(before?.updatedAt);
     });
   });
 

@@ -415,6 +415,27 @@ export function onRouxStatusUpdate(
   });
 }
 
+/**
+ * Emitted by the backend agent FSM when a pane-scoped agent leaves the
+ * `Attention` state (user answered, agent crashed, session ended). The
+ * notification auto-dismiss is already handled server-side via the
+ * notification store; this event exists purely so the frontend can
+ * clear any stale `permissionInfo` sitting in the pane's `AgentState`
+ * (Allow/Deny UI etc.) alongside the notification disappearance. Gated
+ * server-side on the `autoClearAttentionState` setting.
+ */
+export interface AttentionClearedEvent {
+  paneId: string;
+}
+
+export function onAgentAttentionCleared(
+  callback: (payload: AttentionClearedEvent) => void
+): Promise<UnlistenFn> {
+  return listen<AttentionClearedEvent>("agent-attention-cleared", (event) => {
+    callback(event.payload);
+  });
+}
+
 export interface RouxCommand {
   action: string;
   sessionId?: string;

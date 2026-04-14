@@ -11,6 +11,11 @@ export const commands = {
 	cmdCreateWorktree: (repoPath: string, branch: string) => typedError<string, string>(__TAURI_INVOKE("cmd_create_worktree", { repoPath, branch })),
 	cmdRemoveWorktree: (worktreePath: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { worktreePath })),
 	cmdListWorktrees: (repoPath: string) => typedError<Worktree[], string>(__TAURI_INVOKE("cmd_list_worktrees", { repoPath })),
+	/**
+	 *  Resolve a worktree-base-path template (`{project_dir}`, `{git_root}`,
+	 *  `{project_name}`, `{home}`, leading `~/`) against a sample repo path so
+	 *  Settings can show a live preview.
+	 */
 	cmdPreviewWorktreeBase: (template: string, repoPath: string) => __TAURI_INVOKE<string>("cmd_preview_worktree_base", { template, repoPath }),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
@@ -347,7 +352,12 @@ export type RouxSettings = {
 	confirmOnClose: boolean,
 	restoreSessionsOnLaunch: boolean,
 	worktreeBasePath: string | null,
-	/** Legacy boolean; use `worktreeCleanupOnClose` instead. Kept in sync by the Rust migration for backward compat. */
+	/**
+	 *  Legacy boolean kept for backward compatibility with settings files
+	 *  written before `worktree_cleanup_on_close` existed. The frontend no
+	 *  longer reads this directly; `normalized()` migrates it into the new
+	 *  enum and keeps the two in sync for older readers.
+	 */
 	cleanupWorktreesOnClose: boolean,
 	worktreeCleanupOnClose?: WorktreeCleanupMode,
 	theme: string,
@@ -366,6 +376,13 @@ export type RouxSettings = {
 	 *  `tauri-plugin-notification` is never invoked. Defaults to true.
 	 */
 	notificationsEnabled?: boolean,
+	/**
+	 *  When a background agent leaves the "attention" (waiting-for-answer)
+	 *  state, also clear the pane's `permissionInfo` so the Claude
+	 *  Allow/Deny affordance disappears alongside the notification.
+	 *  Defaults to true — rollback insurance only.
+	 */
+	autoClearAttentionState?: boolean,
 	/**
 	 *  Whether Roux checks for updates silently on launch. Manual checks via
 	 *  Settings / command palette remain available regardless.
@@ -459,8 +476,6 @@ export type StatusBarPosition = "top" | "bottom";
 
 export type TabPosition = "left" | "right";
 
-export type WorktreeCleanupMode = "never" | "prompt" | "always";
-
 export type TaskDefinition = {
 	id: string,
 	name: string,
@@ -504,6 +519,16 @@ export type Worktree = {
 	branch: string,
 	isMain: boolean,
 };
+
+/**
+ *  Behavior when a session that owns a worktree is closed.
+ * 
+ *  - `Never` — leave the worktree on disk
+ *  - `Prompt` — ask the user via a confirm dialog (current default, matches
+ *    the legacy `cleanupWorktreesOnClose: false` behavior)
+ *  - `Always` — remove without asking (matches legacy `true`)
+ */
+export type WorktreeCleanupMode = "never" | "prompt" | "always";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

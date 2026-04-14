@@ -81,6 +81,30 @@ export function updateAgentState(paneId: string, event: AgentStateEvent): void {
 }
 
 /**
+ * Clear a pane's `permissionInfo` without touching its status or other
+ * fields. Called when the backend FSM reports the pane has exited
+ * `Attention` (user answered, agent died, etc.) via the
+ * `agent-attention-cleared` event.
+ *
+ * This is deliberately separate from `updateAgentState`: an ordinary
+ * status hook that arrives *while the agent is still waiting* should
+ * preserve `permissionInfo` (the `?? prev?.permissionInfo` merge on
+ * line 74 exists for that reason — intermediate idle/generating ticks
+ * between attention events must not flicker the Allow/Deny UI). Only
+ * the FSM's confirmed `Exit(Attention)` transition is authoritative
+ * enough to actually clear.
+ */
+export function clearPermissionInfo(paneId: string): void {
+  agentStates.update((map) => {
+    const prev = map.get(paneId);
+    if (!prev || prev.permissionInfo === undefined) return map;
+    const next = new Map(map);
+    next.set(paneId, { ...prev, permissionInfo: undefined, updatedAt: Date.now() });
+    return next;
+  });
+}
+
+/**
  * Clear the agent state entry for a pane. Called from pane disposal so the
  * session-card aggregate goes dark on close; *not* called on idle, since
  * "idle with a live agent" is a real state the user wants to see.

@@ -170,6 +170,26 @@ impl NotificationManager {
         removed
     }
 
+    /// Remove the unread notification carrying `dedup_key` and emit a
+    /// `Removed` event. Returns `true` when an entry was removed. No-op
+    /// when the key is absent or only matches read entries — see
+    /// `NotificationStore::remove_by_dedup_key` for the "handle to a live
+    /// notification" rationale.
+    pub fn remove_by_dedup_key(&self, key: &str, app: Option<&AppHandle>) -> bool {
+        let removed_id = {
+            let mut store = self.inner.lock().expect("notification store poisoned");
+            store.remove_by_dedup_key(key)
+        };
+        if let Some(id) = removed_id {
+            if let Some(app) = app {
+                let _ =
+                    app.emit(NOTIFICATION_EVENT, &NotificationEvent::Removed { id: id.clone() });
+            }
+            return true;
+        }
+        false
+    }
+
     pub fn remove_by_source_variant(
         &self,
         source: &NotificationSource,
@@ -299,6 +319,22 @@ mod tests {
         assert_eq!(first.id, second.id);
         assert_eq!(second.title, "second");
         assert_eq!(mgr.list().len(), 1);
+    }
+
+    #[test]
+    fn manager_remove_by_dedup_key_removes_and_emits() {
+        let mgr = NotificationManager::new();
+        let mut r = req("a", None);
+        r.dedup_key = Some("attention:pane:p-1".into());
+        let n = mgr.push(r, None);
+        assert!(mgr.remove_by_dedup_key("attention:pane:p-1", None));
+        assert!(mgr.get(&n.id).is_none(), "entry should be gone");
+    }
+
+    #[test]
+    fn manager_remove_by_dedup_key_returns_false_without_match() {
+        let mgr = NotificationManager::new();
+        assert!(!mgr.remove_by_dedup_key("nonexistent", None));
     }
 
     #[test]

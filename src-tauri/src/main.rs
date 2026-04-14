@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agent_registry;
+mod agent_sources;
 mod hooks;
 #[macro_use]
 mod logging;
@@ -21,7 +23,6 @@ mod settings;
 mod skill;
 mod socket;
 mod state;
-mod status_watcher;
 mod tasks;
 mod watches;
 mod worktree;
@@ -240,8 +241,30 @@ fn main() {
                     eprintln!("Warning: failed to install hooks: {}", e);
                 }
             }
-            if let Err(e) = status_watcher::start_watching(app.handle().clone()) {
-                eprintln!("Warning: failed to start status watcher: {}", e);
+            // Agent lifecycle pipeline: a shared channel feeds AgentInput
+            // values from event sources (today: FileStatusSource) into the
+            // registry worker, which drives per-agent FSMs and dispatches
+            // effects to the NotificationManagerSink.
+            let (agent_input_tx, agent_input_rx) = std::sync::mpsc::channel();
+            let sink = std::sync::Arc::new(
+                agent_sources::notification_sink::NotificationManagerSink::new(
+                    app.handle().clone(),
+                ),
+            );
+            agent_registry::spawn_worker(agent_input_rx, sink);
+            // Wire the PTY layer so session exits broadcast
+            // `SessionEnded` into the registry — clears any stuck
+            // attention notifications when Claude crashes / Ctrl-Cs
+            // mid-question, since no further hook files will fire.
+            {
+                let state = app.state::<AppState>();
+                state.pty_manager.set_agent_sender(agent_input_tx.clone());
+            }
+            if let Err(e) = agent_sources::file_status::start_watching(
+                app.handle().clone(),
+                agent_input_tx,
+            ) {
+                eprintln!("Warning: failed to start file status source: {}", e);
             }
             socket::start_socket_server(app.handle().clone());
 
