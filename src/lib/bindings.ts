@@ -97,6 +97,10 @@ export const commands = {
 	reinstallHooks: () => typedError<null, string>(__TAURI_INVOKE("reinstall_hooks")),
 	reinstallSkill: () => typedError<null, string>(__TAURI_INVOKE("reinstall_skill")),
 	installAllMissing: () => typedError<null, string>(__TAURI_INVOKE("install_all_missing")),
+	checkGhInstalled: () => __TAURI_INVOKE<boolean>("check_gh_installed"),
+	lookupPr: (repoPath: string | null, url: string) => typedError<PrInfo, string>(__TAURI_INVOKE("lookup_pr", { repoPath, url })),
+	fetchPrBranch: (repoPath: string, number: number, headRef: string, isCrossRepository: boolean) => typedError<string, string>(__TAURI_INVOKE("fetch_pr_branch", { repoPath, number, headRef, isCrossRepository })),
+	cloneRepo: (owner: string, repo: string, targetDir: string) => typedError<string, string>(__TAURI_INVOKE("clone_repo", { owner, repo, targetDir })),
 	cmdDiscoverTasks: (dir: string) => __TAURI_INVOKE<TaskGroup[]>("cmd_discover_tasks", { dir }),
 	cmdLoadTaskOverrides: () => __TAURI_INVOKE<{ [key in string]: { [key in string]: string } }>("cmd_load_task_overrides"),
 	cmdSaveTaskOverrides: (overrides: { [key in string]: { [key in string]: string } }) => typedError<null, string>(__TAURI_INVOKE("cmd_save_task_overrides", { overrides })),
@@ -304,6 +308,14 @@ export type PrCheckRun = {
 	name: string,
 	conclusion: string | null,
 	url: string | null,
+};
+
+export type PrInfo = {
+	number: number,
+	title: string,
+	headRef: string,
+	headOwner: string,
+	isCrossRepository: boolean,
 };
 
 export type PrReview = {

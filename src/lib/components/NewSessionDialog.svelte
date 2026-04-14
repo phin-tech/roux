@@ -12,6 +12,11 @@
     checkIsGitRepo,
     gitInit,
     killSession,
+    checkGhInstalled,
+    lookupPr,
+    fetchPrBranch,
+    cloneRepo,
+    type PrInfo,
   } from "$lib/tauri";
   import { addSession, removeSession } from "$lib/stores/sessions";
   import { layoutList, type LayoutSpec } from "$lib/panes/layouts";
@@ -141,6 +146,28 @@
   let nonoInstalled = $state(false);
   let nonoProfiles = $state<string[]>([]);
   let selectedNonoProfile = $state<string | null>(null);
+
+  // PR URL integration (gh CLI). The input is hidden unless gh is present.
+  let ghInstalled = $state(false);
+  let prUrl = $state("");
+  // Phase of the PR-driven flow. `needsClone` means we got PR metadata but
+  // no local clone matches owner/repo — the UI offers to clone. `ambiguous`
+  // means multiple local clones match the repo name and the user should
+  // pick one via the repo picker. `cloning` is the clone-in-progress state.
+  let prLookup = $state<
+    "idle" | "loading" | "needsClone" | "ambiguous" | "cloning" | "ok" | "error"
+  >("idle");
+  let prInfo = $state<PrInfo | null>(null);
+  let prError = $state("");
+  let prResolvedBranch = $state("");
+  let prCloneTarget = $state("");
+  // Tracks whether the user has manually edited either prefilled field
+  // since the last successful PR lookup. Prevents a debounce-driven
+  // refetch from clobbering the user's manual edits.
+  let userEditedBranch = $state(false);
+  let userEditedName = $state(false);
+  let prLookupSeq = 0;
+  let prDebounceHandle: ReturnType<typeof setTimeout> | null = null;
   const compatSettings = $derived.by<{
     repoRoots: string[];
     excludeWorktreesFromRepoRoots: boolean;
@@ -169,11 +196,189 @@
           });
         }
       });
+      checkGhInstalled().then((installed) => {
+        ghInstalled = installed;
+      });
       if (repoPath) {
         detectGitRepo(repoPath);
       }
     }
   });
+
+  // Debounced PR URL lookup. Re-fires whenever the URL changes.
+  $effect(() => {
+    const url = prUrl.trim();
+    void url;
+    if (prDebounceHandle) {
+      clearTimeout(prDebounceHandle);
+      prDebounceHandle = null;
+    }
+    if (!ghInstalled || !url) {
+      // Empty URL: reset any prior lookup state but leave the user's
+      // session name / branch field alone.
+      prLookup = "idle";
+      prInfo = null;
+      prError = "";
+      prResolvedBranch = "";
+      prCloneTarget = "";
+      return;
+    }
+    prDebounceHandle = setTimeout(() => {
+      void runPrLookup(url);
+    }, 300);
+  });
+
+  async function runPrLookup(url: string) {
+    const seq = ++prLookupSeq;
+    prLookup = "loading";
+    prError = "";
+    prInfo = null;
+    prResolvedBranch = "";
+    prCloneTarget = "";
+    try {
+      // Use the currently-selected repo as cwd if set, else fall back to
+      // "." — gh doesn't rely on cwd once --repo is passed, but giving it
+      // a real dir keeps the subprocess happy.
+      const cwd = repoPath || null;
+      const info = await lookupPr(cwd, url);
+      if (seq !== prLookupSeq) return;
+      prInfo = info;
+      const resolution = resolveLocalRepoForPr(info);
+      if (resolution.kind === "unique") {
+        repoPath = resolution.path;
+          await detectGitRepo(resolution.path);
+        if (seq !== prLookupSeq) return;
+        await runFetchPrBranch(info, resolution.path, seq);
+      } else if (resolution.kind === "ambiguous") {
+        prLookup = "ambiguous";
+      } else {
+        prCloneTarget = defaultCloneTarget(info);
+        prLookup = "needsClone";
+      }
+    } catch (e) {
+      if (seq !== prLookupSeq) return;
+      prLookup = "error";
+      prError = String(e);
+    }
+  }
+
+  async function runFetchPrBranch(info: PrInfo, path: string, seq: number) {
+    try {
+      const branch = await fetchPrBranch(path, info.number, info.headRef, info.isCrossRepository);
+      if (seq !== prLookupSeq) return;
+      prResolvedBranch = branch;
+      prLookup = "ok";
+      applyPrPrefill(info, branch);
+    } catch (e) {
+      if (seq !== prLookupSeq) return;
+      prLookup = "error";
+      prError = String(e);
+    }
+  }
+
+  function resolveLocalRepoForPr(
+    info: PrInfo,
+  ): { kind: "unique"; path: string } | { kind: "ambiguous" } | { kind: "none" } {
+    const target = info.headRef; // unused here; reference keeps TS happy
+    void target;
+    const needle = repoNameFromPrInfo(info).toLowerCase();
+    const matches = rootRepoPaths.filter((p) => {
+      const last = p.replaceAll("\\", "/").split("/").filter(Boolean).pop();
+      return last?.toLowerCase() === needle;
+    });
+    if (matches.length === 1) return { kind: "unique", path: matches[0] };
+    if (matches.length > 1) return { kind: "ambiguous" };
+    return { kind: "none" };
+  }
+
+  function repoNameFromPrInfo(_info: PrInfo): string {
+    // PrInfo only carries the head-side owner. For matching purposes, the
+    // repo name is shared between upstream and fork, so we fall back to
+    // parsing it out of the pasted URL.
+    const parsed = parsePastedPrUrl(prUrl);
+    return parsed?.repo ?? "";
+  }
+
+  function parsePastedPrUrl(input: string): { owner: string; repo: string; number: number } | null {
+    const t = input.trim();
+    // full URL
+    const m = t.match(/^https?:\/\/(?:www\.)?github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/);
+    if (m) return { owner: m[1], repo: m[2], number: Number(m[3]) };
+    // shortform
+    const s = t.match(/^([^\/\s]+)\/([^#\s]+)#(\d+)$/);
+    if (s) return { owner: s[1], repo: s[2], number: Number(s[3]) };
+    return null;
+  }
+
+  function defaultCloneTarget(info: PrInfo): string {
+    const parsed = parsePastedPrUrl(prUrl);
+    const repoName = parsed?.repo ?? info.headRef;
+    const roots = compatSettings.repoRoots.map((r) => r.trim()).filter(Boolean);
+    if (roots.length > 0) {
+      return `${roots[0].replace(/\/$/, "")}/${repoName}`;
+    }
+    // Fall back to ~/<repo>. Rust's std::env::home_dir isn't available here;
+    // we let the user pick via Change… if the default looks wrong.
+    return `~/${repoName}`;
+  }
+
+  async function handleClone() {
+    if (!prInfo) return;
+    const parsed = parsePastedPrUrl(prUrl);
+    if (!parsed) return;
+    const target = prCloneTarget.trim();
+    if (!target) return;
+    const seq = prLookupSeq;
+    prLookup = "cloning";
+    prError = "";
+    try {
+      await cloneRepo(parsed.owner, parsed.repo, target);
+      if (seq !== prLookupSeq) return;
+      repoPath = target;
+      await loadRootRepoOptions();
+      await detectGitRepo(target);
+      if (seq !== prLookupSeq) return;
+      await runFetchPrBranch(prInfo, target, seq);
+    } catch (e) {
+      if (seq !== prLookupSeq) return;
+      prLookup = "error";
+      prError = String(e);
+    }
+  }
+
+  async function pickCloneTarget() {
+    const selected = await open({ directory: true, title: "Select Parent Directory" });
+    if (!selected || !prInfo) return;
+    const parsed = parsePastedPrUrl(prUrl);
+    const repoName = parsed?.repo ?? prInfo.headRef;
+    prCloneTarget = `${(selected as string).replace(/\/$/, "")}/${repoName}`;
+  }
+
+  function applyPrPrefill(info: PrInfo, branch: string) {
+    if (!userEditedBranch) {
+      worktreeFilterInput = branch;
+      // Drive the worktree picker's active selection to match if a
+      // worktree already exists for this branch.
+      const existing = worktrees.find((wt) => wt.branch === branch);
+      if (existing) {
+        selectedWorktree = existing;
+      }
+    }
+    if (!userEditedName) {
+      sessionName = buildPrSessionName(info);
+    }
+  }
+
+  function buildPrSessionName(info: PrInfo): string {
+    const slug = info.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 30)
+      .replace(/-+$/g, "");
+    const base = slug ? `pr-${info.number}-${slug}` : `pr-${info.number}`;
+    return base.slice(0, 40).replace(/-+$/g, "");
+  }
 
   $effect(() => {
     const rootsKey = compatSettings.repoRoots.join("\n");
@@ -278,6 +483,13 @@
     if (!path) return;
     repoPath = path;
     await detectGitRepo(path);
+    // If we were waiting on the user to disambiguate which local clone
+    // matches the PR's repo, continue the PR flow now.
+    if (prLookup === "ambiguous" && prInfo) {
+      const seq = prLookupSeq;
+      prLookup = "loading";
+      await runFetchPrBranch(prInfo, path, seq);
+    }
   }
 
   function findQuickPickMatch(queryRaw: string): { label: string; path: string } | null {
@@ -596,6 +808,18 @@
     showCustomEditor = false;
     rootReposError = "";
     repoPickerOpen = true;
+    prUrl = "";
+    prLookup = "idle";
+    prInfo = null;
+    prError = "";
+    prResolvedBranch = "";
+    prCloneTarget = "";
+    userEditedBranch = false;
+    userEditedName = false;
+    if (prDebounceHandle) {
+      clearTimeout(prDebounceHandle);
+      prDebounceHandle = null;
+    }
     layoutPickInput = "";
     layoutPickOpen = false;
     profilePickInput = "";
@@ -631,6 +855,73 @@
 
       <!-- Body -->
       <div class="px-6 py-5 flex flex-col gap-4">
+        {#if ghInstalled}
+          <div class="flex flex-col gap-1.5">
+            <label
+              for="new-session-pr-url"
+              class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+            >
+              PR URL <span class="font-normal normal-case text-text-muted">(optional)</span>
+            </label>
+            <input
+              id="new-session-pr-url"
+              class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[12px] text-text-primary outline-none focus:border-accent-dim"
+              bind:value={prUrl}
+              placeholder="https://github.com/owner/repo/pull/142"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            {#if prLookup === "loading"}
+              <p class="text-[11px] text-text-muted">Fetching PR…</p>
+            {:else if prLookup === "ok" && prInfo}
+              <p class="text-[11px] text-text-muted truncate">
+                <span class="text-accent">PR #{prInfo.number}</span>
+                <span class="text-text-secondary">"{prInfo.title}"</span>
+                {#if prInfo.isCrossRepository}
+                  <span class="ml-1 text-[10px] text-orange">(fork: {prInfo.headOwner}:{prInfo.headRef} → {prResolvedBranch})</span>
+                {:else}
+                  <span class="ml-1 text-[10px] text-text-muted">(same-repo: {prResolvedBranch})</span>
+                {/if}
+              </p>
+            {:else if prLookup === "ambiguous" && prInfo}
+              <p class="text-[11px] text-text-muted">
+                Multiple local clones of <span class="text-accent">{repoNameFromPrInfo(prInfo)}</span> found. Pick one in Repository below.
+              </p>
+            {:else if prLookup === "needsClone" && prInfo}
+              <div class="flex flex-col gap-1.5 rounded-md border border-border-subtle bg-bg-deep/60 px-2.5 py-2">
+                <p class="text-[11px] text-text-muted">
+                  No local clone of <span class="text-accent">{parsePastedPrUrl(prUrl)?.owner}/{parsePastedPrUrl(prUrl)?.repo}</span>.
+                </p>
+                <div class="flex items-center gap-1.5">
+                  <input
+                    class="min-w-0 flex-1 rounded-md border border-border-subtle bg-bg-deep px-2 py-1 font-mono text-[11px] text-text-primary outline-none focus:border-accent-dim"
+                    bind:value={prCloneTarget}
+                  />
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                    onclick={pickCloneTarget}
+                  >
+                    Change…
+                  </button>
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded-md border border-accent-dim/20 bg-accent-dim/15 px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent-dim/24"
+                    onclick={handleClone}
+                    disabled={!prCloneTarget.trim()}
+                  >
+                    Clone
+                  </button>
+                </div>
+              </div>
+            {:else if prLookup === "cloning"}
+              <p class="text-[11px] text-text-muted">Cloning {parsePastedPrUrl(prUrl)?.owner}/{parsePastedPrUrl(prUrl)?.repo}…</p>
+            {:else if prLookup === "error"}
+              <p class="text-[11px] text-red">{prError}</p>
+            {/if}
+          </div>
+        {/if}
+
         <!-- Repo picker -->
         <div class="flex flex-col gap-1.5">
           <label
@@ -740,7 +1031,7 @@
                   placeholder="e.g. feat/my-branch"
                   class={pickerInputClass}
                   onfocus={() => { worktreePickOpen = true; }}
-                  oninput={() => { worktreePickOpen = true; }}
+                  oninput={() => { worktreePickOpen = true; userEditedBranch = true; }}
                   onkeydown={(e) => {
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
@@ -988,6 +1279,7 @@
             class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
             bind:value={sessionName}
             placeholder="roux-my-feature"
+            oninput={() => { userEditedName = true; }}
           />
         </div>
 
