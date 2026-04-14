@@ -117,6 +117,36 @@
     --color-hairline: rgba(255, 255, 255, 0.18);
   }
 
+  :root[data-theme="midnight-copper"],
+  body[data-theme="midnight-copper"] {
+    --app-bg-start: #151a25;
+    --app-bg-end: #121722;
+    --app-glow: rgba(242, 157, 111, 0.05);
+    --color-bg-deep: #121722;
+    --color-bg-base: #171d2a;
+    --color-bg-surface: #202839;
+    --color-bg-elevated: #2a344a;
+    --color-bg-hover: #344059;
+    --color-bg-active: rgba(42, 52, 74, 0.72);
+    --color-border: rgba(143, 166, 199, 0.25);
+    --color-border-subtle: rgba(143, 166, 199, 0.12);
+    --color-text-primary: #e9effa;
+    --color-text-secondary: #c5cfdf;
+    --color-text-muted: #9ba8bc;
+    --color-accent: #f29d6f;
+    --color-accent-dim: #de7f4d;
+    --color-green: #8bcf9f;
+    --color-green-dim: #245945;
+    --color-amber: #f2b37f;
+    --color-amber-dim: #8f5a38;
+    --color-red: #ef8a77;
+    --color-red-dim: #8c3f40;
+    --color-blue: #7ea6e0;
+    --color-blue-dim: #365a95;
+    --color-gray: #9ba8bc;
+    --color-hairline: rgba(255, 255, 255, 0.18);
+  }
+
   :root[data-theme="slate-emerald"],
   body[data-theme="slate-emerald"] {
     --app-bg-start: #080b0a;

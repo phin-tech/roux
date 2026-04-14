@@ -43,6 +43,7 @@ export type {
 
 export type ThemePreset =
   | "deep-blue"
+  | "midnight-copper"
   | "steel-amber"
   | "slate-emerald"
   | "graphite-rose"
