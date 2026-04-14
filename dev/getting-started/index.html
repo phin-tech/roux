@@ -240,6 +240,23 @@
   
   
     <li class="md-tabs__item">
+      <a href="../whats-new/" class="md-tabs__link">
+        
+  
+    
+  
+  What's New
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
       <a href="../install/" class="md-tabs__link">
         
   
@@ -414,6 +431,26 @@
   
   
     <li class="md-nav__item">
+      <a href="../whats-new/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    What's New
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../install/" class="md-nav__link">
         
   
@@ -525,6 +562,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reconnect-and-restore" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reconnect and restore
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
       Next steps
@@ -576,10 +622,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
             
   
   <span class="md-ellipsis">
@@ -590,8 +636,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Features
           </label>
@@ -883,6 +929,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reconnect-and-restore" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reconnect and restore
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
       Next steps
@@ -926,7 +981,8 @@
 <h2 id="creating-your-first-session">Creating your first session<a class="headerlink" href="#creating-your-first-session" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Press <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-n">N</kbd></span> to open the <strong>New session</strong> dialog.</li>
-<li>Pick a project directory. Roux will remember it for next time.</li>
+<li>Pick a project directory (or use repo-root quick-pick results if configured in Settings).</li>
+<li>Optionally paste a GitHub PR URL to prepare a PR review session.</li>
 <li>Optionally choose a git worktree to isolate this session's working copy.</li>
 <li>Confirm to spawn a Claude Code session in a new pane.</li>
 </ol>
@@ -940,6 +996,8 @@
 <p>Roux automatically flattens consecutive splits in the same direction, so your layout stays clean.</p>
 <h2 id="opening-a-shell">Opening a shell<a class="headerlink" href="#opening-a-shell" title="Permanent link">&para;</a></h2>
 <p>From the command palette (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span>), run <strong>New shell pane</strong> to open a regular shell alongside Claude. Shell panes persist across restarts and respawn automatically.</p>
+<h2 id="reconnect-and-restore">Reconnect and restore<a class="headerlink" href="#reconnect-and-restore" title="Permanent link">&para;</a></h2>
+<p>On launch, restored sessions appear disconnected by design. Click <strong>Reconnect</strong> on a session card to restore its saved pane layout (including shell splits) and reconnect the main agent pane.</p>
 <h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../features/panes/">Panes</a> — splits, stacks, focus</li>

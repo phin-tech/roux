@@ -240,6 +240,23 @@
   
   
     <li class="md-tabs__item">
+      <a href="../../whats-new/" class="md-tabs__link">
+        
+  
+    
+  
+  What's New
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
       <a href="../../install/" class="md-tabs__link">
         
   
@@ -414,6 +431,26 @@
   
   
     <li class="md-nav__item">
+      <a href="../../whats-new/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    What's New
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../install/" class="md-nav__link">
         
   
@@ -487,10 +524,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   <span class="md-ellipsis">
@@ -501,8 +538,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Features
           </label>
@@ -636,6 +673,15 @@
   <a href="#creating-a-worktree" class="md-nav__link">
     <span class="md-ellipsis">
       Creating a worktree
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#worktree-base-path-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Worktree base path templates
     </span>
   </a>
   
@@ -843,6 +889,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#worktree-base-path-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Worktree base path templates
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cleanup" class="md-nav__link">
     <span class="md-ellipsis">
       Cleanup
@@ -894,8 +949,26 @@
 <li><strong>Existing worktree</strong> — attach the session to a worktree you already have on disk.</li>
 <li><strong>New worktree</strong> — Roux creates a new worktree for you at a path you choose, branching from a ref you pick.</li>
 </ul>
+<p>The New Session dialog also supports pasting a GitHub PR URL. Roux can resolve the PR refs and create (or reuse) an appropriate local worktree for review.</p>
+<h2 id="worktree-base-path-templates">Worktree base path templates<a class="headerlink" href="#worktree-base-path-templates" title="Permanent link">&para;</a></h2>
+<p>In <strong>Settings → Sessions</strong>, <code>Worktree base path</code> supports template variables:</p>
+<ul>
+<li><code>{project_dir}</code></li>
+<li><code>{git_root}</code></li>
+<li><code>{project_name}</code></li>
+<li><code>{home}</code></li>
+</ul>
+<p>Example:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>{project_dir}/.worktrees
+</span></code></pre></div>
+<p>Roux previews the resolved path in Settings as you edit the template.</p>
 <h2 id="cleanup">Cleanup<a class="headerlink" href="#cleanup" title="Permanent link">&para;</a></h2>
-<p>Removing a session does not delete its worktree. Use the worktree management UI (or <code>git worktree remove</code> from a shell pane) when you're done with one.</p>
+<p>Use <strong>Settings → Sessions → On session close</strong> to choose worktree cleanup behavior:</p>
+<ul>
+<li><strong>Keep</strong> — never remove worktrees automatically</li>
+<li><strong>Ask</strong> — prompt each time a worktree-backed session closes</li>
+<li><strong>Remove</strong> — always remove the worktree on close</li>
+</ul>
 <h2 id="caveats">Caveats<a class="headerlink" href="#caveats" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Worktrees share hooks and git config with the main repo. Be aware of any <code>post-checkout</code> or <code>post-commit</code> hooks that assume a single working copy.</li>

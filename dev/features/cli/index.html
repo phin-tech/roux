@@ -240,6 +240,23 @@
   
   
     <li class="md-tabs__item">
+      <a href="../../whats-new/" class="md-tabs__link">
+        
+  
+    
+  
+  What's New
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
       <a href="../../install/" class="md-tabs__link">
         
   
@@ -414,6 +431,26 @@
   
   
     <li class="md-nav__item">
+      <a href="../../whats-new/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    What's New
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../install/" class="md-nav__link">
         
   
@@ -487,10 +524,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   <span class="md-ellipsis">
@@ -501,8 +538,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Features
           </label>
@@ -876,6 +913,7 @@
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ln<span class="w"> </span>-sf<span class="w"> </span>/Applications/Roux.app/Contents/MacOS/roux-cli<span class="w"> </span>/usr/local/bin/roux
 </span></code></pre></div>
 <p>Then <code>roux --help</code> should work from any terminal.</p>
+<p>Inside Roux-managed panes, both <code>roux</code> and <code>roux-cli</code> are injected automatically, so you can call them without adding your own PATH shim.</p>
 <h2 id="what-it-can-do">What it can do<a class="headerlink" href="#what-it-can-do" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Open / focus a session for a directory and raise the app window (<code>roux app .</code>)</li>
@@ -886,6 +924,7 @@
 <li>Focus a pane by id (<code>roux focus</code>)</li>
 <li>Run a shell command in a new pane (<code>roux run</code>)</li>
 <li>Push notifications (<code>roux notify</code>)</li>
+<li>Emit hook status transitions (<code>roux hook</code>)</li>
 </ul>
 <h2 id="scripting-agent-to-agent-examples">Scripting &amp; agent-to-agent examples<a class="headerlink" href="#scripting-agent-to-agent-examples" title="Permanent link">&para;</a></h2>
 <p>Open (or focus) Roux at the current directory:</p>
@@ -909,7 +948,7 @@
 <p>Open a new shell pane alongside the main agent:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>plain-shell<span class="w"> </span>--direction<span class="w"> </span>vertical
 </span></code></pre></div>
-<p>Inside a Roux-managed PTY, <code>$ROUX_SESSION_ID</code> and <code>$ROUX_PANE_ID</code> are set, so most <code>-s</code> / <code>-p</code> flags are optional.</p>
+<p>Inside a Roux-managed PTY, <code>ROUX_*</code> variables are set (including <code>$ROUX_SESSION_ID</code> and <code>$ROUX_PANE_ID</code>), so most <code>-s</code> / <code>-p</code> flags are optional and scripting context is preserved.</p>
 <p>See <code>roux --help</code> and <code>roux &lt;subcommand&gt; --help</code> for the authoritative list of commands and flags.</p>
 
 

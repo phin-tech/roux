@@ -240,6 +240,23 @@
   
   
     <li class="md-tabs__item">
+      <a href="../../whats-new/" class="md-tabs__link">
+        
+  
+    
+  
+  What's New
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
       <a href="../../install/" class="md-tabs__link">
         
   
@@ -414,6 +431,26 @@
   
   
     <li class="md-nav__item">
+      <a href="../../whats-new/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    What's New
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../install/" class="md-nav__link">
         
   
@@ -487,10 +524,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   <span class="md-ellipsis">
@@ -501,8 +538,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Features
           </label>
@@ -884,11 +921,12 @@
 
 
 <h1 id="sessions">Sessions<a class="headerlink" href="#sessions" title="Permanent link">&para;</a></h1>
-<p>A <strong>session</strong> is a running Claude Code process attached to a specific project directory (and optionally a git worktree). Roux can run many independent sessions at once.</p>
+<p>A <strong>session</strong> is a running agent/shell workflow attached to a specific project directory (and optionally a git worktree). Roux can run many independent sessions at once.</p>
 <h2 id="creating-a-session">Creating a session<a class="headerlink" href="#creating-a-session" title="Permanent link">&para;</a></h2>
 <ul>
 <li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-n">N</kbd></span> opens the new-session dialog.</li>
 <li>Pick a project directory and optionally a git worktree.</li>
+<li>Optionally paste a GitHub PR URL to auto-resolve the review branch and local checkout target.</li>
 <li>A new pane is created with Claude Code running inside it.</li>
 </ul>
 <h2 id="projects">Projects<a class="headerlink" href="#projects" title="Permanent link">&para;</a></h2>
@@ -896,10 +934,11 @@
 <h2 id="session-persistence">Session persistence<a class="headerlink" href="#session-persistence" title="Permanent link">&para;</a></h2>
 <p>Session metadata (project, worktree, working directory) is persisted. When you relaunch Roux:</p>
 <ul>
-<li><strong>Shell panes</strong> are automatically respawned.</li>
-<li><strong>Claude session panes</strong> are recreated as empty panes so you can explicitly start a new Claude process.</li>
+<li><strong>Startup restore</strong> creates the session and its primary pane in disconnected state.</li>
+<li><strong>Reconnect</strong> restores the full saved pane tree (splits + shell panes), then reconnects the primary agent pane.</li>
+<li>Shell pane restore uses the last known live working directory when available.</li>
 </ul>
-<p>This is intentional: Claude Code sessions are not safe to silently resume.</p>
+<p>This is intentional: active agent processes are not silently resumed on launch.</p>
 <h2 id="closing-a-session">Closing a session<a class="headerlink" href="#closing-a-session" title="Permanent link">&para;</a></h2>
 <p>Closing the pane (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-w">W</kbd></span>) terminates the Claude process. Roux takes care not to kill unrelated <code>node</code> processes — only the session it owns.</p>
 <p>See <a href="../worktrees/">Worktrees</a> for how sessions interact with git worktrees.</p>
