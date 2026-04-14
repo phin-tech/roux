@@ -13,11 +13,12 @@
   import TerminalIcon from "@lucide/svelte/icons/terminal";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Bell from "@lucide/svelte/icons/bell";
+  import Keyboard from "@lucide/svelte/icons/keyboard";
   import Wrench from "@lucide/svelte/icons/wrench";
   import X from "@lucide/svelte/icons/x";
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
 
-  type CategoryId = "general" | "sessions" | "terminal" | "claude" | "notifications" | "advanced";
+  type CategoryId = "general" | "sessions" | "terminal" | "claude" | "notifications" | "keyboard" | "advanced";
 
   const CATEGORIES: { id: CategoryId; label: string; icon: typeof Settings }[] = [
     { id: "general", label: "General", icon: Settings },
@@ -25,6 +26,7 @@
     { id: "terminal", label: "Terminal", icon: TerminalIcon },
     { id: "claude", label: "Claude", icon: Sparkles },
     { id: "notifications", label: "Notifications", icon: Bell },
+    { id: "keyboard", label: "Keyboard", icon: Keyboard },
     { id: "advanced", label: "Advanced", icon: Wrench },
   ];
 
@@ -474,6 +476,37 @@
                 onclick={sendTestNotification}
               >
                 Send test
+              </button>
+            </div>
+          {:else if selected === "keyboard"}
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Show pane hint overlay when holding Option</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Reveals pane numbers while ⌥ is held. Option+digit shortcuts still work either way.</div>
+              </div>
+              <button
+                aria-label="Toggle pane hint overlay on Option"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {$settings.showPaneHintsOnOption ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => updateSetting("showPaneHintsOnOption", !$settings.showPaneHintsOnOption)}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {$settings.showPaneHintsOnOption ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+              </button>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Show session hint overlay when holding Command</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Reveals session shortcuts while ⌘ is held. Command chord shortcuts still work either way.</div>
+              </div>
+              <button
+                aria-label="Toggle session hint overlay on Command"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {$settings.showSessionHintsOnCommand !== false ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => updateSetting("showSessionHintsOnCommand", !($settings.showSessionHintsOnCommand !== false))}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {$settings.showSessionHintsOnCommand !== false ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
               </button>
             </div>
           {:else if selected === "advanced"}

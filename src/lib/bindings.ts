@@ -384,6 +384,16 @@ export type RouxSettings = {
 	 */
 	trustedWorkspaces?: string[],
 	statusBarPosition?: StatusBarPosition,
+	/**
+	 *  Reveal the pane-number overlay while Option (⌥) is held. The
+	 *  `Option+digit` / `Option+HJKL` chord shortcuts are unaffected either way.
+	 */
+	showPaneHintsOnOption?: boolean,
+	/**
+	 *  Reveal the session-shortcut overlay while the primary modifier
+	 *  (⌘ on macOS, Ctrl elsewhere) is held. Chord shortcuts are unaffected.
+	 */
+	showSessionHintsOnCommand?: boolean,
 };
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };

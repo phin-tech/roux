@@ -204,12 +204,12 @@
     // like Cmd/Ctrl+K or Cmd/Ctrl+1 release before the delay elapses and
     // never reveal the overlay.
     if ((isMacPlatform() && e.key === "Meta") || (!isMacPlatform() && e.key === "Control")) {
-      armSessionHints();
+      if ($settings.showSessionHintsOnCommand !== false) armSessionHints();
     }
 
     // Same deal for Alt / Option → pane hint overlay.
     if (e.key === "Alt") {
-      armPaneHints();
+      if ($settings.showPaneHintsOnOption) armPaneHints();
     }
 
     // Cmd+Q: quit
