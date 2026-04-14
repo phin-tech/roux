@@ -35,6 +35,7 @@ enum SessionMsg {
     UpdateStatus { id: String, status: roux_core::SessionStatus, reply: oneshot::Sender<()> },
     SetGitRepo { id: String, is_git_repo: bool, reply: oneshot::Sender<()> },
     SetProject { id: String, project_id: Option<String>, reply: oneshot::Sender<()> },
+    SetNameOverride { id: String, name_override: Option<String>, reply: oneshot::Sender<()> },
     Shutdown { reply: oneshot::Sender<()> },
 }
 
@@ -100,6 +101,20 @@ impl SessionHandle {
     ) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(SessionMsg::SetProject { id: id.to_string(), project_id, reply: reply_tx })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
+
+    pub async fn set_name_override(
+        &self,
+        id: &str,
+        name_override: Option<String>,
+    ) -> Result<(), ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionMsg::SetNameOverride {
+            id: id.to_string(),
+            name_override,
+            reply: reply_tx,
+        })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
@@ -178,6 +193,13 @@ async fn service_loop(
                         dirty = true;
                         let _ = reply.send(());
                     }
+                    Some(SessionMsg::SetNameOverride { id, name_override, reply }) => {
+                        if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+                            s.name_override = name_override;
+                        }
+                        dirty = true;
+                        let _ = reply.send(());
+                    }
                     Some(SessionMsg::Shutdown { reply }) => {
                         if dirty {
                             persist_to_disk(&sessions, &persist_path);
@@ -236,6 +258,7 @@ mod tests {
             created_at: 0,
             project_id: None,
             is_git_repo: false,
+            name_override: None,
         }
     }
 

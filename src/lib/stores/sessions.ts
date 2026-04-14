@@ -69,13 +69,42 @@ export function triggerRename() {
   renameSignal.update((n) => n + 1);
 }
 
+/**
+ * Compute the display name for a session with precedence:
+ * 1. user-set rename override
+ * 2. branch name (for git repos)
+ * 3. worktree folder name (fallback)
+ */
+export function sessionDisplayName(s: Session): string {
+  if (s.nameOverride && s.nameOverride.trim()) return s.nameOverride;
+  if (s.isGitRepo && s.branch) return s.branch;
+  const parts = s.worktreePath.split("/").filter(Boolean);
+  return parts[parts.length - 1] || s.name;
+}
+
 export function renameSession(id: string, newName: string) {
+  const trimmed = newName.trim() || null;
   sessionState.update((state) => ({
     ...state,
     sessions: state.sessions.map((s) =>
-      s.id === id ? { ...s, name: newName } : s
+      s.id === id ? { ...s, nameOverride: trimmed, name: trimmed ?? s.name } : s
     ),
   }));
+  import("../tauri").then(({ setSessionNameOverride }) => {
+    void setSessionNameOverride(id, trimmed).catch(() => {});
+  });
+}
+
+export function clearSessionNameOverride(id: string) {
+  sessionState.update((state) => ({
+    ...state,
+    sessions: state.sessions.map((s) =>
+      s.id === id ? { ...s, nameOverride: null } : s
+    ),
+  }));
+  import("../tauri").then(({ setSessionNameOverride }) => {
+    void setSessionNameOverride(id, null).catch(() => {});
+  });
 }
 
 export function updateSessionGitStatus(id: string, isGitRepo: boolean) {

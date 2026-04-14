@@ -287,6 +287,7 @@
               {session}
               active={session.id === $sessionState.activeSessionId}
               slotNumber={slotById.get(session.id)}
+              hideProjectTag={($settings.groupBy ?? "repo") === "project"}
               onselect={() => setActiveSession(session.id)}
               onclose={() => handleClose(session.id)}
               onrename={(newName) => renameSession(session.id, newName)}

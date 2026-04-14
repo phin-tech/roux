@@ -30,6 +30,7 @@ export const commands = {
 	 *  `ptyId == sessionId` matched a real session record and deleted it.
 	 */
 	killPty: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_pty", { id })),
+	setSessionNameOverride: (sessionId: string, nameOverride: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_name_override", { sessionId, nameOverride })),
 	getPtyGeneration: (id: string) => __TAURI_INVOKE<number | null>("get_pty_generation", { id }),
 	/**
 	 *  Live cwd of a PTY-backed process, resolved from the OS (no shell hooks).
@@ -400,6 +401,7 @@ export type Session = {
 	createdAt: number,
 	projectId?: string | null,
 	isGitRepo?: boolean,
+	nameOverride?: string | null,
 };
 
 export type SessionStatus = "idle" | "thinking" | "generating" | "error" | "disconnected" | "attention";

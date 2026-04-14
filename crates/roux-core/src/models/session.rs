@@ -42,4 +42,6 @@ pub struct Session {
     pub project_id: Option<String>,
     #[serde(default)]
     pub is_git_repo: bool,
+    #[serde(default)]
+    pub name_override: Option<String>,
 }
