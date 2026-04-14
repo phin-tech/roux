@@ -76,6 +76,11 @@ pub(crate) fn spawn_shell(
     let nono = nono_profile
         .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
     let initial_size = initial_cols.zip(initial_rows);
+    // Secondary pane spawn path. Primary session shells already carry
+    // ROUX_PROJECT_ID / ROUX_WORKTREE_PATH via services::sessions. Secondary
+    // panes could resolve the same from session_handle, but SessionHandle::get
+    // is async and this command is sync; leaving as None until either the
+    // frontend passes them or this command is promoted to async.
     state
         .pty_manager
         .spawn_shell(
@@ -83,6 +88,8 @@ pub(crate) fn spawn_shell(
             &working_dir,
             session_id.as_deref(),
             pane_id.as_deref(),
+            None,
+            None,
             nono.as_ref(),
             initial_size,
             app.clone(),
@@ -104,6 +111,8 @@ pub(crate) fn spawn_task(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let initial_size = initial_cols.zip(initial_rows);
+    // See spawn_shell above: project/worktree env is deferred for the
+    // secondary-pane path until this command goes async.
     state
         .pty_manager
         .spawn_task(
@@ -112,6 +121,8 @@ pub(crate) fn spawn_task(
             &working_dir,
             session_id.as_deref(),
             pane_id.as_deref(),
+            None,
+            None,
             initial_size,
             app.clone(),
         )

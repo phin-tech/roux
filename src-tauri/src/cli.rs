@@ -9,7 +9,7 @@ mod paths;
 mod platform;
 
 #[derive(Parser)]
-#[command(name = "roux-cli", about = "Roux terminal manager CLI")]
+#[command(name = "roux-cli", about = "Roux terminal manager CLI", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

@@ -18,6 +18,7 @@ mod services;
 mod session;
 mod session_service;
 mod settings;
+mod skill;
 mod socket;
 mod state;
 mod status_watcher;
@@ -92,6 +93,11 @@ fn main() {
         commands::setup::run_setup,
         commands::setup::check_nono_installed,
         commands::setup::list_nono_profiles,
+        commands::setup::check_doctor_status,
+        commands::setup::reinstall_cli,
+        commands::setup::reinstall_hooks,
+        commands::setup::reinstall_skill,
+        commands::setup::install_all_missing,
         tasks::cmd_discover_tasks,
         tasks::cmd_load_task_overrides,
         tasks::cmd_save_task_overrides,
@@ -178,6 +184,11 @@ fn main() {
             commands::setup::run_setup,
             commands::setup::check_nono_installed,
             commands::setup::list_nono_profiles,
+            commands::setup::check_doctor_status,
+            commands::setup::reinstall_cli,
+            commands::setup::reinstall_hooks,
+            commands::setup::reinstall_skill,
+            commands::setup::install_all_missing,
             tasks::cmd_discover_tasks,
             tasks::cmd_load_task_overrides,
             tasks::cmd_save_task_overrides,

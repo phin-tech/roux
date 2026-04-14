@@ -6,6 +6,18 @@ pub(crate) fn is_cli_installed() -> bool {
     crate::hooks::cli_is_installed()
 }
 
+pub(crate) fn is_cli_current() -> bool {
+    crate::hooks::cli_is_current()
+}
+
+pub(crate) fn installed_cli_version() -> Option<String> {
+    crate::hooks::installed_cli_version()
+}
+
+pub(crate) fn bundled_cli_version() -> &'static str {
+    crate::hooks::bundled_cli_version()
+}
+
 pub(crate) fn is_setup_complete() -> bool {
     crate::hooks::setup_is_complete()
 }
@@ -13,6 +25,19 @@ pub(crate) fn is_setup_complete() -> bool {
 pub(crate) fn install_hooks() -> anyhow::Result<()> {
     crate::hooks::install_hooks().map_err(anyhow::Error::msg)?;
     Ok(())
+}
+
+pub(crate) fn install_skill() -> anyhow::Result<()> {
+    crate::skill::install_skill().map_err(anyhow::Error::msg)?;
+    Ok(())
+}
+
+pub(crate) fn is_skill_installed() -> bool {
+    crate::skill::skill_is_installed()
+}
+
+pub(crate) fn is_hooks_installed() -> bool {
+    crate::hooks::setup_is_complete()
 }
 
 pub(crate) fn list_nono_profiles() -> Vec<String> {

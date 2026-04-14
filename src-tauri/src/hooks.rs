@@ -39,6 +39,41 @@ fn roux_cli_path() -> Result<PathBuf, String> {
         })
 }
 
+/// Bundled CLI version — what a freshly-installed `roux-cli` will report.
+pub fn bundled_cli_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// Exec the installed `roux-cli --version` and return the semver segment of
+/// its output. Clap prints `"roux-cli X.Y.Z"`.
+pub fn installed_cli_version() -> Option<String> {
+    let path = installed_cli_path()?;
+    let output = std::process::Command::new(&path).arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    stdout.split_whitespace().last().map(str::to_string)
+}
+
+/// Where the CLI is actually installed right now, if anywhere — mirrors
+/// [`cli_is_installed`] but returns the path so callers can exec it.
+fn installed_cli_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let candidates = [cargo_cli_install_path()];
+    #[cfg(not(windows))]
+    let candidates = [unix_cli_install_path(), cargo_cli_install_path()];
+
+    first_existing_path(candidates)
+        .or_else(|| platform::find_executable_on_path(platform::roux_cli_file_name()))
+}
+
+/// `true` when an installed CLI is found *and* its version matches the
+/// bundled one. A missing CLI or a version mismatch both return `false`.
+pub fn cli_is_current() -> bool {
+    installed_cli_version().as_deref() == Some(bundled_cli_version())
+}
+
 /// Check whether `roux-cli` can be found in any of the supported lookup locations,
 /// including the platform-specific install path, a sibling binary, Cargo's bin
 /// directory, or `PATH`.
