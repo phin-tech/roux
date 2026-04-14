@@ -44,16 +44,47 @@ A single `SKILL.md` shipped inside the Roux binary/resources. Contents:
 - Version header (e.g., `# roux-skill-version: N`) so Roux can detect stale
   installs and overwrite.
 
-**2. Install-on-startup**
-On Roux app startup, a Rust routine:
-- Resolves `~/.claude/skills/roux/SKILL.md` (XDG-respecting on non-mac where
-  relevant; Claude Code's canonical path is `~/.claude/skills/<name>/`).
-- If the file is missing, or its version header is older than the bundled
-  version, writes the bundled content atomically.
-- Never touches unrelated files in `~/.claude/skills/`.
-- Logs (at info level) what it did.
+**2. Unified Doctor panel**
+A single `DoctorPanel.svelte` component renders per-integration status rows
+and serves both first-launch onboarding and ongoing settings. Each row
+shows: name, current status (installed + version, or missing + reason), and
+a per-item action button.
 
-**3. Extended PTY env**
+Rows (v1):
+- Roux CLI — installed path or "not installed" + Reinstall.
+- Claude Code hooks — installed / stale / missing + Reinstall.
+- Claude Code skill — installed / stale / missing + Reinstall.
+- `gh` — found / missing (informational only; no install action).
+
+Entry points:
+- **Onboarding mode** (`mode="onboarding"`): rendered in a modal when any
+  installable row is missing on launch. Adds a welcome header and an
+  "Install all missing" button that runs every needed installer in sequence.
+  Replaces the existing `SetupPrompt.svelte`.
+- **Settings mode** (`mode="settings"`): embedded in Settings → Doctor. No
+  header, no install-all button; rows only. Always accessible regardless of
+  install state, so users can reinstall after manual edits, OS upgrades,
+  etc.
+
+Backend:
+- `check_doctor_status()` → struct with one entry per integration
+  (`name`, `status`, `detail`, `version?`).
+- `reinstall_cli()`, `reinstall_hooks()`, `reinstall_skill()`,
+  `install_all_missing()` Tauri commands wrap install routines in
+  `services/setup.rs`.
+- `install_skill()` resolves `~/.claude/skills/roux/SKILL.md`, writes the
+  bundled content atomically when missing or when the on-disk version
+  header is older than the bundled version, and never touches unrelated
+  files under `~/.claude/skills/`.
+- Install failures are logged, surfaced in the Doctor UI per row, and
+  non-fatal to app startup.
+
+**3. Removal of the old `SetupPrompt`**
+`SetupPrompt.svelte` and its single-shot `run_setup` command are superseded
+by the Doctor panel. `check_setup_status` / `check_setup_needed` may be
+kept internally or folded into `check_doctor_status`.
+
+**4. Extended PTY env**
 `src-tauri/src/pty.rs` currently sets `ROUX_SESSION`, `ROUX_SOCKET`,
 `ROUX_CLI`, `ROUX_SESSION_ID`, `ROUX_PANE_ID`. Add:
 - `ROUX_PROJECT_ID` — id of the project the session belongs to (when known).
