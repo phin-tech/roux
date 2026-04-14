@@ -1,6 +1,6 @@
 [package]
 name = "roux"
-version = "0.3.5"
+version = "0.3.6"
 description = "A multi-session Claude Code terminal manager"
 authors = ["phin-tech"]
 edition = "2021"
