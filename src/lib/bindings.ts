@@ -85,6 +85,11 @@ export const commands = {
 	runSetup: () => typedError<null, string>(__TAURI_INVOKE("run_setup")),
 	checkNonoInstalled: () => __TAURI_INVOKE<boolean>("check_nono_installed"),
 	listNonoProfiles: () => __TAURI_INVOKE<string[]>("list_nono_profiles"),
+	checkDoctorStatus: () => __TAURI_INVOKE<DoctorStatus>("check_doctor_status"),
+	reinstallCli: () => typedError<null, string>(__TAURI_INVOKE("reinstall_cli")),
+	reinstallHooks: () => typedError<null, string>(__TAURI_INVOKE("reinstall_hooks")),
+	reinstallSkill: () => typedError<null, string>(__TAURI_INVOKE("reinstall_skill")),
+	installAllMissing: () => typedError<null, string>(__TAURI_INVOKE("install_all_missing")),
 	cmdDiscoverTasks: (dir: string) => __TAURI_INVOKE<TaskGroup[]>("cmd_discover_tasks", { dir }),
 	cmdLoadTaskOverrides: () => __TAURI_INVOKE<{ [key in string]: { [key in string]: string } }>("cmd_load_task_overrides"),
 	cmdSaveTaskOverrides: (overrides: { [key in string]: { [key in string]: string } }) => typedError<null, string>(__TAURI_INVOKE("cmd_save_task_overrides", { overrides })),
@@ -385,6 +390,18 @@ export type SessionStatus = "idle" | "thinking" | "generating" | "error" | "disc
 export type SetupStatus = {
 	cliInstalled: boolean,
 	ghAvailable: boolean,
+};
+
+export type DoctorItem = {
+	id: string,
+	label: string,
+	status: string,
+	detail?: string | null,
+	installable: boolean,
+};
+
+export type DoctorStatus = {
+	items: DoctorItem[],
 };
 
 /**

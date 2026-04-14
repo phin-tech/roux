@@ -4,7 +4,7 @@
   import Layout from "$lib/components/Layout.svelte";
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
   import ProfileCustomEditor from "$lib/components/ProfileCustomEditor.svelte";
-  import SetupPrompt from "$lib/components/SetupPrompt.svelte";
+  import DoctorPanel from "$lib/components/DoctorPanel.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import NotesPanel from "$lib/components/NotesPanel.svelte";
   import WatchesPane from "$lib/components/WatchesPane.svelte";
@@ -48,7 +48,7 @@
   } from "$lib/stores/customProfileModal";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
-  import { listSessions, checkSetupStatus, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
   import { profileRegistry } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -76,7 +76,6 @@
   let showNotifications = $state(false);
   let showSetupPrompt = $state(false);
   let showQuitDialog = $state(false);
-  let ghAvailable = $state(true);
 
   function buildShortcutString(e: KeyboardEvent): string {
     const parts: string[] = [];
@@ -439,11 +438,12 @@
     // Kick off a silent background update check (5s debounce, respects user toggle)
     runStartupCheck();
 
-    // Check CLI setup and tool availability
+    // Check CLI setup and tool availability. The Doctor panel covers
+    // cli/hooks/skill; gh is informational (still tracked for the UI).
     const status = await checkSetupStatus();
-    ghAvailable = status.ghAvailable;
     ghAvailableStore.set(status.ghAvailable);
-    if (!status.cliInstalled) {
+    const setupNeeded = await checkSetupNeeded();
+    if (setupNeeded) {
       log("First-time setup needed");
       showSetupPrompt = true;
     }
@@ -776,8 +776,8 @@
   oncancel={() => (showQuitDialog = false)}
 />
 
-<SetupPrompt
+<DoctorPanel
+  mode="onboarding"
   visible={showSetupPrompt}
-  {ghAvailable}
   ondone={() => (showSetupPrompt = false)}
 />

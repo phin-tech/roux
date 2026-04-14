@@ -15,6 +15,19 @@ pub(crate) fn install_hooks() -> anyhow::Result<()> {
     Ok(())
 }
 
+pub(crate) fn install_skill() -> anyhow::Result<()> {
+    crate::skill::install_skill().map_err(anyhow::Error::msg)?;
+    Ok(())
+}
+
+pub(crate) fn is_skill_installed() -> bool {
+    crate::skill::skill_is_installed()
+}
+
+pub(crate) fn is_hooks_installed() -> bool {
+    crate::hooks::setup_is_complete()
+}
+
 pub(crate) fn list_nono_profiles() -> Vec<String> {
     if !is_command_available("nono") {
         return Vec::new();

@@ -15,6 +15,7 @@
   import Bell from "@lucide/svelte/icons/bell";
   import Wrench from "@lucide/svelte/icons/wrench";
   import X from "@lucide/svelte/icons/x";
+  import DoctorPanel from "$lib/components/DoctorPanel.svelte";
 
   type CategoryId = "general" | "sessions" | "terminal" | "claude" | "notifications" | "advanced";
 
@@ -570,6 +571,10 @@
             {#if $settings.enableLogging}
               <div class="text-[11px] text-text-muted font-mono mt-1 break-all">{getLogPath()}</div>
             {/if}
+
+            <div class="mt-6 border-t border-hairline pt-5">
+              <DoctorPanel mode="settings" />
+            </div>
           {/if}
         </div>
       </div>

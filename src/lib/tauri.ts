@@ -239,6 +239,30 @@ export async function runSetup(): Promise<void> {
   return invoke("run_setup");
 }
 
+// Doctor / integration health
+import type { DoctorStatus, DoctorItem } from "$lib/bindings";
+export type { DoctorStatus, DoctorItem };
+
+export async function checkDoctorStatus(): Promise<DoctorStatus> {
+  return invoke("check_doctor_status");
+}
+
+export async function reinstallCli(): Promise<void> {
+  return invoke("reinstall_cli");
+}
+
+export async function reinstallHooks(): Promise<void> {
+  return invoke("reinstall_hooks");
+}
+
+export async function reinstallSkill(): Promise<void> {
+  return invoke("reinstall_skill");
+}
+
+export async function installAllMissing(): Promise<void> {
+  return invoke("install_all_missing");
+}
+
 // Nono sandbox integration
 export async function checkNonoInstalled(): Promise<boolean> {
   return invoke("check_nono_installed");
