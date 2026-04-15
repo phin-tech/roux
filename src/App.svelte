@@ -16,6 +16,7 @@
   import {
     loadKeymap,
     keymapState,
+    hudVisible,
     enterTree as keymapEnterTree,
     rearmTree as keymapRearmTree,
     exitTree as keymapExitTree,
@@ -736,7 +737,7 @@
   onCheckForUpdates={() => { showSettings = true; void runManualCheck(); }}
 />
 
-{#if $keymapState.treePath.length > 0 || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
+{#if $hudVisible || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
   <KeymapHud
     promptLabel={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.label ?? "Input" : null}
     promptPlaceholder={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.inputPlaceholder ?? "" : null}

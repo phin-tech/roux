@@ -36,8 +36,60 @@ export const activeTree = derived(keymapRuntime, ($r): KeymapTree | null =>
   currentTree($r.keymap, $r.treePath),
 );
 
-/** Whether the HUD should be visible right now. Drives `<KeymapHud>`. */
-export const hudVisible = derived(keymapRuntime, ($r) => $r.treePath.length > 0);
+/**
+ * Whether the HUD should render right now. Drives `<KeymapHud>`. Honors each
+ * tree's `hud` mode (`always` / `delayed <ms>` / `never`) with fallback to
+ * the document-level `hudDefault`, and ultimately `always` if neither is
+ * set.
+ *
+ * Internally: a writable flag that enterTree/rearmTree schedule via
+ * setTimeout when the mode is `delayed`, and exitTree clears.
+ */
+const hudVisibleWritable = writable(false);
+export const hudVisible = { subscribe: hudVisibleWritable.subscribe };
+
+let hudDelayTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelHudTimer(): void {
+  if (hudDelayTimer !== null) {
+    clearTimeout(hudDelayTimer);
+    hudDelayTimer = null;
+  }
+}
+
+function resolvedHudMode(runtime: KeymapRuntime): { kind: "always" } | { kind: "delayed"; ms: number } | { kind: "never" } {
+  const tree = currentTree(runtime.keymap, runtime.treePath);
+  if (tree?.hud) return tree.hud;
+  if (runtime.keymap.hudDefault) return runtime.keymap.hudDefault;
+  return { kind: "always" };
+}
+
+function applyHudModeForActiveTree(): void {
+  cancelHudTimer();
+  const runtime = get(keymapRuntime);
+  if (runtime.treePath.length === 0) {
+    hudVisibleWritable.set(false);
+    return;
+  }
+  const mode = resolvedHudMode(runtime);
+  if (mode.kind === "always") {
+    hudVisibleWritable.set(true);
+    return;
+  }
+  if (mode.kind === "never") {
+    hudVisibleWritable.set(false);
+    return;
+  }
+  // delayed: hide until the timeout elapses, then reveal IFF the tree is
+  // still armed. A chord fired within the delay window exits the tree,
+  // cancelling the timer via applyHudModeForActiveTree / exitTree.
+  hudVisibleWritable.set(false);
+  hudDelayTimer = setTimeout(() => {
+    const now = get(keymapRuntime);
+    if (now.treePath.length > 0) hudVisibleWritable.set(true);
+    hudDelayTimer = null;
+  }, mode.ms);
+}
 
 // ---------------------------------------------------------------------------
 // mutations
@@ -50,6 +102,7 @@ export function enterTree(name: string): void {
     if (!target) return r; // unknown tree — should have produced a load-time warning
     return { ...r, treePath: [...r.treePath, name] };
   });
+  applyHudModeForActiveTree();
 }
 
 /** Arm a tree from a prefix trigger: clears any existing path and enters. */
@@ -59,10 +112,13 @@ export function rearmTree(name: string): void {
     if (!target) return r;
     return { ...r, treePath: [name] };
   });
+  applyHudModeForActiveTree();
 }
 
 export function exitTree(): void {
+  cancelHudTimer();
   keymapRuntime.update((r) => ({ ...r, treePath: [] }));
+  hudVisibleWritable.set(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,3 +278,18 @@ function physicalDisplay(code: string): string {
 
 // Re-export match helper so App.svelte can check before calling resolveKey.
 export { keyMatches };
+
+// ---------------------------------------------------------------------------
+// test-only
+// ---------------------------------------------------------------------------
+
+/**
+ * Overwrite the store's parsed keymap without going through `loadKeymap`.
+ * Resets `treePath` to empty. Intended for unit tests — do not call from
+ * application code.
+ */
+export function __installKeymapForTest(km: ParsedKeymap): void {
+  cancelHudTimer();
+  keymapRuntime.set({ keymap: km, treePath: [] });
+  hudVisibleWritable.set(false);
+}
