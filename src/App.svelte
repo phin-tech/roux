@@ -10,21 +10,20 @@
   import WatchesPane from "$lib/components/WatchesPane.svelte";
   import NotificationsPane from "$lib/components/NotificationsPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
-  import LeaderHud from "$lib/components/LeaderHud.svelte";
+  import KeymapHud from "$lib/components/KeymapHud.svelte";
   import QuitDialog from "$lib/components/QuitDialog.svelte";
   import UpdateBanner from "$lib/components/UpdateBanner.svelte";
   import {
-    getVisibleLeaderHints,
-    normalizeLeaderKey,
-    resolveLeaderSequence,
-  } from "$lib/commands/leader";
+    loadKeymap,
+    keymapState,
+    enterTree as keymapEnterTree,
+    exitTree as keymapExitTree,
+  } from "$lib/keymap/store";
+  import { resolveKey } from "$lib/keymap/resolve";
   import {
     closeCommandSurface,
     commandSurface,
-    openCommandPalette,
     openLeaderPrompt,
-    openLeaderMode,
-    setLeaderSequence,
     setLeaderPromptValue,
     toggleCommandSurface,
   } from "$lib/stores/commandSurface";
@@ -66,7 +65,6 @@
     hideSessionHints,
     armPaneHints,
     hidePaneHints,
-    paneSlotById,
   } from "$lib/stores/ui";
   import { getVisualSessionOrder } from "$lib/sessions/order";
 
@@ -77,23 +75,6 @@
   let showNotifications = $state(false);
   let showSetupPrompt = $state(false);
   let showQuitDialog = $state(false);
-
-  function buildShortcutString(e: KeyboardEvent): string {
-    const parts: string[] = [];
-    if (hasPrimaryModifier(e)) parts.push("cmd");
-    if (e.shiftKey) parts.push("shift");
-    if (e.altKey) parts.push("alt");
-    if (e.ctrlKey && isMacPlatform()) parts.push("ctrl");
-    if (e.metaKey && !isMacPlatform()) parts.push("meta");
-    // On macOS, Alt produces special characters (e.g. Alt+h → ˙).
-    // Use the physical key (e.code) when Alt is held so shortcuts work.
-    let key = e.key.toLowerCase();
-    if (e.altKey && e.code.startsWith("Key")) {
-      key = e.code.slice(3).toLowerCase();
-    }
-    parts.push(key);
-    return parts.join("+");
-  }
 
   /** Returns true if a pane was closed, false if there was nothing to close */
   async function closeCurrentFocusedPane(): Promise<boolean> {
@@ -165,19 +146,47 @@
       return;
     }
     if (cmd.id === "app.command-palette") {
-      openCommandPalette();
+      toggleCommandSurface("palette");
       return;
     }
     if (cmd.id === "app.leader-mode") {
-      openLeaderMode();
+      keymapEnterTree("leader");
       return;
     }
     if (cmd.id === "app.quit") {
       void handleQuitRequested();
       return;
     }
+    if (cmd.id === "keymap.exit-tree") {
+      keymapExitTree();
+      return;
+    }
+    if (cmd.id === "keymap.reload") {
+      void loadKeymap();
+      return;
+    }
+
+    // onInput commands drop into a prompt UI rather than executing.
+    if (cmd.onInput) {
+      openLeaderPrompt(cmd.id, getLeaderPromptInitialValue(cmd.id));
+      return;
+    }
 
     if (cmd.execute) void cmd.execute();
+  }
+
+  function dispatchKeymapAction(action: { kind: "command"; id: string } | { kind: "enterTree"; tree: string }) {
+    if (action.kind === "enterTree") {
+      keymapEnterTree(action.tree);
+      return;
+    }
+    executeCommandById(action.id);
+  }
+
+  function isCommandAvailable(commandId: string): boolean {
+    const cmd = registry.get(commandId);
+    if (!cmd) return false;
+    return !cmd.available || cmd.available();
   }
 
   function getLeaderPromptInitialValue(commandId: string): string {
@@ -197,12 +206,6 @@
     void cmd.onInput(value);
   }
 
-  function isLeaderCommandAvailable(commandId: string): boolean {
-    const cmd = registry.get(commandId);
-    if (!cmd) return false;
-    return !cmd.available || cmd.available();
-  }
-
   function handleKeyDown(e: KeyboardEvent) {
     // Arm the session-hint overlay when the platform primary modifier is
     // pressed on its own. The store handles the 200ms delay; quick chords
@@ -211,99 +214,44 @@
     if ((isMacPlatform() && e.key === "Meta") || (!isMacPlatform() && e.key === "Control")) {
       if ($settings.showSessionHintsOnCommand !== false) armSessionHints();
     }
-
-    // Same deal for Alt / Option → pane hint overlay.
     if (e.key === "Alt") {
       if ($settings.showPaneHintsOnOption) armPaneHints();
     }
 
-    // Cmd+Q: quit
-    if (e.metaKey && e.key === "q") {
-      e.preventDefault();
-      void handleQuitRequested();
-      return;
-    }
-
-    // Command palette toggle
-    if (hasPrimaryModifier(e) && e.key === "k") {
-      e.preventDefault();
-      toggleCommandSurface("palette");
-      return;
-    }
-
-    // Leader mode
-    if (hasPrimaryModifier(e) && e.key === ";") {
-      e.preventDefault();
-      toggleCommandSurface("leader");
-      return;
-    }
-
-    // Don't intercept shortcuts when a command surface is open
-    const surface = get(commandSurface);
-    if (surface.open) {
-      if (surface.mode === "leader") {
-        if (surface.leaderPromptCommandId) {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            closeCommandSurface();
-            return;
-          }
-          if (e.key === "Enter") {
-            e.preventDefault();
-            submitLeaderPrompt();
-            return;
-          }
-          return;
-        }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          closeCommandSurface();
-          return;
-        }
-        if (e.key === "Backspace") {
-          e.preventDefault();
-          if (surface.leaderSequence.length === 0) {
-            closeCommandSurface();
-            return;
-          }
-          setLeaderSequence(surface.leaderSequence.slice(0, -1));
-          return;
-        }
-        const key = normalizeLeaderKey(e);
-        if (!key) return;
+    // Preserve Escape-blur fix for terminal focus. WebKit otherwise drops
+    // xterm's hidden textarea focus when Escape is pressed outside a pane.
+    if (e.key === "Escape") {
+      const focused = get(focusedPaneId);
+      if (focused && get(paneInstances).get(focused)?.terminal) {
         e.preventDefault();
-        const nextSequence = [...surface.leaderSequence, key];
-        const resolution = resolveLeaderSequence(nextSequence);
-        if (resolution.kind === "pending") {
-          setLeaderSequence(nextSequence);
-          return;
-        }
-        if (resolution.kind === "palette") {
-          openCommandPalette();
-          return;
-        }
-        if (resolution.kind === "command") {
-          const resolvedCmd = registry.get(resolution.commandId);
-          if (resolvedCmd?.onInput) {
-            openLeaderPrompt(
-              resolution.commandId,
-              getLeaderPromptInitialValue(resolution.commandId),
-            );
-            return;
-          }
-          closeCommandSurface();
-          executeCommandById(resolution.commandId);
-          return;
-        }
+      }
+    }
+
+    // Command surfaces own keyboard focus while open. Don't fire keymap
+    // binds while the palette is searching or the leader prompt is capturing
+    // a rename input.
+    const surface = get(commandSurface);
+    if (surface.open && surface.mode === "palette") {
+      // Palette handles its own keys; stay out of the way.
+      return;
+    }
+    if (surface.open && surface.mode === "leader" && surface.leaderPromptCommandId) {
+      if (e.key === "Escape") {
+        e.preventDefault();
         closeCommandSurface();
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitLeaderPrompt();
         return;
       }
       return;
     }
 
     // Primary+1..9 / Primary+0: switch to the Nth session in sidebar visual
-    // order. 0 maps to slot 10. Slots past the available session count are
-    // no-ops but still consume the key so nothing else reacts.
+    // order. Not yet in the keymap spec (TODO: migrate to default preset);
+    // kept inline for now.
     if (
       hasPrimaryModifier(e) &&
       !e.shiftKey &&
@@ -323,46 +271,52 @@
       return;
     }
 
-    // Alt+1..9 / Alt+0: focus the Nth visible pane in the active session.
-    // Uses e.code because macOS Option produces special characters in e.key
-    // (Option+1 → ¡, Option+2 → ™, etc.), and we need the physical digit.
-    if (
-      e.altKey &&
-      !e.metaKey &&
-      !e.shiftKey &&
-      !e.ctrlKey &&
-      /^Digit[0-9]$/.test(e.code)
-    ) {
-      const digit = e.code.slice(5);
-      const slot = digit === "0" ? 10 : parseInt(digit, 10);
-      e.preventDefault();
-      // paneSlotById is already keyed to the active session's visible DFS order.
-      const slots = get(paneSlotById);
-      for (const [paneId, s] of slots) {
-        if (s === slot) {
-          setLogicalFocus(paneId);
-          break;
-        }
-      }
-      return;
-    }
-
-    // Prevent WebKit from blurring xterm's hidden textarea on Escape.
-    // Without this, pressing Escape (e.g. to leave vim insert mode) causes
-    // the terminal to lose DOM focus and stop accepting keyboard input.
-    if (e.key === "Escape") {
-      const focused = get(focusedPaneId);
-      if (focused && get(paneInstances).get(focused)?.terminal) {
+    // Keymap dispatch.
+    const km = get(keymapState);
+    const resolution = resolveKey(e, km, isCommandAvailable);
+    switch (resolution.kind) {
+      case "enterTree":
         e.preventDefault();
-      }
+        keymapEnterTree(resolution.tree);
+        return;
+      case "chord":
+        e.preventDefault();
+        dispatchKeymapAction(resolution.action);
+        if (!resolution.keepTreeOpen) keymapExitTree();
+        return;
+      case "passthrough":
+        return;
+      case "exit":
+        e.preventDefault();
+        keymapExitTree();
+        return;
+      case "none":
+        break;
     }
 
-    const shortcut = buildShortcutString(e);
-    const cmd = registry.getByShortcut(shortcut);
-    if (cmd) {
+    // Legacy shortcut-field fallback for commands not yet in the keymap
+    // preset. Migrate shortcuts into the default preset over time.
+    const shortcut = buildLegacyShortcut(e);
+    const legacyCmd = registry.getByShortcut(shortcut);
+    if (legacyCmd) {
       e.preventDefault();
-      executeCommandById(cmd.id);
+      executeCommandById(legacyCmd.id);
     }
+  }
+
+  function buildLegacyShortcut(e: KeyboardEvent): string {
+    const parts: string[] = [];
+    if (hasPrimaryModifier(e)) parts.push("cmd");
+    if (e.shiftKey) parts.push("shift");
+    if (e.altKey) parts.push("alt");
+    if (e.ctrlKey && isMacPlatform()) parts.push("ctrl");
+    if (e.metaKey && !isMacPlatform()) parts.push("meta");
+    let key = e.key.toLowerCase();
+    if (e.altKey && e.code.startsWith("Key")) {
+      key = e.code.slice(3).toLowerCase();
+    }
+    parts.push(key);
+    return parts.join("+");
   }
 
   function handleKeyUp(e: KeyboardEvent) {
@@ -414,6 +368,7 @@
     } catch {}
 
     registerCommands();
+    void loadKeymap();
     // Use capture phase so we intercept before xterm.js swallows the event
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("keyup", handleKeyUp, true);
@@ -763,24 +718,14 @@
   onCheckForUpdates={() => { showSettings = true; void runManualCheck(); }}
 />
 
-{#if $commandSurface.open && $commandSurface.mode === "leader"}
-  {@const leaderState = resolveLeaderSequence($commandSurface.leaderSequence)}
-  {@const visibleLeaderHints = getVisibleLeaderHints(
-    $commandSurface.leaderSequence,
-    isLeaderCommandAvailable,
-  )}
-  {#if leaderState.kind === "pending" || $commandSurface.leaderPromptCommandId}
-    <LeaderHud
-      title={leaderState.kind === "pending" ? leaderState.title : "Leader"}
-      sequence={$commandSurface.leaderSequence}
-      hints={leaderState.kind === "pending" ? visibleLeaderHints : []}
-      promptLabel={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.label ?? "Input" : null}
-      promptPlaceholder={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.inputPlaceholder ?? "" : null}
-      promptValue={$commandSurface.leaderPromptValue}
-      onPromptInput={setLeaderPromptValue}
-      onPromptSubmit={submitLeaderPrompt}
-    />
-  {/if}
+{#if $keymapState.treePath.length > 0 || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
+  <KeymapHud
+    promptLabel={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.label ?? "Input" : null}
+    promptPlaceholder={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.inputPlaceholder ?? "" : null}
+    promptValue={$commandSurface.leaderPromptValue}
+    onPromptInput={setLeaderPromptValue}
+    onPromptSubmit={submitLeaderPrompt}
+  />
 {/if}
 
 <UpdateBanner />
