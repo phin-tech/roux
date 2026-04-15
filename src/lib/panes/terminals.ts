@@ -15,6 +15,9 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { get } from "svelte/store";
 import { settings } from "$lib/stores/settings";
 import { getXtermTheme } from "$lib/themes";
+import { keymapState } from "$lib/keymap/store";
+import { resolveKey } from "$lib/keymap/resolve";
+import { registry as commandRegistry } from "$lib/commands";
 import {
   attachPtyOutput,
   createPtyOutputChannel,
@@ -63,6 +66,20 @@ export function initTerminal(paneId: string): void {
   } catch {
     // WebGL not available — canvas fallback
   }
+
+  // Defense-in-depth: if a key matches the keymap, drop it at the xterm
+  // layer so it never reaches the PTY even if the window capture handler
+  // somehow loses the event. The primary dispatch is still the capture-
+  // phase keydown listener in App.svelte — this is belt-and-suspenders.
+  terminal.attachCustomKeyEventHandler((e) => {
+    if (e.type !== "keydown") return true;
+    const km = get(keymapState);
+    const resolution = resolveKey(e, km, (id) => {
+      const cmd = commandRegistry.get(id);
+      return !!cmd && (!cmd.available || cmd.available());
+    });
+    return resolution.kind === "none" || resolution.kind === "passthrough";
+  });
   terminal.loadAddon(new WebLinksAddon((_event, uri) => {
     openUrl(uri);
   }));
