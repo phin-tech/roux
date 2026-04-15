@@ -10,6 +10,26 @@ hud "always"
 // Global app
 bind "Cmd+KeyK" "app.command-palette"
 bind "Cmd+KeyQ" "app.quit"
+bind "Cmd+Comma" "app.settings"
+
+// UI panels
+bind "Cmd+KeyB"        "ui.toggle-notes"
+bind "Cmd+KeyI"        "ui.toggle-notifications"
+bind "Cmd+Shift+KeyW"  "ui.toggle-watches"
+bind "Cmd+Backslash"   "ui.toggle-sidebar"
+
+// Sessions
+bind "Cmd+KeyN" "session.new"
+
+// Pane splits and lifecycle
+bind "Cmd+KeyD"        "pane.split-horizontal"
+bind "Cmd+Shift+KeyD"  "pane.split-vertical"
+bind "Cmd+Alt+KeyC"    "pane.split-claude"
+bind "Cmd+Alt+KeyX"    "pane.split-codex"
+bind "Cmd+KeyW"        "pane.close"
+bind "Cmd+Shift+KeyS"  "pane.toggle-stack"
+bind "Cmd+Shift+KeyF"  "pane.toggle-fullscreen"
+bind "Cmd+Shift+KeyB"  "pane.open-doc"
 
 // Pane focus (Option+h/j/k/l)
 bind "Alt+KeyH" "pane.focus-left"
