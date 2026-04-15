@@ -849,6 +849,57 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Command IDs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Panes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sessions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#app-and-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      App and UI
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tasks-and-watches" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tasks and watches
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#keymap_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Keymap
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1149,6 +1200,57 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Command IDs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Panes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sessions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#app-and-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      App and UI
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tasks-and-watches" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tasks and watches
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#keymap_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Keymap
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1378,110 +1480,203 @@
 </span></code></pre></div>
 <p>Different trees on different prefixes also work; each prefix arms its own tree.</p>
 <h2 id="command-ids">Command IDs<a class="headerlink" href="#command-ids" title="Permanent link">&para;</a></h2>
-<p>Bindings target commands by id. Every action in the command palette has an id you can bind. The full list is searchable via <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span>; common ones:</p>
+<p>Bindings target commands by id. The complete, always-current list is the command palette itself — open <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span> and search. The tables below are the same set, grouped for reference.</p>
+<h3 id="panes">Panes<a class="headerlink" href="#panes" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>Category</th>
 <th>Id</th>
 <th>What it does</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Panes</td>
 <td><code>pane.focus-left</code> / <code>-down</code> / <code>-up</code> / <code>-right</code></td>
 <td>Move focus between panes</td>
 </tr>
 <tr>
-<td>Panes</td>
 <td><code>pane.focus-index-1</code> … <code>pane.focus-index-10</code></td>
-<td>Focus the Nth pane (DFS order)</td>
+<td>Focus the Nth pane (visible DFS order)</td>
 </tr>
 <tr>
-<td>Panes</td>
 <td><code>pane.focus-next</code></td>
-<td>Focus the next pane in tree-traversal order</td>
+<td>Focus the next pane in traversal order</td>
 </tr>
 <tr>
-<td>Panes</td>
 <td><code>pane.split-horizontal</code> / <code>pane.split-vertical</code></td>
 <td>Split the focused pane</td>
 </tr>
 <tr>
-<td>Panes</td>
+<td><code>pane.split-claude</code> / <code>pane.split-codex</code></td>
+<td>Split with a Claude or Codex pane</td>
+</tr>
+<tr>
+<td><code>pane.split-horizontal-with-profile</code> / <code>pane.split-vertical-with-profile</code></td>
+<td>Split and pick a spawn profile</td>
+</tr>
+<tr>
 <td><code>pane.close</code></td>
 <td>Close the focused pane</td>
 </tr>
 <tr>
-<td>Panes</td>
-<td><code>pane.toggle-fullscreen</code> / <code>pane.toggle-stack</code></td>
-<td>Layout toggles</td>
-</tr>
-<tr>
-<td>Panes</td>
 <td><code>pane.rename</code></td>
 <td>Open the inline rename input</td>
 </tr>
 <tr>
-<td>Panes</td>
+<td><code>pane.toggle-fullscreen</code> / <code>pane.toggle-stack</code></td>
+<td>Layout toggles</td>
+</tr>
+<tr>
 <td><code>pane.resize-left</code> / <code>-down</code> / <code>-up</code> / <code>-right</code></td>
 <td>Resize splits</td>
 </tr>
 <tr>
-<td>Panes</td>
 <td><code>pane.move-left</code> / <code>-down</code> / <code>-up</code> / <code>-right</code></td>
 <td>Reorder panes</td>
 </tr>
 <tr>
-<td>Sessions</td>
+<td><code>pane.open-doc</code></td>
+<td>Open a markdown doc as a pane</td>
+</tr>
+<tr>
+<td><code>pane.run-command</code></td>
+<td>Run an ad-hoc command in a new pane</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sessions">Sessions<a class="headerlink" href="#sessions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
 <td><code>session.new</code> / <code>session.close</code> / <code>session.reconnect</code></td>
 <td>Lifecycle</td>
 </tr>
 <tr>
-<td>Sessions</td>
 <td><code>session.next</code> / <code>session.prev</code></td>
-<td>Cycle sessions</td>
+<td>Cycle sessions in sidebar order</td>
 </tr>
 <tr>
-<td>Sessions</td>
 <td><code>session.focus-index-1</code> … <code>session.focus-index-10</code></td>
-<td>Jump to Nth session</td>
+<td>Jump to the Nth session</td>
 </tr>
 <tr>
-<td>Sessions</td>
-<td><code>session.open-in-editor</code> / <code>session.rename</code></td>
-<td>Sidebar actions</td>
+<td><code>session.switch</code></td>
+<td>Open a fuzzy session picker</td>
 </tr>
 <tr>
-<td>App</td>
+<td><code>session.rename</code></td>
+<td>Rename the active session</td>
+</tr>
+<tr>
+<td><code>session.open-in-editor</code></td>
+<td>Open the session worktree in your configured editor</td>
+</tr>
+<tr>
+<td><code>session.new-worktree</code></td>
+<td>Create a new worktree session</td>
+</tr>
+<tr>
+<td><code>session.set-project</code></td>
+<td>Tag the active session with a project</td>
+</tr>
+</tbody>
+</table>
+<h3 id="app-and-ui">App and UI<a class="headerlink" href="#app-and-ui" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
 <td><code>app.command-palette</code></td>
 <td>Open the palette</td>
 </tr>
 <tr>
-<td>App</td>
-<td><code>app.quit</code></td>
-<td>Quit Roux</td>
+<td><code>app.leader-mode</code></td>
+<td>Open the leader HUD (default tree)</td>
 </tr>
 <tr>
-<td>App</td>
 <td><code>app.settings</code></td>
 <td>Open settings</td>
 </tr>
 <tr>
-<td>UI</td>
-<td><code>ui.toggle-notes</code> / <code>ui.toggle-watches</code> / <code>ui.toggle-notifications</code></td>
-<td>Sidebars</td>
+<td><code>app.quit</code></td>
+<td>Quit Roux</td>
 </tr>
 <tr>
-<td>Keymap</td>
+<td><code>app.check-updates</code></td>
+<td>Check for an update</td>
+</tr>
+<tr>
+<td><code>ui.toggle-notes</code> / <code>ui.toggle-notifications</code> / <code>ui.toggle-watches</code></td>
+<td>Sidebar panels</td>
+</tr>
+<tr>
+<td><code>ui.toggle-sidebar</code> / <code>ui.toggle-task-panel</code></td>
+<td>Layout panels</td>
+</tr>
+<tr>
+<td><code>ui.group-by</code></td>
+<td>Toggle session grouping (repo / project)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tasks-and-watches">Tasks and watches<a class="headerlink" href="#tasks-and-watches" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>task.run</code> / <code>task.rerun</code></td>
+<td>Run / rerun a discovered task</td>
+</tr>
+<tr>
+<td><code>watch.add</code></td>
+<td>Add a watch (picks kind)</td>
+</tr>
+<tr>
+<td><code>watch.add-github</code> / <code>watch.add-github-pr</code></td>
+<td>Add a GitHub Actions or PR watch</td>
+</tr>
+<tr>
+<td><code>watch.add-http</code></td>
+<td>Add an HTTP health watch</td>
+</tr>
+<tr>
+<td><code>watch.add-shell</code></td>
+<td>Add a shell-command watch</td>
+</tr>
+</tbody>
+</table>
+<h3 id="keymap_1">Keymap<a class="headerlink" href="#keymap_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
 <td><code>keymap.reload</code></td>
 <td>Re-read <code>~/.config/roux/keymap.kdl</code></td>
 </tr>
 <tr>
-<td>Keymap</td>
 <td><code>keymap.exit-tree</code></td>
-<td>Exit the active tree (for sticky/passthrough trees)</td>
+<td>Exit the active tree (bind inside a sticky / passthrough tree)</td>
 </tr>
 </tbody>
 </table>
