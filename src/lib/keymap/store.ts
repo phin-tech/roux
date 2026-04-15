@@ -1,7 +1,8 @@
 import { writable, derived, get } from "svelte/store";
 import { commands } from "$lib/bindings";
-import type { KeymapAction, KeymapTree, ParsedKeymap } from "$lib/bindings";
+import type { KeymapAction, KeymapTree, KeymapWarning, ParsedKeymap } from "$lib/bindings";
 import { currentTree, keyMatches } from "./resolve";
+import { registry } from "$lib/commands";
 import { logError } from "$lib/logging";
 import { notificationsPush } from "$lib/tauri";
 
@@ -93,6 +94,11 @@ export async function loadKeymap(): Promise<void> {
     return;
   }
   const km = result.data;
+  // Validate command IDs and tree refs against the frontend registry.
+  // These checks can't run Rust-side because the registry is TS-owned.
+  const validationWarnings = validateAgainstRegistry(km);
+  km.warnings = [...km.warnings, ...validationWarnings];
+
   keymapRuntime.update(() => ({ keymap: km, treePath: [] }));
   if (km.warnings.length > 0) {
     const first = km.warnings
@@ -110,6 +116,44 @@ export async function loadKeymap(): Promise<void> {
       dedupKey: "keymap-load-warnings",
     }).catch(() => {});
   }
+}
+
+function validateAgainstRegistry(km: ParsedKeymap): KeymapWarning[] {
+  const out: KeymapWarning[] = [];
+  // Pseudo-commands owned by the keymap module; not in the registry.
+  const pseudoCommands = new Set(["keymap.exit-tree", "keymap.reload"]);
+  const treeNames = new Set(km.trees.map((t) => t.name));
+
+  function check(action: KeymapAction): string | null {
+    if (action.kind === "enterTree") {
+      return treeNames.has(action.tree)
+        ? null
+        : `references unknown tree \`${action.tree}\``;
+    }
+    if (pseudoCommands.has(action.id)) return null;
+    return registry.get(action.id) ? null : `references unknown command \`${action.id}\``;
+  }
+
+  for (const bind of km.directBinds) {
+    const err = check(bind.action);
+    if (err) out.push({ message: `direct bind ${err}`, line: 0, column: 0 });
+  }
+  for (const tree of km.trees) {
+    for (const bind of tree.binds) {
+      const err = check(bind.action);
+      if (err) out.push({ message: `tree "${tree.name}" bind ${err}`, line: 0, column: 0 });
+    }
+  }
+  for (const prefix of km.prefixes) {
+    if (!treeNames.has(prefix.tree)) {
+      out.push({
+        message: `prefix references unknown tree \`${prefix.tree}\``,
+        line: 0,
+        column: 0,
+      });
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

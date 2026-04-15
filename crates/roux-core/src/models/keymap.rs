@@ -336,6 +336,24 @@ pub fn merge_keymaps(base: ParsedKeymap, overlay: ParsedKeymap) -> ParsedKeymap 
     }
     out.preset_ref = overlay.preset_ref.or(out.preset_ref);
     out.warnings.extend(overlay.warnings);
+
+    // Re-apply prefix-vs-direct-bind collision cleanup after merging. The
+    // overlay may have introduced a prefix whose trigger was a direct bind
+    // in the base (or vice versa); the per-document parse couldn't see it.
+    for prefix in &out.prefixes.clone() {
+        if out.direct_binds.iter().any(|b| b.key == prefix.key) {
+            out.direct_binds.retain(|b| b.key != prefix.key);
+            out.warnings.push(KeymapWarning {
+                message: format!(
+                    "direct bind `{}` shadowed by prefix from preset/overlay; bind dropped",
+                    format_keyref(&prefix.key)
+                ),
+                line: 0,
+                column: 0,
+            });
+        }
+    }
+
     out
 }
 
@@ -731,6 +749,9 @@ fn parse_key_string(
 
 fn normalize_aliases(input: &str) -> String {
     // Replace C-/M-/S- prefixes at the start of each `+`-separated token.
+    // Chained aliases like `C-M-Left` work because we emit `Ctrl+` / `Alt+`
+    // and set `start_of_token = true`, so the next `M` is considered a new
+    // token start and also aliased.
     let mut out = String::with_capacity(input.len());
     let mut start_of_token = true;
     let mut chars = input.chars().peekable();
@@ -739,19 +760,19 @@ fn normalize_aliases(input: &str) -> String {
             if c == 'C' && chars.peek() == Some(&'-') {
                 out.push_str("Ctrl+");
                 chars.next();
-                start_of_token = false;
+                start_of_token = true;
                 continue;
             }
             if c == 'M' && chars.peek() == Some(&'-') {
                 out.push_str("Alt+");
                 chars.next();
-                start_of_token = false;
+                start_of_token = true;
                 continue;
             }
             if c == 'S' && chars.peek() == Some(&'-') {
                 out.push_str("Shift+");
                 chars.next();
-                start_of_token = false;
+                start_of_token = true;
                 continue;
             }
         }
@@ -968,6 +989,18 @@ mod tests {
             KeyRef::Physical {
                 mods: vec![Modifier::Alt],
                 code: "KeyH".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn chained_tmux_aliases_normalize() {
+        let km = parse(r#"bind "C-M-Left" "pane.focus-left""#);
+        assert_eq!(
+            km.direct_binds[0].key,
+            KeyRef::Physical {
+                mods: vec![Modifier::Ctrl, Modifier::Alt],
+                code: "ArrowLeft".into(),
             }
         );
     }
