@@ -20,6 +20,46 @@ passthrough (Zellij "locked") modes — all as data.
 - Migrating `RouxSettings` to KDL. Tracked separately.
 - Shipping a complete Zellij preset in v1. Schema supports it; KDL deferred.
 
+## Command registry additions
+
+Some shortcuts that are today hardcoded in `App.svelte` bypass the
+registry entirely. Turning them into data-driven bindings requires them to
+exist as registered commands. Added in the same change as the keymap
+module:
+
+- `app.quit` — currently `Cmd+Q` hardcoded in `App.svelte`. Wraps the
+  existing `handleQuitRequested()` helper.
+- `pane.focus-index-1` … `pane.focus-index-9`, `pane.focus-index-10` —
+  currently the `Alt+Digit*` block in `App.svelte`. One command per index;
+  each wraps the existing pane-index focus logic.
+
+The registry already has `app.command-palette`, `app.leader-mode`,
+`app.settings`, `pane.focus-left/right/up/down`, `pane.split-horizontal`,
+`pane.split-vertical`, `pane.rename`, `pane.close`,
+`pane.toggle-fullscreen`, `pane.toggle-stack`, `session.new`,
+`session.close`, `session.reconnect`, `session.open-in-editor`,
+`ui.toggle-notes`, `ui.toggle-notifications`, `ui.toggle-watches`. These
+are referenced by the default preset as-is.
+
+Three additional commands are added to match tmux-preset parity:
+
+- `session.next` — focus the next session in the sidebar ordering.
+- `session.prev` — focus the previous session.
+- `pane.focus-next` — focus the next pane within the active session's pane
+  tree (traversal order matches the existing `Alt+Digit` index sequence).
+
+Two are owned by the keymap module itself:
+
+- `keymap.exit-tree` — exits the active tree. Available only when a tree is
+  active.
+- `keymap.reload` — re-reads `~/.config/roux/keymap.kdl`.
+
+**`app.command-palette` semantics.** This command already exists but
+currently only opens the palette via its own logic. For the keymap to
+bind `Cmd+K` to it, `execute()` must be wired to the palette-toggle
+behavior (open if closed, close if open). Verify at implementation time
+and fix if the existing `execute` just opens.
+
 ## UX
 
 ### File
@@ -83,7 +123,7 @@ hud "always"   // "always" | "delayed <ms>" | "never"
 
 // Top-level direct binds. Fire without any prefix. Replace the currently
 // hardcoded Cmd+K, Cmd+Q, Opt+hjkl, Opt+1..9 branches.
-bind "Cmd+KeyK"      "palette.toggle"
+bind "Cmd+KeyK"      "app.command-palette"
 bind "Cmd+KeyQ"      "app.quit"
 bind "Alt+KeyH"      "pane.focus-left"
 bind "Alt+Digit1"    "pane.focus-index-1"
@@ -95,7 +135,7 @@ unbind "Alt+Digit0"
 tree "leader" {
   bind "w" { enter-tree "leader-panes" }   // nested drill-down
   bind "n" "ui.toggle-notes"
-  bind "Space" "palette.toggle"
+  bind "Space" "app.command-palette"
 }
 
 tree "leader-panes" {
@@ -140,8 +180,26 @@ Defaulting rules:
   defaults to **physical** notation. Resolve via `e.code`.
 - Inside `tree` blocks, a bare `bind "h"` defaults to **character** notation.
   Resolve via `e.key`.
+- Inside `tree` blocks, a bind with a modifier prefix (`bind "Ctrl+KeyX"`,
+  `bind "Alt+KeyH"`) defaults to **physical** notation — same rule as
+  top-level. The modifier presence is the disambiguator.
 - Explicitly-qualified codes (`KeyH`, `Digit1`) always resolve via `e.code`
   regardless of position.
+
+**Shifted punctuation.** Character bindings match `e.key` after the
+browser has applied Shift. `bind "%"` matches a keydown whose `e.key === "%"`
+(Shift+5 on US layouts; different physical key on AZERTY). This is the
+right semantics for chord-tree binds where tmux users write `%` and expect
+"the percent key" regardless of what produces it. If a user needs to bind
+"the physical 5 key regardless of shift," they use `Digit5` or
+`Shift+Digit5`.
+
+**Modifier matching.** Character binds require exact modifier match:
+`bind "h"` matches `e.key === "h"` with no modifiers pressed other than
+Shift implicit in the character itself. `bind "Shift+h"` matches the shifted
+character `"H"` — in practice users write `bind "H"` for that case, which
+is equivalent. Physical binds (`Alt+KeyH`) require the listed modifiers
+exactly; extra modifiers do not match.
 
 ### Modifier tokens and aliases
 
@@ -184,7 +242,9 @@ command ID) that promotes a chord to a new tree. Used for nested drill-down
 statements in the user's file add to or replace preset entries:
 
 - `bind "X" "..."` with a key `X` already bound by the preset replaces it.
-- `unbind "X"` removes the preset's binding for `X`.
+- `unbind "X"` at the top level removes the preset's **direct bind** for
+  `X`. It does not reach into trees — trees are only modified by redeclaring
+  them.
 - `tree "<name>" { ... }` with a name already defined by the preset *replaces*
   the whole tree. There is no tree-level merge in v1 — users who want to tweak
   two keys of a preset tree redeclare it.
@@ -268,8 +328,7 @@ Svelte writable holding both the parsed keymap and runtime state:
 ```ts
 interface KeymapState {
   keymap: ParsedKeymap;
-  activeTree: string | null;        // name of tree currently armed
-  treePath: string[];               // for HUD display, the chain of trees entered from root (e.g. ["leader", "leader-panes"])
+  treePath: string[];               // chain of trees entered from root, e.g. ["leader", "leader-panes"]. Empty when no tree is active. Tail element is the currently-armed tree.
   hudVisibleSince: number | null;   // for delayed HUD timing
 }
 ```
@@ -309,20 +368,36 @@ is modeled as `prefix` → tree with a bind whose action is
 Precedence, in order:
 
 1. If a tree is active:
-   a. If the event matches a `prefix` trigger, resolve to `enterTree`
+   a. If the event matches a bind in the active tree, resolve to
+      `chord` with `keepTreeOpen = tree.sticky` (where `tree` is the tail
+      element of `treePath`). If the action is
+      `enterTree`, resolve to `enterTree` instead. **Tree binds match before
+      prefixes** — this lets users bind `"C-b c"` inside the tmux tree even
+      though `C-b` is the tree's own prefix; the second `C-b` fires the
+      bind rather than rearming. If the user wants "rearm on double-prefix"
+      they simply leave that key unbound in the tree.
+   b. Else if the event matches a `prefix` trigger, resolve to `enterTree`
       (prefix-within-prefix cancels and rearms; tmux behavior).
-   b. Else if the event matches a bind in the active tree, resolve to
-      `chord` with `keepTreeOpen = activeTree.sticky`. If the action is
-      `enterTree`, resolve to `enterTree` instead.
-   c. Else if the event is Escape, resolve to `exit`.
+   c. Else if the event is Escape, resolve to `exit`. Escape exits
+      unconditionally — in both sticky and non-sticky, passthrough or not.
+      The only exception is when the active tree explicitly binds Escape to
+      something, in which case 1a runs first and the bind fires.
    d. Else if the active tree is passthrough, resolve to `passthrough`.
    e. Else resolve to `none` (unbound key in non-passthrough tree is dropped;
-      the tree stays armed). Users who dislike this can bind Escape themselves.
+      the tree stays armed).
 2. If no tree is active:
    a. If the event matches a `prefix` trigger, resolve to `enterTree`.
    b. Else if the event matches a `directBind`, resolve to `chord` with
       `keepTreeOpen = false`.
    c. Else resolve to `none`.
+
+**Consequence for passthrough trees and terminal control chars.** A
+passthrough tree passes unbound keys through to the focused pane. A bound
+key always wins, even when that key is something the terminal would
+normally consume (`Ctrl+C` → SIGINT, `Ctrl+D` → EOF). Users authoring a
+"locked" / passthrough tree should not bind keys they want the terminal to
+receive. The schema doesn't need a separate "send-through" action — just
+don't bind it.
 
 Command availability is checked via the `isCommandAvailable` callback passed
 to `resolveKey`. Bindings whose command is currently unavailable resolve to
@@ -340,6 +415,29 @@ function handleKeyDown(e: KeyboardEvent) {
   // Hint-overlay arming preserved; it's UI, not a binding.
   if (isMacPlatform() ? e.key === "Meta" : e.key === "Control") armSessionHints();
   if (e.key === "Alt") armPaneHints();
+
+  // Command surfaces (palette open, leader HUD with prompt visible) own
+  // keyboard focus. The keymap must not fire bindings while the user is
+  // typing in a search field, entering a rename, etc. The only exception is
+  // entering the leader itself — but that is handled by the prefix match
+  // below triggering on the global keydown before the surface "owns" the
+  // key, so no special case is needed for leader entry.
+  const surface = get(commandSurface);
+  if (surface.open && surface.mode !== "leader") return;
+  if (surface.open && surface.mode === "leader" && surface.leaderPromptCommandId) {
+    // Leader prompt is active (onInput flow). Let the palette's Enter /
+    // Escape handlers run; the global keymap stays out.
+    return;
+  }
+
+  // Preserve the existing Escape-in-terminal focus fix from the old handler:
+  // WebKit will otherwise blur xterm's hidden textarea and lose focus.
+  if (e.key === "Escape") {
+    const focused = get(focusedPaneId);
+    if (focused && get(paneInstances).get(focused)?.terminal) {
+      e.preventDefault();
+    }
+  }
 
   const state = get(keymapState);
   const resolution = resolveKey(e, state, (id) => isCommandAvailable(id));
@@ -364,19 +462,49 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 }
 
-function dispatchAction(action: Action) {
-  if (action.kind === "command") registry.execute(action.commandId);
-  else keymapStore.enterTree(action.tree);
+function dispatchAction(action: Action): void {
+  if (action.kind === "enterTree") {
+    keymapStore.enterTree(action.tree);
+    return;
+  }
+  const cmd = registry.get(action.commandId);
+  if (!cmd) return;               // unknown: warning already fired at load
+  if (cmd.execute) {
+    cmd.execute();
+    return;
+  }
+  if (cmd.onInput) {
+    // Open the leader-prompt UI for this command, preserving the current
+    // App.svelte `openLeaderPrompt` flow (see src/App.svelte:171-196).
+    openLeaderPrompt(action.commandId, getLeaderPromptInitialValue(action.commandId));
+    return;
+  }
+  // Commands with only getItems drill into a command-palette surface; this
+  // mirrors the existing behaviour for `app.leader-mode` and similar.
+  if (cmd.getItems) {
+    openCommandPalette(action.commandId);
+    return;
+  }
 }
 ```
 
-No hardcoded key branches remain. The command-surface-open state is not a
-special case at this layer — commands like `palette.toggle` already handle
-their own open/close via the registry.
+The command-surface-open gate preserves current behavior: typing in the
+palette search, rename input, or watch filter never accidentally fires a
+keymap binding. `dispatchAction` handles all three execution flows
+(`execute`, `onInput` → leader prompt, `getItems` → drill-in palette)
+rather than only calling `registry.execute`.
 
-### xterm veto
+### xterm veto (defense-in-depth)
 
-`src/lib/panes/terminalRegistry.ts` grows a helper:
+The window-level keydown listener is registered with `capture: true`
+(`App.svelte:414`), so it runs **before** xterm.js sees the event. Calling
+`e.preventDefault()` in the global handler is sufficient to block the key
+from reaching the PTY in all normal cases.
+
+The xterm veto is an additional layer for robustness (e.g. if xterm ever
+attaches its own capture-phase listener in a future upgrade, or if some
+browser quirk changes dispatch order). `src/lib/panes/terminals.ts` — the
+existing module that owns xterm lifecycle — grows a helper:
 
 ```ts
 export function installKeymapVeto(term: Terminal): void {
@@ -389,10 +517,10 @@ export function installKeymapVeto(term: Terminal): void {
 }
 ```
 
-Every xterm instance (both `Terminal.svelte` and `ShellTerminal.svelte`)
-calls `installKeymapVeto` at creation. This guarantees keys consumed by the
-keymap layer are never delivered to the PTY even if the window-level handler
-loses the race with xterm's internal keydown path.
+`installKeymapVeto` is called at xterm-instance creation inside
+`src/lib/panes/terminals.ts`, so both Claude and shell panes (both of which
+go through `PaneShell.svelte`) pick it up via the shared terminal-creation
+path.
 
 ### HUD
 
@@ -411,6 +539,25 @@ The hints list is derived from the active tree's binds with
 command-availability filtering, mirroring the current
 `getVisibleLeaderHints` logic. Unavailable bindings are hidden unless the
 tree opts out (no schema support for opt-out in v1 — always filtered).
+
+### Palette shortcut display
+
+The existing palette (`src/lib/components/CommandPalette.svelte:270`)
+renders `cmd.shortcut` next to each command. Removing the `shortcut` field
+from `Command` requires a replacement path: the keymap store exposes
+`shortcutFor(commandId): string | null` that walks the loaded keymap and
+returns the user-visible shortcut label for a command. Precedence:
+
+1. First matching direct bind (`bind "X" "id"`) → render the key label
+   (`Cmd+K`, `Alt+H`).
+2. Else first `prefix` → `tree` bind that targets this command ID
+   (`Cmd+;  w h` for a two-step leader chord).
+3. Else `null` (no shortcut registered).
+
+`CommandPalette.svelte:270` switches from `cmd.shortcut` to
+`shortcutFor(cmd.id)`, unchanged rendering logic. When the user reloads
+their keymap, the store publishes a new identity; the palette reactively
+re-renders.
 
 ### File I/O
 
@@ -438,17 +585,38 @@ TypeScript; Rust only handles I/O, path resolution, and first-run bootstrap.
 
 ### Migration
 
-Single coordinated change:
+Single coordinated change, ordered so each step leaves the app in a
+working state:
 
-1. Add new `keymap` module (parser, store, resolver).
-2. Add Rust commands and embedded preset files.
-3. Replace `src/App.svelte`'s hardcoded key branches with the new dispatch.
-4. Rename `LeaderHud.svelte` → `KeymapHud.svelte`, update props and consumers.
-5. Delete `src/lib/commands/leader.ts` and its tests (content moves into the
-   `default` preset KDL).
-6. Remove the unused `shortcut` field from `Command` in
-   `src/lib/commands/registry.ts` and all call sites.
-7. Update settings UI with the new Keymap section.
+1. **Register new commands** in `src/lib/commands/` for what's currently
+   hardcoded: `app.command-palette`, `app.quit`, `app.leader-mode`,
+   `pane.focus-index-1` … `pane.focus-index-10`. Add `session.next`,
+   `session.prev`, `pane.focus-next` for tmux parity. At this step the new
+   commands exist in the registry but nothing fires them — the hardcoded
+   branches still do their job.
+2. **Add the keymap module** (parser, store, resolver) in
+   `src/lib/keymap/`. Pure; no wiring yet. Tests pass.
+3. **Add Rust commands and embedded preset files** in
+   `src-tauri/src/keymap/` and `src-tauri/src/keymap/presets/`. At this
+   step `get_keymap` / `set_keymap` / `get_builtin_keymap_preset` work but
+   no TS reads them.
+4. **Replace `src/App.svelte`'s hardcoded key handling** with the dispatch
+   described above. Load the keymap at startup. Keep the Escape
+   terminal-focus fix inline (not delegated to the keymap). This is the
+   cutover step — default preset must produce identical behavior to the
+   old handler.
+5. **Rename `LeaderHud.svelte` → `KeymapHud.svelte`**, update props and
+   consumers. Delete `src/lib/commands/leader.ts` and its tests (content
+   moves into the default preset KDL; behavioral coverage moves to
+   `default-preset-parity.test.ts`).
+6. **Replace `cmd.shortcut` in `CommandPalette.svelte:270`** with
+   `keymapStore.shortcutFor(cmd.id)`. Remove the `shortcut` field from
+   `Command` in `registry.ts` and all registration call sites in the same
+   commit.
+7. **Update the Settings panel** with the new Keymap section (preset
+   dropdown, "Open keymap.kdl", "Reload").
+8. **Install the xterm veto** in `src/lib/panes/terminals.ts` for
+   defense-in-depth.
 
 No backwards-compat shim. The keymap file is created on first launch; users
 who had customized shortcuts via any other means (none currently exist) would
@@ -468,7 +636,7 @@ Mirrors current behavior exactly. Relevant structure:
 hud "always"
 
 // Replace current hardcoded App.svelte branches.
-bind "Cmd+KeyK"      "palette.toggle"
+bind "Cmd+KeyK"      "app.command-palette"
 bind "Cmd+KeyQ"      "app.quit"
 bind "Alt+KeyH"      "pane.focus-left"
 bind "Alt+KeyJ"      "pane.focus-down"
@@ -492,7 +660,7 @@ tree "leader" {
   bind "i" "ui.toggle-notifications"
   bind "t" "ui.toggle-watches"
   bind "," "app.settings"
-  bind "Space" "palette.toggle"
+  bind "Space" "app.command-palette"
 }
 
 tree "leader-panes" {
@@ -520,28 +688,28 @@ prefix "Cmd+Semicolon" tree="leader"
 
 ### `tmux`
 
-Ships with intentional gaps pointing at commands that don't yet exist. The
-parser warns at load time; firing a bind to an unknown command is a no-op.
-Adding the underlying commands is tracked as follow-up work.
+All referenced commands are registered in the registry as part of this
+project — no shipped warnings. See "Command registry additions" above for
+the three new commands (`session.next`, `session.prev`, `pane.focus-next`).
 
 ```kdl
 hud "delayed 1000"
 
 tree "tmux" {
   bind "c" "session.new"
-  bind "n" "session.next"              // TODO: command not yet implemented
-  bind "p" "session.prev"              // TODO: command not yet implemented
+  bind "n" "session.next"
+  bind "p" "session.prev"
   bind "x" "pane.close"
   bind "%" "pane.split-vertical"
   bind "\"" "pane.split-horizontal"
-  bind "o" "pane.focus-next"           // TODO: command not yet implemented
+  bind "o" "pane.focus-next"
   bind "h" "pane.focus-left"
   bind "j" "pane.focus-down"
   bind "k" "pane.focus-up"
   bind "l" "pane.focus-right"
   bind "z" "pane.toggle-fullscreen"
   bind "d" "app.quit"
-  bind "?" "palette.toggle"
+  bind "?" "app.command-palette"
   bind "[" { enter-tree "tmux-copy" }
 }
 
@@ -553,18 +721,11 @@ tree "tmux-copy" sticky=true passthrough=true {
 prefix "Ctrl+KeyB" tree="tmux"
 ```
 
-### Commands to add for tmux parity
-
-Tracked separately from this spec; enumerated here so the implementation plan
-surfaces them:
-
-- `session.next` — focus the next session in the sidebar order.
-- `session.prev` — focus the previous session.
-- `pane.focus-next` — focus the next pane in tree-traversal order within the
-  active session.
-
-These are small additions to `src/lib/commands/sessions.ts` and
-`src/lib/commands/panes.ts` but are outside v1 scope for the keymap itself.
+Built-in presets are required to be warning-clean at load time; a CI check
+(`npm run test` covers it via `default-preset-parity.test.ts` and
+`tmux-preset-parity.test.ts`) asserts no warnings when loading an
+unmodified built-in preset. This prevents regressions where a refactor
+renames a command ID without updating the presets.
 
 ### `zellij`
 
@@ -608,16 +769,25 @@ notification fires at load time:
 
 - **Prefix-within-prefix**: pressing a prefix key while a tree is already
   active cancels the current tree and arms the new one. Matches tmux.
-- **Escape in non-sticky tree**: always exits, even if unbound in the tree.
-- **Escape in sticky tree without an Escape binding**: exits (safety net).
-- **Escape in passthrough tree without an Escape binding**: stays active.
-  Passthrough trees are expected to bind their own exit key; this is
-  documented in the schema comments.
+  Exception: if the active tree explicitly binds that key to an action,
+  the bind wins (per resolver precedence 1a).
+- **Prefix trigger also bound inside a tree**: the tree's bind wins while
+  the tree is active; outside the tree, the prefix fires. Document so users
+  who bind `C-b c` inside the tmux tree know it will not rearm.
+- **Escape in any tree without an Escape binding**: exits. Applies to
+  sticky and passthrough trees too — Escape is a universal safety net.
+  Users who want Escape to pass through bind it explicitly (e.g. to
+  `keymap.exit-tree` in a passthrough tree, or to a custom action).
 - **Reload while a tree is active**: the store exits the tree before
   swapping in the new keymap. No stale references survive.
 - **Unknown command at fire time** (preset references a command that was
-  removed between app launches): `registry.execute` is a no-op for unknown
-  IDs; the warning already fired at load time.
+  removed between app launches): `dispatchAction` no-ops for unknown IDs;
+  the warning already fired at load time. Shipped built-in presets are
+  warning-clean (CI enforced).
+- **Ctrl+C / SIGINT in a passthrough tree**: bound keys always win. If a
+  user authors a passthrough tree that binds `Ctrl+KeyC`, they will not be
+  able to send SIGINT while the tree is active. This is intentional — don't
+  bind keys you want the terminal to receive.
 
 ## Testing
 
@@ -629,7 +799,8 @@ Pure Vitest, no DOM.
   structural shape (trees, prefixes, bind counts).
 - Preset merging: user KDL with `preset "default"` plus overrides → merged
   `ParsedKeymap` equals the preset with overrides applied.
-- `unbind` removes entries from both top-level direct binds and tree binds.
+- `unbind "X"` removes the matching top-level direct bind only; trees are
+  untouched. Redeclaring a tree replaces the whole tree.
 - Tmux aliases normalize: `"C-b"` → `Ctrl+KeyB`, `"M-Left"` → `Alt+ArrowLeft`,
   `"S-Tab"` → `Shift+Tab`.
 - Notation defaults:
@@ -656,10 +827,17 @@ Pure, synthetic `KeyboardEvent` fixtures.
 - Command availability: bind targets an unavailable command → `none`.
 - Escape semantics: non-sticky → `exit`; sticky with Escape bound → `chord`;
   sticky without Escape bound → `exit`; passthrough without Escape bound →
-  `none` or `passthrough` per unbound-key rules.
-- Prefix-within-prefix: tree active, new prefix → `enterTree` (not append).
+  `exit` (Escape is universal safety net).
+- Prefix-within-prefix: tree active, new prefix (unbound in tree) →
+  `enterTree`. Tree active, new prefix (bound in tree) → the tree's bind
+  wins.
+- Tree bind on a modifier combo the terminal would consume
+  (e.g. `Ctrl+KeyC` in a passthrough tree) → `chord`, overriding
+  passthrough.
 - `Cmd` platform mapping: Mac `event.metaKey` matches; non-Mac
   `event.ctrlKey` matches.
+- Shifted punctuation: `bind "%"` matches `e.key === "%"` regardless of
+  physical key.
 
 ### Store (`src/lib/keymap/__tests__/store.test.ts`)
 
@@ -667,14 +845,19 @@ Pure, synthetic `KeyboardEvent` fixtures.
 - Load from invalid KDL → state unchanged, notification fired (via mocked
   notification store).
 - Reload while tree active → tree exits, new keymap takes effect.
-- `enterTree` / `exitTree` mutate `activeTree` and `treePath` correctly.
+- `enterTree(name)` appends to `treePath`. `exitTree()` clears `treePath`.
+  Nested `enter-tree` actions push; reload and prefix-rearm reset.
 
-### Behavioral regression (`src/lib/keymap/__tests__/default-preset-parity.test.ts`)
+### Behavioral regression
 
-Port the existing leader tests (`src/lib/commands/__tests__/leader.test.ts`)
-into a suite that loads the `default` preset and asserts every previously
-working chord still resolves. This is the gate that prevents silent
-regressions during migration.
+- `src/lib/keymap/__tests__/default-preset-parity.test.ts` — loads the
+  `default` preset and asserts every previously working chord still
+  resolves. Ports the existing leader tests
+  (`src/lib/commands/__tests__/leader.test.ts`). This is the gate that
+  prevents silent regressions during migration.
+- `src/lib/keymap/__tests__/builtin-presets-warning-clean.test.ts` —
+  loads each built-in preset unmodified and asserts the `warnings` list is
+  empty. Prevents regressions where a rename breaks a preset reference.
 
 ### Rust (`src-tauri/src/keymap/tests.rs`)
 
