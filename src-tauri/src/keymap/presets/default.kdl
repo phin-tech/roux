@@ -17,6 +17,18 @@ bind "Alt+KeyJ" "pane.focus-down"
 bind "Alt+KeyK" "pane.focus-up"
 bind "Alt+KeyL" "pane.focus-right"
 
+// Session-index focus (Cmd+1..9, Cmd+0 → session 10)
+bind "Cmd+Digit1" "session.focus-index-1"
+bind "Cmd+Digit2" "session.focus-index-2"
+bind "Cmd+Digit3" "session.focus-index-3"
+bind "Cmd+Digit4" "session.focus-index-4"
+bind "Cmd+Digit5" "session.focus-index-5"
+bind "Cmd+Digit6" "session.focus-index-6"
+bind "Cmd+Digit7" "session.focus-index-7"
+bind "Cmd+Digit8" "session.focus-index-8"
+bind "Cmd+Digit9" "session.focus-index-9"
+bind "Cmd+Digit0" "session.focus-index-10"
+
 // Pane-index focus (Option+1..9, Option+0 → pane 10)
 bind "Alt+Digit1" "pane.focus-index-1"
 bind "Alt+Digit2" "pane.focus-index-2"

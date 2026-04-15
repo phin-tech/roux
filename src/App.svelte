@@ -68,7 +68,6 @@
     armPaneHints,
     hidePaneHints,
   } from "$lib/stores/ui";
-  import { getVisualSessionOrder } from "$lib/sessions/order";
 
   let showNewSessionDialog = $state(false);
   let showSettings = $state(false);
@@ -251,28 +250,6 @@
         submitLeaderPrompt();
         return;
       }
-      return;
-    }
-
-    // Primary+1..9 / Primary+0: switch to the Nth session in sidebar visual
-    // order. Not yet in the keymap spec (TODO: migrate to default preset);
-    // kept inline for now.
-    if (
-      hasPrimaryModifier(e) &&
-      !e.shiftKey &&
-      !e.altKey &&
-      !(isMacPlatform() ? e.ctrlKey : e.metaKey) &&
-      /^[0-9]$/.test(e.key)
-    ) {
-      const slot = e.key === "0" ? 10 : parseInt(e.key, 10);
-      const order = getVisualSessionOrder(
-        get(sessionState).sessions,
-        get(projects),
-        get(settings).groupBy ?? "repo",
-      );
-      const target = order[slot - 1];
-      e.preventDefault();
-      if (target) setActiveSession(target.id);
       return;
     }
 

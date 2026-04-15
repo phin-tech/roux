@@ -195,6 +195,29 @@ export function registerSessionCommands() {
     available: () => get(sessionState).sessions.length > 1,
     execute: () => cycleSession(-1),
   });
+
+  for (let slot = 1; slot <= 10; slot++) {
+    registry.register({
+      id: `session.focus-index-${slot}`,
+      label: `Focus Session ${slot}`,
+      category: "Sessions",
+      available: () => sessionInVisualOrder(slot) !== null,
+      execute: () => {
+        const target = sessionInVisualOrder(slot);
+        if (target) setActiveSession(target);
+      },
+    });
+  }
+}
+
+function sessionInVisualOrder(slot: number): string | null {
+  const state = get(sessionState);
+  const order = getVisualSessionOrder(
+    state.sessions,
+    get(projects),
+    get(settings).groupBy ?? "repo",
+  );
+  return order[slot - 1]?.id ?? null;
 }
 
 function cycleSession(delta: number): void {
