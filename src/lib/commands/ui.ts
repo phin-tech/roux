@@ -2,6 +2,7 @@ import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { settings, updateSetting } from "$lib/stores/settings";
 import { get } from "svelte/store";
+import { loadKeymap, exitTree as keymapExitTree } from "$lib/keymap/store";
 
 export function registerUiCommands() {
   registry.register({
@@ -106,5 +107,22 @@ export function registerUiCommands() {
     label: "Quit Roux",
     shortcut: "cmd+q",
     category: "App",
+  });
+
+  registry.register({
+    id: "keymap.reload",
+    label: "Reload Keymap",
+    category: "App",
+    execute: () => {
+      void loadKeymap();
+    },
+  });
+
+  registry.register({
+    id: "keymap.exit-tree",
+    label: "Exit Keymap Tree",
+    category: "App",
+    available: () => false, // only fires from inside an active tree via a bind
+    execute: () => keymapExitTree(),
   });
 }
