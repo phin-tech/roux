@@ -1,6 +1,8 @@
 # Keyboard Shortcuts
 
-The full set of built-in shortcuts. All shortcuts are also visible in the command palette (++cmd+k++) next to each action, so this page is for reference — you never need to memorize it.
+The full set of shortcuts shipped in the `default` keymap. All shortcuts are also visible in the command palette (++cmd+k++) next to each action, so this page is for reference — you never need to memorize it.
+
+> Roux's keyboard shortcuts are **fully customizable**. Every binding on this page is just an entry in `~/.config/roux/keymap.kdl`. You can rebind anything, layer your own keys on top of a built-in preset, or switch to the `tmux` preset entirely. See [Keymap](features/keymap.md) for the full schema.
 
 ## Panes
 

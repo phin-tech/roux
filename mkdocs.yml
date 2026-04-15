@@ -84,6 +84,7 @@ nav:
       - Watches: features/watches.md
       - CLI: features/cli.md
       - Notes: features/notes.md
+      - Keymap: features/keymap.md
   - Keyboard Shortcuts: keyboard-shortcuts.md
   - Settings: settings.md
   - Troubleshooting: troubleshooting.md

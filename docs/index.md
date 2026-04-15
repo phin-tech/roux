@@ -20,6 +20,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Shell terminals** — open shell panes alongside Claude for running commands
 - **Command palette** — quick access to every action via ++cmd+k++
 - **Leader mode** — Vimish pane and session actions via ++cmd+;++ with inline pane rename
+- **Configurable keymap** — every shortcut lives in a KDL file you can edit; ships with `default` and `tmux` presets, supports sticky/passthrough modes and per-tree HUD timing
 - **Layout persistence** — pane layouts survive app restarts; shell panes respawn automatically
 - **Session from PR URL** — paste a GitHub PR URL in New Session and Roux prepares the review branch/worktree
 - **Doctor panel** — inspect and reinstall CLI/hooks/skill integrations from Settings

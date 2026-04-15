@@ -48,3 +48,4 @@ This page tracks major shipped features across Roux's full history.
 - **Optional modifier overlay toggles**: independent settings for Option pane hints and Command session hints.
 - **Attention notification auto-dismiss**: notifications clear when attention state exits.
 - **GitHub CLI resolution improvements**: login-shell PATH lookup plus explicit `gh` binary override.
+- **Configurable keymap**: every keyboard shortcut — including the leader prefix and chord trees — moved out of hardcoded handlers into a KDL file at `~/.config/roux/keymap.kdl`. Switch to a built-in `tmux` preset with a single line, layer your own overrides on top, declare sticky/passthrough modes, and pick per-tree HUD visibility (`always` / `delayed <ms>` / `never`). Reload from the palette without a restart. See [Keymap](features/keymap.md).
