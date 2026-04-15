@@ -277,6 +277,15 @@
     switch (resolution.kind) {
       case "enterTree":
         e.preventDefault();
+        // Preserve Roux's existing prefix-toggle muscle memory: if the
+        // prefix arms a tree that is already the active tree (tail of
+        // treePath), treat it as an exit instead of a rearm. This deviates
+        // from tmux's "prefix-within-prefix rearms" but matches what users
+        // expect from the old `Cmd+; → toggle leader` behavior.
+        if (km.treePath[km.treePath.length - 1] === resolution.tree) {
+          keymapExitTree();
+          return;
+        }
         keymapEnterTree(resolution.tree);
         return;
       case "chord":
