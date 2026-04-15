@@ -829,6 +829,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#customizing-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Customizing shortcuts
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -963,6 +972,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#customizing-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Customizing shortcuts
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1045,11 +1063,10 @@
 <p>The pane-focus shortcuts target the Nth visible pane in the active session (depth-first, left-to-right). Hold <span class="keys"><kbd class="key-alt">Alt</kbd></span> on its own to see each pane's digit drawn centered over it.
 You can disable this overlay in <strong>Settings → Keyboard</strong> without disabling the shortcuts themselves.</p>
 <h2 id="leader-mode">Leader mode<a class="headerlink" href="#leader-mode" title="Permanent link">&para;</a></h2>
-<p>Roux also has a Vimish leader-mode surface for pane and session commands:</p>
+<p>Roux also has a Vimish leader-mode surface for pane and session commands. The leader is just a regular tree in the keymap — the prefix, the children, and the HUD timing are all editable. See <a href="../features/keymap/#trees-prefixes-and-modes">Keymap → Trees, prefixes, and modes</a> for how to add your own modes.</p>
 <ul>
-<li>++cmd+;++ — open leader mode</li>
-<li><span class="keys"><kbd class="key-escape">Esc</kbd></span> — cancel leader mode</li>
-<li><span class="keys"><kbd class="key-backspace">Backspace</kbd></span> — move back up one leader level</li>
+<li>++cmd+;++ — open leader mode (press again to close)</li>
+<li><span class="keys"><kbd class="key-escape">Esc</kbd></span> — exit leader mode</li>
 <li><span class="keys"><kbd class="key-space">Space</kbd></span> — expand into the full command palette</li>
 </ul>
 <h3 id="pane-leader-keys">Pane leader keys<a class="headerlink" href="#pane-leader-keys" title="Permanent link">&para;</a></h3>
@@ -1118,11 +1135,32 @@ You can disable this overlay in <strong>Settings → Keyboard</strong> while kee
 <td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span></td>
 </tr>
 <tr>
+<td>Toggle notifications</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-i">I</kbd></span></td>
+</tr>
+<tr>
+<td>Toggle watches</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-w">W</kbd></span></td>
+</tr>
+<tr>
 <td>Toggle sidebar</td>
 <td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd>\</kbd></span></td>
 </tr>
+<tr>
+<td>Reload keymap</td>
+<td><em>(from palette)</em></td>
+</tr>
 </tbody>
 </table>
+<h2 id="customizing-shortcuts">Customizing shortcuts<a class="headerlink" href="#customizing-shortcuts" title="Permanent link">&para;</a></h2>
+<p>Every shortcut on this page comes from <code>~/.config/roux/keymap.kdl</code>, written for you on first launch. You can:</p>
+<ul>
+<li><strong>Switch to a different preset.</strong> Replace the file's contents with <code>preset "tmux"</code> (or <code>preset "default"</code> to revert) and run <strong>Reload Keymap</strong> from the palette.</li>
+<li><strong>Override a single binding.</strong> Add a <code>bind "..." "command.id"</code> line below the preset reference; it overrides the preset's binding for that key.</li>
+<li><strong>Drop a binding.</strong> <code>unbind "Cmd+KeyB"</code> removes that direct bind from the preset.</li>
+<li><strong>Add a new mode.</strong> Declare a <code>tree "..." { ... }</code> and a <code>prefix "..." tree="..."</code> to create your own chord group. Add <code>sticky</code> for Zellij-style modes that stay armed; add <code>passthrough</code> to let unbound keys reach the focused terminal.</li>
+</ul>
+<p>Reload via <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span> → <strong>Reload Keymap</strong> to pick up changes without a restart. See the full <a href="../features/keymap/">Keymap reference</a> for grammar, modifier syntax, command IDs, and worked examples.</p>
 
 
 
