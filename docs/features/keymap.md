@@ -164,29 +164,68 @@ Different trees on different prefixes also work; each prefix arms its own tree.
 
 ## Command IDs
 
-Bindings target commands by id. Every action in the command palette has an id you can bind. The full list is searchable via ++cmd+k++; common ones:
+Bindings target commands by id. The complete, always-current list is the command palette itself — open ++cmd+k++ and search. The tables below are the same set, grouped for reference.
 
-| Category | Id | What it does |
-|---|---|---|
-| Panes | `pane.focus-left` / `-down` / `-up` / `-right` | Move focus between panes |
-| Panes | `pane.focus-index-1` … `pane.focus-index-10` | Focus the Nth pane (DFS order) |
-| Panes | `pane.focus-next` | Focus the next pane in tree-traversal order |
-| Panes | `pane.split-horizontal` / `pane.split-vertical` | Split the focused pane |
-| Panes | `pane.close` | Close the focused pane |
-| Panes | `pane.toggle-fullscreen` / `pane.toggle-stack` | Layout toggles |
-| Panes | `pane.rename` | Open the inline rename input |
-| Panes | `pane.resize-left` / `-down` / `-up` / `-right` | Resize splits |
-| Panes | `pane.move-left` / `-down` / `-up` / `-right` | Reorder panes |
-| Sessions | `session.new` / `session.close` / `session.reconnect` | Lifecycle |
-| Sessions | `session.next` / `session.prev` | Cycle sessions |
-| Sessions | `session.focus-index-1` … `session.focus-index-10` | Jump to Nth session |
-| Sessions | `session.open-in-editor` / `session.rename` | Sidebar actions |
-| App | `app.command-palette` | Open the palette |
-| App | `app.quit` | Quit Roux |
-| App | `app.settings` | Open settings |
-| UI | `ui.toggle-notes` / `ui.toggle-watches` / `ui.toggle-notifications` | Sidebars |
-| Keymap | `keymap.reload` | Re-read `~/.config/roux/keymap.kdl` |
-| Keymap | `keymap.exit-tree` | Exit the active tree (for sticky/passthrough trees) |
+### Panes
+
+| Id | What it does |
+|---|---|
+| `pane.focus-left` / `-down` / `-up` / `-right` | Move focus between panes |
+| `pane.focus-index-1` … `pane.focus-index-10` | Focus the Nth pane (visible DFS order) |
+| `pane.focus-next` | Focus the next pane in traversal order |
+| `pane.split-horizontal` / `pane.split-vertical` | Split the focused pane |
+| `pane.split-claude` / `pane.split-codex` | Split with a Claude or Codex pane |
+| `pane.split-horizontal-with-profile` / `pane.split-vertical-with-profile` | Split and pick a spawn profile |
+| `pane.close` | Close the focused pane |
+| `pane.rename` | Open the inline rename input |
+| `pane.toggle-fullscreen` / `pane.toggle-stack` | Layout toggles |
+| `pane.resize-left` / `-down` / `-up` / `-right` | Resize splits |
+| `pane.move-left` / `-down` / `-up` / `-right` | Reorder panes |
+| `pane.open-doc` | Open a markdown doc as a pane |
+| `pane.run-command` | Run an ad-hoc command in a new pane |
+
+### Sessions
+
+| Id | What it does |
+|---|---|
+| `session.new` / `session.close` / `session.reconnect` | Lifecycle |
+| `session.next` / `session.prev` | Cycle sessions in sidebar order |
+| `session.focus-index-1` … `session.focus-index-10` | Jump to the Nth session |
+| `session.switch` | Open a fuzzy session picker |
+| `session.rename` | Rename the active session |
+| `session.open-in-editor` | Open the session worktree in your configured editor |
+| `session.new-worktree` | Create a new worktree session |
+| `session.set-project` | Tag the active session with a project |
+
+### App and UI
+
+| Id | What it does |
+|---|---|
+| `app.command-palette` | Open the palette |
+| `app.leader-mode` | Open the leader HUD (default tree) |
+| `app.settings` | Open settings |
+| `app.quit` | Quit Roux |
+| `app.check-updates` | Check for an update |
+| `ui.toggle-notes` / `ui.toggle-notifications` / `ui.toggle-watches` | Sidebar panels |
+| `ui.toggle-sidebar` / `ui.toggle-task-panel` | Layout panels |
+| `ui.group-by` | Toggle session grouping (repo / project) |
+
+### Tasks and watches
+
+| Id | What it does |
+|---|---|
+| `task.run` / `task.rerun` | Run / rerun a discovered task |
+| `watch.add` | Add a watch (picks kind) |
+| `watch.add-github` / `watch.add-github-pr` | Add a GitHub Actions or PR watch |
+| `watch.add-http` | Add an HTTP health watch |
+| `watch.add-shell` | Add a shell-command watch |
+
+### Keymap
+
+| Id | What it does |
+|---|---|
+| `keymap.reload` | Re-read `~/.config/roux/keymap.kdl` |
+| `keymap.exit-tree` | Exit the active tree (bind inside a sticky / passthrough tree) |
 
 ## Built-in presets
 
