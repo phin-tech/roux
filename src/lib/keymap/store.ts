@@ -8,7 +8,7 @@ import { notificationsPush } from "$lib/tauri";
 function defaultKeymap(): ParsedKeymap {
   return {
     presetRef: null,
-    hudDefault: { kind: "always" },
+    hudDefault: null,
     directBinds: [],
     unbinds: [],
     trees: [],
@@ -42,11 +42,21 @@ export const hudVisible = derived(keymapRuntime, ($r) => $r.treePath.length > 0)
 // mutations
 // ---------------------------------------------------------------------------
 
+/** Drill into a nested tree: append to `treePath`. */
 export function enterTree(name: string): void {
   keymapRuntime.update((r) => {
     const target = r.keymap.trees.find((t) => t.name === name);
     if (!target) return r; // unknown tree — should have produced a load-time warning
     return { ...r, treePath: [...r.treePath, name] };
+  });
+}
+
+/** Arm a tree from a prefix trigger: clears any existing path and enters. */
+export function rearmTree(name: string): void {
+  keymapRuntime.update((r) => {
+    const target = r.keymap.trees.find((t) => t.name === name);
+    if (!target) return r;
+    return { ...r, treePath: [name] };
   });
 }
 

@@ -111,7 +111,10 @@ pub struct KeymapWarning {
 pub struct ParsedKeymap {
     #[serde(default)]
     pub preset_ref: Option<String>,
-    pub hud_default: HudMode,
+    /// `None` when the document did not declare `hud <mode>`. Lets a preset
+    /// overlay without an explicit `hud` line inherit the base preset's
+    /// HUD mode instead of being clobbered by a default.
+    pub hud_default: Option<HudMode>,
     pub direct_binds: Vec<Bind>,
     /// Keys to drop from the base when merging a preset; only meaningful on
     /// the "user overlay" side of a merge.
@@ -125,7 +128,7 @@ impl Default for ParsedKeymap {
     fn default() -> Self {
         Self {
             preset_ref: None,
-            hud_default: HudMode::Always,
+            hud_default: None,
             direct_binds: Vec::new(),
             unbinds: Vec::new(),
             trees: Vec::new(),
@@ -201,7 +204,7 @@ pub fn parse_keymap_kdl(src: &str) -> Result<ParsedKeymap, KeymapParseError> {
                 km.preset_ref = Some(single_string_arg(src, node, "preset")?);
             }
             "hud" => {
-                km.hud_default = parse_hud_mode(src, node)?;
+                km.hud_default = Some(parse_hud_mode(src, node)?);
             }
             "bind" => {
                 let (key, action) = parse_top_level_bind(src, node)?;
@@ -326,7 +329,11 @@ pub fn merge_keymaps(base: ParsedKeymap, overlay: ParsedKeymap) -> ParsedKeymap 
         out.prefixes.push(prefix);
     }
 
-    out.hud_default = overlay.hud_default;
+    // Only overwrite the base's HUD when the overlay explicitly set one.
+    // `None` on the overlay means "inherit" rather than "reset to default".
+    if overlay.hud_default.is_some() {
+        out.hud_default = overlay.hud_default;
+    }
     out.preset_ref = overlay.preset_ref.or(out.preset_ref);
     out.warnings.extend(overlay.warnings);
     out
@@ -931,7 +938,7 @@ mod tests {
         assert!(km.direct_binds.is_empty());
         assert!(km.trees.is_empty());
         assert!(km.prefixes.is_empty());
-        assert_eq!(km.hud_default, HudMode::Always);
+        assert_eq!(km.hud_default, None);
     }
 
     #[test]
@@ -1093,12 +1100,20 @@ mod tests {
 
     #[test]
     fn hud_modes() {
-        assert_eq!(parse(r#"hud "always""#).hud_default, HudMode::Always);
-        assert_eq!(parse(r#"hud "never""#).hud_default, HudMode::Never);
+        assert_eq!(parse(r#"hud "always""#).hud_default, Some(HudMode::Always));
+        assert_eq!(parse(r#"hud "never""#).hud_default, Some(HudMode::Never));
         assert_eq!(
             parse(r#"hud "delayed 1000""#).hud_default,
-            HudMode::Delayed { ms: 1000 }
+            Some(HudMode::Delayed { ms: 1000 })
         );
+    }
+
+    #[test]
+    fn overlay_without_hud_inherits_base() {
+        let base = parse(r#"hud "delayed 1000""#);
+        let overlay = parse(""); // no hud node → None
+        let merged = merge_keymaps(base, overlay);
+        assert_eq!(merged.hud_default, Some(HudMode::Delayed { ms: 1000 }));
     }
 
     #[test]

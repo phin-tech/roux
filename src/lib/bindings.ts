@@ -242,7 +242,7 @@ export type KeymapWarning = {
 
 export type ParsedKeymap = {
 	presetRef?: string | null,
-	hudDefault: HudMode,
+	hudDefault: HudMode | null,
 	directBinds: Bind[],
 	unbinds: KeyRef[],
 	trees: KeymapTree[],

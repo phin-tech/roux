@@ -76,15 +76,20 @@ export function setLeaderSequence(sequence: string[]): void {
   });
 }
 
+/**
+ * Open the leader-prompt surface (the text input used for commands with
+ * `onInput`, e.g. pane.rename). Also opens the surface in leader mode if
+ * it wasn't already — keymap dispatch fires this directly from a chord,
+ * which used to rely on the surface being pre-opened by `Cmd+;`.
+ */
 export function openLeaderPrompt(commandId: string, initialValue: string = ""): void {
-  commandSurface.update((current) => {
-    if (!current.open || current.mode !== "leader") return current;
-    return {
-      ...current,
-      leaderPromptCommandId: commandId,
-      leaderPromptValue: initialValue,
-    };
-  });
+  commandSurface.update((current) => ({
+    ...current,
+    open: true,
+    mode: "leader",
+    leaderPromptCommandId: commandId,
+    leaderPromptValue: initialValue,
+  }));
 }
 
 export function setLeaderPromptValue(value: string): void {

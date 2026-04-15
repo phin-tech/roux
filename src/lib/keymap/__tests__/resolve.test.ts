@@ -12,7 +12,7 @@ vi.mock("$lib/platform", () => ({
 function emptyKeymap(): ParsedKeymap {
   return {
     presetRef: null,
-    hudDefault: { kind: "always" },
+    hudDefault: null,
     directBinds: [],
     unbinds: [],
     trees: [],
@@ -213,16 +213,12 @@ describe("resolveKey — prefix → tree", () => {
     });
   });
 
-  it("enter-tree action promotes to the nested tree", () => {
+  it("enter-tree action drills into the nested tree (append path)", () => {
     const km = emptyKeymap();
     km.trees.push(tree("leader", [bind(character([], "w"), { kind: "enterTree", tree: "panes" })]));
     km.trees.push(tree("panes", []));
     const r = resolveKey(keydown({ key: "w" }), state(km, ["leader"]), always);
-    expect(r).toEqual({
-      kind: "chord",
-      action: { kind: "enterTree", tree: "panes" },
-      keepTreeOpen: false,
-    });
+    expect(r).toEqual({ kind: "drillInto", tree: "panes" });
   });
 });
 

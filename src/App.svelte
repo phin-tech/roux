@@ -17,6 +17,7 @@
     loadKeymap,
     keymapState,
     enterTree as keymapEnterTree,
+    rearmTree as keymapRearmTree,
     exitTree as keymapExitTree,
   } from "$lib/keymap/store";
   import { resolveKey } from "$lib/keymap/resolve";
@@ -118,6 +119,17 @@
   }
 
   function executeCommandById(commandId: string) {
+    // Keymap-owned pseudo-commands: not in the registry, but callable from
+    // binds via their string id.
+    if (commandId === "keymap.exit-tree") {
+      keymapExitTree();
+      return;
+    }
+    if (commandId === "keymap.reload") {
+      void loadKeymap();
+      return;
+    }
+
     const cmd = registry.get(commandId);
     if (!cmd) return;
 
@@ -155,14 +167,6 @@
     }
     if (cmd.id === "app.quit") {
       void handleQuitRequested();
-      return;
-    }
-    if (cmd.id === "keymap.exit-tree") {
-      keymapExitTree();
-      return;
-    }
-    if (cmd.id === "keymap.reload") {
-      void loadKeymap();
       return;
     }
 
@@ -277,15 +281,17 @@
     switch (resolution.kind) {
       case "enterTree":
         e.preventDefault();
-        // Preserve Roux's existing prefix-toggle muscle memory: if the
-        // prefix arms a tree that is already the active tree (tail of
-        // treePath), treat it as an exit instead of a rearm. This deviates
-        // from tmux's "prefix-within-prefix rearms" but matches what users
-        // expect from the old `Cmd+; → toggle leader` behavior.
-        if (km.treePath[km.treePath.length - 1] === resolution.tree) {
+        // Preserve Roux's prefix-toggle muscle memory: pressing the prefix
+        // while any tree is active exits. Applies whether we're at the
+        // root of the leader tree or nested inside a drill-down.
+        if (km.treePath.length > 0) {
           keymapExitTree();
           return;
         }
+        keymapRearmTree(resolution.tree);
+        return;
+      case "drillInto":
+        e.preventDefault();
         keymapEnterTree(resolution.tree);
         return;
       case "chord":
@@ -304,10 +310,13 @@
     }
 
     // Legacy shortcut-field fallback for commands not yet in the keymap
-    // preset. Migrate shortcuts into the default preset over time.
+    // preset. Migrate shortcuts into the default preset over time. Skipped
+    // while a tree is active — keymap semantics win, and falling through
+    // here would fire unrelated commands on unbound keys in a tree.
+    if (km.treePath.length > 0) return;
     const shortcut = buildLegacyShortcut(e);
     const legacyCmd = registry.getByShortcut(shortcut);
-    if (legacyCmd) {
+    if (legacyCmd && (!legacyCmd.available || legacyCmd.available())) {
       e.preventDefault();
       executeCommandById(legacyCmd.id);
     }

@@ -3,7 +3,10 @@ import { isMacPlatform } from "$lib/platform";
 
 export type Resolution =
   | { kind: "none" }
+  /** Prefix matched at top level, or rearm while a tree is active. Replaces treePath. */
   | { kind: "enterTree"; tree: string }
+  /** Nested enter-tree action inside an already-armed tree. Appends to treePath. */
+  | { kind: "drillInto"; tree: string }
   | { kind: "chord"; action: KeymapAction; keepTreeOpen: boolean }
   | { kind: "passthrough" }
   | { kind: "exit" };
@@ -47,6 +50,11 @@ export function resolveKey(
     // 1a. Tree bind match.
     const matched = findBind(activeTree.binds, event);
     if (matched && actionIsAvailable(matched.action, isCommandAvailable)) {
+      // enter-tree action: promote to nested tree, appending to the path
+      // so leader → leader-panes preserves the breadcrumb.
+      if (matched.action.kind === "enterTree") {
+        return { kind: "drillInto", tree: matched.action.tree };
+      }
       return {
         kind: "chord",
         action: matched.action,
