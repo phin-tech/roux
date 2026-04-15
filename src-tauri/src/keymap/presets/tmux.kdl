@@ -1,0 +1,35 @@
+// Tmux-style keymap. Prefix is Ctrl+B; bindings match tmux conventions as
+// closely as Roux's command surface allows.
+//
+// Use with:
+//     preset "tmux"
+//
+// at the top of your ~/.config/roux/keymap.kdl.
+
+hud "delayed 1000"
+
+tree "tmux" {
+    // Window / session management
+    bind "c" "session.new"
+    bind "n" "session.next"
+    bind "p" "session.prev"
+    bind "d" "app.quit"
+    bind "?" "app.command-palette"
+
+    // Pane splits (matches tmux)
+    bind "%" "pane.split-vertical"
+    bind "\"" "pane.split-horizontal"
+
+    // Pane focus
+    bind "o" "pane.focus-next"
+    bind "h" "pane.focus-left"
+    bind "j" "pane.focus-down"
+    bind "k" "pane.focus-up"
+    bind "l" "pane.focus-right"
+
+    // Pane lifecycle
+    bind "x" "pane.close"
+    bind "z" "pane.toggle-fullscreen"
+}
+
+prefix "Ctrl+KeyB" tree="tmux"

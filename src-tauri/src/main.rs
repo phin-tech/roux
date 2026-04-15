@@ -6,6 +6,7 @@ mod hooks;
 #[macro_use]
 mod logging;
 mod commands;
+mod keymap;
 mod layouts;
 mod notifications;
 mod pane_state;
@@ -87,6 +88,10 @@ fn main() {
         commands::sessions::get_builtin_profiles,
         commands::layouts::get_builtin_layouts,
         commands::layouts::get_user_layouts,
+        keymap::get_keymap,
+        keymap::set_keymap,
+        keymap::get_builtin_keymap_preset,
+        keymap::get_keymap_path,
         commands::docs::read_file,
         commands::docs::write_file,
         commands::docs::list_docs,
@@ -184,6 +189,10 @@ fn main() {
             commands::sessions::get_builtin_profiles,
             commands::layouts::get_builtin_layouts,
             commands::layouts::get_user_layouts,
+            keymap::get_keymap,
+            keymap::set_keymap,
+            keymap::get_builtin_keymap_preset,
+            keymap::get_keymap_path,
             commands::docs::read_file,
             commands::docs::write_file,
             commands::docs::list_docs,

@@ -82,6 +82,10 @@ export const commands = {
 	 *  v1 policy as `get_builtin_layouts` — failures are logged, not surfaced.
 	 */
 	getUserLayouts: () => __TAURI_INVOKE<LayoutSpec[]>("get_user_layouts"),
+	getKeymap: () => typedError<ParsedKeymap, string>(__TAURI_INVOKE("get_keymap")),
+	setKeymap: (contents: string) => typedError<null, string>(__TAURI_INVOKE("set_keymap", { contents })),
+	getBuiltinKeymapPreset: (name: string) => typedError<string, string>(__TAURI_INVOKE("get_builtin_keymap_preset", { name })),
+	getKeymapPath: () => __TAURI_INVOKE<string>("get_keymap_path"),
 	readFile: (path: string) => typedError<string, string>(__TAURI_INVOKE("read_file", { path })),
 	writeFile: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file", { path, contents })),
 	listDocs: (dir: string) => typedError<DocFile[], string>(__TAURI_INVOKE("list_docs", { dir })),
@@ -196,6 +200,55 @@ export type GithubJob = {
 export type GroupBy = "repo" | "project";
 
 export type KeepOpen = "always" | "on-error" | "never";
+
+export type Modifier = "cmd" | "ctrl" | "alt" | "shift";
+
+export type KeyRef =
+	| { kind: "physical"; mods: Modifier[]; code: string }
+	| { kind: "character"; mods: Modifier[]; key: string };
+
+export type KeymapAction =
+	| { kind: "command"; id: string }
+	| { kind: "enterTree"; tree: string };
+
+export type HudMode =
+	| { kind: "always" }
+	| { kind: "delayed"; ms: number }
+	| { kind: "never" };
+
+export type Bind = {
+	key: KeyRef,
+	action: KeymapAction,
+};
+
+export type KeymapTree = {
+	name: string,
+	sticky: boolean,
+	passthrough: boolean,
+	hud: HudMode | null,
+	binds: Bind[],
+};
+
+export type Prefix = {
+	key: KeyRef,
+	tree: string,
+};
+
+export type KeymapWarning = {
+	message: string,
+	line: number,
+	column: number,
+};
+
+export type ParsedKeymap = {
+	presetRef?: string | null,
+	hudDefault: HudMode,
+	directBinds: Bind[],
+	unbinds: KeyRef[],
+	trees: KeymapTree[],
+	prefixes: Prefix[],
+	warnings: KeymapWarning[],
+};
 
 /**
  *  A node in a layout's pane tree. Leaves spawn a single shell seeded from a

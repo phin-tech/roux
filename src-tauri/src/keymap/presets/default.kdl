@@ -1,0 +1,76 @@
+// Roux default keymap. Mirrors the hardcoded key handling that existed
+// before the data-driven keymap system. Users who want to customize should
+// NOT edit this file; instead, keep it as their preset reference and put
+// overrides in ~/.config/roux/keymap.kdl.
+
+hud "always"
+
+// ---- Direct binds (fire without a prefix) ----
+
+// Global app
+bind "Cmd+KeyK" "app.command-palette"
+bind "Cmd+KeyQ" "app.quit"
+
+// Pane focus (Option+h/j/k/l)
+bind "Alt+KeyH" "pane.focus-left"
+bind "Alt+KeyJ" "pane.focus-down"
+bind "Alt+KeyK" "pane.focus-up"
+bind "Alt+KeyL" "pane.focus-right"
+
+// Pane-index focus (Option+1..9, Option+0 → pane 10)
+bind "Alt+Digit1" "pane.focus-index-1"
+bind "Alt+Digit2" "pane.focus-index-2"
+bind "Alt+Digit3" "pane.focus-index-3"
+bind "Alt+Digit4" "pane.focus-index-4"
+bind "Alt+Digit5" "pane.focus-index-5"
+bind "Alt+Digit6" "pane.focus-index-6"
+bind "Alt+Digit7" "pane.focus-index-7"
+bind "Alt+Digit8" "pane.focus-index-8"
+bind "Alt+Digit9" "pane.focus-index-9"
+bind "Alt+Digit0" "pane.focus-index-10"
+
+// Pane movement (Ctrl+Shift+h/j/k/l)
+bind "Ctrl+Shift+KeyH" "pane.move-left"
+bind "Ctrl+Shift+KeyJ" "pane.move-down"
+bind "Ctrl+Shift+KeyK" "pane.move-up"
+bind "Ctrl+Shift+KeyL" "pane.move-right"
+
+// Pane resize (Ctrl+Alt+h/j/k/l)
+bind "Ctrl+Alt+KeyH" "pane.resize-left"
+bind "Ctrl+Alt+KeyJ" "pane.resize-down"
+bind "Ctrl+Alt+KeyK" "pane.resize-up"
+bind "Ctrl+Alt+KeyL" "pane.resize-right"
+
+// ---- Leader tree (Cmd+;) ----
+
+tree "leader" {
+    bind "w" { enter-tree "leader-panes" }
+    bind "b" { enter-tree "leader-sessions" }
+    bind "n" "ui.toggle-notes"
+    bind "i" "ui.toggle-notifications"
+    bind "t" "ui.toggle-watches"
+    bind "," "app.settings"
+    bind "Space" "app.command-palette"
+}
+
+tree "leader-panes" {
+    bind "h" "pane.focus-left"
+    bind "j" "pane.focus-down"
+    bind "k" "pane.focus-up"
+    bind "l" "pane.focus-right"
+    bind "s" "pane.split-horizontal"
+    bind "v" "pane.split-vertical"
+    bind "r" "pane.rename"
+    bind "d" "pane.close"
+    bind "f" "pane.toggle-fullscreen"
+    bind "t" "pane.toggle-stack"
+}
+
+tree "leader-sessions" {
+    bind "n" "session.new"
+    bind "d" "session.close"
+    bind "r" "session.reconnect"
+    bind "e" "session.open-in-editor"
+}
+
+prefix "Cmd+Semicolon" tree="leader"
