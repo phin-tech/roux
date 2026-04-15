@@ -100,4 +100,11 @@ export function registerUiCommands() {
     label: "Check for Updates",
     category: "App",
   });
+
+  registry.register({
+    id: "app.quit",
+    label: "Quit Roux",
+    shortcut: "cmd+q",
+    category: "App",
+  });
 }

@@ -1,6 +1,10 @@
+import { get } from "svelte/store";
 import { registry } from "./registry";
 import { queries } from "$lib/queries";
-import { addSession, setActiveSession, triggerRename, setSessionProject } from "$lib/stores/sessions";
+import { addSession, setActiveSession, triggerRename, setSessionProject, sessionState } from "$lib/stores/sessions";
+import { projects } from "$lib/stores/projects";
+import { settings } from "$lib/stores/settings";
+import { getVisualSessionOrder } from "$lib/sessions/order";
 import { initSessionWithProfile } from "$lib/panes/actions";
 import { createSessionShell, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
 import type { SpawnProfileRef } from "$lib/panes/profiles";
@@ -175,4 +179,39 @@ export function registerSessionCommands() {
     shortcut: "cmd+n",
     category: "Sessions",
   });
+
+  registry.register({
+    id: "session.next",
+    label: "Next Session",
+    category: "Sessions",
+    available: () => get(sessionState).sessions.length > 1,
+    execute: () => cycleSession(1),
+  });
+
+  registry.register({
+    id: "session.prev",
+    label: "Previous Session",
+    category: "Sessions",
+    available: () => get(sessionState).sessions.length > 1,
+    execute: () => cycleSession(-1),
+  });
+}
+
+function cycleSession(delta: number): void {
+  const state = get(sessionState);
+  if (state.sessions.length === 0) return;
+  const order = getVisualSessionOrder(
+    state.sessions,
+    get(projects),
+    get(settings).groupBy ?? "repo",
+  );
+  if (order.length === 0) return;
+  const currentIndex = state.activeSessionId
+    ? order.findIndex((s) => s.id === state.activeSessionId)
+    : -1;
+  const nextIndex =
+    currentIndex === -1
+      ? 0
+      : (currentIndex + delta + order.length) % order.length;
+  setActiveSession(order[nextIndex].id);
 }

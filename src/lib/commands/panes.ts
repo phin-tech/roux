@@ -3,7 +3,8 @@ import { registry } from "./registry";
 import type { CommandItem } from "./registry";
 import { queries } from "$lib/queries";
 import { navigatePane, movePaneInDirection, resizePane, toggleStack } from "$lib/panes/layout";
-import { toggleFullscreen } from "$lib/panes/focus";
+import { toggleFullscreen, setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
+import { paneSlotById } from "$lib/stores/ui";
 import { updateInstance } from "$lib/panes/instances";
 import { splitPane, closePane, closeFocusedPane } from "$lib/panes/actions";
 import {
@@ -536,6 +537,48 @@ export function registerPaneCommands() {
           });
         });
       }
+    },
+  });
+
+  for (let slot = 1; slot <= 10; slot++) {
+    registry.register({
+      id: `pane.focus-index-${slot}`,
+      label: `Focus Pane ${slot}`,
+      category: "Panes",
+      available: () => {
+        const slots = get(paneSlotById);
+        for (const s of slots.values()) if (s === slot) return true;
+        return false;
+      },
+      execute: () => {
+        const slots = get(paneSlotById);
+        for (const [paneId, s] of slots) {
+          if (s === slot) {
+            setLogicalFocus(paneId);
+            return;
+          }
+        }
+      },
+    });
+  }
+
+  registry.register({
+    id: "pane.focus-next",
+    label: "Focus Next Pane",
+    category: "Panes",
+    available: () => get(paneSlotById).size > 1,
+    execute: () => {
+      const slots = get(paneSlotById);
+      if (slots.size === 0) return;
+      const focused = get(focusedPaneId);
+      const currentSlot = focused ? slots.get(focused) ?? null : null;
+      const ordered = [...slots.entries()].sort((a, b) => a[1] - b[1]);
+      const nextIndex =
+        currentSlot === null
+          ? 0
+          : (ordered.findIndex(([, s]) => s === currentSlot) + 1) % ordered.length;
+      const next = ordered[nextIndex];
+      if (next) setLogicalFocus(next[0]);
     },
   });
 }

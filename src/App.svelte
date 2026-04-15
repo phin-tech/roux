@@ -172,6 +172,10 @@
       openLeaderMode();
       return;
     }
+    if (cmd.id === "app.quit") {
+      void handleQuitRequested();
+      return;
+    }
 
     if (cmd.execute) void cmd.execute();
   }
