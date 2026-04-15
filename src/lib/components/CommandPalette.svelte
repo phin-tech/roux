@@ -3,6 +3,15 @@
   import { Command } from "bits-ui";
   import { registry, type Command as Cmd, type CommandItem as CmdItem } from "$lib/commands/registry";
   import { formatShortcut } from "$lib/platform";
+  import { shortcutFor, keymapState } from "$lib/keymap/store";
+
+  // Resolve the shortcut label for a command. Reads the current keymap
+  // (passed explicitly to keep this reactive via `$keymapState` in the
+  // template) and falls back to the legacy `cmd.shortcut` field for
+  // commands whose binding hasn't been migrated into the preset yet.
+  function resolveShortcut(cmd: Cmd, _state: unknown): string | null {
+    return shortcutFor(cmd.id) ?? cmd.shortcut ?? null;
+  }
 
   interface Props {
     open: boolean;
@@ -267,9 +276,10 @@
                       {#if cmd.getItems}
                         <span class="text-text-muted text-xs font-mono shrink-0">&#8594;</span>
                       {/if}
-                      {#if cmd.shortcut}
+                      {@const shortcut = resolveShortcut(cmd, $keymapState)}
+                      {#if shortcut}
                         <kbd class="text-[11px] font-mono text-text-muted bg-bg-elevated px-1.5 py-0.5 rounded border border-border-subtle shrink-0">
-                          {formatShortcut(cmd.shortcut)}
+                          {formatShortcut(shortcut)}
                         </kbd>
                       {/if}
                     </Command.Item>

@@ -253,27 +253,35 @@ function actionTargetsCommand(action: KeymapAction, commandId: string): boolean 
 }
 
 function keyLabel(key: import("$lib/bindings").KeyRef): string {
-  const mods = key.mods.map((m) => {
-    switch (m) {
-      case "cmd":
-        return "Cmd";
-      case "ctrl":
-        return "Ctrl";
-      case "alt":
-        return "Alt";
-      case "shift":
-        return "Shift";
-    }
-  });
+  // Emit lowercase modifier tokens so `formatShortcut` in platform.ts can
+  // map them to their display glyphs (⌘⇧⌥⌃ on mac, Ctrl/Shift/Alt on
+  // other platforms).
+  const parts: string[] = key.mods.map((m) => m);
   const body = key.kind === "physical" ? physicalDisplay(key.code) : key.key;
-  return [...mods, body].join("+");
+  parts.push(body.toLowerCase());
+  return parts.join("+");
 }
 
 function physicalDisplay(code: string): string {
   if (code.startsWith("Key")) return code.slice(3);
   if (code.startsWith("Digit")) return code.slice(5);
-  // Arrow / named keys render as-is; downstream code can pretty-print later.
-  return code;
+  // Common named punctuation codes get mapped to their symbols so the
+  // palette shows `;` rather than `Semicolon`.
+  const punctuation: Record<string, string> = {
+    Semicolon: ";",
+    Comma: ",",
+    Period: ".",
+    Slash: "/",
+    Backslash: "\\",
+    Quote: "'",
+    BracketLeft: "[",
+    BracketRight: "]",
+    Minus: "-",
+    Equal: "=",
+    Backquote: "`",
+    Space: " ",
+  };
+  return punctuation[code] ?? code;
 }
 
 // Re-export match helper so App.svelte can check before calling resolveKey.

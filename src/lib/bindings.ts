@@ -82,9 +82,27 @@ export const commands = {
 	 *  v1 policy as `get_builtin_layouts` — failures are logged, not surfaced.
 	 */
 	getUserLayouts: () => __TAURI_INVOKE<LayoutSpec[]>("get_user_layouts"),
+	/**
+	 *  Return the fully-resolved active keymap. On first launch this creates
+	 *  `~/.config/roux/keymap.kdl` from the default preset before returning.
+	 */
 	getKeymap: () => typedError<ParsedKeymap, string>(__TAURI_INVOKE("get_keymap")),
+	/**
+	 *  Write `contents` to `~/.config/roux/keymap.kdl`. Does not parse — the
+	 *  caller (typically the Settings UI) is responsible for validating before
+	 *  calling. On success the frontend typically follows up with `get_keymap`
+	 *  to reload.
+	 */
 	setKeymap: (contents: string) => typedError<null, string>(__TAURI_INVOKE("set_keymap", { contents })),
+	/**
+	 *  Return the raw KDL source of a built-in preset. Used by the Settings UI
+	 *  to offer "copy preset to keymap.kdl" and by docs.
+	 */
 	getBuiltinKeymapPreset: (name: string) => typedError<string, string>(__TAURI_INVOKE("get_builtin_keymap_preset", { name })),
+	/**
+	 *  Return the absolute path to the user's `keymap.kdl`. Used by the Settings
+	 *  UI to offer "Open in editor".
+	 */
 	getKeymapPath: () => __TAURI_INVOKE<string>("get_keymap_path"),
 	readFile: (path: string) => typedError<string, string>(__TAURI_INVOKE("read_file", { path })),
 	writeFile: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file", { path, contents })),
@@ -150,6 +168,11 @@ export const commands = {
 /* Types */
 export type ActionKind = { type: "focusSession"; sessionId: string } | { type: "focusPane"; paneId: string } | { type: "openUrl"; url: string } | { type: "openPath"; path: string } | { type: "runCommand"; commandId: string } | { type: "retryWatch"; watchId: string } | { type: "dismiss" } | { type: "dismissSource" } | { type: "markRead" };
 
+export type Bind = {
+	key: KeyRef,
+	action: KeymapAction,
+};
+
 export type ClaudeSession = {
 	sessionId: string,
 	summary: string,
@@ -199,55 +222,48 @@ export type GithubJob = {
 
 export type GroupBy = "repo" | "project";
 
+// HUD visibility for a tree.
+export type HudMode = { kind: "always" } | { kind: "delayed"; ms: number } | { kind: "never" };
+
 export type KeepOpen = "always" | "on-error" | "never";
 
-export type Modifier = "cmd" | "ctrl" | "alt" | "shift";
+// How a bound key is matched against a `KeyboardEvent`.
+export type KeyRef = 
+/**
+ *  Match `event.code` — survives keyboard-layout quirks (macOS Option
+ *  producing `∆` for `j`, etc.). Used for any binding with a modifier
+ *  prefix: `Alt+KeyH`, `Cmd+Digit1`, `Ctrl+KeyB`.
+ */
+{ kind: "physical"; mods: Modifier[]; code: string } | 
+/**
+ *  Match `event.key` — the logical character after Shift/dead-keys.
+ *  Used for bare bindings inside trees: `"h"`, `"%"`, `"Escape"`.
+ */
+{ kind: "character"; mods: Modifier[]; key: string };
 
-export type KeyRef =
-	| { kind: "physical"; mods: Modifier[]; code: string }
-	| { kind: "character"; mods: Modifier[]; key: string };
-
-export type KeymapAction =
-	| { kind: "command"; id: string }
-	| { kind: "enterTree"; tree: string };
-
-export type HudMode =
-	| { kind: "always" }
-	| { kind: "delayed"; ms: number }
-	| { kind: "never" };
-
-export type Bind = {
-	key: KeyRef,
-	action: KeymapAction,
-};
+// What a bind fires.
+export type KeymapAction = 
+// Execute a registered command by id.
+{ kind: "command"; id: string } | 
+// Promote to a named tree (drill-down within a chord sequence).
+{ kind: "enterTree"; tree: string };
 
 export type KeymapTree = {
 	name: string,
-	sticky: boolean,
-	passthrough: boolean,
-	hud: HudMode | null,
+	sticky?: boolean,
+	passthrough?: boolean,
+	hud?: HudMode | null,
 	binds: Bind[],
 };
 
-export type Prefix = {
-	key: KeyRef,
-	tree: string,
-};
-
+/**
+ *  A non-fatal issue discovered while parsing. Warnings surface through the
+ *  notification system; the keymap still loads.
+ */
 export type KeymapWarning = {
 	message: string,
 	line: number,
 	column: number,
-};
-
-export type ParsedKeymap = {
-	presetRef?: string | null,
-	hudDefault: HudMode | null,
-	directBinds: Bind[],
-	unbinds: KeyRef[],
-	trees: KeymapTree[],
-	prefixes: Prefix[],
-	warnings: KeymapWarning[],
 };
 
 /**
@@ -303,6 +319,13 @@ export type LayoutSpec = {
  */
 export type LayoutSplitDirection = "horizontal" | "vertical";
 
+/**
+ *  A modifier key. `Cmd` is platform-dispatched: on macOS it matches Meta,
+ *  elsewhere it matches Ctrl. The resolver decides which physical flag to
+ *  compare against at match time; the stored form is platform-neutral.
+ */
+export type Modifier = "cmd" | "ctrl" | "alt" | "shift";
+
 export type Notification = {
 	id: string,
 	createdAt: number,
@@ -357,6 +380,30 @@ export type NotifyConfig = {
 	onSuccess: boolean,
 };
 
+/**
+ *  Fully parsed keymap. `preset_ref` is the raw `preset "<name>"`
+ *  reference, if the document declared one; the loader resolves it by
+ *  parsing the preset KDL separately and calling [`merge_keymaps`].
+ */
+export type ParsedKeymap = {
+	presetRef?: string | null,
+	/**
+	 *  `None` when the document did not declare `hud <mode>`. Lets a preset
+	 *  overlay without an explicit `hud` line inherit the base preset's
+	 *  HUD mode instead of being clobbered by a default.
+	 */
+	hudDefault: HudMode | null,
+	directBinds: Bind[],
+	/**
+	 *  Keys to drop from the base when merging a preset; only meaningful on
+	 *  the "user overlay" side of a merge.
+	 */
+	unbinds: KeyRef[],
+	trees: KeymapTree[],
+	prefixes: Prefix[],
+	warnings: KeymapWarning[],
+};
+
 export type PrCheckRun = {
 	name: string,
 	conclusion: string | null,
@@ -375,6 +422,11 @@ export type PrReview = {
 	reviewer: string,
 	state: string,
 	url: string | null,
+};
+
+export type Prefix = {
+	key: KeyRef,
+	tree: string,
 };
 
 /**

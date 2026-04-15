@@ -58,7 +58,7 @@ export function resolveKey(
       return {
         kind: "chord",
         action: matched.action,
-        keepTreeOpen: activeTree.sticky,
+        keepTreeOpen: activeTree.sticky ?? false,
       };
     }
 
