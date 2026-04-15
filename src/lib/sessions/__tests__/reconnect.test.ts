@@ -9,16 +9,27 @@ vi.mock("$lib/tauri", () => ({
   writeToSession: vi.fn().mockResolvedValue(undefined),
   loadPaneStateRaw: vi.fn().mockResolvedValue(null),
   savePaneStateRaw: vi.fn().mockResolvedValue(undefined),
+  saveLivePaneStateRaw: vi.fn().mockResolvedValue(undefined),
   deletePaneStateRaw: vi.fn().mockResolvedValue(undefined),
   createPtyOutputChannel: vi.fn((_cb: unknown) => "mock-channel"),
   attachPtyOutput: vi.fn().mockResolvedValue(undefined),
   onSessionExit: vi.fn().mockResolvedValue(() => {}),
+  upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
+  removePaneRecord: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("$lib/panes/terminals", () => ({
-  initTerminal: vi.fn(),
-  attachPtyListeners: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("$lib/panes/terminals", () => {
+  const initTerminal = vi.fn();
+  const attachPtyListeners = vi.fn().mockResolvedValue(undefined);
+  return {
+    initTerminal,
+    attachPtyListeners,
+    connectPaneTerminal: vi.fn(async (paneId: string, onExit?: unknown) => {
+      initTerminal(paneId);
+      return attachPtyListeners(paneId, onExit);
+    }),
+  };
+});
 
 vi.mock("$lib/logging", () => ({
   log: vi.fn(),
@@ -32,7 +43,7 @@ import { sessionLayouts, resetLayouts } from "$lib/panes/layout";
 import { paneInstances, resetInstances, createPane } from "$lib/panes/instances";
 import { resetFocus } from "$lib/panes/focus";
 import { reconnectSessionShellPty, spawnShell, loadPaneStateRaw } from "$lib/tauri";
-import { initTerminal, attachPtyListeners } from "$lib/panes/terminals";
+import { initTerminal, attachPtyListeners, connectPaneTerminal } from "$lib/panes/terminals";
 import type { Session } from "$lib/types";
 import type { PaneStatePayload } from "$lib/panes/persistence";
 
@@ -84,6 +95,10 @@ describe("reconnectSession — existing behavior preserved", () => {
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
     vi.mocked(initTerminal).mockReset();
     vi.mocked(attachPtyListeners).mockReset().mockResolvedValue(undefined);
+    vi.mocked(connectPaneTerminal).mockReset().mockImplementation(async (paneId, onExit) => {
+      vi.mocked(initTerminal)(paneId);
+      return vi.mocked(attachPtyListeners)(paneId, onExit);
+    });
   });
 
   it("reconnects the main pane when no persisted state exists", async () => {
@@ -208,7 +223,7 @@ describe("reconnectSession — full rehydration", () => {
     await reconnectSession(session);
 
     expect(spawnShell).not.toHaveBeenCalled();
-    expect(initTerminal).not.toHaveBeenCalled();
+    expect(connectPaneTerminal).toHaveBeenCalledWith(`${session.id}-main`);
   });
 
   it("spawns shells for each shell descriptor and creates pane instances", async () => {
@@ -256,7 +271,7 @@ describe("reconnectSession — full rehydration", () => {
     }
   });
 
-  it("calls initTerminal before attachPtyListeners for each restored pane", async () => {
+  it("routes restored panes through connectPaneTerminal for terminal wiring", async () => {
     const session = makeSession();
     addSession(session);
     initSession(session.id);

@@ -1,17 +1,15 @@
-import type { FitAddon } from "@xterm/addon-fit";
-
 interface ScheduleOptions {
   afterFit?: () => void;
 }
 
 interface ResizeSchedulerOptions {
-  getFitAddon: () => FitAddon | null;
+  fit: () => { cols: number; rows: number } | null;
   getPtyId: () => string;
   onResize: (ptyId: string, cols: number, rows: number) => void;
 }
 
 export function createResizeScheduler({
-  getFitAddon,
+  fit,
   getPtyId,
   onResize,
 }: ResizeSchedulerOptions) {
@@ -22,29 +20,24 @@ export function createResizeScheduler({
   function flush() {
     frameId = null;
 
-    const fitAddon = getFitAddon();
     const afterFit = pendingAfterFit;
     pendingAfterFit = null;
 
-    if (!fitAddon) {
+    const dims = fit();
+    if (!dims) {
       afterFit?.();
       return;
     }
 
-    fitAddon.fit();
-
-    const dims = fitAddon.proposeDimensions();
     const ptyId = getPtyId();
-    if (dims) {
-      const unchanged =
-        lastResize?.ptyId === ptyId &&
-        lastResize.cols === dims.cols &&
-        lastResize.rows === dims.rows;
+    const unchanged =
+      lastResize?.ptyId === ptyId &&
+      lastResize.cols === dims.cols &&
+      lastResize.rows === dims.rows;
 
-      if (!unchanged) {
-        lastResize = { ptyId, cols: dims.cols, rows: dims.rows };
-        onResize(ptyId, dims.cols, dims.rows);
-      }
+    if (!unchanged) {
+      lastResize = { ptyId, cols: dims.cols, rows: dims.rows };
+      onResize(ptyId, dims.cols, dims.rows);
     }
 
     afterFit?.();

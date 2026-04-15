@@ -1,5 +1,6 @@
 import { writable, get } from "svelte/store";
 import { paneInstances } from "./instances";
+import { getTerminalController } from "./terminalRuntime";
 
 export const focusedPaneId = writable<string | null>(null);
 export const fullscreenPaneId = writable<string | null>(null);
@@ -13,12 +14,11 @@ export const fullscreenPaneId = writable<string | null>(null);
 export function setLogicalFocus(paneId: string | null) {
   focusedPaneId.set(paneId);
   const instances = get(paneInstances);
-  for (const [id, instance] of instances) {
-    if (!instance.terminal) continue;
-    instance.terminal.options.disableStdin = id !== paneId;
+  for (const [id] of instances) {
+    getTerminalController(id)?.setInputEnabled(id === paneId);
   }
   if (paneId) {
-    instances.get(paneId)?.terminal?.focus();
+    getTerminalController(paneId)?.focus();
   }
 }
 
@@ -27,8 +27,7 @@ export function setLogicalFocus(paneId: string | null) {
  * Only call from pointer event handlers (mousedown, click).
  */
 export function requestDomFocus(paneId: string) {
-  const instances = get(paneInstances);
-  instances.get(paneId)?.terminal?.focus();
+  getTerminalController(paneId)?.focus();
 }
 
 /** Toggle fullscreen for the focused pane. */

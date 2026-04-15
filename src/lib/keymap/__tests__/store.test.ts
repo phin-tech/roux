@@ -25,6 +25,8 @@ vi.mock("$lib/commands", () => ({
 }));
 vi.mock("$lib/tauri", () => ({
   notificationsPush: vi.fn(),
+  upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
+  removePaneRecord: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("$lib/logging", () => ({
   logError: vi.fn(),

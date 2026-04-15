@@ -6,6 +6,8 @@ import { get } from "svelte/store";
 vi.mock("$lib/tauri", () => ({
   spawnShell: vi.fn().mockResolvedValue(undefined),
   killPty: vi.fn().mockResolvedValue(undefined),
+  upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
+  removePaneRecord: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("$lib/logging", () => ({
@@ -13,10 +15,18 @@ vi.mock("$lib/logging", () => ({
   logError: vi.fn(),
 }));
 
-vi.mock("$lib/panes/terminals", () => ({
-  initTerminal: vi.fn(),
-  attachPtyListeners: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("$lib/panes/terminals", () => {
+  const initTerminal = vi.fn();
+  const attachPtyListeners = vi.fn().mockResolvedValue(undefined);
+  return {
+    initTerminal,
+    attachPtyListeners,
+    connectPaneTerminal: vi.fn(async (paneId: string, onExit?: unknown) => {
+      initTerminal(paneId);
+      return attachPtyListeners(paneId, onExit);
+    }),
+  };
+});
 
 vi.mock("$lib/panes/profileRunner", () => ({
   runProfileInPane: vi.fn().mockResolvedValue(undefined),
@@ -167,7 +177,7 @@ describe("applyLayoutToSession", () => {
     // spawnShell NOT called (first leaf reuses session PTY)
     expect(spawnShell).not.toHaveBeenCalled();
 
-    // initTerminal + attachPtyListeners called once
+    // connectPaneTerminal fans out to the init + attach boundary once
     expect(initTerminal).toHaveBeenCalledTimes(1);
     expect(initTerminal).toHaveBeenCalledWith("s1-main");
     expect(attachPtyListeners).toHaveBeenCalledTimes(1);

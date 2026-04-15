@@ -5,6 +5,8 @@ vi.mock("$lib/tauri", () => ({
   discoverTasks: vi.fn(),
   loadTaskOverrides: vi.fn(),
   saveTaskOverrides: vi.fn().mockResolvedValue(undefined),
+  upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
+  removePaneRecord: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {

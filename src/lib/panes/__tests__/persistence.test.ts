@@ -17,16 +17,23 @@ import { sessionLayouts } from "../layout";
 vi.mock("$lib/tauri", () => ({
   loadPaneStateRaw: vi.fn(),
   savePaneStateRaw: vi.fn(),
+  saveLivePaneStateRaw: vi.fn(),
   deletePaneStateRaw: vi.fn(),
-  getPtyCwd: vi.fn().mockResolvedValue(null),
+  upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
+  removePaneRecord: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("$lib/logging", () => ({
   log: vi.fn(),
 }));
 
-import { loadPaneStateRaw, savePaneStateRaw, deletePaneStateRaw, getPtyCwd } from "$lib/tauri";
-import { paneInstances, createPane } from "../instances";
+import {
+  loadPaneStateRaw,
+  savePaneStateRaw,
+  saveLivePaneStateRaw,
+  deletePaneStateRaw,
+} from "$lib/tauri";
+import { paneInstances } from "../instances";
 
 describe("persistence — Tauri-backed API", () => {
   beforeEach(() => {
@@ -111,7 +118,7 @@ describe("persistence — Tauri-backed API", () => {
 
   describe("initPersistence / debounce / flushPaneState", () => {
     it("debounces saves — 3 rapid changes within window produce one Tauri call", async () => {
-      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
       initPersistence();
 
       // Trigger three rapid layout changes
@@ -124,15 +131,15 @@ describe("persistence — Tauri-backed API", () => {
       sessionLayouts.update((m) => new Map(m));
 
       // No save yet — debounce window not elapsed
-      expect(savePaneStateRaw).not.toHaveBeenCalled();
+      expect(saveLivePaneStateRaw).not.toHaveBeenCalled();
 
       // Advance past the 1500ms debounce window
       await vi.advanceTimersByTimeAsync(1600);
-      expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
+      expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
     });
 
     it("flushPaneState cancels the pending timer and writes immediately", async () => {
-      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
       initPersistence();
 
       sessionLayouts.update((m) => {
@@ -143,37 +150,15 @@ describe("persistence — Tauri-backed API", () => {
 
       // Flush before the debounce window elapses
       await flushPaneState();
-      expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
+      expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
 
       // Advancing time beyond the window should NOT produce a second call
       await vi.advanceTimersByTimeAsync(2000);
-      expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
+      expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
     });
 
-    it("resolves live cwd from Tauri for shell panes when saving", async () => {
-      // A shell pane was spawned in /tmp/original, then the user `cd`'d to
-      // /tmp/live. At save time we should record the live cwd so reconnect
-      // restores where the user actually is.
-      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
-      vi.mocked(getPtyCwd).mockImplementation(async (id: string) => {
-        if (id === "pty-shell-1") return "/tmp/live";
-        return null;
-      });
-
-      // Set up a pane instance for the shell. Session-primary pane is the
-      // main leaf (ptyId matches the session's PTY key).
-      paneInstances.set(new Map());
-      createPane({
-        id: "s1-main",
-        type: "shell",
-        ptyId: "s1",
-      });
-      createPane({
-        id: "s1-shell",
-        type: "shell",
-        ptyId: "pty-shell-1",
-        workingDir: "/tmp/original",
-      });
+    it("asks Rust to persist the live pane snapshot instead of serializing descriptors in the frontend", async () => {
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
 
       initPersistence();
 
@@ -191,30 +176,27 @@ describe("persistence — Tauri-backed API", () => {
       });
 
       await vi.advanceTimersByTimeAsync(1600);
-      // Flush any pending microtasks from the awaited getPtyCwd call.
       await vi.runAllTimersAsync();
 
-      expect(getPtyCwd).toHaveBeenCalledWith("pty-shell-1");
-      expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
-      const [, payload] = vi.mocked(savePaneStateRaw).mock.calls[0] as [
-        string,
-        { descriptors: PaneDescriptor[]; layout: LayoutNode },
-      ];
-      const shellDesc = payload.descriptors.find((d) => d.id === "s1-shell");
-      expect(shellDesc?.workingDir).toBe("/tmp/live");
+      expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
+      expect(saveLivePaneStateRaw).toHaveBeenCalledWith(
+        "s1",
+        4,
+        {
+          kind: "split",
+          direction: "h",
+          children: [
+            { kind: "leaf", paneId: "s1-main" },
+            { kind: "leaf", paneId: "s1-shell" },
+          ],
+        },
+        ["s1-main", "s1-shell"],
+      );
+      expect(savePaneStateRaw).not.toHaveBeenCalled();
     });
 
-    it("falls back to the stored workingDir if Tauri returns null", async () => {
-      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
-      vi.mocked(getPtyCwd).mockResolvedValue(null);
-
-      paneInstances.set(new Map());
-      createPane({
-        id: "s1-shell",
-        type: "shell",
-        ptyId: "pty-dead",
-        workingDir: "/tmp/fallback",
-      });
+    it("passes the current layout and leaf ids to Rust for live snapshot persistence", async () => {
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
 
       initPersistence();
 
@@ -227,25 +209,21 @@ describe("persistence — Tauri-backed API", () => {
       await vi.advanceTimersByTimeAsync(1600);
       await vi.runAllTimersAsync();
 
-      const [, payload] = vi.mocked(savePaneStateRaw).mock.calls[0] as [
+      const [sessionId, schemaVersion, layout, paneIds] = vi.mocked(saveLivePaneStateRaw)
+        .mock.calls[0] as [
         string,
-        { descriptors: PaneDescriptor[]; layout: LayoutNode },
+        number,
+        LayoutNode,
+        string[],
       ];
-      const shellDesc = payload.descriptors.find((d) => d.id === "s1-shell");
-      expect(shellDesc?.workingDir).toBe("/tmp/fallback");
+      expect(sessionId).toBe("s1");
+      expect(schemaVersion).toBe(4);
+      expect(layout).toEqual({ kind: "leaf", paneId: "s1-shell" });
+      expect(paneIds).toEqual(["s1-shell"]);
     });
 
-    it("does not query getPtyCwd for markdown panes (no PTY)", async () => {
-      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
-      vi.mocked(getPtyCwd).mockResolvedValue("/should/not/be/used");
-
-      paneInstances.set(new Map());
-      createPane({
-        id: "doc-1",
-        type: "markdown",
-        ptyId: "",
-        docPath: "/notes.md",
-      });
+    it("passes markdown pane ids to Rust without local descriptor rebuilding", async () => {
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
 
       initPersistence();
 
@@ -258,24 +236,18 @@ describe("persistence — Tauri-backed API", () => {
       await vi.advanceTimersByTimeAsync(1600);
       await vi.runAllTimersAsync();
 
-      expect(getPtyCwd).not.toHaveBeenCalled();
+      expect(saveLivePaneStateRaw).toHaveBeenCalledWith(
+        "s1",
+        4,
+        { kind: "leaf", paneId: "doc-1" },
+        ["doc-1"],
+      );
     });
 
     it("flushPaneState writes all current sessions even when nothing was marked dirty", async () => {
-      // Regression: the user can `cd` inside a shell pane without mutating
-      // sessionLayouts, which leaves dirtySessions empty. If flush early-
-      // returns on !dirty, the quit-time save never captures the live cwd
-      // and the shell restores to its spawn directory.
-      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
-      vi.mocked(getPtyCwd).mockResolvedValue("/tmp/live");
-
-      paneInstances.set(new Map());
-      createPane({
-        id: "s1-shell",
-        type: "shell",
-        ptyId: "pty-shell-1",
-        workingDir: "/tmp/original",
-      });
+      // Regression: flush must still persist the current layout even when
+      // nothing marked the session dirty locally.
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
 
       sessionLayouts.set(
         new Map([["s1", { kind: "leaf", paneId: "s1-shell" }]])
@@ -286,21 +258,26 @@ describe("persistence — Tauri-backed API", () => {
       // No mutation between subscribe and flush — dirtySessions is empty.
       await flushPaneState();
 
-      expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
-      const [, payload] = vi.mocked(savePaneStateRaw).mock.calls[0] as [
+      expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
+      const [sessionId, schemaVersion, layout, paneIds] = vi.mocked(saveLivePaneStateRaw)
+        .mock.calls[0] as [
         string,
-        { descriptors: PaneDescriptor[]; layout: LayoutNode },
+        number,
+        LayoutNode,
+        string[],
       ];
-      const shellDesc = payload.descriptors.find((d) => d.id === "s1-shell");
-      expect(shellDesc?.workingDir).toBe("/tmp/live");
+      expect(sessionId).toBe("s1");
+      expect(schemaVersion).toBe(4);
+      expect(layout).toEqual({ kind: "leaf", paneId: "s1-shell" });
+      expect(paneIds).toEqual(["s1-shell"]);
     });
 
     it("flushPaneState is a no-op when there are no sessions at all", async () => {
-      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
       initPersistence();
 
       await flushPaneState();
-      expect(savePaneStateRaw).not.toHaveBeenCalled();
+      expect(saveLivePaneStateRaw).not.toHaveBeenCalled();
     });
 
     it("does not save on initial subscribe — the first callback is the current value, not a mutation", async () => {
@@ -309,7 +286,7 @@ describe("persistence — Tauri-backed API", () => {
       // subscribe callback fires immediately with that value, but it's not a
       // real change — it's the initial state. Without the skip-first guard,
       // this would schedule a save that clobbers the persisted full layout.
-      vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
       sessionLayouts.set(
         new Map([["s1", { kind: "leaf", paneId: "s1-main" }]])
       );
@@ -319,7 +296,7 @@ describe("persistence — Tauri-backed API", () => {
       // Advance past the debounce window. No save should happen because the
       // subscribe-immediate callback is not treated as a mutation.
       await vi.advanceTimersByTimeAsync(2000);
-      expect(savePaneStateRaw).not.toHaveBeenCalled();
+      expect(saveLivePaneStateRaw).not.toHaveBeenCalled();
 
       // A subsequent real mutation still schedules a save.
       sessionLayouts.update((m) => {
@@ -335,7 +312,7 @@ describe("persistence — Tauri-backed API", () => {
         return next;
       });
       await vi.advanceTimersByTimeAsync(1600);
-      expect(savePaneStateRaw).toHaveBeenCalledTimes(1);
+      expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
     });
   });
 });

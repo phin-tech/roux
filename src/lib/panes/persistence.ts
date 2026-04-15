@@ -1,13 +1,13 @@
 import { get } from "svelte/store";
 import type { LayoutNode } from "./layout";
 import { sessionLayouts, collectLeafIds } from "./layout";
-import { paneInstances, type PaneInstance, type PaneType } from "./instances";
+import type { PaneType } from "./instances";
 import type { SpawnProfileRef } from "./profiles";
 import {
   loadPaneStateRaw,
   savePaneStateRaw,
+  saveLivePaneStateRaw,
   deletePaneStateRaw,
-  getPtyCwd,
 } from "$lib/tauri";
 import { log } from "$lib/logging";
 
@@ -121,48 +121,6 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 // Track which sessions have pending unsaved changes
 let dirtySessions: Set<string> = new Set();
 
-async function descriptorsForSession(sessionId: string): Promise<PaneDescriptor[]> {
-  const instances = get(paneInstances);
-  const layouts = get(sessionLayouts);
-  const tree = layouts.get(sessionId);
-  if (!tree) return [];
-
-  const paneIds = collectLeafIds(tree);
-  const panes = paneIds
-    .map((id) => instances.get(id))
-    .filter((inst): inst is PaneInstance => inst != null);
-
-  return Promise.all(
-    panes.map(async (inst) => {
-      // For shell panes, ask the OS what directory the process is in right
-      // now. This captures `cd`s the user made since the shell was spawned.
-      // Falls back to the stored workingDir (the original spawn directory)
-      // if the process has exited or the OS refuses the query.
-      let workingDir = inst.workingDir;
-      if (inst.type === "shell") {
-        try {
-          const live = await getPtyCwd(inst.ptyId);
-          if (live) workingDir = live;
-        } catch (e) {
-          log(`getPtyCwd(${inst.ptyId}) failed — ${e}`);
-        }
-      }
-      return {
-        id: inst.id,
-        type: inst.type,
-        ptyId: inst.ptyId,
-        name: inst.name,
-        workingDir,
-        command: inst.command,
-        docPath: inst.docPath,
-        spawnProfileRef: inst.spawnProfileRef,
-        nonoProfile: inst.nonoProfile,
-        nonoAllowDirs: inst.nonoAllowDirs,
-      };
-    }),
-  );
-}
-
 export function scheduleSave(layouts: Map<string, LayoutNode>): void {
   // Mark all current sessions as dirty
   for (const sessionId of layouts.keys()) {
@@ -185,12 +143,12 @@ async function writeAllDirty(): Promise<void> {
     const tree = layouts.get(sessionId);
     if (!tree) continue;
     try {
-      const descriptors = await descriptorsForSession(sessionId);
-      await savePaneState(sessionId, {
-        schemaVersion: PANE_STATE_SCHEMA_VERSION,
-        layout: tree,
-        descriptors,
-      });
+      await saveLivePaneStateRaw(
+        sessionId,
+        PANE_STATE_SCHEMA_VERSION,
+        tree,
+        collectLeafIds(tree),
+      );
     } catch (e) {
       log(`auto-save failed for session ${sessionId}: ${e}`);
     }

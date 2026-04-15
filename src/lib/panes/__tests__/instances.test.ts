@@ -1,5 +1,10 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
+
+vi.mock("$lib/tauri", () => ({
+  upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
+  removePaneRecord: vi.fn().mockResolvedValue(undefined),
+}));
 import {
   paneInstances,
   createPane,
@@ -7,6 +12,7 @@ import {
   resetInstances,
   updateInstance,
 } from "../instances";
+import { upsertPaneRecord } from "$lib/tauri";
 
 describe("pane instances", () => {
   beforeEach(() => {
@@ -42,11 +48,61 @@ describe("pane instances", () => {
     expect(inst.workingDir).toBe("/tmp");
   });
 
-  it("createPane for markdown has no terminal", () => {
+  it("createPane stores pane metadata without terminal runtime internals", () => {
     const id = createPane({ type: "markdown", ptyId: "", docPath: "/tmp/a.md" });
     const inst = get(paneInstances).get(id)!;
-    expect(inst.terminal).toBeNull();
-    expect(inst.fitAddon).toBeNull();
+    expect(inst).toEqual({
+      id,
+      type: "markdown",
+      ptyId: "",
+      unlisteners: [],
+      docPath: "/tmp/a.md",
+      commandStatus: "idle",
+      commandExitCode: null,
+      commandStartedAt: null,
+      elapsedTimer: null,
+    });
+  });
+
+  it("syncs only stable pane descriptor facts to the backend record store", async () => {
+    const id = createPane({ type: "shell", ptyId: "pty-1", workingDir: "/tmp" });
+
+    updateInstance(id, {
+      restoreError: "missing dir",
+      commandStatus: "running",
+      commandExitCode: 1,
+      commandStartedAt: 123,
+    });
+
+    await Promise.resolve();
+
+    const payload = vi.mocked(upsertPaneRecord).mock.calls.at(-1)?.[0];
+    expect(payload).toMatchObject({
+      id,
+      type: "shell",
+      ptyId: "pty-1",
+      workingDir: "/tmp",
+    });
+    expect(payload).not.toHaveProperty("restoreError");
+    expect(payload).not.toHaveProperty("commandStatus");
+    expect(payload).not.toHaveProperty("commandExitCode");
+    expect(payload).not.toHaveProperty("commandStartedAt");
+  });
+
+  it("does not upsert the backend record when only UI runtime fields change", async () => {
+    const id = createPane({ type: "shell", ptyId: "pty-1", workingDir: "/tmp" });
+    vi.mocked(upsertPaneRecord).mockClear();
+
+    updateInstance(id, {
+      restoreError: "missing dir",
+      commandStatus: "running",
+      commandExitCode: 1,
+      commandStartedAt: 123,
+    });
+
+    await Promise.resolve();
+
+    expect(upsertPaneRecord).not.toHaveBeenCalled();
   });
 
   it("disposePane removes the instance", () => {

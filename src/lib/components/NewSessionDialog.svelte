@@ -721,9 +721,8 @@
           : { kind: "registered", id: profile.id };
 
       const mainPaneId = initSessionWithProfile(session.id, profileRef, effectiveNono);
-      const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-      initTerminal(mainPaneId);
-      await attachPtyListeners(mainPaneId);
+      const { connectPaneTerminal } = await import("$lib/panes/terminals");
+      await connectPaneTerminal(mainPaneId);
 
       // Type the profile's commands into the new shell.
       // session.id is also the PTY id for the session-owned shell.
