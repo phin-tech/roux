@@ -52,9 +52,11 @@ use super::settings::RouxSettings;
 
 /// Errors from [`parse`] and [`apply`].
 ///
-/// Carries 1-indexed line/column for diagnostics. Not a `specta::Type` —
-/// errors cross the IPC boundary as `String`, matching every other service
-/// error in roux.
+/// Carries 1-indexed line/column for diagnostics. `(0, 0)` is reserved as
+/// an "unknown location" sentinel for the rare case where kdl-rs returns a
+/// parse error with no diagnostic span — matches the convention in
+/// `layout.rs`. Not a `specta::Type` — errors cross the IPC boundary as
+/// `String`, matching every other service error in roux.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum SettingsKdlError {
     #[error("kdl parse error at {line}:{column}: {message}")]
@@ -339,10 +341,10 @@ fn optional_string_arg(node: &KdlNode, src: &str, what: &str) -> Result<Option<S
 
 fn bool_arg(node: &KdlNode, src: &str, what: &str) -> Result<bool, SettingsKdlError> {
     let entry = first_positional(node)
-        .ok_or_else(|| SettingsKdlError::schema(node_loc(src, node), format!("`{what}` requires a boolean argument")))?;
+        .ok_or_else(|| SettingsKdlError::schema(node_loc(src, node), format!("`{what}` requires a boolean argument (`#true` or `#false`)")))?;
     match entry.value() {
         KdlValue::Bool(b) => Ok(*b),
-        _ => Err(SettingsKdlError::schema(entry_loc(src, entry), format!("`{what}` must be true or false"))),
+        _ => Err(SettingsKdlError::schema(entry_loc(src, entry), format!("`{what}` must be `#true` or `#false`"))),
     }
 }
 

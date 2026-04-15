@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use thiserror::Error;
 
 use crate::paths::roux_config_dir;
@@ -29,6 +30,15 @@ pub enum SettingsError {
         #[source]
         source: SettingsKdlError,
     },
+    /// Failed to read the existing settings.kdl during a save. Surfaced
+    /// rather than silently treating the file as empty so we never
+    /// overwrite an unreadable (e.g. transient IO error, non-UTF8) file
+    /// with the default scaffold and lose the user's content/comments.
+    #[error("read existing settings: {source}")]
+    Read {
+        #[source]
+        source: std::io::Error,
+    },
     #[error("{source}")]
     Write {
         #[source]
@@ -52,7 +62,10 @@ pub fn save_settings(settings: &RouxSettings) -> Result<(), SettingsError> {
 ///    user can inspect or recover it.
 /// 2. Otherwise, if the legacy JSON file exists, deserialize it, write a
 ///    KDL equivalent, and rename the JSON to `<name>.bak` (uniquified if a
-///    prior `.bak` exists) for rollback safety.
+///    prior `.bak` exists) for rollback safety. If the JSON read or parse
+///    fails, log a diagnostic and return defaults *without* writing KDL or
+///    renaming the JSON, so the user can fix the file and retry on the
+///    next launch.
 /// 3. Otherwise, return [`RouxSettings::default`] without writing anything.
 ///    The first `save_settings` call will create the file from the seed
 ///    template.
@@ -66,7 +79,9 @@ pub fn load_settings_at(kdl_path: &Path, json_path: &Path) -> RouxSettings {
     if json_path.exists() {
         return migrate_from_legacy_json(json_path, kdl_path);
     }
-    RouxSettings::default()
+    // Defaults are already normalized by construction, but call out to
+    // honor the documented contract — cheap and keeps the invariant true.
+    RouxSettings::default().normalized()
 }
 
 fn load_kdl_or_default(kdl_path: &Path) -> RouxSettings {
@@ -90,8 +105,33 @@ fn load_kdl_or_default(kdl_path: &Path) -> RouxSettings {
 }
 
 fn migrate_from_legacy_json(json_path: &Path, kdl_path: &Path) -> RouxSettings {
-    let content = fs::read_to_string(json_path).unwrap_or_default();
-    let parsed: RouxSettings = serde_json::from_str(&content).unwrap_or_default();
+    // Don't `unwrap_or_default` either step: if the JSON is unreadable or
+    // malformed, migrating *defaults* and renaming the user's JSON to
+    // `.bak` would prevent them from fixing the file and retrying. Treat
+    // these failures the same as a corrupt KDL file: log, return defaults,
+    // leave everything on disk untouched.
+    let content = match fs::read_to_string(json_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!(
+                "roux: failed to read legacy {}: {}; leaving the file in place and using defaults",
+                json_path.display(),
+                e,
+            );
+            return RouxSettings::default().normalized();
+        }
+    };
+    let parsed: RouxSettings = match serde_json::from_str(&content) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "roux: failed to parse legacy {} ({}); leaving the file in place and using defaults",
+                json_path.display(),
+                e,
+            );
+            return RouxSettings::default().normalized();
+        }
+    };
     let normalized = parsed.normalized();
 
     // Best-effort write the new KDL alongside the old JSON. If the write
@@ -165,7 +205,13 @@ pub fn save_settings_at(kdl_path: &Path, settings: &RouxSettings) -> Result<(), 
     let normalized = settings.clone().normalized();
 
     let existing = if kdl_path.exists() {
-        fs::read_to_string(kdl_path).unwrap_or_default()
+        // Surface read errors rather than treating them as an empty
+        // document. If the existing file is unreadable (transient IO
+        // error, non-UTF8) and we silently fell back to the default
+        // scaffold, the next write would overwrite the user's content
+        // and comments with defaults — exactly what we're trying to
+        // protect against.
+        fs::read_to_string(kdl_path).map_err(|source| SettingsError::Read { source })?
     } else {
         // Seed with the section-commented default scaffold so a brand-new
         // file is hand-editable from the start.
@@ -179,17 +225,33 @@ pub fn save_settings_at(kdl_path: &Path, settings: &RouxSettings) -> Result<(), 
         .map_err(|source| SettingsError::Write { source })
 }
 
-/// Write `bytes` to `path` atomically: write to `path.tmp` first, then
-/// rename. POSIX rename is atomic within a filesystem; on Windows
-/// `fs::rename` will refuse to overwrite, so on that platform we remove
-/// the target first as a known trade-off (the tiny window between remove
-/// and rename is the price of "no half-written files" on Windows).
+/// Per-process counter that uniquifies tmp filenames inside a single
+/// process. PID alone is not enough — two debounced `update_settings`
+/// commands can run concurrently in the same process and would otherwise
+/// race on the same `settings.kdl.tmp` path.
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Write `bytes` to `path` atomically: write to a uniquely-named tmp file
+/// in the same directory, then rename. POSIX rename is atomic within a
+/// filesystem; on Windows `fs::rename` refuses to overwrite, so on that
+/// platform we remove the target first as a known trade-off (the tiny
+/// window between remove and rename is the price of "no half-written
+/// files" on Windows; a follow-up could swap-via-backup for full
+/// atomicity but needs Windows testing).
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension(match path.extension().and_then(|s| s.to_str()) {
-        Some(ext) => format!("{ext}.tmp"),
-        None => "tmp".to_string(),
-    });
-    fs::write(&tmp, bytes)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path.file_name().and_then(|s| s.to_str()).unwrap_or("settings.kdl");
+    let pid = std::process::id();
+    let n = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!("{stem}.tmp.{pid}.{n}"));
+
+    let write_result = fs::write(&tmp, bytes);
+    if let Err(e) = write_result {
+        // Best-effort cleanup so a failed write doesn't litter the dir.
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+
     #[cfg(windows)]
     {
         if path.exists() {
@@ -197,7 +259,12 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
             let _ = fs::remove_file(path);
         }
     }
-    fs::rename(&tmp, path)
+
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -281,7 +348,8 @@ mod tests {
         let (kdl, json) = paths(&dir);
         let bak = dir.path().join("settings.json.bak");
 
-        fs::write(&json, "{\"theme\":\"deep-blue\"}").unwrap();
+        let legacy = serde_json::to_string(&RouxSettings::default()).unwrap();
+        fs::write(&json, legacy).unwrap();
         fs::write(&bak, "previous backup").unwrap();
 
         let _ = load_settings_at(&kdl, &json);
@@ -312,6 +380,44 @@ mod tests {
             fs::read_to_string(&kdl).unwrap(),
             corrupt,
             "broken KDL must be preserved on disk for inspection",
+        );
+    }
+
+    #[test]
+    fn malformed_legacy_json_does_not_clobber_or_rename() {
+        // If the legacy JSON is unreadable / unparseable we must not
+        // migrate defaults on top of it — the user might still recover
+        // the file. Defaults are returned, but the JSON stays put with no
+        // `.kdl` and no `.bak` produced.
+        let dir = TempDir::new().unwrap();
+        let (kdl, json) = paths(&dir);
+        fs::write(&json, "not { valid: json").unwrap();
+
+        let s = load_settings_at(&kdl, &json);
+        assert_eq!(s, RouxSettings::default());
+        assert!(!kdl.exists(), "must not write KDL when JSON is unparseable");
+        assert!(json.exists(), "must leave the broken JSON in place");
+        assert!(
+            !dir.path().join("settings.json.bak").exists(),
+            "must not rename to .bak when migration didn't actually run",
+        );
+    }
+
+    #[test]
+    fn save_surfaces_read_error_rather_than_overwriting() {
+        // If we can't read the existing file but it exists, we must
+        // refuse to write rather than fall back to the default scaffold —
+        // otherwise a transient IO error would clobber the user's file.
+        // Simulated via a directory at the kdl path: read_to_string fails
+        // with EISDIR, kdl_path.exists() returns true.
+        let dir = TempDir::new().unwrap();
+        let kdl = dir.path().join("settings.kdl");
+        fs::create_dir(&kdl).unwrap();
+
+        let err = save_settings_at(&kdl, &RouxSettings::default()).unwrap_err();
+        assert!(
+            matches!(err, SettingsError::Read { .. }),
+            "expected Read error, got {err:?}",
         );
     }
 
