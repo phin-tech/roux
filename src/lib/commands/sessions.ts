@@ -176,7 +176,6 @@ export function registerSessionCommands() {
   registry.register({
     id: "session.new",
     label: "New Session",
-    shortcut: "cmd+n",
     category: "Sessions",
   });
 

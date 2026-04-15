@@ -13,7 +13,6 @@ export interface CommandItem {
 export interface Command {
   id: string;
   label: string;
-  shortcut?: string;
   category: string;
   /** Whether this command is available in current context */
   available?: () => boolean;
@@ -46,10 +45,6 @@ export class CommandRegistry {
     return [...this.commands.values()].filter(
       (c) => !c.available || c.available()
     );
-  }
-
-  getByShortcut(shortcut: string): Command | undefined {
-    return [...this.commands.values()].find((c) => c.shortcut === shortcut);
   }
 
   get(id: string): Command | undefined {

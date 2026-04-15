@@ -61,7 +61,7 @@
   import { queries } from "$lib/queries";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
   import { initLogging, log, logError } from "$lib/logging";
-  import { hasPrimaryModifier, isMacPlatform } from "$lib/platform";
+  import { isMacPlatform } from "$lib/platform";
   import {
     armSessionHints,
     hideSessionHints,
@@ -287,32 +287,6 @@
         break;
     }
 
-    // Legacy shortcut-field fallback for commands not yet in the keymap
-    // preset. Migrate shortcuts into the default preset over time. Skipped
-    // while a tree is active — keymap semantics win, and falling through
-    // here would fire unrelated commands on unbound keys in a tree.
-    if (km.treePath.length > 0) return;
-    const shortcut = buildLegacyShortcut(e);
-    const legacyCmd = registry.getByShortcut(shortcut);
-    if (legacyCmd && (!legacyCmd.available || legacyCmd.available())) {
-      e.preventDefault();
-      executeCommandById(legacyCmd.id);
-    }
-  }
-
-  function buildLegacyShortcut(e: KeyboardEvent): string {
-    const parts: string[] = [];
-    if (hasPrimaryModifier(e)) parts.push("cmd");
-    if (e.shiftKey) parts.push("shift");
-    if (e.altKey) parts.push("alt");
-    if (e.ctrlKey && isMacPlatform()) parts.push("ctrl");
-    if (e.metaKey && !isMacPlatform()) parts.push("meta");
-    let key = e.key.toLowerCase();
-    if (e.altKey && e.code.startsWith("Key")) {
-      key = e.code.slice(3).toLowerCase();
-    }
-    parts.push(key);
-    return parts.join("+");
   }
 
   function handleKeyUp(e: KeyboardEvent) {

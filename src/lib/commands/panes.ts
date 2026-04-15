@@ -162,7 +162,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.split-horizontal",
     label: "Split Horizontal",
-    shortcut: "cmd+d",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: async () => {
@@ -194,7 +193,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.split-vertical",
     label: "Split Vertical",
-    shortcut: "cmd+shift+d",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: async () => {
@@ -248,7 +246,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.split-claude",
     label: "Split Right → Claude",
-    shortcut: "cmd+alt+c",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: async () => {
@@ -264,7 +261,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.split-codex",
     label: "Split Right → Codex",
-    shortcut: "cmd+alt+x",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: async () => {
@@ -280,7 +276,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.focus-left",
     label: "Focus Pane Left",
-    shortcut: "alt+h",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -292,7 +287,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.focus-down",
     label: "Focus Pane Down",
-    shortcut: "alt+j",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -304,7 +298,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.focus-up",
     label: "Focus Pane Up",
-    shortcut: "alt+k",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -316,7 +309,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.focus-right",
     label: "Focus Pane Right",
-    shortcut: "alt+l",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -328,7 +320,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.move-left",
     label: "Move Pane Left",
-    shortcut: "ctrl+shift+h",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -340,7 +331,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.move-down",
     label: "Move Pane Down",
-    shortcut: "ctrl+shift+j",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -352,7 +342,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.move-up",
     label: "Move Pane Up",
-    shortcut: "ctrl+shift+k",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -364,7 +353,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.move-right",
     label: "Move Pane Right",
-    shortcut: "ctrl+shift+l",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -376,7 +364,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.toggle-fullscreen",
     label: "Toggle Fullscreen",
-    shortcut: "cmd+shift+f",
     category: "Panes",
     available: () => !!queries.focusedPaneId(),
     execute: () => toggleFullscreen(),
@@ -385,7 +372,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.resize-left",
     label: "Resize Pane Left",
-    shortcut: "ctrl+alt+h",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -397,7 +383,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.resize-down",
     label: "Resize Pane Down",
-    shortcut: "ctrl+alt+j",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -409,7 +394,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.resize-up",
     label: "Resize Pane Up",
-    shortcut: "ctrl+alt+k",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -421,7 +405,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.resize-right",
     label: "Resize Pane Right",
-    shortcut: "ctrl+alt+l",
     category: "Panes",
     available: () => queries.canSplitPane(),
     execute: () => {
@@ -433,7 +416,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.close",
     label: "Close Pane",
-    shortcut: "cmd+w",
     category: "Panes",
     available: () => queries.canClosePane(),
     execute: async () => {
@@ -447,7 +429,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.toggle-stack",
     label: "Toggle Stack",
-    shortcut: "cmd+shift+s",
     category: "Panes",
     available: () => queries.canTogglePaneStack(),
     execute: () => {
@@ -475,7 +456,6 @@ export function registerPaneCommands() {
   registry.register({
     id: "pane.open-doc",
     label: "Open Document",
-    shortcut: "cmd+shift+b",
     category: "Documents",
     getItems: async () => {
       const session = queries.activeSession();

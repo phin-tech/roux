@@ -5,12 +5,11 @@
   import { formatShortcut } from "$lib/platform";
   import { shortcutFor, keymapState } from "$lib/keymap/store";
 
-  // Resolve the shortcut label for a command. Reads the current keymap
-  // (passed explicitly to keep this reactive via `$keymapState` in the
-  // template) and falls back to the legacy `cmd.shortcut` field for
-  // commands whose binding hasn't been migrated into the preset yet.
+  // Resolve the shortcut label for a command from the current keymap. The
+  // `_state` parameter is passed in the template so `$keymapState` drives
+  // reactivity when the keymap reloads.
   function resolveShortcut(cmd: Cmd, _state: unknown): string | null {
-    return shortcutFor(cmd.id) ?? cmd.shortcut ?? null;
+    return shortcutFor(cmd.id);
   }
 
   interface Props {

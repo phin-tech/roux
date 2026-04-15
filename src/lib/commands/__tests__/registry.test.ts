@@ -61,23 +61,6 @@ describe("CommandRegistry", () => {
     expect(registry.getAvailable()).toHaveLength(1);
   });
 
-  it("finds commands by shortcut", () => {
-    registry.register({
-      id: "test.cmd",
-      label: "Test",
-      shortcut: "cmd+k",
-      category: "Test",
-    });
-
-    const found = registry.getByShortcut("cmd+k");
-    expect(found).toBeDefined();
-    expect(found!.id).toBe("test.cmd");
-  });
-
-  it("returns undefined for unknown shortcut", () => {
-    expect(registry.getByShortcut("cmd+z")).toBeUndefined();
-  });
-
   it("executes a command", () => {
     let executed = false;
     registry.register({

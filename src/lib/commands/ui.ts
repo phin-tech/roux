@@ -31,7 +31,6 @@ export function registerUiCommands() {
   registry.register({
     id: "ui.toggle-notes",
     label: "Toggle Notes",
-    shortcut: "cmd+b",
     category: "App",
     available: () => !!queries.activeSession(),
   });
@@ -39,7 +38,6 @@ export function registerUiCommands() {
   registry.register({
     id: "ui.toggle-watches",
     label: "Toggle Watches",
-    shortcut: "cmd+shift+w",
     category: "App",
     available: () => true,
   });
@@ -47,7 +45,6 @@ export function registerUiCommands() {
   registry.register({
     id: "ui.toggle-notifications",
     label: "Toggle Notifications",
-    shortcut: "cmd+i",
     category: "App",
     available: () => true,
   });
@@ -66,7 +63,6 @@ export function registerUiCommands() {
   registry.register({
     id: "ui.toggle-sidebar",
     label: "Toggle Sidebar",
-    shortcut: "cmd+\\",
     category: "App",
     available: () => true,
     execute: () => {
@@ -78,21 +74,18 @@ export function registerUiCommands() {
   registry.register({
     id: "app.settings",
     label: "Settings",
-    shortcut: "cmd+,",
     category: "App",
   });
 
   registry.register({
     id: "app.command-palette",
     label: "Command Palette",
-    shortcut: "cmd+k",
     category: "App",
   });
 
   registry.register({
     id: "app.leader-mode",
     label: "Leader Mode",
-    shortcut: "cmd+;",
     category: "App",
   });
 
@@ -105,7 +98,6 @@ export function registerUiCommands() {
   registry.register({
     id: "app.quit",
     label: "Quit Roux",
-    shortcut: "cmd+q",
     category: "App",
   });
 
