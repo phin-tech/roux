@@ -1,9 +1,8 @@
 import { Channel } from "@tauri-apps/api/core";
+import { readonly, writable } from "svelte/store";
 
 import type { TerminalTheme } from "$lib/themes";
 import { type PtyOutputPayload } from "$lib/tauri";
-
-import { createXtermTerminalController } from "./xtermController";
 
 export interface TerminalDimensions {
   cols: number;
@@ -34,10 +33,37 @@ interface CreateTerminalControllerOptions {
   allowKeyboardEvent?: (event: KeyboardEvent) => boolean;
 }
 
+type TerminalControllerFactory = (
+  options?: CreateTerminalControllerOptions,
+) => TerminalController;
+
 const paneTerminalRuntimes = new Map<string, PaneTerminalRuntime>();
+const terminalRuntimeVersionStore = writable(0);
+
+let terminalControllerFactory: TerminalControllerFactory | null = null;
 
 function getPaneTerminalRuntime(paneId: string): PaneTerminalRuntime | undefined {
   return paneTerminalRuntimes.get(paneId);
+}
+
+function bumpTerminalRuntimeVersion(): void {
+  terminalRuntimeVersionStore.update((version) => version + 1);
+}
+
+function getTerminalControllerFactory(): TerminalControllerFactory {
+  if (!terminalControllerFactory) {
+    throw new Error("Terminal controller factory has not been registered");
+  }
+
+  return terminalControllerFactory;
+}
+
+export const terminalRuntimeVersion = readonly(terminalRuntimeVersionStore);
+
+export function registerTerminalControllerFactory(
+  factory: TerminalControllerFactory,
+): void {
+  terminalControllerFactory = factory;
 }
 
 export function ensureTerminalController(
@@ -47,11 +73,12 @@ export function ensureTerminalController(
   const existing = getPaneTerminalRuntime(paneId);
   if (existing?.controller) return existing.controller;
 
-  const controller = createXtermTerminalController(options);
+  const controller = getTerminalControllerFactory()(options);
   paneTerminalRuntimes.set(paneId, {
     controller,
     outputChannel: existing?.outputChannel ?? null,
   });
+  bumpTerminalRuntimeVersion();
   return controller;
 }
 
@@ -87,13 +114,18 @@ export function clearPaneOutputChannel(paneId: string): void {
 export function disposePaneTerminalRuntime(paneId: string): void {
   const runtime = getPaneTerminalRuntime(paneId);
   if (!runtime) return;
+  const hadController = runtime.controller != null;
   runtime.controller?.dispose();
   paneTerminalRuntimes.delete(paneId);
+  if (hadController) bumpTerminalRuntimeVersion();
 }
 
 export function resetPaneTerminalRuntimes(): void {
+  let disposedControllers = false;
   for (const runtime of paneTerminalRuntimes.values()) {
+    if (runtime.controller) disposedControllers = true;
     runtime.controller?.dispose();
   }
   paneTerminalRuntimes.clear();
+  if (disposedControllers) bumpTerminalRuntimeVersion();
 }

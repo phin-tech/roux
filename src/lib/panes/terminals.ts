@@ -23,9 +23,13 @@ import {
   ensureTerminalController,
   getPaneOutputChannel,
   getTerminalController,
+  registerTerminalControllerFactory,
   setPaneOutputChannel,
 } from "./terminalRuntime";
+import { createXtermTerminalController } from "./xtermController";
 import { log } from "$lib/logging";
+
+registerTerminalControllerFactory(createXtermTerminalController);
 
 /**
  * Create a terminal controller for a pane. No-ops if the controller already

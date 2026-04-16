@@ -1,14 +1,12 @@
 import { connectPaneTerminal } from "$lib/panes/terminals";
 import { clearPaneOutputChannel, getTerminalController } from "$lib/panes/terminalRuntime";
 import { killPty, spawnTask, type SessionExitPayload } from "$lib/tauri";
-import { get, type Writable } from "svelte/store";
 
-import { getInstance, paneInstances, updateInstance, type PaneInstance } from "./instances";
+import { getInstance, updateInstance } from "./instances";
 
 interface RerunCommandPaneOptions {
   now?: () => number;
   onElapsedUpdate?: () => void;
-  paneStore?: Writable<Map<string, PaneInstance>>;
 }
 
 export async function rerunCommandPane(
@@ -59,12 +57,7 @@ export async function rerunCommandPane(
   onElapsedUpdate?.();
 
   await connectPaneTerminal(paneId, (payload) => {
-    handleCommandPaneExit(
-      paneId,
-      payload,
-      options?.paneStore ?? paneInstances,
-      onElapsedUpdate,
-    );
+    handleCommandPaneExit(paneId, payload, onElapsedUpdate);
   });
 
   await spawnTask(newPtyId, command, workingDir, sessionId, paneId);
@@ -73,7 +66,6 @@ export async function rerunCommandPane(
 function handleCommandPaneExit(
   paneId: string,
   payload: SessionExitPayload,
-  paneStore: Writable<Map<string, PaneInstance>>,
   onElapsedUpdate?: () => void,
 ): void {
   const exitCode = payload.code;
@@ -83,7 +75,7 @@ function handleCommandPaneExit(
     commandExitCode: exitCode,
   });
 
-  const inst = get(paneStore).get(paneId);
+  const inst = getInstance(paneId);
   if (inst?.elapsedTimer != null) {
     clearInterval(inst.elapsedTimer);
     updateInstance(paneId, { elapsedTimer: null });

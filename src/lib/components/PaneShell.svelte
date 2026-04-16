@@ -18,7 +18,10 @@
   import { getTerminalTheme } from "$lib/themes";
   import { reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
   import { rerunCommandPane } from "$lib/panes/commandPaneRuntime";
-  import { getTerminalController } from "$lib/panes/terminalRuntime";
+  import {
+    getTerminalController,
+    terminalRuntimeVersion,
+  } from "$lib/panes/terminalRuntime";
   import { log, logError } from "$lib/logging";
   import SessionPicker from "./SessionPicker.svelte";
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
@@ -255,6 +258,7 @@
 
   // Visibility effect: attach/detach terminal
   $effect(() => {
+    $terminalRuntimeVersion;
     if (visible && getTerminalController(paneId)) {
       doAttach();
     } else {
@@ -264,6 +268,7 @@
 
   // Theme sync
   $effect(() => {
+    $terminalRuntimeVersion;
     const controller = getTerminalController(paneId);
     if (controller) {
       controller.setTheme(getTerminalTheme($settings.theme));
@@ -273,6 +278,7 @@
   // Focus effect: refit when gaining logical focus (disableStdin just changed,
   // terminal may need resize).
   $effect(() => {
+    $terminalRuntimeVersion;
     if (isFocused && visible && getTerminalController(paneId)) {
       resizeScheduler.schedule();
     }

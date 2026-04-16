@@ -22,9 +22,11 @@ const mocks = vi.hoisted(() => {
     ensureTerminalController: vi.fn(() => controller),
     getTerminalController: vi.fn(() => controller),
     getPaneOutputChannel: vi.fn(() => null),
+    registerTerminalControllerFactory: vi.fn(),
     setPaneOutputChannel: vi.fn(),
     attachPtyOutput: vi.fn().mockResolvedValue(undefined),
     createPtyOutputChannel: vi.fn(() => ({ id: "channel" })),
+    createXtermTerminalController: vi.fn(() => controller),
   };
 });
 
@@ -36,7 +38,12 @@ vi.mock("../terminalRuntime", () => ({
   ensureTerminalController: mocks.ensureTerminalController,
   getTerminalController: mocks.getTerminalController,
   getPaneOutputChannel: mocks.getPaneOutputChannel,
+  registerTerminalControllerFactory: mocks.registerTerminalControllerFactory,
   setPaneOutputChannel: mocks.setPaneOutputChannel,
+}));
+
+vi.mock("../xtermController", () => ({
+  createXtermTerminalController: mocks.createXtermTerminalController,
 }));
 
 vi.mock("$lib/tauri", () => ({
@@ -90,9 +97,11 @@ describe("terminals", () => {
     mocks.ensureTerminalController.mockReset().mockReturnValue(mocks.controller);
     mocks.getTerminalController.mockReset().mockReturnValue(null as never);
     mocks.getPaneOutputChannel.mockReset().mockReturnValue(null);
+    mocks.registerTerminalControllerFactory.mockReset();
     mocks.setPaneOutputChannel.mockReset();
     mocks.attachPtyOutput.mockReset().mockResolvedValue(undefined);
     mocks.createPtyOutputChannel.mockReset().mockReturnValue({ id: "channel" });
+    mocks.createXtermTerminalController.mockReset().mockReturnValue(mocks.controller);
     mocks.getInstance.mockReset().mockReturnValue({
       id: "pane-1",
       type: "shell",

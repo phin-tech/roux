@@ -1,10 +1,7 @@
+import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const factory = vi.fn();
-
-vi.mock("../xtermController", () => ({
-  createXtermTerminalController: (...args: unknown[]) => factory(...args),
-}));
 
 import {
   clearPaneOutputChannel,
@@ -12,8 +9,10 @@ import {
   ensureTerminalController,
   getPaneOutputChannel,
   getTerminalController,
+  registerTerminalControllerFactory,
   resetPaneTerminalRuntimes,
   setPaneOutputChannel,
+  terminalRuntimeVersion,
 } from "../terminalRuntime";
 
 describe("terminalRuntime", () => {
@@ -34,6 +33,7 @@ describe("terminalRuntime", () => {
       setTheme: vi.fn(),
       setCustomKeyHandler: vi.fn(),
     }));
+    registerTerminalControllerFactory((options) => factory(options));
   });
 
   it("stores an output channel without eagerly constructing a terminal controller", () => {
@@ -49,6 +49,7 @@ describe("terminalRuntime", () => {
   it("creates the controller lazily and preserves any existing output channel", () => {
     const outputChannel = { id: "out-1" } as never;
     setPaneOutputChannel("pane-1", outputChannel);
+    const beforeVersion = get(terminalRuntimeVersion);
 
     const controller = ensureTerminalController("pane-1", {
       allowKeyboardEvent: vi.fn(),
@@ -57,12 +58,14 @@ describe("terminalRuntime", () => {
     expect(controller).toBe(getTerminalController("pane-1"));
     expect(getPaneOutputChannel("pane-1")).toBe(outputChannel);
     expect(factory).toHaveBeenCalledTimes(1);
+    expect(get(terminalRuntimeVersion)).toBe(beforeVersion + 1);
   });
 
   it("clears channels and disposes controllers independently", () => {
     const outputChannel = { id: "out-1" } as never;
     setPaneOutputChannel("pane-1", outputChannel);
     const controller = ensureTerminalController("pane-1");
+    const beforeDisposeVersion = get(terminalRuntimeVersion);
 
     clearPaneOutputChannel("pane-1");
     expect(getPaneOutputChannel("pane-1")).toBeNull();
@@ -71,5 +74,15 @@ describe("terminalRuntime", () => {
     expect(controller.dispose).toHaveBeenCalledTimes(1);
     expect(getTerminalController("pane-1")).toBeNull();
     expect(getPaneOutputChannel("pane-1")).toBeNull();
+    expect(get(terminalRuntimeVersion)).toBe(beforeDisposeVersion + 1);
+  });
+
+  it("does not change the runtime version for output-channel-only updates", () => {
+    const beforeVersion = get(terminalRuntimeVersion);
+
+    setPaneOutputChannel("pane-1", { id: "out-1" } as never);
+    clearPaneOutputChannel("pane-1");
+
+    expect(get(terminalRuntimeVersion)).toBe(beforeVersion);
   });
 });
