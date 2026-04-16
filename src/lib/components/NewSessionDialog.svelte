@@ -55,19 +55,111 @@
   let rootReposLoading = $state(false);
   let rootReposError = $state("");
   let repoPickerOpen = $state(true);
-  let layoutPickInput = $state("");
   let layoutPickOpen = $state(false);
   let profilePickInput = $state("");
   let profilePickOpen = $state(false);
   let nonoPickInput = $state("");
   let nonoPickOpen = $state(false);
-  const pickerShellClass = "min-w-0 overflow-hidden rounded-md border border-border bg-bg-deep";
+  const pickerShellClass = "relative min-w-0 rounded-md border border-border bg-bg-deep";
   const pickerInputRowClass = "flex min-w-0 items-center gap-2 border-b border-border px-2 py-1.5";
   const pickerInputClass =
     "min-w-0 flex-1 bg-transparent px-1 py-1 font-mono text-[12px] text-text-primary outline-none placeholder:text-text-muted";
-  const pickerListClass = "app-scrollbar overflow-y-auto p-1";
+  const pickerListClass = "app-scrollbar absolute left-0 right-0 z-50 overflow-y-auto border border-border bg-bg-surface p-1 shadow-lg";
   const pickerItemClass =
     "flex cursor-pointer items-center rounded-md border border-border-subtle bg-bg-surface/50 px-2.5 py-2 text-left transition-colors hover:bg-bg-hover";
+
+  /** True when focus is moving to something outside `el` (or focus is lost with no next target). */
+  function focusLeavingElement(el: HTMLElement, related: EventTarget | null): boolean {
+    if (related == null) return true;
+    if (!(related instanceof Node)) return true;
+    return !el.contains(related);
+  }
+
+  let repoPickerCloseT: ReturnType<typeof setTimeout> | null = null;
+  let worktreePickerCloseT: ReturnType<typeof setTimeout> | null = null;
+  let layoutPickerCloseT: ReturnType<typeof setTimeout> | null = null;
+  let profilePickerCloseT: ReturnType<typeof setTimeout> | null = null;
+  let nonoPickerCloseT: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelRepoPickerDeferredClose() {
+    if (repoPickerCloseT != null) {
+      clearTimeout(repoPickerCloseT);
+      repoPickerCloseT = null;
+    }
+  }
+  function armRepoPickerDeferredClose() {
+    cancelRepoPickerDeferredClose();
+    repoPickerCloseT = setTimeout(() => {
+      repoPickerCloseT = null;
+      repoPickerOpen = false;
+    }, 150);
+  }
+
+  function cancelWorktreePickerDeferredClose() {
+    if (worktreePickerCloseT != null) {
+      clearTimeout(worktreePickerCloseT);
+      worktreePickerCloseT = null;
+    }
+  }
+  function armWorktreePickerDeferredClose() {
+    cancelWorktreePickerDeferredClose();
+    worktreePickerCloseT = setTimeout(() => {
+      worktreePickerCloseT = null;
+      worktreePickOpen = false;
+    }, 150);
+  }
+
+  function cancelLayoutPickerDeferredClose() {
+    if (layoutPickerCloseT != null) {
+      clearTimeout(layoutPickerCloseT);
+      layoutPickerCloseT = null;
+    }
+  }
+  function armLayoutPickerDeferredClose() {
+    cancelLayoutPickerDeferredClose();
+    layoutPickerCloseT = setTimeout(() => {
+      layoutPickerCloseT = null;
+      layoutPickOpen = false;
+    }, 150);
+  }
+
+  function cancelProfilePickerDeferredClose() {
+    if (profilePickerCloseT != null) {
+      clearTimeout(profilePickerCloseT);
+      profilePickerCloseT = null;
+    }
+  }
+  function armProfilePickerDeferredClose() {
+    cancelProfilePickerDeferredClose();
+    profilePickerCloseT = setTimeout(() => {
+      profilePickerCloseT = null;
+      profilePickOpen = false;
+    }, 150);
+  }
+
+  function cancelNonoPickerDeferredClose() {
+    if (nonoPickerCloseT != null) {
+      clearTimeout(nonoPickerCloseT);
+      nonoPickerCloseT = null;
+    }
+  }
+  function armNonoPickerDeferredClose() {
+    cancelNonoPickerDeferredClose();
+    nonoPickerCloseT = setTimeout(() => {
+      nonoPickerCloseT = null;
+      nonoPickOpen = false;
+    }, 150);
+  }
+
+  $effect(() => {
+    if (visible) return;
+    cancelRepoPickerDeferredClose();
+    cancelWorktreePickerDeferredClose();
+    cancelLayoutPickerDeferredClose();
+    cancelProfilePickerDeferredClose();
+    cancelNonoPickerDeferredClose();
+  });
+
   let quickPickOptions = $derived.by<{ label: string; path: string }[]>(() =>
     buildQuickPickOptions(rootRepoPaths),
   );
@@ -95,6 +187,11 @@
     options.push({ value: "__custom__", label: "Custom…" });
     return options;
   });
+  let profileListClass = $derived.by<string>(() =>
+    profileOptions.length > 4
+      ? `${pickerListClass} max-h-40 overflow-y-scroll`
+      : `${pickerListClass} overflow-y-visible`,
+  );
   let nonoOptions = $derived.by<{ value: string; label: string }[]>(() => [
     { value: "", label: "None (bare claude)" },
     ...nonoProfiles.map((profile) => ({ value: profile, label: profile })),
@@ -396,9 +493,6 @@
 
   $effect(() => {
     if (!visible) return;
-    if (!layoutPickOpen) {
-      layoutPickInput = selectedLayout?.name ?? "None (single pane)";
-    }
     if (!profilePickOpen) {
       if (selectedProfileId === "__inline__" && inlineProfile) {
         profilePickInput = `${inlineProfile.name} (custom)`;
@@ -534,9 +628,8 @@
     return options.find((o) => o.label.toLowerCase().includes(lower)) ?? null;
   }
 
-  function selectLayoutOption(value: string, label: string) {
+  function selectLayoutOption(value: string) {
     selectedLayoutId = value;
-    layoutPickInput = label;
     layoutPickOpen = false;
   }
 
@@ -544,6 +637,11 @@
     handleProfileSelect(value);
     profilePickInput = label;
     profilePickOpen = false;
+  }
+
+  function openProfilePicker(clearQuery: boolean = false) {
+    if (clearQuery) profilePickInput = "";
+    profilePickOpen = true;
   }
 
   function selectNonoOption(value: string, label: string) {
@@ -819,7 +917,6 @@
       clearTimeout(prDebounceHandle);
       prDebounceHandle = null;
     }
-    layoutPickInput = "";
     layoutPickOpen = false;
     profilePickInput = "";
     profilePickOpen = false;
@@ -929,7 +1026,15 @@
           >
             Repository
           </label>
-          <div class={pickerShellClass}>
+          <div
+            class={pickerShellClass}
+            onfocusin={cancelRepoPickerDeferredClose}
+            onfocusout={(e) => {
+              const shell = e.currentTarget as HTMLElement;
+              if (!focusLeavingElement(shell, e.relatedTarget)) return;
+              armRepoPickerDeferredClose();
+            }}
+          >
             <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
               <div class={pickerInputRowClass}>
                 <Command.Input
@@ -1022,7 +1127,15 @@
           <fieldset class="flex flex-col gap-1.5">
             <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Worktree / Branch</legend>
             <p class="text-[11px] text-text-muted">Pick an existing worktree, or type a new branch name to create one.</p>
-            <div class={pickerShellClass}>
+            <div
+              class={pickerShellClass}
+              onfocusin={cancelWorktreePickerDeferredClose}
+              onfocusout={(e) => {
+                const shell = e.currentTarget as HTMLElement;
+                if (!focusLeavingElement(shell, e.relatedTarget)) return;
+                armWorktreePickerDeferredClose();
+              }}
+            >
               <div class={pickerInputRowClass}>
                 <input
                   id="new-session-worktree-picker"
@@ -1094,50 +1207,46 @@
           >
             Layout
           </label>
-          <div class={pickerShellClass}>
-            <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
-              <div class={pickerInputRowClass}>
-                <Command.Input
-                  id="new-session-layout"
-                  bind:value={layoutPickInput}
-                  placeholder="Pick layout"
-                  class={pickerInputClass}
-                  onfocus={() => { layoutPickOpen = true; }}
-                  oninput={() => { layoutPickOpen = true; }}
-                  onkeydown={(e) => {
-                    if (e.key !== "Enter") return;
-                    const match = findOptionMatch(layoutPickInput, layoutOptions);
-                    if (!match) return;
-                    e.preventDefault();
-                    selectLayoutOption(match.value, match.label);
-                  }}
-                />
+          <div
+            class={pickerShellClass}
+            onfocusin={cancelLayoutPickerDeferredClose}
+            onfocusout={(e) => {
+              const shell = e.currentTarget as HTMLElement;
+              if (!focusLeavingElement(shell, e.relatedTarget)) return;
+              armLayoutPickerDeferredClose();
+            }}
+          >
+            <div class={pickerInputRowClass}>
+              <button
+                id="new-session-layout"
+                type="button"
+                class="flex w-full items-center justify-between bg-transparent px-1 py-1 text-left font-mono text-[12px] text-text-primary outline-none"
+                onclick={() => { layoutPickOpen = !layoutPickOpen; }}
+                aria-expanded={layoutPickOpen}
+                aria-haspopup="listbox"
+              >
+                <span class="truncate">{selectedLayout?.name ?? "None (single pane)"}</span>
+                <span class="ml-2 text-[10px] text-text-muted">{layoutPickOpen ? "▲" : "▼"}</span>
+              </button>
+            </div>
+            {#if layoutPickOpen}
+              <div class={`${pickerListClass} max-h-32`} role="listbox" aria-labelledby="new-session-layout">
+                {#each layoutOptions as option (option.value)}
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selectedLayoutId === option.value}
+                    class={`${pickerItemClass} w-full justify-between py-1.5 ${selectedLayoutId === option.value ? "bg-bg-active" : ""}`}
+                    onclick={() => selectLayoutOption(option.value)}
+                  >
+                    <span class="truncate font-mono text-[12px] text-text-primary">{option.label}</span>
+                    {#if selectedLayoutId === option.value}
+                      <span class="ml-2 text-[10px] text-accent">selected</span>
+                    {/if}
+                  </button>
+                {/each}
               </div>
-              {#if layoutPickOpen}
-                <Command.List class={`${pickerListClass} max-h-32`}>
-                  <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
-                    No matching layouts
-                  </Command.Empty>
-                  <Command.Group>
-                    <Command.GroupItems>
-                      {#each layoutOptions as option (option.value)}
-                        <Command.Item
-                          value={option.label}
-                          keywords={[option.value]}
-                          onSelect={() => selectLayoutOption(option.value, option.label)}
-                          class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
-                        >
-                          <span class="truncate font-mono text-[12px] text-text-primary">{option.label}</span>
-                          {#if selectedLayoutId === option.value}
-                            <span class="ml-2 text-[10px] text-accent">selected</span>
-                          {/if}
-                        </Command.Item>
-                      {/each}
-                    </Command.GroupItems>
-                  </Command.Group>
-                </Command.List>
-              {/if}
-            </Command.Root>
+            {/if}
           </div>
           {#if selectedLayout?.description}
             <p class="text-[11px] text-text-muted">{selectedLayout.description}</p>
@@ -1153,7 +1262,15 @@
             >
               Spawn profile
             </label>
-            <div class={pickerShellClass}>
+            <div
+              class={pickerShellClass}
+              onfocusin={cancelProfilePickerDeferredClose}
+              onfocusout={(e) => {
+                const shell = e.currentTarget as HTMLElement;
+                if (!focusLeavingElement(shell, e.relatedTarget)) return;
+                armProfilePickerDeferredClose();
+              }}
+            >
               <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
                 <div class={pickerInputRowClass}>
                   <Command.Input
@@ -1161,7 +1278,10 @@
                     bind:value={profilePickInput}
                     placeholder="Pick spawn profile"
                     class={pickerInputClass}
-                    onfocus={() => { profilePickOpen = true; }}
+                    onfocus={(e) => {
+                      openProfilePicker(true);
+                      (e.currentTarget as HTMLInputElement).select();
+                    }}
                     oninput={() => { profilePickOpen = true; }}
                     onkeydown={(e) => {
                       if (e.key !== "Enter") return;
@@ -1171,9 +1291,17 @@
                       selectProfileOption(match.value, match.label);
                     }}
                   />
+                  <button
+                    type="button"
+                    class="bg-transparent px-1 py-1 leading-none font-mono text-[12px]"
+                    onclick={() => openProfilePicker(true)}
+                    aria-label="Open spawn profile options"
+                  >
+                    <span class="text-[10px] text-text-muted">{profilePickOpen ? "▲" : "▼"}</span>
+                  </button>
                 </div>
                 {#if profilePickOpen}
-                  <Command.List class={`${pickerListClass} max-h-36`}>
+                  <Command.List class={profileListClass}>
                     <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
                       No matching profiles
                     </Command.Empty>
@@ -1215,7 +1343,15 @@
                 Sandbox Profile
                 <span class="font-normal normal-case tracking-normal">(nono.sh)</span>
               </label>
-              <div class={pickerShellClass}>
+              <div
+                class={pickerShellClass}
+                onfocusin={cancelNonoPickerDeferredClose}
+                onfocusout={(e) => {
+                  const shell = e.currentTarget as HTMLElement;
+                  if (!focusLeavingElement(shell, e.relatedTarget)) return;
+                  armNonoPickerDeferredClose();
+                }}
+              >
                 <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
                   <div class={pickerInputRowClass}>
                     <Command.Input
@@ -1223,7 +1359,7 @@
                       bind:value={nonoPickInput}
                       placeholder="Pick sandbox profile"
                       class={pickerInputClass}
-                      onfocus={() => { nonoPickOpen = true; }}
+                      onfocus={() => { nonoPickInput = ""; nonoPickOpen = true; }}
                       oninput={() => { nonoPickOpen = true; }}
                       onkeydown={(e) => {
                         if (e.key !== "Enter") return;

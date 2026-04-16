@@ -52,11 +52,11 @@
 
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="group relative flex w-1 shrink-0 cursor-col-resize items-stretch justify-center"
+        class="group relative flex min-h-0 w-1 shrink-0 cursor-col-resize self-stretch flex-col items-center"
         onmousedown={onDragStart}
       >
         <div
-          class="my-2 w-px rounded-full transition-all duration-150 {dragging ? 'bg-white/30' : 'bg-white/20 group-hover:bg-white/40'}"
+          class="min-h-0 max-w-[0.5px] min-w-[0.5px] flex-1 transition-all duration-150 {dragging ? 'bg-white/30' : 'bg-white/20 group-hover:bg-white/40'}"
         ></div>
       </div>
     {/if}
