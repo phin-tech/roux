@@ -202,8 +202,8 @@ async function reconnectPrimaryPaneOnly(
     nonoProfile,
     nonoAllowDirs,
   );
-  const { attachPtyListeners } = await import("$lib/panes/terminals");
-  await attachPtyListeners(primaryPaneId);
+  const { connectPaneTerminal } = await import("$lib/panes/terminals");
+  await connectPaneTerminal(primaryPaneId);
   updateSessionStatus(session.id, updated.status as Session["status"]);
 
   // Replay the primary pane's profile, appending any extra flags to the
@@ -315,15 +315,14 @@ export async function reconnectSession(
       return next;
     });
 
-    // Wire terminals for panes that spawned successfully. Order matters:
-    // initTerminal must precede attachPtyListeners so early PTY output
-    // is not dropped when instance.terminal is still null.
-    const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+    // Wire terminals for panes that spawned successfully. The adapter
+    // boundary owns init-before-attach ordering so early PTY output is not
+    // dropped before the controller exists.
+    const { connectPaneTerminal } = await import("$lib/panes/terminals");
     for (const paneId of nonMainIds) {
       const instance = getInstance(paneId);
       if (!instance || instance.restoreError || instance.type === "markdown") continue;
-      initTerminal(paneId);
-      await attachPtyListeners(paneId, (payload) => {
+      await connectPaneTerminal(paneId, (payload) => {
         log(`Restored shell ${paneId} exited (code=${payload.code})`);
         import("$lib/panes/actions").then(({ closePane }) =>
           closePane(session.id, paneId),
@@ -381,9 +380,8 @@ export async function retryShellPane(paneId: string, sessionId: string): Promise
       instance.nonoAllowDirs ?? null,
     );
     updateInstance(paneId, { ptyId, restoreError: undefined });
-    const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-    initTerminal(paneId);
-    await attachPtyListeners(paneId);
+    const { connectPaneTerminal } = await import("$lib/panes/terminals");
+    await connectPaneTerminal(paneId);
     log(`retryShellPane(${paneId}): success`);
   } catch (e) {
     const errMsg = String(e);

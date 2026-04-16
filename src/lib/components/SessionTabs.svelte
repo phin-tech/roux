@@ -156,9 +156,8 @@
         nonoProfile,
         nonoAllowDirs,
       });
-      const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-      initTerminal(mainPaneId);
-      await attachPtyListeners(mainPaneId);
+      const { connectPaneTerminal } = await import("$lib/panes/terminals");
+      await connectPaneTerminal(mainPaneId);
       if (profile) await runProfileInPane(session.id, profile);
       closeContextMenu();
     } catch (e) {

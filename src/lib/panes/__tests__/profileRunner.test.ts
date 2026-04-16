@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/tauri", () => ({
   writeToSession: vi.fn().mockResolvedValue(undefined),
+  upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
+  removePaneRecord: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("$lib/logging", () => ({

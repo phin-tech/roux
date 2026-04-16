@@ -9,6 +9,7 @@ mod commands;
 mod keymap;
 mod layouts;
 mod notifications;
+mod pane_service;
 mod pane_state;
 mod paths;
 mod platform;
@@ -58,6 +59,7 @@ fn main() {
 
     let persisted_sessions = session::load_persisted_sessions();
     let (session_handle, _session_join) = session_service::spawn(persisted_sessions);
+    let (pane_handle, _pane_join) = pane_service::spawn();
 
     let persisted_projects = project_service::load_persisted();
     let (project_handle, _project_join) = project_service::spawn(persisted_projects);
@@ -157,6 +159,7 @@ fn main() {
         .manage(AppState {
             settings: Mutex::new(initial_settings),
             pty_manager: PtyManager::new(),
+            pane_handle,
             session_handle,
             project_handle,
             watch_manager: watches::WatchManager::new(watch_store_handle),
@@ -240,8 +243,11 @@ fn main() {
             commands::worktrees::git_init,
             commands::sessions::refresh_session_git_status,
             commands::misc::quit_app,
+            commands::panes::upsert_pane_record,
+            commands::panes::remove_pane_record,
             commands::pane_state::load_pane_state,
             commands::pane_state::save_pane_state,
+            commands::pane_state::save_live_pane_state,
             commands::pane_state::delete_pane_state,
             commands::sessions::submit_roux_reply,
         ])

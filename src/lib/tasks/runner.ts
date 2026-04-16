@@ -3,6 +3,7 @@ import { attachPtyOutput, createPtyOutputChannel, spawnTask, onSessionExit, type
 import { splitPane } from "$lib/panes/actions";
 import { updateInstance, getInstance } from "$lib/panes/instances";
 import { focusedPaneId } from "$lib/panes/focus";
+import { getTerminalController, setPaneOutputChannel } from "$lib/panes/terminalRuntime";
 import { sessionLayouts, firstLeafId } from "$lib/panes/layout";
 import { log } from "$lib/logging";
 
@@ -88,9 +89,9 @@ export async function runTask(
       const outputChannel = createPtyOutputChannel((bytes) => {
         const text = new TextDecoder().decode(bytes);
         appendTaskOutput(sessionId, ptyId, stripAnsi(text));
-        getInstance(newPaneId)?.terminal?.write(bytes);
+        getTerminalController(newPaneId)?.write(bytes);
       });
-      updateInstance(newPaneId, { outputChannel });
+      setPaneOutputChannel(newPaneId, outputChannel);
       await attachPtyOutput(ptyId, outputChannel);
 
       // Set up exit listener for the pane's command status display

@@ -33,9 +33,8 @@ async function createWorktreeClaudeSession(repo: string, name: string, branch: s
     nonoProfile,
     nonoAllowDirs,
   });
-  const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-  initTerminal(mainPaneId);
-  await attachPtyListeners(mainPaneId);
+  const { connectPaneTerminal } = await import("$lib/panes/terminals");
+  await connectPaneTerminal(mainPaneId);
   if (profile) await runProfileInPane(newSession.id, profile);
 }
 

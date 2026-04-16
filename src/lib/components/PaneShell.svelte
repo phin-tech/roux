@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import "@xterm/xterm/css/xterm.css";
-  import { paneInstances, attachToContainer, updateInstance } from "$lib/panes/instances";
-  import { focusedPaneId, setLogicalFocus } from "$lib/panes/focus";
+  import { paneInstances, updateInstance } from "$lib/panes/instances";
+  import { focusedPaneId, requestDomFocus, setLogicalFocus } from "$lib/panes/focus";
   import { closePane } from "$lib/panes/actions";
   import { resolveProfileRef } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -10,16 +10,15 @@
   import {
     resizeSession,
     killPty,
-    spawnTask,
-    attachPtyOutput,
-    createPtyOutputChannel,
     notificationsPush,
   } from "$lib/tauri";
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
-  import { getXtermTheme } from "$lib/themes";
+  import { getTerminalTheme } from "$lib/themes";
   import { reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
+  import { rerunCommandPane } from "$lib/panes/commandPaneRuntime";
+  import { getTerminalController } from "$lib/panes/terminalRuntime";
   import { log, logError } from "$lib/logging";
   import SessionPicker from "./SessionPicker.svelte";
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
@@ -119,7 +118,7 @@
   }
 
   const resizeScheduler = createResizeScheduler({
-    getFitAddon: () => instance?.fitAddon ?? null,
+    fit: () => getTerminalController(paneId)?.fit() ?? null,
     getPtyId: () => instance?.ptyId ?? "",
     onResize: (ptyId, cols, rows) => {
       resizeSession(ptyId, cols, rows).catch((e) => {
@@ -210,105 +209,35 @@
 
   // Command pane rerun
   async function rerunCommand() {
-    if (!instance) return;
-    const command = instance.command;
-    const workingDir = instance.workingDir;
-    if (!command || !workingDir) return;
-
-    // Kill old PTY if still running
-    if (commandStatus === "running") {
-      await killPty(instance.ptyId).catch(() => {});
-    }
-
-    // Clean up old listeners
-    for (const unlisten of instance.unlisteners.splice(0)) {
-      try { unlisten(); } catch {}
-    }
-
-    // Reset state
-    const newPtyId = `${paneId}-${Date.now()}`;
-    if (instance.elapsedTimer != null) {
-      clearInterval(instance.elapsedTimer);
-    }
-
-    // Clear terminal
-    instance.terminal?.clear();
-    instance.terminal?.reset();
-
-    updateInstance(paneId, {
-      ptyId: newPtyId,
-      commandStatus: "running",
-      commandExitCode: null,
-      commandStartedAt: Date.now(),
-      elapsedTimer: setInterval(updateElapsed, 1000),
-      outputChannel: null,
-      unlisteners: [],
-    });
-
-    // Attach listeners before spawning
-    const { attachPtyListeners } = await import("$lib/panes/terminals");
-    await attachPtyListeners(paneId, (payload) => {
-      const exitCode = payload.code;
-      const status = exitCode === 0 ? "success" : "error";
-      updateInstance(paneId, {
-        commandStatus: status as "success" | "error",
-        commandExitCode: exitCode,
-      });
-      const inst = $paneInstances.get(paneId);
-      if (inst?.elapsedTimer != null) {
-        clearInterval(inst.elapsedTimer);
-        updateInstance(paneId, { elapsedTimer: null });
-      }
-      updateElapsed();
-    });
-
-    // Spawn new command
-    await spawnTask(newPtyId, command, workingDir, sessionId, paneId);
-    // Attach output
-    const inst = $paneInstances.get(paneId);
-    if (inst && !inst.outputChannel) {
-      const outputChannel = createPtyOutputChannel((bytes) => {
-        inst.terminal?.write(bytes);
-      });
-      updateInstance(paneId, { outputChannel });
-      await attachPtyOutput(newPtyId, outputChannel);
-    } else if (inst?.outputChannel) {
-      await attachPtyOutput(newPtyId, inst.outputChannel);
-    }
+    await rerunCommandPane(paneId, sessionId, { onElapsedUpdate: updateElapsed });
   }
 
   function doAttach() {
-    if (!containerEl || !instance?.terminal) {
-      log(`PaneShell.doAttach(${paneId}): skipped (container=${!!containerEl}, terminal=${!!instance?.terminal}, type=${instance?.type})`);
+    const controller = getTerminalController(paneId);
+    if (!containerEl || !controller) {
+      log(`PaneShell.doAttach(${paneId}): skipped (container=${!!containerEl}, terminal=${!!controller}, type=${instance?.type})`);
       return;
     }
-    if (!instance.terminal.element) {
-      log(`PaneShell.doAttach(${paneId}): opening terminal in container`);
-      attachToContainer(paneId, containerEl);
-    } else if (!containerEl.contains(instance.terminal.element)) {
-      log(`PaneShell.doAttach(${paneId}): re-parenting terminal element`);
-      containerEl.appendChild(instance.terminal.element);
-    }
+    controller.attach(containerEl);
     // Only schedule refit — setLogicalFocus handles DOM focus.
     resizeScheduler.schedule();
   }
 
   function doDetach() {
-    if (!instance?.terminal?.element || !containerEl?.contains(instance.terminal.element)) return;
-    containerEl.removeChild(instance.terminal.element);
+    getTerminalController(paneId)?.detach();
   }
 
   onMount(() => {
     if (containerEl) {
       resizeObserver = new ResizeObserver(() => {
-        if (visible && instance?.fitAddon) {
+        if (visible && getTerminalController(paneId)) {
           resizeScheduler.schedule();
         }
       });
       resizeObserver.observe(containerEl);
     }
 
-    if (visible && instance?.terminal) {
+    if (visible && getTerminalController(paneId)) {
       doAttach();
     }
 
@@ -326,7 +255,7 @@
 
   // Visibility effect: attach/detach terminal
   $effect(() => {
-    if (visible && instance?.terminal) {
+    if (visible && getTerminalController(paneId)) {
       doAttach();
     } else {
       doDetach();
@@ -335,15 +264,16 @@
 
   // Theme sync
   $effect(() => {
-    if (instance?.terminal) {
-      instance.terminal.options.theme = getXtermTheme($settings.theme);
+    const controller = getTerminalController(paneId);
+    if (controller) {
+      controller.setTheme(getTerminalTheme($settings.theme));
     }
   });
 
   // Focus effect: refit when gaining logical focus (disableStdin just changed,
   // terminal may need resize).
   $effect(() => {
-    if (isFocused && visible && instance?.terminal) {
+    if (isFocused && visible && getTerminalController(paneId)) {
       resizeScheduler.schedule();
     }
   });
@@ -488,7 +418,7 @@
           <div
             bind:this={containerEl}
             class="ui-terminal-frame min-h-0 flex-1"
-            onclick={() => instance?.terminal?.focus()}
+            onclick={() => requestDomFocus(paneId)}
           ></div>
         </div>
       {:else}
@@ -498,7 +428,7 @@
         <div
           bind:this={containerEl}
           class="ui-terminal-frame h-full w-full overflow-hidden"
-          onclick={() => instance?.terminal?.focus()}
+          onclick={() => requestDomFocus(paneId)}
         ></div>
       {/if}
     </div>

@@ -69,9 +69,8 @@ async function spawnShellPaneWithProfile(
   });
   if (!newPaneId) return;
 
-  const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-  initTerminal(newPaneId);
-  await attachPtyListeners(newPaneId, (payload) => {
+  const { connectPaneTerminal } = await import("$lib/panes/terminals");
+  await connectPaneTerminal(newPaneId, (payload) => {
     log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
     closePane(activeId, newPaneId);
   });
@@ -180,9 +179,8 @@ export function registerPaneCommands() {
       if (!activeId) return;
       const newPaneId = splitPane(activeId, "h", { id: paneId, type: "shell", ptyId });
       if (newPaneId) {
-        const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-        initTerminal(newPaneId);
-        await attachPtyListeners(newPaneId, (payload) => {
+        const { connectPaneTerminal } = await import("$lib/panes/terminals");
+        await connectPaneTerminal(newPaneId, (payload) => {
           log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
           closePane(activeId, newPaneId);
         });
@@ -211,9 +209,8 @@ export function registerPaneCommands() {
       if (!activeId) return;
       const newPaneId = splitPane(activeId, "v", { id: paneId, type: "shell", ptyId });
       if (newPaneId) {
-        const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-        initTerminal(newPaneId);
-        await attachPtyListeners(newPaneId, (payload) => {
+        const { connectPaneTerminal } = await import("$lib/panes/terminals");
+        await connectPaneTerminal(newPaneId, (payload) => {
           log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
           import("$lib/panes/actions").then(({ closePane: cp }) => cp(activeId, newPaneId));
         });
@@ -502,14 +499,13 @@ export function registerPaneCommands() {
         workingDir: session.worktreePath,
       });
       if (newPaneId) {
-        const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-        initTerminal(newPaneId);
+        const { connectPaneTerminal } = await import("$lib/panes/terminals");
         updateInstance(newPaneId, {
           commandStatus: "running",
           commandStartedAt: Date.now(),
           elapsedTimer: setInterval(() => {}, 1000), // PaneShell handles display
         });
-        await attachPtyListeners(newPaneId, (payload) => {
+        await connectPaneTerminal(newPaneId, (payload) => {
           const status = payload.code === 0 ? "success" : "error";
           updateInstance(newPaneId, {
             commandStatus: status as "success" | "error",

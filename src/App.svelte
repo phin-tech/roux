@@ -38,7 +38,7 @@
   import { initSession, initSessionWithProfile, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
-  import { paneInstances } from "$lib/panes/instances";
+  import { getTerminalController } from "$lib/panes/terminalRuntime";
   import { initPersistence, flushPaneState, loadPaneState } from "$lib/panes/persistence";
   import { loadBuiltinProfiles, type SpawnProfileRef } from "$lib/panes/profiles";
   import { loadBuiltinLayouts, loadUserLayouts } from "$lib/panes/layouts";
@@ -226,7 +226,7 @@
     // xterm's hidden textarea focus when Escape is pressed outside a pane.
     if (e.key === "Escape") {
       const focused = get(focusedPaneId);
-      if (focused && get(paneInstances).get(focused)?.terminal) {
+      if (focused && getTerminalController(focused)) {
         e.preventDefault();
       }
     }

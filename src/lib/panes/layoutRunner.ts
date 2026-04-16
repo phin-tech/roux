@@ -254,19 +254,18 @@ export async function applyLayoutToSession(
   // failures and profile-run failures are both non-fatal.
   const warnings: string[] = [];
 
-  // Step 9: Initialize terminals
-  const { initTerminal, attachPtyListeners } = await import(
+  // Step 9: Connect pane terminals
+  const { connectPaneTerminal } = await import(
     "$lib/panes/terminals"
   );
   const { closePane } = await import("$lib/panes/actions");
 
   for (const leaf of leaves) {
     try {
-      initTerminal(leaf.paneId);
       if (leaf.isFirst) {
-        await attachPtyListeners(leaf.paneId);
+        await connectPaneTerminal(leaf.paneId);
       } else {
-        await attachPtyListeners(leaf.paneId, () => {
+        await connectPaneTerminal(leaf.paneId, () => {
           closePane(session.id, leaf.paneId);
         });
       }

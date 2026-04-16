@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { SpawnProfileRef } from "$lib/panes/profiles";
 import type {
   Session,
   Project,
@@ -620,6 +621,43 @@ export async function savePaneStateRaw(sessionId: string, data: unknown): Promis
   return invoke("save_pane_state", { sessionId, data });
 }
 
+export async function saveLivePaneStateRaw(
+  sessionId: string,
+  schemaVersion: number,
+  layout: unknown,
+  paneIds: string[],
+): Promise<void> {
+  return invoke("save_live_pane_state", {
+    sessionId,
+    schemaVersion,
+    layout,
+    paneIds,
+  });
+}
+
 export async function deletePaneStateRaw(sessionId: string): Promise<void> {
   return invoke("delete_pane_state", { sessionId });
+}
+
+export interface PaneDescriptorPayload {
+  id: string;
+  type: "shell" | "markdown" | "command";
+  ptyId: string;
+  name?: string;
+  workingDir?: string;
+  command?: string;
+  docPath?: string;
+  spawnProfileRef?: SpawnProfileRef;
+  nonoProfile?: string;
+  nonoAllowDirs?: string[];
+}
+
+export type PaneRecordPayload = PaneDescriptorPayload;
+
+export async function upsertPaneRecord(record: PaneRecordPayload): Promise<void> {
+  return invoke("upsert_pane_record", { record });
+}
+
+export async function removePaneRecord(id: string): Promise<void> {
+  return invoke("remove_pane_record", { id });
 }

@@ -1,15 +1,15 @@
 import { writable, get } from "svelte/store";
 import type { SpawnProfileRef } from "./profiles";
 import { clearPtyOutputBuffer } from "./ptyOutputBus";
-
-// Use `any` for xterm types to keep this module importable in test environments
-// without pulling in the full xterm bundle.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Terminal = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type FitAddon = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type OutputChannel = any;
+import {
+  clearPaneOutputChannel,
+  disposePaneTerminalRuntime,
+} from "./terminalRuntime";
+import {
+  upsertPaneRecord,
+  removePaneRecord,
+  type PaneRecordPayload,
+} from "$lib/tauri";
 
 export type PaneType = "shell" | "markdown" | "command";
 
@@ -19,11 +19,6 @@ export interface PaneInstance {
   id: string;
   type: PaneType;
   ptyId: string;
-
-  // xterm state — null until attachToContainer is called
-  terminal: Terminal | null;
-  fitAddon: FitAddon | null;
-  outputChannel: OutputChannel | null;
 
   // Cleanup hooks
   unlisteners: Array<() => void>;
@@ -81,6 +76,31 @@ function generateId(): string {
   return `pane-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function toPaneRecord(instance: PaneInstance): PaneRecordPayload {
+  return {
+    id: instance.id,
+    type: instance.type,
+    ptyId: instance.ptyId,
+    name: instance.name,
+    workingDir: instance.workingDir,
+    command: instance.command,
+    docPath: instance.docPath,
+    spawnProfileRef: instance.spawnProfileRef,
+    nonoProfile: instance.nonoProfile,
+    nonoAllowDirs: instance.nonoAllowDirs,
+  };
+}
+
+function syncPaneRecord(instance: PaneInstance): void {
+  void upsertPaneRecord(toPaneRecord(instance)).catch(() => {});
+}
+
+function paneRecordChanged(before: PaneInstance, after: PaneInstance): boolean {
+  const beforeRecord = toPaneRecord(before);
+  const afterRecord = toPaneRecord(after);
+  return JSON.stringify(beforeRecord) !== JSON.stringify(afterRecord);
+}
+
 // ── Public API ─────────────────────────────────────────────
 
 /**
@@ -95,9 +115,6 @@ export function createPane(opts: CreatePaneOpts): string {
     id,
     type: opts.type,
     ptyId: opts.ptyId,
-    terminal: null,
-    fitAddon: null,
-    outputChannel: null,
     unlisteners: [],
     name: opts.name,
     workingDir: opts.workingDir,
@@ -116,6 +133,7 @@ export function createPane(opts: CreatePaneOpts): string {
     next.set(id, instance);
     return next;
   });
+  syncPaneRecord(instance);
   return id;
 }
 
@@ -140,7 +158,7 @@ export function resetDisposeHooks(): void {
 
 /**
  * Dispose a pane instance — idempotent.
- * Cleans up unlisteners, clears elapsed timer, disposes terminal, kills PTY
+ * Cleans up unlisteners, clears elapsed timer, disposes terminal runtime, kills PTY
  * for shell/command types, removes from the store, and runs any registered
  * post-dispose hooks (e.g. agent-state cleanup).
  */
@@ -170,15 +188,8 @@ export function disposePane(id: string, killPty?: (ptyId: string) => Promise<voi
     inst.elapsedTimer = null;
   }
 
-  // Dispose xterm terminal if one exists
-  if (inst.terminal != null) {
-    try {
-      inst.terminal.dispose();
-    } catch { /* best-effort */ }
-    inst.terminal = null;
-    inst.fitAddon = null;
-    inst.outputChannel = null;
-  }
+  disposePaneTerminalRuntime(id);
+  void removePaneRecord(id).catch(() => {});
 
   paneInstances.update((m) => {
     const next = new Map(m);
@@ -208,7 +219,7 @@ export function replacePty(paneId: string, newPtyId: string): void {
         unlisten();
       } catch { /* best-effort */ }
     }
-    inst.outputChannel = null;
+    clearPaneOutputChannel(paneId);
 
     // Drop the PTY output replay buffer so a subsequent readiness-wait
     // on the fresh PTY doesn't see stale bytes from the prior process
@@ -217,7 +228,9 @@ export function replacePty(paneId: string, newPtyId: string): void {
     if (inst.ptyId !== newPtyId) clearPtyOutputBuffer(newPtyId);
 
     const next = new Map(map);
-    next.set(paneId, { ...inst, ptyId: newPtyId, unlisteners: [] });
+    const updated = { ...inst, ptyId: newPtyId, unlisteners: [] };
+    next.set(paneId, updated);
+    syncPaneRecord(updated);
     return next;
   });
 }
@@ -233,7 +246,11 @@ export function updateInstance(
     const inst = map.get(paneId);
     if (!inst) return map;
     const next = new Map(map);
-    next.set(paneId, { ...inst, ...fields });
+    const updated = { ...inst, ...fields };
+    next.set(paneId, updated);
+    if (paneRecordChanged(inst, updated)) {
+      syncPaneRecord(updated);
+    }
     return next;
   });
 }
@@ -243,39 +260,6 @@ export function updateInstance(
  */
 export function getInstance(paneId: string): PaneInstance | undefined {
   return get(paneInstances).get(paneId);
-}
-
-/**
- * Attach the terminal's DOM element to a container.
- * Suppresses WebKit focus theft on first open by briefly blurring after open.
- */
-export function attachToContainer(
-  paneId: string,
-  container: HTMLElement
-): void {
-  const inst = getInstance(paneId);
-  if (!inst?.terminal) return;
-  inst.terminal.open(container);
-  // Suppress WebKit focus theft: blur immediately after open
-  try {
-    (container.querySelector(".xterm-helper-textarea") as HTMLElement | null)
-      ?.blur();
-  } catch { /* best-effort */ }
-  inst.fitAddon?.fit?.();
-}
-
-/**
- * Detach the terminal DOM element from its container.
- * xterm doesn't have a first-class "detach" API; we simply remove the
- * rendered children so the element can be re-parented later.
- */
-export function detachFromContainer(paneId: string): void {
-  const inst = getInstance(paneId);
-  if (!inst?.terminal) return;
-  const el: HTMLElement | undefined = inst.terminal.element;
-  if (el?.parentElement) {
-    el.parentElement.removeChild(el);
-  }
 }
 
 /**
