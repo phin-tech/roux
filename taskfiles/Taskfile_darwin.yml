@@ -1,0 +1,125 @@
+version: "3"
+
+# macOS-specific tasks. Included from the root Taskfile under the `macos:`
+# namespace, so external callers still use e.g. `task macos:prepare-cli`.
+# Every task carries `platforms: [darwin]` as a guard — no-op rather than
+# failing obscurely if invoked on another OS.
+
+tasks:
+  prepare-cli:
+    desc: "Build roux-cli and stage it for macOS bundling"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
+          if [ -n "${TAURI_TARGET:-}" ]; then
+            cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli --target "${TAURI_TARGET}"
+            SOURCE="target/${TAURI_TARGET}/release/roux-cli"
+          else
+            cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli
+            SOURCE="target/release/roux-cli"
+          fi
+          mkdir -p src-tauri/binaries
+          cp "${SOURCE}" src-tauri/binaries/roux-cli
+          cp "${SOURCE}" "src-tauri/binaries/roux-cli-${TARGET}"
+          chmod +x src-tauri/binaries/roux-cli "src-tauri/binaries/roux-cli-${TARGET}"
+          echo "Prepared bundled roux-cli from ${SOURCE}"
+        platforms: [darwin]
+
+  verify:
+    desc: "Verify the latest signed macOS artifacts"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          TARGET_ROOT="target"
+          if [ -n "${TAURI_TARGET:-}" ]; then
+            TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
+          fi
+
+          APP="${TARGET_ROOT}/release/bundle/macos/Roux.app"
+          DMG_DIR="${TARGET_ROOT}/release/bundle/dmg"
+          DMG="$(find "${DMG_DIR}" -maxdepth 1 -name 'Roux_*.dmg' | sort | tail -n 1)"
+
+          codesign --verify --deep --strict --verbose=2 "${APP}"
+          spctl --assess --type execute --verbose=4 "${APP}"
+
+          if [ -n "${DMG}" ]; then
+            xcrun stapler validate "${DMG}"
+          fi
+        platforms: [darwin]
+
+  staple-dmg:
+    desc: "Staple the latest signed macOS DMG"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          TARGET_ROOT="target"
+          if [ -n "${TAURI_TARGET:-}" ]; then
+            TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
+          fi
+
+          DMG_DIR="${TARGET_ROOT}/release/bundle/dmg"
+          DMG="$(find "${DMG_DIR}" -maxdepth 1 -name 'Roux_*.dmg' | sort | tail -n 1)"
+
+          if [ -n "${DMG}" ]; then
+            xcrun stapler staple "${DMG}"
+          fi
+        platforms: [darwin]
+
+  zip-app:
+    desc: "Zip the latest signed macOS app bundle"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          TARGET_ROOT="target"
+          if [ -n "${TAURI_TARGET:-}" ]; then
+            TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
+          fi
+
+          VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+          APP="${TARGET_ROOT}/release/bundle/macos/Roux.app"
+          APP_ZIP="${TARGET_ROOT}/release/bundle/macos/Roux_${VERSION}.app.zip"
+
+          rm -f "${APP_ZIP}"
+          ditto -c -k --sequesterRsrc --keepParent "${APP}" "${APP_ZIP}"
+          echo "Prepared ${APP_ZIP}"
+        platforms: [darwin]
+
+  notarize-dmg:
+    desc: "Notarize the latest signed macOS DMG"
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          TARGET_ROOT="target"
+          if [ -n "${TAURI_TARGET:-}" ]; then
+            TARGET_ROOT="${TARGET_ROOT}/${TAURI_TARGET}"
+          fi
+
+          DMG_DIR="${TARGET_ROOT}/release/bundle/dmg"
+          DMG="$(find "${DMG_DIR}" -maxdepth 1 -name 'Roux_*.dmg' | sort | tail -n 1)"
+
+          if [ -z "${DMG}" ]; then
+            echo "No DMG found to notarize"
+            exit 0
+          fi
+
+          export DMG
+          ./scripts/run-macos-signing.sh sh -c '
+            if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+              xcrun notarytool submit "$DMG" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --wait
+            elif [ -n "${APPLE_API_KEY:-}" ] && [ -n "${APPLE_API_ISSUER:-}" ] && [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+              xcrun notarytool submit "$DMG" \
+                --key "$APPLE_API_KEY" \
+                --issuer "$APPLE_API_ISSUER" \
+                --key-path "$APPLE_API_KEY_PATH" \
+                --wait
+            else
+              echo "Missing notarization credentials for DMG submission" >&2
+              exit 1
+            fi
+          '
+        platforms: [darwin]
