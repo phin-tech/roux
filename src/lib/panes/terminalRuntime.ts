@@ -1,4 +1,5 @@
 import { Channel } from "@tauri-apps/api/core";
+import { writable, type Readable } from "svelte/store";
 
 import type { TerminalTheme } from "$lib/themes";
 import { type PtyOutputPayload } from "$lib/tauri";
@@ -36,6 +37,21 @@ interface CreateTerminalControllerOptions {
 
 const paneTerminalRuntimes = new Map<string, PaneTerminalRuntime>();
 
+// Reactivity bridge: the runtime Map itself lives outside Svelte's reactivity
+// graph, but PaneShell's attach/detach effect needs to re-run when a pane's
+// controller appears or disappears. Bumping this counter on every
+// controller create/dispose lets consumer effects subscribe via
+// `$terminalRuntimeVersion` and re-evaluate their `getTerminalController()`
+// lookup.
+const terminalRuntimeVersion = writable(0);
+export const terminalRuntimeVersionStore: Readable<number> = {
+  subscribe: terminalRuntimeVersion.subscribe,
+};
+
+function bumpVersion(): void {
+  terminalRuntimeVersion.update((v) => v + 1);
+}
+
 function getPaneTerminalRuntime(paneId: string): PaneTerminalRuntime | undefined {
   return paneTerminalRuntimes.get(paneId);
 }
@@ -52,6 +68,7 @@ export function ensureTerminalController(
     controller,
     outputChannel: existing?.outputChannel ?? null,
   });
+  bumpVersion();
   return controller;
 }
 
@@ -89,6 +106,7 @@ export function disposePaneTerminalRuntime(paneId: string): void {
   if (!runtime) return;
   runtime.controller?.dispose();
   paneTerminalRuntimes.delete(paneId);
+  bumpVersion();
 }
 
 export function resetPaneTerminalRuntimes(): void {
@@ -96,4 +114,5 @@ export function resetPaneTerminalRuntimes(): void {
     runtime.controller?.dispose();
   }
   paneTerminalRuntimes.clear();
+  bumpVersion();
 }
