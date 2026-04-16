@@ -243,9 +243,7 @@
 <svelte:window onclick={closeContextMenu} />
 
 <div
-  class="flex h-full flex-col overflow-hidden border-border-subtle bg-bg-base/96 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
-  class:border-r={$settings.tabPosition === "left"}
-  class:border-l={$settings.tabPosition === "right"}
+  class="flex h-full flex-col overflow-hidden bg-bg-base/96 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
   bind:this={containerEl}
 >
   <div class="flex h-9 shrink-0 items-center justify-between px-3">

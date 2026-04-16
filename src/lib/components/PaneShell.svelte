@@ -3,6 +3,7 @@
   import "@xterm/xterm/css/xterm.css";
   import { paneInstances, updateInstance } from "$lib/panes/instances";
   import { focusedPaneId, requestDomFocus, setLogicalFocus } from "$lib/panes/focus";
+  import { collectVisibleLeafIds, sessionLayouts } from "$lib/panes/layout";
   import { closePane } from "$lib/panes/actions";
   import { resolveProfileRef } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -43,6 +44,11 @@
 
   const instance = $derived($paneInstances.get(paneId));
   const isFocused = $derived($focusedPaneId === paneId);
+  const hasMultipleVisiblePanes = $derived.by<boolean>(() => {
+    const layout = $sessionLayouts.get(sessionId);
+    if (!layout) return false;
+    return collectVisibleLeafIds(layout).length > 1;
+  });
   const session = $derived($sessionState.sessions.find((s) => s.id === sessionId));
   const paneSlot = $derived($paneSlotById.get(paneId) ?? null);
   const paneSlotLabel = $derived(
@@ -290,14 +296,15 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
-    class="pane-shell relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden bg-bg-deep"
+    class="pane-shell group relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden bg-bg-deep"
     data-focused={isFocused}
+    data-focus-chrome={(isFocused && hasMultipleVisiblePanes) ? "true" : undefined}
     onmousedown={handleMouseDown}
   >
     <!-- Mini title bar -->
     <div
       class="pane-shell__titlebar flex h-6 shrink-0 select-none items-center border-b border-hairline px-2 gap-1.5"
-      class:shadow-[inset_0_2px_0_var(--color-accent-dim)]={isFocused && !suppressTitleAccent}
+      class:shadow-[inset_0_2px_0_var(--color-accent-dim)]={isFocused && hasMultipleVisiblePanes && !suppressTitleAccent}
       ondblclick={() => startRenaming(instance.name ?? "")}
     >
       <span class="text-[10px] uppercase tracking-wider text-text-muted/60 shrink-0">{paneTypeLabel(instance.type)}</span>
@@ -320,30 +327,34 @@
       {:else}
         <span class="flex-1"></span>
       {/if}
-      {#if canReRunProfile}
-        <button
-          class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[11px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-          onclick={(e) => {
-            e.stopPropagation();
-            void reRunProfile();
-          }}
-          title={activeProfile ? `Re-run profile: ${activeProfile.name}` : "Re-run profile"}
-        >
-          &#8635;
-        </button>
-      {/if}
-      {#if canClose()}
-        <button
-          class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[12px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-          onclick={(e) => {
-            e.stopPropagation();
-            void closePane(sessionId, paneId);
-          }}
-          title="Close pane"
-        >
-          &times;
-        </button>
-      {/if}
+      <div
+        class="flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+      >
+        {#if canReRunProfile}
+          <button
+            class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[11px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            onclick={(e) => {
+              e.stopPropagation();
+              void reRunProfile();
+            }}
+            title={activeProfile ? `Re-run profile: ${activeProfile.name}` : "Re-run profile"}
+          >
+            &#8635;
+          </button>
+        {/if}
+        {#if canClose()}
+          <button
+            class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[12px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            onclick={(e) => {
+              e.stopPropagation();
+              void closePane(sessionId, paneId);
+            }}
+            title="Close pane"
+          >
+            &times;
+          </button>
+        {/if}
+      </div>
     </div>
 
     <div class="flex-1 min-h-0 min-w-0">
