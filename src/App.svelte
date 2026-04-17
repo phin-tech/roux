@@ -280,6 +280,11 @@
         keymapExitTree();
         return;
       case "none":
+        // While a tree is armed, unbound keys are dropped per the
+        // keymap contract (`resolve.ts` §1e). Without preventDefault
+        // the character leaks through to xterm while the tree stays
+        // armed — user sees typing land in the terminal mid-chord.
+        if (km.treePath.length > 0) e.preventDefault();
         break;
     }
 

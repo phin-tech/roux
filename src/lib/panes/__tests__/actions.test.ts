@@ -20,7 +20,7 @@ import {
 } from "../actions";
 import { paneInstances, resetInstances, getInstance } from "../instances";
 import { sessionLayouts, resetLayouts, collectLeafIds } from "../layout";
-import { focusedPaneId, resetFocus } from "../focus";
+import { focusedPaneId, fullscreenPaneId, resetFocus, setLogicalFocus, toggleFullscreen } from "../focus";
 import { killPty, killSession } from "$lib/tauri";
 
 describe("pane actions", () => {
@@ -28,6 +28,7 @@ describe("pane actions", () => {
     resetInstances();
     resetLayouts();
     resetFocus();
+    fullscreenPaneId.set(null);
     vi.mocked(killPty).mockClear();
     vi.mocked(killSession).mockClear();
   });
@@ -145,6 +146,70 @@ describe("pane actions", () => {
     it("returns false for nonexistent pane", () => {
       initSession("s1");
       expect(closePane("s1", "nope")).toBe(false);
+    });
+
+    it("clears fullscreenPaneId when the fullscreened pane is closed", () => {
+      // Regression: closePane disposed the pane and cleared focus but left
+      // fullscreenPaneId pointing at a dead id. SplitPane then filtered
+      // every sibling out of the DOM and the content area went blank.
+      initSession("s1");
+      const shellId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" })!;
+      setLogicalFocus(shellId);
+      toggleFullscreen();
+      expect(get(fullscreenPaneId)).toBe(shellId);
+
+      closePane("s1", shellId);
+      expect(get(fullscreenPaneId)).toBeNull();
+    });
+
+    it("leaves fullscreenPaneId alone when a non-fullscreened pane is closed", () => {
+      initSession("s1");
+      const shellId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" })!;
+      setLogicalFocus("s1-main");
+      toggleFullscreen();
+      expect(get(fullscreenPaneId)).toBe("s1-main");
+
+      closePane("s1", shellId);
+      expect(get(fullscreenPaneId)).toBe("s1-main");
+    });
+
+    it("refocuses onto the visible leaf (not a hidden stacked tab)", () => {
+      // Regression: firstLeafId walks children[0] without consulting the
+      // stack's activeIndex, so closing a sibling while a stack had tab 1
+      // visible routed focus to the hidden tab at index 0.
+      initSession("s1");
+      const stackTab2 = splitPane("s1", "v", { type: "shell", ptyId: "pty-a" })!;
+      const rightPane = splitPane("s1", "h", { type: "shell", ptyId: "pty-b" })!;
+      // Build the target layout directly: an outer horizontal split whose
+      // left child is a stacked split (s1-main, stackTab2) with tab 2
+      // currently visible, and the right child is rightPane.
+      sessionLayouts.update((m) => {
+        const next = new Map(m);
+        next.set("s1", {
+          kind: "split",
+          direction: "h",
+          children: [
+            {
+              kind: "split",
+              direction: "v",
+              stacked: true,
+              activeIndex: 1,
+              children: [
+                { kind: "leaf", paneId: "s1-main" },
+                { kind: "leaf", paneId: stackTab2 },
+              ],
+            },
+            { kind: "leaf", paneId: rightPane },
+          ],
+        });
+        return next;
+      });
+
+      setLogicalFocus(rightPane);
+      closePane("s1", rightPane);
+
+      // Focus must land on the visible stack tab, not children[0].
+      expect(get(focusedPaneId)).toBe(stackTab2);
     });
   });
 
