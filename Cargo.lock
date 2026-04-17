@@ -3881,7 +3881,7 @@ dependencies = [
 
 [[package]]
 name = "roux"
-version = "0.4.4"
+version = "0.4.5-alpha.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3910,6 +3910,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "url",
  "uuid",
  "vte",
 ]

@@ -27,6 +27,7 @@ mod skill;
 mod socket;
 mod state;
 mod tasks;
+mod updater;
 mod watches;
 mod worktree;
 
@@ -70,6 +71,8 @@ fn main() {
         commands::misc::frontend_log,
         commands::settings::get_settings,
         commands::settings::update_settings,
+        commands::updater::check_for_update,
+        commands::updater::install_update,
         commands::worktrees::cmd_create_worktree,
         commands::worktrees::cmd_remove_worktree,
         commands::worktrees::cmd_list_worktrees,
@@ -155,6 +158,12 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        // Registers the updater plugin and the `UpdaterExt` trait. The
+        // `endpoints` configured in tauri.conf.json are effectively unused at
+        // runtime — `src/updater.rs` overrides them per-channel via
+        // `app.updater_builder().endpoints(...)`. The static config is kept as
+        // a defensive fallback so checks still work if the Rust command path
+        // ever regresses.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             settings: Mutex::new(initial_settings),
@@ -171,6 +180,8 @@ fn main() {
             commands::misc::frontend_log,
             commands::settings::get_settings,
             commands::settings::update_settings,
+            commands::updater::check_for_update,
+            commands::updater::install_update,
             commands::worktrees::cmd_create_worktree,
             commands::worktrees::cmd_remove_worktree,
             commands::worktrees::cmd_list_worktrees,

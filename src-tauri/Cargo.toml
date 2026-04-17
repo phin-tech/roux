@@ -41,6 +41,7 @@ serde_yaml = "0.9"
 tokio = { version = "1", features = ["net", "io-util", "macros", "rt-multi-thread", "process", "time", "sync"] }
 tokio-util = "0.7"
 reqwest = { version = "0.12", features = ["json"] }
+url = "2"
 octocrab = "0.44"
 tauri-plugin-opener = "2.5.3"
 thiserror = "2"

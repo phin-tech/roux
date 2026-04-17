@@ -8,6 +8,11 @@ export const commands = {
 	frontendLog: (message: string) => __TAURI_INVOKE<void>("frontend_log", { message }),
 	getSettings: () => __TAURI_INVOKE<RouxSettings>("get_settings"),
 	updateSettings: (settings: RouxSettings) => typedError<null, string>(__TAURI_INVOKE("update_settings", { settings })),
+	checkForUpdate: (channel: UpdateChannel) => typedError<{
+	version: string,
+	notes: string,
+} | null, UpdaterError>(__TAURI_INVOKE("check_for_update", { channel })),
+	installUpdate: (channel: UpdateChannel) => typedError<null, UpdaterError>(__TAURI_INVOKE("install_update", { channel })),
 	cmdCreateWorktree: (repoPath: string, branch: string) => typedError<string, string>(__TAURI_INVOKE("cmd_create_worktree", { repoPath, branch })),
 	cmdRemoveWorktree: (worktreePath: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { worktreePath })),
 	cmdListWorktrees: (repoPath: string) => typedError<Worktree[], string>(__TAURI_INVOKE("cmd_list_worktrees", { repoPath })),
@@ -514,6 +519,12 @@ export type RouxSettings = {
 	 */
 	updateCheckOnLaunch?: boolean,
 	/**
+	 *  Which update channel this user is subscribed to. `Stable` pulls from the
+	 *  standard `latest.json` manifest; `PreRelease` resolves the newest
+	 *  GitHub prerelease at check time and pulls its `latest-prerelease.json`.
+	 */
+	updateChannel?: UpdateChannel,
+	/**
 	 *  User-defined spawn profiles. Edited as raw JSON in the settings file
 	 *  in v1 — the "Save as user profile" UI is a later addition. The settings
 	 *  loader force-sets `source: "user"` on each entry regardless of what
@@ -615,6 +626,15 @@ export type TaskGroup = {
 	configFile: string,
 	tasks: TaskDefinition[],
 };
+
+export type UpdateChannel = "stable" | "preRelease";
+
+export type UpdateInfo = {
+	version: string,
+	notes: string,
+};
+
+export type UpdaterError = { kind: "network" } | { kind: "signature-invalid" } | { kind: "not-found" } | { kind: "internal"; message: string };
 
 export type Watch = {
 	id: string,

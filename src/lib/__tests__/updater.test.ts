@@ -1,10 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const checkMock = vi.fn();
+const checkForUpdateMock = vi.fn();
+const installUpdateMock = vi.fn();
+const listenMock = vi.fn();
 const relaunchMock = vi.fn();
 
-vi.mock("@tauri-apps/plugin-updater", () => ({
-  check: (...args: unknown[]) => checkMock(...args),
+vi.mock("$lib/bindings", () => ({
+  commands: {
+    checkForUpdate: (...args: unknown[]) => checkForUpdateMock(...args),
+    installUpdate: (...args: unknown[]) => installUpdateMock(...args),
+  },
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (...args: unknown[]) => listenMock(...args),
 }));
 
 vi.mock("@tauri-apps/plugin-process", () => ({
@@ -13,7 +22,9 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 
 describe("checkForUpdate", () => {
   beforeEach(() => {
-    checkMock.mockReset();
+    checkForUpdateMock.mockReset();
+    installUpdateMock.mockReset();
+    listenMock.mockReset();
     relaunchMock.mockReset();
     vi.stubEnv("DEV", false);
   });
@@ -23,24 +34,32 @@ describe("checkForUpdate", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns no-update when the plugin returns null (silent)", async () => {
+  it("passes the channel through to the Rust command", async () => {
     const { checkForUpdate } = await import("$lib/updater");
-    checkMock.mockResolvedValueOnce(null);
+    checkForUpdateMock.mockResolvedValueOnce({ status: "ok", data: null });
 
-    const status = await checkForUpdate({ silent: true });
+    await checkForUpdate({ silent: true, channel: "preRelease" });
 
-    expect(status).toEqual({ kind: "no-update" });
-    expect(checkMock).toHaveBeenCalledTimes(1);
+    expect(checkForUpdateMock).toHaveBeenCalledWith("preRelease");
   });
 
-  it("returns available with version and notes when plugin returns an Update", async () => {
+  it("returns no-update when the command returns null data", async () => {
     const { checkForUpdate } = await import("$lib/updater");
-    checkMock.mockResolvedValueOnce({
-      version: "1.2.3",
-      body: "Release notes here",
+    checkForUpdateMock.mockResolvedValueOnce({ status: "ok", data: null });
+
+    const status = await checkForUpdate({ silent: true, channel: "stable" });
+
+    expect(status).toEqual({ kind: "no-update" });
+  });
+
+  it("returns available with version and notes when an update is found", async () => {
+    const { checkForUpdate } = await import("$lib/updater");
+    checkForUpdateMock.mockResolvedValueOnce({
+      status: "ok",
+      data: { version: "1.2.3", notes: "Release notes here" },
     });
 
-    const status = await checkForUpdate({ silent: false });
+    const status = await checkForUpdate({ silent: false, channel: "stable" });
 
     expect(status).toEqual({
       kind: "available",
@@ -49,58 +68,84 @@ describe("checkForUpdate", () => {
     });
   });
 
-  it("defaults notes to empty string when body is undefined", async () => {
+  it("defaults notes to empty string when the backend omits them", async () => {
     const { checkForUpdate } = await import("$lib/updater");
-    checkMock.mockResolvedValueOnce({
-      version: "2.0.0",
-      body: undefined,
+    checkForUpdateMock.mockResolvedValueOnce({
+      status: "ok",
+      data: { version: "2.0.0", notes: "" },
     });
 
-    const status = await checkForUpdate({ silent: false });
+    const status = await checkForUpdate({ silent: false, channel: "stable" });
 
-    expect(status).toEqual({
-      kind: "available",
-      version: "2.0.0",
-      notes: "",
-    });
+    expect(status).toEqual({ kind: "available", version: "2.0.0", notes: "" });
   });
 
-  it("swallows network errors in silent mode and returns no-update", async () => {
+  it("swallows backend network errors in silent mode", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { checkForUpdate } = await import("$lib/updater");
-    checkMock.mockRejectedValueOnce(new Error("network connect timeout"));
+    checkForUpdateMock.mockResolvedValueOnce({
+      status: "error",
+      error: { kind: "network" },
+    });
 
-    const status = await checkForUpdate({ silent: true });
+    const status = await checkForUpdate({ silent: true, channel: "stable" });
 
     expect(status).toEqual({ kind: "no-update" });
     expect(warnSpy).toHaveBeenCalled();
   });
 
-  it("surfaces network errors in non-silent mode", async () => {
+  it("surfaces backend network errors in non-silent mode", async () => {
     const { checkForUpdate } = await import("$lib/updater");
-    checkMock.mockRejectedValueOnce(new Error("network connect timeout"));
+    checkForUpdateMock.mockResolvedValueOnce({
+      status: "error",
+      error: { kind: "network" },
+    });
 
-    const status = await checkForUpdate({ silent: false });
+    const status = await checkForUpdate({ silent: false, channel: "stable" });
 
     expect(status).toEqual({ kind: "error", reason: "network" });
   });
 
   it("always surfaces signature errors even in silent mode", async () => {
     const { checkForUpdate } = await import("$lib/updater");
-    checkMock.mockRejectedValueOnce(new Error("signature verification failed"));
+    checkForUpdateMock.mockResolvedValueOnce({
+      status: "error",
+      error: { kind: "signature-invalid" },
+    });
 
-    const status = await checkForUpdate({ silent: true });
+    const status = await checkForUpdate({ silent: true, channel: "stable" });
 
     expect(status).toEqual({ kind: "error", reason: "signature-invalid" });
   });
 
-  it("short-circuits in dev mode without calling the plugin", async () => {
+  it("classifies internal errors as unknown", async () => {
+    const { checkForUpdate } = await import("$lib/updater");
+    checkForUpdateMock.mockResolvedValueOnce({
+      status: "error",
+      error: { kind: "internal", message: "boom" },
+    });
+
+    const status = await checkForUpdate({ silent: false, channel: "stable" });
+
+    expect(status).toEqual({ kind: "error", reason: "unknown" });
+  });
+
+  it("surfaces transport failures as a classified error", async () => {
+    const { checkForUpdate } = await import("$lib/updater");
+    checkForUpdateMock.mockRejectedValueOnce(new Error("network connect timeout"));
+
+    const status = await checkForUpdate({ silent: false, channel: "stable" });
+
+    expect(status).toEqual({ kind: "error", reason: "network" });
+  });
+
+  it("short-circuits in dev mode without calling the command", async () => {
     vi.stubEnv("DEV", true);
     const { checkForUpdate } = await import("$lib/updater");
 
-    const status = await checkForUpdate({ silent: false });
+    const status = await checkForUpdate({ silent: false, channel: "stable" });
 
     expect(status).toEqual({ kind: "no-update" });
-    expect(checkMock).not.toHaveBeenCalled();
+    expect(checkForUpdateMock).not.toHaveBeenCalled();
   });
 });
