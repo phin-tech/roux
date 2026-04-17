@@ -16,7 +16,12 @@ CERT_PATH="${RUNNER_TEMP}/cert.p12"
 cleanup() { rm -f "${CERT_PATH}"; }
 trap cleanup EXIT
 
+cert_len=${#APPLE_CERTIFICATE}
+cert_sha=$(printf '%s' "${APPLE_CERTIFICATE}" | shasum -a 256 | awk '{print $1}')
+echo "APPLE_CERTIFICATE env: length=${cert_len} sha256=${cert_sha}"
+
 printf '%s' "${APPLE_CERTIFICATE}" | base64 --decode > "${CERT_PATH}"
+echo "Decoded p12: size=$(wc -c < "${CERT_PATH}" | tr -d ' ') bytes, type=$(file -b "${CERT_PATH}")"
 
 security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
 security set-keychain-settings -lut 21600 "${KEYCHAIN_NAME}"
