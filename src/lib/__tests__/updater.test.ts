@@ -118,6 +118,18 @@ describe("checkForUpdate", () => {
     expect(status).toEqual({ kind: "error", reason: "signature-invalid" });
   });
 
+  it("maps not-found to no-update (empty channel is not an error)", async () => {
+    const { checkForUpdate } = await import("$lib/updater");
+    checkForUpdateMock.mockResolvedValueOnce({
+      status: "error",
+      error: { kind: "not-found" },
+    });
+
+    const status = await checkForUpdate({ silent: false, channel: "preRelease" });
+
+    expect(status).toEqual({ kind: "no-update" });
+  });
+
   it("classifies internal errors as unknown", async () => {
     const { checkForUpdate } = await import("$lib/updater");
     checkForUpdateMock.mockResolvedValueOnce({

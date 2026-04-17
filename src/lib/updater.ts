@@ -54,6 +54,7 @@ export async function checkForUpdate(opts: {
   }
 
   let reason: UpdaterError;
+  let rawError: unknown;
   try {
     const result = await commands.checkForUpdate(opts.channel);
     if (result.status === "ok") {
@@ -64,9 +65,17 @@ export async function checkForUpdate(opts: {
         notes: result.data.notes ?? "",
       };
     }
+    // "not-found" means the selected channel has no published release (e.g.
+    // the pre-release channel before the first alpha ships). From the user's
+    // perspective that's indistinguishable from "no update available".
+    if (result.error.kind === "not-found") {
+      return { kind: "no-update" };
+    }
     reason = classifyBackendError(result.error);
+    rawError = result.error;
   } catch (err) {
     reason = classifyTransportError(err);
+    rawError = err;
   }
 
   // Signature errors are a tamper signal; always surface.
@@ -74,7 +83,7 @@ export async function checkForUpdate(opts: {
     return { kind: "error", reason };
   }
   if (opts.silent) {
-    console.warn("[updater] check failed (silent)");
+    console.warn("[updater] check failed (silent):", reason, rawError);
     return { kind: "no-update" };
   }
   return { kind: "error", reason };

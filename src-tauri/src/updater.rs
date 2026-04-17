@@ -61,7 +61,7 @@ pub struct UpdateInfo {
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase", tag = "phase")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "phase")]
 pub enum UpdateProgress {
     Started { content_length: Option<u64> },
     Progress { chunk_length: u64 },
@@ -84,8 +84,12 @@ async fn resolve_latest_prerelease_manifest() -> Result<String, UpdaterError> {
         created_at: String,
     }
 
+    // 100 is the GitHub API's max per_page. In practice a repo is unlikely
+    // to go 100 releases without a prerelease, and paginating would add
+    // another network round-trip per check. If the repo ever outgrows this,
+    // bump to full pagination.
     let api_url = format!(
-        "https://api.github.com/repos/{}/{}/releases?per_page=30",
+        "https://api.github.com/repos/{}/{}/releases?per_page=100",
         GITHUB_OWNER, GITHUB_REPO
     );
     let client = reqwest::Client::builder()
@@ -206,6 +210,27 @@ mod tests {
     async fn stable_endpoint_is_static_manifest_url() {
         let url = resolve_endpoint(UpdateChannel::Stable).await.unwrap();
         assert_eq!(url, STABLE_MANIFEST_URL);
+    }
+
+    #[test]
+    fn update_progress_serializes_in_camel_case() {
+        let started = serde_json::to_value(UpdateProgress::Started {
+            content_length: Some(1024),
+        })
+        .unwrap();
+        assert_eq!(started["phase"], "started");
+        assert_eq!(started["contentLength"], 1024);
+        assert!(
+            started.get("content_length").is_none(),
+            "snake_case field would break the frontend progress listener"
+        );
+
+        let progress = serde_json::to_value(UpdateProgress::Progress { chunk_length: 256 }).unwrap();
+        assert_eq!(progress["phase"], "progress");
+        assert_eq!(progress["chunkLength"], 256);
+
+        let finished = serde_json::to_value(UpdateProgress::Finished).unwrap();
+        assert_eq!(finished["phase"], "finished");
     }
 
     #[test]
