@@ -1,6 +1,27 @@
-import { derived, writable, type Readable } from "svelte/store";
+import { derived, get, writable, type Readable } from "svelte/store";
 import { sessionLayouts, collectVisibleLeafIds } from "$lib/panes/layout";
 import { sessionState } from "$lib/stores/sessions";
+
+/**
+ * Global sidebar slot. The app renders at most one side panel at a time —
+ * Settings, Notes, Watches, Notifications. Any new panel registers here.
+ * State is ephemeral (not persisted).
+ */
+export type SidebarId = "settings" | "notes" | "watches" | "notifications";
+
+export const activeSidebar = writable<SidebarId | null>(null);
+
+export function openSidebar(id: SidebarId): void {
+  activeSidebar.set(id);
+}
+
+export function closeSidebar(): void {
+  activeSidebar.set(null);
+}
+
+export function toggleSidebar(id: SidebarId): void {
+  activeSidebar.set(get(activeSidebar) === id ? null : id);
+}
 
 const HOLD_DELAY_MS = 200;
 

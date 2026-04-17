@@ -13,10 +13,11 @@ import {
   removeLeaf,
   firstLeafId,
   collectLeafIds,
+  collectVisibleLeafIds,
   containsPaneId,
   type SplitDirection,
 } from "./layout";
-import { focusedPaneId, setLogicalFocus } from "./focus";
+import { focusedPaneId, fullscreenPaneId, setLogicalFocus } from "./focus";
 import { disposeAgentState } from "./agentState";
 import { forgetLastStatus } from "./agentNotifications";
 import type { SpawnProfileRef } from "./profiles";
@@ -123,9 +124,21 @@ export function closePane(sessionId: string, paneId: string): boolean {
 
   disposePane(paneId, killPty);
 
+  // A fullscreened pane that is now closed must release the fullscreen
+  // slot — otherwise SplitPane keeps filtering every sibling out of the
+  // DOM against a dead paneId and the content area goes blank.
+  if (get(fullscreenPaneId) === paneId) {
+    fullscreenPaneId.set(null);
+  }
+
   if (get(focusedPaneId) === paneId) {
     const tree = get(sessionLayouts).get(sessionId);
-    setLogicalFocus(tree ? firstLeafId(tree) : null);
+    // Prefer the first *visible* leaf so we don't hand focus to a pane
+    // hidden behind a stacked tab's `activeIndex`.
+    const nextFocus = tree
+      ? (collectVisibleLeafIds(tree)[0] ?? firstLeafId(tree))
+      : null;
+    setLogicalFocus(nextFocus);
   }
 
   return true;

@@ -67,13 +67,13 @@
     hideSessionHints,
     armPaneHints,
     hidePaneHints,
+    activeSidebar,
+    openSidebar,
+    closeSidebar,
+    toggleSidebar,
   } from "$lib/stores/ui";
 
   let showNewSessionDialog = $state(false);
-  let showSettings = $state(false);
-  let showNotes = $state(false);
-  let showWatches = $state(false);
-  let showNotifications = $state(false);
   let showSetupPrompt = $state(false);
   let showQuitDialog = $state(false);
 
@@ -138,23 +138,19 @@
       return;
     }
     if (cmd.id === "app.settings") {
-      showSettings = !showSettings;
-      if (showSettings) showNotes = false;
+      toggleSidebar("settings");
       return;
     }
     if (cmd.id === "ui.toggle-notes") {
-      showNotes = !showNotes;
-      if (showNotes) showSettings = false;
+      toggleSidebar("notes");
       return;
     }
     if (cmd.id === "ui.toggle-watches") {
-      showWatches = !showWatches;
-      if (showWatches) { showSettings = false; showNotes = false; showNotifications = false; }
+      toggleSidebar("watches");
       return;
     }
     if (cmd.id === "ui.toggle-notifications") {
-      showNotifications = !showNotifications;
-      if (showNotifications) { showSettings = false; showNotes = false; showWatches = false; }
+      toggleSidebar("notifications");
       return;
     }
     if (cmd.id === "app.command-palette") {
@@ -284,6 +280,11 @@
         keymapExitTree();
         return;
       case "none":
+        // While a tree is armed, unbound keys are dropped per the
+        // keymap contract (`resolve.ts` §1e). Without preventDefault
+        // the character leaks through to xterm while the tree stays
+        // armed — user sees typing land in the terminal mid-chord.
+        if (km.treePath.length > 0) e.preventDefault();
         break;
     }
 
@@ -642,26 +643,26 @@
 
 <Layout
   onNewSession={() => (showNewSessionDialog = true)}
-  onOpenSettings={() => (showSettings = !showSettings)}
-  onToggleWatches={() => { showWatches = !showWatches; if (showWatches) { showSettings = false; showNotes = false; showNotifications = false; } }}
-  onToggleNotifications={() => { showNotifications = !showNotifications; if (showNotifications) { showSettings = false; showNotes = false; showWatches = false; } }}
+  onOpenSettings={() => toggleSidebar("settings")}
+  onToggleWatches={() => toggleSidebar("watches")}
+  onToggleNotifications={() => toggleSidebar("notifications")}
 >
   {#snippet settingsPanel()}
-    <SettingsPanel visible={showSettings} onclose={() => (showSettings = false)} />
+    <SettingsPanel visible={$activeSidebar === "settings"} onclose={closeSidebar} />
     {@const activeSession = $sessionState.sessions.find(s => s.id === $sessionState.activeSessionId)}
     <NotesPanel
-      visible={showNotes}
+      visible={$activeSidebar === "notes"}
       projectId={activeSession?.projectId ?? null}
       projectName={$projects.find(p => p.id === activeSession?.projectId)?.name ?? null}
-      onclose={() => (showNotes = false)}
+      onclose={closeSidebar}
     />
     <WatchesPane
-      visible={showWatches}
-      onclose={() => (showWatches = false)}
+      visible={$activeSidebar === "watches"}
+      onclose={closeSidebar}
     />
     <NotificationsPane
-      visible={showNotifications}
-      onclose={() => (showNotifications = false)}
+      visible={$activeSidebar === "notifications"}
+      onclose={closeSidebar}
     />
   {/snippet}
 </Layout>
@@ -684,8 +685,8 @@
   open={$commandSurface.open && $commandSurface.mode === "palette"}
   onclose={closeCommandSurface}
   onNewSession={() => (showNewSessionDialog = true)}
-  onSettings={() => (showSettings = !showSettings)}
-  onCheckForUpdates={() => { showSettings = true; void runManualCheck(); }}
+  onSettings={() => toggleSidebar("settings")}
+  onCheckForUpdates={() => { openSidebar("settings"); void runManualCheck(); }}
 />
 
 {#if $hudVisible || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
