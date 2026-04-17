@@ -39,7 +39,7 @@
   }
 </script>
 
-<div class="flex h-screen flex-col bg-bg-deep text-text-primary">
+<div class="flex h-screen flex-col overflow-hidden bg-bg-deep text-text-primary">
   <div
     class="flex min-h-0 flex-1"
     class:flex-row={$settings.tabPosition === "left"}
@@ -61,7 +61,7 @@
       </div>
     {/if}
 
-    <div class="relative flex min-w-0 flex-1 flex-col bg-bg-deep">
+    <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-bg-deep">
       {#if statusBarPosition === "top"}
         <StatusBar position="top" />
       {/if}
