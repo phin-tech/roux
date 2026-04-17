@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag to build (e.g. v0.4.5-alpha.5)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install Task
+        run: brew install go-task
+      - name: Install frontend deps
+        run: npm ci
+      - name: Import Developer ID cert
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci-setup-macos-keychain.sh
+      - name: Sign, notarize, staple
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: task sign
+      - name: Publish release + updater manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: task publish
+
+  build-windows:
+    runs-on: windows-latest
+    needs: release-macos
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install Task
+        run: choco install go-task -y
+      - name: Install frontend deps
+        run: npm ci
+      - name: Build NSIS installer
+        run: task windows:build
+      - name: Upload NSIS to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(src-tauri/target/release/bundle/nsis/*.exe src-tauri/target/release/bundle/nsis/*.nsis.zip)
+          if (( ${#artifacts[@]} == 0 )); then
+            echo "No NSIS artifacts found under src-tauri/target/release/bundle/nsis" >&2
+            exit 1
+          fi
+          for f in "${artifacts[@]}"; do
+            gh release upload "${{ inputs.version }}" "$f" --clobber
+          done
