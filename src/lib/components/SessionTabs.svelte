@@ -254,7 +254,7 @@
         title="Collapse sidebar"
         aria-label="Collapse sidebar"
       >
-        <span class="text-[11px]">&#9664;</span>
+        <span class="text-[11px]">{$settings.tabPosition === "right" ? "\u25B6" : "\u25C0"}</span>
       </button>
       <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Sessions</span>
       <button

@@ -16,13 +16,13 @@
 
 <button
   type="button"
-  class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50
+  class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full border text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50
     {active
       ? 'border-accent bg-accent/20 text-accent ring-1 ring-accent/40'
       : 'border-border-subtle bg-bg-surface/70 text-text-secondary hover:border-accent-dim/40 hover:bg-bg-hover hover:text-text-primary'}"
   title={displayName}
   aria-label={displayName}
-  aria-pressed={active}
+  aria-current={active ? "true" : undefined}
   onclick={onselect}
 >
   {initial}

@@ -29,7 +29,7 @@
       title="Expand sidebar"
       aria-label="Expand sidebar"
     >
-      <span class="text-xs">&#9654;</span>
+      <span class="text-xs">{$settings.tabPosition === "right" ? "\u25C0" : "\u25B6"}</span>
     </button>
   </div>
 
