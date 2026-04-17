@@ -208,6 +208,14 @@ fn status_dir() -> PathBuf {
     platform::status_dir()
 }
 
+fn parse_json_input_or_empty(input: &str) -> Result<Value, String> {
+    if input.trim().is_empty() {
+        Ok(serde_json::json!({}))
+    } else {
+        serde_json::from_str::<Value>(input).map_err(|e| format!("invalid JSON: {}", e))
+    }
+}
+
 fn send_socket_command(request: Value) -> Result<Value, String> {
     #[cfg(windows)]
     {
@@ -714,6 +722,12 @@ mod tests {
             _ => panic!("expected Hooks::Emit"),
         }
     }
+
+    #[test]
+    fn parse_json_input_returns_empty_object_for_blank_input() {
+        let parsed = parse_json_input_or_empty("   \n\t").unwrap();
+        assert_eq!(parsed, serde_json::json!({}));
+    }
 }
 
 fn main() {
@@ -944,10 +958,10 @@ fn main() {
                         eprintln!("Error: failed to read JSON from stdin");
                         std::process::exit(1);
                     }
-                    match serde_json::from_str::<Value>(&input) {
+                    match parse_json_input_or_empty(&input) {
                         Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("Error: invalid JSON: {}", e);
+                        Err(message) => {
+                            eprintln!("Error: {}", message);
                             std::process::exit(1);
                         }
                     }

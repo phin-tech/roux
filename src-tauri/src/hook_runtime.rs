@@ -5,7 +5,10 @@ use roux_core::{
     RouxEvent, RouxEventOrigin, RouxEventSession, RouxEventWorkspace, Watch, WatchKind,
     WatchMode, WatchOutcome, WatchResult, WatchScope,
 };
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+const DEFAULT_HOOK_TIMEOUT_MS: u64 = 30_000;
+const MAX_HOOK_OUTPUT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Default)]
 pub struct LoadedHooks {
@@ -13,7 +16,7 @@ pub struct LoadedHooks {
     pub errors: Vec<HookLoadError>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HookLoadError {
     pub path: PathBuf,
     pub message: String,
@@ -23,6 +26,7 @@ pub struct HookLoadError {
 pub struct HookDispatchResult {
     pub matched_hook_ids: Vec<String>,
     pub runs: Vec<HookRunResult>,
+    pub load_errors: Vec<HookLoadError>,
 }
 
 #[derive(Debug)]
@@ -31,7 +35,9 @@ pub struct HookRunResult {
     pub exit_code: Option<i32>,
     pub timed_out: bool,
     pub stdout: String,
+    pub stdout_truncated: bool,
     pub stderr: String,
+    pub stderr_truncated: bool,
 }
 
 pub fn load_hooks_for_event_in(
@@ -46,7 +52,10 @@ pub fn load_hooks_for_event_in(
     out.config = global.config;
 
     if let Some(repo_root) = event.workspace.as_ref().and_then(|w| w.repo_root.as_deref()) {
-        let trusted = settings.trusted_workspaces.iter().any(|root| root == repo_root);
+        let trusted = settings
+            .trusted_workspaces
+            .iter()
+            .any(|root| normalized_workspace_path(root) == normalized_workspace_path(repo_root));
         if trusted {
             let repo = load_optional_hook_file(Path::new(repo_root).join(".roux").join("hooks.kdl").as_path());
             out.errors.extend(repo.errors);
@@ -74,7 +83,26 @@ pub async fn dispatch_event_in(
     settings: &crate::settings::RouxSettings,
     event: &RouxEvent,
 ) -> HookDispatchResult {
-    let loaded = load_hooks_for_event_in(config_dir, settings, event);
+    let config_dir = config_dir.to_path_buf();
+    let settings = settings.clone();
+    let event_for_load = event.clone();
+    let loaded = match tokio::task::spawn_blocking(move || {
+        load_hooks_for_event_in(&config_dir, &settings, &event_for_load)
+    })
+    .await
+    {
+        Ok(loaded) => loaded,
+        Err(e) => LoadedHooks {
+            config: HookConfig::default(),
+            errors: vec![HookLoadError {
+                path: PathBuf::from("<hook-loader>"),
+                message: format!("failed to join hook loader task: {e}"),
+            }],
+        },
+    };
+    for error in &loaded.errors {
+        eprintln!("Roux hook load error in {}: {}", error.path.display(), error.message);
+    }
     let matched = matching_hooks(&loaded.config, event);
     let matched_hook_ids = matched.iter().map(|hook| hook.id.clone()).collect::<Vec<_>>();
 
@@ -83,7 +111,7 @@ pub async fn dispatch_event_in(
         runs.push(run_hook(hook, event).await);
     }
 
-    HookDispatchResult { matched_hook_ids, runs }
+    HookDispatchResult { matched_hook_ids, runs, load_errors: loaded.errors }
 }
 
 pub fn session_created_event(session: &crate::session::Session, profile: Option<&str>) -> RouxEvent {
@@ -211,6 +239,10 @@ async fn run_hook(hook: &HookDefinition, event: &RouxEvent) -> HookRunResult {
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
     cmd.kill_on_drop(true);
+    #[cfg(unix)]
+    {
+        cmd.process_group(0);
+    }
 
     cmd.env("ROUX_HOOK_ID", &hook.id);
     cmd.env("ROUX_EVENT_KIND", event.kind.as_str());
@@ -240,7 +272,9 @@ async fn run_hook(hook: &HookDefinition, event: &RouxEvent) -> HookRunResult {
                 exit_code: None,
                 timed_out: false,
                 stdout: String::new(),
+                stdout_truncated: false,
                 stderr: format!("failed to spawn hook: {e}"),
+                stderr_truncated: false,
             };
         }
     };
@@ -253,65 +287,47 @@ async fn run_hook(hook: &HookDefinition, event: &RouxEvent) -> HookRunResult {
                 exit_code: None,
                 timed_out: false,
                 stdout: String::new(),
+                stdout_truncated: false,
                 stderr: format!("failed to write hook stdin: {e}"),
+                stderr_truncated: false,
             };
         }
     }
 
-    let wait = child.wait_with_output();
-    let output = if let Some(timeout_ms) = hook.run.timeout_ms {
-        match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), wait).await {
-            Ok(result) => match result {
-                Ok(output) => {
-                    return HookRunResult {
-                        hook_id: hook.id.clone(),
-                        exit_code: output.status.code(),
-                        timed_out: false,
-                        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-                        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-                    };
-                }
-                Err(e) => {
-                    return HookRunResult {
-                        hook_id: hook.id.clone(),
-                        exit_code: None,
-                        timed_out: false,
-                        stdout: String::new(),
-                        stderr: format!("failed to wait on hook: {e}"),
-                    };
-                }
-            },
-            Err(_) => {
-                return HookRunResult {
-                    hook_id: hook.id.clone(),
-                    exit_code: None,
-                    timed_out: true,
-                    stdout: String::new(),
-                    stderr: "hook timed out".into(),
-                };
-            }
-        }
-    } else {
-        match wait.await {
-            Ok(output) => output,
-            Err(e) => {
-                return HookRunResult {
-                    hook_id: hook.id.clone(),
-                    exit_code: None,
-                    timed_out: false,
-                    stdout: String::new(),
-                    stderr: format!("failed to wait on hook: {e}"),
-                };
-            }
+    let stdout_task = child.stdout.take().map(|stdout| tokio::spawn(read_stream_with_limit(stdout)));
+    let stderr_task = child.stderr.take().map(|stderr| tokio::spawn(read_stream_with_limit(stderr)));
+
+    let timeout_ms = hook_timeout_ms(hook);
+    let wait_result =
+        tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), child.wait()).await;
+
+    let (exit_code, timed_out, wait_error) = match wait_result {
+        Ok(Ok(status)) => (status.code(), false, None),
+        Ok(Err(e)) => (None, false, Some(format!("failed to wait on hook: {e}"))),
+        Err(_) => {
+            terminate_hook_process(&mut child).await;
+            (None, true, Some("hook timed out".into()))
         }
     };
 
+    let stdout = collect_output(stdout_task, "stdout").await;
+    let stderr = collect_output(stderr_task, "stderr").await;
+    let mut stderr_text = stderr.text;
+    if let Some(wait_error) = wait_error {
+        if !stderr_text.is_empty() {
+            stderr_text.push('\n');
+        }
+        stderr_text.push_str(&wait_error);
+    }
+
     HookRunResult {
         hook_id: hook.id.clone(),
-        exit_code: output.status.code(),
-        timed_out: false,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        exit_code,
+        timed_out,
+        stdout: stdout.text,
+        stdout_truncated: stdout.truncated,
+        stderr: stderr_text,
+        stderr_truncated: stderr.truncated,
     }
 }
 
@@ -331,6 +347,91 @@ fn resolve_cwd(cwd: &str, event: &RouxEvent) -> PathBuf {
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
         other => PathBuf::from(other),
     }
+}
+
+fn hook_timeout_ms(hook: &HookDefinition) -> u64 {
+    hook.run.timeout_ms.unwrap_or(DEFAULT_HOOK_TIMEOUT_MS)
+}
+
+#[derive(Debug, Default)]
+struct OutputCapture {
+    text: String,
+    truncated: bool,
+}
+
+fn normalized_workspace_path(path: &str) -> String {
+    let path = path.trim();
+    let path = PathBuf::from(path);
+    let normalized = path.canonicalize().unwrap_or(path);
+    let normalized = normalized.to_string_lossy().to_string();
+    #[cfg(windows)]
+    {
+        normalized.to_ascii_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        normalized
+    }
+}
+
+async fn read_stream_with_limit<R>(mut reader: R) -> std::io::Result<OutputCapture>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut captured = Vec::new();
+    let mut truncated = false;
+    let mut buf = [0_u8; 4096];
+
+    loop {
+        let read = reader.read(&mut buf).await?;
+        if read == 0 {
+            break;
+        }
+
+        if captured.len() < MAX_HOOK_OUTPUT_BYTES {
+            let remaining = MAX_HOOK_OUTPUT_BYTES - captured.len();
+            let take = remaining.min(read);
+            captured.extend_from_slice(&buf[..take]);
+            if take < read {
+                truncated = true;
+            }
+        } else {
+            truncated = true;
+        }
+    }
+
+    Ok(OutputCapture { text: String::from_utf8_lossy(&captured).into_owned(), truncated })
+}
+
+async fn collect_output(
+    task: Option<tokio::task::JoinHandle<std::io::Result<OutputCapture>>>,
+    stream_name: &str,
+) -> OutputCapture {
+    match task {
+        Some(task) => match task.await {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => OutputCapture {
+                text: format!("failed to read hook {stream_name}: {e}"),
+                truncated: false,
+            },
+            Err(e) => OutputCapture {
+                text: format!("failed to join hook {stream_name} reader: {e}"),
+                truncated: false,
+            },
+        },
+        None => OutputCapture::default(),
+    }
+}
+
+async fn terminate_hook_process(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        unsafe {
+            libc::killpg(pid as i32, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill().await;
+    let _ = child.wait().await;
 }
 
 fn watch_payload(
@@ -746,6 +847,46 @@ mod tests {
     }
 
     #[test]
+    fn hook_timeout_defaults_when_omitted() {
+        let hook = HookDefinition {
+            id: "default-timeout".into(),
+            on: vec![HookEventKind::WatchCompleted],
+            enabled: true,
+            filters: Vec::new(),
+            run: HookRun { command: "echo".into(), timeout_ms: None, ..HookRun::default() },
+            policy: Default::default(),
+        };
+
+        assert_eq!(hook_timeout_ms(&hook), DEFAULT_HOOK_TIMEOUT_MS);
+    }
+
+    #[test]
+    fn trusted_workspace_matching_normalizes_trailing_slashes() {
+        let cfg = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+
+        write(
+            &repo.path().join(".roux/hooks.kdl"),
+            r#"
+                hooks {
+                  hook "repo-watch" {
+                    on "watch.completed"
+                    run { command "python3" }
+                  }
+                }
+            "#,
+        );
+
+        let mut settings = crate::settings::RouxSettings::default();
+        settings.trusted_workspaces = vec![format!("{}/", repo.path().display())];
+        let event = event_for_repo(repo.path());
+
+        let loaded = load_hooks_for_event_in(cfg.path(), &settings, &event);
+        let ids: Vec<&str> = loaded.config.hooks.iter().map(|hook| hook.id.as_str()).collect();
+        assert_eq!(ids, vec!["repo-watch"]);
+    }
+
+    #[test]
     fn builds_session_created_event_with_workspace_and_profile() {
         let session = crate::session::Session {
             id: "sess-1".into(),
@@ -827,5 +968,117 @@ mod tests {
             written.contains(&format!("\"repoRoot\":\"{}\"", repo.path().display())),
             "repo root missing from event json: {written}"
         );
+    }
+
+    #[tokio::test]
+    async fn dispatch_surfaces_hook_load_errors() {
+        let cfg = tempfile::tempdir().unwrap();
+        write(
+            &cfg.path().join("hooks.kdl"),
+            r#"
+                not-hooks {
+                  nope "x"
+                }
+            "#,
+        );
+
+        let settings = crate::settings::RouxSettings::default();
+        let event = event_for_repo(cfg.path());
+
+        let result = dispatch_event_in(cfg.path(), &settings, &event).await;
+        assert!(result.runs.is_empty());
+        assert_eq!(result.matched_hook_ids, Vec::<String>::new());
+        assert_eq!(result.load_errors.len(), 1);
+        assert!(result.load_errors[0].message.contains("top-level `hooks` node"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timed_out_hook_is_killed_before_later_side_effects() {
+        let cfg = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        let out = repo.path().join("should-not-exist");
+        let script = repo.path().join("slow-hook.sh");
+        write(
+            &script,
+            &format!(
+                "#!/usr/bin/env sh\nsleep 1\nprintf done > \"{}\"\n",
+                out.display()
+            ),
+        );
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        write(
+            &cfg.path().join("hooks.kdl"),
+            &format!(
+                r#"
+                    hooks {{
+                      hook "slow-hook" {{
+                        on "watch.completed"
+                        run {{
+                          command "sh"
+                          arg "{}"
+                          timeout-ms 50
+                        }}
+                      }}
+                    }}
+                "#,
+                script.display()
+            ),
+        );
+
+        let settings = crate::settings::RouxSettings::default();
+        let event = event_for_repo(repo.path());
+
+        let result = dispatch_event_in(cfg.path(), &settings, &event).await;
+        assert_eq!(result.runs.len(), 1);
+        assert!(result.runs[0].timed_out);
+
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        assert!(!out.exists(), "timed-out hook still produced a later side effect");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn hook_output_is_truncated_to_capture_limit() {
+        let cfg = tempfile::tempdir().unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        let script = repo.path().join("loud-hook.sh");
+        write(
+            &script,
+            "python3 - <<'PY'\nimport sys\nsys.stdout.write('x' * 70000)\nsys.stderr.write('y' * 70000)\nPY\n",
+        );
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        write(
+            &cfg.path().join("hooks.kdl"),
+            &format!(
+                r#"
+                    hooks {{
+                      hook "loud-hook" {{
+                        on "watch.completed"
+                        run {{
+                          command "sh"
+                          arg "{}"
+                          timeout-ms 5000
+                        }}
+                      }}
+                    }}
+                "#,
+                script.display()
+            ),
+        );
+
+        let settings = crate::settings::RouxSettings::default();
+        let event = event_for_repo(repo.path());
+
+        let result = dispatch_event_in(cfg.path(), &settings, &event).await;
+        assert_eq!(result.runs.len(), 1);
+        assert!(result.runs[0].stdout_truncated);
+        assert!(result.runs[0].stderr_truncated);
+        assert!(result.runs[0].stdout.len() <= MAX_HOOK_OUTPUT_BYTES);
+        assert!(result.runs[0].stderr.len() <= MAX_HOOK_OUTPUT_BYTES);
     }
 }

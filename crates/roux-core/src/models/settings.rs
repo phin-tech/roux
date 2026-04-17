@@ -204,6 +204,7 @@ impl RouxSettings {
             profile.source = ProfileSource::User;
         }
         s.repo_roots = normalize_repo_roots(&s.repo_roots);
+        s.trusted_workspaces = normalize_repo_roots(&s.trusted_workspaces);
         // One-way migration: if an older settings file only has the legacy
         // `cleanupWorktreesOnClose: true` flag, promote the new enum to
         // Always. The `Prompt` default already matches legacy `false`, so
@@ -290,6 +291,22 @@ mod tests {
 
         let normalized = settings.normalized();
         assert_eq!(normalized.repo_roots, vec!["/tmp/src", "/tmp/other"]);
+    }
+
+    #[test]
+    fn normalized_trusted_workspaces_trims_empty_and_duplicates() {
+        let settings = RouxSettings {
+            trusted_workspaces: vec![
+                "  /tmp/src  ".to_string(),
+                "".to_string(),
+                " /tmp/src ".to_string(),
+                "/tmp/other".to_string(),
+            ],
+            ..RouxSettings::default()
+        };
+
+        let normalized = settings.normalized();
+        assert_eq!(normalized.trusted_workspaces, vec!["/tmp/src", "/tmp/other"]);
     }
 
     #[test]

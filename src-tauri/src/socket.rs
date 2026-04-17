@@ -200,12 +200,18 @@ async fn handle_hooks_emit(req: Request, app: &tauri::AppHandle) -> Response {
 
     Response::success(serde_json::json!({
         "matchedHookIds": result.matched_hook_ids,
+        "loadErrors": result.load_errors.iter().map(|error| serde_json::json!({
+            "path": error.path.display().to_string(),
+            "message": error.message.clone(),
+        })).collect::<Vec<_>>(),
         "runs": result.runs.iter().map(|run| serde_json::json!({
             "hookId": run.hook_id,
             "exitCode": run.exit_code,
             "timedOut": run.timed_out,
             "stdout": run.stdout,
+            "stdoutTruncated": run.stdout_truncated,
             "stderr": run.stderr,
+            "stderrTruncated": run.stderr_truncated,
         })).collect::<Vec<_>>(),
     }))
 }
@@ -649,12 +655,15 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     }
 
     let hook_event = crate::hook_runtime::session_created_event(&session, Some(&profile));
-    let _ = crate::hook_runtime::dispatch_event_in(
-        &crate::paths::roux_config_dir(),
-        &settings,
-        &hook_event,
-    )
-    .await;
+    let hook_settings = settings.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::hook_runtime::dispatch_event_in(
+            &crate::paths::roux_config_dir(),
+            &hook_settings,
+            &hook_event,
+        )
+        .await;
+    });
 
     Response::success(serde_json::json!({ "session_id": session_id }))
 }
