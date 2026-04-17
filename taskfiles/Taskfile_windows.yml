@@ -11,13 +11,13 @@ tasks:
     cmds:
       - cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli
       - cmd: |
-          for /f "tokens=2 delims=: " %%a in ('rustc -vV ^| findstr /b "host:"') do set HOST=%%a
-          if not defined HOST set HOST=%TAURI_TARGET%
-          if not defined HOST set HOST=x86_64-pc-windows-msvc
-          if not exist src-tauri\binaries mkdir src-tauri\binaries
-          copy /Y target\release\roux-cli.exe src-tauri\binaries\roux-cli.exe >nul
-          copy /Y target\release\roux-cli.exe src-tauri\binaries\roux-cli-%HOST%.exe >nul
-          echo Prepared bundled roux-cli.exe for %HOST%
+          set -eu
+          TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
+          : "${TARGET:=x86_64-pc-windows-msvc}"
+          mkdir -p src-tauri/binaries
+          cp -f target/release/roux-cli.exe src-tauri/binaries/roux-cli.exe
+          cp -f target/release/roux-cli.exe "src-tauri/binaries/roux-cli-${TARGET}.exe"
+          echo "Prepared bundled roux-cli.exe for ${TARGET}"
         platforms: [windows]
 
   build:
