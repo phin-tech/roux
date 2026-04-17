@@ -449,7 +449,7 @@ tasks:
         echo "Released v${NEW}"
 
   release:
-    desc: "Bump version, build, sign, notarize, and publish in one shot. Usage: task release BUMP=patch|minor|major [PRE=alpha|beta|dev|rc]"
+    desc: "Bump version + tag locally, then trigger the GitHub Actions release workflow. Usage: task release BUMP=patch|minor|major [PRE=alpha|beta|dev|rc]"
     requires:
       vars: [BUMP]
     cmds:
@@ -457,4 +457,49 @@ tasks:
         vars:
           BUMP: "{{.BUMP}}"
           PRE: "{{.PRE}}"
-      - task: publish:op
+      - task: ci:trigger
+
+  ci:sync-secrets:
+    desc: "Push signing/notarization/updater secrets from 1Password into GitHub Actions secrets"
+    preconditions:
+      - sh: "command -v op >/dev/null 2>&1"
+        msg: "1Password CLI 'op' is required"
+      - sh: "command -v gh >/dev/null 2>&1"
+        msg: "GitHub CLI 'gh' is required"
+      - sh: '[ -f ".env.signing" ]'
+        msg: ".env.signing is required"
+    cmds:
+      - ./scripts/sync-gh-secrets.sh
+
+  ci:trigger:
+    desc: "Dispatch the release workflow for the current version in src-tauri/tauri.conf.json"
+    preconditions:
+      - sh: "command -v gh >/dev/null 2>&1"
+        msg: "GitHub CLI 'gh' is required"
+    cmds:
+      - |
+        set -euo pipefail
+        VERSION=$(python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+        TAG="v${VERSION}"
+        echo "Dispatching release workflow for ${TAG}..."
+        # Retry briefly because a freshly-pushed tag can take a few seconds
+        # to register on GitHub before workflow_dispatch accepts it.
+        for i in 1 2 3 4 5; do
+          if gh workflow run release.yml -f version="${TAG}"; then
+            break
+          fi
+          if [ "$i" = "5" ]; then
+            echo "gh workflow run failed after 5 attempts" >&2
+            exit 1
+          fi
+          echo "Dispatch attempt ${i} failed; retrying in 3s..."
+          sleep 3
+        done
+        sleep 2
+        RUN_ID=$(gh run list --workflow=release.yml --event=workflow_dispatch --limit=1 --json databaseId --jq '.[0].databaseId')
+        if [ -z "${RUN_ID}" ]; then
+          echo "Dispatched, but could not resolve the run ID. Check https://github.com/phin-tech/roux/actions" >&2
+          exit 0
+        fi
+        echo "Watching run ${RUN_ID}..."
+        gh run watch "${RUN_ID}" --exit-status
