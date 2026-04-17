@@ -42,7 +42,7 @@ op run --env-file=.env.signing --no-masking -- bash -c '
       echo "Skipping ${v} (empty after op resolution)" >&2
       continue
     fi
-    printf "%s" "$val" | gh secret set "$v" --body -
+    printf "%s" "$val" | gh secret set "$v"
     echo "Set ${v}"
   done
 '
