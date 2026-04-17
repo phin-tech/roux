@@ -5,7 +5,7 @@
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import { notificationsPush } from "$lib/tauri";
   import { commands } from "$lib/bindings";
-  import type { WorktreeCleanupMode } from "$lib/bindings";
+  import type { UpdateChannel, WorktreeCleanupMode } from "$lib/bindings";
   import { updateStatus, runManualCheck, performInstall } from "$lib/stores/updater";
   import { getVersion } from "@tauri-apps/api/app";
   import { quitApp } from "$lib/tauri";
@@ -648,6 +648,21 @@
             {:else if $updateStatus.kind === "error"}
               <div class="mt-2 text-[11px] text-red">{describeError($updateStatus.reason)}</div>
             {/if}
+
+            <div class="mt-4 flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Update channel</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Switching to Stable takes effect on the next stable release at or above your current version.</div>
+              </div>
+              <select
+                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                value={$settings.updateChannel ?? "stable"}
+                onchange={(e) => updateSetting("updateChannel", e.currentTarget.value as UpdateChannel)}
+              >
+                <option value="stable">Stable</option>
+                <option value="preRelease">Pre-release (Alpha)</option>
+              </select>
+            </div>
 
             <div class="mt-4 flex items-center justify-between py-2">
               <div>

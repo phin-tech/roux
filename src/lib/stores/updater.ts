@@ -5,11 +5,16 @@ import {
   relaunchApp,
   type UpdateStatus,
 } from "$lib/updater";
+import type { UpdateChannel } from "$lib/bindings";
 import { settings } from "./settings";
 
 export const updateStatus = writable<UpdateStatus>({ kind: "idle" });
 
 let startupCheckStarted = false;
+
+function currentChannel(): UpdateChannel {
+  return get(settings).updateChannel ?? "stable";
+}
 
 export function runStartupCheck(): void {
   if (startupCheckStarted) return;
@@ -18,7 +23,7 @@ export function runStartupCheck(): void {
   if (!(get(settings).updateCheckOnLaunch ?? true)) return;
 
   setTimeout(async () => {
-    const status = await checkForUpdate({ silent: true });
+    const status = await checkForUpdate({ silent: true, channel: currentChannel() });
     if (status.kind === "available" || status.kind === "error") {
       updateStatus.set(status);
     }
@@ -27,7 +32,7 @@ export function runStartupCheck(): void {
 
 export async function runManualCheck(): Promise<void> {
   updateStatus.set({ kind: "checking" });
-  const status = await checkForUpdate({ silent: false });
+  const status = await checkForUpdate({ silent: false, channel: currentChannel() });
   updateStatus.set(status);
 }
 
@@ -35,7 +40,7 @@ export async function performInstall(): Promise<void> {
   updateStatus.set({ kind: "downloading", progress: null });
 
   try {
-    await installUpdate((progress) => {
+    await installUpdate({ channel: currentChannel() }, (progress) => {
       updateStatus.set({ kind: "downloading", progress });
     });
   } catch (e) {

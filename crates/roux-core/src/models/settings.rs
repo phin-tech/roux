@@ -61,6 +61,14 @@ pub enum GroupBy {
     Project,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    PreRelease,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RouxSettings {
@@ -126,6 +134,11 @@ pub struct RouxSettings {
     /// Settings / command palette remain available regardless.
     #[serde(default = "default_true")]
     pub update_check_on_launch: bool,
+    /// Which update channel this user is subscribed to. `Stable` pulls from the
+    /// standard `latest.json` manifest; `PreRelease` resolves the newest
+    /// GitHub prerelease at check time and pulls its `latest-prerelease.json`.
+    #[serde(default)]
+    pub update_channel: UpdateChannel,
     /// User-defined spawn profiles. Edited as raw JSON in the settings file
     /// in v1 — the "Save as user profile" UI is a later addition. The settings
     /// loader force-sets `source: "user"` on each entry regardless of what
@@ -185,6 +198,7 @@ impl Default for RouxSettings {
             notifications_enabled: true,
             auto_clear_attention_state: true,
             update_check_on_launch: true,
+            update_channel: UpdateChannel::default(),
             spawn_profiles: Vec::new(),
             trusted_workspaces: Vec::new(),
             status_bar_position: StatusBarPosition::Bottom,
@@ -243,7 +257,7 @@ fn normalize_theme(theme: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::RouxSettings;
+    use super::{RouxSettings, UpdateChannel};
 
     #[test]
     fn hint_overlay_defaults_preserve_command_drop_option() {
@@ -290,6 +304,32 @@ mod tests {
 
         let normalized = settings.normalized();
         assert_eq!(normalized.repo_roots, vec!["/tmp/src", "/tmp/other"]);
+    }
+
+    #[test]
+    fn settings_without_update_channel_defaults_to_stable() {
+        let legacy = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.5,
+            "taskPanelCollapsed": true
+        }"#;
+        let parsed: RouxSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(parsed.update_channel, UpdateChannel::Stable);
     }
 
     #[test]
