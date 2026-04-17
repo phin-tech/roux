@@ -96,6 +96,32 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Hook-related commands
+    Hooks {
+        #[command(subcommand)]
+        action: HooksAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum HooksAction {
+    /// Emit a normalized Roux hook event into the running app
+    Emit {
+        /// Event kind, e.g. watch.completed
+        kind: String,
+        /// Repo root for workspace-scoped hook matching. Defaults to cwd.
+        #[arg(long)]
+        repo_root: Option<String>,
+        /// Worktree path. Defaults to --repo-root, then cwd.
+        #[arg(long)]
+        worktree_path: Option<String>,
+        /// Optional session profile hint
+        #[arg(long)]
+        profile: Option<String>,
+        /// Read event payload JSON from stdin. Defaults to {}.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -658,6 +684,36 @@ mod tests {
             _ => panic!("expected Split"),
         }
     }
+
+    #[test]
+    fn cli_parses_hooks_emit() {
+        let cli = Cli::try_parse_from([
+            "roux-cli",
+            "hooks",
+            "emit",
+            "watch.completed",
+            "--repo-root",
+            "/tmp/repo",
+            "--worktree-path",
+            "/tmp/repo/.worktrees/x",
+            "--profile",
+            "codex",
+            "--json",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Hooks {
+                action: HooksAction::Emit { kind, repo_root, worktree_path, profile, json },
+            } => {
+                assert_eq!(kind, "watch.completed");
+                assert_eq!(repo_root.as_deref(), Some("/tmp/repo"));
+                assert_eq!(worktree_path.as_deref(), Some("/tmp/repo/.worktrees/x"));
+                assert_eq!(profile.as_deref(), Some("codex"));
+                assert!(json);
+            }
+            _ => panic!("expected Hooks::Emit"),
+        }
+    }
 }
 
 fn main() {
@@ -875,5 +931,63 @@ fn main() {
                 "args": Value::Object(args),
             }));
         }
+
+        Commands::Hooks { action } => match action {
+            HooksAction::Emit { kind, repo_root, worktree_path, profile, json } => {
+                let cwd = resolve_path(".");
+                let repo_root = repo_root.unwrap_or_else(|| cwd.clone());
+                let worktree_path = worktree_path.unwrap_or_else(|| repo_root.clone());
+
+                let payload = if json {
+                    let mut input = String::new();
+                    if std::io::stdin().read_to_string(&mut input).is_err() {
+                        eprintln!("Error: failed to read JSON from stdin");
+                        std::process::exit(1);
+                    }
+                    match serde_json::from_str::<Value>(&input) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("Error: invalid JSON: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    serde_json::json!({})
+                };
+
+                let mut event = serde_json::json!({
+                    "id": uuid::Uuid::new_v4().to_string(),
+                    "kind": kind,
+                    "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().to_string(),
+                    "origin": {
+                        "kind": "cli",
+                        "causationId": null,
+                        "triggeredByHookId": null
+                    },
+                    "session": {
+                        "rouxSessionId": get_session_id(),
+                        "paneId": get_pane_id(),
+                        "profile": profile
+                    },
+                    "workspace": {
+                        "repoRoot": repo_root,
+                        "worktreePath": worktree_path
+                    },
+                    "payload": payload
+                });
+
+                if event["session"]["rouxSessionId"].is_null()
+                    && event["session"]["paneId"].is_null()
+                    && event["session"]["profile"].is_null()
+                {
+                    event["session"] = Value::Null;
+                }
+
+                run_socket_command(serde_json::json!({
+                    "command": "hooks-emit",
+                    "args": { "event": event },
+                }));
+            }
+        },
     }
 }

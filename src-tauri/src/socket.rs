@@ -178,8 +178,36 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "session-panes-list" => handle_session_panes_list(req, app).await,
         "session-panes-create" => handle_session_panes_create(req, app).await,
         "app-open" => handle_app_open(req, app).await,
+        "hooks-emit" => handle_hooks_emit(req, app).await,
         _ => Response::err(format!("unknown command: {}", req.command)),
     }
+}
+
+async fn handle_hooks_emit(req: Request, app: &tauri::AppHandle) -> Response {
+    let event = match req.args.get("event") {
+        Some(v) => match serde_json::from_value::<roux_core::RouxEvent>(v.clone()) {
+            Ok(event) => event,
+            Err(e) => return Response::err(format!("invalid hook event payload: {}", e)),
+        },
+        None => return Response::err("event argument required"),
+    };
+
+    let state: tauri::State<AppState> = app.state();
+    let settings = state.settings.lock().unwrap().clone();
+    let result =
+        crate::hook_runtime::dispatch_event_in(&crate::paths::roux_config_dir(), &settings, &event)
+            .await;
+
+    Response::success(serde_json::json!({
+        "matchedHookIds": result.matched_hook_ids,
+        "runs": result.runs.iter().map(|run| serde_json::json!({
+            "hookId": run.hook_id,
+            "exitCode": run.exit_code,
+            "timedOut": run.timed_out,
+            "stdout": run.stdout,
+            "stderr": run.stderr,
+        })).collect::<Vec<_>>(),
+    }))
 }
 
 async fn handle_session_list(_req: Request, app: &tauri::AppHandle) -> Response {
@@ -619,6 +647,14 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     if let Err(e) = app.emit("roux-command", &cmd) {
         rlog!("Warning: failed to emit session-created event: {}", e);
     }
+
+    let hook_event = crate::hook_runtime::session_created_event(&session, Some(&profile));
+    let _ = crate::hook_runtime::dispatch_event_in(
+        &crate::paths::roux_config_dir(),
+        &settings,
+        &hook_event,
+    )
+    .await;
 
     Response::success(serde_json::json!({ "session_id": session_id }))
 }

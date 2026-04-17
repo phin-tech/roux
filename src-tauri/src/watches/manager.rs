@@ -155,6 +155,7 @@ impl WatchManager {
 
                 let new_outcome = result.outcome().clone();
                 let changed = previous_outcome.as_ref() != Some(&new_outcome);
+                let previous_outcome_for_hooks = previous_outcome.clone();
 
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -174,9 +175,16 @@ impl WatchManager {
                     let event = WatchUpdateEvent {
                         watch: updated_watch.clone(),
                         changed,
-                        previous_outcome,
+                        previous_outcome: previous_outcome.clone(),
                     };
                     let _ = app.emit("watch-update", &event);
+
+                    let hook_watch = updated_watch.clone();
+                    let hook_app = app.clone();
+                    tokio::spawn(async move {
+                        emit_watch_hook_events(hook_app, hook_watch, previous_outcome_for_hooks)
+                            .await;
+                    });
 
                     // Desktop notification with flap debouncing
                     if changed {
@@ -358,4 +366,23 @@ fn rand_jitter() -> u64 {
         .unwrap_or_default()
         .subsec_nanos();
     (nanos % 5000) as u64
+}
+
+async fn emit_watch_hook_events(
+    app: tauri::AppHandle,
+    watch: Watch,
+    previous_outcome: Option<WatchOutcome>,
+) {
+    let state: tauri::State<'_, AppState> = app.state();
+    let settings = state.settings.lock().unwrap().clone();
+    let session = match &watch.scope {
+        WatchScope::Session { session_id } => state.session_handle.get(session_id).await.ok().flatten(),
+        _ => None,
+    };
+
+    for event in crate::hook_runtime::watch_events(&watch, previous_outcome.as_ref(), session.as_ref()) {
+        let _ =
+            crate::hook_runtime::dispatch_event_in(&crate::paths::roux_config_dir(), &settings, &event)
+                .await;
+    }
 }

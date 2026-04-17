@@ -3,6 +3,7 @@
 mod agent_registry;
 mod agent_sources;
 mod hooks;
+mod hook_runtime;
 #[macro_use]
 mod logging;
 mod commands;
