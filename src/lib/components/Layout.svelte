@@ -1,5 +1,6 @@
 <script lang="ts">
   import SessionTabs from "./SessionTabs.svelte";
+  import CollapsedSidebar from "./CollapsedSidebar.svelte";
   import SplitPane from "./SplitPane.svelte";
   import StatusBar from "./StatusBar.svelte";
   import { sessionState } from "$lib/stores/sessions";
@@ -45,7 +46,9 @@
     class:flex-row={$settings.tabPosition === "left"}
     class:flex-row-reverse={$settings.tabPosition === "right"}
   >
-    {#if !$settings.sidebarCollapsed}
+    {#if $settings.sidebarCollapsed}
+      <CollapsedSidebar />
+    {:else}
       <div style="width: {sidebarWidth}px" class="shrink-0">
         <SessionTabs {onNewSession} {onOpenSettings} {onToggleWatches} {onToggleNotifications} />
       </div>

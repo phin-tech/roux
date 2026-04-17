@@ -248,6 +248,14 @@
 >
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
     <div class="flex items-center gap-2">
+      <button
+        class="flex h-5 w-5 items-center justify-center text-text-secondary cursor-pointer transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+        onclick={() => updateSetting("sidebarCollapsed", true)}
+        title="Collapse sidebar"
+        aria-label="Collapse sidebar"
+      >
+        <span class="text-[11px]">{$settings.tabPosition === "right" ? "\u25B6" : "\u25C0"}</span>
+      </button>
       <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Sessions</span>
       <button
         class="relative flex items-center justify-center text-text-secondary cursor-pointer transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
