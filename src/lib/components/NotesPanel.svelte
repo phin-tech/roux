@@ -40,8 +40,8 @@
 </script>
 
 <div
-  class="absolute top-2 right-2 bottom-2 z-50 flex w-[380px] flex-col rounded-2xl border border-hairline bg-bg-deep shadow-[-8px_8px_48px_rgba(2,6,23,0.55),0_0_0_1px_rgba(255,255,255,0.04)] transition-transform duration-250
-    {visible ? 'translate-x-0' : 'translate-x-[calc(100%+8px)]'}"
+  style="right: {visible ? '0.5rem' : '-400px'}; visibility: {visible ? 'visible' : 'hidden'};"
+  class="absolute top-2 bottom-2 z-50 flex w-[380px] flex-col rounded-2xl border border-hairline bg-bg-deep shadow-[-8px_8px_48px_rgba(2,6,23,0.55),0_0_0_1px_rgba(255,255,255,0.04)] transition-[right] duration-250"
 >
   <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3 rounded-t-2xl">
     <span class="text-sm font-semibold tracking-tight">{projectName ? `${projectName} — Notes` : 'Notes'}</span>
