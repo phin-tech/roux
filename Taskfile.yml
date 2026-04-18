@@ -54,9 +54,13 @@ tasks:
             echo "Created placeholder for roux-cli-${TARGET}"
           fi
         platforms: [darwin, linux]
+      # Task v3 runs `cmd:` blocks through bundled mvdan/sh on every
+      # platform — including Windows — not through `cmd.exe`. Use POSIX
+      # sh, mirroring `taskfiles/Taskfile_windows.yml::prepare-cli`.
       - cmd: |
-          if not exist src-tauri\binaries mkdir src-tauri\binaries
-          if not exist src-tauri\binaries\roux-cli.exe echo. > src-tauri\binaries\roux-cli.exe
+          set -eu
+          mkdir -p src-tauri/binaries
+          [ -f src-tauri/binaries/roux-cli.exe ] || : > src-tauri/binaries/roux-cli.exe
         platforms: [windows]
 
   cli:install:
@@ -64,8 +68,7 @@ tasks:
     deps: [cli:ensure-placeholder]
     cmds:
       - cargo build --manifest-path src-tauri/Cargo.toml --bin roux-cli
-      - cmd: |
-          cmd /c echo Built src-tauri\target\debug\roux-cli.exe for Windows dev use
+      - cmd: echo "Built src-tauri/target/debug/roux-cli.exe for Windows dev use"
         platforms: [windows]
       - cmd: |
           mkdir -p ~/.local/bin
@@ -98,14 +101,17 @@ tasks:
           chmod +x src-tauri/binaries/roux-cli "src-tauri/binaries/roux-cli-${TARGET}"
           echo "Prepared dev roux-cli binaries for ${TARGET}"
         platforms: [darwin, linux]
+      # POSIX sh via bundled mvdan/sh — see comment on cli:ensure-placeholder.
+      # `rustc --print host-tuple` avoids depending on `sed`, which isn't on
+      # PATH on a clean Windows install (unlike CI runners with git-bash).
       - cmd: |
-          for /f "tokens=2 delims=: " %%a in ('rustc -vV ^| findstr /b "host:"') do set HOST=%%a
-          if not defined HOST set HOST=%TAURI_TARGET%
-          if not defined HOST set HOST=x86_64-pc-windows-msvc
-          if not exist src-tauri\binaries mkdir src-tauri\binaries
-          copy /Y target\debug\roux-cli.exe src-tauri\binaries\roux-cli.exe >nul
-          copy /Y target\debug\roux-cli.exe src-tauri\binaries\roux-cli-%HOST%.exe >nul
-          echo Prepared dev roux-cli binaries for %HOST%
+          set -eu
+          TARGET="${TAURI_TARGET:-$(rustc --print host-tuple)}"
+          : "${TARGET:=x86_64-pc-windows-msvc}"
+          mkdir -p src-tauri/binaries
+          cp -f target/debug/roux-cli.exe src-tauri/binaries/roux-cli.exe
+          cp -f target/debug/roux-cli.exe "src-tauri/binaries/roux-cli-${TARGET}.exe"
+          echo "Prepared dev roux-cli binaries for ${TARGET}"
         platforms: [windows]
 
   dev:install:
