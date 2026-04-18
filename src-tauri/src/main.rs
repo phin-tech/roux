@@ -310,6 +310,18 @@ fn main() {
             }
             socket::start_socket_server(app.handle().clone());
 
+            // Experimental notes vault: one-shot migration of legacy
+            // project notes (`~/.config/roux/notes/<id>.txt`) into the
+            // new vault. Guarded by the `notes_migrated_v1` settings
+            // flag so it only runs once; failures are logged, never
+            // fatal.
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    run_notes_migration(app_handle).await;
+                });
+            }
+
             // Clean up orphaned watches and start active ones
             {
                 let state = app.state::<AppState>();
@@ -362,4 +374,67 @@ fn main() {
                 let _ = app.emit("quit-requested", ());
             }
         });
+}
+
+/// Run the one-shot legacy-notes-to-vault migration if it hasn't run yet.
+/// Guarded by `settings.notes_migrated_v1`. Best-effort: failures are logged,
+/// never fatal. Marks the flag as true even on partial success so the
+/// migration never loops — any unmigrated files can be copied by hand.
+async fn run_notes_migration(app: tauri::AppHandle) {
+    let state = app.state::<crate::state::AppState>();
+    let (already_done, vault_root) = match state.settings.lock() {
+        Ok(s) => (
+            s.notes_migrated_v1,
+            s.notes_vault_root
+                .clone()
+                .filter(|p| !p.is_empty())
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(paths::default_notes_vault_root),
+        ),
+        Err(_) => return,
+    };
+    if already_done {
+        return;
+    }
+
+    let legacy = paths::roux_config_dir().join("notes");
+    if !legacy.exists() {
+        mark_migrated(&state);
+        return;
+    }
+
+    let projects = match state.project_handle.list().await {
+        Ok(ps) => ps,
+        Err(e) => {
+            rlog!("notes migration: project list failed: {e}");
+            return;
+        }
+    };
+    let lookup = {
+        let projects = projects.clone();
+        move |pid: &str| projects.iter().find(|p| p.id == pid).map(|p| p.name.clone())
+    };
+    let mut svc = services::notes::NotesService::new(vault_root);
+    let now = {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        format!("migration-{secs}")
+    };
+    let migrated =
+        services::notes::migrate_legacy_project_notes(&legacy, &lookup, &mut svc, &now);
+    rlog!("notes migration: {migrated} file(s) moved into vault at startup");
+
+    mark_migrated(&state);
+}
+
+fn mark_migrated(state: &tauri::State<'_, crate::state::AppState>) {
+    if let Ok(mut s) = state.settings.lock() {
+        s.notes_migrated_v1 = true;
+        let snapshot = s.clone();
+        drop(s);
+        let _ = settings::save_settings(&snapshot);
+    }
 }

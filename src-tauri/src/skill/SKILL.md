@@ -3,7 +3,7 @@ name: roux
 description: Drive the Roux terminal manager from inside a Roux-hosted pane. Use when $ROUX_SESSION=1 and the user asks to spawn panes, send input to other sessions, split layouts, focus panes, post notifications, list/create sessions, or otherwise orchestrate Roux.
 ---
 
-<!-- roux-skill-version: 1 -->
+<!-- roux-skill-version: 2 -->
 
 # Roux
 
@@ -28,6 +28,14 @@ shell behavior.
 | `ROUX_PANE_ID`      | Id of this pane.                                                   |
 | `ROUX_PROJECT_ID`   | Id of the project this session belongs to, if any.                 |
 | `ROUX_WORKTREE_PATH`| Absolute path to the worktree root, if the session is worktree-backed. |
+| `ROUX_NOTES_ROOT`   | Root of the Obsidian-compatible notes vault (experimental).        |
+| `ROUX_SESSION_DIR`  | This session's vault folder (experimental).                         |
+| `ROUX_SESSION_NOTES_FILE` | This session's anchor `notes.md` (experimental).              |
+| `ROUX_REPO_SLUG`    | Resolved slug for this session's repo (experimental).              |
+| `ROUX_REPO_NOTES_FILE` / `_DIR` | This session's repo-scope notes file and dir (experimental). |
+| `ROUX_GLOBAL_NOTES_FILE` / `_DIR` | User-level global notes file and dir (experimental).    |
+| `ROUX_SESSION_PROJECT` | Project slug when the session has a project; unset otherwise.   |
+| `ROUX_SESSION_PROJECT_NOTES_FILE` / `_DIR` | Project-scope notes file and dir, when a project is assigned. |
 
 Several `roux-cli` subcommands default to `$ROUX_SESSION_ID` / `$ROUX_PANE_ID`
 when those flags are omitted, so you rarely need to pass them explicitly.
@@ -74,6 +82,42 @@ All output that ends in "(JSON)" below is machine-parseable JSON.
 - `"$ROUX_CLI" notify -t "Title" [-b "Body"] [--subtitle S] [-l info|success|attention|warning|error] [-s SESSION] [--cwd DIR] [--source TAG]`
   Post a notification. Routes to `$ROUX_SESSION_ID` by default.
 
+### Notes (experimental)
+
+Roux hosts an Obsidian-compatible markdown vault at `$ROUX_NOTES_ROOT`. The
+CLI exposes four scopes: `global`, `project`, `repo`, `session`. The
+session/scope context is read from `$ROUX_SESSION_ID` automatically.
+
+Verbs (per scope):
+- `"$ROUX_CLI" notes <scope> show [--topic NAME]` — print the file.
+- `"$ROUX_CLI" notes <scope> append [--content TEXT] [--timestamp] [--topic NAME] [--tag TAG]...`
+  — append. Reads stdin if `--content` is omitted. `--timestamp` wraps the
+  addition in a timestamped heading + Obsidian block ref + optional HTML
+  anchor (for deep-linking if the vault is ever published).
+- `"$ROUX_CLI" notes <scope> write [--content TEXT] [--topic NAME] [--tag TAG]...`
+  — replace the file body. Reads stdin if `--content` is omitted.
+- `"$ROUX_CLI" notes <scope> path [--topic NAME] [--dir]` — print the
+  absolute file (or directory) path. Useful for piping into other tools.
+
+Cross-scope:
+- `"$ROUX_CLI" notes search --tag TAG [--tag TAG]... [--scope SCOPE] [--tag-exact]`
+  — find all notes whose tags match all supplied filters. Matches
+  frontmatter tags OR inline `#tag` body occurrences (same semantics as
+  Obsidian's tag pane). Hierarchical prefix matching by default
+  (`--tag api` finds `api/tls`).
+- `"$ROUX_CLI" notes root` — print `$ROUX_NOTES_ROOT`.
+
+Topic files (`--topic NAME`) are arbitrary `.md` files inside a scope's
+directory. Use them for the "one topic, many entries" pattern — e.g.
+`"$ROUX_CLI" notes repo append --topic api-gotchas --timestamp --tag api "TLS fix"`
+appends a dated entry to `repos/<repo-slug>/api-gotchas.md`, creating the
+file with frontmatter on first write.
+
+The vault is a clean Obsidian vault (frontmatter YAML + markdown, no
+sidecar state). Users can open `$ROUX_NOTES_ROOT` in Obsidian directly.
+Agents should prefer the CLI — Obsidian requires a running GUI, the CLI
+does not.
+
 ## When to use this skill
 
 Trigger any time the user asks to:
@@ -86,6 +130,9 @@ Trigger any time the user asks to:
 - send keystrokes or text to a sibling session
 - post a Roux notification (status pings, task completion, etc.)
 - read the current session/pane state (`poll`, `list`)
+- read, append to, write, or search notes in the vault ("log this to my
+  session notes", "add #api/tls to that gotcha", "what have I written about
+  TLS?")
 
 Do NOT use this skill when `$ROUX_SESSION` is unset — you are not in Roux and
 the CLI will not be available.

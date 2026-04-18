@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 /// Bumped any time [`SKILL_CONTENT`] changes. Must match the
 /// `roux-skill-version:` marker inside the content.
-pub const SKILL_VERSION: u32 = 1;
+pub const SKILL_VERSION: u32 = 2;
 
 pub const SKILL_CONTENT: &str = include_str!("skill/SKILL.md");
 

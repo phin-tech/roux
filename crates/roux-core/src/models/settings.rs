@@ -145,6 +145,11 @@ pub struct RouxSettings {
     /// directory. `None` means "use the default `~/Documents/Roux`".
     #[serde(default)]
     pub notes_vault_root: Option<String>,
+    /// Experimental multi-scoped notes — set to `true` once the legacy
+    /// `<project_id>.txt` files have been migrated into the vault. Guards
+    /// against re-running the migration on every app launch.
+    #[serde(default)]
+    pub notes_migrated_v1: bool,
     /// Which update channel this user is subscribed to. `Stable` pulls from the
     /// standard `latest.json` manifest; `PreRelease` resolves the newest
     /// GitHub prerelease at check time and pulls its `latest-prerelease.json`.
@@ -211,6 +216,7 @@ impl Default for RouxSettings {
             update_check_on_launch: true,
             notes_include_web_anchors: true,
             notes_vault_root: None,
+            notes_migrated_v1: false,
             update_channel: UpdateChannel::default(),
             spawn_profiles: Vec::new(),
             trusted_workspaces: Vec::new(),

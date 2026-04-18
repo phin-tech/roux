@@ -749,6 +749,56 @@ pub(crate) mod frontmatter {
     }
 }
 
+/// One-shot migration: for each `<project_id>.txt` in the legacy notes
+/// directory, write its content into the vault's `projects/<slug>/notes.md`
+/// with proper frontmatter. Leaves the legacy files in place as a backup.
+///
+/// Returns the number of files migrated. Non-destructive; idempotent:
+/// target files that already exist in the vault are skipped.
+///
+/// `project_name_lookup` resolves a project id to its display name. The
+/// migration uses it to freeze the project's vault slug via the index.
+pub(crate) fn migrate_legacy_project_notes(
+    legacy_notes_dir: &Path,
+    project_name_lookup: &dyn Fn(&str) -> Option<String>,
+    svc: &mut NotesService,
+    now: &str,
+) -> usize {
+    let mut migrated = 0usize;
+    let Ok(entries) = std::fs::read_dir(legacy_notes_dir) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("txt") {
+            continue;
+        }
+        let Some(project_id) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Some(name) = project_name_lookup(project_id) else {
+            continue;
+        };
+        let Ok(body) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let slug = svc.freeze_project_slug(project_id, &name);
+        let scope = Scope::Project { slug, name };
+        // Skip if vault file already exists (idempotency).
+        let target = svc.file_path(&scope, None, "no-session");
+        if target.exists() {
+            continue;
+        }
+        if svc
+            .write_file(&scope, None, "no-session", &body, now, &[])
+            .is_ok()
+        {
+            migrated += 1;
+        }
+    }
+    migrated
+}
+
 pub(crate) mod inline_tags {
     /// Extract inline `#tag` occurrences from a markdown body.
     ///
@@ -1235,6 +1285,75 @@ mod tests {
             }
             _ => panic!("expected session scope"),
         }
+    }
+
+    #[test]
+    fn migrate_moves_txt_files_into_vault_with_frontmatter() {
+        let legacy = tempfile::tempdir().unwrap();
+        let vault = tempfile::tempdir().unwrap();
+
+        std::fs::write(legacy.path().join("proj-1.txt"), "first body\n").unwrap();
+        std::fs::write(legacy.path().join("proj-2.txt"), "second body\n").unwrap();
+        // Non-txt file should be ignored.
+        std::fs::write(legacy.path().join("README"), "ignored").unwrap();
+
+        let mut svc = NotesService::new(vault.path());
+        let lookup = |pid: &str| match pid {
+            "proj-1" => Some("Marketing Revamp".to_string()),
+            "proj-2" => Some("Hiring Pipeline".to_string()),
+            _ => None,
+        };
+        let count = migrate_legacy_project_notes(
+            legacy.path(),
+            &lookup,
+            &mut svc,
+            "2026-04-18T10:00:00-05:00",
+        );
+        assert_eq!(count, 2);
+
+        // Migrated files exist in the vault with frontmatter + body.
+        let p1 = vault.path().join("projects/marketing-revamp/notes.md");
+        let p2 = vault.path().join("projects/hiring-pipeline/notes.md");
+        assert!(p1.exists());
+        assert!(p2.exists());
+        let c1 = std::fs::read_to_string(&p1).unwrap();
+        assert!(c1.starts_with("---\n"));
+        assert!(c1.contains("first body"));
+
+        // Legacy .txt files are left in place as backup.
+        assert!(legacy.path().join("proj-1.txt").exists());
+    }
+
+    #[test]
+    fn migrate_is_idempotent_when_vault_file_already_exists() {
+        let legacy = tempfile::tempdir().unwrap();
+        let vault = tempfile::tempdir().unwrap();
+        std::fs::write(legacy.path().join("proj-1.txt"), "from legacy").unwrap();
+
+        let mut svc = NotesService::new(vault.path());
+        let lookup = |_: &str| Some("Marketing Revamp".to_string());
+
+        // First run migrates.
+        let first =
+            migrate_legacy_project_notes(legacy.path(), &lookup, &mut svc, "2026-04-18T10:00");
+        assert_eq!(first, 1);
+        // Second run finds the vault file already exists and skips.
+        let second =
+            migrate_legacy_project_notes(legacy.path(), &lookup, &mut svc, "2026-04-18T10:05");
+        assert_eq!(second, 0);
+    }
+
+    #[test]
+    fn migrate_skips_unknown_projects() {
+        let legacy = tempfile::tempdir().unwrap();
+        let vault = tempfile::tempdir().unwrap();
+        std::fs::write(legacy.path().join("unknown.txt"), "orphaned").unwrap();
+
+        let mut svc = NotesService::new(vault.path());
+        let lookup = |_: &str| None;
+        let count =
+            migrate_legacy_project_notes(legacy.path(), &lookup, &mut svc, "2026-04-18T10:00");
+        assert_eq!(count, 0);
     }
 
     #[test]

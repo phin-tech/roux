@@ -28,6 +28,7 @@ Inside Roux-managed panes, both `roux` and `roux-cli` are injected automatically
 - Run a shell command in a new pane (`roux run`)
 - Push notifications (`roux notify`)
 - Emit hook status transitions (`roux hook`)
+- Read, append, write, or search the multi-scoped notes vault (`roux notes <scope> <verb>` — experimental; see [Notes](notes.md))
 
 ## Scripting & agent-to-agent examples
 
@@ -50,6 +51,20 @@ status=$(roux session poll -s "$OTHER_SESSION_ID" | jq -r .status)
 if [ "$status" = "idle" ]; then
     roux session send "review this PR" -s "$OTHER_SESSION_ID"
 fi
+```
+
+Log a timestamped entry to this session's notes from an agent:
+
+```sh
+echo "retried after clearing token cache, still 401" \
+    | roux notes session append --timestamp --tag api --tag tls
+```
+
+Find every note in the current repo tagged `#api` (prefix-matches
+`#api/tls`, `#api/grpc`, etc.):
+
+```sh
+roux notes search --tag api --scope repo
 ```
 
 Send raw bytes without appending Enter:
