@@ -18,13 +18,14 @@ Today Roux has a single per-project plain-text scratchpad (`roux_config_dir()/no
 
 ## Non-Goals
 
-- Multi-file browsing inside the Roux panel. The panel surfaces exactly four `notes.md` files (one per scope). Users manage additional `.md` files via Obsidian or the filesystem. (Future v2.)
+- Multi-file browsing inside the Roux panel. The panel surfaces exactly four `notes.md` files (one per scope). Additional `.md` files exist and are fully usable from the CLI (`--topic`) and Obsidian; the panel just doesn't list them. (Future v2.)
 - Markdown rendering / preview in the panel.
 - In-panel search, graph view, or backlinks. Obsidian owns that surface.
 - Conflict resolution for simultaneous unfocused edits. Last writer wins once both saves complete; no merge UI.
 - Cross-session browsing from the panel (reading another session's notes). Use Obsidian or `roux notes` CLI.
 - Integration with Obsidian CLI, Quartz, Hugo, Zola, or MkDocs. The vault is compatible with those by construction; we do not ship tooling or config for them.
-- Daily-notes, templates, or note creation helpers beyond the four anchor files (v2 CLI: `roux notes <scope> new <name>`).
+- Daily-notes helpers or note-content templates. `--topic <name>` creates files on-demand with the scope's default frontmatter, but there's no template system for custom starter bodies or date-based file names in v1.
+- Full-text search across the vault. `roux notes search` supports tag-based discovery only in v1. Full-text search waits for an indexing strategy.
 - Auto-archive or auto-delete of session notes. Files persist indefinitely.
 - Per-entry edit/delete-by-id operations (v2, once entries have stable ids).
 - Collaborative editing, sync, or network storage. The vault is a local folder.
@@ -83,7 +84,7 @@ Every `notes.md` (and every Roux-generated file) starts with YAML frontmatter. `
 ```yaml
 ---
 type: global
-tags: [roux, global]
+tags: [roux/global]
 created: 2026-04-18T10:30:00-05:00
 updated: 2026-04-18T10:30:00-05:00
 ---
@@ -96,7 +97,7 @@ updated: 2026-04-18T10:30:00-05:00
 type: project
 project: <project-slug>
 project_name: "Marketing Site Revamp"
-tags: [roux, project]
+tags: [roux/project]
 created: 2026-04-18T10:30:00-05:00
 updated: 2026-04-18T10:30:00-05:00
 ---
@@ -110,7 +111,7 @@ type: repo
 repo: <repo-slug>
 repo_path: /Users/sam/src/github.com/phin-tech/roux
 remote: git@github.com:phin-tech/roux.git        # omitted if none
-tags: [roux, repo]
+tags: [roux/repo]
 created: 2026-04-18T10:30:00-05:00
 updated: 2026-04-18T10:30:00-05:00
 ---
@@ -126,13 +127,13 @@ repo: phin-tech-roux
 project: null                                     # or <project-slug>
 branch: feature/session-notes
 worktree: /Users/sam/src/worktrees/session-notes
-tags: [roux, session]
+tags: [roux/session]
 created: 2026-04-18T10:30:00-05:00
 updated: 2026-04-18T10:30:00-05:00
 ---
 ```
 
-The `tags:` list enables Dataview queries (`FROM "" WHERE type = "session"`) and Obsidian tag-search out of the box. `type` duplicates a tag so either query style works.
+The default `tags:` list uses Obsidian's hierarchical tag syntax (`roux/<scope>`) so querying `#roux` in Obsidian surfaces every Roux-written note while `#roux/session` narrows to one scope, without polluting the flat tag namespace with generic words like `session` / `repo` / `global`. User-added tags (frontmatter or inline) mingle freely with these. Dataview queries like `FROM #roux/session` and `FROM "" WHERE type = "session"` both work.
 
 ### Timestamped Entry Format (`append --timestamp`)
 
@@ -224,6 +225,8 @@ roux notes project  <show|append|write|path|open>      # errors if no project
 roux notes repo     <show|append|write|path|open>
 roux notes session  <show|append|write|path|open>
 
+roux notes search --tag <name>... [--scope <s>] [--tag-exact] [--json]
+
 roux notes root                   # print $ROUX_NOTES_ROOT
 roux notes repo list              # list known repo slugs + paths
 roux notes repo rename <old> <new>
@@ -239,12 +242,40 @@ roux notes project rename <old> <new>
 - `path` — print the absolute file path. `--dir` prints the scope directory instead.
 - `open` — open in `$EDITOR` (terminal) by default; `--app` opens in the OS default app for `.md` (Obsidian if registered). Tauri frontend exposes a matching context-menu item.
 
-**Overrides:** every scoped command accepts `--session <id>`, `--repo <slug>`, `--project <slug>` to operate on a scope other than the current session's. Precedence: flag > current session env > error if neither resolves.
+**Topic & tag flags (on `show|append|write|path|open`):**
+
+- `--topic <name>` — target `<scope-dir>/<name>.md` instead of the scope's `notes.md` anchor. On first write, the topic file is materialized with frontmatter (same schema as the scope's anchor, minus scope-unique fields like `session_id` — the file still lives in the scope dir, so the scope context is implicit). Topic names are slugified on write (lowercase, non-alphanumerics → `-`). No nested paths (`foo/bar` is disallowed in v1; `--topic` targets files directly inside the scope dir).
+- `--tag <name>` (repeatable, on `append` and `write`) — add tags to the file's frontmatter `tags:` list. Union-merged with existing tags; duplicates collapsed. Hierarchical tags (`api/tls`) pass through as opaque strings. On file creation, the supplied tags are merged with the default `[roux/<scope>]` tag.
+
+Example:
+
+```
+roux notes repo append --topic api-gotchas --tag api --tag tls "TLS handshake fails when..."
+roux notes repo append --topic api-gotchas --timestamp "fix shipped"
+roux notes repo show --topic api-gotchas
+roux notes project path --topic hiring-pipeline --dir   # errors: --dir ignores --topic
+```
+
+**`roux notes search` — cross-cutting-concerns primitive:**
+
+- `--tag <name>` (repeatable, required) — tag filters, ANDed. Must all match.
+- `--scope <global|project|repo|session>` — restrict the walk to one scope subtree. Default: whole vault.
+- `--tag-exact` — disable hierarchical prefix matching (see below).
+- `--json` — emit `[{ path, tags, type, title? }]` instead of newline-separated paths.
+
+**Tag storage vs search asymmetry** (matches Obsidian's tag pane):
+
+- **Storage** — `--tag` flags write *only* to frontmatter `tags:`. We do not rewrite prose to insert `#tag` text.
+- **Search** — `--tag` filters match the **union** of (a) frontmatter `tags:` list and (b) inline `#tag` occurrences parsed out of the body (skipping code fences, inline code, and URL-fragment positions).
+- **Hierarchical prefix match (default).** `--tag api` matches tags `api`, `api/tls`, `api/foo`. Pass `--tag-exact` for literal match on `api` only. Passing `--tag api/tls` matches `api/tls` exactly (never a parent or sibling); hierarchical prefix is one-sided.
+
+**Overrides:** every scoped command accepts `--session <id>`, `--repo <slug>`, `--project <slug>` to operate on a scope other than the current session's. Precedence: flag > current session env > error if neither resolves. `search --scope` uses the same resolution for repo/project scoping.
 
 **Errors surface as non-zero exit codes + human message on stderr:**
 - Project command with no project assigned → exit 2, "No project assigned to session".
 - Unknown repo/project slug → exit 3, "Unknown slug '<x>'. Run `roux notes repo list` to see known slugs".
 - Vault not writable → exit 4, "Cannot write to $ROUX_NOTES_ROOT".
+- `--topic` with invalid name (path separators, empty after slugify) → exit 5, "Invalid topic name".
 
 ### Settings
 
@@ -262,30 +293,36 @@ Two new keys in the existing settings store:
 - `VaultPath` abstraction with typed accessors: `root()`, `global_dir()`, `repo_dir(&slug)`, `project_dir(&slug)`, `session_dir(&slug)`, `*_notes_file(...)`.
 - `NotesIndex` loader/writer for `.roux/repos.json` and `.roux/projects.json`.
 - `resolve_repo_slug(repo_root)` and `resolve_project_slug(project_id)` — slug resolution with caching and collision handling.
-- `read_scope(scope)`, `write_scope(scope, content)`, `append_scope(scope, content, AppendOpts)` — the four primitives the commands layer and CLI use.
-- `frontmatter::ensure(path, scope)` — reads a file, guarantees frontmatter exists and is current for the scope, preserves body.
+- `read_file(scope, topic?)`, `write_file(scope, topic?, content, tags)`, `append_file(scope, topic?, content, AppendOpts)` — the three primitives the commands layer and CLI use. `topic: None` targets the scope's `notes.md`; `topic: Some(name)` targets `<scope-dir>/<slugified-name>.md`.
+- `search_by_tags(scope: Option<Scope>, tags: &[String], exact: bool) -> Vec<SearchHit>` — walks the vault (or a single scope subtree), reads frontmatter + parses inline `#tag` occurrences from body, returns files where all supplied tags match. Prefix match by default, exact with `exact = true`.
+- `frontmatter::ensure(path, scope, extra_tags)` — reads a file, guarantees frontmatter exists and is current for the scope, preserves body, union-merges `extra_tags` into the `tags:` list.
+- `inline_tags::parse(body) -> Vec<String>` — extracts `#tag` tokens from markdown body, skipping code fences (``` and indented), inline code (`` ` ``), and URL fragments.
 - `timestamped_entry::format(content, id, include_web_anchor)` — produces the entry block.
-- Unit tests for slug resolution, frontmatter preservation, collision handling, and entry formatting.
+- `topic::slugify(name) -> Result<String>` — lowercase, non-alphanumerics → `-`, collapse runs, trim; reject empty or path-separator-bearing names with `Error::InvalidTopic`.
+- Unit tests for slug resolution, frontmatter preservation, collision handling, tag merging, inline-tag parsing, prefix search, and entry formatting.
 
 **Modified:** `src-tauri/src/commands/projects.rs` — legacy `get_project_notes` / `set_project_notes` commands are **retired** (the frontend stops calling them). Removed from the command registry in `main.rs`.
 
 **New commands** in `src-tauri/src/commands/notes.rs`:
 
-- `notes_read(scope: NotesScopeRequest) -> Result<NotesRead, String>`
-- `notes_write(scope: NotesScopeRequest, content: String) -> Result<(), String>`
-- `notes_append(scope: NotesScopeRequest, content: String, timestamped: bool) -> Result<(), String>`
-- `notes_path(scope: NotesScopeRequest, dir: bool) -> Result<String, String>`
+- `notes_read(target: NotesTarget) -> Result<NotesRead, String>`
+- `notes_write(target: NotesTarget, content: String, tags: Vec<String>) -> Result<(), String>`
+- `notes_append(target: NotesTarget, content: String, timestamped: bool, tags: Vec<String>) -> Result<(), String>`
+- `notes_path(target: NotesTarget, dir: bool) -> Result<String, String>`
+- `notes_search(query: NotesSearchQuery) -> Result<Vec<NotesSearchHit>, String>`
 - `notes_vault_root() -> Result<String, String>`
 - `notes_rename_repo_slug(old: String, new: String) -> Result<(), String>`
 - `notes_rename_project_slug(old: String, new: String) -> Result<(), String>`
 
-`NotesScopeRequest` is `{ scope: "global" | "project" | "repo" | "session", session_id?: string, override_slug?: string }`. `session_id` defaults to the focused session and is used to resolve the current session's project/repo slugs. `override_slug` lets the CLI target a different repo/project (`--repo <slug>` / `--project <slug>`) without needing a session context.
+`NotesTarget` is `{ scope: "global" | "project" | "repo" | "session", session_id?: string, override_slug?: string, topic?: string }`. `session_id` defaults to the focused session and is used to resolve the current session's project/repo slugs. `override_slug` lets the CLI target a different repo/project without needing a session context. `topic: None` targets the scope's `notes.md`; `topic: Some(name)` targets `<scope-dir>/<slugified(name)>.md`.
+
+`NotesSearchQuery` is `{ tags: Vec<String>, scope?: Scope, exact: bool }`. Empty `tags` is rejected. `scope: None` walks the whole vault.
 
 **Filesystem watcher:** new module `src-tauri/src/services/notes_watcher.rs`, spawned during app init, publishes `notes-changed { path }` Tauri events. Lifecycle tied to `AppState`; watcher is rebuilt when `notes.vaultRoot` changes.
 
 ### CLI Backend
 
-`roux notes` commands resolve `ROUX_SESSION_ID` / `ROUX_NOTES_ROOT` / etc. from env, build a `NotesScopeRequest`, and dispatch via the existing socket protocol (`src-tauri/src/socket.rs`). A new socket message `NotesRequest { kind: Read|Write|Append|Path, scope, ... }` mirrors the Tauri commands. This keeps a single source of truth (services layer) behind both the panel and the CLI.
+`roux notes` commands resolve `ROUX_SESSION_ID` / `ROUX_NOTES_ROOT` / etc. from env, build a `NotesTarget` (or `NotesSearchQuery`), and dispatch via the existing socket protocol (`src-tauri/src/socket.rs`). A new socket message `NotesRequest { kind: Read|Write|Append|Path|Search, ... }` mirrors the Tauri commands. This keeps a single source of truth (services layer) behind both the panel and the CLI.
 
 ### Frontend Changes
 
@@ -340,12 +377,33 @@ The vault is Obsidian-compatible by construction, which also makes it compatible
 - Append semantics:
   - plain append preserves frontmatter and appends with leading newline.
   - timestamped append on empty file creates frontmatter first, then entry.
+- Topic resolution:
+  - `--topic api-gotchas` → `<scope-dir>/api-gotchas.md`.
+  - topic slugify: `"API Gotchas"` → `api-gotchas`.
+  - invalid topic (path separator, empty post-slugify) → `Error::InvalidTopic`.
+- Tag merging:
+  - write with `tags: [api, tls]` on new file → frontmatter `tags: [roux/<scope>, api, tls]`.
+  - append with `tags: [tls]` on existing file `tags: [roux/repo, api]` → `tags: [roux/repo, api, tls]` (union, no dups).
+- Inline-tag parser:
+  - `#api/tls in prose` → `[api/tls]`.
+  - `` `code with #notatag inside` `` → `[]`.
+  - URL `https://example.com/#anchor` → `[]`.
+  - code fence content skipped.
+- Search:
+  - matches frontmatter tag only.
+  - matches inline-only tag (no frontmatter).
+  - hierarchical prefix: `--tag api` matches note with `tags: [api/tls]`.
+  - `--tag-exact`: `--tag api` does not match `api/tls`.
+  - multi-tag AND: `--tag api --tag tls` matches files with both.
+  - scope restriction: `--scope repo` excludes session/project/global hits.
 
 ### Rust integration tests
 
 - CLI: `roux notes session show/append/write/path` with mocked `$ROUX_NOTES_ROOT` round-trips file contents.
 - Scope override flags (`--repo`, `--project`, `--session`) resolve correctly.
 - `roux notes project show` on session without project → exit code 2.
+- `roux notes repo show --topic api-gotchas` on missing topic file → exit code 0 with empty stdout (show is tolerant of absence) OR exit 6 with message (decide in implementation plan; currently lean tolerant).
+- `roux notes search --tag api --scope repo` returns paths from current repo's scope subtree only.
 - Rename commands: `repo rename` moves folder, rewrites `repos.json`, leaves notes content intact.
 
 ### Frontend tests (Vitest, `src/lib/components/__tests__/NotesPanel.test.ts`)
@@ -363,7 +421,9 @@ The vault is Obsidian-compatible by construction, which also makes it compatible
 - Type in each scope; switch pills; switch sessions; confirm sticky behavior.
 - Edit `$ROUX_NOTES_ROOT/repos/<slug>/notes.md` in Obsidian — confirm Roux panel updates within ~300ms of save.
 - In a Roux shell: `echo "foo" | roux notes session append --timestamp` — confirm entry block appears in panel immediately.
-- Open `$ROUX_NOTES_ROOT` in Obsidian — no plugins needed, block refs work (`[[notes#^entry-xxx]]`), Dataview query `FROM "" WHERE type = "repo"` lists all repo notes.
+- Create topic files from the CLI — `roux notes repo append --topic api-gotchas --tag api "TLS fix"` — confirm file exists with correct frontmatter (hierarchical `roux/repo` + `api`) and content, panel *does not* surface it (v1 anchor-only UI).
+- `roux notes search --tag api` from a repo session returns the new topic file; `--scope global` returns nothing for the same tag.
+- Open `$ROUX_NOTES_ROOT` in Obsidian — no plugins needed, block refs work (`[[notes#^entry-xxx]]`), Dataview query `FROM #roux/session` lists session notes, `#api` in the tag pane includes every topic with `api/*`.
 - Reinstall from a build with the migration flag cleared and a populated legacy notes dir — verify migration populates `projects/<slug>/notes.md` and leaves the `.txt` files in place.
 
 ## Risks & Mitigations
@@ -380,8 +440,10 @@ The vault is Obsidian-compatible by construction, which also makes it compatible
 
 None blocking. The following are deliberate deferrals to v2:
 
-- `roux notes <scope> new <name>` and `list` for topic files (GitHub-issues-per-topic workflow).
-- Panel-level multi-file browsing.
+- Panel-level multi-file browsing (listing and opening topic files from the Roux panel). Topic files are CLI + Obsidian only in v1.
+- `roux notes <scope> list` for enumerating topic files in a scope (users can `ls "$ROUX_REPO_NOTES_DIR"` in the meantime).
+- `roux notes <scope> delete --topic <name>` / `rename --topic`. Users delete or rename via filesystem / Obsidian.
+- Full-text search (`roux notes search --text "query"`). Tag-based search ships in v1; full-text waits until we decide on an indexing strategy.
 - Per-entry `roux notes <scope> show --entry <id>` (read/edit/delete by block-ref id).
 - `roux notes spec new <topic>` helper for seeding spec files with a frontmatter template.
 - Optional SSG config stubs (Quartz config in the vault, GitHub Actions publishing workflow template).
