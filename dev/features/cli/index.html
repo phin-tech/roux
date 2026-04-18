@@ -948,6 +948,7 @@
 <li>Run a shell command in a new pane (<code>roux run</code>)</li>
 <li>Push notifications (<code>roux notify</code>)</li>
 <li>Emit hook status transitions (<code>roux hook</code>)</li>
+<li>Read, append, write, or search the multi-scoped notes vault (<code>roux notes &lt;scope&gt; &lt;verb&gt;</code> — experimental; see <a href="../notes/">Notes</a>)</li>
 </ul>
 <h2 id="scripting-agent-to-agent-examples">Scripting &amp; agent-to-agent examples<a class="headerlink" href="#scripting-agent-to-agent-examples" title="Permanent link">&para;</a></h2>
 <p>Open (or focus) Roux at the current directory:</p>
@@ -962,14 +963,22 @@
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s2">&quot;review this PR&quot;</span><span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$OTHER_SESSION_ID</span><span class="s2">&quot;</span>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">fi</span>
 </span></code></pre></div>
+<p>Log a timestamped entry to this session's notes from an agent:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;retried after clearing token cache, still 401&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="p">|</span><span class="w"> </span>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>append<span class="w"> </span>--timestamp<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--tag<span class="w"> </span>tls
+</span></code></pre></div>
+<p>Find every note in the current repo tagged <code>#api</code> (prefix-matches
+<code>#api/tls</code>, <code>#api/grpc</code>, etc.):</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>roux<span class="w"> </span>notes<span class="w"> </span>search<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--scope<span class="w"> </span>repo
+</span></code></pre></div>
 <p>Send raw bytes without appending Enter:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s1">$&#39;\x03&#39;</span><span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--no-enter<span class="w">   </span><span class="c1"># ctrl-c</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s1">$&#39;\x03&#39;</span><span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--no-enter<span class="w">   </span><span class="c1"># ctrl-c</span>
 </span></code></pre></div>
 <p>List panes in a session (live snapshot from the UI):</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>list<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>list<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
 </span></code></pre></div>
 <p>Open a new shell pane alongside the main agent:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>plain-shell<span class="w"> </span>--direction<span class="w"> </span>vertical
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>plain-shell<span class="w"> </span>--direction<span class="w"> </span>vertical
 </span></code></pre></div>
 <p>Inside a Roux-managed PTY, <code>ROUX_*</code> variables are set (including <code>$ROUX_SESSION_ID</code> and <code>$ROUX_PANE_ID</code>), so most <code>-s</code> / <code>-p</code> flags are optional and scripting context is preserved.</p>
 <p>See <code>roux --help</code> and <code>roux &lt;subcommand&gt; --help</code> for the authoritative list of commands and flags.</p>

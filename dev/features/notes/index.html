@@ -726,27 +726,81 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#opening-the-sidebar" class="md-nav__link">
+  <a href="#scopes" class="md-nav__link">
     <span class="md-ellipsis">
-      Opening the sidebar
+      Scopes
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
+  <a href="#opening-the-panel" class="md-nav__link">
     <span class="md-ellipsis">
-      How it works
+      Opening the panel
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-notes-are-stored" class="md-nav__link">
+  <a href="#where-notes-live" class="md-nav__link">
     <span class="md-ellipsis">
-      Where notes are stored
+      Where notes live
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Environment variables
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-line-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      Command-line usage
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#topic-files-and-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      Topic files and tags
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#timestamped-entries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Timestamped entries
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opening-the-vault-in-obsidian" class="md-nav__link">
+    <span class="md-ellipsis">
+      Opening the vault in Obsidian
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publishing-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      Publishing (optional)
     </span>
   </a>
   
@@ -885,27 +939,81 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#opening-the-sidebar" class="md-nav__link">
+  <a href="#scopes" class="md-nav__link">
     <span class="md-ellipsis">
-      Opening the sidebar
+      Scopes
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
+  <a href="#opening-the-panel" class="md-nav__link">
     <span class="md-ellipsis">
-      How it works
+      Opening the panel
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-notes-are-stored" class="md-nav__link">
+  <a href="#where-notes-live" class="md-nav__link">
     <span class="md-ellipsis">
-      Where notes are stored
+      Where notes live
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Environment variables
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-line-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      Command-line usage
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#topic-files-and-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      Topic files and tags
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#timestamped-entries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Timestamped entries
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opening-the-vault-in-obsidian" class="md-nav__link">
+    <span class="md-ellipsis">
+      Opening the vault in Obsidian
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publishing-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      Publishing (optional)
     </span>
   </a>
   
@@ -944,19 +1052,135 @@
 
 
 <h1 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h1>
-<p>Roux includes a lightweight per-project notes sidebar. It's a plain-text scratchpad that every session in a project shares.</p>
-<h2 id="opening-the-sidebar">Opening the sidebar<a class="headerlink" href="#opening-the-sidebar" title="Permanent link">&para;</a></h2>
-<p>Press <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span> to toggle the notes sidebar. It docks alongside the current pane layout.</p>
-<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<p>Roux keeps a scoped, Obsidian-compatible markdown vault for your sessions, repos, projects, and yourself. Notes are plain text on disk, scriptable from the CLI, and exposed to agents through environment variables.</p>
+<div class="admonition warning">
+<p class="admonition-title">Experimental — subject to change</p>
+<p>Multi-scoped notes are in active development. Vault layout, CLI flag shapes, frontmatter schema, and environment variable names may change in future releases before stabilizing. If you point Obsidian at your Roux vault, keep your own backups and expect breaking migrations until this banner is removed.</p>
+</div>
+<h2 id="scopes">Scopes<a class="headerlink" href="#scopes" title="Permanent link">&para;</a></h2>
+<p>Every session can read or write notes in four scopes:</p>
 <ul>
-<li>Notes are tied to the <strong>project</strong>, not to a specific session or worktree.</li>
-<li>All sessions tagged with the same project see the same notes.</li>
-<li>Content is plain text. No formatting, no files, no sync — just a place to jot things down.</li>
+<li><strong>Global</strong> — your personal catch-all. Shared across every session, every repo, every project.</li>
+<li><strong>Project</strong> — shared by every session assigned to the same Roux project. Useful when a piece of work spans multiple repos.</li>
+<li><strong>Repo</strong> — shared by every session working in the same repo, regardless of project or worktree.</li>
+<li><strong>Session</strong> — scoped to one session. The session folder survives forever, even after the session is deleted in Roux.</li>
 </ul>
-<h2 id="where-notes-are-stored">Where notes are stored<a class="headerlink" href="#where-notes-are-stored" title="Permanent link">&para;</a></h2>
-<p>Notes live inside Roux's application support directory on disk and are persisted immediately as you type.</p>
+<h2 id="opening-the-panel">Opening the panel<a class="headerlink" href="#opening-the-panel" title="Permanent link">&para;</a></h2>
+<p>Press <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span> to toggle the notes sidebar. The header shows a row of pills:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>[Global] [Project] [Repo] [Session]
+</span></code></pre></div>
+<p>Click a pill to switch scope. The Project pill is greyed out when the current session has no project assigned. Your last-selected scope is remembered per session.</p>
+<p>The panel is deliberately a plain-text editor. For rich viewing — wikilinks, backlinks, graph view, search — open the vault in Obsidian (see below).</p>
+<h2 id="where-notes-live">Where notes live<a class="headerlink" href="#where-notes-live" title="Permanent link">&para;</a></h2>
+<p>Notes are stored as regular markdown files in an Obsidian-compatible vault:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>~/Documents/Roux/                     # configurable in Settings
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── global/notes.md
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>├── projects/&lt;project-slug&gt;/notes.md
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>├── repos/&lt;repo-slug&gt;/notes.md
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>└── sessions/&lt;branch-slug&gt;--&lt;short-id&gt;/
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    └── notes.md
+</span></code></pre></div>
+<p>The vault is a clean Obsidian vault: just markdown files with YAML frontmatter. Point Obsidian at <code>~/Documents/Roux</code> (or your configured location) and every note is readable, searchable, and link-able with <code>[[wikilinks]]</code>. You can also add your own <code>.md</code> files anywhere in the vault — Roux doesn't surface them in the panel (yet), but they're full citizens of the vault.</p>
+<h2 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
+<p>Every PTY Roux spawns gets the following variables so you and your agents can find the right file without guessing:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Points to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ROUX_NOTES_ROOT</code></td>
+<td>Vault root</td>
+</tr>
+<tr>
+<td><code>ROUX_GLOBAL_NOTES_FILE</code></td>
+<td><code>&lt;root&gt;/global/notes.md</code></td>
+</tr>
+<tr>
+<td><code>ROUX_GLOBAL_NOTES_DIR</code></td>
+<td><code>&lt;root&gt;/global</code></td>
+</tr>
+<tr>
+<td><code>ROUX_REPO_SLUG</code></td>
+<td>Slug for the current session's repo</td>
+</tr>
+<tr>
+<td><code>ROUX_REPO_NOTES_FILE</code> / <code>_DIR</code></td>
+<td>Repo scope file and directory</td>
+</tr>
+<tr>
+<td><code>ROUX_SESSION_PROJECT</code></td>
+<td>Project slug (unset if no project)</td>
+</tr>
+<tr>
+<td><code>ROUX_SESSION_PROJECT_NOTES_FILE</code> / <code>_DIR</code></td>
+<td>Project scope file and directory (unset if no project)</td>
+</tr>
+<tr>
+<td><code>ROUX_SESSION_DIR</code></td>
+<td>Session scope directory</td>
+</tr>
+<tr>
+<td><code>ROUX_SESSION_NOTES_FILE</code></td>
+<td><code>&lt;session-dir&gt;/notes.md</code></td>
+</tr>
+</tbody>
+</table>
+<p>These are snapshots at PTY spawn time; restart the shell if you reassign the session to a different project.</p>
+<h2 id="command-line-usage">Command-line usage<a class="headerlink" href="#command-line-usage" title="Permanent link">&para;</a></h2>
+<p>Every scope has the same verbs:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>show
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>append<span class="w"> </span><span class="s2">&quot;just shipped the TLS fix&quot;</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>append<span class="w"> </span>--timestamp<span class="w"> </span><span class="s2">&quot;retried, still failing&quot;</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>roux<span class="w"> </span>notes<span class="w"> </span>repo<span class="w"> </span>path
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>roux<span class="w"> </span>notes<span class="w"> </span>global<span class="w"> </span>open
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Target a specific topic file instead of the scope&#39;s notes.md anchor:</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>roux<span class="w"> </span>notes<span class="w"> </span>repo<span class="w"> </span>append<span class="w"> </span>--topic<span class="w"> </span>api-gotchas<span class="w"> </span><span class="s2">&quot;handshake fails when SNI is missing&quot;</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>roux<span class="w"> </span>notes<span class="w"> </span>repo<span class="w"> </span>append<span class="w"> </span>--topic<span class="w"> </span>api-gotchas<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--tag<span class="w"> </span>tls
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="c1"># Find notes by tag (hierarchical prefix match by default):</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>roux<span class="w"> </span>notes<span class="w"> </span>search<span class="w"> </span>--tag<span class="w"> </span>api
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>roux<span class="w"> </span>notes<span class="w"> </span>search<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--scope<span class="w"> </span>repo
+</span></code></pre></div>
+<p>See <code>roux notes --help</code> for the full command list.</p>
+<h2 id="topic-files-and-tags">Topic files and tags<a class="headerlink" href="#topic-files-and-tags" title="Permanent link">&para;</a></h2>
+<p>The scope anchors (<code>notes.md</code>) are deliberately simple. For longer-lived, topic-organized knowledge, create <strong>topic files</strong> — any <code>.md</code> file inside a scope's directory. Write them by hand in Obsidian, or via the CLI with <code>--topic &lt;name&gt;</code>.</p>
+<p>Tags live in frontmatter and in inline <code>#tag</code> text, same as in Obsidian. <code>roux notes search --tag</code> returns the union of both. Every Roux-written file defaults to the hierarchical tag <code>roux/&lt;scope&gt;</code> — so searching <code>#roux</code> in Obsidian surfaces every Roux-authored note, and <code>#roux/session</code> narrows to one scope.</p>
+<h2 id="timestamped-entries">Timestamped entries<a class="headerlink" href="#timestamped-entries" title="Permanent link">&para;</a></h2>
+<p>Add <code>--timestamp</code> to <code>append</code> to turn it into the "add a log entry" primitive:</p>
+<div class="language-markdown highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>&lt;a id=&quot;entry-a1b2c3d4&quot;&gt;&lt;/a&gt;
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="gu">## 2026-04-18 14:30</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>retried after clearing token cache, still 401
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>^entry-a1b2c3d4
+</span></code></pre></div>
+<p>Each entry gets a stable 8-char id embedded two ways:</p>
+<ul>
+<li><code>^entry-&lt;id&gt;</code> is an <strong>Obsidian block reference</strong>. Link to it from any other note with <code>[[file#^entry-&lt;id&gt;]]</code>.</li>
+<li><code>&lt;a id="entry-&lt;id&gt;"&gt;</code> is a plain HTML anchor. If you ever publish the vault as a static site (Quartz, Hugo, Zola, MkDocs, etc.), <code>#entry-&lt;id&gt;</code> is a deep link that Just Works.</li>
+</ul>
+<p>Disable the HTML anchor in Settings (<code>Include web anchors for entries</code>) if you prefer cleaner raw markdown and don't plan to publish.</p>
+<h2 id="opening-the-vault-in-obsidian">Opening the vault in Obsidian<a class="headerlink" href="#opening-the-vault-in-obsidian" title="Permanent link">&para;</a></h2>
+<p>Roux's vault is a plain Obsidian vault. Open the folder at <code>ROUX_NOTES_ROOT</code>:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>open<span class="w"> </span>-a<span class="w"> </span>Obsidian<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$ROUX_NOTES_ROOT</span><span class="s2">&quot;</span>
+</span></code></pre></div>
+<p>No plugins or configuration required. Block refs, wikilinks, frontmatter tags, and Dataview all work out of the box.</p>
+<h2 id="publishing-optional">Publishing (optional)<a class="headerlink" href="#publishing-optional" title="Permanent link">&para;</a></h2>
+<p>The vault is also compatible with static-site generators that read Obsidian vaults — Quartz is the most batteries-included choice, but Hugo, Zola, MkDocs, and Eleventy all work with minor config. If you publish, <strong>configure a publish filter</strong> on the generator side (e.g. require <code>publish: true</code> in frontmatter) so private notes stay private. Roux does not ship any publishing tooling in v1.</p>
 <h2 id="when-to-use-notes">When to use notes<a class="headerlink" href="#when-to-use-notes" title="Permanent link">&para;</a></h2>
-<p>Notes are meant for short-lived, per-project context: a running to-do list, a prompt you want to reuse, a command you keep forgetting. For long-form documentation, commit a file to the repo.</p>
+<ul>
+<li><strong>Global</strong> — principles, reusable prompts, opinions, commands you always forget.</li>
+<li><strong>Project</strong> — cross-repo plans, stakeholders, decisions, a running log.</li>
+<li><strong>Repo</strong> — repo-wide gotchas, architecture notes, onboarding tips for future you.</li>
+<li><strong>Session</strong> — the in-flight scratchpad: what you were trying to do, what worked, what to pick up next time.</li>
+</ul>
+<p>For long-form documentation that ships with code, commit a file to the repo itself. The vault is for your thinking.</p>
 
 
 

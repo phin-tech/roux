@@ -530,6 +530,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#april-18-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 18, 2026
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -951,6 +960,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#april-18-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 18, 2026
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1023,6 +1041,10 @@
 <li><strong>Attention notification auto-dismiss</strong>: notifications clear when attention state exits.</li>
 <li><strong>GitHub CLI resolution improvements</strong>: login-shell PATH lookup plus explicit <code>gh</code> binary override.</li>
 <li><strong>Configurable keymap</strong>: every keyboard shortcut — including the leader prefix and chord trees — moved out of hardcoded handlers into a KDL file at <code>~/.config/roux/keymap.kdl</code>. Switch to a built-in <code>tmux</code> preset with a single line, layer your own overrides on top, declare sticky/passthrough modes, and pick per-tree HUD visibility (<code>always</code> / <code>delayed &lt;ms&gt;</code> / <code>never</code>). Reload from the palette without a restart. See <a href="../features/keymap/">Keymap</a>.</li>
+</ul>
+<h2 id="april-18-2026">April 18, 2026<a class="headerlink" href="#april-18-2026" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Multi-scoped notes vault (experimental)</strong>: the project-only notes scratchpad expanded into a four-scope Obsidian-compatible vault. The <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span> panel now ships a pill row for <strong>Session / Repo / Project / Global</strong> notes with sticky per-session selection. Under the hood, each session writes to <code>~/Documents/Roux/&lt;scope&gt;/...</code>, a clean Obsidian vault you can point Obsidian / Quartz / Hugo / any markdown tool at. Every PTY picks up ten new <code>ROUX_*_NOTES_*</code> env vars so agents can locate the right file without guessing. A new <code>roux notes &lt;scope&gt; &lt;verb&gt;</code> CLI exposes show / append (optionally timestamped, with stable entry ids) / write / path / search-by-tag, plus <code>--topic</code> and <code>--tag</code> flags for the "many files per scope, tagged" workflow. Existing project notes migrate to <code>projects/&lt;slug&gt;/notes.md</code> on first launch; originals are kept as backup. Subject to change until the banner is removed. See <a href="../features/notes/">Notes</a>.</li>
 </ul>
 
 

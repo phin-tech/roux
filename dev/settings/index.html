@@ -808,6 +808,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#notes-experimental" class="md-nav__link">
+    <span class="md-ellipsis">
+      Notes (experimental)
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#doctor-panel" class="md-nav__link">
     <span class="md-ellipsis">
       Doctor panel
@@ -898,6 +907,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#notes-experimental" class="md-nav__link">
+    <span class="md-ellipsis">
+      Notes (experimental)
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#doctor-panel" class="md-nav__link">
     <span class="md-ellipsis">
       Doctor panel
@@ -951,8 +969,16 @@
 <li><strong>Integrations</strong> — GitHub CLI (<code>gh</code>) path override for PR/session integrations.</li>
 <li><strong>Notifications</strong> — OS notification master switch and test notification trigger.</li>
 <li><strong>Keyboard</strong> — toggles for Option-pane and Command-session hint overlays.</li>
+<li><strong>Notes</strong> — experimental multi-scoped vault settings. See below.</li>
 <li><strong>Advanced</strong> — app version and updater controls.</li>
 </ul>
+<h2 id="notes-experimental">Notes (experimental)<a class="headerlink" href="#notes-experimental" title="Permanent link">&para;</a></h2>
+<p>The <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span> notes panel writes to an Obsidian-compatible vault on disk.</p>
+<ul>
+<li><strong>Vault root</strong> (<code>notes.vaultRoot</code>) — absolute path to the vault folder. Defaults to <code>~/Documents/Roux</code> on first note write. Point this at an existing Obsidian vault if you'd rather co-locate Roux notes with your personal second brain. Changing this setting does <strong>not</strong> move existing content; copy the folder manually before pointing Roux at a new location.</li>
+<li><strong>Include web anchors for entries</strong> (<code>notes.includeWebAnchors</code>, default on) — when enabled, <code>roux notes &lt;scope&gt; append --timestamp</code> adds an inline <code>&lt;a id="entry-..."&gt;</code> HTML anchor in front of each timestamped entry so the entry stays deep-linkable if the vault is later published through a static-site generator (Quartz, Hugo, Zola, MkDocs, …). Disable for cleaner raw markdown if you only ever read the vault in Obsidian.</li>
+</ul>
+<p>See <a href="../features/notes/">Notes</a> for the panel UX, CLI surface, and env vars.</p>
 <h2 id="doctor-panel">Doctor panel<a class="headerlink" href="#doctor-panel" title="Permanent link">&para;</a></h2>
 <p>The <strong>Advanced</strong> section includes a <strong>Doctor</strong> panel that checks integration health for:</p>
 <ul>
