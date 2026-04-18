@@ -1,6 +1,6 @@
 <script lang="ts">
   import { notesRead, notesWrite, type NotesScope } from "$lib/tauri";
-  import { lastNotesScope, setLastNotesScope } from "$lib/stores/notesUi";
+  import { notesUiState, setLastNotesScope } from "$lib/stores/notesUi";
 
   interface Props {
     visible: boolean;
@@ -45,22 +45,22 @@
     }
   }
 
-  // When the panel opens on a session, restore that session's last scope.
+  // Scope is derived from the notesUi store so that a command-palette
+  // command like "Show Repo Notes" updates the panel's active scope
+  // immediately — even while the panel is already open.
   $effect(() => {
-    if (visible && sessionId) {
-      const next = lastNotesScope(sessionId);
-      // If the remembered scope is disabled in this context, fall back.
-      if (next === "project" && !projectEnabled) {
-        scope = "session";
-      } else if (next === "repo" && !repoEnabled) {
-        scope = "session";
-      } else {
-        scope = next;
-      }
-    }
-    if (!visible) {
-      loadedKey = null;
-    }
+    if (!sessionId) return;
+    const raw = $notesUiState.lastScopeBySession[sessionId] ?? "session";
+    const next: NotesScope =
+      raw === "project" && !projectEnabled
+        ? "session"
+        : raw === "repo" && !repoEnabled
+          ? "session"
+          : raw;
+    if (scope !== next) scope = next;
+  });
+  $effect(() => {
+    if (!visible) loadedKey = null;
   });
 
   // Load the correct file whenever the (session, scope) pair changes.
