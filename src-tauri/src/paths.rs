@@ -25,6 +25,16 @@ pub fn roux_config_dir() -> PathBuf {
     home.join(".config").join("roux")
 }
 
+/// Default on-disk location for the Obsidian-compatible notes vault.
+///
+/// `~/Documents/Roux` on every platform. Users override this via the
+/// `notes.vaultRoot` setting (wired in Step 3). The helper always returns
+/// an absolute path; callers handle creation lazily on first write.
+pub fn default_notes_vault_root() -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    home.join("Documents").join("Roux")
+}
+
 /// Legacy config directory, if it differs from the current one.
 ///
 /// Returns `None` when `dirs::config_dir().join("roux")` is exactly the
