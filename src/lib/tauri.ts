@@ -338,13 +338,61 @@ export async function setSessionNameOverride(
   return invoke("set_session_name_override", { sessionId, nameOverride });
 }
 
-// Project notes
-export async function getProjectNotes(projectId: string): Promise<string> {
-  return invoke("get_project_notes", { projectId });
+// Multi-scoped notes (experimental — see docs/features/notes.md). The four
+// scopes are `"global" | "project" | "repo" | "session"`. Every command
+// routes through NotesService on the backend; scope resolution (repo slug,
+// project slug, session slug) happens there.
+export type NotesScope = "global" | "project" | "repo" | "session";
+
+export interface NotesTarget {
+  scope: NotesScope;
+  sessionId?: string | null;
+  topic?: string | null;
+  overrideSlug?: string | null;
 }
 
-export async function setProjectNotes(projectId: string, content: string): Promise<void> {
-  return invoke("set_project_notes", { projectId, content });
+export interface NotesRead {
+  path: string;
+  content: string;
+}
+
+export interface NotesSearchQuery {
+  tags: string[];
+  scope?: NotesScope | null;
+  exact: boolean;
+}
+
+export async function notesRead(target: NotesTarget): Promise<NotesRead> {
+  return invoke("notes_read", { target });
+}
+
+export async function notesWrite(
+  target: NotesTarget,
+  content: string,
+  tags: string[] = [],
+): Promise<void> {
+  return invoke("notes_write", { target, content, tags });
+}
+
+export async function notesAppend(
+  target: NotesTarget,
+  content: string,
+  timestamped: boolean,
+  tags: string[] = [],
+): Promise<void> {
+  return invoke("notes_append", { target, content, timestamped, tags });
+}
+
+export async function notesPath(target: NotesTarget, dir: boolean): Promise<string> {
+  return invoke("notes_path", { target, dir });
+}
+
+export async function notesSearch(query: NotesSearchQuery): Promise<string[]> {
+  return invoke("notes_search", { query });
+}
+
+export async function notesVaultRoot(): Promise<string> {
+  return invoke("notes_vault_root");
 }
 
 // Editor integration

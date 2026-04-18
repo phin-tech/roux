@@ -68,6 +68,15 @@ enum Commands {
         #[arg(short, long)]
         working_dir: Option<String>,
     },
+    /// Multi-scoped notes vault (experimental).
+    ///
+    /// Read, append, write, and search notes across four scopes
+    /// (global / project / repo / session). Session and scope context is
+    /// resolved from `$ROUX_SESSION_ID`. See `docs/features/notes.md`.
+    Notes {
+        #[command(subcommand)]
+        action: NotesAction,
+    },
     /// Push a notification into Roux's notification service
     Notify {
         /// Notification title (required unless --json is used)
@@ -175,6 +184,86 @@ enum PaneAction {
         /// Working directory for the new pane. Default: session's worktree_path
         #[arg(short, long)]
         working_dir: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum NotesAction {
+    /// Global scope — your personal catch-all, shared across every session.
+    Global {
+        #[command(subcommand)]
+        action: NotesScopeVerb,
+    },
+    /// Project scope — shared by every session tagged with the same project.
+    Project {
+        #[command(subcommand)]
+        action: NotesScopeVerb,
+    },
+    /// Repo scope — shared by every session working in the same repo.
+    Repo {
+        #[command(subcommand)]
+        action: NotesScopeVerb,
+    },
+    /// Session scope — the current session's personal scratchpad / log.
+    Session {
+        #[command(subcommand)]
+        action: NotesScopeVerb,
+    },
+    /// Search across the vault by frontmatter tags + inline `#tag` occurrences.
+    Search {
+        /// Required tag filter. Pass multiple times for AND. Hierarchical prefix
+        /// matching is on by default (`--tag api` matches `api/tls`).
+        #[arg(long = "tag", action = clap::ArgAction::Append, required = true)]
+        tags: Vec<String>,
+        /// Restrict to one scope's subtree. Default: whole vault.
+        #[arg(long)]
+        scope: Option<String>,
+        /// Disable hierarchical prefix matching (literal tag names only).
+        #[arg(long)]
+        tag_exact: bool,
+    },
+    /// Print the vault root path.
+    Root,
+}
+
+#[derive(Subcommand)]
+enum NotesScopeVerb {
+    /// Print the note contents to stdout.
+    Show {
+        /// Target a topic file within the scope dir instead of `notes.md`.
+        #[arg(long)]
+        topic: Option<String>,
+    },
+    /// Append to the note. Reads from stdin if `--content` is not supplied.
+    Append {
+        #[arg(long)]
+        topic: Option<String>,
+        /// Content to append. If omitted, stdin is used.
+        #[arg(long)]
+        content: Option<String>,
+        /// Prepend a timestamped heading + block-ref for this entry.
+        #[arg(long)]
+        timestamp: bool,
+        /// Union-merge a tag into the file's frontmatter `tags:` list. Repeatable.
+        #[arg(long = "tag", action = clap::ArgAction::Append)]
+        tags: Vec<String>,
+    },
+    /// Replace the note body. Reads from stdin if `--content` is not supplied.
+    Write {
+        #[arg(long)]
+        topic: Option<String>,
+        #[arg(long)]
+        content: Option<String>,
+        #[arg(long = "tag", action = clap::ArgAction::Append)]
+        tags: Vec<String>,
+    },
+    /// Print the note's absolute filesystem path.
+    Path {
+        #[arg(long)]
+        topic: Option<String>,
+        /// Print the scope directory instead of the file.
+        #[arg(long)]
+        dir: bool,
     },
 }
 
@@ -873,6 +962,121 @@ fn main() {
             run_socket_command(serde_json::json!({
                 "command": "notify",
                 "args": Value::Object(args),
+            }));
+        }
+
+        Commands::Notes { action } => handle_notes(action),
+    }
+}
+
+fn scope_name(a: &NotesAction) -> Option<&'static str> {
+    match a {
+        NotesAction::Global { .. } => Some("global"),
+        NotesAction::Project { .. } => Some("project"),
+        NotesAction::Repo { .. } => Some("repo"),
+        NotesAction::Session { .. } => Some("session"),
+        NotesAction::Search { .. } | NotesAction::Root => None,
+    }
+}
+
+fn build_target(
+    scope: &str,
+    topic: Option<String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "scope": scope,
+        "sessionId": get_session_id(),
+        "topic": topic,
+        "overrideSlug": serde_json::Value::Null,
+    })
+}
+
+fn read_stdin_if_needed(content: Option<String>) -> String {
+    match content {
+        Some(s) => s,
+        None => {
+            use std::io::Read;
+            let mut buf = String::new();
+            let _ = std::io::stdin().read_to_string(&mut buf);
+            // Trim one trailing newline — echo's default behavior shouldn't
+            // double-space-out every appended entry.
+            if buf.ends_with('\n') {
+                buf.pop();
+            }
+            buf
+        }
+    }
+}
+
+fn handle_notes(action: NotesAction) {
+    match action {
+        NotesAction::Root => {
+            run_socket_command(serde_json::json!({
+                "command": "notes-vault-root",
+                "args": {},
+            }));
+        }
+        NotesAction::Search { tags, scope, tag_exact } => {
+            run_socket_command(serde_json::json!({
+                "command": "notes-search",
+                "args": {
+                    "tags": tags,
+                    "scope": scope,
+                    "exact": tag_exact,
+                },
+            }));
+        }
+        _ => {
+            let scope = scope_name(&action).expect("scope-aware variants only");
+            match action {
+                NotesAction::Global { action }
+                | NotesAction::Project { action }
+                | NotesAction::Repo { action }
+                | NotesAction::Session { action } => handle_notes_verb(scope, action),
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+fn handle_notes_verb(scope: &str, verb: NotesScopeVerb) {
+    match verb {
+        NotesScopeVerb::Show { topic } => {
+            run_socket_command(serde_json::json!({
+                "command": "notes-read",
+                "args": build_target(scope, topic),
+            }));
+        }
+        NotesScopeVerb::Append { topic, content, timestamp, tags } => {
+            let body = read_stdin_if_needed(content);
+            run_socket_command(serde_json::json!({
+                "command": "notes-append",
+                "args": {
+                    "target": build_target(scope, topic),
+                    "content": body,
+                    "timestamped": timestamp,
+                    "tags": tags,
+                },
+            }));
+        }
+        NotesScopeVerb::Write { topic, content, tags } => {
+            let body = read_stdin_if_needed(content);
+            run_socket_command(serde_json::json!({
+                "command": "notes-write",
+                "args": {
+                    "target": build_target(scope, topic),
+                    "content": body,
+                    "tags": tags,
+                },
+            }));
+        }
+        NotesScopeVerb::Path { topic, dir } => {
+            run_socket_command(serde_json::json!({
+                "command": "notes-path",
+                "args": {
+                    "target": build_target(scope, topic),
+                    "dir": dir,
+                },
             }));
         }
     }

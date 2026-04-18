@@ -52,14 +52,3 @@ pub(crate) async fn set_session_project(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn get_project_notes(project_id: String) -> Result<String, String> {
-    svc::get_notes(&project_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn set_project_notes(project_id: String, content: String) -> Result<(), String> {
-    svc::set_notes(&project_id, &content).map_err(|e| e.to_string())
-}

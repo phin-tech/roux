@@ -25,7 +25,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Session from PR URL** — paste a GitHub PR URL in New Session and Roux prepares the review branch/worktree
 - **Doctor panel** — inspect and reinstall CLI/hooks/skill integrations from Settings
 - **Projects** — tag sessions with projects to organize related work across repos and worktrees
-- **Project notes** — per-project plain-text notes sidebar (++cmd+b++) shared across all sessions in a project
+- **Multi-scoped notes vault** — plain-text notes sidebar (++cmd+b++) with four scopes (global / project / repo / session), backed by an Obsidian-compatible markdown vault. Scriptable from `roux notes <scope> <verb>` and exposed to agents through per-PTY env vars. Experimental.
 - **CLI bridge** — `roux-cli` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal
 
 ## Next steps

@@ -652,8 +652,10 @@
     {@const activeSession = $sessionState.sessions.find(s => s.id === $sessionState.activeSessionId)}
     <NotesPanel
       visible={$activeSidebar === "notes"}
+      sessionId={activeSession?.id ?? null}
       projectId={activeSession?.projectId ?? null}
       projectName={$projects.find(p => p.id === activeSession?.projectId)?.name ?? null}
+      repoRoot={activeSession?.repoRoot ?? null}
       onclose={closeSidebar}
     />
     <WatchesPane

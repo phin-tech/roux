@@ -575,6 +575,7 @@ impl PtyManager {
         pane_id: Option<&str>,
         project_id: Option<&str>,
         worktree_path: Option<&str>,
+        notes: Option<&NotesEnvInputs>,
         nono: Option<&NonoConfig>,
         initial_size: Option<(u16, u16)>,
         app: tauri::AppHandle,
@@ -617,7 +618,7 @@ impl PtyManager {
             CommandBuilder::new(&shell)
         };
         apply_shell_command_flags(&mut cmd, &shell);
-        apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path);
+        apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path, notes);
         cmd.cwd(working_dir);
 
         let child = pair.slave.spawn_command(cmd).map_err(|source| {
@@ -678,6 +679,7 @@ impl PtyManager {
         pane_id: Option<&str>,
         project_id: Option<&str>,
         worktree_path: Option<&str>,
+        notes: Option<&NotesEnvInputs>,
         initial_size: Option<(u16, u16)>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
@@ -692,7 +694,7 @@ impl PtyManager {
 
         let mut cmd = CommandBuilder::new(&shell);
         apply_task_command_args(&mut cmd, &shell, command);
-        apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path);
+        apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path, notes);
         cmd.cwd(working_dir);
 
         let mut child =
@@ -997,6 +999,19 @@ fn build_pty_path(user_path: &str) -> String {
 /// PTY hosts `ROUX_SESSION_ID` and `ROUX_PANE_ID` in its env unconditionally.
 /// Hooks and `roux notify` read them to route events back to the correct
 /// pane without cwd heuristics.
+/// Pre-computed inputs for the `ROUX_*_NOTES_*` env vars. Built by the
+/// session-creation layer (which has access to `NotesService` + settings)
+/// and threaded through the PTY spawn calls. Every string has already been
+/// resolved through `NotesService::resolve_target` so the slugs here are
+/// the same ones the Tauri commands and the frontend panel will see.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NotesEnvInputs {
+    pub(crate) vault_root: String,
+    pub(crate) session_slug: String,
+    pub(crate) repo_slug: String,
+    pub(crate) project_slug: Option<String>,
+}
+
 fn apply_roux_env(
     cmd: &mut CommandBuilder,
     user_path: &str,
@@ -1004,6 +1019,7 @@ fn apply_roux_env(
     pane_id: Option<&str>,
     project_id: Option<&str>,
     worktree_path: Option<&str>,
+    notes: Option<&NotesEnvInputs>,
 ) {
     cmd.env("PATH", build_pty_path(user_path));
     cmd.env("TERM", "xterm-256color");
@@ -1025,6 +1041,49 @@ fn apply_roux_env(
     if let Some(wt) = worktree_path {
         cmd.env("ROUX_WORKTREE_PATH", wt);
     }
+    if let Some(n) = notes {
+        apply_notes_env(cmd, n);
+    }
+}
+
+fn apply_notes_env(cmd: &mut CommandBuilder, n: &NotesEnvInputs) {
+    use std::path::Path;
+    let root = Path::new(&n.vault_root);
+    let global_dir = root.join("global");
+    let repo_dir = root.join("repos").join(&n.repo_slug);
+    let session_dir = root.join("sessions").join(&n.session_slug);
+
+    cmd.env("ROUX_NOTES_ROOT", root.to_string_lossy().to_string());
+    cmd.env("ROUX_GLOBAL_NOTES_DIR", global_dir.to_string_lossy().to_string());
+    cmd.env(
+        "ROUX_GLOBAL_NOTES_FILE",
+        global_dir.join("notes.md").to_string_lossy().to_string(),
+    );
+    cmd.env("ROUX_REPO_SLUG", &n.repo_slug);
+    cmd.env("ROUX_REPO_NOTES_DIR", repo_dir.to_string_lossy().to_string());
+    cmd.env(
+        "ROUX_REPO_NOTES_FILE",
+        repo_dir.join("notes.md").to_string_lossy().to_string(),
+    );
+    cmd.env("ROUX_SESSION_DIR", session_dir.to_string_lossy().to_string());
+    cmd.env(
+        "ROUX_SESSION_NOTES_FILE",
+        session_dir.join("notes.md").to_string_lossy().to_string(),
+    );
+    if let Some(project_slug) = n.project_slug.as_deref() {
+        let project_dir = root.join("projects").join(project_slug);
+        cmd.env("ROUX_SESSION_PROJECT", project_slug);
+        cmd.env(
+            "ROUX_SESSION_PROJECT_NOTES_DIR",
+            project_dir.to_string_lossy().to_string(),
+        );
+        cmd.env(
+            "ROUX_SESSION_PROJECT_NOTES_FILE",
+            project_dir.join("notes.md").to_string_lossy().to_string(),
+        );
+    }
+    // When there's no project, the three project vars are deliberately NOT set
+    // so shell idioms like `${ROUX_SESSION_PROJECT:-no-project}` work.
 }
 
 /// Get the user's login shell PATH by invoking their actual shell (from $SHELL)

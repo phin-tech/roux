@@ -15,7 +15,17 @@ Settings are grouped into categories in a sidebar modal. Changes are persisted a
 - **Integrations** — GitHub CLI (`gh`) path override for PR/session integrations.
 - **Notifications** — OS notification master switch and test notification trigger.
 - **Keyboard** — toggles for Option-pane and Command-session hint overlays.
+- **Notes** — experimental multi-scoped vault settings. See below.
 - **Advanced** — app version and updater controls.
+
+## Notes (experimental)
+
+The ++cmd+b++ notes panel writes to an Obsidian-compatible vault on disk.
+
+- **Vault root** (`notes.vaultRoot`) — absolute path to the vault folder. Defaults to `~/Documents/Roux` on first note write. Point this at an existing Obsidian vault if you'd rather co-locate Roux notes with your personal second brain. Changing this setting does **not** move existing content; copy the folder manually before pointing Roux at a new location.
+- **Include web anchors for entries** (`notes.includeWebAnchors`, default on) — when enabled, `roux notes <scope> append --timestamp` adds an inline `<a id="entry-...">` HTML anchor in front of each timestamped entry so the entry stays deep-linkable if the vault is later published through a static-site generator (Quartz, Hugo, Zola, MkDocs, …). Disable for cleaner raw markdown if you only ever read the vault in Obsidian.
+
+See [Notes](features/notes.md) for the panel UX, CLI surface, and env vars.
 
 ## Doctor panel
 

@@ -134,6 +134,22 @@ pub struct RouxSettings {
     /// Settings / command palette remain available regardless.
     #[serde(default = "default_true")]
     pub update_check_on_launch: bool,
+    /// Experimental multi-scoped notes — when true (the default), the
+    /// timestamped-append CLI verb prefixes each entry with an inline
+    /// `<a id="entry-...">` HTML anchor so the entry is deep-linkable
+    /// from any mainstream static-site generator. Disable for cleaner
+    /// raw markdown if you only read the vault in Obsidian.
+    #[serde(default = "default_true")]
+    pub notes_include_web_anchors: bool,
+    /// Experimental multi-scoped notes — override for the vault root
+    /// directory. `None` means "use the default `~/Documents/Roux`".
+    #[serde(default)]
+    pub notes_vault_root: Option<String>,
+    /// Experimental multi-scoped notes — set to `true` once the legacy
+    /// `<project_id>.txt` files have been migrated into the vault. Guards
+    /// against re-running the migration on every app launch.
+    #[serde(default)]
+    pub notes_migrated_v1: bool,
     /// Which update channel this user is subscribed to. `Stable` pulls from the
     /// standard `latest.json` manifest; `PreRelease` resolves the newest
     /// GitHub prerelease at check time and pulls its `latest-prerelease.json`.
@@ -198,6 +214,9 @@ impl Default for RouxSettings {
             notifications_enabled: true,
             auto_clear_attention_state: true,
             update_check_on_launch: true,
+            notes_include_web_anchors: true,
+            notes_vault_root: None,
+            notes_migrated_v1: false,
             update_channel: UpdateChannel::default(),
             spawn_profiles: Vec::new(),
             trusted_workspaces: Vec::new(),

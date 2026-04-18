@@ -8,6 +8,7 @@ use tokio::net::TcpListener;
 #[cfg(not(windows))]
 use tokio::net::UnixListener;
 
+use crate::commands::notes::{self as notes_cmd, NotesSearchQuery, NotesTarget};
 use crate::platform;
 use crate::state::AppState;
 
@@ -173,6 +174,12 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "run" => handle_run(req, app).await,
         "send" => handle_send(req, app),
         "notify" => handle_notify(req, app).await,
+        "notes-read" => handle_notes_read(req, app).await,
+        "notes-write" => handle_notes_write(req, app).await,
+        "notes-append" => handle_notes_append(req, app).await,
+        "notes-path" => handle_notes_path(req, app).await,
+        "notes-search" => handle_notes_search(req, app).await,
+        "notes-vault-root" => handle_notes_vault_root(app),
         "session-list" => handle_session_list(req, app).await,
         "session-poll" => handle_session_poll(req, app).await,
         "session-panes-list" => handle_session_panes_list(req, app).await,
@@ -180,6 +187,111 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "app-open" => handle_app_open(req, app).await,
         _ => Response::err(format!("unknown command: {}", req.command)),
     }
+}
+
+async fn handle_notes_read(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let target: NotesTarget = match serde_json::from_value(req.args.clone()) {
+        Ok(t) => t,
+        Err(e) => return Response::err(format!("invalid notes-read args: {e}")),
+    };
+    match notes_cmd::do_notes_read(target, &state).await {
+        Ok(r) => match serde_json::to_value(&r) {
+            Ok(v) => Response::success(v),
+            Err(e) => Response::err(format!("serialize notes read: {e}")),
+        },
+        Err(e) => Response::err(e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct NotesWriteArgs {
+    target: NotesTarget,
+    content: String,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+async fn handle_notes_write(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let args: NotesWriteArgs = match serde_json::from_value(req.args.clone()) {
+        Ok(a) => a,
+        Err(e) => return Response::err(format!("invalid notes-write args: {e}")),
+    };
+    match notes_cmd::do_notes_write(args.target, args.content, args.tags, &state, app).await {
+        Ok(()) => Response::ok(),
+        Err(e) => Response::err(e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct NotesAppendArgs {
+    target: NotesTarget,
+    content: String,
+    #[serde(default)]
+    timestamped: bool,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+async fn handle_notes_append(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let args: NotesAppendArgs = match serde_json::from_value(req.args.clone()) {
+        Ok(a) => a,
+        Err(e) => return Response::err(format!("invalid notes-append args: {e}")),
+    };
+    match notes_cmd::do_notes_append(
+        args.target,
+        args.content,
+        args.timestamped,
+        args.tags,
+        &state,
+        app,
+    )
+    .await
+    {
+        Ok(()) => Response::ok(),
+        Err(e) => Response::err(e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct NotesPathArgs {
+    target: NotesTarget,
+    #[serde(default)]
+    dir: bool,
+}
+
+async fn handle_notes_path(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let args: NotesPathArgs = match serde_json::from_value(req.args.clone()) {
+        Ok(a) => a,
+        Err(e) => return Response::err(format!("invalid notes-path args: {e}")),
+    };
+    match notes_cmd::do_notes_path(args.target, args.dir, &state).await {
+        Ok(p) => Response::success(serde_json::Value::String(p)),
+        Err(e) => Response::err(e),
+    }
+}
+
+async fn handle_notes_search(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let query: NotesSearchQuery = match serde_json::from_value(req.args.clone()) {
+        Ok(q) => q,
+        Err(e) => return Response::err(format!("invalid notes-search args: {e}")),
+    };
+    match notes_cmd::do_notes_search(query, &state) {
+        Ok(paths) => match serde_json::to_value(&paths) {
+            Ok(v) => Response::success(v),
+            Err(e) => Response::err(format!("serialize notes search: {e}")),
+        },
+        Err(e) => Response::err(e),
+    }
+}
+
+fn handle_notes_vault_root(app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    Response::success(serde_json::Value::String(notes_cmd::do_notes_vault_root(&state)))
 }
 
 async fn handle_session_list(_req: Request, app: &tauri::AppHandle) -> Response {
@@ -662,6 +774,7 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         Some(&pane_id),
         project_id.as_deref(),
         worktree_env.as_deref(),
+        None, // notes env snapshot — wired only from session creation path
         None,
         None,
         app.clone(),
@@ -744,6 +857,7 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         Some(&pane_id),
         project_id.as_deref(),
         worktree_env.as_deref(),
+        None, // notes env snapshot — wired only from session creation path
         None,
         app.clone(),
     ) {

@@ -3,6 +3,15 @@ import { queries } from "$lib/queries";
 import { settings, updateSetting } from "$lib/stores/settings";
 import { get } from "svelte/store";
 import { loadKeymap, exitTree as keymapExitTree } from "$lib/keymap/store";
+import { openSidebar } from "$lib/stores/ui";
+import { setLastNotesScope, type NotesScope } from "$lib/stores/notesUi";
+
+function showNotesScope(scope: NotesScope) {
+  const session = queries.activeSession();
+  if (!session) return;
+  setLastNotesScope(session.id, scope);
+  openSidebar("notes");
+}
 
 export function registerUiCommands() {
   registry.register({
@@ -33,6 +42,38 @@ export function registerUiCommands() {
     label: "Toggle Notes",
     category: "App",
     available: () => !!queries.activeSession(),
+  });
+
+  registry.register({
+    id: "ui.notes-show-session",
+    label: "Show Session Notes",
+    category: "App",
+    available: () => !!queries.activeSession(),
+    execute: () => showNotesScope("session"),
+  });
+
+  registry.register({
+    id: "ui.notes-show-repo",
+    label: "Show Repo Notes",
+    category: "App",
+    available: () => !!queries.activeSession()?.repoRoot,
+    execute: () => showNotesScope("repo"),
+  });
+
+  registry.register({
+    id: "ui.notes-show-project",
+    label: "Show Project Notes",
+    category: "App",
+    available: () => !!queries.activeSession()?.projectId,
+    execute: () => showNotesScope("project"),
+  });
+
+  registry.register({
+    id: "ui.notes-show-global",
+    label: "Show Global Notes",
+    category: "App",
+    available: () => !!queries.activeSession(),
+    execute: () => showNotesScope("global"),
   });
 
   registry.register({
