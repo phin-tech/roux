@@ -132,14 +132,13 @@ async fn resolve(
     )
 }
 
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn notes_read(
+/// Core logic for `notes_read`; also called from the socket CLI bridge.
+pub(crate) async fn do_notes_read(
     target: NotesTarget,
-    state: tauri::State<'_, AppState>,
+    state: &AppState,
 ) -> Result<NotesRead, String> {
-    let mut svc = build_service(&state);
-    let (scope, topic, session_slug) = resolve(&mut svc, &state, &target).await?;
+    let mut svc = build_service(state);
+    let (scope, topic, session_slug) = resolve(&mut svc, state, &target).await?;
     let content = svc
         .read_file(&scope, topic.as_deref(), &session_slug)
         .map_err(|e| e.to_string())?;
@@ -152,14 +151,21 @@ pub(crate) async fn notes_read(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn notes_write(
+pub(crate) async fn notes_read(
+    target: NotesTarget,
+    state: tauri::State<'_, AppState>,
+) -> Result<NotesRead, String> {
+    do_notes_read(target, &state).await
+}
+
+pub(crate) async fn do_notes_write(
     target: NotesTarget,
     content: String,
     tags: Vec<String>,
-    state: tauri::State<'_, AppState>,
+    state: &AppState,
 ) -> Result<(), String> {
-    let mut svc = build_service(&state);
-    let (scope, topic, session_slug) = resolve(&mut svc, &state, &target).await?;
+    let mut svc = build_service(state);
+    let (scope, topic, session_slug) = resolve(&mut svc, state, &target).await?;
     let now = now_iso8601();
     svc.write_file(
         &scope,
@@ -174,15 +180,24 @@ pub(crate) async fn notes_write(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn notes_append(
+pub(crate) async fn notes_write(
+    target: NotesTarget,
+    content: String,
+    tags: Vec<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    do_notes_write(target, content, tags, &state).await
+}
+
+pub(crate) async fn do_notes_append(
     target: NotesTarget,
     content: String,
     timestamped: bool,
     tags: Vec<String>,
-    state: tauri::State<'_, AppState>,
+    state: &AppState,
 ) -> Result<(), String> {
-    let mut svc = build_service(&state);
-    let (scope, topic, session_slug) = resolve(&mut svc, &state, &target).await?;
+    let mut svc = build_service(state);
+    let (scope, topic, session_slug) = resolve(&mut svc, state, &target).await?;
     let now = now_iso8601();
 
     let include_web_anchor = state
@@ -218,13 +233,23 @@ pub(crate) async fn notes_append(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn notes_path(
+pub(crate) async fn notes_append(
+    target: NotesTarget,
+    content: String,
+    timestamped: bool,
+    tags: Vec<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    do_notes_append(target, content, timestamped, tags, &state).await
+}
+
+pub(crate) async fn do_notes_path(
     target: NotesTarget,
     dir: bool,
-    state: tauri::State<'_, AppState>,
+    state: &AppState,
 ) -> Result<String, String> {
-    let mut svc = build_service(&state);
-    let (scope, topic, session_slug) = resolve(&mut svc, &state, &target).await?;
+    let mut svc = build_service(state);
+    let (scope, topic, session_slug) = resolve(&mut svc, state, &target).await?;
     let p = if dir {
         svc.dir_path(&scope, &session_slug)
     } else {
@@ -235,22 +260,43 @@ pub(crate) async fn notes_path(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn notes_search(
-    query: NotesSearchQuery,
+pub(crate) async fn notes_path(
+    target: NotesTarget,
+    dir: bool,
     state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    do_notes_path(target, dir, &state).await
+}
+
+pub(crate) fn do_notes_search(
+    query: NotesSearchQuery,
+    state: &AppState,
 ) -> Result<Vec<String>, String> {
     if query.tags.is_empty() {
         return Err("at least one --tag is required".to_string());
     }
-    let svc = build_service(&state);
+    let svc = build_service(state);
     let hits = svc.search(query.scope.as_deref(), &query.tags, query.exact);
     Ok(hits.into_iter().map(|p| p.to_string_lossy().into_owned()).collect())
 }
 
 #[tauri::command]
 #[specta::specta]
+pub(crate) async fn notes_search(
+    query: NotesSearchQuery,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    do_notes_search(query, &state)
+}
+
+pub(crate) fn do_notes_vault_root(state: &AppState) -> String {
+    vault_root(state).to_string_lossy().into_owned()
+}
+
+#[tauri::command]
+#[specta::specta]
 pub(crate) fn notes_vault_root(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    Ok(vault_root(&state).to_string_lossy().into_owned())
+    Ok(do_notes_vault_root(&state))
 }
 
 fn now_iso8601() -> String {
