@@ -1,7 +1,26 @@
 # Multi-Scoped Notes & Obsidian-Compatible Vault
 
 **Date:** 2026-04-18
-**Status:** Approved
+**Status:** Approved — Experimental
+
+## Stability
+
+This feature ships as **experimental**. All of the following are explicitly subject to change in future releases, without migration support beyond the one-shot v1 migration described below:
+
+- Vault on-disk layout (folder names, file names, `.roux/*.json` index schema).
+- Frontmatter field names and tag defaults (including the `roux/<scope>` hierarchical tag).
+- Timestamped-entry format, including the `^entry-<id>` block-ref shape and the `<a id>` HTML anchor toggle.
+- CLI subcommand and flag names (`roux notes <scope> <verb>`, `--topic`, `--tag`, `--timestamp`, `--tag-exact`, `--json`, etc.).
+- Environment variable names (`ROUX_NOTES_ROOT`, `ROUX_*_NOTES_FILE`, `ROUX_*_NOTES_DIR`, `ROUX_SESSION_DIR`, `ROUX_REPO_SLUG`, `ROUX_SESSION_PROJECT*`).
+- Tauri command surface (`notes_read`, `notes_write`, `notes_append`, `notes_path`, `notes_search`, slug-rename commands).
+- Exit code values for CLI error classes.
+
+The experimental marker is removed once the surface has been used long enough to shake out rough edges (expected horizon: at least one full release cycle of real use). Users are expected to keep their own backups of the vault and to accept that breaking changes may require manual vault edits.
+
+Experimental status is communicated in three places:
+- The user-facing docs page (`docs/features/notes.md`) carries an "Experimental — subject to change" banner.
+- The Roux notes panel header shows a subtle "Experimental" pill (implementation in Step 3).
+- `roux notes --help` output leads with an "Experimental" line (implementation in Step 5).
 
 ## Problem
 
