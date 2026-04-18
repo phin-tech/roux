@@ -18,7 +18,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Layout persistence** -- Pane layouts survive app restarts; shell panes respawn automatically
 - **Themes** -- Multiple built-in color schemes
 - **Projects** -- Tag sessions with projects to organize related work across repos and worktrees
-- **Project notes** -- Per-project plain-text notes sidebar (`cmd+b`) shared across all sessions in a project
+- **Multi-scoped notes vault** (experimental) -- Plain-text notes sidebar (`cmd+b`) with four scopes (global / project / repo / session), backed by an Obsidian-compatible markdown vault at `~/Documents/Roux`. Scriptable from `roux notes <scope> <verb>` and surfaced to agents via per-PTY `ROUX_*_NOTES_*` env vars.
 - **Command panes** -- Run shell commands in dedicated panes with rerun support
 - **Task runner** -- Run predefined commands from configuration files
 - **Document viewer** -- Open markdown files in dedicated panes
