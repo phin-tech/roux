@@ -218,7 +218,7 @@ async fn handle_notes_write(req: Request, app: &tauri::AppHandle) -> Response {
         Ok(a) => a,
         Err(e) => return Response::err(format!("invalid notes-write args: {e}")),
     };
-    match notes_cmd::do_notes_write(args.target, args.content, args.tags, &state).await {
+    match notes_cmd::do_notes_write(args.target, args.content, args.tags, &state, app).await {
         Ok(()) => Response::ok(),
         Err(e) => Response::err(e),
     }
@@ -246,6 +246,7 @@ async fn handle_notes_append(req: Request, app: &tauri::AppHandle) -> Response {
         args.timestamped,
         args.tags,
         &state,
+        app,
     )
     .await
     {

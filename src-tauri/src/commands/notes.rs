@@ -17,6 +17,23 @@ use crate::services::notes::{AppendOpts, NotesService, Scope};
 use crate::state::AppState;
 use roux_core::Session;
 use serde::{Deserialize, Serialize};
+use tauri::Emitter;
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NotesChangedEvent {
+    pub(crate) path: String,
+}
+
+/// Emit a `notes-changed` Tauri event so the NotesPanel can live-reload
+/// when a CLI / socket / Tauri write touches a file it's currently
+/// displaying. Swallow errors — failing to emit must not fail the write.
+fn emit_notes_changed(app: &tauri::AppHandle, path: &std::path::Path) {
+    let _ = app.emit(
+        "notes-changed",
+        NotesChangedEvent { path: path.to_string_lossy().into_owned() },
+    );
+}
 
 /// Scope + addressing info for a single note file. Sent verbatim from the
 /// frontend or the CLI; the backend resolves the pieces it needs.
@@ -163,6 +180,7 @@ pub(crate) async fn do_notes_write(
     content: String,
     tags: Vec<String>,
     state: &AppState,
+    app: &tauri::AppHandle,
 ) -> Result<(), String> {
     let mut svc = build_service(state);
     let (scope, topic, session_slug) = resolve(&mut svc, state, &target).await?;
@@ -175,7 +193,12 @@ pub(crate) async fn do_notes_write(
         &now,
         &tags,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    emit_notes_changed(
+        app,
+        &svc.file_path(&scope, topic.as_deref(), &session_slug),
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -185,8 +208,9 @@ pub(crate) async fn notes_write(
     content: String,
     tags: Vec<String>,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    do_notes_write(target, content, tags, &state).await
+    do_notes_write(target, content, tags, &state, &app).await
 }
 
 pub(crate) async fn do_notes_append(
@@ -195,6 +219,7 @@ pub(crate) async fn do_notes_append(
     timestamped: bool,
     tags: Vec<String>,
     state: &AppState,
+    app: &tauri::AppHandle,
 ) -> Result<(), String> {
     let mut svc = build_service(state);
     let (scope, topic, session_slug) = resolve(&mut svc, state, &target).await?;
@@ -228,7 +253,12 @@ pub(crate) async fn do_notes_append(
         &now,
         &tags,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    emit_notes_changed(
+        app,
+        &svc.file_path(&scope, topic.as_deref(), &session_slug),
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -239,8 +269,9 @@ pub(crate) async fn notes_append(
     timestamped: bool,
     tags: Vec<String>,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    do_notes_append(target, content, timestamped, tags, &state).await
+    do_notes_append(target, content, timestamped, tags, &state, &app).await
 }
 
 pub(crate) async fn do_notes_path(
