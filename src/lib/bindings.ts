@@ -136,6 +136,12 @@ export const commands = {
 	removeProject: (id: string) => typedError<null, string>(__TAURI_INVOKE("remove_project", { id })),
 	renameProject: (id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("rename_project", { id, name })),
 	setSessionProject: (sessionId: string, projectId: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_project", { sessionId, projectId })),
+	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
+	notesWrite: (target: NotesTarget, content: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_write", { target, content, tags })),
+	notesAppend: (target: NotesTarget, content: string, timestamped: boolean, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_append", { target, content, timestamped, tags })),
+	notesPath: (target: NotesTarget, dir: boolean) => typedError<string, string>(__TAURI_INVOKE("notes_path", { target, dir })),
+	notesSearch: (query: NotesSearchQuery) => typedError<string[], string>(__TAURI_INVOKE("notes_search", { query })),
+	notesVaultRoot: () => typedError<string, string>(__TAURI_INVOKE("notes_vault_root")),
 	cmdCreateWatch: (config: CreateWatchConfig) => typedError<Watch, string>(__TAURI_INVOKE("cmd_create_watch", { config })),
 	cmdRemoveWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_watch", { id })),
 	cmdListWatches: () => typedError<Watch[], string>(__TAURI_INVOKE("cmd_list_watches")),
@@ -329,6 +335,45 @@ export type LayoutSplitDirection = "horizontal" | "vertical";
  */
 export type Modifier = "cmd" | "ctrl" | "alt" | "shift";
 
+export type NotesRead = {
+	path: string,
+	content: string,
+};
+
+export type NotesSearchQuery = {
+	tags: string[],
+	/**
+	 *  Optional scope name (`"global" | "project" | "repo" | "session"`)
+	 *  to restrict the walk. `None` walks the whole vault.
+	 */
+	scope: string | null,
+	exact: boolean,
+};
+
+/**
+ *  Scope + addressing info for a single note file. Sent verbatim from the
+ *  frontend or the CLI; the backend resolves the pieces it needs.
+ */
+export type NotesTarget = {
+	// One of `"global" | "project" | "repo" | "session"`.
+	scope: string,
+	/**
+	 *  Session id used to resolve repo/project context. Falls through to
+	 *  the focused session on the frontend side when unset.
+	 */
+	sessionId: string | null,
+	/**
+	 *  Optional topic filename (without `.md`). `None` targets the scope's
+	 *  `notes.md` anchor.
+	 */
+	topic: string | null,
+	/**
+	 *  Override the repo/project slug directly (CLI `--repo` / `--project`).
+	 *  Ignored for the session scope.
+	 */
+	overrideSlug: string | null,
+};
+
 export type Notification = {
 	id: string,
 	createdAt: number,
@@ -516,6 +561,25 @@ export type RouxSettings = {
 	 *  Settings / command palette remain available regardless.
 	 */
 	updateCheckOnLaunch?: boolean,
+	/**
+	 *  Experimental multi-scoped notes — when true (the default), the
+	 *  timestamped-append CLI verb prefixes each entry with an inline
+	 *  `<a id="entry-...">` HTML anchor so the entry is deep-linkable
+	 *  from any mainstream static-site generator. Disable for cleaner
+	 *  raw markdown if you only read the vault in Obsidian.
+	 */
+	notesIncludeWebAnchors?: boolean,
+	/**
+	 *  Experimental multi-scoped notes — override for the vault root
+	 *  directory. `None` means "use the default `~/Documents/Roux`".
+	 */
+	notesVaultRoot?: string | null,
+	/**
+	 *  Experimental multi-scoped notes — set to `true` once the legacy
+	 *  `<project_id>.txt` files have been migrated into the vault. Guards
+	 *  against re-running the migration on every app launch.
+	 */
+	notesMigratedV1?: boolean,
 	/**
 	 *  Which update channel this user is subscribed to. `Stable` pulls from the
 	 *  standard `latest.json` manifest; `PreRelease` resolves the newest
