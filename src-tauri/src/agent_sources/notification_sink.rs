@@ -53,12 +53,23 @@ impl NotificationSink for NotificationManagerSink {
             let state = app.state::<AppState>();
 
             // Best-effort session match for the notification subtitle /
-            // focus action. Legacy (cwd-only) hooks still work because
-            // we fall back to the cwd label.
+            // focus action. Prefer the explicit `roux_session_id` the
+            // modern hook ships; fall back to cwd matching so legacy
+            // (cwd-only) hooks still produce a meaningful subtitle.
+            // cwd matching is ambiguous when two sessions share a
+            // worktree, so the id path is strictly better when present.
             let matched = match state.session_handle.list().await {
-                Ok(sessions) => sessions.into_iter().find(|s| {
-                    s.worktree_path == context.cwd || s.repo_root == context.cwd
-                }),
+                Ok(sessions) => {
+                    let by_id = context
+                        .roux_session_id
+                        .as_deref()
+                        .and_then(|sid| sessions.iter().find(|s| s.id == sid).cloned());
+                    by_id.or_else(|| {
+                        sessions.into_iter().find(|s| {
+                            s.worktree_path == context.cwd || s.repo_root == context.cwd
+                        })
+                    })
+                }
                 Err(_) => None,
             };
             let session_id = matched.as_ref().map(|s| s.id.clone());

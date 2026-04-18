@@ -5,7 +5,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-mod paths;
+use roux_lib::paths;
+
 mod platform;
 
 #[derive(Parser)]

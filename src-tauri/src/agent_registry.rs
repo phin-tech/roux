@@ -26,7 +26,6 @@ use roux_core::agent_fsm::{AgentEffect, AgentEvent, AgentFsm, AgentIdentity, Att
 pub struct EventContext {
     pub cwd: String,
     pub provider: String,
-    pub provider_session_id: Option<String>,
     pub roux_session_id: Option<String>,
     pub roux_pane_id: Option<String>,
     pub tool_name: Option<String>,
