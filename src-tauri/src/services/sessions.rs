@@ -2,10 +2,88 @@ use anyhow::anyhow;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::pty::PtyManager;
+use crate::paths::default_notes_vault_root;
+use crate::pty::{NotesEnvInputs, PtyManager};
+use crate::services::notes::{self as notes_svc, NotesService};
 use crate::session::Session;
 use crate::session_service::SessionHandle;
 use crate::settings::RouxSettings;
+
+/// Build the `NotesEnvInputs` for a brand-new session that hasn't been
+/// assigned a project yet. Project slug stays `None` until the user
+/// assigns one (at which point a reconnect refreshes the env).
+fn build_notes_env_for_new_session(
+    settings: &RouxSettings,
+    session_id: &str,
+    branch: &str,
+    repo_path: &str,
+) -> NotesEnvInputs {
+    let vault_root_path = settings
+        .notes_vault_root
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_notes_vault_root);
+    let mut svc = NotesService::new(vault_root_path.clone());
+    let remote = git_origin_url(repo_path);
+    let repo_slug = svc.freeze_repo_slug(repo_path, remote.as_deref());
+    NotesEnvInputs {
+        vault_root: vault_root_path.to_string_lossy().into_owned(),
+        session_slug: notes_svc::session_slug(branch, session_id),
+        repo_slug,
+        project_slug: None,
+    }
+}
+
+/// Build `NotesEnvInputs` for an existing session (used on reconnect).
+/// If the session has a `project_id`, the project name is looked up
+/// and the project slug frozen in the vault index.
+async fn build_notes_env_for_existing_session(
+    settings: &RouxSettings,
+    project_handle: &crate::project_service::ProjectHandle,
+    session: &Session,
+) -> NotesEnvInputs {
+    let vault_root_path = settings
+        .notes_vault_root
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_notes_vault_root);
+    let mut svc = NotesService::new(vault_root_path.clone());
+    let remote = git_origin_url(&session.repo_root);
+    let repo_slug = svc.freeze_repo_slug(&session.repo_root, remote.as_deref());
+
+    let project_slug = match session.project_id.as_deref() {
+        Some(pid) => match project_handle.list().await.ok() {
+            Some(projects) => projects
+                .into_iter()
+                .find(|p| p.id == pid)
+                .map(|p| svc.freeze_project_slug(pid, &p.name)),
+            None => None,
+        },
+        None => None,
+    };
+
+    NotesEnvInputs {
+        vault_root: vault_root_path.to_string_lossy().into_owned(),
+        session_slug: notes_svc::session_slug(&session.branch, &session.id),
+        repo_slug,
+        project_slug,
+    }
+}
+
+fn git_origin_url(repo_path: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let url = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if url.is_empty() { None } else { Some(url) }
+}
 
 pub(crate) fn is_git_repo(path: &str) -> bool {
     std::process::Command::new("git")
@@ -90,6 +168,12 @@ pub(crate) async fn create_session_shell(
     // tier-1 hook routing happy the moment the user starts an agent.
     let pane_id = format!("{}-main", session_id);
     let worktree_env = if is_wt { Some(work_dir.as_str()) } else { None };
+    let notes_env = Some(build_notes_env_for_new_session(
+        settings,
+        &session_id,
+        &actual_branch,
+        repo_path,
+    ));
     let spawn_result = pty_manager.spawn_shell(
         &session_id,
         &work_dir,
@@ -97,6 +181,7 @@ pub(crate) async fn create_session_shell(
         Some(&pane_id),
         None,
         worktree_env,
+        notes_env.as_ref(),
         nono,
         initial_size,
         app.clone(),
@@ -147,6 +232,8 @@ pub(crate) async fn create_session_shell(
 pub(crate) async fn reconnect_session_shell(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
+    project_handle: &crate::project_service::ProjectHandle,
+    settings: &RouxSettings,
     id: &str,
     nono: Option<&crate::pty::NonoConfig>,
     initial_size: Option<(u16, u16)>,
@@ -169,6 +256,8 @@ pub(crate) async fn reconnect_session_shell(
     // deterministic the moment the user starts an agent in the shell.
     let pane_id = format!("{}-main", id);
     let worktree_env = if session.is_worktree { Some(session.worktree_path.as_str()) } else { None };
+    let notes_env =
+        Some(build_notes_env_for_existing_session(settings, project_handle, &session).await);
     pty_manager
         .spawn_shell(
             id,
@@ -177,6 +266,7 @@ pub(crate) async fn reconnect_session_shell(
             Some(&pane_id),
             session.project_id.as_deref(),
             worktree_env,
+            notes_env.as_ref(),
             nono,
             initial_size,
             app.clone(),

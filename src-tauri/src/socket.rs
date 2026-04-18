@@ -662,6 +662,7 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         Some(&pane_id),
         project_id.as_deref(),
         worktree_env.as_deref(),
+        None, // notes env snapshot — wired only from session creation path
         None,
         None,
         app.clone(),
@@ -744,6 +745,7 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         Some(&pane_id),
         project_id.as_deref(),
         worktree_env.as_deref(),
+        None, // notes env snapshot — wired only from session creation path
         None,
         app.clone(),
     ) {

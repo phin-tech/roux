@@ -90,6 +90,7 @@ pub(crate) fn spawn_shell(
             pane_id.as_deref(),
             None,
             None,
+            None, // notes env snapshot — session-creation path only
             nono.as_ref(),
             initial_size,
             app.clone(),
@@ -123,6 +124,7 @@ pub(crate) fn spawn_task(
             pane_id.as_deref(),
             None,
             None,
+            None, // notes env snapshot — session-creation path only
             initial_size,
             app.clone(),
         )
@@ -256,9 +258,12 @@ pub(crate) async fn reconnect_session_shell(
     let nono = nono_profile
         .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
     let initial_size = initial_cols.zip(initial_rows);
+    let settings = state.settings.lock().map_err(|e| e.to_string())?.clone();
     svc::reconnect_session_shell(
         &state.pty_manager,
         &state.session_handle,
+        &state.project_handle,
+        &settings,
         &id,
         nono.as_ref(),
         initial_size,

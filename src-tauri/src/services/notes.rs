@@ -242,6 +242,26 @@ impl NotesService {
         Self { vault, index }
     }
 
+    /// Resolve the repo slug, freezing it in the index on first call.
+    /// Delegates to `NotesIndex::resolve_repo`.
+    pub(crate) fn freeze_repo_slug(
+        &mut self,
+        repo_path: &str,
+        remote: Option<&str>,
+    ) -> String {
+        self.index.resolve_repo(repo_path, remote)
+    }
+
+    /// Resolve the project slug, freezing it in the index on first call.
+    /// Delegates to `NotesIndex::resolve_project`.
+    pub(crate) fn freeze_project_slug(
+        &mut self,
+        project_id: &str,
+        project_name: &str,
+    ) -> String {
+        self.index.resolve_project(project_id, project_name)
+    }
+
     /// Convert a scope name + session context into a `(Scope, topic, session_slug)`
     /// tuple that the file-level primitives can consume. Resolves (and freezes)
     /// the repo/project slugs via `NotesIndex` on the way through.
