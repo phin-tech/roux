@@ -326,7 +326,7 @@ pub(crate) fn list_claude_sessions(cwd: &str) -> anyhow::Result<Vec<ClaudeSessio
     let home = dirs::home_dir().ok_or_else(|| anyhow!("Cannot find home directory"))?;
     let projects_dir = home.join(".claude").join("projects");
 
-    let encoded = cwd.replace('/', "-").replace('.', "-");
+    let encoded = cwd.replace(['/', '.'], "-");
     let project_dir = projects_dir.join(&encoded);
 
     if !project_dir.is_dir() {
@@ -389,7 +389,7 @@ pub(crate) fn list_claude_sessions(cwd: &str) -> anyhow::Result<Vec<ClaudeSessio
         sessions.push(ClaudeSession { session_id, summary, modified_at });
     }
 
-    sessions.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.modified_at));
     Ok(sessions)
 }
 

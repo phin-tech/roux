@@ -70,6 +70,6 @@ pub(crate) fn list_docs(dir: &str) -> anyhow::Result<Vec<DocFile>> {
         }
     }
 
-    docs.sort_by(|a, b| b.modified.cmp(&a.modified));
+    docs.sort_by_key(|d| std::cmp::Reverse(d.modified));
     Ok(docs)
 }

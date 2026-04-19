@@ -301,9 +301,7 @@ fn parse_osc9_payload(raw: &str) -> Option<ParsedOsc9Payload> {
             let title = first_string(&obj, &["title", "summary", "subject"]);
             let message = first_string(&obj, &["body", "message", "text", "detail", "details"]);
 
-            let Some(final_title) = title.clone().or_else(|| message.clone()) else {
-                return None;
-            };
+            let final_title = title.clone().or_else(|| message.clone())?;
             let body = match (title.is_some(), message) {
                 (true, Some(m)) if m != final_title => Some(m),
                 _ => None,

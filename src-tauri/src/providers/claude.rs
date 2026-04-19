@@ -75,34 +75,42 @@ mod tests {
 
     #[test]
     fn startup_command_uses_custom_binary_and_model() {
-        let mut settings = RouxSettings::default();
-        settings.claude_binary_path = Some("/opt/claude/bin/claude".into());
-        settings.default_model = Some("claude-opus-4-6".into());
+        let settings = RouxSettings {
+            claude_binary_path: Some("/opt/claude/bin/claude".into()),
+            default_model: Some("claude-opus-4-6".into()),
+            ..RouxSettings::default()
+        };
         let cmd = build_startup_command(&settings);
         assert_eq!(cmd, "/opt/claude/bin/claude --model claude-opus-4-6");
     }
 
     #[test]
     fn startup_command_quotes_binary_path_with_spaces() {
-        let mut settings = RouxSettings::default();
-        settings.claude_binary_path = Some("/Applications/Claude Code.app/claude".into());
+        let settings = RouxSettings {
+            claude_binary_path: Some("/Applications/Claude Code.app/claude".into()),
+            ..RouxSettings::default()
+        };
         let cmd = build_startup_command(&settings);
         assert_eq!(cmd, "'/Applications/Claude Code.app/claude'");
     }
 
     #[test]
     fn startup_command_appends_additional_flags() {
-        let mut settings = RouxSettings::default();
-        settings.additional_flags = vec!["--verbose".into(), "--trust-workspace".into()];
+        let settings = RouxSettings {
+            additional_flags: vec!["--verbose".into(), "--trust-workspace".into()],
+            ..RouxSettings::default()
+        };
         let cmd = build_startup_command(&settings);
         assert_eq!(cmd, "claude --verbose --trust-workspace");
     }
 
     #[test]
     fn startup_command_ignores_empty_binary_and_model_strings() {
-        let mut settings = RouxSettings::default();
-        settings.claude_binary_path = Some(String::new());
-        settings.default_model = Some(String::new());
+        let settings = RouxSettings {
+            claude_binary_path: Some(String::new()),
+            default_model: Some(String::new()),
+            ..RouxSettings::default()
+        };
         let cmd = build_startup_command(&settings);
         assert_eq!(cmd, "claude");
     }
