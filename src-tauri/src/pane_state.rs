@@ -29,6 +29,7 @@ enum PaneKind {
     Shell,
     Markdown,
     Command,
+    Notes,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -80,6 +81,10 @@ struct PersistedPaneDescriptor {
     nono_profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     nono_allow_dirs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes_scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes_view_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -443,6 +448,8 @@ mod tests {
             spawn_profile_ref: None,
             nono_profile: None,
             nono_allow_dirs: None,
+            notes_scope: None,
+            notes_view_mode: None,
         }];
 
         save_live_to(

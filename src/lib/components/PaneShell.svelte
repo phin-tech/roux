@@ -24,6 +24,8 @@
   import SessionPicker from "./SessionPicker.svelte";
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
   import DeadPaneView from "./DeadPaneView.svelte";
+  import NotesPane from "./NotesPane.svelte";
+  import { projects } from "$lib/stores/projects";
 
   interface Props {
     paneId: string;
@@ -50,6 +52,9 @@
     return collectVisibleLeafIds(layout).length > 1;
   });
   const session = $derived($sessionState.sessions.find((s) => s.id === sessionId));
+  const projectName = $derived(
+    session?.projectId ? ($projects.find((p) => p.id === session.projectId)?.name ?? null) : null
+  );
   const paneSlot = $derived($paneSlotById.get(paneId) ?? null);
   const paneSlotLabel = $derived(
     paneSlot == null ? null : paneSlot === 10 ? "0" : String(paneSlot),
@@ -146,6 +151,7 @@
       case "shell": return "shell";
       case "markdown": return "doc";
       case "command": return "cmd";
+      case "notes": return "notes";
       default: return type;
     }
   }
@@ -402,6 +408,16 @@
             Reconnect
           </button>
         </div>
+      {:else if instance.type === "notes"}
+        <NotesPane
+          paneId={instance.id}
+          sessionId={sessionId}
+          projectId={session?.projectId ?? null}
+          {projectName}
+          repoRoot={session?.repoRoot ?? null}
+          scope={instance.notesScope ?? "session"}
+          viewMode={instance.notesViewMode ?? "edit"}
+        />
       {:else if instance.type === "markdown"}
         <LazyMarkdownPane docPath={instance.docPath ?? ""} />
       {:else if instance.type === "command"}

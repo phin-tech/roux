@@ -5,7 +5,7 @@ import { queries } from "$lib/queries";
 import { navigatePane, movePaneInDirection, resizePane, toggleStack } from "$lib/panes/layout";
 import { toggleFullscreen, setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
 import { paneSlotById } from "$lib/stores/ui";
-import { updateInstance } from "$lib/panes/instances";
+import { paneInstances, updateInstance } from "$lib/panes/instances";
 import { splitPane, closePane, closeFocusedPane } from "$lib/panes/actions";
 import {
   profileList,
@@ -555,6 +555,141 @@ export function registerPaneCommands() {
           : (ordered.findIndex(([, s]) => s === currentSlot) + 1) % ordered.length;
       const next = ordered[nextIndex];
       if (next) setLogicalFocus(next[0]);
+    },
+  });
+
+  // ── Notes pane commands ────────────────────────────────────────────────────
+
+  registry.register({
+    id: "pane.open-notes-horizontal",
+    label: "Open Notes Pane (Horizontal)",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (!activeId) return;
+      splitPane(activeId, "h", {
+        type: "notes",
+        ptyId: "",
+        name: "Notes",
+        notesScope: "session",
+        notesViewMode: "edit",
+      });
+    },
+  });
+
+  registry.register({
+    id: "pane.open-notes-vertical",
+    label: "Open Notes Pane (Vertical)",
+    category: "Panes",
+    available: () => queries.canSplitPane(),
+    execute: () => {
+      const activeId = queries.activeSessionId();
+      if (!activeId) return;
+      splitPane(activeId, "v", {
+        type: "notes",
+        ptyId: "",
+        name: "Notes",
+        notesScope: "session",
+        notesViewMode: "edit",
+      });
+    },
+  });
+
+  registry.register({
+    id: "pane.notes-show-session",
+    label: "Notes: Session Scope",
+    category: "Panes",
+    available: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return false;
+      return get(paneInstances).get(paneId)?.type === "notes";
+    },
+    execute: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return;
+      const inst = get(paneInstances).get(paneId);
+      if (inst?.type !== "notes") return;
+      updateInstance(paneId, { notesScope: "session" });
+    },
+  });
+
+  registry.register({
+    id: "pane.notes-show-repo",
+    label: "Notes: Repo Scope",
+    category: "Panes",
+    available: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return false;
+      const inst = get(paneInstances).get(paneId);
+      if (inst?.type !== "notes") return false;
+      const session = queries.activeSession();
+      return !!session?.repoRoot;
+    },
+    execute: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return;
+      const inst = get(paneInstances).get(paneId);
+      if (inst?.type !== "notes") return;
+      updateInstance(paneId, { notesScope: "repo" });
+    },
+  });
+
+  registry.register({
+    id: "pane.notes-show-project",
+    label: "Notes: Project Scope",
+    category: "Panes",
+    available: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return false;
+      const inst = get(paneInstances).get(paneId);
+      if (inst?.type !== "notes") return false;
+      const session = queries.activeSession();
+      return !!session?.projectId;
+    },
+    execute: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return;
+      const inst = get(paneInstances).get(paneId);
+      if (inst?.type !== "notes") return;
+      updateInstance(paneId, { notesScope: "project" });
+    },
+  });
+
+  registry.register({
+    id: "pane.notes-show-global",
+    label: "Notes: Global Scope",
+    category: "Panes",
+    available: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return false;
+      return get(paneInstances).get(paneId)?.type === "notes";
+    },
+    execute: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return;
+      const inst = get(paneInstances).get(paneId);
+      if (inst?.type !== "notes") return;
+      updateInstance(paneId, { notesScope: "global" });
+    },
+  });
+
+  registry.register({
+    id: "pane.notes-toggle-view-mode",
+    label: "Notes: Toggle Edit/Read",
+    category: "Panes",
+    available: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return false;
+      return get(paneInstances).get(paneId)?.type === "notes";
+    },
+    execute: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return;
+      const inst = get(paneInstances).get(paneId);
+      if (inst?.type !== "notes") return;
+      const current = inst.notesViewMode ?? "edit";
+      updateInstance(paneId, { notesViewMode: current === "edit" ? "read" : "edit" });
     },
   });
 }

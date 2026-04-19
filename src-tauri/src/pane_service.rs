@@ -18,6 +18,8 @@ pub struct PaneDescriptor {
     pub spawn_profile_ref: Option<PaneSpawnProfileRef>,
     pub nono_profile: Option<String>,
     pub nono_allow_dirs: Option<Vec<String>>,
+    pub notes_scope: Option<String>,
+    pub notes_view_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -34,6 +36,8 @@ pub struct PaneRecord {
     pub spawn_profile_ref: Option<PaneSpawnProfileRef>,
     pub nono_profile: Option<String>,
     pub nono_allow_dirs: Option<Vec<String>>,
+    pub notes_scope: Option<String>,
+    pub notes_view_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -56,6 +60,8 @@ impl PaneRecord {
             spawn_profile_ref: self.spawn_profile_ref.clone(),
             nono_profile: self.nono_profile.clone(),
             nono_allow_dirs: self.nono_allow_dirs.clone(),
+            notes_scope: self.notes_scope.clone(),
+            notes_view_mode: self.notes_view_mode.clone(),
         }
     }
 }
@@ -154,6 +160,8 @@ mod tests {
             spawn_profile_ref: None,
             nono_profile: None,
             nono_allow_dirs: None,
+            notes_scope: None,
+            notes_view_mode: None,
         }
     }
 

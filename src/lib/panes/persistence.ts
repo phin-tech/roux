@@ -2,6 +2,7 @@ import { get } from "svelte/store";
 import type { LayoutNode } from "./layout";
 import { sessionLayouts, collectLeafIds } from "./layout";
 import type { PaneType } from "./instances";
+import type { NotesScope } from "$lib/tauri";
 import type { SpawnProfileRef } from "./profiles";
 import {
   loadPaneStateRaw,
@@ -31,6 +32,8 @@ export interface PaneDescriptor {
   spawnProfileRef?: SpawnProfileRef;
   nonoProfile?: string;
   nonoAllowDirs?: string[];
+  notesScope?: NotesScope;
+  notesViewMode?: "edit" | "read";
 }
 
 export interface PaneStatePayload {
@@ -40,6 +43,24 @@ export interface PaneStatePayload {
 }
 
 // ── Public async API ──────────────────────────────────────────────────────────
+
+const VALID_NOTES_SCOPES = new Set(["session", "repo", "project", "global"]);
+const VALID_VIEW_MODES = new Set(["edit", "read"]);
+
+function validateDescriptor(d: PaneDescriptor): PaneDescriptor {
+  const result = { ...d };
+  // Validate notesScope - default to "session" if invalid
+  if (result.notesScope !== undefined && !VALID_NOTES_SCOPES.has(result.notesScope)) {
+    log(`validateDescriptor: invalid notesScope "${result.notesScope}", defaulting to "session"`);
+    result.notesScope = "session";
+  }
+  // Validate notesViewMode - default to "edit" if invalid
+  if (result.notesViewMode !== undefined && !VALID_VIEW_MODES.has(result.notesViewMode)) {
+    log(`validateDescriptor: invalid notesViewMode "${result.notesViewMode}", defaulting to "edit"`);
+    result.notesViewMode = "edit";
+  }
+  return result;
+}
 
 export async function loadPaneState(
   sessionId: string,
@@ -56,6 +77,8 @@ export async function loadPaneState(
       );
       return null;
     }
+    // Validate descriptors to ensure notes fields have valid values
+    payload.descriptors = payload.descriptors.map(validateDescriptor);
     return payload;
   } catch (e) {
     log(`loadPaneState(${sessionId}): failed — ${e}`);

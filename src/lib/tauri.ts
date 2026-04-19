@@ -689,7 +689,7 @@ export async function deletePaneStateRaw(sessionId: string): Promise<void> {
 
 export interface PaneDescriptorPayload {
   id: string;
-  type: "shell" | "markdown" | "command";
+  type: "shell" | "markdown" | "command" | "notes";
   ptyId: string;
   name?: string;
   workingDir?: string;
@@ -698,6 +698,8 @@ export interface PaneDescriptorPayload {
   spawnProfileRef?: SpawnProfileRef;
   nonoProfile?: string;
   nonoAllowDirs?: string[];
+  notesScope?: NotesScope;
+  notesViewMode?: "edit" | "read";
 }
 
 export type PaneRecordPayload = PaneDescriptorPayload;

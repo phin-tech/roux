@@ -9,9 +9,10 @@ import {
   upsertPaneRecord,
   removePaneRecord,
   type PaneRecordPayload,
+  type NotesScope,
 } from "$lib/tauri";
 
-export type PaneType = "shell" | "markdown" | "command";
+export type PaneType = "shell" | "markdown" | "command" | "notes";
 
 export type CommandStatus = "idle" | "running" | "success" | "error";
 
@@ -51,6 +52,10 @@ export interface PaneInstance {
   commandExitCode?: number | null;
   commandStartedAt?: number | null;
   elapsedTimer?: ReturnType<typeof setInterval> | null;
+
+  // Notes-pane state
+  notesScope?: NotesScope;
+  notesViewMode?: "edit" | "read";
 }
 
 export interface CreatePaneOpts {
@@ -64,6 +69,8 @@ export interface CreatePaneOpts {
   spawnProfileRef?: SpawnProfileRef;
   nonoProfile?: string;
   nonoAllowDirs?: string[];
+  notesScope?: NotesScope;
+  notesViewMode?: "edit" | "read";
 }
 
 // ── Store ──────────────────────────────────────────────────
@@ -88,6 +95,8 @@ function toPaneRecord(instance: PaneInstance): PaneRecordPayload {
     spawnProfileRef: instance.spawnProfileRef,
     nonoProfile: instance.nonoProfile,
     nonoAllowDirs: instance.nonoAllowDirs,
+    notesScope: instance.notesScope,
+    notesViewMode: instance.notesViewMode,
   };
 }
 
@@ -127,6 +136,8 @@ export function createPane(opts: CreatePaneOpts): string {
     commandExitCode: null,
     commandStartedAt: null,
     elapsedTimer: null,
+    notesScope: opts.notesScope,
+    notesViewMode: opts.notesViewMode,
   };
   paneInstances.update((map) => {
     const next = new Map(map);

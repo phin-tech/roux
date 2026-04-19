@@ -78,7 +78,7 @@ function validatePanePayload(sessionId: string, payload: PaneStatePayload): bool
   }
 
   // All descriptor types must be known.
-  const knownTypes = new Set(["shell", "command", "markdown"]);
+  const knownTypes = new Set(["shell", "command", "markdown", "notes"]);
   for (const d of descriptors) {
     if (!knownTypes.has(d.type)) {
       log(`pane restore preflight(${sessionId}): unknown descriptor type "${d.type}"`);
@@ -119,6 +119,18 @@ async function rehydratePane(
       ptyId: "",
       name: descriptor.name,
       docPath: descriptor.docPath,
+    });
+    return;
+  }
+
+  if (descriptor.type === "notes") {
+    createPane({
+      id: paneId,
+      type: "notes",
+      ptyId: "",
+      name: descriptor.name ?? "Notes",
+      notesScope: descriptor.notesScope ?? "session",
+      notesViewMode: descriptor.notesViewMode ?? "edit",
     });
     return;
   }
@@ -321,7 +333,7 @@ export async function reconnectSession(
     const { connectPaneTerminal } = await import("$lib/panes/terminals");
     for (const paneId of nonMainIds) {
       const instance = getInstance(paneId);
-      if (!instance || instance.restoreError || instance.type === "markdown") continue;
+      if (!instance || instance.restoreError || instance.type === "markdown" || instance.type === "notes") continue;
       await connectPaneTerminal(paneId, (payload) => {
         log(`Restored shell ${paneId} exited (code=${payload.code})`);
         import("$lib/panes/actions").then(({ closePane }) =>
