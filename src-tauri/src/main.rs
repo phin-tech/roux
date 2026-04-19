@@ -11,7 +11,6 @@ mod layouts;
 mod notifications;
 mod pane_service;
 mod pane_state;
-mod paths;
 mod platform;
 mod pr;
 mod project_service;
@@ -38,6 +37,13 @@ use tauri_specta::{collect_commands, Builder};
 
 use crate::pty::PtyManager;
 use crate::state::AppState;
+
+// `paths` is defined in the library crate (`roux_lib`) so both the
+// `roux` and `roux-cli` binaries can use it without duplicating
+// compilation — and so library visibility keeps dead-code checks from
+// firing on helpers only one of the binaries calls (e.g. the legacy
+// config migration only runs from `main`).
+use roux_lib::paths;
 
 fn main() {
     // Move any legacy state from the pre-unification config location
