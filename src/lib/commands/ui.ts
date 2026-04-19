@@ -4,7 +4,13 @@ import { settings, updateSetting } from "$lib/stores/settings";
 import { get } from "svelte/store";
 import { loadKeymap, exitTree as keymapExitTree } from "$lib/keymap/store";
 import { openSidebar } from "$lib/stores/ui";
-import { setLastNotesScope, type NotesScope } from "$lib/stores/notesUi";
+import {
+  setLastNotesScope,
+  setNotesViewMode,
+  toggleNotesViewMode,
+  notesViewMode,
+  type NotesScope,
+} from "$lib/stores/notesUi";
 
 function showNotesScope(scope: NotesScope) {
   const session = queries.activeSession();
@@ -74,6 +80,51 @@ export function registerUiCommands() {
     category: "App",
     available: () => !!queries.activeSession(),
     execute: () => showNotesScope("global"),
+  });
+
+  registry.register({
+    id: "ui.notes-toggle-view-mode",
+    label: "Toggle Notes View Mode",
+    category: "App",
+    available: () => !!queries.activeSession(),
+    execute: () => {
+      const session = queries.activeSession();
+      if (!session) return;
+      toggleNotesViewMode(session.id);
+      openSidebar("notes");
+    },
+  });
+
+  registry.register({
+    id: "ui.notes-edit-mode",
+    label: "Notes: Switch to Edit Mode",
+    category: "App",
+    available: () => {
+      const session = queries.activeSession();
+      return !!session && notesViewMode(session.id) === "read";
+    },
+    execute: () => {
+      const session = queries.activeSession();
+      if (!session) return;
+      setNotesViewMode(session.id, "edit");
+      openSidebar("notes");
+    },
+  });
+
+  registry.register({
+    id: "ui.notes-read-mode",
+    label: "Notes: Switch to Read Mode",
+    category: "App",
+    available: () => {
+      const session = queries.activeSession();
+      return !!session && notesViewMode(session.id) === "edit";
+    },
+    execute: () => {
+      const session = queries.activeSession();
+      if (!session) return;
+      setNotesViewMode(session.id, "read");
+      openSidebar("notes");
+    },
   });
 
   registry.register({

@@ -1,6 +1,11 @@
 <script lang="ts">
   import { notesRead, notesWrite, type NotesScope } from "$lib/tauri";
-  import { notesUiState, setLastNotesScope } from "$lib/stores/notesUi";
+  import {
+    notesUiState,
+    setLastNotesScope,
+    setNotesViewMode,
+    type NotesViewMode,
+  } from "$lib/stores/notesUi";
   import { onMount } from "svelte";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
@@ -26,8 +31,16 @@
   let content = $state("");
   let loadedKey = $state<string | null>(null);
   let loadedPath = $state<string | null>(null);
-  let viewMode = $state<"read" | "edit">("read");
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const viewMode = $derived<NotesViewMode>(
+    sessionId ? ($notesUiState.viewModeBySession[sessionId] ?? "read") : "read"
+  );
+
+  function toggleViewMode() {
+    if (!sessionId) return;
+    setNotesViewMode(sessionId, viewMode === "read" ? "edit" : "read");
+  }
 
   const projectEnabled = $derived(!!projectId);
   const repoEnabled = $derived(!!repoRoot);
@@ -186,7 +199,7 @@
     <div class="flex items-center gap-1">
       <button
         class="cursor-pointer rounded-lg border border-transparent bg-transparent px-2 py-0.5 text-[11px] font-medium text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
-        onclick={() => (viewMode = viewMode === "read" ? "edit" : "read")}
+        onclick={toggleViewMode}
         title={viewMode === "read" ? "Switch to raw editor (Edit)" : "Switch to rendered view (Read)"}
       >{viewMode === "read" ? "Edit" : "Read"}</button>
       <button
@@ -216,7 +229,7 @@
       <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
         <div>
           No notes yet.<br />
-          <button class="mt-2 text-xs text-text-muted underline hover:text-text-primary" onclick={() => (viewMode = "edit")}>Switch to editor</button>
+          <button class="mt-2 text-xs text-text-muted underline hover:text-text-primary" onclick={toggleViewMode}>Switch to editor</button>
           or append from a session with
           <code class="ml-1 rounded bg-bg-surface/60 px-1 py-0.5 text-[11px]">roux notes {scope} append --timestamp</code>.
         </div>
