@@ -44,7 +44,7 @@ pub struct PaneRecord {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum PaneSpawnProfileRef {
     Registered { id: String },
-    Inline { profile: SpawnProfile },
+    Inline { profile: Box<SpawnProfile> },
 }
 
 impl PaneRecord {
@@ -68,7 +68,7 @@ impl PaneRecord {
 
 enum PaneMsg {
     Upsert {
-        record: PaneRecord,
+        record: Box<PaneRecord>,
         reply: oneshot::Sender<()>,
     },
     Remove {
@@ -97,7 +97,7 @@ impl PaneHandle {
 
     pub async fn upsert(&self, record: PaneRecord) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(PaneMsg::Upsert { record, reply: reply_tx })?;
+        self.send(PaneMsg::Upsert { record: Box::new(record), reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
@@ -126,7 +126,7 @@ async fn service_loop(mut rx: mpsc::UnboundedReceiver<PaneMsg>) {
     while let Some(msg) = rx.recv().await {
         match msg {
             PaneMsg::Upsert { record, reply } => {
-                panes.insert(record.id.clone(), record);
+                panes.insert(record.id.clone(), *record);
                 let _ = reply.send(());
             }
             PaneMsg::Remove { id, reply } => {

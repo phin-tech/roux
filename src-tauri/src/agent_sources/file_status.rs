@@ -289,7 +289,7 @@ fn process_path_change(
         event: AgentEvent::HookStatus(mapped),
         context,
     };
-    tx.send(RegistryMessage::Input(input)).map_err(|e| e.to_string())?;
+    tx.send(RegistryMessage::Input(Box::new(input))).map_err(|e| e.to_string())?;
     Ok(())
 }
 

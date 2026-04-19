@@ -47,7 +47,7 @@ pub struct AgentInput {
 /// that fan out to every FSM belonging to a given session.
 #[derive(Debug, Clone)]
 pub enum RegistryMessage {
-    Input(AgentInput),
+    Input(Box<AgentInput>),
     /// A session (PTY) has exited. Dispatch `SessionEnded` to every
     /// FSM whose identity records this session id — its notifications
     /// get auto-dismissed without the hook needing to fire any more
@@ -156,7 +156,7 @@ pub fn spawn_worker(
         let mut registry = AgentRegistry::new(sink);
         while let Ok(msg) = rx.recv() {
             match msg {
-                RegistryMessage::Input(input) => registry.dispatch(input),
+                RegistryMessage::Input(input) => registry.dispatch(*input),
                 RegistryMessage::SessionEnded { session_id } => {
                     registry.on_session_ended(&session_id);
                 }
@@ -330,10 +330,12 @@ mod tests {
         let sink = Arc::new(RecordingSink::default());
         let mut registry = AgentRegistry::new(sink.clone());
 
-        let mut context = EventContext::default();
-        context.cwd = "/home/user/repo".into();
-        context.tool_name = Some("Bash".into());
-        context.roux_pane_id = Some("p-1".into());
+        let context = EventContext {
+            cwd: "/home/user/repo".into(),
+            tool_name: Some("Bash".into()),
+            roux_pane_id: Some("p-1".into()),
+            ..EventContext::default()
+        };
 
         registry.dispatch(AgentInput {
             identity: pane_identity("p-1"),
@@ -353,17 +355,17 @@ mod tests {
         let (tx, rx) = mpsc::channel::<RegistryMessage>();
         let handle = spawn_worker(rx, sink.clone());
 
-        tx.send(RegistryMessage::Input(input(
+        tx.send(RegistryMessage::Input(Box::new(input(
             pane_identity("p-1"),
             AgentEvent::HookStatus(MappedStatus::Attention),
             "/repo",
-        )))
+        ))))
         .unwrap();
-        tx.send(RegistryMessage::Input(input(
+        tx.send(RegistryMessage::Input(Box::new(input(
             pane_identity("p-1"),
             AgentEvent::HookStatus(MappedStatus::Idle),
             "/repo",
-        )))
+        ))))
         .unwrap();
         drop(tx);
         handle.join().expect("worker joined");
@@ -433,11 +435,11 @@ mod tests {
             session_id: Some("s-42".into()),
             cwd: None,
         };
-        tx.send(RegistryMessage::Input(AgentInput {
+        tx.send(RegistryMessage::Input(Box::new(AgentInput {
             identity: id,
             event: AgentEvent::HookStatus(MappedStatus::Attention),
             context: EventContext::default(),
-        }))
+        })))
         .unwrap();
         tx.send(RegistryMessage::SessionEnded { session_id: "s-42".into() })
             .unwrap();

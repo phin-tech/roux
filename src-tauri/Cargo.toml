@@ -6,6 +6,9 @@ authors = ["phin-tech"]
 edition = "2021"
 default-run = "roux"
 
+[lints]
+workspace = true
+
 [lib]
 name = "roux_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
