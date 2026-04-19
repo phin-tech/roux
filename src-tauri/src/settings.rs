@@ -59,8 +59,10 @@ mod tests {
 
     #[test]
     fn claude_binary_path_round_trips_through_json() {
-        let mut settings = RouxSettings::default();
-        settings.claude_binary_path = Some("/usr/local/bin/claude".to_string());
+        let settings = RouxSettings {
+            claude_binary_path: Some("/usr/local/bin/claude".to_string()),
+            ..RouxSettings::default()
+        };
         let json = serde_json::to_string(&settings).unwrap();
         let deserialized: RouxSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.claude_binary_path, Some("/usr/local/bin/claude".to_string()));

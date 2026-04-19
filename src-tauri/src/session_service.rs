@@ -227,7 +227,7 @@ async fn service_loop(
 }
 
 /// Synchronous disk write — used from `spawn_blocking` and from shutdown (where blocking is fine).
-fn persist_to_disk(sessions: &[Session], path: &PathBuf) {
+fn persist_to_disk(sessions: &[Session], path: &std::path::Path) {
     write_to_path(sessions, path);
 }
 

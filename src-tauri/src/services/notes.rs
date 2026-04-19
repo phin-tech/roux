@@ -463,16 +463,13 @@ pub(crate) fn search_by_tags(
     exact: bool,
 ) -> Vec<std::path::PathBuf> {
     let search_root = match scope_filter {
-        Some(scope) => {
-            let sub = match scope {
-                "global" => vault_root.join("global"),
-                "project" => vault_root.join("projects"),
-                "repo" => vault_root.join("repos"),
-                "session" => vault_root.join("sessions"),
-                _ => vault_root.to_path_buf(),
-            };
-            sub
-        }
+        Some(scope) => match scope {
+            "global" => vault_root.join("global"),
+            "project" => vault_root.join("projects"),
+            "repo" => vault_root.join("repos"),
+            "session" => vault_root.join("sessions"),
+            _ => vault_root.to_path_buf(),
+        },
         None => vault_root.to_path_buf(),
     };
 
