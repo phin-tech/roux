@@ -64,7 +64,10 @@ class XtermTerminalController implements TerminalController {
     } else if (!container.contains(this.terminal.element)) {
       container.appendChild(this.terminal.element);
     }
-    this.fit();
+    // Defer fit to next frame so the container has layout dimensions.
+    // Immediate fit can measure 0x0 or stale sizes before CSS layout runs,
+    // causing PTY to stay at 80x24 default.
+    requestAnimationFrame(() => this.fit());
   }
 
   detach(): void {
