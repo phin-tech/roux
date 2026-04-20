@@ -7,12 +7,7 @@ pub(crate) fn list_session_ptys(
     session_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<PtyInfo>, String> {
-    let ptys = state.pty_manager.list_for_session(&session_id);
-    rlog!("list_session_ptys({}): found {} PTYs", session_id, ptys.len());
-    for pty in &ptys {
-        rlog!("  - {} status={:?} session_id={:?}", pty.id, pty.status, pty.session_id);
-    }
-    Ok(ptys)
+    Ok(state.pty_manager.list_for_session(&session_id))
 }
 
 #[tauri::command]
