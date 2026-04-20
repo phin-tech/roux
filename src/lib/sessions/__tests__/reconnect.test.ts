@@ -139,7 +139,7 @@ describe("reconnectSession — existing behavior preserved", () => {
           icon: null,
           startupCommand: "echo hi",
           setupCommand: null,
-          startupBehavior: "run",
+          startupBehavior: "autoRun",
           cwdOverride: null,
           env: {},
           nonoProfile: null,
