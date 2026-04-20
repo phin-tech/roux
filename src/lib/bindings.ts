@@ -57,7 +57,26 @@ export const commands = {
 	 *  shell is ready. Used for every non-claude profile in the new-session
 	 *  picker (Codex, Plain shell, user profiles, inline Custom…).
 	 */
-	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, nonoProfile, nonoAllowDirs, profile, initialSize })),
+	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, opts: {
+	nonoProfile?: string | null,
+	nonoAllowDirs?: string[] | null,
+	/**
+	 *  Spawn-profile id (`claude`, `codex`, user-profile id, …). Passed to
+	 *  the PTY env so agents wake up under the right profile.
+	 */
+	profile?: string | null,
+	initialSize?: [number, number] | null,
+	/**
+	 *  Git starting point for a new worktree's branch (e.g. "main",
+	 *  "origin/main"). Ignored unless `branch` is set and new.
+	 */
+	base?: string | null,
+	/**
+	 *  Run `git fetch origin` before resolving `base`. Used for
+	 *  `origin/*`-style bases that may be stale locally.
+	 */
+	fetchFirst?: boolean | null,
+} | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, opts })),
 	/**
 	 *  Respawns a plain shell in the session's primary PTY. The frontend
 	 *  replays the pane's spawn profile commands into the fresh shell after
@@ -195,6 +214,28 @@ export type ClaudeSession = {
 	sessionId: string,
 	summary: string,
 	modifiedAt: number,
+};
+
+/**
+ *  Options bag for `create_session_shell`. Bundled because Specta caps command
+ *  signatures at 10 params, and the Claude/Codex/worktree spawn paths all
+ *  share the same set of optional configuration.
+ */
+export type CreateShellOpts = {
+	nonoProfile?: string | null,
+	nonoAllowDirs?: string[] | null,
+	initialCols?: number | null,
+	initialRows?: number | null,
+	/**
+	 *  Git starting point for a new worktree's branch (e.g. "main",
+	 *  "origin/main"). Ignored unless `branch` is set and new.
+	 */
+	base?: string | null,
+	/**
+	 *  Run `git fetch origin` before resolving `base`. Used for
+	 *  `origin/*`-style bases that may be stale locally.
+	 */
+	fetchFirst?: boolean | null,
 };
 
 export type CreateWatchConfig = {
@@ -572,6 +613,11 @@ export type RouxSettings = {
 	 */
 	cleanupWorktreesOnClose: boolean,
 	worktreeCleanupOnClose?: WorktreeCleanupMode,
+	/**
+	 *  Default starting point when the user clicks "New Worktree" directly.
+	 *  The flyout / command palette still let them override per-invocation.
+	 */
+	worktreeDefaultBase?: WorktreeDefaultBase,
 	theme: string,
 	defaultModel: string | null,
 	claudeBinaryPath?: string | null,
@@ -794,6 +840,18 @@ export type Worktree = {
  *  - `Always` — remove without asking (matches legacy `true`)
  */
 export type WorktreeCleanupMode = "never" | "prompt" | "always";
+
+/**
+ *  Which starting point the "New Worktree" affordance uses when the user
+ *  clicks the primary action directly (as opposed to hovering to pick a
+ *  specific base from the flyout). Only affects the default — the three
+ *  options remain available via the submenu / command palette either way.
+ * 
+ *  - `CurrentBranch` — the session's current branch (matches legacy behavior)
+ *  - `Main` — the local `main` branch
+ *  - `OriginMain` — the remote `origin/main`, with a `git fetch origin` first
+ */
+export type WorktreeDefaultBase = "currentBranch" | "main" | "originMain";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

@@ -10,7 +10,8 @@ pub(crate) fn cmd_create_worktree(
 ) -> Result<String, String> {
     let settings = state.settings.lock().unwrap();
     let base_path = settings.worktree_base_path.as_deref();
-    crate::worktree::create_worktree(&repo_path, &branch, base_path).map_err(|e| e.to_string())
+    crate::worktree::create_worktree(&repo_path, &branch, base_path, None)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -79,6 +79,9 @@
 
   let contextMenu = $state<{ x: number; y: number; session: Session } | null>(null);
   let worktreeInput = $state(false);
+  let worktreeBase = $state<string | null>(null);
+  let worktreeBaseLabel = $state("");
+  let worktreeFetchFirst = $state(false);
   let branchName = $state("");
   let creatingWorktree = $state(false);
   let worktreeError = $state("");
@@ -90,6 +93,9 @@
   function handleContextMenu(e: MouseEvent, session: Session) {
     contextMenu = { x: e.clientX, y: e.clientY, session };
     worktreeInput = false;
+    worktreeBase = null;
+    worktreeBaseLabel = "";
+    worktreeFetchFirst = false;
     branchName = "";
     worktreeError = "";
   }
@@ -97,6 +103,9 @@
   function closeContextMenu() {
     contextMenu = null;
     worktreeInput = false;
+    worktreeBase = null;
+    worktreeBaseLabel = "";
+    worktreeFetchFirst = false;
     branchName = "";
     worktreeError = "";
     projectMenu = false;
@@ -104,8 +113,28 @@
     newProjectName = "";
   }
 
-  function showWorktreeInput() {
+  function pickWorktreeBase(base: string | null, label: string, fetchFirst: boolean) {
+    worktreeBase = base;
+    worktreeBaseLabel = label;
+    worktreeFetchFirst = fetchFirst;
     worktreeInput = true;
+  }
+
+  function pickDefaultWorktreeBase() {
+    const session = contextMenu?.session;
+    if (!session) return;
+    switch ($settings.worktreeDefaultBase ?? "currentBranch") {
+      case "main":
+        pickWorktreeBase("main", "main", false);
+        break;
+      case "originMain":
+        pickWorktreeBase("origin/main", "origin/main", true);
+        break;
+      case "currentBranch":
+      default:
+        pickWorktreeBase(session.branch, "current branch", false);
+        break;
+    }
   }
 
   function showProjectMenu() {
@@ -148,9 +177,13 @@
 
       const session = await createSessionShell(
         repo, name, null, branch,
-        nonoProfile, nonoAllowDirs,
-        null, // initialSize
-        "claude", // profile
+        {
+          nonoProfile,
+          nonoAllowDirs,
+          profile: "claude",
+          base: worktreeBase,
+          fetchFirst: worktreeFetchFirst,
+        },
       );
       log(`Worktree session created: ${session.id}`);
       addSession(session);
@@ -448,13 +481,42 @@
         Set Project
       </button>
       {#if contextMenu.session.isGitRepo}
-        <button
-          class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
-          onclick={showWorktreeInput}
-        >
-          <span class="text-[11px] text-text-secondary">&#9095;</span>
-          New Worktree
-        </button>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_mouse_events_have_key_events -->
+        <div class="group relative">
+          <button
+            class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary group-hover:bg-bg-hover group-hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
+            onclick={pickDefaultWorktreeBase}
+          >
+            <span class="text-[11px] text-text-secondary">&#9095;</span>
+            New Worktree
+            <span class="ml-auto text-[10px] text-text-muted">&#9654;</span>
+          </button>
+          <!-- Hover-flyout submenu: appears to the right, aligned to the button's top. -->
+          <div
+            class="ui-dialog invisible absolute left-full top-0 z-50 ml-0.5 min-w-48 py-1 opacity-0 transition-opacity duration-75 group-hover:visible group-hover:opacity-100"
+          >
+            <div class="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-text-muted">Branch from</div>
+            <button
+              class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+              onclick={() => pickWorktreeBase(contextMenu?.session.branch ?? null, "current branch", false)}
+            >
+              Current branch
+            </button>
+            <button
+              class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+              onclick={() => pickWorktreeBase("main", "main", false)}
+            >
+              main
+            </button>
+            <button
+              class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+              onclick={() => pickWorktreeBase("origin/main", "origin/main", true)}
+            >
+              origin/main
+            </button>
+          </div>
+        </div>
       {/if}
       <button
         class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
@@ -465,7 +527,9 @@
       </button>
     {:else}
       <div class="px-3 py-2">
-        <div class="mb-1.5 text-[11px] text-text-muted">Branch name</div>
+        <div class="mb-1.5 text-[11px] text-text-muted">
+          New branch from {worktreeBaseLabel}
+        </div>
         <form
           onsubmit={(e) => {
             e.preventDefault();

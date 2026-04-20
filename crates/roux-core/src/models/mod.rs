@@ -28,7 +28,7 @@ pub use project::Project;
 pub use session::{Session, SessionStatus};
 pub use settings::{
     CursorStyle, GroupBy, RouxSettings, StatusBarPosition, TabPosition, UpdateChannel,
-    WorktreeCleanupMode,
+    WorktreeCleanupMode, WorktreeDefaultBase,
 };
 pub use task::{KeepOpen, TaskDefinition, TaskGroup};
 pub use watch::*;

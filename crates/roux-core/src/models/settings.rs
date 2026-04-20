@@ -53,6 +53,23 @@ pub enum WorktreeCleanupMode {
     Always,
 }
 
+/// Which starting point the "New Worktree" affordance uses when the user
+/// clicks the primary action directly (as opposed to hovering to pick a
+/// specific base from the flyout). Only affects the default — the three
+/// options remain available via the submenu / command palette either way.
+///
+/// - `CurrentBranch` — the session's current branch (matches legacy behavior)
+/// - `Main` — the local `main` branch
+/// - `OriginMain` — the remote `origin/main`, with a `git fetch origin` first
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum WorktreeDefaultBase {
+    #[default]
+    CurrentBranch,
+    Main,
+    OriginMain,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum GroupBy {
@@ -110,6 +127,10 @@ pub struct RouxSettings {
     pub cleanup_worktrees_on_close: bool,
     #[serde(default)]
     pub worktree_cleanup_on_close: WorktreeCleanupMode,
+    /// Default starting point when the user clicks "New Worktree" directly.
+    /// The flyout / command palette still let them override per-invocation.
+    #[serde(default)]
+    pub worktree_default_base: WorktreeDefaultBase,
     pub theme: String,
     pub default_model: Option<String>,
     #[serde(default)]
@@ -218,6 +239,7 @@ impl Default for RouxSettings {
             worktree_base_path: None,
             cleanup_worktrees_on_close: false,
             worktree_cleanup_on_close: WorktreeCleanupMode::Prompt,
+            worktree_default_base: WorktreeDefaultBase::CurrentBranch,
             theme: DEFAULT_THEME.to_string(),
             default_model: None,
             claude_binary_path: None,

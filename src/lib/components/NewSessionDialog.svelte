@@ -761,10 +761,12 @@
           name,
           worktreePathArg,
           branchArg,
-          firstLeafInfo.nonoProfile ?? undefined,
-          firstLeafInfo.nonoAllowDirs ?? undefined,
-          initialSize,
-          firstLeafInfo.profileId ?? undefined,
+          {
+            nonoProfile: firstLeafInfo.nonoProfile ?? undefined,
+            nonoAllowDirs: firstLeafInfo.nonoAllowDirs ?? undefined,
+            initialSize,
+            profile: firstLeafInfo.profileId ?? undefined,
+          },
         );
         log(`Session created via layout: ${session.id}`);
         addSession(session);
@@ -804,10 +806,12 @@
         name,
         worktreePathArg,
         branchArg,
-        effectiveNono.nonoProfile,
-        effectiveNono.nonoAllowDirs,
-        initialSize,
-        profile.id,
+        {
+          nonoProfile: effectiveNono.nonoProfile,
+          nonoAllowDirs: effectiveNono.nonoAllowDirs,
+          initialSize,
+          profile: profile.id,
+        },
       );
 
       log(`Session created: ${session.id}`);

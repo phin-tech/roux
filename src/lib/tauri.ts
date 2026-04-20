@@ -23,6 +23,25 @@ export interface InitialPtySize {
   rows: number;
 }
 
+export interface CreateSessionShellOpts {
+  nonoProfile?: string | null;
+  nonoAllowDirs?: string[] | null;
+  initialSize?: InitialPtySize | null;
+  /**
+   * Spawn-profile id (`claude`, `codex`, user-profile id). Threaded into the
+   * PTY env so agents wake up under the right profile.
+   */
+  profile?: string | null;
+  /**
+   * Git starting point for a newly-created worktree branch (e.g. "main",
+   * "origin/main"). Only used when `branch` is a new branch; ignored for
+   * existing branches.
+   */
+  base?: string | null;
+  /** Run `git fetch origin` before resolving `base`. */
+  fetchFirst?: boolean;
+}
+
 /**
  * Spawns a plain shell in the session's primary PTY. Caller then attaches
  * a spawn profile and types its setup / startup commands into the shell.
@@ -37,20 +56,22 @@ export async function createSessionShell(
   name: string,
   worktreePath: string | null,
   branch: string | null,
-  nonoProfile?: string | null,
-  nonoAllowDirs?: string[] | null,
-  initialSize?: InitialPtySize | null,
-  profile?: string | null,
+  opts: CreateSessionShellOpts = {},
 ): Promise<Session> {
+  const { nonoProfile, nonoAllowDirs, initialSize, profile, base, fetchFirst } = opts;
   return invoke("create_session_shell", {
     repoPath,
     name,
     worktreePath,
     branch,
-    nonoProfile: nonoProfile ?? null,
-    nonoAllowDirs: nonoAllowDirs ?? null,
-    initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
-    profile: profile ?? null,
+    opts: {
+      nonoProfile: nonoProfile ?? null,
+      nonoAllowDirs: nonoAllowDirs ?? null,
+      profile: profile ?? null,
+      initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
+      base: base ?? null,
+      fetchFirst: fetchFirst ?? null,
+    },
   });
 }
 
