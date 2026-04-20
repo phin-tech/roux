@@ -683,7 +683,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     // Build the session target. worktree_branch wins; else treat a distinct
     // working_dir as an existing worktree; else use the repo directly.
     let target = if let Some(branch) = worktree_branch.as_deref() {
-        SessionTarget::NewWorktree { branch }
+        SessionTarget::NewWorktree { branch, start_point: None, fetch_first: false }
     } else {
         match &working_dir {
             Some(dir) if dir != &repo_path => SessionTarget::ExistingWorktree { path: dir },

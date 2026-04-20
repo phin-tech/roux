@@ -9,7 +9,7 @@ Settings are grouped into categories in a sidebar modal. Changes are persisted a
 ## Sections
 
 - **General** — theme, tab position, status bar position.
-- **Sessions** — close/reconnect behavior, default project path, repo roots quick-pick sources, worktree base template, and worktree cleanup mode.
+- **Sessions** — close/reconnect behavior, default project path, repo roots quick-pick sources, worktree base template, worktree cleanup mode, and the New Worktree default starting point.
 - **Terminal** — font, scrollback, and cursor settings.
 - **Claude** — binary path override, default model, additional flags.
 - **Integrations** — GitHub CLI (`gh`) path override for PR/session integrations.

@@ -17,6 +17,10 @@ pub enum WorktreeError {
     RemoveFailed { stderr: String },
     #[error("git worktree list failed: {stderr}")]
     ListFailed { stderr: String },
+    #[error("git fetch origin failed: {stderr}")]
+    FetchFailed { stderr: String },
+    #[error("Invalid start point: '{start_point}' does not resolve to a commit")]
+    InvalidStartPoint { start_point: String },
 }
 
 fn sanitize_branch_for_path(branch: &str) -> String {
@@ -125,10 +129,54 @@ fn branch_exists(repo_path: &str, branch: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// `true` iff `rev` resolves to a commit in `repo_path`. The `^{commit}`
+/// peel rejects refs that exist but don't point at a commit (e.g. annotated
+/// tag objects pointing at trees/blobs, or `HEAD` in an unborn repo). This
+/// keeps our `InvalidStartPoint` error text truthful ("does not resolve to
+/// a commit") and avoids handing git a non-commit start point for
+/// `worktree add -b`.
+fn rev_exists(repo_path: &str, rev: &str) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--verify", &format!("{}^{{commit}}", rev)])
+        .current_dir(repo_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Runs `git fetch origin` in `repo_path`. Used before creating a worktree
+/// off a remote ref (e.g. `origin/main`) so the ref exists locally.
+pub fn fetch_origin(repo_path: &str) -> Result<(), WorktreeError> {
+    let output = Command::new("git")
+        .args(["fetch", "origin"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|source| WorktreeError::RunGit { source })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(WorktreeError::FetchFailed { stderr: stderr.to_string() });
+    }
+    Ok(())
+}
+
+/// Create a new worktree for `branch` under a base path derived from
+/// `base_path` (filesystem location — see `resolve_worktree_path`).
+///
+/// Semantics:
+/// - If `branch` is already checked out in an existing worktree, return that
+///   path (no-op).
+/// - If `branch` exists in the repo, run `git worktree add <path> <branch>`.
+///   `start_point` is ignored because git checks out the existing branch.
+/// - If `branch` does not exist and `start_point` is `Some(sp)`, run
+///   `git worktree add -b <branch> <path> <sp>` (new branch from `sp`).
+/// - If `branch` does not exist and `start_point` is `None`, run
+///   `git worktree add -b <branch> <path>` (new branch from HEAD).
 pub fn create_worktree(
     repo_path: &str,
     branch: &str,
     base_path: Option<&str>,
+    start_point: Option<&str>,
 ) -> Result<String, WorktreeError> {
     // Check if the branch is already checked out in an existing worktree
     if let Ok(worktrees) = list_worktrees(repo_path) {
@@ -143,6 +191,17 @@ pub fn create_worktree(
     let output = if branch_exists(repo_path, branch) {
         Command::new("git")
             .args(["worktree", "add", &target_str, branch])
+            .current_dir(repo_path)
+            .output()
+            .map_err(|source| WorktreeError::RunGit { source })?
+    } else if let Some(sp) = start_point {
+        if !rev_exists(repo_path, sp) {
+            return Err(WorktreeError::InvalidStartPoint {
+                start_point: sp.to_string(),
+            });
+        }
+        Command::new("git")
+            .args(["worktree", "add", "-b", branch, &target_str, sp])
             .current_dir(repo_path)
             .output()
             .map_err(|source| WorktreeError::RunGit { source })?
@@ -389,5 +448,143 @@ mod tests {
         let error = WorktreeError::RunGit { source: io::Error::other("boom") };
 
         assert_eq!(error.to_string(), "Failed to run git: boom");
+    }
+
+    // ---- Integration-style tests against a real temp git repo ----
+
+    fn git(repo: &Path, args: &[&str]) {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .expect("failed to invoke git");
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn git_stdout(repo: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .expect("failed to invoke git");
+        assert!(out.status.success());
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// Initialise a temp git repo with a `main` branch and one commit.
+    fn init_repo(dir: &Path) {
+        git(dir, &["init", "-q", "-b", "main"]);
+        git(dir, &["config", "user.email", "t@t.test"]);
+        git(dir, &["config", "user.name", "Test"]);
+        git(dir, &["commit", "--allow-empty", "-m", "init"]);
+    }
+
+    #[test]
+    fn create_worktree_with_start_point_branches_from_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+
+        // Create a second branch with an extra commit; leave HEAD on it so
+        // HEAD != main. If start_point worked, the new worktree should point
+        // at main's tip, not HEAD.
+        git(&repo, &["checkout", "-q", "-b", "other"]);
+        git(&repo, &["commit", "--allow-empty", "-m", "other-c1"]);
+        let main_tip = git_stdout(&repo, &["rev-parse", "main"]);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+
+        let wt_path =
+            create_worktree(&repo_str, "feature-from-main", Some(&base_str), Some("main"))
+                .expect("create_worktree should succeed");
+
+        let wt_head = git_stdout(Path::new(&wt_path), &["rev-parse", "HEAD"]);
+        assert_eq!(wt_head, main_tip, "worktree HEAD should match main's tip");
+    }
+
+    #[test]
+    fn create_worktree_ignores_start_point_when_branch_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+
+        git(&repo, &["checkout", "-q", "-b", "feature"]);
+        git(&repo, &["commit", "--allow-empty", "-m", "feature-c1"]);
+        let feature_tip = git_stdout(&repo, &["rev-parse", "feature"]);
+        git(&repo, &["checkout", "-q", "main"]);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+
+        // Even though start_point=main, since `feature` exists, we check it
+        // out and land on feature's tip.
+        let wt_path = create_worktree(&repo_str, "feature", Some(&base_str), Some("main"))
+            .expect("create_worktree should succeed");
+
+        let wt_head = git_stdout(Path::new(&wt_path), &["rev-parse", "HEAD"]);
+        assert_eq!(wt_head, feature_tip);
+    }
+
+    #[test]
+    fn create_worktree_invalid_start_point_returns_typed_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+
+        let err = create_worktree(
+            &repo_str,
+            "will-not-create",
+            Some(&base_str),
+            Some("definitely-not-a-ref"),
+        )
+        .expect_err("should fail with InvalidStartPoint");
+
+        match err {
+            WorktreeError::InvalidStartPoint { start_point } => {
+                assert_eq!(start_point, "definitely-not-a-ref");
+            }
+            other => panic!("expected InvalidStartPoint, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn create_worktree_start_point_accepts_annotated_tag() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+        // Annotated tags are a separate object type but peel to a commit via
+        // `^{commit}`, so they should be accepted as a start point.
+        git(&repo, &["tag", "-a", "v1", "-m", "first tag"]);
+        let tag_commit = git_stdout(&repo, &["rev-parse", "v1^{commit}"]);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+
+        let wt_path = create_worktree(&repo_str, "feature-from-tag", Some(&base_str), Some("v1"))
+            .expect("create_worktree should accept annotated tag as start point");
+
+        let wt_head = git_stdout(Path::new(&wt_path), &["rev-parse", "HEAD"]);
+        assert_eq!(wt_head, tag_commit);
     }
 }

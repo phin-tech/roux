@@ -86,6 +86,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   worktreeBasePath: null,
   cleanupWorktreesOnClose: false,
   worktreeCleanupOnClose: "prompt",
+  worktreeDefaultBase: "currentBranch",
   theme: "deep-blue",
   defaultModel: null,
   claudeBinaryPath: null,

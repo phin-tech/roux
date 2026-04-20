@@ -10,6 +10,6 @@ pub mod worktree;
 
 pub use models::*;
 pub use worktree::{
-    create_worktree, expand_base_template, list_worktrees, preview_worktree_base, remove_worktree,
-    WorktreeError,
+    create_worktree, expand_base_template, fetch_origin, list_worktrees, preview_worktree_base,
+    remove_worktree, WorktreeError,
 };

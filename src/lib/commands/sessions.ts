@@ -6,7 +6,7 @@ import { projects } from "$lib/stores/projects";
 import { settings } from "$lib/stores/settings";
 import { getVisualSessionOrder } from "$lib/sessions/order";
 import { initSessionWithProfile } from "$lib/panes/actions";
-import { createSessionShell, openInEditor, listBranches, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
+import { createSessionShell, openInEditor, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
 import type { SpawnProfileRef } from "$lib/panes/profiles";
 import { closeSession } from "$lib/sessions/close";
 import { reconnectSession } from "$lib/sessions/reconnect";
@@ -15,8 +15,18 @@ import { reconnectSession } from "$lib/sessions/reconnect";
  * Create a worktree-backed session that launches the built-in Claude profile.
  * Resolves the profile's nono config up-front so the primary shell is
  * nono-wrapped from the start, matching the layout/dialog paths.
+ *
+ * `base` is the git starting point for the new branch ("main", "origin/main",
+ * or the session's current branch). When `fetchFirst` is true, the backend
+ * runs `git fetch origin` before branching — used for `origin/*` bases.
  */
-async function createWorktreeClaudeSession(repo: string, name: string, branch: string) {
+async function createWorktreeClaudeSession(
+  repo: string,
+  name: string,
+  branch: string,
+  base: string | null,
+  fetchFirst: boolean,
+) {
   const { resolveProfileRef } = await import("$lib/panes/profiles");
   const { runProfileInPane } = await import("$lib/panes/profileRunner");
   const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
@@ -26,9 +36,7 @@ async function createWorktreeClaudeSession(repo: string, name: string, branch: s
 
   const newSession = await createSessionShell(
     repo, name, null, branch,
-    nonoProfile, nonoAllowDirs,
-    null, // initialSize
-    "claude", // profile
+    { nonoProfile, nonoAllowDirs, profile: "claude", base, fetchFirst },
   );
   addSession(newSession);
   const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {
@@ -38,6 +46,30 @@ async function createWorktreeClaudeSession(repo: string, name: string, branch: s
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(mainPaneId);
   if (profile) await runProfileInPane(newSession.id, profile);
+}
+
+function registerWorktreeChild(opts: {
+  id: string;
+  label: string;
+  resolveBase: () => string | null;
+  fetchFirst: boolean;
+}) {
+  registry.register({
+    id: opts.id,
+    label: opts.label,
+    category: "Sessions",
+    available: () => !!queries.activeSession(),
+    inputPlaceholder: "New branch name (e.g. feature/my-thing)...",
+    getItems: () => [],
+    onInput: async (branch: string) => {
+      const session = queries.activeSession();
+      if (!session || !branch.trim()) return;
+      const repo = session.repoRoot;
+      const name = repo.split("/").pop() + "-" + branch;
+      const base = opts.resolveBase();
+      await createWorktreeClaudeSession(repo, name, branch.trim(), base, opts.fetchFirst);
+    },
+  });
 }
 
 export function registerSessionCommands() {
@@ -144,33 +176,57 @@ export function registerSessionCommands() {
   });
 
   // -- Worktree --
+  // Parent: drill into base picker. Matches the pattern used by `watch.add`
+  // in commands/watches.ts.
   registry.register({
     id: "session.new-worktree",
     label: "New Worktree",
     category: "Sessions",
     available: () => !!queries.activeSession(),
-    inputPlaceholder: "Branch name (pick existing or type new)...",
-    getItems: async () => {
-      const session = queries.activeSession();
-      if (!session) return [];
-      const branches = await listBranches(session.repoRoot).catch(() => [] as string[]);
-      return branches.map((branch) => ({
-        id: branch,
-        label: branch,
-        action: async () => {
-          const repo = session.repoRoot;
-          const name = repo.split("/").pop() + "-" + branch;
-          await createWorktreeClaudeSession(repo, name, branch);
-        },
-      }));
+    getItems: () => [
+      {
+        id: "current",
+        label: "From current branch",
+        description: "Branch from this session's current branch",
+        drillCommand: "session.new-worktree-from-current",
+      },
+      {
+        id: "main",
+        label: "From main",
+        description: "Branch from local main",
+        drillCommand: "session.new-worktree-from-main",
+      },
+      {
+        id: "origin-main",
+        label: "From origin/main",
+        description: "Fetches origin, then branches from origin/main",
+        drillCommand: "session.new-worktree-from-origin-main",
+      },
+    ],
+  });
+
+  registerWorktreeChild({
+    id: "session.new-worktree-from-current",
+    label: "New Worktree (from current branch)",
+    // Detached-HEAD sessions report `branch` as "" — normalize to null so
+    // backend falls back to HEAD instead of failing start-point validation.
+    resolveBase: () => {
+      const branch = queries.activeSession()?.branch?.trim();
+      return branch ? branch : null;
     },
-    onInput: async (branch: string) => {
-      const session = queries.activeSession();
-      if (!session) return;
-      const repo = session.repoRoot;
-      const name = repo.split("/").pop() + "-" + branch;
-      await createWorktreeClaudeSession(repo, name, branch);
-    },
+    fetchFirst: false,
+  });
+  registerWorktreeChild({
+    id: "session.new-worktree-from-main",
+    label: "New Worktree (from main)",
+    resolveBase: () => "main",
+    fetchFirst: false,
+  });
+  registerWorktreeChild({
+    id: "session.new-worktree-from-origin-main",
+    label: "New Worktree (from origin/main)",
+    resolveBase: () => "origin/main",
+    fetchFirst: true,
   });
 
   // -- Simple commands (handled externally via callbacks) --

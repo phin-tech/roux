@@ -1,6 +1,33 @@
 use crate::services::sessions as svc;
 use crate::session::Session;
 use crate::state::AppState;
+use serde::{Deserialize, Serialize};
+
+/// Options bag for `create_session_shell`. Bundled because Specta caps command
+/// signatures at 10 params, and the Claude/Codex/worktree spawn paths all
+/// share the same set of optional configuration.
+#[derive(Debug, Default, Deserialize, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateShellOpts {
+    #[serde(default)]
+    pub nono_profile: Option<String>,
+    #[serde(default)]
+    pub nono_allow_dirs: Option<Vec<String>>,
+    /// Spawn-profile id (`claude`, `codex`, user-profile id, …). Passed to
+    /// the PTY env so agents wake up under the right profile.
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub initial_size: Option<(u16, u16)>,
+    /// Git starting point for a new worktree's branch (e.g. "main",
+    /// "origin/main"). Ignored unless `branch` is set and new.
+    #[serde(default)]
+    pub base: Option<String>,
+    /// Run `git fetch origin` before resolving `base`. Used for
+    /// `origin/*`-style bases that may be stale locally.
+    #[serde(default)]
+    pub fetch_first: Option<bool>,
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -204,23 +231,28 @@ pub(crate) async fn create_session_shell(
     name: String,
     worktree_path: Option<String>,
     branch: Option<String>,
-    nono_profile: Option<String>,
-    nono_allow_dirs: Option<Vec<String>>,
-    profile: Option<String>,
-    initial_size: Option<(u16, u16)>,
+    opts: Option<CreateShellOpts>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Session, String> {
     use crate::pty::NonoConfig;
+    let opts = opts.unwrap_or_default();
     // Clone before await — the MutexGuard is not Send.
     let settings = state.settings.lock().unwrap().clone();
-    let nono = nono_profile
-        .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
+    let nono = opts.nono_profile.map(|profile| NonoConfig {
+        profile,
+        allow_dirs: opts.nono_allow_dirs.unwrap_or_default(),
+    });
+    let initial_size = opts.initial_size;
 
     let target = if let Some(ref wt_path) = worktree_path {
         svc::SessionTarget::ExistingWorktree { path: wt_path }
     } else if let Some(ref br) = branch {
-        svc::SessionTarget::NewWorktree { branch: br }
+        svc::SessionTarget::NewWorktree {
+            branch: br,
+            start_point: opts.base.as_deref(),
+            fetch_first: opts.fetch_first.unwrap_or(false),
+        }
     } else {
         svc::SessionTarget::Repo
     };
@@ -233,7 +265,7 @@ pub(crate) async fn create_session_shell(
         &name,
         target,
         nono.as_ref(),
-        profile.as_deref(),
+        opts.profile.as_deref(),
         initial_size,
         &app,
     )

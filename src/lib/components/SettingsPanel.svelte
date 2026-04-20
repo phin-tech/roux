@@ -5,7 +5,7 @@
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import { notificationsPush } from "$lib/tauri";
   import { commands } from "$lib/bindings";
-  import type { UpdateChannel, WorktreeCleanupMode } from "$lib/bindings";
+  import type { UpdateChannel, WorktreeCleanupMode, WorktreeDefaultBase } from "$lib/bindings";
   import { updateStatus, runManualCheck, performInstall } from "$lib/stores/updater";
   import { getVersion } from "@tauri-apps/api/app";
   import { quitApp } from "$lib/tauri";
@@ -166,6 +166,10 @@
     // Keep the legacy boolean in sync so any older readers (settings files,
     // pre-migration code) still agree with the frontend.
     updateSetting("cleanupWorktreesOnClose", mode === "always");
+  }
+
+  function setDefaultBase(mode: WorktreeDefaultBase) {
+    updateSetting("worktreeDefaultBase", mode);
   }
 
   async function browseAndAddRepoRoot() {
@@ -426,6 +430,21 @@
                   >{opt.label}</button>
                 {/each}
               </div>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">New Worktree default</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Default starting point for new worktree branches — applies to the New Session dialog and the "New Worktree" context-menu click. Hover / command palette always expose all three.</div>
+              </div>
+              <select
+                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                value={$settings.worktreeDefaultBase ?? "currentBranch"}
+                onchange={(e) => setDefaultBase(e.currentTarget.value as WorktreeDefaultBase)}
+              >
+                <option value="currentBranch">Current branch</option>
+                <option value="main">main</option>
+                <option value="originMain">origin/main</option>
+              </select>
             </div>
           {:else if selected === "terminal"}
             <div class="flex items-center justify-between py-2">

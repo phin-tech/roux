@@ -114,7 +114,15 @@ pub(crate) enum SessionTarget<'a> {
     /// Use an existing worktree path. The session does NOT own this worktree.
     ExistingWorktree { path: &'a str },
     /// Create a new worktree from a branch. The session owns this worktree.
-    NewWorktree { branch: &'a str },
+    /// When `start_point` is `Some(sp)` and the branch is new, the branch is
+    /// created from `sp` instead of HEAD. When `fetch_first` is true, we
+    /// `git fetch origin` before resolving the start point (used for
+    /// `origin/main`-style bases that may be stale).
+    NewWorktree {
+        branch: &'a str,
+        start_point: Option<&'a str>,
+        fetch_first: bool,
+    },
 }
 
 /// Create a session with a plain shell in its primary PTY. The shell is
@@ -145,9 +153,13 @@ pub(crate) async fn create_session_shell(
             let br = get_current_branch(path).unwrap_or_else(|| "main".to_string());
             (path.to_string(), br, false)
         }
-        SessionTarget::NewWorktree { branch } => {
+        SessionTarget::NewWorktree { branch, start_point, fetch_first } => {
+            if fetch_first {
+                crate::worktree::fetch_origin(repo_path)?;
+            }
             let base = settings.worktree_base_path.as_deref();
-            let wt_path = crate::worktree::create_worktree(repo_path, branch, base)?;
+            let wt_path =
+                crate::worktree::create_worktree(repo_path, branch, base, start_point)?;
             (wt_path, branch.to_string(), true)
         }
         SessionTarget::Repo => {

@@ -695,6 +695,24 @@
     return { worktreePathArg: null, branchArg: query, label: query };
   }
 
+  /**
+   * Resolve the default starting point for a newly created worktree based on
+   * the `worktreeDefaultBase` setting. Only meaningful when a new branch is
+   * being created (backend ignores `base`/`fetchFirst` for existing branches
+   * and existing-worktree paths, so passing these unconditionally is safe).
+   */
+  function resolveDefaultBase(): { base: string | null; fetchFirst: boolean } {
+    switch ($settings.worktreeDefaultBase ?? "currentBranch") {
+      case "main":
+        return { base: "main", fetchFirst: false };
+      case "originMain":
+        return { base: "origin/main", fetchFirst: true };
+      case "currentBranch":
+      default:
+        return { base: null, fetchFirst: false };
+    }
+  }
+
   function formatRepoShortLabel(path: string, depth: number = 2): string {
     const normalized = path.replaceAll("\\", "/");
     const segments = normalized.split("/").filter(Boolean);
@@ -756,15 +774,20 @@
         // primary PTY is spawned now by createSessionShell, not by the
         // layout walker (which only spawns PTYs for leaves 2..N).
         const firstLeafInfo = resolveFirstLeafNono(selectedLayout);
+        const defaultBase = resolveDefaultBase();
         const session = await createSessionShell(
           repoPath,
           name,
           worktreePathArg,
           branchArg,
-          firstLeafInfo.nonoProfile ?? undefined,
-          firstLeafInfo.nonoAllowDirs ?? undefined,
-          initialSize,
-          firstLeafInfo.profileId ?? undefined,
+          {
+            nonoProfile: firstLeafInfo.nonoProfile ?? undefined,
+            nonoAllowDirs: firstLeafInfo.nonoAllowDirs ?? undefined,
+            initialSize,
+            profile: firstLeafInfo.profileId ?? undefined,
+            base: defaultBase.base,
+            fetchFirst: defaultBase.fetchFirst,
+          },
         );
         log(`Session created via layout: ${session.id}`);
         addSession(session);
@@ -796,6 +819,7 @@
       // allow_dirs — they describe what that profile needs to work, and
       // aren't tied to a specific sandbox profile name.
       const effectiveNono = resolveNonoForProfile(profile, selectedNonoProfile);
+      const defaultBase = resolveDefaultBase();
 
       // Spawn a shell (optionally nono-wrapped), then type the profile's
       // setup / startup commands into it after the PTY is attached.
@@ -804,10 +828,14 @@
         name,
         worktreePathArg,
         branchArg,
-        effectiveNono.nonoProfile,
-        effectiveNono.nonoAllowDirs,
-        initialSize,
-        profile.id,
+        {
+          nonoProfile: effectiveNono.nonoProfile,
+          nonoAllowDirs: effectiveNono.nonoAllowDirs,
+          initialSize,
+          profile: profile.id,
+          base: defaultBase.base,
+          fetchFirst: defaultBase.fetchFirst,
+        },
       );
 
       log(`Session created: ${session.id}`);
