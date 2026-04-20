@@ -208,7 +208,12 @@ export function registerSessionCommands() {
   registerWorktreeChild({
     id: "session.new-worktree-from-current",
     label: "New Worktree (from current branch)",
-    resolveBase: () => queries.activeSession()?.branch ?? null,
+    // Detached-HEAD sessions report `branch` as "" — normalize to null so
+    // backend falls back to HEAD instead of failing start-point validation.
+    resolveBase: () => {
+      const branch = queries.activeSession()?.branch?.trim();
+      return branch ? branch : null;
+    },
     fetchFirst: false,
   });
   registerWorktreeChild({

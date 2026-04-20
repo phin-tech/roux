@@ -129,9 +129,15 @@ fn branch_exists(repo_path: &str, branch: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// `true` iff `rev` resolves to a commit in `repo_path`. The `^{commit}`
+/// peel rejects refs that exist but don't point at a commit (e.g. annotated
+/// tag objects pointing at trees/blobs, or `HEAD` in an unborn repo). This
+/// keeps our `InvalidStartPoint` error text truthful ("does not resolve to
+/// a commit") and avoids handing git a non-commit start point for
+/// `worktree add -b`.
 fn rev_exists(repo_path: &str, rev: &str) -> bool {
     Command::new("git")
-        .args(["rev-parse", "--verify", rev])
+        .args(["rev-parse", "--verify", &format!("{}^{{commit}}", rev)])
         .current_dir(repo_path)
         .output()
         .map(|o| o.status.success())
@@ -557,5 +563,28 @@ mod tests {
             }
             other => panic!("expected InvalidStartPoint, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn create_worktree_start_point_accepts_annotated_tag() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+        // Annotated tags are a separate object type but peel to a commit via
+        // `^{commit}`, so they should be accepted as a start point.
+        git(&repo, &["tag", "-a", "v1", "-m", "first tag"]);
+        let tag_commit = git_stdout(&repo, &["rev-parse", "v1^{commit}"]);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+
+        let wt_path = create_worktree(&repo_str, "feature-from-tag", Some(&base_str), Some("v1"))
+            .expect("create_worktree should accept annotated tag as start point");
+
+        let wt_head = git_stdout(Path::new(&wt_path), &["rev-parse", "HEAD"]);
+        assert_eq!(wt_head, tag_commit);
     }
 }

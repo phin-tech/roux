@@ -120,6 +120,73 @@
     worktreeInput = true;
   }
 
+  // Detached-HEAD sessions report `branch` as "" — treat that as "branch
+  // from HEAD" (null) rather than passing an empty start point through to
+  // backend `rev-parse --verify`.
+  function currentBranchBase(session: Session): string | null {
+    const trimmed = session.branch.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  // Keyboard handler for the "New Worktree" trigger button: ArrowRight /
+  // ArrowDown opens the hover flyout by focusing its first menuitem.
+  // Enter/Space keep their native button behavior (activate onclick =
+  // pickDefaultWorktreeBase), so keyboard users get the same click-default
+  // semantics as mouse users.
+  function handleWorktreeTriggerKeydown(e: KeyboardEvent) {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const trigger = e.currentTarget as HTMLElement;
+    const submenu = trigger.nextElementSibling;
+    const first = submenu?.querySelector<HTMLButtonElement>('button[role="menuitem"]');
+    first?.focus();
+  }
+
+  // Keyboard handler for items inside the "Branch from" flyout:
+  // Arrow up/down cycle through items, Home/End jump to endpoints, and
+  // Escape returns focus to the trigger (which collapses the flyout via
+  // `group-focus-within`).
+  function handleWorktreeMenuItemKeydown(e: KeyboardEvent) {
+    const current = e.currentTarget as HTMLButtonElement;
+    const parent = current.parentElement;
+    if (!parent) return;
+    const items = Array.from(
+      parent.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'),
+    );
+    const i = items.indexOf(current);
+    if (i < 0) return;
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        items[(i + 1) % items.length]?.focus();
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        items[(i - 1 + items.length) % items.length]?.focus();
+        break;
+      case "Home":
+        e.preventDefault();
+        items[0]?.focus();
+        break;
+      case "End":
+        e.preventDefault();
+        items[items.length - 1]?.focus();
+        break;
+      case "Escape": {
+        e.preventDefault();
+        // Escape returns focus to the trigger, which collapses the flyout
+        // (the outer .group loses :focus-within). A second Escape would
+        // then need to be handled by the context-menu level — currently
+        // the context menu closes on outside click, not Escape.
+        const trigger = parent.parentElement?.querySelector<HTMLButtonElement>(
+          ":scope > button",
+        );
+        trigger?.focus();
+        break;
+      }
+    }
+  }
+
   function pickDefaultWorktreeBase() {
     const session = contextMenu?.session;
     if (!session) return;
@@ -132,7 +199,7 @@
         break;
       case "currentBranch":
       default:
-        pickWorktreeBase(session.branch, "current branch", false);
+        pickWorktreeBase(currentBranchBase(session), "current branch", false);
         break;
     }
   }
@@ -481,37 +548,50 @@
         Set Project
       </button>
       {#if contextMenu.session.isGitRepo}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <!-- svelte-ignore a11y_mouse_events_have_key_events -->
         <div class="group relative">
           <button
-            class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary group-hover:bg-bg-hover group-hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
+            class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary group-hover:bg-bg-hover group-hover:text-text-primary group-focus-within:bg-bg-hover group-focus-within:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
             onclick={pickDefaultWorktreeBase}
+            onkeydown={handleWorktreeTriggerKeydown}
+            aria-haspopup="menu"
           >
             <span class="text-[11px] text-text-secondary">&#9095;</span>
             New Worktree
             <span class="ml-auto text-[10px] text-text-muted">&#9654;</span>
           </button>
-          <!-- Hover-flyout submenu: appears to the right, aligned to the button's top. -->
+          <!--
+            Flyout submenu: appears to the right, aligned to the button's top.
+            Visible on hover (mouse) OR on focus-within (keyboard tabbing into
+            any menuitem) — so keyboard-only users can reach the three base
+            options without the pointer.
+          -->
           <div
-            class="ui-dialog invisible absolute left-full top-0 z-50 ml-0.5 min-w-48 py-1 opacity-0 transition-opacity duration-75 group-hover:visible group-hover:opacity-100"
+            class="ui-dialog invisible absolute left-full top-0 z-50 ml-0.5 min-w-48 py-1 opacity-0 transition-opacity duration-75 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+            role="menu"
+            aria-label="Branch from"
           >
             <div class="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-text-muted">Branch from</div>
             <button
-              class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-              onclick={() => pickWorktreeBase(contextMenu?.session.branch ?? null, "current branch", false)}
+              class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+              role="menuitem"
+              onclick={() => contextMenu && pickWorktreeBase(currentBranchBase(contextMenu.session), "current branch", false)}
+              onkeydown={handleWorktreeMenuItemKeydown}
             >
               Current branch
             </button>
             <button
-              class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+              class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+              role="menuitem"
               onclick={() => pickWorktreeBase("main", "main", false)}
+              onkeydown={handleWorktreeMenuItemKeydown}
             >
               main
             </button>
             <button
-              class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+              class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+              role="menuitem"
               onclick={() => pickWorktreeBase("origin/main", "origin/main", true)}
+              onkeydown={handleWorktreeMenuItemKeydown}
             >
               origin/main
             </button>
