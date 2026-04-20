@@ -766,7 +766,7 @@ export function registerPaneCommands() {
           description: description.trim(),
           action: async () => {
             if (!currentPaneId) return;
-            await attachPtyToPane(currentPaneId, pty.id, { profile: pty.profile });
+            await attachPtyToPane(currentPaneId, pty.id, { profile: pty.profile, name: pty.name });
           },
         });
       }
@@ -783,7 +783,7 @@ export function registerPaneCommands() {
           description: `detached ${ago} · ${pty.working_dir || ""}`.trim(),
           action: async () => {
             if (!currentPaneId) return;
-            await attachPtyToPane(currentPaneId, pty.id, { profile: pty.profile });
+            await attachPtyToPane(currentPaneId, pty.id, { profile: pty.profile, name: pty.name });
           },
         });
       }

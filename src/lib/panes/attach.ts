@@ -17,6 +17,8 @@ import type { SpawnProfileRef } from "./profiles";
 export interface AttachOptions {
   /** Profile ID from the PTY (e.g. "claude", "codex"). Updates pane's spawnProfileRef. */
   profile?: string | null;
+  /** Display name from the PTY. Applied to the pane so the titlebar reflects the attached PTY. */
+  name?: string | null;
 }
 
 /**
@@ -74,6 +76,10 @@ export async function attachPtyToPane(
   if (options.profile) {
     const profileRef: SpawnProfileRef = { kind: "registered", id: options.profile };
     updates.spawnProfileRef = profileRef;
+  }
+
+  if (options.name !== undefined) {
+    updates.name = options.name ?? undefined;
   }
 
   // Update pane state to reflect the new attached PTY. `replacePty` already
