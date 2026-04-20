@@ -164,8 +164,19 @@ fn handle_event(ctx: &LifecycleHandlerContext, event: PtyLifecycleEvent) {
             reason,
             generation,
         } => {
-            // 1. Mark PTY as exited in PtyManager (convert u32 -> i32 for internal storage)
-            ctx.pty_manager.mark_exited(&pty_id, code.map(|c| c as i32));
+            // Drop stale exit events from a previous PTY generation before they
+            // mutate state or notify the frontend for a reused PTY id.
+            if !ctx
+                .pty_manager
+                .mark_exited_if_generation_matches_direct(&pty_id, generation, code.map(|c| c as i32))
+            {
+                rlog!(
+                    "PTY lifecycle: dropping stale exit for {} generation {}",
+                    pty_id,
+                    generation
+                );
+                return;
+            }
 
             // 2. Emit frontend event
             use tauri::Emitter;
