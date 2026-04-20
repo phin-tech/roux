@@ -681,6 +681,57 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#spawning-a-worktree-from-an-existing-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      Spawning a worktree from an existing session
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Spawning a worktree from an existing session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from-the-session-context-menu" class="md-nav__link">
+    <span class="md-ellipsis">
+      From the session context menu
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#from-the-command-palette" class="md-nav__link">
+    <span class="md-ellipsis">
+      From the command palette
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#starting-point-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      Starting-point resolution
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-starting-point" class="md-nav__link">
+    <span class="md-ellipsis">
+      Default starting point
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#worktree-base-path-templates" class="md-nav__link">
     <span class="md-ellipsis">
       Worktree base path templates
@@ -912,6 +963,57 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#spawning-a-worktree-from-an-existing-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      Spawning a worktree from an existing session
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Spawning a worktree from an existing session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from-the-session-context-menu" class="md-nav__link">
+    <span class="md-ellipsis">
+      From the session context menu
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#from-the-command-palette" class="md-nav__link">
+    <span class="md-ellipsis">
+      From the command palette
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#starting-point-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      Starting-point resolution
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-starting-point" class="md-nav__link">
+    <span class="md-ellipsis">
+      Default starting point
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#worktree-base-path-templates" class="md-nav__link">
     <span class="md-ellipsis">
       Worktree base path templates
@@ -973,6 +1075,41 @@
 <li><strong>New worktree</strong> — Roux creates a new worktree for you at a path you choose, branching from a ref you pick.</li>
 </ul>
 <p>The New Session dialog also supports pasting a GitHub PR URL. Roux can resolve the PR refs and create (or reuse) an appropriate local worktree for review.</p>
+<h2 id="spawning-a-worktree-from-an-existing-session">Spawning a worktree from an existing session<a class="headerlink" href="#spawning-a-worktree-from-an-existing-session" title="Permanent link">&para;</a></h2>
+<p>Any git-backed session can spawn a sibling worktree that branches from a chosen starting point. This is the fastest way to start a new feature branch without leaving the app.</p>
+<h3 id="from-the-session-context-menu">From the session context menu<a class="headerlink" href="#from-the-session-context-menu" title="Permanent link">&para;</a></h3>
+<p>Right-click a session in the sidebar and hover <strong>New Worktree</strong>. A flyout appears with three starting points:</p>
+<ul>
+<li><strong>Current branch</strong> — branch from the session's current <code>HEAD</code>.</li>
+<li><strong>main</strong> — branch from the local <code>main</code> branch.</li>
+<li><strong>origin/main</strong> — Roux runs <code>git fetch origin</code> first, then branches from the remote <code>origin/main</code> (useful when your local <code>main</code> may be stale).</li>
+</ul>
+<p>Pick one, type the new branch name, and hit <span class="keys"><kbd class="key-enter">Enter</kbd></span>. Roux creates the worktree, spins up a Claude Code session in it, and attaches the sidebar.</p>
+<p>Clicking <strong>New Worktree</strong> directly (without hovering) uses your configured default — see <a href="#default-starting-point">Default starting point</a> below.</p>
+<h3 id="from-the-command-palette">From the command palette<a class="headerlink" href="#from-the-command-palette" title="Permanent link">&para;</a></h3>
+<p>Open the palette with <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span> and run <strong>New Worktree</strong>. The palette drills into the same three starting points, then prompts for a new branch name.</p>
+<h3 id="starting-point-resolution">Starting-point resolution<a class="headerlink" href="#starting-point-resolution" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Roux passes the starting point literally to <code>git worktree add -b &lt;branch&gt; &lt;path&gt; &lt;start_point&gt;</code>. That means <strong>main</strong>-named repos work out of the box; repos where the default is <code>master</code> (or anything else) will surface a clean <code>Invalid start point</code> error rather than a raw git stderr.</li>
+<li>If you type a branch name that already exists, Roux ignores the chosen starting point and checks out the existing branch into the worktree instead (git's own semantics — a branch can only point at one commit).</li>
+<li><strong>origin/main</strong> fetches <code>origin</code> first. If the fetch fails (network, auth, etc.), the session is not created and the error is surfaced in the context menu.</li>
+</ul>
+<h3 id="default-starting-point">Default starting point<a class="headerlink" href="#default-starting-point" title="Permanent link">&para;</a></h3>
+<p>In <strong>Settings → Sessions</strong>, the <strong>New Worktree default</strong> control picks which starting point is used whenever Roux creates a worktree without an explicit per-invocation base. This covers both:</p>
+<ul>
+<li>Clicking <strong>New Worktree</strong> directly in the session context menu (no hover), and</li>
+<li>Creating a <strong>new worktree session</strong> from the <strong>New Session</strong> dialog (pasting a PR URL or typing a new branch name).</li>
+</ul>
+<p>Options:</p>
+<ul>
+<li><strong>Current branch</strong> (default) — the session's current branch. Matches the original click behavior before the base picker existed, so no muscle-memory breakage.</li>
+<li><strong>main</strong> — always branch from local <code>main</code>. Good if your personal workflow always spins new branches off <code>main</code>.</li>
+<li><strong>origin/main</strong> — always fetch origin and branch from <code>origin/main</code>. Good for teams that expect every new feature branch to start from an up-to-date remote.</li>
+</ul>
+<p>The context-menu flyout and the command palette always expose all three options regardless of this setting — it only controls the default used when you don't pick explicitly.</p>
+<blockquote>
+<p>Existing branches (whether local or a PR head ref that's already been fetched) ignore this setting. Git only lets a branch point at one commit, so Roux checks out the existing branch and leaves its history alone.</p>
+</blockquote>
 <h2 id="worktree-base-path-templates">Worktree base path templates<a class="headerlink" href="#worktree-base-path-templates" title="Permanent link">&para;</a></h2>
 <p>In <strong>Settings → Sessions</strong>, <code>Worktree base path</code> supports template variables:</p>
 <ul>
