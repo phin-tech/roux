@@ -44,13 +44,20 @@ Open the palette with ++cmd+k++ and run **New Worktree**. The palette drills int
 
 ### Default starting point
 
-In **Settings → Sessions**, the **New Worktree default** control picks which of the three starting points is used when you click **New Worktree** directly (as opposed to hovering to expose the flyout):
+In **Settings → Sessions**, the **New Worktree default** control picks which starting point is used whenever Roux creates a worktree without an explicit per-invocation base. This covers both:
 
-- **Current** (default) — the session's current branch. Matches the original click behavior before the base picker existed, so no muscle-memory breakage.
+- Clicking **New Worktree** directly in the session context menu (no hover), and
+- Creating a **new worktree session** from the **New Session** dialog (pasting a PR URL or typing a new branch name).
+
+Options:
+
+- **Current branch** (default) — the session's current branch. Matches the original click behavior before the base picker existed, so no muscle-memory breakage.
 - **main** — always branch from local `main`. Good if your personal workflow always spins new branches off `main`.
 - **origin/main** — always fetch origin and branch from `origin/main`. Good for teams that expect every new feature branch to start from an up-to-date remote.
 
-The flyout and command palette always expose all three options regardless of this setting — it only controls the click-without-hover default.
+The context-menu flyout and the command palette always expose all three options regardless of this setting — it only controls the default used when you don't pick explicitly.
+
+> Existing branches (whether local or a PR head ref that's already been fetched) ignore this setting. Git only lets a branch point at one commit, so Roux checks out the existing branch and leaves its history alone.
 
 ## Worktree base path templates
 

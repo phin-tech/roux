@@ -434,7 +434,7 @@
             <div class="flex items-center justify-between py-2">
               <div>
                 <div class="text-[13px]">New Worktree default</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Starting point when you click "New Worktree" directly (hover still exposes all three)</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Default starting point for new worktree branches — applies to the New Session dialog and the "New Worktree" context-menu click. Hover / command palette always expose all three.</div>
               </div>
               <select
                 class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
