@@ -81,6 +81,7 @@ impl PtyLogger {
     }
 
     /// Current sequence number (for sync detection)
+    #[allow(dead_code)] // Reserved for future replay sync
     pub fn seq(&self) -> u64 {
         self.seq
     }

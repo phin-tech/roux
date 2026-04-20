@@ -12,6 +12,7 @@ use std::thread;
 
 /// Events that can occur during a PTY's lifecycle.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)] // Variants reserved for future detach tracking
 pub enum PtyLifecycleEvent {
     /// PTY process exited.
     Exited {

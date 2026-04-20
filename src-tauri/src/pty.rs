@@ -96,6 +96,7 @@ struct PtyOutputState {
 }
 
 impl PtyOutputState {
+    #[cfg(test)]
     fn new() -> Self {
         Self { channel: None, backlog: VecDeque::new(), backlog_bytes: 0, logger: None }
     }
@@ -159,6 +160,7 @@ struct PtyOutput {
 }
 
 impl PtyOutput {
+    #[cfg(test)]
     fn new() -> Self {
         Self { state: Arc::new(Mutex::new(PtyOutputState::new())) }
     }
@@ -503,6 +505,7 @@ struct PtySession {
     pub name: Option<String>,
     pub working_dir: Option<String>,
     pub profile: Option<String>,
+    #[allow(dead_code)] // Reserved for future PTY size tracking
     pub last_size: (u16, u16),
     pub last_activity: std::time::Instant,
     pub unread_output: bool,
