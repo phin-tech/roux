@@ -31,7 +31,7 @@ pub enum PtyLifecycleEvent {
 pub enum PtyLifecycleCommand {
     Register {
         pty_id: String,
-        session: crate::pty::PtySession,
+        session: Box<crate::pty::PtySession>,
     },
     Kill {
         pty_id: String,
@@ -57,7 +57,7 @@ pub enum PtyLifecycleCommand {
 
 pub enum PtyLifecycleMessage {
     Event(PtyLifecycleEvent),
-    Command(PtyLifecycleCommand, mpsc::SyncSender<()>),
+    Command(Box<PtyLifecycleCommand>, mpsc::SyncSender<()>),
 }
 
 impl std::fmt::Debug for PtyLifecycleCommand {
@@ -144,7 +144,7 @@ pub fn spawn_handler(ctx: LifecycleHandlerContext) -> LifecycleTx {
             match message {
                 PtyLifecycleMessage::Event(event) => handle_event(&ctx, event),
                 PtyLifecycleMessage::Command(command, reply) => {
-                    handle_command(&ctx.pty_manager, command);
+                    handle_command(&ctx.pty_manager, *command);
                     let _ = reply.send(());
                 }
             }
@@ -209,7 +209,7 @@ fn handle_event(ctx: &LifecycleHandlerContext, event: PtyLifecycleEvent) {
 pub(crate) fn handle_command(pty_manager: &crate::pty::PtyManager, command: PtyLifecycleCommand) {
     match command {
         PtyLifecycleCommand::Register { pty_id, session } => {
-            pty_manager.register_session_direct(pty_id, session);
+            pty_manager.register_session_direct(pty_id, *session);
         }
         PtyLifecycleCommand::Kill { pty_id } => {
             pty_manager.kill_direct(&pty_id);

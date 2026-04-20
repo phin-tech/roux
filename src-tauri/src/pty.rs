@@ -750,7 +750,7 @@ impl PtyManager {
         };
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         if tx
-            .send(crate::pty_lifecycle::PtyLifecycleMessage::Command(command, reply_tx))
+            .send(crate::pty_lifecycle::PtyLifecycleMessage::Command(Box::new(command), reply_tx))
             .is_err()
         {
             return false;
@@ -982,10 +982,10 @@ impl PtyManager {
         if let Some(tx) = lifecycle_tx {
             let (reply_tx, reply_rx) = mpsc::sync_channel(1);
             match tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Command(
-                crate::pty_lifecycle::PtyLifecycleCommand::Register {
+                Box::new(crate::pty_lifecycle::PtyLifecycleCommand::Register {
                     pty_id: id.to_string(),
-                    session,
-                },
+                    session: Box::new(session),
+                }),
                 reply_tx,
             )) {
                 Ok(()) => {
@@ -996,10 +996,15 @@ impl PtyManager {
                     }
                 }
                 Err(mpsc::SendError(crate::pty_lifecycle::PtyLifecycleMessage::Command(
-                    crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session },
+                    command,
                     _,
                 ))) => {
-                    self.register_session_direct(pty_id, session);
+                    match *command {
+                        crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session } => {
+                            self.register_session_direct(pty_id, *session);
+                        }
+                        _ => unreachable!("register send only emits register commands here"),
+                    }
                 }
                 Err(_) => unreachable!("register send only emits command messages here"),
             }
@@ -1124,10 +1129,10 @@ impl PtyManager {
         if let Some(tx) = lifecycle_tx {
             let (reply_tx, reply_rx) = mpsc::sync_channel(1);
             match tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Command(
-                crate::pty_lifecycle::PtyLifecycleCommand::Register {
+                Box::new(crate::pty_lifecycle::PtyLifecycleCommand::Register {
                     pty_id: id.to_string(),
-                    session,
-                },
+                    session: Box::new(session),
+                }),
                 reply_tx,
             )) {
                 Ok(()) => {
@@ -1138,10 +1143,15 @@ impl PtyManager {
                     }
                 }
                 Err(mpsc::SendError(crate::pty_lifecycle::PtyLifecycleMessage::Command(
-                    crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session },
+                    command,
                     _,
                 ))) => {
-                    self.register_session_direct(pty_id, session);
+                    match *command {
+                        crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session } => {
+                            self.register_session_direct(pty_id, *session);
+                        }
+                        _ => unreachable!("register send only emits register commands here"),
+                    }
                 }
                 Err(_) => unreachable!("register send only emits command messages here"),
             }
@@ -2046,7 +2056,7 @@ mod lifecycle_command_tests {
         std::thread::spawn(move || {
             while let Ok(message) = rx.recv() {
                 if let crate::pty_lifecycle::PtyLifecycleMessage::Command(command, reply) = message {
-                    crate::pty_lifecycle::handle_command(&manager, command);
+                    crate::pty_lifecycle::handle_command(&manager, *command);
                     let _ = reply.send(());
                 }
             }
@@ -2061,10 +2071,10 @@ mod lifecycle_command_tests {
     ) {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Command(
-            crate::pty_lifecycle::PtyLifecycleCommand::Register {
+            Box::new(crate::pty_lifecycle::PtyLifecycleCommand::Register {
                 pty_id: pty_id.to_string(),
-                session,
-            },
+                session: Box::new(session),
+            }),
             reply_tx,
         ))
         .expect("register command");
