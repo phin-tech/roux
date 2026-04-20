@@ -4,7 +4,7 @@ interface ScheduleOptions {
 
 interface ResizeSchedulerOptions {
   fit: () => { cols: number; rows: number } | null;
-  getPtyId: () => string;
+  getPtyId: () => string | null;
   onResize: (ptyId: string, cols: number, rows: number) => void;
 }
 
@@ -30,6 +30,12 @@ export function createResizeScheduler({
     }
 
     const ptyId = getPtyId();
+    // Skip resize notification if no PTY is currently attached (empty/dead pane).
+    if (!ptyId) {
+      afterFit?.();
+      return;
+    }
+
     const unchanged =
       lastResize?.ptyId === ptyId &&
       lastResize.cols === dims.cols &&

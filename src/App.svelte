@@ -689,6 +689,7 @@
   onNewSession={() => (showNewSessionDialog = true)}
   onSettings={() => toggleSidebar("settings")}
   onCheckForUpdates={() => { openSidebar("settings"); void runManualCheck(); }}
+  initialCommandId={$commandSurface.initialCommandId}
 />
 
 {#if $hudVisible || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}

@@ -92,11 +92,22 @@ struct PtyOutputState {
     channel: Option<Channel<Response>>,
     backlog: VecDeque<Vec<u8>>,
     backlog_bytes: usize,
+    logger: Option<Arc<Mutex<crate::pty_logger::PtyLogger>>>,
 }
 
 impl PtyOutputState {
+    #[cfg(test)]
     fn new() -> Self {
-        Self { channel: None, backlog: VecDeque::new(), backlog_bytes: 0 }
+        Self { channel: None, backlog: VecDeque::new(), backlog_bytes: 0, logger: None }
+    }
+
+    fn new_with_logger(logger: Arc<Mutex<crate::pty_logger::PtyLogger>>) -> Self {
+        Self {
+            channel: None,
+            backlog: VecDeque::new(),
+            backlog_bytes: 0,
+            logger: Some(logger),
+        }
     }
 
     fn buffer(&mut self, bytes: Vec<u8>) {
@@ -111,6 +122,12 @@ impl PtyOutputState {
     }
 
     fn send_or_buffer(&mut self, bytes: Vec<u8>) {
+        // Log every byte headed to the frontend (best-effort).
+        if let Some(ref logger) = self.logger {
+            if let Ok(mut l) = logger.lock() {
+                l.write(&bytes);
+            }
+        }
         if let Some(channel) = &self.channel {
             if channel.send(Response::new(bytes.clone())).is_ok() {
                 return;
@@ -143,8 +160,13 @@ struct PtyOutput {
 }
 
 impl PtyOutput {
+    #[cfg(test)]
     fn new() -> Self {
         Self { state: Arc::new(Mutex::new(PtyOutputState::new())) }
+    }
+
+    fn new_with_logger(logger: Arc<Mutex<crate::pty_logger::PtyLogger>>) -> Self {
+        Self { state: Arc::new(Mutex::new(PtyOutputState::new_with_logger(logger))) }
     }
 
     fn send(&self, bytes: Vec<u8>) {
@@ -259,6 +281,83 @@ fn spawn_flusher(
     tx
 }
 
+/// Spawn a flusher thread that sends lifecycle events instead of directly emitting Tauri events.
+/// This is the new pattern — exit handling is centralized in the lifecycle bus.
+fn spawn_flusher_with_lifecycle(
+    output: PtyOutput,
+    pty_id: String,
+    session_id: Option<String>,
+    generation: u64,
+    lifecycle_tx: crate::pty_lifecycle::LifecycleTx,
+) -> mpsc::Sender<PtyChunk> {
+    let (tx, rx) = mpsc::channel::<PtyChunk>();
+
+    thread::spawn(move || {
+        let flush_interval = Duration::from_millis(16);
+        let mut batch = Vec::with_capacity(8192);
+        let mut last_flush = Instant::now();
+
+        loop {
+            let chunk = if batch.is_empty() {
+                match rx.recv() {
+                    Ok(c) => c,
+                    Err(_) => break,
+                }
+            } else {
+                let remaining = flush_interval.saturating_sub(last_flush.elapsed());
+                match rx.recv_timeout(remaining) {
+                    Ok(c) => c,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        output.send(std::mem::take(&mut batch));
+                        batch.clear();
+                        last_flush = Instant::now();
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            };
+
+            match chunk {
+                PtyChunk::Data(data) => {
+                    batch.extend_from_slice(&data);
+                    if last_flush.elapsed() >= flush_interval || batch.len() >= 32768 {
+                        output.send(std::mem::take(&mut batch));
+                        last_flush = Instant::now();
+                    }
+                }
+                PtyChunk::Eof => {
+                    if !batch.is_empty() {
+                        output.send(std::mem::take(&mut batch));
+                    }
+                    let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleEvent::Exited {
+                        pty_id: pty_id.clone(),
+                        session_id: session_id.clone(),
+                        code: None,
+                        reason: crate::pty_lifecycle::ExitReason::Exit,
+                        generation,
+                    });
+                    break;
+                }
+                PtyChunk::Error => {
+                    if !batch.is_empty() {
+                        output.send(std::mem::take(&mut batch));
+                    }
+                    let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleEvent::Exited {
+                        pty_id: pty_id.clone(),
+                        session_id: session_id.clone(),
+                        code: None,
+                        reason: crate::pty_lifecycle::ExitReason::IoError,
+                        generation,
+                    });
+                    break;
+                }
+            }
+        }
+    });
+
+    tx
+}
+
 /// Spawn a reader thread that blocks on PTY reads and sends chunks to the flusher.
 /// If `sniffer` is provided, every chunk is also fed through the OSC parser
 /// before being forwarded (non-consuming — bytes pass through unchanged).
@@ -341,6 +440,50 @@ impl portable_pty::Child for WaitedChild {
     }
 }
 
+/// Role of a PTY within its session.
+#[derive(Clone, PartialEq, Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PtyRole {
+    /// Main Claude/shell for the session.
+    SessionPrimary,
+    /// Additional shells, e.g. spawned from a split pane.
+    Secondary,
+}
+
+/// Lifecycle status of a PTY.
+#[derive(Clone, Debug, serde::Serialize, specta::Type)]
+#[serde(tag = "type")]
+pub enum PtyStatus {
+    /// PTY is running and attached to a pane.
+    RunningAttached { pane_id: String },
+    /// PTY is running but not currently attached to any pane.
+    RunningDetached { since_ms: u64 },
+    /// PTY process has exited.
+    Exited { code: Option<i32>, at_ms: u64 },
+}
+
+/// Information captured when a PTY exits.
+#[derive(Clone, Debug, serde::Serialize, specta::Type)]
+pub struct ExitInfo {
+    pub code: Option<i32>,
+    pub at_ms: u64,
+    pub was_attached: bool,
+}
+
+/// Serializable PTY snapshot for frontend consumption.
+#[derive(Clone, Debug, serde::Serialize, specta::Type)]
+pub struct PtyInfo {
+    pub id: String,
+    pub session_id: Option<String>,
+    pub role: PtyRole,
+    pub status: PtyStatus,
+    pub name: Option<String>,
+    pub working_dir: Option<String>,
+    pub profile: Option<String>,
+    pub unread_output: bool,
+    pub bell_pending: bool,
+}
+
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
     #[allow(dead_code)]
@@ -353,6 +496,21 @@ struct PtySession {
     /// to initialise ZLE/readline and drop stdin that arrives before).
     /// `None` means writes pass through unchecked.
     ready_gate: Option<ReadyGate>,
+
+    // --- attach/detach metadata ---
+    pub role: PtyRole,
+    pub status: PtyStatus,
+    pub exit_info: Option<ExitInfo>,
+    pub session_id: Option<String>,
+    pub name: Option<String>,
+    pub working_dir: Option<String>,
+    pub profile: Option<String>,
+    #[allow(dead_code)] // Reserved for future PTY size tracking
+    pub last_size: (u16, u16),
+    pub last_activity: std::time::Instant,
+    pub unread_output: bool,
+    pub bell_pending: bool,
+    pub logger: Option<Arc<Mutex<crate::pty_logger::PtyLogger>>>,
 }
 
 #[derive(Debug, Error)]
@@ -530,6 +688,10 @@ pub struct PtyManager {
     /// "construct PtyManager, then later plumb the channel" order that
     /// falls out of Tauri's setup flow.
     agent_sender: Mutex<Option<mpsc::Sender<crate::agent_registry::RegistryMessage>>>,
+    /// Lifecycle event bus sender. When present, PTY exit/detach events
+    /// are sent to the centralized lifecycle handler instead of being
+    /// handled inline. Set via `set_lifecycle_tx` at app startup.
+    lifecycle_tx: Mutex<Option<crate::pty_lifecycle::LifecycleTx>>,
 }
 
 impl PtyManager {
@@ -539,7 +701,15 @@ impl PtyManager {
             pending_outputs: Mutex::new(HashMap::new()),
             generation: AtomicU64::new(0),
             agent_sender: Mutex::new(None),
+            lifecycle_tx: Mutex::new(None),
         }
+    }
+
+    /// Install the lifecycle event bus sender. PTYs spawned after this
+    /// will send exit events to the centralized handler instead of
+    /// emitting Tauri events directly. Safe to call multiple times.
+    pub fn set_lifecycle_tx(&self, tx: crate::pty_lifecycle::LifecycleTx) {
+        *self.lifecycle_tx.lock().unwrap() = Some(tx);
     }
 
     /// Install the registry sender. Any PTY spawned after this is
@@ -578,6 +748,8 @@ impl PtyManager {
         notes: Option<&NotesEnvInputs>,
         nono: Option<&NonoConfig>,
         initial_size: Option<(u16, u16)>,
+        role: PtyRole,
+        profile: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
@@ -631,13 +803,30 @@ impl PtyManager {
         let reader =
             pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
 
-        let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
+
+        let logger = Arc::new(Mutex::new(crate::pty_logger::PtyLogger::new(
+            session_id.unwrap_or(id),
+            id,
+        )));
+        let output = PtyOutput::new_with_logger(Arc::clone(&logger));
 
         let writer = Arc::new(Mutex::new(writer));
         let gate =
             Arc::new(Mutex::new(ShellReadyGate::new(Instant::now(), GATE_QUIET, GATE_TIMEOUT)));
 
+        let initial_pane = pane_id.map(|p| p.to_string());
+        let initial_status = match initial_pane {
+            Some(ref p) => PtyStatus::RunningAttached { pane_id: p.clone() },
+            None => {
+                let since_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64;
+                PtyStatus::RunningDetached { since_ms }
+            }
+        };
+        let size = initial_size.unwrap_or((DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS));
         let session = PtySession {
             master: pair.master,
             child,
@@ -645,16 +834,39 @@ impl PtyManager {
             output: output.clone(),
             generation: gen,
             ready_gate: Some(Arc::clone(&gate)),
+            role,
+            status: initial_status,
+            exit_info: None,
+            session_id: session_id.map(|s| s.to_string()),
+            name: None,
+            working_dir: Some(working_dir.to_string()),
+            profile: profile.map(|p| p.to_string()),
+            last_size: size,
+            last_activity: std::time::Instant::now(),
+            unread_output: false,
+            bell_pending: false,
+            logger: Some(logger),
         };
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
 
-        let tx = spawn_flusher(
-            output.clone(),
-            Some((format!("session-exit:{}", id), gen)),
-            app.clone(),
-            self.exit_registry_info(session_id),
-        );
+        // Use lifecycle bus if available, otherwise fall back to direct event emission
+        let tx = if let Some(lifecycle_tx) = self.lifecycle_tx.lock().unwrap().clone() {
+            spawn_flusher_with_lifecycle(
+                output.clone(),
+                id.to_string(),
+                session_id.map(|s| s.to_string()),
+                gen,
+                lifecycle_tx,
+            )
+        } else {
+            spawn_flusher(
+                output.clone(),
+                Some((format!("session-exit:{}", id), gen)),
+                app.clone(),
+                self.exit_registry_info(session_id),
+            )
+        };
         let sniffer =
             crate::notifications::OscSniffer::new(app.clone(), session_id.map(|s| s.to_string()));
         spawn_reader(
@@ -681,6 +893,8 @@ impl PtyManager {
         worktree_path: Option<&str>,
         notes: Option<&NotesEnvInputs>,
         initial_size: Option<(u16, u16)>,
+        role: PtyRole,
+        profile: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
         let pty_system = native_pty_system();
@@ -705,10 +919,27 @@ impl PtyManager {
         let reader =
             pair.master.try_clone_reader().map_err(|source| PtyError::GetReader { source })?;
 
-        let output = PtyOutput::new();
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
+        let logger_task = Arc::new(Mutex::new(crate::pty_logger::PtyLogger::new(
+            session_id.unwrap_or(id),
+            id,
+        )));
+        let output = PtyOutput::new_with_logger(Arc::clone(&logger_task));
+
         // Insert session before attaching pending output and starting threads
+        let initial_pane_task = pane_id.map(|p| p.to_string());
+        let initial_status_task = match initial_pane_task {
+            Some(ref p) => PtyStatus::RunningAttached { pane_id: p.clone() },
+            None => {
+                let since_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64;
+                PtyStatus::RunningDetached { since_ms }
+            }
+        };
+        let size_task = initial_size.unwrap_or((DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS));
         let session = PtySession {
             master: pair.master,
             child: Box::new(WaitedChild),
@@ -718,6 +949,18 @@ impl PtyManager {
             // One-shot tasks run the command as argv to the shell
             // (non-interactive), so there is no ZLE/readline init to race.
             ready_gate: None,
+            role,
+            status: initial_status_task,
+            exit_info: None,
+            session_id: session_id.map(|s| s.to_string()),
+            name: None,
+            working_dir: Some(working_dir.to_string()),
+            profile: profile.map(|p| p.to_string()),
+            last_size: size_task,
+            last_activity: std::time::Instant::now(),
+            unread_output: false,
+            bell_pending: false,
+            logger: Some(logger_task),
         };
         self.sessions.lock().unwrap().insert(id.to_string(), session);
         self.attach_pending_output(id, &output);
@@ -725,28 +968,53 @@ impl PtyManager {
         // One-shot tasks don't carry hooks but we still wire the
         // registry sender so any stray attention notification keyed by
         // the task's session id gets cleared when it finishes.
-        let tx = spawn_flusher(
-            output.clone(),
-            None,
-            app.clone(),
-            self.exit_registry_info(session_id),
-        );
+        // Note: Tasks use the flusher primarily for output buffering, not exit events.
+        // The actual exit event comes from the child.wait() thread below.
+        let lifecycle_tx_clone = self.lifecycle_tx.lock().unwrap().clone();
+        let tx = if let Some(ref lifecycle_tx) = lifecycle_tx_clone {
+            spawn_flusher_with_lifecycle(
+                output.clone(),
+                id.to_string(),
+                session_id.map(|s| s.to_string()),
+                gen,
+                lifecycle_tx.clone(),
+            )
+        } else {
+            spawn_flusher(
+                output.clone(),
+                None,
+                app.clone(),
+                self.exit_registry_info(session_id),
+            )
+        };
         let sniffer =
             crate::notifications::OscSniffer::new(app.clone(), session_id.map(|s| s.to_string()));
         spawn_reader(reader, tx, Some(sniffer), None);
 
         // Wait for the child process in a background thread and emit exit code
-        let exit_event_name = format!("session-exit:{}", id);
+        let exit_pty_id = id.to_string();
+        let exit_session_id = session_id.map(|s| s.to_string());
         thread::spawn(move || {
             let code = child.wait().ok().map(|status| status.exit_code());
-            let _ = app.emit(
-                &exit_event_name,
-                &roux_core::SessionExitPayload {
+            if let Some(lifecycle_tx) = lifecycle_tx_clone {
+                let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleEvent::Exited {
+                    pty_id: exit_pty_id,
+                    session_id: exit_session_id,
                     code,
+                    reason: crate::pty_lifecycle::ExitReason::Exit,
                     generation: gen,
-                    reason: roux_core::SessionExitReason::Exit,
-                },
-            );
+                });
+            } else {
+                let exit_event_name = format!("session-exit:{}", exit_pty_id);
+                let _ = app.emit(
+                    &exit_event_name,
+                    &roux_core::SessionExitPayload {
+                        code,
+                        generation: gen,
+                        reason: roux_core::SessionExitReason::Exit,
+                    },
+                );
+            }
         });
 
         Ok(())
@@ -851,6 +1119,113 @@ impl PtyManager {
         self.sessions.lock().unwrap().get(session_id).map(|s| s.generation)
     }
 
+    /// List PTY info snapshots for a given session (for picker UI).
+    pub fn list_for_session(&self, session_id: &str) -> Vec<PtyInfo> {
+        let sessions = self.sessions.lock().unwrap();
+        sessions
+            .iter()
+            .filter(|(_, s)| s.session_id.as_deref() == Some(session_id))
+            .map(|(id, s)| PtyInfo {
+                id: id.clone(),
+                session_id: s.session_id.clone(),
+                role: s.role.clone(),
+                status: s.status.clone(),
+                name: s.name.clone(),
+                working_dir: s.working_dir.clone(),
+                profile: s.profile.clone(),
+                unread_output: s.unread_output,
+                bell_pending: s.bell_pending,
+            })
+            .collect()
+    }
+
+    /// Detach a PTY from its pane (PTY keeps running).
+    pub fn detach(&self, pty_id: &str) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            session.status = PtyStatus::RunningDetached { since_ms: now_ms };
+            rlog!("PtyManager: detached PTY '{}'", pty_id);
+        }
+    }
+
+    /// Mark a PTY as attached to a pane.
+    pub fn attach_to_pane(&self, pty_id: &str, pane_id: &str) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.status = PtyStatus::RunningAttached { pane_id: pane_id.to_string() };
+            session.unread_output = false;
+            session.bell_pending = false;
+            session.last_activity = std::time::Instant::now();
+            rlog!("PtyManager: attached PTY '{}' to pane '{}'", pty_id, pane_id);
+        }
+    }
+
+    /// Mark a PTY as exited.
+    pub fn mark_exited(&self, pty_id: &str, code: Option<i32>) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            let was_attached = matches!(session.status, PtyStatus::RunningAttached { .. });
+            session.status = PtyStatus::Exited { code, at_ms: now_ms };
+            session.exit_info = Some(ExitInfo { code, at_ms: now_ms, was_attached });
+        }
+    }
+
+    /// Clear unread output and bell flags for a PTY.
+    pub fn mark_read(&self, pty_id: &str) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.unread_output = false;
+            session.bell_pending = false;
+        }
+    }
+
+    /// Set the unread output flag for a PTY.
+    pub fn set_unread_output(&self, pty_id: &str, value: bool) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.unread_output = value;
+        }
+    }
+
+    /// Set the bell pending flag for a PTY.
+    pub fn set_bell_pending(&self, pty_id: &str, value: bool) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.bell_pending = value;
+        }
+    }
+
+    /// Set the display name for a PTY.
+    pub fn set_name(&self, pty_id: &str, name: Option<&str>) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.name = name.map(|s| s.to_string());
+        }
+    }
+
+    /// Kill all PTY sessions for a session ID.
+    pub fn kill_session_ptys(&self, session_id: &str) {
+        let ids: Vec<String> = {
+            let sessions = self.sessions.lock().unwrap();
+            sessions
+                .iter()
+                .filter(|(_, s)| s.session_id.as_deref() == Some(session_id))
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        for id in ids {
+            self.kill(&id);
+        }
+    }
+
     /// Resolve the current working directory of the shell (or claude) process
     /// attached to `pty_id`, by walking `portable_pty::Child::process_id` →
     /// OS-level cwd lookup. Returns `None` if the session doesn't exist, the
@@ -858,6 +1233,17 @@ impl PtyManager {
     pub fn get_cwd(&self, pty_id: &str) -> Option<String> {
         let pid = self.sessions.lock().unwrap().get(pty_id).and_then(|s| s.child.process_id())?;
         cwd_for_pid(pid)
+    }
+
+    /// Get recent output bytes for replay on attach.
+    pub fn get_replay(&self, pty_id: &str, max_bytes: usize) -> Vec<u8> {
+        let sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get(pty_id) {
+            if let Some(ref logger) = session.logger {
+                return logger.lock().unwrap().recent(max_bytes);
+            }
+        }
+        Vec::new()
     }
 
     /// Kill all active PTY sessions. Called during app shutdown.
@@ -1191,7 +1577,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tauri::ipc::{Channel, InvokeResponseBody, Response};
 
-    fn raw_channel(store: Arc<Mutex<Vec<Vec<u8>>>>) -> Channel<Response> {
+    pub(super) fn raw_channel(store: Arc<Mutex<Vec<Vec<u8>>>>) -> Channel<Response> {
         Channel::new(move |body| {
             if let InvokeResponseBody::Raw(bytes) = body {
                 store.lock().unwrap().push(bytes);
@@ -1200,6 +1586,18 @@ mod tests {
                 panic!("expected raw bytes");
             }
         })
+    }
+
+    #[test]
+    fn logger_receives_bytes_sent_to_output() {
+        let logger = Arc::new(Mutex::new(crate::pty_logger::PtyLogger::new("test-sess", "test-pty")));
+        let output = PtyOutput::new_with_logger(Arc::clone(&logger));
+
+        output.send(vec![1, 2, 3]);
+        output.send(vec![4, 5, 6]);
+
+        let recent = logger.lock().unwrap().recent(1024);
+        assert_eq!(recent, vec![1, 2, 3, 4, 5, 6]);
     }
 
     #[test]
@@ -1278,6 +1676,103 @@ mod tests {
     fn cwd_for_pid_returns_none_for_nonexistent_pid() {
         // PID 0 is never a real process on macOS or Linux.
         assert!(cwd_for_pid(0).is_none());
+    }
+}
+
+#[cfg(test)]
+mod flusher_lifecycle_tests {
+    use super::*;
+    use crate::pty_lifecycle::{ExitReason, PtyLifecycleEvent};
+
+    #[test]
+    fn flusher_sends_exited_event_on_eof() {
+        let output = PtyOutput::new();
+        let (lifecycle_tx, lifecycle_rx) = crate::pty_lifecycle::channel();
+
+        let tx = spawn_flusher_with_lifecycle(
+            output,
+            "pty-123".to_string(),
+            Some("session-456".to_string()),
+            42,
+            lifecycle_tx,
+        );
+
+        // Send EOF to trigger exit
+        tx.send(PtyChunk::Eof).unwrap();
+
+        // Verify lifecycle event was sent
+        let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            event,
+            PtyLifecycleEvent::Exited {
+                pty_id: "pty-123".to_string(),
+                session_id: Some("session-456".to_string()),
+                code: None,
+                reason: ExitReason::Exit,
+                generation: 42,
+            }
+        );
+    }
+
+    #[test]
+    fn flusher_sends_exited_event_on_error() {
+        let output = PtyOutput::new();
+        let (lifecycle_tx, lifecycle_rx) = crate::pty_lifecycle::channel();
+
+        let tx = spawn_flusher_with_lifecycle(
+            output,
+            "pty-err".to_string(),
+            None,
+            99,
+            lifecycle_tx,
+        );
+
+        // Send Error to trigger exit
+        tx.send(PtyChunk::Error).unwrap();
+
+        // Verify lifecycle event was sent with IoError reason
+        let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            event,
+            PtyLifecycleEvent::Exited {
+                pty_id: "pty-err".to_string(),
+                session_id: None,
+                code: None,
+                reason: ExitReason::IoError,
+                generation: 99,
+            }
+        );
+    }
+
+    #[test]
+    fn flusher_flushes_batch_before_sending_exit() {
+        let output = PtyOutput::new();
+        let (lifecycle_tx, lifecycle_rx) = crate::pty_lifecycle::channel();
+        let received = Arc::new(Mutex::new(Vec::new()));
+
+        // Attach channel to capture output
+        output.attach(super::tests::raw_channel(received.clone()));
+
+        let tx = spawn_flusher_with_lifecycle(
+            output,
+            "pty-flush".to_string(),
+            None,
+            1,
+            lifecycle_tx,
+        );
+
+        // Send data then EOF
+        tx.send(PtyChunk::Data(vec![1, 2, 3])).unwrap();
+        tx.send(PtyChunk::Eof).unwrap();
+
+        // Wait for exit event
+        let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(event, PtyLifecycleEvent::Exited { .. }));
+
+        // Data should have been flushed before exit
+        let data = received.lock().unwrap();
+        assert!(!data.is_empty(), "data should be flushed before exit");
+        assert_eq!(data[0], vec![1, 2, 3]);
     }
 }
 

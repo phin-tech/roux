@@ -40,6 +40,7 @@ export async function createSessionShell(
   nonoProfile?: string | null,
   nonoAllowDirs?: string[] | null,
   initialSize?: InitialPtySize | null,
+  profile?: string | null,
 ): Promise<Session> {
   return invoke("create_session_shell", {
     repoPath,
@@ -48,8 +49,8 @@ export async function createSessionShell(
     branch,
     nonoProfile: nonoProfile ?? null,
     nonoAllowDirs: nonoAllowDirs ?? null,
-    initialCols: initialSize?.cols ?? null,
-    initialRows: initialSize?.rows ?? null,
+    initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
+    profile: profile ?? null,
   });
 }
 
@@ -81,8 +82,7 @@ export async function reconnectSessionShellPty(
     id,
     nonoProfile: nonoProfile ?? null,
     nonoAllowDirs: nonoAllowDirs ?? null,
-    initialCols: initialSize?.cols ?? null,
-    initialRows: initialSize?.rows ?? null,
+    initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
   });
 }
 
@@ -125,6 +125,7 @@ export async function spawnShell(
   paneId: string | null,
   nonoProfile?: string | null,
   nonoAllowDirs?: string[] | null,
+  profile?: string | null,
   initialSize?: InitialPtySize | null,
 ): Promise<void> {
   return invoke("spawn_shell", {
@@ -134,8 +135,8 @@ export async function spawnShell(
     paneId,
     nonoProfile: nonoProfile ?? null,
     nonoAllowDirs: nonoAllowDirs ?? null,
-    initialCols: initialSize?.cols ?? null,
-    initialRows: initialSize?.rows ?? null,
+    profile: profile ?? null,
+    initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
   });
 }
 
@@ -145,6 +146,7 @@ export async function spawnTask(
   workingDir: string,
   sessionId: string | null,
   paneId: string | null,
+  profile?: string | null,
   initialSize?: InitialPtySize | null,
 ): Promise<void> {
   return invoke("spawn_task", {
@@ -153,8 +155,8 @@ export async function spawnTask(
     workingDir,
     sessionId,
     paneId,
-    initialCols: initialSize?.cols ?? null,
-    initialRows: initialSize?.rows ?? null,
+    profile: profile ?? null,
+    initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
   });
 }
 
@@ -685,6 +687,35 @@ export async function saveLivePaneStateRaw(
 
 export async function deletePaneStateRaw(sessionId: string): Promise<void> {
   return invoke("delete_pane_state", { sessionId });
+}
+
+// ── PTY attach / detach ───────────────────────────────────────────────────────
+
+export type { AttachResult, PtyInfo, PtyRole, PtyStatus } from "./bindings";
+
+export async function attachPtyToPane(
+  ptyId: string,
+  paneId: string,
+  cols: number,
+  rows: number,
+): Promise<import("./bindings").AttachResult> {
+  return invoke("attach_pty_to_pane", { ptyId, paneId, cols, rows });
+}
+
+export async function detachPty(ptyId: string): Promise<void> {
+  return invoke("detach_pty", { ptyId });
+}
+
+export async function listSessionPtys(sessionId: string): Promise<import("./bindings").PtyInfo[]> {
+  return invoke("list_session_ptys", { sessionId });
+}
+
+export async function markPtyRead(ptyId: string): Promise<void> {
+  return invoke("mark_pty_read", { ptyId });
+}
+
+export async function setPtyName(ptyId: string, name: string | null): Promise<void> {
+  return invoke("set_pty_name", { ptyId, name });
 }
 
 export interface PaneDescriptorPayload {

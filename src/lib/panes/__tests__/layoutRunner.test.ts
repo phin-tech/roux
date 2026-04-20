@@ -541,6 +541,7 @@ describe("applyLayoutToSession", () => {
       expect.any(String),       // paneId (UUID)
       "default",                // nonoProfile
       undefined,                // nonoAllowDirs
+      "claude",                 // profile
     );
 
     // Pane instance for second leaf has nonoProfile
@@ -576,6 +577,7 @@ describe("applyLayoutToSession", () => {
       expect.any(String),
       "from-profile",
       ["/b"],
+      "p",                      // profile
     );
   });
 
@@ -602,6 +604,7 @@ describe("applyLayoutToSession", () => {
       expect.any(String),
       "leaf-override",
       undefined,
+      "p",                      // profile
     );
   });
 

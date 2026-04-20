@@ -241,8 +241,8 @@ describe("reconnectSession — full rehydration", () => {
     await reconnectSession(session);
 
     expect(spawnShell).toHaveBeenCalledTimes(2);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a", null, null);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b", null, null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a", null, null, null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b", null, null, null);
 
     const instances = get(paneInstances);
     expect(instances.has("shell-a")).toBe(true);
@@ -458,7 +458,7 @@ describe("retryShellPane", () => {
 
     await retryShellPane(paneId, "sess-1");
 
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId, null, null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId, null, null, null);
     const inst = get(paneInstances).get(paneId);
     expect(inst?.restoreError).toBeUndefined();
   });

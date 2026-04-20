@@ -137,6 +137,11 @@ async function rehydratePane(
 
   if (descriptor.type === "shell") {
     const ptyId = crypto.randomUUID();
+    const profileId = descriptor.spawnProfileRef?.kind === "registered"
+      ? descriptor.spawnProfileRef.id
+      : descriptor.spawnProfileRef?.kind === "inline"
+        ? descriptor.spawnProfileRef.profile.id
+        : null;
     try {
       await spawnShell(
         ptyId,
@@ -145,6 +150,7 @@ async function rehydratePane(
         paneId,
         descriptor.nonoProfile ?? null,
         descriptor.nonoAllowDirs ?? null,
+        profileId,
       );
       createPane({
         id: paneId,
@@ -331,14 +337,20 @@ export async function reconnectSession(
     // boundary owns init-before-attach ordering so early PTY output is not
     // dropped before the controller exists.
     const { connectPaneTerminal } = await import("$lib/panes/terminals");
+    const { updateInstance } = await import("$lib/panes/instances");
     for (const paneId of nonMainIds) {
       const instance = getInstance(paneId);
       if (!instance || instance.restoreError || instance.type === "markdown" || instance.type === "notes") continue;
+      const ptyId = instance.ptyId;
       await connectPaneTerminal(paneId, (payload) => {
         log(`Restored shell ${paneId} exited (code=${payload.code})`);
-        import("$lib/panes/actions").then(({ closePane }) =>
-          closePane(session.id, paneId),
-        );
+        updateInstance(paneId, {
+          terminalState: {
+            kind: "dead",
+            ptyId,
+            exitCode: payload.code ?? null,
+          },
+        });
       });
     }
 
@@ -381,6 +393,11 @@ export async function retryShellPane(paneId: string, sessionId: string): Promise
   const instance = getInstance(paneId);
   if (!instance || instance.type !== "shell" || !instance.restoreError) return;
 
+  const profileId = instance.spawnProfileRef?.kind === "registered"
+    ? instance.spawnProfileRef.id
+    : instance.spawnProfileRef?.kind === "inline"
+      ? instance.spawnProfileRef.profile.id
+      : null;
   const ptyId = crypto.randomUUID();
   try {
     await spawnShell(
@@ -390,6 +407,7 @@ export async function retryShellPane(paneId: string, sessionId: string): Promise
       paneId,
       instance.nonoProfile ?? null,
       instance.nonoAllowDirs ?? null,
+      profileId,
     );
     updateInstance(paneId, { ptyId, restoreError: undefined });
     const { connectPaneTerminal } = await import("$lib/panes/terminals");

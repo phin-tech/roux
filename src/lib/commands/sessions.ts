@@ -27,6 +27,8 @@ async function createWorktreeClaudeSession(repo: string, name: string, branch: s
   const newSession = await createSessionShell(
     repo, name, null, branch,
     nonoProfile, nonoAllowDirs,
+    null, // initialSize
+    "claude", // profile
   );
   addSession(newSession);
   const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {

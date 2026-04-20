@@ -3,6 +3,7 @@ import {
   createPane,
   disposePane,
   getInstance,
+  getAttachedPtyId,
   registerDisposeHook,
   type CreatePaneOpts,
 } from "./instances";
@@ -21,7 +22,8 @@ import { focusedPaneId, fullscreenPaneId, setLogicalFocus } from "./focus";
 import { disposeAgentState } from "./agentState";
 import { forgetLastStatus } from "./agentNotifications";
 import type { SpawnProfileRef } from "./profiles";
-import { killPty } from "$lib/tauri";
+import { killPty, detachPty } from "$lib/tauri";
+import { settings } from "$lib/stores/settings";
 
 // Register cleanup hooks on disposePane so every path that disposes a
 // pane (closePane, closeSessionPanes, splitPane rollback, anything
@@ -122,7 +124,17 @@ export function closePane(sessionId: string, paneId: string): boolean {
     return new Map(m);
   });
 
-  disposePane(paneId, killPty);
+  const onPaneClose = get(settings).onPaneClose ?? "detach";
+  const ptyId = getAttachedPtyId(instance);
+  if (onPaneClose === "detach" && ptyId) {
+    // Detach the PTY so it keeps running in the background. Fire-and-forget:
+    // the pane is already removed from the layout so there is no UI to update.
+    detachPty(ptyId).catch(() => {});
+    // Dispose the pane instance without killing the PTY.
+    disposePane(paneId);
+  } else {
+    disposePane(paneId, killPty);
+  }
 
   // A fullscreened pane that is now closed must release the fullscreen
   // slot — otherwise SplitPane keeps filtering every sibling out of the
@@ -154,6 +166,9 @@ export function closeSessionPanes(sessionId: string) {
   const tree = get(sessionLayouts).get(sessionId);
   if (tree) {
     const ids = collectLeafIds(tree);
+    // Deliberately always kill — not detach — because the session record is
+    // being torn down. Detaching would leave orphaned PTYs with no session
+    // to re-attach them to.
     for (const id of ids) disposePane(id, killPty);
   }
   sessionLayouts.update((m) => {

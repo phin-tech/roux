@@ -12,6 +12,7 @@ export type {
   StatusBarPosition,
   GroupBy,
   WorktreeCleanupMode,
+  OnPaneCloseMode,
   Worktree,
   ClaudeSession,
   Watch,
@@ -37,6 +38,10 @@ export type {
   NotificationRequest,
   NotificationSource,
   ActionKind,
+  AttachResult,
+  PtyInfo,
+  PtyRole,
+  PtyStatus,
 } from "./bindings";
 
 // Frontend-only types (not defined in Rust)
@@ -97,6 +102,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   spawnProfiles: [],
   trustedWorkspaces: [],
   statusBarPosition: "bottom",
+  onPaneClose: "detach",
 };
 
 // Re-export frontend-only task types

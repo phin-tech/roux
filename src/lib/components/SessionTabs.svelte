@@ -149,6 +149,8 @@
       const session = await createSessionShell(
         repo, name, null, branch,
         nonoProfile, nonoAllowDirs,
+        null, // initialSize
+        "claude", // profile
       );
       log(`Worktree session created: ${session.id}`);
       addSession(session);

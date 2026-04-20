@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
+import { settings } from "$lib/stores/settings";
+import { DEFAULT_SETTINGS } from "$lib/types";
 
-// Stub $lib/tauri so we can observe which kill primitive disposePane
+// Stub $lib/tauri so we can observe which kill/detach primitive disposePane
 // chose. The real invoke() would just reject silently in jsdom; this mock
 // lets the pane-disposal path reach the assertion surface.
 vi.mock("$lib/tauri", () => ({
   killPty: vi.fn().mockResolvedValue(undefined),
   killSession: vi.fn().mockResolvedValue(undefined),
+  detachPty: vi.fn().mockResolvedValue(undefined),
   upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
   removePaneRecord: vi.fn().mockResolvedValue(undefined),
 }));
@@ -21,7 +24,7 @@ import {
 import { paneInstances, resetInstances, getInstance } from "../instances";
 import { sessionLayouts, resetLayouts, collectLeafIds } from "../layout";
 import { focusedPaneId, fullscreenPaneId, resetFocus, setLogicalFocus, toggleFullscreen } from "../focus";
-import { killPty, killSession } from "$lib/tauri";
+import { killPty, killSession, detachPty } from "$lib/tauri";
 
 describe("pane actions", () => {
   beforeEach(() => {
@@ -29,8 +32,10 @@ describe("pane actions", () => {
     resetLayouts();
     resetFocus();
     fullscreenPaneId.set(null);
+    settings.set(DEFAULT_SETTINGS); // resets to onPaneClose: "detach"
     vi.mocked(killPty).mockClear();
     vi.mocked(killSession).mockClear();
+    vi.mocked(detachPty).mockClear();
   });
 
   describe("initSession", () => {
@@ -114,18 +119,30 @@ describe("pane actions", () => {
       expect(get(sessionLayouts).has("s1")).toBe(false);
     });
 
-    it("uses killPty (not killSession) when disposing the primary pane", () => {
-      // Regression: phase 4 made disposePane kill PTYs for every shell,
+    it("detaches PTY (not kills) when onPaneClose is 'detach' (the default)", () => {
+      // Default behaviour: closing a pane detaches the PTY so it keeps
+      // running in the background. killPty must not be called.
+      initSession("s1");
+      closePane("s1", "s1-main");
+      expect(detachPty).toHaveBeenCalledWith("s1");
+      expect(killPty).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+    });
+
+    it("uses killPty (not killSession) when onPaneClose is 'kill'", () => {
+      // Regression guard: phase 4 made disposePane kill PTYs for every shell,
       // which destroyed sessions when the primary pane was closed because
       // killSession removed the session record as a side effect. Pane
       // disposal must only touch the PTY.
+      settings.set({ ...DEFAULT_SETTINGS, onPaneClose: "kill" });
       initSession("s1");
       closePane("s1", "s1-main");
       expect(killPty).toHaveBeenCalledWith("s1");
       expect(killSession).not.toHaveBeenCalled();
     });
 
-    it("uses killPty when disposing a shell pane created by splitPane", () => {
+    it("uses killPty when onPaneClose is 'kill' and disposing a shell pane", () => {
+      settings.set({ ...DEFAULT_SETTINGS, onPaneClose: "kill" });
       initSession("s1");
       const shellId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" })!;
       closePane("s1", shellId);

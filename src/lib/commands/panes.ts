@@ -5,15 +5,16 @@ import { queries } from "$lib/queries";
 import { navigatePane, movePaneInDirection, resizePane, toggleStack } from "$lib/panes/layout";
 import { toggleFullscreen, setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
 import { paneSlotById } from "$lib/stores/ui";
-import { paneInstances, updateInstance } from "$lib/panes/instances";
-import { splitPane, closePane, closeFocusedPane } from "$lib/panes/actions";
+import { paneInstances, updateInstance, getAttachedPtyId } from "$lib/panes/instances";
+import { splitPane, closeFocusedPane } from "$lib/panes/actions";
 import {
   profileList,
   type SpawnProfile,
   type SpawnProfileRef,
 } from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
-import { spawnShell, spawnTask, listDocs, notificationsPush } from "$lib/tauri";
+import { spawnShell, spawnTask, listDocs, notificationsPush, listSessionPtys, killPty, setPtyName } from "$lib/tauri";
+import { attachPtyToPane } from "$lib/panes/attach";
 import { openCustomProfileEditor } from "$lib/stores/customProfileModal";
 import { log, logError } from "$lib/logging";
 
@@ -48,6 +49,7 @@ async function spawnShellPaneWithProfile(
       paneId,
       nonoProfile,
       nonoAllowDirs,
+      profile.id,
     );
   } catch (e) {
     logError(`Failed to spawn shell for profile "${profile.id}"`, e);
@@ -72,7 +74,9 @@ async function spawnShellPaneWithProfile(
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(newPaneId, (payload) => {
     log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
-    closePane(activeId, newPaneId);
+    updateInstance(newPaneId, {
+      terminalState: { kind: "dead", ptyId, exitCode: payload.code ?? null },
+    });
   });
 
   // The attach is synchronous enough that the pending-output channel
@@ -157,6 +161,17 @@ function findBuiltinProfile(id: string): SpawnProfile | null {
   return get(profileList).find((p) => p.id === id) ?? null;
 }
 
+function formatTimeAgo(timestampMs: number): string {
+  const diff = Date.now() - timestampMs;
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export function registerPaneCommands() {
   registry.register({
     id: "pane.split-horizontal",
@@ -170,7 +185,7 @@ export function registerPaneCommands() {
       const paneId = crypto.randomUUID();
       log(`Split horizontal: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
       try {
-        await spawnShell(ptyId, session.worktreePath, session.id, paneId);
+        await spawnShell(ptyId, session.worktreePath, session.id, paneId, null, null, "shell");
       } catch (e) {
         logError("Failed to spawn shell for horizontal split", e);
         return;
@@ -182,7 +197,9 @@ export function registerPaneCommands() {
         const { connectPaneTerminal } = await import("$lib/panes/terminals");
         await connectPaneTerminal(newPaneId, (payload) => {
           log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
-          closePane(activeId, newPaneId);
+          updateInstance(newPaneId, {
+            terminalState: { kind: "dead", ptyId, exitCode: payload.code ?? null },
+          });
         });
       }
     },
@@ -200,7 +217,7 @@ export function registerPaneCommands() {
       const paneId = crypto.randomUUID();
       log(`Split vertical: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
       try {
-        await spawnShell(ptyId, session.worktreePath, session.id, paneId);
+        await spawnShell(ptyId, session.worktreePath, session.id, paneId, null, null, "shell");
       } catch (e) {
         logError("Failed to spawn shell for vertical split", e);
         return;
@@ -212,7 +229,9 @@ export function registerPaneCommands() {
         const { connectPaneTerminal } = await import("$lib/panes/terminals");
         await connectPaneTerminal(newPaneId, (payload) => {
           log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
-          import("$lib/panes/actions").then(({ closePane: cp }) => cp(activeId, newPaneId));
+          updateInstance(newPaneId, {
+            terminalState: { kind: "dead", ptyId, exitCode: payload.code ?? null },
+          });
         });
       }
     },
@@ -441,10 +460,16 @@ export function registerPaneCommands() {
     available: () => !!queries.focusedPaneId(),
     inputPlaceholder: "Enter pane name...",
     getItems: () => [],
-    onInput: (name: string) => {
+    onInput: async (name: string) => {
       const paneId = queries.focusedPaneId();
-      if (paneId) {
-        updateInstance(paneId, { name: name.trim() || undefined });
+      if (!paneId) return;
+      const trimmed = name.trim() || undefined;
+      updateInstance(paneId, { name: trimmed });
+      // Also update the PTY's name so it persists after detach
+      const inst = get(paneInstances).get(paneId);
+      const ptyId = inst ? getAttachedPtyId(inst) : null;
+      if (ptyId) {
+        await setPtyName(ptyId, trimmed ?? null).catch(() => {});
       }
     },
   });
@@ -490,7 +515,7 @@ export function registerPaneCommands() {
       if (!session || !activeId) return;
       const paneId = `cmd-${crypto.randomUUID()}`;
       const ptyId = `${paneId}-${Date.now()}`;
-      await spawnTask(ptyId, command, session.worktreePath, session.id, paneId);
+      await spawnTask(ptyId, command, session.worktreePath, session.id, paneId, "command");
       const newPaneId = splitPane(activeId, "h", {
         id: paneId,
         type: "command",
@@ -690,6 +715,110 @@ export function registerPaneCommands() {
       if (inst?.type !== "notes") return;
       const current = inst.notesViewMode ?? "edit";
       updateInstance(paneId, { notesViewMode: current === "edit" ? "read" : "edit" });
+    },
+  });
+
+  // ── Attach Terminal command ────────────────────────────────────────────────
+
+  registry.register({
+    id: "pane.attach-terminal",
+    label: "Attach Terminal\u2026",
+    category: "Panes",
+    available: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return false;
+      const inst = get(paneInstances).get(paneId);
+      return inst?.type === "shell" || inst?.type === "command";
+    },
+    getItems: async () => {
+      const sessionId = queries.activeSessionId();
+      if (!sessionId) return [];
+
+      const currentPaneId = get(focusedPaneId);
+      const currentInst = currentPaneId
+        ? get(paneInstances).get(currentPaneId)
+        : undefined;
+      const currentPtyId = currentInst ? getAttachedPtyId(currentInst) : null;
+
+      const ptys = await listSessionPtys(sessionId);
+
+      const items: CommandItem[] = [];
+
+      const attached = ptys.filter(
+        (p) => p.status.type === "RunningAttached" && p.id !== currentPtyId,
+      );
+      const detached = ptys.filter((p) => p.status.type === "RunningDetached");
+      const instances = get(paneInstances);
+
+      for (const pty of attached) {
+        const attachedStatus = pty.status as Extract<typeof pty.status, { type: "RunningAttached" }>;
+        const paneInst = instances.get(attachedStatus.pane_id);
+        const paneName = paneInst?.name;
+        const label = paneName || pty.name || pty.profile || "Shell";
+        const description = paneName
+          ? pty.working_dir || "attached"
+          : `attached · ${pty.working_dir || ""}`;
+        const icon = pty.profile === "claude" ? "bot" : "terminal";
+        items.push({
+          id: `attach:${pty.id}`,
+          label,
+          icon,
+          description: description.trim(),
+          action: async () => {
+            if (!currentPaneId) return;
+            await attachPtyToPane(currentPaneId, pty.id, { profile: pty.profile });
+          },
+        });
+      }
+
+      for (const pty of detached) {
+        const detachedStatus = pty.status as Extract<typeof pty.status, { type: "RunningDetached" }>;
+        const ago = formatTimeAgo(detachedStatus.since_ms);
+        const label = pty.name || pty.profile || "Shell";
+        const icon = pty.profile === "claude" ? "bot" : "terminal";
+        items.push({
+          id: `attach:${pty.id}`,
+          label,
+          icon,
+          description: `detached ${ago} · ${pty.working_dir || ""}`.trim(),
+          action: async () => {
+            if (!currentPaneId) return;
+            await attachPtyToPane(currentPaneId, pty.id, { profile: pty.profile });
+          },
+        });
+      }
+
+      return items;
+    },
+  });
+
+  // ── Kill Terminal command ──────────────────────────────────────────────────
+
+  registry.register({
+    id: "pane.kill-terminal",
+    label: "Kill Terminal",
+    category: "Panes",
+    available: () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return false;
+      const inst = get(paneInstances).get(paneId);
+      if (!inst || (inst.type !== "shell" && inst.type !== "command")) return false;
+      return !!getAttachedPtyId(inst);
+    },
+    execute: async () => {
+      const paneId = get(focusedPaneId);
+      if (!paneId) return;
+      const inst = get(paneInstances).get(paneId);
+      if (!inst) return;
+
+      const ptyId = getAttachedPtyId(inst);
+      if (!ptyId) return;
+
+      await killPty(ptyId);
+
+      updateInstance(paneId, {
+        terminalState: { kind: "dead", ptyId, exitCode: null },
+      });
     },
   });
 }

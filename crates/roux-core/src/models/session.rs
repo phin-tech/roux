@@ -44,4 +44,8 @@ pub struct Session {
     pub is_git_repo: bool,
     #[serde(default)]
     pub name_override: Option<String>,
+    /// ID of the primary PTY for this session. Set at session creation,
+    /// kept as `None` for sessions restored from disk that haven't reconnected yet.
+    #[serde(default)]
+    pub primary_pty_id: Option<String>,
 }

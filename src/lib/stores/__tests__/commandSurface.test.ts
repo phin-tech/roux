@@ -33,6 +33,7 @@ describe("commandSurface", () => {
       leaderSequence: [],
       leaderPromptCommandId: null,
       leaderPromptValue: "",
+      initialCommandId: null,
     });
   });
 
@@ -64,6 +65,7 @@ describe("commandSurface", () => {
       leaderSequence: [],
       leaderPromptCommandId: null,
       leaderPromptValue: "",
+      initialCommandId: null,
     });
   });
 
@@ -80,6 +82,7 @@ describe("commandSurface", () => {
       leaderSequence: [],
       leaderPromptCommandId: null,
       leaderPromptValue: "",
+      initialCommandId: null,
     });
   });
 
@@ -105,6 +108,7 @@ describe("commandSurface", () => {
       leaderSequence: ["w", "r"],
       leaderPromptCommandId: "pane.rename",
       leaderPromptValue: "docs",
+      initialCommandId: null,
     });
 
     openCommandPalette();
@@ -115,6 +119,7 @@ describe("commandSurface", () => {
       leaderSequence: [],
       leaderPromptCommandId: null,
       leaderPromptValue: "",
+      initialCommandId: null,
     });
   });
 });

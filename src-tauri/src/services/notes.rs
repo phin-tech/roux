@@ -1190,6 +1190,7 @@ mod tests {
             project_id: None,
             is_git_repo: true,
             name_override: None,
+            primary_pty_id: None,
         }
     }
 

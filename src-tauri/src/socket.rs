@@ -585,6 +585,7 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
         &name,
         SessionTarget::Repo,
         None,
+        None, // profile - CLI-initiated, frontend will set via profile runner
         // CLI-initiated sessions have no pane context yet.
         None,
         app,
@@ -713,6 +714,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         &name,
         target,
         nono_config.as_ref(),
+        Some(&profile),
         None,
         app,
     )
@@ -778,6 +780,8 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         None, // notes env snapshot — wired only from session creation path
         None,
         None,
+        crate::pty::PtyRole::Secondary,
+        None, // profile — CLI-spawned, unknown
         app.clone(),
     ) {
         return Response::err(format!("Failed to spawn shell: {}", e));
@@ -860,6 +864,8 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         worktree_env.as_deref(),
         None, // notes env snapshot — wired only from session creation path
         None,
+        crate::pty::PtyRole::Secondary,
+        None, // profile — CLI-spawned task
         app.clone(),
     ) {
         return Response::err(format!("Failed to spawn task: {}", e));
@@ -1405,6 +1411,7 @@ mod tests {
             project_id: None,
             is_git_repo: true,
             name_override: None,
+            primary_pty_id: None,
         }
     }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, onDestroy } from "svelte";
   import type { Session } from "$lib/types";
   import { renameSignal, sessionDisplayName } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
@@ -9,6 +10,7 @@
     sessionAgentStatus,
     computeEffectiveSessionStatus,
   } from "$lib/panes/agentState";
+  import { listSessionPtys } from "$lib/tauri";
 
   interface Props {
     session: Session;
@@ -37,6 +39,34 @@
   let slotLabel = $derived(
     slotNumber == null ? null : slotNumber === 10 ? "0" : String(slotNumber),
   );
+
+  // Detached PTY inventory — polled periodically.
+  // No backend event stream for PTY status changes yet, so polling is the
+  // stopgap. 5s matches the git-status poll interval in SessionTabs.
+  let detachedCount = $state(0);
+  let detachedHasUnread = $state(false);
+
+  async function refreshDetachedState() {
+    try {
+      const ptys = await listSessionPtys(session.id);
+      const detached = ptys.filter((p) => p.status.type === "RunningDetached");
+      detachedCount = detached.length;
+      detachedHasUnread = detached.some((p) => p.unread_output);
+    } catch {
+      // Non-fatal; badge stays at last known value
+    }
+  }
+
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  onMount(() => {
+    void refreshDetachedState();
+    pollTimer = setInterval(() => void refreshDetachedState(), 5000);
+  });
+
+  onDestroy(() => {
+    if (pollTimer !== null) clearInterval(pollTimer);
+  });
 
   let displayName = $derived(sessionDisplayName(session));
 
@@ -154,6 +184,15 @@
         </span>
       {/if}
 
+      {#if detachedCount > 0}
+        <span
+          class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold tabular-nums
+            {detachedHasUnread
+              ? 'bg-accent text-white'
+              : 'bg-bg-surface text-text-muted'}"
+          title="{detachedCount} detached terminal{detachedCount === 1 ? '' : 's'}{detachedHasUnread ? ' (unread output)' : ''}"
+        >{detachedCount}</span>
+      {/if}
       {#if unreadCount > 0}
         <span
           class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full bg-accent-dim/30 px-1 text-[9px] font-semibold text-accent"

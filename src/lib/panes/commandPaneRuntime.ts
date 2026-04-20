@@ -67,7 +67,7 @@ export async function rerunCommandPane(
     );
   });
 
-  await spawnTask(newPtyId, command, workingDir, sessionId, paneId);
+  await spawnTask(newPtyId, command, workingDir, sessionId, paneId, "command");
 }
 
 function handleCommandPaneExit(

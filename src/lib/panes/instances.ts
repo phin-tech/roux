@@ -16,10 +16,23 @@ export type PaneType = "shell" | "markdown" | "command" | "notes";
 
 export type CommandStatus = "idle" | "running" | "success" | "error";
 
+export type TerminalState =
+  | { kind: "attached"; ptyId: string }
+  | { kind: "empty" }
+  | { kind: "dead"; ptyId: string; exitCode: number | null };
+
 export interface PaneInstance {
   id: string;
   type: PaneType;
   ptyId: string;
+
+  // Explicit terminal state — when present, takes precedence over ptyId for
+  // determining whether a PTY is attached. Absent on panes created before
+  // Phase 3 migration; those fall back to ptyId.
+  terminalState?: TerminalState;
+
+  // Role for the primary session shell pane (ptyId === sessionId).
+  role?: "session-primary";
 
   // Cleanup hooks
   unlisteners: Array<() => void>;
@@ -108,6 +121,18 @@ function paneRecordChanged(before: PaneInstance, after: PaneInstance): boolean {
   const beforeRecord = toPaneRecord(before);
   const afterRecord = toPaneRecord(after);
   return JSON.stringify(beforeRecord) !== JSON.stringify(afterRecord);
+}
+
+/**
+ * Return the PTY ID that is currently attached to this pane, or null if the
+ * pane is empty or dead. Uses `terminalState` when present; falls back to the
+ * legacy `ptyId` field for panes created before the Phase 3 migration.
+ */
+export function getAttachedPtyId(pane: PaneInstance): string | null {
+  if (pane.terminalState) {
+    return pane.terminalState.kind === "attached" ? pane.terminalState.ptyId : null;
+  }
+  return pane.ptyId || null;
 }
 
 // ── Public API ─────────────────────────────────────────────
@@ -271,6 +296,21 @@ export function updateInstance(
  */
 export function getInstance(paneId: string): PaneInstance | undefined {
   return get(paneInstances).get(paneId);
+}
+
+/**
+ * Find the pane that currently has a PTY attached. Returns null if no pane
+ * has this PTY attached. Uses `terminalState` when present; falls back to
+ * `ptyId` for legacy panes.
+ */
+export function findPaneByPtyId(ptyId: string): PaneInstance | null {
+  const map = get(paneInstances);
+  for (const pane of map.values()) {
+    if (getAttachedPtyId(pane) === ptyId) {
+      return pane;
+    }
+  }
+  return null;
 }
 
 /**

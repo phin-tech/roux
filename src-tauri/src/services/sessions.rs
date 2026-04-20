@@ -133,6 +133,7 @@ pub(crate) async fn create_session_shell(
     name: &str,
     target: SessionTarget<'_>,
     nono: Option<&crate::pty::NonoConfig>,
+    profile: Option<&str>,
     initial_size: Option<(u16, u16)>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
@@ -184,6 +185,8 @@ pub(crate) async fn create_session_shell(
         notes_env.as_ref(),
         nono,
         initial_size,
+        crate::pty::PtyRole::SessionPrimary,
+        profile,
         app.clone(),
     );
 
@@ -199,7 +202,7 @@ pub(crate) async fn create_session_shell(
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
     let session = Session {
-        id: session_id,
+        id: session_id.clone(),
         name: name.to_string(),
         repo_root: repo_path.to_string(),
         worktree_path: work_dir,
@@ -212,6 +215,7 @@ pub(crate) async fn create_session_shell(
         project_id: None,
         is_git_repo: is_git_repo(repo_path),
         name_override: None,
+        primary_pty_id: Some(session_id),
     };
 
     if let Err(e) = session_handle.add(session.clone()).await {
@@ -236,6 +240,7 @@ pub(crate) async fn reconnect_session_shell(
     settings: &RouxSettings,
     id: &str,
     nono: Option<&crate::pty::NonoConfig>,
+    profile: Option<&str>,
     initial_size: Option<(u16, u16)>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
@@ -269,6 +274,8 @@ pub(crate) async fn reconnect_session_shell(
             notes_env.as_ref(),
             nono,
             initial_size,
+            crate::pty::PtyRole::SessionPrimary,
+            profile,
             app.clone(),
         )
         .map_err(|e| anyhow!("{}", e))?;
@@ -287,7 +294,9 @@ pub(crate) async fn kill_session(
     session_handle: &SessionHandle,
     id: &str,
 ) -> anyhow::Result<()> {
-    pty_manager.kill(id);
+    // Kill all PTYs associated with this session, not just the primary.
+    // This ensures detached shells don't outlive their session.
+    pty_manager.kill_session_ptys(id);
     session_handle.remove(id).await?;
     // Best-effort: remove per-session pane state file. Non-fatal if it fails.
     if let Err(e) = crate::pane_state::delete_pane_state(id) {

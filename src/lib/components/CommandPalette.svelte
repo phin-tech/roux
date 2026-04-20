@@ -4,6 +4,14 @@
   import { registry, type Command as Cmd, type CommandItem as CmdItem } from "$lib/commands/registry";
   import { formatShortcut } from "$lib/platform";
   import { shortcutFor, keymapState } from "$lib/keymap/store";
+  import Bot from "@lucide/svelte/icons/bot";
+  import TerminalIcon from "@lucide/svelte/icons/terminal";
+  import type { Component } from "svelte";
+
+  const iconMap: Record<string, Component> = {
+    bot: Bot,
+    terminal: TerminalIcon,
+  };
 
   // Resolve the shortcut label for a command from the current keymap. The
   // `_state` parameter is passed in the template so `$keymapState` drives
@@ -18,6 +26,7 @@
     onNewSession: () => void;
     onSettings: () => void;
     onCheckForUpdates: () => void;
+    initialCommandId?: string | null;
   }
 
   let {
@@ -26,6 +35,7 @@
     onNewSession,
     onSettings,
     onCheckForUpdates,
+    initialCommandId = null,
   }: Props = $props();
 
   let stepStack = $state<{ label: string; items: CmdItem[]; sourceCmd?: Cmd }[]>([]);
@@ -51,6 +61,16 @@
     if (open) {
       inputValue = "";
       stepStack = [];
+      if (initialCommandId) {
+        const cmd = registry.get(initialCommandId);
+        if (cmd?.getItems) {
+          // Auto-drill into the command's picker. Run async so the effect
+          // completes synchronously; the drill happens on next tick.
+          void Promise.resolve(cmd.getItems()).then((items) => {
+            stepStack = [{ label: cmd.label, items, sourceCmd: cmd }];
+          });
+        }
+      }
       // Focus the input after render — find it in the DOM
       requestAnimationFrame(() => {
         const input = dialogEl?.querySelector("input");
@@ -239,11 +259,15 @@
               {@const matches = !inputValue || item.label.toLowerCase().includes(inputValue.toLowerCase()) || (item.description ?? "").toLowerCase().includes(inputValue.toLowerCase())}
               {#if matches}
               <Command.Item
-                value={item.label}
-                keywords={item.description ? [item.description] : []}
+                value={item.id}
+                keywords={[item.label, item.description ?? ""].filter(Boolean)}
                 onSelect={() => handleItemSelect(item)}
                 class="cmd-item"
                 >
+                  {#if item.icon && iconMap[item.icon]}
+                    {@const IconComponent = iconMap[item.icon]}
+                    <IconComponent class="w-4 h-4 text-text-muted shrink-0" />
+                  {/if}
                   <div class="flex-1 min-w-0">
                     <div class="text-text-primary text-sm">{item.label}</div>
                     {#if item.description}

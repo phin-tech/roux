@@ -9,7 +9,7 @@ pub struct SessionExitPayload {
     pub reason: SessionExitReason,
 }
 
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionExitReason {
     Exit,
