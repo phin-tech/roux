@@ -43,7 +43,7 @@ enum SplitDirection {
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum PersistedSpawnProfileRef {
     Registered { id: String },
-    Inline { profile: SpawnProfile },
+    Inline { profile: Box<SpawnProfile> },
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]

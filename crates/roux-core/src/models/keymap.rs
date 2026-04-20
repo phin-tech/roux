@@ -106,7 +106,7 @@ pub struct KeymapWarning {
 /// Fully parsed keymap. `preset_ref` is the raw `preset "<name>"`
 /// reference, if the document declared one; the loader resolves it by
 /// parsing the preset KDL separately and calling [`merge_keymaps`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ParsedKeymap {
     #[serde(default)]
@@ -122,20 +122,6 @@ pub struct ParsedKeymap {
     pub trees: Vec<KeymapTree>,
     pub prefixes: Vec<Prefix>,
     pub warnings: Vec<KeymapWarning>,
-}
-
-impl Default for ParsedKeymap {
-    fn default() -> Self {
-        Self {
-            preset_ref: None,
-            hud_default: None,
-            direct_binds: Vec::new(),
-            unbinds: Vec::new(),
-            trees: Vec::new(),
-            prefixes: Vec::new(),
-            warnings: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -886,7 +872,7 @@ fn promote_char_to_code(loc: (u32, u32), c: &str) -> Result<String, KeymapParseE
     Ok(name.to_string())
 }
 
-fn sort_mods(mods: &mut Vec<Modifier>) {
+fn sort_mods(mods: &mut [Modifier]) {
     // Canonical order so equality compares structurally regardless of
     // authoring order: Cmd, Ctrl, Alt, Shift.
     mods.sort_by_key(|m| match m {

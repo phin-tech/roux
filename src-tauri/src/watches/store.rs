@@ -7,7 +7,7 @@ use roux_core::{RuntimeState, Watch, WatchScope};
 
 enum WatchMsg {
     Add {
-        watch: Watch,
+        watch: Box<Watch>,
         reply: oneshot::Sender<()>,
     },
     Remove {
@@ -52,7 +52,7 @@ impl WatchStoreHandle {
 
     pub async fn add(&self, watch: Watch) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(WatchMsg::Add { watch, reply: reply_tx })?;
+        self.send(WatchMsg::Add { watch: Box::new(watch), reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
@@ -128,7 +128,7 @@ async fn service_loop(
             msg = rx.recv() => {
                 match msg {
                     Some(WatchMsg::Add { watch, reply }) => {
-                        watches.push(watch);
+                        watches.push(*watch);
                         dirty = true;
                         let _ = reply.send(());
                     }

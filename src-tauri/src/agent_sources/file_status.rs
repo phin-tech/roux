@@ -162,10 +162,13 @@ pub fn payload_to_identity(update: &StatusUpdate) -> AgentIdentity {
 }
 
 pub fn payload_to_event_context(update: &StatusUpdate) -> EventContext {
+    // `StatusUpdate::provider_session_id` is intentionally *not* copied:
+    // it rides the `roux-status-update` Tauri event for the frontend,
+    // but nothing downstream of the FSM registry reads it. See the
+    // notes on `EventContext` in `agent_registry.rs`.
     EventContext {
         cwd: update.cwd.clone(),
         provider: update.provider.clone(),
-        provider_session_id: update.provider_session_id.clone(),
         roux_session_id: update.roux_session_id.clone(),
         roux_pane_id: update.roux_pane_id.clone(),
         tool_name: update.tool_name.clone(),
@@ -286,7 +289,7 @@ fn process_path_change(
         event: AgentEvent::HookStatus(mapped),
         context,
     };
-    tx.send(RegistryMessage::Input(input)).map_err(|e| e.to_string())?;
+    tx.send(RegistryMessage::Input(Box::new(input))).map_err(|e| e.to_string())?;
     Ok(())
 }
 

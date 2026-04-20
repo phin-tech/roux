@@ -432,7 +432,7 @@ impl portable_pty::Child for WaitedChild {
         Ok(None)
     }
     fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
-        Err(std::io::Error::new(std::io::ErrorKind::Other, "child already waited"))
+        Err(std::io::Error::other("child already waited"))
     }
     fn process_id(&self) -> Option<u32> {
         None
