@@ -97,12 +97,14 @@ export async function reconnectSessionShellPty(
   id: string,
   nonoProfile?: string | null,
   nonoAllowDirs?: string[] | null,
+  profile?: string | null,
   initialSize?: InitialPtySize | null,
 ): Promise<Session> {
   return invoke("reconnect_session_shell", {
     id,
     nonoProfile: nonoProfile ?? null,
     nonoAllowDirs: nonoAllowDirs ?? null,
+    profile: profile ?? null,
     initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
   });
 }
