@@ -329,26 +329,30 @@ fn spawn_flusher_with_lifecycle(
                     if !batch.is_empty() {
                         output.send(std::mem::take(&mut batch));
                     }
-                    let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleEvent::Exited {
-                        pty_id: pty_id.clone(),
-                        session_id: session_id.clone(),
-                        code: None,
-                        reason: crate::pty_lifecycle::ExitReason::Exit,
-                        generation,
-                    });
+                    let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Event(
+                        crate::pty_lifecycle::PtyLifecycleEvent::Exited {
+                            pty_id: pty_id.clone(),
+                            session_id: session_id.clone(),
+                            code: None,
+                            reason: crate::pty_lifecycle::ExitReason::Exit,
+                            generation,
+                        },
+                    ));
                     break;
                 }
                 PtyChunk::Error => {
                     if !batch.is_empty() {
                         output.send(std::mem::take(&mut batch));
                     }
-                    let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleEvent::Exited {
-                        pty_id: pty_id.clone(),
-                        session_id: session_id.clone(),
-                        code: None,
-                        reason: crate::pty_lifecycle::ExitReason::IoError,
-                        generation,
-                    });
+                    let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Event(
+                        crate::pty_lifecycle::PtyLifecycleEvent::Exited {
+                            pty_id: pty_id.clone(),
+                            session_id: session_id.clone(),
+                            code: None,
+                            reason: crate::pty_lifecycle::ExitReason::IoError,
+                            generation,
+                        },
+                    ));
                     break;
                 }
             }
@@ -484,7 +488,7 @@ pub struct PtyInfo {
     pub bell_pending: bool,
 }
 
-struct PtySession {
+pub(crate) struct PtySession {
     master: Box<dyn MasterPty + Send>,
     #[allow(dead_code)]
     child: Box<dyn portable_pty::Child + Send>,
@@ -737,6 +741,133 @@ impl PtyManager {
         }
     }
 
+    fn send_lifecycle_command(
+        &self,
+        command: crate::pty_lifecycle::PtyLifecycleCommand,
+    ) -> bool {
+        let Some(tx) = self.lifecycle_tx.lock().unwrap().clone() else {
+            return false;
+        };
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        if tx
+            .send(crate::pty_lifecycle::PtyLifecycleMessage::Command(command, reply_tx))
+            .is_err()
+        {
+            return false;
+        }
+        reply_rx.recv().is_ok()
+    }
+
+    pub(crate) fn register_session_direct(&self, pty_id: String, session: PtySession) {
+        self.sessions.lock().unwrap().insert(pty_id, session);
+    }
+
+    pub(crate) fn kill_direct(&self, session_id: &str) {
+        let session = self.sessions.lock().unwrap().remove(session_id);
+        self.pending_outputs.lock().unwrap().remove(session_id);
+        if let Some(mut session) = session {
+            if let Err(e) = session.child.kill() {
+                rlog!("Warning: kill failed for {}: {}", session_id, e);
+            }
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                match session.child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if Instant::now() < deadline => {
+                        thread::sleep(Duration::from_millis(50));
+                    }
+                    Ok(None) => {
+                        rlog!("Warning: child for {} did not exit within timeout", session_id);
+                        break;
+                    }
+                    Err(e) => {
+                        rlog!("Warning: try_wait failed for {}: {}", session_id, e);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn detach_direct(&self, pty_id: &str) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            session.status = PtyStatus::RunningDetached { since_ms: now_ms };
+            rlog!("PtyManager: detached PTY '{}'", pty_id);
+        }
+    }
+
+    pub(crate) fn attach_to_pane_direct(&self, pty_id: &str, pane_id: &str) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.status = PtyStatus::RunningAttached { pane_id: pane_id.to_string() };
+            session.unread_output = false;
+            session.bell_pending = false;
+            session.last_activity = std::time::Instant::now();
+            rlog!("PtyManager: attached PTY '{}' to pane '{}'", pty_id, pane_id);
+        }
+    }
+
+    pub(crate) fn mark_exited_direct(&self, pty_id: &str, code: Option<i32>) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            let was_attached = matches!(session.status, PtyStatus::RunningAttached { .. });
+            session.status = PtyStatus::Exited { code, at_ms: now_ms };
+            session.exit_info = Some(ExitInfo { code, at_ms: now_ms, was_attached });
+        }
+    }
+
+    pub(crate) fn mark_read_direct(&self, pty_id: &str) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.unread_output = false;
+            session.bell_pending = false;
+        }
+    }
+
+    pub(crate) fn set_unread_output_direct(&self, pty_id: &str, value: bool) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.unread_output = value;
+        }
+    }
+
+    pub(crate) fn set_bell_pending_direct(&self, pty_id: &str, value: bool) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.bell_pending = value;
+        }
+    }
+
+    pub(crate) fn set_name_direct(&self, pty_id: &str, name: Option<&str>) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(pty_id) {
+            session.name = name.map(|s| s.to_string());
+        }
+    }
+
+    pub(crate) fn kill_session_ptys_direct(&self, session_id: &str) {
+        let ids: Vec<String> = {
+            let sessions = self.sessions.lock().unwrap();
+            sessions
+                .iter()
+                .filter(|(_, s)| s.session_id.as_deref() == Some(session_id))
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        for id in ids {
+            self.kill_direct(&id);
+        }
+    }
+
     pub fn spawn_shell(
         &self,
         id: &str,
@@ -847,7 +978,34 @@ impl PtyManager {
             bell_pending: false,
             logger: Some(logger),
         };
-        self.sessions.lock().unwrap().insert(id.to_string(), session);
+        let lifecycle_tx = self.lifecycle_tx.lock().unwrap().clone();
+        if let Some(tx) = lifecycle_tx {
+            let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+            match tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Command(
+                crate::pty_lifecycle::PtyLifecycleCommand::Register {
+                    pty_id: id.to_string(),
+                    session,
+                },
+                reply_tx,
+            )) {
+                Ok(()) => {
+                    if reply_rx.recv().is_err() {
+                        return Err(PtyError::SessionNotFound {
+                            session_id: format!("lifecycle register ack dropped for {}", id),
+                        });
+                    }
+                }
+                Err(mpsc::SendError(crate::pty_lifecycle::PtyLifecycleMessage::Command(
+                    crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session },
+                    _,
+                ))) => {
+                    self.register_session_direct(pty_id, session);
+                }
+                Err(_) => unreachable!("register send only emits command messages here"),
+            }
+        } else {
+            self.register_session_direct(id.to_string(), session);
+        }
         self.attach_pending_output(id, &output);
 
         // Use lifecycle bus if available, otherwise fall back to direct event emission
@@ -962,7 +1120,34 @@ impl PtyManager {
             bell_pending: false,
             logger: Some(logger_task),
         };
-        self.sessions.lock().unwrap().insert(id.to_string(), session);
+        let lifecycle_tx = self.lifecycle_tx.lock().unwrap().clone();
+        if let Some(tx) = lifecycle_tx {
+            let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+            match tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Command(
+                crate::pty_lifecycle::PtyLifecycleCommand::Register {
+                    pty_id: id.to_string(),
+                    session,
+                },
+                reply_tx,
+            )) {
+                Ok(()) => {
+                    if reply_rx.recv().is_err() {
+                        return Err(PtyError::SessionNotFound {
+                            session_id: format!("lifecycle register ack dropped for {}", id),
+                        });
+                    }
+                }
+                Err(mpsc::SendError(crate::pty_lifecycle::PtyLifecycleMessage::Command(
+                    crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session },
+                    _,
+                ))) => {
+                    self.register_session_direct(pty_id, session);
+                }
+                Err(_) => unreachable!("register send only emits command messages here"),
+            }
+        } else {
+            self.register_session_direct(id.to_string(), session);
+        }
         self.attach_pending_output(id, &output);
 
         // One-shot tasks don't carry hooks but we still wire the
@@ -997,13 +1182,15 @@ impl PtyManager {
         thread::spawn(move || {
             let code = child.wait().ok().map(|status| status.exit_code());
             if let Some(lifecycle_tx) = lifecycle_tx_clone {
-                let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleEvent::Exited {
-                    pty_id: exit_pty_id,
-                    session_id: exit_session_id,
-                    code,
-                    reason: crate::pty_lifecycle::ExitReason::Exit,
-                    generation: gen,
-                });
+                let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Event(
+                    crate::pty_lifecycle::PtyLifecycleEvent::Exited {
+                        pty_id: exit_pty_id,
+                        session_id: exit_session_id,
+                        code,
+                        reason: crate::pty_lifecycle::ExitReason::Exit,
+                        generation: gen,
+                    },
+                ));
             } else {
                 let exit_event_name = format!("session-exit:{}", exit_pty_id);
                 let _ = app.emit(
@@ -1088,30 +1275,10 @@ impl PtyManager {
     }
 
     pub fn kill(&self, session_id: &str) {
-        let session = self.sessions.lock().unwrap().remove(session_id);
-        self.pending_outputs.lock().unwrap().remove(session_id);
-        if let Some(mut session) = session {
-            if let Err(e) = session.child.kill() {
-                rlog!("Warning: kill failed for {}: {}", session_id, e);
-            }
-            // Give the child up to 2 seconds to exit
-            let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                match session.child.try_wait() {
-                    Ok(Some(_)) => break,
-                    Ok(None) if Instant::now() < deadline => {
-                        thread::sleep(Duration::from_millis(50));
-                    }
-                    Ok(None) => {
-                        rlog!("Warning: child for {} did not exit within timeout", session_id);
-                        break;
-                    }
-                    Err(e) => {
-                        rlog!("Warning: try_wait failed for {}: {}", session_id, e);
-                        break;
-                    }
-                }
-            }
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Kill {
+            pty_id: session_id.to_string(),
+        }) {
+            self.kill_direct(session_id);
         }
     }
 
@@ -1141,88 +1308,63 @@ impl PtyManager {
 
     /// Detach a PTY from its pane (PTY keeps running).
     pub fn detach(&self, pty_id: &str) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64;
-            session.status = PtyStatus::RunningDetached { since_ms: now_ms };
-            rlog!("PtyManager: detached PTY '{}'", pty_id);
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Detach {
+            pty_id: pty_id.to_string(),
+        }) {
+            self.detach_direct(pty_id);
         }
     }
 
     /// Mark a PTY as attached to a pane.
     pub fn attach_to_pane(&self, pty_id: &str, pane_id: &str) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.status = PtyStatus::RunningAttached { pane_id: pane_id.to_string() };
-            session.unread_output = false;
-            session.bell_pending = false;
-            session.last_activity = std::time::Instant::now();
-            rlog!("PtyManager: attached PTY '{}' to pane '{}'", pty_id, pane_id);
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::AttachToPane {
+            pty_id: pty_id.to_string(),
+            pane_id: pane_id.to_string(),
+        }) {
+            self.attach_to_pane_direct(pty_id, pane_id);
         }
     }
 
     /// Mark a PTY as exited.
     pub fn mark_exited(&self, pty_id: &str, code: Option<i32>) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64;
-            let was_attached = matches!(session.status, PtyStatus::RunningAttached { .. });
-            session.status = PtyStatus::Exited { code, at_ms: now_ms };
-            session.exit_info = Some(ExitInfo { code, at_ms: now_ms, was_attached });
-        }
+        self.mark_exited_direct(pty_id, code);
     }
 
     /// Clear unread output and bell flags for a PTY.
     pub fn mark_read(&self, pty_id: &str) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.unread_output = false;
-            session.bell_pending = false;
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::MarkRead {
+            pty_id: pty_id.to_string(),
+        }) {
+            self.mark_read_direct(pty_id);
         }
     }
 
     /// Set the unread output flag for a PTY.
     pub fn set_unread_output(&self, pty_id: &str, value: bool) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.unread_output = value;
-        }
+        self.set_unread_output_direct(pty_id, value);
     }
 
     /// Set the bell pending flag for a PTY.
     pub fn set_bell_pending(&self, pty_id: &str, value: bool) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.bell_pending = value;
-        }
+        self.set_bell_pending_direct(pty_id, value);
     }
 
     /// Set the display name for a PTY.
     pub fn set_name(&self, pty_id: &str, name: Option<&str>) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.name = name.map(|s| s.to_string());
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::SetName {
+            pty_id: pty_id.to_string(),
+            name: name.map(|s| s.to_string()),
+        }) {
+            self.set_name_direct(pty_id, name);
         }
     }
 
     /// Kill all PTY sessions for a session ID.
     pub fn kill_session_ptys(&self, session_id: &str) {
-        let ids: Vec<String> = {
-            let sessions = self.sessions.lock().unwrap();
-            sessions
-                .iter()
-                .filter(|(_, s)| s.session_id.as_deref() == Some(session_id))
-                .map(|(id, _)| id.clone())
-                .collect()
-        };
-        for id in ids {
-            self.kill(&id);
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::KillSessionPtys {
+            session_id: session_id.to_string(),
+        }) {
+            self.kill_session_ptys_direct(session_id);
         }
     }
 
@@ -1682,7 +1824,7 @@ mod tests {
 #[cfg(test)]
 mod flusher_lifecycle_tests {
     use super::*;
-    use crate::pty_lifecycle::{ExitReason, PtyLifecycleEvent};
+    use crate::pty_lifecycle::{ExitReason, PtyLifecycleEvent, PtyLifecycleMessage};
 
     #[test]
     fn flusher_sends_exited_event_on_eof() {
@@ -1702,15 +1844,17 @@ mod flusher_lifecycle_tests {
 
         // Verify lifecycle event was sent
         let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(
-            event,
-            PtyLifecycleEvent::Exited {
-                pty_id: "pty-123".to_string(),
-                session_id: Some("session-456".to_string()),
-                code: None,
-                reason: ExitReason::Exit,
-                generation: 42,
-            }
+        assert!(
+            matches!(
+                event,
+                PtyLifecycleMessage::Event(PtyLifecycleEvent::Exited {
+                    pty_id,
+                    session_id,
+                    code: None,
+                    reason: ExitReason::Exit,
+                    generation: 42,
+                }) if pty_id == "pty-123" && session_id.as_deref() == Some("session-456")
+            )
         );
     }
 
@@ -1732,15 +1876,17 @@ mod flusher_lifecycle_tests {
 
         // Verify lifecycle event was sent with IoError reason
         let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(
-            event,
-            PtyLifecycleEvent::Exited {
-                pty_id: "pty-err".to_string(),
-                session_id: None,
-                code: None,
-                reason: ExitReason::IoError,
-                generation: 99,
-            }
+        assert!(
+            matches!(
+                event,
+                PtyLifecycleMessage::Event(PtyLifecycleEvent::Exited {
+                    pty_id,
+                    session_id: None,
+                    code: None,
+                    reason: ExitReason::IoError,
+                    generation: 99,
+                }) if pty_id == "pty-err"
+            )
         );
     }
 
@@ -1767,7 +1913,7 @@ mod flusher_lifecycle_tests {
 
         // Wait for exit event
         let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(matches!(event, PtyLifecycleEvent::Exited { .. }));
+        assert!(matches!(event, PtyLifecycleMessage::Event(PtyLifecycleEvent::Exited { .. })));
 
         // Data should have been flushed before exit
         let data = received.lock().unwrap();
@@ -1816,5 +1962,174 @@ mod nono_tests {
         let nono = NonoConfig { profile: "test".into(), allow_dirs: vec![] };
         let resolved = nono.resolved_allow_dirs("/work");
         assert!(resolved.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_command_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::Arc;
+
+    #[derive(Debug)]
+    struct FakeChild {
+        kill_count: Arc<AtomicUsize>,
+    }
+
+    impl portable_pty::ChildKiller for FakeChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            self.kill_count.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
+            Box::new(FakeChild { kill_count: Arc::clone(&self.kill_count) })
+        }
+    }
+
+    impl portable_pty::Child for FakeChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
+            Ok(Some(portable_pty::ExitStatus::with_exit_code(0)))
+        }
+
+        fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
+            Ok(portable_pty::ExitStatus::with_exit_code(0))
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            None
+        }
+
+        #[cfg(windows)]
+        fn as_raw_handle(&self) -> Option<*mut std::ffi::c_void> {
+            None
+        }
+    }
+
+    fn make_test_session(
+        session_id: Option<&str>,
+        status: PtyStatus,
+    ) -> (PtySession, Arc<AtomicUsize>) {
+        let pty_system = native_pty_system();
+        let pair = pty_system.openpty(PtySize::default()).expect("openpty");
+        let writer = pair.master.take_writer().expect("writer");
+        let kill_count = Arc::new(AtomicUsize::new(0));
+        let child: Box<dyn portable_pty::Child + Send> =
+            Box::new(FakeChild { kill_count: Arc::clone(&kill_count) });
+
+        let session = PtySession {
+            master: pair.master,
+            child,
+            writer: Arc::new(Mutex::new(writer)),
+            output: PtyOutput::new(),
+            generation: 1,
+            ready_gate: None,
+            role: PtyRole::Secondary,
+            status,
+            exit_info: None,
+            session_id: session_id.map(ToString::to_string),
+            name: None,
+            working_dir: Some("/tmp".to_string()),
+            profile: Some("plain-shell".to_string()),
+            last_size: (80, 24),
+            last_activity: Instant::now(),
+            unread_output: false,
+            bell_pending: false,
+            logger: None,
+        };
+
+        (session, kill_count)
+    }
+
+    fn spawn_command_only_handler(manager: Arc<PtyManager>) -> crate::pty_lifecycle::LifecycleTx {
+        let (tx, rx) = crate::pty_lifecycle::channel();
+        std::thread::spawn(move || {
+            while let Ok(message) = rx.recv() {
+                if let crate::pty_lifecycle::PtyLifecycleMessage::Command(command, reply) = message {
+                    crate::pty_lifecycle::handle_command(&manager, command);
+                    let _ = reply.send(());
+                }
+            }
+        });
+        tx
+    }
+
+    fn register_via_bus(
+        tx: &crate::pty_lifecycle::LifecycleTx,
+        pty_id: &str,
+        session: PtySession,
+    ) {
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Command(
+            crate::pty_lifecycle::PtyLifecycleCommand::Register {
+                pty_id: pty_id.to_string(),
+                session,
+            },
+            reply_tx,
+        ))
+        .expect("register command");
+        reply_rx.recv().expect("register ack");
+    }
+
+    #[test]
+    fn bus_backed_commands_update_pty_state_synchronously() {
+        let manager = Arc::new(PtyManager::new());
+        let lifecycle_tx = spawn_command_only_handler(Arc::clone(&manager));
+        manager.set_lifecycle_tx(lifecycle_tx.clone());
+
+        let (session, _) = make_test_session(
+            Some("session-a"),
+            PtyStatus::RunningAttached { pane_id: "pane-a".to_string() },
+        );
+        register_via_bus(&lifecycle_tx, "pty-a", session);
+
+        manager.set_unread_output_direct("pty-a", true);
+        manager.set_bell_pending_direct("pty-a", true);
+        manager.detach("pty-a");
+        manager.attach_to_pane("pty-a", "pane-b");
+        manager.set_name("pty-a", Some("Renamed"));
+        manager.mark_read("pty-a");
+
+        let snapshot = manager.list_for_session("session-a");
+        assert_eq!(snapshot.len(), 1);
+        assert!(matches!(
+            snapshot[0].status,
+            PtyStatus::RunningAttached { ref pane_id } if pane_id == "pane-b"
+        ));
+        assert_eq!(snapshot[0].name.as_deref(), Some("Renamed"));
+        assert!(!snapshot[0].unread_output);
+        assert!(!snapshot[0].bell_pending);
+    }
+
+    #[test]
+    fn bus_backed_kill_session_ptys_removes_all_matching_ptys() {
+        let manager = Arc::new(PtyManager::new());
+        let lifecycle_tx = spawn_command_only_handler(Arc::clone(&manager));
+        manager.set_lifecycle_tx(lifecycle_tx.clone());
+
+        let (session_a, kill_a) = make_test_session(
+            Some("session-a"),
+            PtyStatus::RunningAttached { pane_id: "pane-a".to_string() },
+        );
+        let (session_b, kill_b) = make_test_session(
+            Some("session-a"),
+            PtyStatus::RunningDetached { since_ms: 1 },
+        );
+        let (session_other, kill_other) = make_test_session(
+            Some("session-b"),
+            PtyStatus::RunningAttached { pane_id: "pane-other".to_string() },
+        );
+
+        register_via_bus(&lifecycle_tx, "pty-a", session_a);
+        register_via_bus(&lifecycle_tx, "pty-b", session_b);
+        register_via_bus(&lifecycle_tx, "pty-other", session_other);
+
+        manager.kill_session_ptys("session-a");
+
+        assert!(manager.list_for_session("session-a").is_empty());
+        assert_eq!(manager.list_for_session("session-b").len(), 1);
+        assert_eq!(kill_a.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(kill_b.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(kill_other.load(AtomicOrdering::SeqCst), 0);
     }
 }
