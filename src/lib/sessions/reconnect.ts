@@ -213,12 +213,14 @@ async function reconnectPrimaryPaneOnly(
   const instance = getInstance(primaryPaneId);
   const nonoProfile = instance?.nonoProfile ?? null;
   const nonoAllowDirs = instance?.nonoAllowDirs ?? null;
+  const profile = resolveProfileRef(instance?.spawnProfileRef);
 
   replacePty(primaryPaneId, session.id);
   const updated = await reconnectSessionShellPty(
     session.id,
     nonoProfile,
     nonoAllowDirs,
+    profile?.id ?? null,
   );
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(primaryPaneId);
@@ -227,7 +229,6 @@ async function reconnectPrimaryPaneOnly(
   // Replay the primary pane's profile, appending any extra flags to the
   // startup command so Claude's Continue/Resume/New flows still work.
   // A replay failure is logged, not surfaced — the shell itself is alive.
-  const profile = resolveProfileRef(instance?.spawnProfileRef);
   if (profile) {
     let effectiveProfile: SpawnProfile = profile;
     if (extraFlags?.length) {

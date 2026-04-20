@@ -40,7 +40,7 @@ import { reconnectSession, retryShellPane } from "../reconnect";
 import { sessionState, addSession } from "$lib/stores/sessions";
 import { initSession } from "$lib/panes/actions";
 import { sessionLayouts, resetLayouts } from "$lib/panes/layout";
-import { paneInstances, resetInstances, createPane } from "$lib/panes/instances";
+import { paneInstances, resetInstances, createPane, updateInstance } from "$lib/panes/instances";
 import { resetFocus } from "$lib/panes/focus";
 import { reconnectSessionShellPty, spawnShell, loadPaneStateRaw } from "$lib/tauri";
 import { initTerminal, attachPtyListeners, connectPaneTerminal } from "$lib/panes/terminals";
@@ -108,7 +108,7 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
   });
 
   it("invokes reconnect with extra flags without error", async () => {
@@ -121,7 +121,41 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await reconnectSession(session, ["--resume", "abc123"]);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+  });
+
+  it("forwards the pane profile id when reconnecting the primary shell", async () => {
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+    updateInstance(`${session.id}-main`, {
+      spawnProfileRef: {
+        kind: "inline",
+        profile: {
+          id: "custom-inline",
+          name: "Custom Inline",
+          source: "user",
+          provider: null,
+          icon: null,
+          startupCommand: "echo hi",
+          setupCommand: null,
+          startupBehavior: "autoRun",
+          cwdOverride: null,
+          env: {},
+          nonoProfile: null,
+          nonoAllowDirs: [],
+        },
+      },
+    });
+
+    await reconnectSession(session);
+
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(
+      session.id,
+      null,
+      null,
+      "custom-inline",
+    );
   });
 
   it("preserves the layout tree when reconnecting main-pane-only", async () => {
