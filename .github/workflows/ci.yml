@@ -9,6 +9,18 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Space-separated via YAML folded scalar. Used by both rust jobs to
+  # cache the Tauri system deps install.
+  TAURI_SYSTEM_DEPS: >-
+    libwebkit2gtk-4.1-dev
+    libappindicator3-dev
+    librsvg2-dev
+    patchelf
+    libgtk-3-dev
+    libsoup-3.0-dev
+    libjavascriptcoregtk-4.1-dev
+
 jobs:
   frontend:
     runs-on: ubuntu-latest
@@ -22,33 +34,43 @@ jobs:
       - run: npm run check
       - run: npm run test
 
-  rust:
+  rust-clippy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libgtk-3-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev
+      - uses: rui314/setup-mold@v1
+      - name: Cache Tauri system deps
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: ${{ env.TAURI_SYSTEM_DEPS }}
+          version: 1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          key: clippy
       - name: Clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
-      - name: Check
-        working-directory: src-tauri
-        run: cargo check --all-targets
+
+  rust-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rui314/setup-mold@v1
+      - name: Cache Tauri system deps
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: ${{ env.TAURI_SYSTEM_DEPS }}
+          version: 1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: test
       - name: Test
         working-directory: src-tauri
-        run: cargo test --all
+        run: cargo nextest run --workspace

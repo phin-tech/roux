@@ -5,7 +5,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-mod paths;
+use roux_lib::paths;
+
 mod platform;
 
 #[derive(Parser)]
@@ -522,232 +523,6 @@ fn clear_status() {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::Parser;
-
-    // ── resolve_path ────────────────────────────────────────
-
-    #[test]
-    fn resolve_path_keeps_absolute_path_as_is() {
-        // "/" always exists on Unix, canonicalize succeeds.
-        let got = resolve_path("/");
-        assert!(got.starts_with('/'));
-    }
-
-    #[test]
-    fn resolve_path_turns_relative_into_absolute() {
-        let got = resolve_path(".");
-        assert!(std::path::Path::new(&got).is_absolute(), "got {}", got);
-    }
-
-    #[test]
-    fn resolve_path_nonexistent_falls_back_to_uncanonicalized_absolute() {
-        // canonicalize() fails on missing paths; resolve_path must still
-        // return an absolute string rather than panicking or returning "".
-        let got = resolve_path("/definitely/not/a/real/path/roux-test");
-        assert!(std::path::Path::new(&got).is_absolute(), "got {}", got);
-        assert!(got.contains("roux-test"));
-    }
-
-    // ── Cli parsing ─────────────────────────────────────────
-
-    #[test]
-    fn cli_parses_app_with_default_path() {
-        let cli = Cli::try_parse_from(["roux-cli", "app"]).unwrap();
-        match cli.command {
-            Commands::App { path } => assert_eq!(path, "."),
-            other => panic!("expected App, got {:?}", std::mem::discriminant(&other)),
-        }
-    }
-
-    #[test]
-    fn cli_parses_app_with_explicit_path() {
-        let cli = Cli::try_parse_from(["roux-cli", "app", "/tmp/foo"]).unwrap();
-        match cli.command {
-            Commands::App { path } => assert_eq!(path, "/tmp/foo"),
-            _ => panic!("expected App"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_session_list() {
-        let cli = Cli::try_parse_from(["roux-cli", "session", "list"]).unwrap();
-        match cli.command {
-            Commands::Session { action: SessionAction::List } => {}
-            _ => panic!("expected Session::List"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_session_poll_with_session_id() {
-        let cli = Cli::try_parse_from(["roux-cli", "session", "poll", "-s", "sid-1"]).unwrap();
-        match cli.command {
-            Commands::Session { action: SessionAction::Poll { session } } => {
-                assert_eq!(session.as_deref(), Some("sid-1"));
-            }
-            _ => panic!("expected Session::Poll"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_session_send_default_has_enter_true() {
-        let cli = Cli::try_parse_from(["roux-cli", "session", "send", "hello"]).unwrap();
-        match cli.command {
-            Commands::Session { action: SessionAction::Send { text, no_enter, .. } } => {
-                assert_eq!(text, "hello");
-                assert!(!no_enter, "--no-enter not passed, so no_enter must be false");
-            }
-            _ => panic!("expected Session::Send"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_session_send_with_no_enter_flag() {
-        let cli =
-            Cli::try_parse_from(["roux-cli", "session", "send", "hello", "--no-enter"]).unwrap();
-        match cli.command {
-            Commands::Session { action: SessionAction::Send { no_enter, .. } } => assert!(no_enter),
-            _ => panic!("expected Session::Send"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_session_send_with_session_and_pane() {
-        let cli =
-            Cli::try_parse_from(["roux-cli", "session", "send", "hi", "-s", "sid", "-p", "pid"])
-                .unwrap();
-        match cli.command {
-            Commands::Session { action: SessionAction::Send { session, pane, .. } } => {
-                assert_eq!(session.as_deref(), Some("sid"));
-                assert_eq!(pane.as_deref(), Some("pid"));
-            }
-            _ => panic!("expected Session::Send"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_session_create_with_full_options() {
-        let cli = Cli::try_parse_from([
-            "roux-cli",
-            "session",
-            "create",
-            "--name",
-            "feat-x",
-            "--worktree-branch",
-            "feat/x",
-            "--profile",
-            "claude",
-            "-f",
-            "--debug",
-            "-f",
-            "--model=opus",
-            "--nono-profile",
-            "strict",
-            "--nono-allow-dir",
-            "~/work",
-            "--nono-allow-dir",
-            "/tmp",
-        ])
-        .unwrap();
-        match cli.command {
-            Commands::Session {
-                action:
-                    SessionAction::Create {
-                        name,
-                        worktree_branch,
-                        profile,
-                        flags,
-                        nono_profile,
-                        nono_allow_dirs,
-                        working_dir,
-                    },
-            } => {
-                assert_eq!(name.as_deref(), Some("feat-x"));
-                assert_eq!(worktree_branch.as_deref(), Some("feat/x"));
-                assert_eq!(profile.as_deref(), Some("claude"));
-                assert_eq!(flags, vec!["--debug", "--model=opus"]);
-                assert_eq!(nono_profile.as_deref(), Some("strict"));
-                assert_eq!(nono_allow_dirs, vec!["~/work", "/tmp"]);
-                assert!(working_dir.is_none());
-            }
-            _ => panic!("expected Session::Create"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_session_panes_list_with_session() {
-        let cli =
-            Cli::try_parse_from(["roux-cli", "session", "panes", "list", "-s", "sid"]).unwrap();
-        match cli.command {
-            Commands::Session {
-                action: SessionAction::Panes { action: PaneAction::List { session } },
-            } => {
-                assert_eq!(session.as_deref(), Some("sid"));
-            }
-            _ => panic!("expected Session::Panes::List"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_session_panes_create_defaults() {
-        let cli =
-            Cli::try_parse_from(["roux-cli", "session", "panes", "create", "-s", "sid"]).unwrap();
-        match cli.command {
-            Commands::Session {
-                action:
-                    SessionAction::Panes {
-                        action: PaneAction::Create { session, profile, direction, working_dir },
-                    },
-            } => {
-                assert_eq!(session.as_deref(), Some("sid"));
-                assert!(profile.is_none());
-                assert_eq!(direction, "horizontal");
-                assert!(working_dir.is_none());
-            }
-            _ => panic!("expected Session::Panes::Create"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_session_panes_create_with_all_options() {
-        let cli = Cli::try_parse_from([
-            "roux-cli", "session", "panes", "create", "-s", "sid", "-P", "shell", "-d", "vertical",
-            "-w", "/tmp",
-        ])
-        .unwrap();
-        match cli.command {
-            Commands::Session {
-                action:
-                    SessionAction::Panes {
-                        action: PaneAction::Create { profile, direction, working_dir, .. },
-                    },
-            } => {
-                assert_eq!(profile.as_deref(), Some("shell"));
-                assert_eq!(direction, "vertical");
-                assert_eq!(working_dir.as_deref(), Some("/tmp"));
-            }
-            _ => panic!("expected Session::Panes::Create"),
-        }
-    }
-
-    #[test]
-    fn cli_rejects_removed_top_level_send() {
-        // `roux send "x"` used to work; now it must live under `session`.
-        let err = Cli::try_parse_from(["roux-cli", "send", "x"]);
-        assert!(err.is_err(), "top-level `send` must no longer parse");
-    }
-
-    #[test]
-    fn cli_split_still_parses_with_direction() {
-        let cli = Cli::try_parse_from(["roux-cli", "split", "-d", "vertical"]).unwrap();
-        match cli.command {
-            Commands::Split { direction } => assert_eq!(direction, "vertical"),
-            _ => panic!("expected Split"),
-        }
-    }
-}
 
 fn main() {
     let cli = Cli::parse();
@@ -1078,6 +853,232 @@ fn handle_notes_verb(scope: &str, verb: NotesScopeVerb) {
                     "dir": dir,
                 },
             }));
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    // ── resolve_path ────────────────────────────────────────
+
+    #[test]
+    fn resolve_path_keeps_absolute_path_as_is() {
+        // "/" always exists on Unix, canonicalize succeeds.
+        let got = resolve_path("/");
+        assert!(got.starts_with('/'));
+    }
+
+    #[test]
+    fn resolve_path_turns_relative_into_absolute() {
+        let got = resolve_path(".");
+        assert!(std::path::Path::new(&got).is_absolute(), "got {}", got);
+    }
+
+    #[test]
+    fn resolve_path_nonexistent_falls_back_to_uncanonicalized_absolute() {
+        // canonicalize() fails on missing paths; resolve_path must still
+        // return an absolute string rather than panicking or returning "".
+        let got = resolve_path("/definitely/not/a/real/path/roux-test");
+        assert!(std::path::Path::new(&got).is_absolute(), "got {}", got);
+        assert!(got.contains("roux-test"));
+    }
+
+    // ── Cli parsing ─────────────────────────────────────────
+
+    #[test]
+    fn cli_parses_app_with_default_path() {
+        let cli = Cli::try_parse_from(["roux-cli", "app"]).unwrap();
+        match cli.command {
+            Commands::App { path } => assert_eq!(path, "."),
+            other => panic!("expected App, got {:?}", std::mem::discriminant(&other)),
+        }
+    }
+
+    #[test]
+    fn cli_parses_app_with_explicit_path() {
+        let cli = Cli::try_parse_from(["roux-cli", "app", "/tmp/foo"]).unwrap();
+        match cli.command {
+            Commands::App { path } => assert_eq!(path, "/tmp/foo"),
+            _ => panic!("expected App"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_list() {
+        let cli = Cli::try_parse_from(["roux-cli", "session", "list"]).unwrap();
+        match cli.command {
+            Commands::Session { action: SessionAction::List } => {}
+            _ => panic!("expected Session::List"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_poll_with_session_id() {
+        let cli = Cli::try_parse_from(["roux-cli", "session", "poll", "-s", "sid-1"]).unwrap();
+        match cli.command {
+            Commands::Session { action: SessionAction::Poll { session } } => {
+                assert_eq!(session.as_deref(), Some("sid-1"));
+            }
+            _ => panic!("expected Session::Poll"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_send_default_has_enter_true() {
+        let cli = Cli::try_parse_from(["roux-cli", "session", "send", "hello"]).unwrap();
+        match cli.command {
+            Commands::Session { action: SessionAction::Send { text, no_enter, .. } } => {
+                assert_eq!(text, "hello");
+                assert!(!no_enter, "--no-enter not passed, so no_enter must be false");
+            }
+            _ => panic!("expected Session::Send"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_send_with_no_enter_flag() {
+        let cli =
+            Cli::try_parse_from(["roux-cli", "session", "send", "hello", "--no-enter"]).unwrap();
+        match cli.command {
+            Commands::Session { action: SessionAction::Send { no_enter, .. } } => assert!(no_enter),
+            _ => panic!("expected Session::Send"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_send_with_session_and_pane() {
+        let cli =
+            Cli::try_parse_from(["roux-cli", "session", "send", "hi", "-s", "sid", "-p", "pid"])
+                .unwrap();
+        match cli.command {
+            Commands::Session { action: SessionAction::Send { session, pane, .. } } => {
+                assert_eq!(session.as_deref(), Some("sid"));
+                assert_eq!(pane.as_deref(), Some("pid"));
+            }
+            _ => panic!("expected Session::Send"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_create_with_full_options() {
+        let cli = Cli::try_parse_from([
+            "roux-cli",
+            "session",
+            "create",
+            "--name",
+            "feat-x",
+            "--worktree-branch",
+            "feat/x",
+            "--profile",
+            "claude",
+            "-f",
+            "--debug",
+            "-f",
+            "--model=opus",
+            "--nono-profile",
+            "strict",
+            "--nono-allow-dir",
+            "~/work",
+            "--nono-allow-dir",
+            "/tmp",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Session {
+                action:
+                    SessionAction::Create {
+                        name,
+                        worktree_branch,
+                        profile,
+                        flags,
+                        nono_profile,
+                        nono_allow_dirs,
+                        working_dir,
+                    },
+            } => {
+                assert_eq!(name.as_deref(), Some("feat-x"));
+                assert_eq!(worktree_branch.as_deref(), Some("feat/x"));
+                assert_eq!(profile.as_deref(), Some("claude"));
+                assert_eq!(flags, vec!["--debug", "--model=opus"]);
+                assert_eq!(nono_profile.as_deref(), Some("strict"));
+                assert_eq!(nono_allow_dirs, vec!["~/work", "/tmp"]);
+                assert!(working_dir.is_none());
+            }
+            _ => panic!("expected Session::Create"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_panes_list_with_session() {
+        let cli =
+            Cli::try_parse_from(["roux-cli", "session", "panes", "list", "-s", "sid"]).unwrap();
+        match cli.command {
+            Commands::Session {
+                action: SessionAction::Panes { action: PaneAction::List { session } },
+            } => {
+                assert_eq!(session.as_deref(), Some("sid"));
+            }
+            _ => panic!("expected Session::Panes::List"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_panes_create_defaults() {
+        let cli =
+            Cli::try_parse_from(["roux-cli", "session", "panes", "create", "-s", "sid"]).unwrap();
+        match cli.command {
+            Commands::Session {
+                action:
+                    SessionAction::Panes {
+                        action: PaneAction::Create { session, profile, direction, working_dir },
+                    },
+            } => {
+                assert_eq!(session.as_deref(), Some("sid"));
+                assert!(profile.is_none());
+                assert_eq!(direction, "horizontal");
+                assert!(working_dir.is_none());
+            }
+            _ => panic!("expected Session::Panes::Create"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_session_panes_create_with_all_options() {
+        let cli = Cli::try_parse_from([
+            "roux-cli", "session", "panes", "create", "-s", "sid", "-P", "shell", "-d", "vertical",
+            "-w", "/tmp",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Session {
+                action:
+                    SessionAction::Panes {
+                        action: PaneAction::Create { profile, direction, working_dir, .. },
+                    },
+            } => {
+                assert_eq!(profile.as_deref(), Some("shell"));
+                assert_eq!(direction, "vertical");
+                assert_eq!(working_dir.as_deref(), Some("/tmp"));
+            }
+            _ => panic!("expected Session::Panes::Create"),
+        }
+    }
+
+    #[test]
+    fn cli_rejects_removed_top_level_send() {
+        // `roux send "x"` used to work; now it must live under `session`.
+        let err = Cli::try_parse_from(["roux-cli", "send", "x"]);
+        assert!(err.is_err(), "top-level `send` must no longer parse");
+    }
+
+    #[test]
+    fn cli_split_still_parses_with_direction() {
+        let cli = Cli::try_parse_from(["roux-cli", "split", "-d", "vertical"]).unwrap();
+        match cli.command {
+            Commands::Split { direction } => assert_eq!(direction, "vertical"),
+            _ => panic!("expected Split"),
         }
     }
 }

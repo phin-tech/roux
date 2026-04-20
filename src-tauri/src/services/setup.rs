@@ -77,10 +77,6 @@ pub(crate) fn bundled_cli_version() -> &'static str {
     crate::hooks::bundled_cli_version()
 }
 
-pub(crate) fn is_setup_complete() -> bool {
-    crate::hooks::setup_is_complete()
-}
-
 pub(crate) fn install_hooks() -> anyhow::Result<()> {
     crate::hooks::install_hooks().map_err(anyhow::Error::msg)?;
     Ok(())

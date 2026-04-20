@@ -17,6 +17,7 @@ struct Request {
     command: String,
     session_id: Option<String>,
     pane_id: Option<String>,
+    #[allow(dead_code)]
     auth_token: Option<String>,
     #[serde(default)]
     args: serde_json::Value,

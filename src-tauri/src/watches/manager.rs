@@ -186,8 +186,8 @@ impl WatchManager {
                             let mut trackers = flap_trackers.lock().unwrap();
                             let tracker =
                                 trackers.entry(watch_id.clone()).or_insert_with(FlapTracker::new);
-                            if let Some(ref o) = outcome {
-                                tracker.record((*o).clone(), now);
+                            if let Some(o) = outcome {
+                                tracker.record(o.clone(), now);
                             }
                             tracker.is_flapping()
                         };
