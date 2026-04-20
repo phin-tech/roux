@@ -57,6 +57,8 @@
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { registerCommands, registry } from "$lib/commands";
+  import { setupAppMenu, teardownAppMenu, claimFire } from "$lib/menu/appMenu";
+  import { eventToAccelerator } from "$lib/menu/accelerators";
   import { closeFocusedPane } from "$lib/panes/actions";
   import { queries } from "$lib/queries";
   import { normalizeTheme, isLightTheme } from "$lib/themes";
@@ -207,6 +209,17 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // Dedup OS-level menu accelerators against the in-webview keymap
+    // dispatcher. When a chord matches an active menu item's accelerator
+    // Tauri fires the menu action in the native menu handler while the
+    // webview still receives the keydown; without this claim the command
+    // would run twice.
+    const menuAccelerator = eventToAccelerator(e);
+    if (menuAccelerator && !claimFire(menuAccelerator)) {
+      e.preventDefault();
+      return;
+    }
+
     // Arm the session-hint overlay when the platform primary modifier is
     // pressed on its own. The store handles the 200ms delay; quick chords
     // like Cmd/Ctrl+K or Cmd/Ctrl+1 release before the delay elapses and
@@ -328,6 +341,7 @@
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
     window.removeEventListener("blur", handleWindowBlur);
+    teardownAppMenu();
   });
 
   onMount(async () => {
@@ -339,7 +353,12 @@
     } catch {}
 
     registerCommands();
-    void loadKeymap();
+    // Await keymap load so the native menu's accelerators reflect the
+    // current preset on first paint. Without this the menu builds with
+    // the empty default keymap and has to rebuild once the real one
+    // arrives.
+    await loadKeymap();
+    await setupAppMenu(executeCommandById);
     // Use capture phase so we intercept before xterm.js swallows the event
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("keyup", handleKeyUp, true);
