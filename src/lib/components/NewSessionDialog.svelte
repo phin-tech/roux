@@ -755,15 +755,16 @@
         // Resolve the first leaf's effective nono up-front — the session's
         // primary PTY is spawned now by createSessionShell, not by the
         // layout walker (which only spawns PTYs for leaves 2..N).
-        const firstLeafNono = resolveFirstLeafNono(selectedLayout);
+        const firstLeafInfo = resolveFirstLeafNono(selectedLayout);
         const session = await createSessionShell(
           repoPath,
           name,
           worktreePathArg,
           branchArg,
-          firstLeafNono.nonoProfile ?? undefined,
-          firstLeafNono.nonoAllowDirs ?? undefined,
+          firstLeafInfo.nonoProfile ?? undefined,
+          firstLeafInfo.nonoAllowDirs ?? undefined,
           initialSize,
+          firstLeafInfo.profileId ?? undefined,
         );
         log(`Session created via layout: ${session.id}`);
         addSession(session);
@@ -806,6 +807,7 @@
         effectiveNono.nonoProfile,
         effectiveNono.nonoAllowDirs,
         initialSize,
+        profile.id,
       );
 
       log(`Session created: ${session.id}`);

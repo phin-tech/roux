@@ -259,6 +259,7 @@ mod tests {
             project_id: None,
             is_git_repo: false,
             name_override: None,
+            primary_pty_id: None,
         }
     }
 

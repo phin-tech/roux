@@ -207,7 +207,7 @@ export async function applyLayoutToSession(
   for (const leaf of leaves) {
     if (leaf.isFirst) continue;
     try {
-      await spawnShell(leaf.ptyId, session.worktreePath, session.id, leaf.paneId, leaf.nonoProfile, leaf.nonoAllowDirs);
+      await spawnShell(leaf.ptyId, session.worktreePath, session.id, leaf.paneId, leaf.nonoProfile, leaf.nonoAllowDirs, leaf.profile.id);
       spawned.push(leaf.ptyId);
     } catch (e) {
       // Step 5: Unwind on failure
@@ -258,17 +258,19 @@ export async function applyLayoutToSession(
   const { connectPaneTerminal } = await import(
     "$lib/panes/terminals"
   );
-  const { closePane } = await import("$lib/panes/actions");
+  const { updateInstance } = await import("$lib/panes/instances");
 
   for (const leaf of leaves) {
     try {
-      if (leaf.isFirst) {
-        await connectPaneTerminal(leaf.paneId);
-      } else {
-        await connectPaneTerminal(leaf.paneId, () => {
-          closePane(session.id, leaf.paneId);
+      await connectPaneTerminal(leaf.paneId, (payload) => {
+        updateInstance(leaf.paneId, {
+          terminalState: {
+            kind: "dead",
+            ptyId: leaf.ptyId,
+            exitCode: payload.code ?? null,
+          },
         });
-      }
+      });
     } catch (e) {
       const label = leaf.name ?? leaf.paneId;
       warnings.push(
@@ -310,9 +312,13 @@ function node(layout: LayoutSpec): LayoutPaneNode {
  * Mirrors the leaf-wins-over-profile + union-of-allow_dirs resolution used
  * by `collectLeaves`.
  */
-export function resolveFirstLeafNono(
-  layout: LayoutSpec,
-): { nonoProfile: string | undefined; nonoAllowDirs: string[] | undefined } {
+export interface FirstLeafInfo {
+  nonoProfile: string | undefined;
+  nonoAllowDirs: string[] | undefined;
+  profileId: string | undefined;
+}
+
+export function resolveFirstLeafNono(layout: LayoutSpec): FirstLeafInfo {
   function findFirstLeaf(n: LayoutPaneNode): LayoutPaneNode | null {
     if (n.kind === "leaf") return n;
     for (const c of n.children) {
@@ -324,12 +330,14 @@ export function resolveFirstLeafNono(
 
   const leaf = findFirstLeaf(layout.root);
   if (!leaf || leaf.kind !== "leaf") {
-    return { nonoProfile: undefined, nonoAllowDirs: undefined };
+    return { nonoProfile: undefined, nonoAllowDirs: undefined, profileId: undefined };
   }
 
   const registry = get(profileRegistry);
   let profile: SpawnProfile | null = null;
   const ref = leaf.profile_ref;
+  const profileId = ref.kind === "registered" ? ref.id : ref.profile.id;
+
   if (ref.kind === "registered") {
     profile = registry.get(ref.id) ?? null;
   } else {
@@ -346,6 +354,7 @@ export function resolveFirstLeafNono(
     return {
       nonoProfile: leafNono,
       nonoAllowDirs: merged.length > 0 ? merged : undefined,
+      profileId,
     };
   } else if (profileNono) {
     return {
@@ -353,7 +362,8 @@ export function resolveFirstLeafNono(
       nonoAllowDirs: profile?.nonoAllowDirs?.length
         ? profile.nonoAllowDirs
         : undefined,
+      profileId,
     };
   }
-  return { nonoProfile: undefined, nonoAllowDirs: undefined };
+  return { nonoProfile: undefined, nonoAllowDirs: undefined, profileId };
 }

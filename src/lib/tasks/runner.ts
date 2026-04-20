@@ -62,7 +62,7 @@ export async function runTask(
 
   // Spawn one-shot command — output buffers in Rust backlog until channel attaches
   log(`runTask: spawning ptyId=${ptyId} cmd="${task.command}" keepOpen=${keepOpen} spawnInPane=${spawnInPane}`);
-  await spawnTask(ptyId, task.command, repoRoot, sessionId, paneId);
+  await spawnTask(ptyId, task.command, repoRoot, sessionId, paneId, "task");
 
   // If keepOpen is "always", show in a command pane with full terminal
   if (spawnInPane && paneId) {

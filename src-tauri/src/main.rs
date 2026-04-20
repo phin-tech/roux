@@ -18,6 +18,8 @@ mod project_service;
 mod projects;
 mod providers;
 mod pty;
+mod pty_lifecycle;
+mod pty_logger;
 mod pty_ready_gate;
 mod services;
 mod session;
@@ -149,6 +151,11 @@ fn main() {
         commands::worktrees::git_init,
         commands::sessions::refresh_session_git_status,
         commands::misc::quit_app,
+        commands::pty::list_session_ptys,
+        commands::pty::detach_pty,
+        commands::pty::attach_pty_to_pane,
+        commands::pty::mark_pty_read,
+        commands::pty::set_pty_name,
         // pane_state commands are omitted from specta — serde_json::Value
         // produces invalid TypeScript. They're called via raw invoke() instead.
     ]);
@@ -171,7 +178,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             settings: Mutex::new(initial_settings),
-            pty_manager: PtyManager::new(),
+            pty_manager: std::sync::Arc::new(PtyManager::new()),
             pane_handle,
             session_handle,
             project_handle,
@@ -269,6 +276,11 @@ fn main() {
             commands::pane_state::save_live_pane_state,
             commands::pane_state::delete_pane_state,
             commands::sessions::submit_roux_reply,
+            commands::pty::list_session_ptys,
+            commands::pty::detach_pty,
+            commands::pty::attach_pty_to_pane,
+            commands::pty::mark_pty_read,
+            commands::pty::set_pty_name,
         ])
         .setup(|app| {
             // Install the roux-cli shim dir (~/.config/roux/bin) with
@@ -302,6 +314,21 @@ fn main() {
                 let state = app.state::<AppState>();
                 state.pty_manager.set_agent_sender(agent_input_tx.clone());
             }
+
+            // Spawn the PTY lifecycle handler — centralizes exit event
+            // emission, PtyManager state updates, and agent registry
+            // notifications in a single thread.
+            {
+                let state = app.state::<AppState>();
+                let ctx = pty_lifecycle::LifecycleHandlerContext {
+                    pty_manager: state.pty_manager.clone(),
+                    agent_registry_tx: agent_input_tx.clone(),
+                    app: app.handle().clone(),
+                };
+                let lifecycle_tx = pty_lifecycle::spawn_handler(ctx);
+                state.pty_manager.set_lifecycle_tx(lifecycle_tx);
+            }
+
             if let Err(e) = agent_sources::file_status::start_watching(
                 app.handle().clone(),
                 agent_input_tx,

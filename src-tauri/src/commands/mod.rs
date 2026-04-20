@@ -6,6 +6,7 @@ pub(crate) mod panes;
 pub(crate) mod pane_state;
 pub(crate) mod pr;
 pub(crate) mod projects;
+pub(crate) mod pty;
 pub(crate) mod sessions;
 pub(crate) mod settings;
 pub(crate) mod setup;

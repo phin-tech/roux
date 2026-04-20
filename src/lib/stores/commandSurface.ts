@@ -11,6 +11,8 @@ export interface CommandSurfaceState {
   leaderSequence: string[];
   leaderPromptCommandId: string | null;
   leaderPromptValue: string;
+  /** When set, CommandPalette auto-drills into this command's getItems on open. */
+  initialCommandId: string | null;
 }
 
 const INITIAL_STATE: CommandSurfaceState = {
@@ -20,11 +22,12 @@ const INITIAL_STATE: CommandSurfaceState = {
   leaderSequence: [],
   leaderPromptCommandId: null,
   leaderPromptValue: "",
+  initialCommandId: null,
 };
 
 export const commandSurface = writable<CommandSurfaceState>(INITIAL_STATE);
 
-function openCommandSurface(mode: CommandSurfaceMode): void {
+function openCommandSurface(mode: CommandSurfaceMode, initialCommandId: string | null = null): void {
   const current = get(commandSurface);
   if (current.open) {
     commandSurface.set({
@@ -33,6 +36,7 @@ function openCommandSurface(mode: CommandSurfaceMode): void {
       leaderSequence: [],
       leaderPromptCommandId: null,
       leaderPromptValue: "",
+      initialCommandId,
     });
     return;
   }
@@ -44,11 +48,20 @@ function openCommandSurface(mode: CommandSurfaceMode): void {
     leaderSequence: [],
     leaderPromptCommandId: null,
     leaderPromptValue: "",
+    initialCommandId,
   });
 }
 
 export function openCommandPalette(): void {
   openCommandSurface("palette");
+}
+
+/**
+ * Open the command palette pre-drilled into a specific command's getItems picker.
+ * Useful for buttons that want to drop the user directly into a sub-picker.
+ */
+export function openCommandPaletteWithCommand(commandId: string): void {
+  openCommandSurface("palette", commandId);
 }
 
 export function openLeaderMode(): void {

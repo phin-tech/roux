@@ -24,8 +24,8 @@ export const commands = {
 	cmdPreviewWorktreeBase: (template: string, repoPath: string) => __TAURI_INVOKE<string>("cmd_preview_worktree_base", { template, repoPath }),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
-	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, initialCols: number | null, initialRows: number | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, nonoProfile, nonoAllowDirs, initialCols, initialRows })),
-	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null, initialCols: number | null, initialRows: number | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId, initialCols, initialRows })),
+	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, nonoProfile, nonoAllowDirs, profile, initialSize })),
+	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId, profile, initialSize })),
 	killSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_session", { id })),
 	/**
 	 *  Kill only the PTY for `id`, leaving session state, pane-state files, and
@@ -57,14 +57,14 @@ export const commands = {
 	 *  shell is ready. Used for every non-claude profile in the new-session
 	 *  picker (Codex, Plain shell, user profiles, inline Custom…).
 	 */
-	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, initialCols: number | null, initialRows: number | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, nonoProfile, nonoAllowDirs, initialCols, initialRows })),
+	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, nonoProfile, nonoAllowDirs, profile, initialSize })),
 	/**
 	 *  Respawns a plain shell in the session's primary PTY. The frontend
 	 *  replays the pane's spawn profile commands into the fresh shell after
 	 *  this call returns, so agents come back up the same way they were
 	 *  originally launched via `create_session_shell`.
 	 */
-	reconnectSessionShell: (id: string, nonoProfile: string | null, nonoAllowDirs: string[] | null, initialCols: number | null, initialRows: number | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, nonoProfile, nonoAllowDirs, initialCols, initialRows })),
+	reconnectSessionShell: (id: string, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, nonoProfile, nonoAllowDirs, profile, initialSize })),
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),
 	listClaudeSessions: (cwd: string) => typedError<ClaudeSession[], string>(__TAURI_INVOKE("list_claude_sessions", { cwd })),
 	/**
@@ -172,10 +172,19 @@ export const commands = {
 	gitInit: (path: string) => typedError<null, string>(__TAURI_INVOKE("git_init", { path })),
 	refreshSessionGitStatus: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("refresh_session_git_status", { id })),
 	quitApp: () => typedError<null, string>(__TAURI_INVOKE("quit_app")),
+	listSessionPtys: (sessionId: string) => typedError<PtyInfo[], string>(__TAURI_INVOKE("list_session_ptys", { sessionId })),
+	detachPty: (ptyId: string) => typedError<null, string>(__TAURI_INVOKE("detach_pty", { ptyId })),
+	attachPtyToPane: (ptyId: string, paneId: string, cols: number, rows: number) => typedError<AttachResult, string>(__TAURI_INVOKE("attach_pty_to_pane", { ptyId, paneId, cols, rows })),
+	markPtyRead: (ptyId: string) => typedError<null, string>(__TAURI_INVOKE("mark_pty_read", { ptyId })),
+	setPtyName: (ptyId: string, name: string | null) => typedError<null, string>(__TAURI_INVOKE("set_pty_name", { ptyId, name })),
 };
 
 /* Types */
 export type ActionKind = { type: "focusSession"; sessionId: string } | { type: "focusPane"; paneId: string } | { type: "openUrl"; url: string } | { type: "openPath"; path: string } | { type: "runCommand"; commandId: string } | { type: "retryWatch"; watchId: string } | { type: "dismiss" } | { type: "dismissSource" } | { type: "markRead" };
+
+export type AttachResult = {
+	replay_bytes: number[],
+};
 
 export type Bind = {
 	key: KeyRef,
@@ -429,6 +438,15 @@ export type NotifyConfig = {
 };
 
 /**
+ *  What happens to a PTY when its pane is closed.
+ * 
+ *  - `Detach` — the PTY keeps running in the background; it can be
+ *    re-attached to another pane later.
+ *  - `Kill` — the PTY process is killed immediately (legacy behaviour).
+ */
+export type OnPaneCloseMode = "detach" | "kill";
+
+/**
  *  Fully parsed keymap. `preset_ref` is the raw `preset "<name>"`
  *  reference, if the document declared one; the loader resolves it by
  *  parsing the preset KDL separately and calling [`merge_keymaps`].
@@ -500,6 +518,35 @@ export type Project = {
  *  requires a provider module — see `src-tauri/src/providers/`.
  */
 export type Provider = "claude" | "codex";
+
+// Serializable PTY snapshot for frontend consumption.
+export type PtyInfo = {
+	id: string,
+	session_id: string | null,
+	role: PtyRole,
+	status: PtyStatus,
+	name: string | null,
+	working_dir: string | null,
+	profile: string | null,
+	unread_output: boolean,
+	bell_pending: boolean,
+};
+
+// Role of a PTY within its session.
+export type PtyRole = 
+// Main Claude/shell for the session.
+"sessionPrimary" | 
+// Additional shells, e.g. spawned from a split pane.
+"secondary";
+
+// Lifecycle status of a PTY.
+export type PtyStatus = 
+// PTY is running and attached to a pane.
+{ type: "RunningAttached"; pane_id: string } | 
+// PTY is running but not currently attached to any pane.
+{ type: "RunningDetached"; since_ms: number } | 
+// PTY process has exited.
+{ type: "Exited"; code: number | null; at_ms: number };
 
 export type RouxSettings = {
 	tabPosition: TabPosition,
@@ -612,6 +659,12 @@ export type RouxSettings = {
 	 *  (⌘ on macOS, Ctrl elsewhere) is held. Chord shortcuts are unaffected.
 	 */
 	showSessionHintsOnCommand?: boolean,
+	/**
+	 *  What happens to a PTY when its pane is closed.
+	 *  `Detach` (default): the process keeps running and can be re-attached.
+	 *  `Kill`: the process is killed immediately (legacy behaviour).
+	 */
+	onPaneClose?: OnPaneCloseMode,
 };
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
@@ -630,6 +683,11 @@ export type Session = {
 	projectId?: string | null,
 	isGitRepo?: boolean,
 	nameOverride?: string | null,
+	/**
+	 *  ID of the primary PTY for this session. Set at session creation,
+	 *  kept as `None` for sessions restored from disk that haven't reconnected yet.
+	 */
+	primaryPtyId?: string | null,
 };
 
 export type SessionStatus = "idle" | "thinking" | "generating" | "error" | "disconnected" | "attention";

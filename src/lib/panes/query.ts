@@ -1,6 +1,6 @@
 import { get } from "svelte/store";
 import { sessionLayouts, type LayoutNode } from "./layout";
-import { paneInstances } from "./instances";
+import { paneInstances, getAttachedPtyId } from "./instances";
 
 export interface PaneDescriptorSnapshot {
   id: string;
@@ -39,7 +39,7 @@ export function collectPaneTree(sessionId: string): PaneTreeSnapshot {
           descriptors.push({
             id: inst.id,
             type: inst.type,
-            ptyId: inst.ptyId,
+            ptyId: getAttachedPtyId(inst) ?? "",
             name: inst.name,
             workingDir: inst.workingDir,
             command: inst.command,

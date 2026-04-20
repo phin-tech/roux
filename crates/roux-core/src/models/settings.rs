@@ -69,6 +69,19 @@ pub enum UpdateChannel {
     PreRelease,
 }
 
+/// What happens to a PTY when its pane is closed.
+///
+/// - `Detach` — the PTY keeps running in the background; it can be
+///   re-attached to another pane later.
+/// - `Kill` — the PTY process is killed immediately (legacy behaviour).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum OnPaneCloseMode {
+    #[default]
+    Detach,
+    Kill,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RouxSettings {
@@ -178,6 +191,11 @@ pub struct RouxSettings {
     /// (⌘ on macOS, Ctrl elsewhere) is held. Chord shortcuts are unaffected.
     #[serde(default = "default_true")]
     pub show_session_hints_on_command: bool,
+    /// What happens to a PTY when its pane is closed.
+    /// `Detach` (default): the process keeps running and can be re-attached.
+    /// `Kill`: the process is killed immediately (legacy behaviour).
+    #[serde(default)]
+    pub on_pane_close: OnPaneCloseMode,
 }
 
 impl Default for RouxSettings {
@@ -223,6 +241,7 @@ impl Default for RouxSettings {
             status_bar_position: StatusBarPosition::Bottom,
             show_pane_hints_on_option: false,
             show_session_hints_on_command: true,
+            on_pane_close: OnPaneCloseMode::Detach,
         }
     }
 }

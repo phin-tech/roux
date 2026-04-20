@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import "@xterm/xterm/css/xterm.css";
-  import { paneInstances, updateInstance } from "$lib/panes/instances";
+  import { paneInstances, updateInstance, getAttachedPtyId } from "$lib/panes/instances";
   import { focusedPaneId, requestDomFocus, setLogicalFocus } from "$lib/panes/focus";
   import { collectVisibleLeafIds, sessionLayouts } from "$lib/panes/layout";
   import { closePane } from "$lib/panes/actions";
@@ -45,6 +45,7 @@
   let elapsed = $state("0s");
 
   const instance = $derived($paneInstances.get(paneId));
+  const terminalState = $derived(instance?.terminalState);
   const isFocused = $derived($focusedPaneId === paneId);
   const hasMultipleVisiblePanes = $derived.by<boolean>(() => {
     const layout = $sessionLayouts.get(sessionId);
@@ -128,9 +129,18 @@
     }
   }
 
+  function handleAttachTerminal() {
+    // Ensure this pane is logically focused so pane.attach-terminal's
+    // available() check passes and the palette knows which pane to target.
+    setLogicalFocus(paneId);
+    import("$lib/stores/commandSurface").then(({ openCommandPaletteWithCommand }) => {
+      openCommandPaletteWithCommand("pane.attach-terminal");
+    });
+  }
+
   const resizeScheduler = createResizeScheduler({
     fit: () => getTerminalController(paneId)?.fit() ?? null,
-    getPtyId: () => instance?.ptyId ?? "",
+    getPtyId: () => (instance ? getAttachedPtyId(instance) : null),
     onResize: (ptyId, cols, rows) => {
       resizeSession(ptyId, cols, rows).catch((e) => {
         log(`Resize failed for ${ptyId}: ${e}`);
@@ -454,15 +464,38 @@
             onclick={() => requestDomFocus(paneId)}
           ></div>
         </div>
+      {:else if terminalState?.kind === "empty"}
+        <!-- Empty pane: no PTY attached yet -->
+        <div class="flex h-full w-full flex-col items-center justify-center gap-3 bg-bg-deep p-6 text-center">
+          <span class="text-[11px] uppercase tracking-wider text-text-muted">No terminal attached</span>
+          <button
+            class="cursor-pointer rounded-xl border border-accent-dim/20 bg-accent-dim/15 px-5 py-2 text-[13px] font-medium text-accent hover:bg-accent-dim/24"
+            onclick={handleAttachTerminal}
+          >
+            Attach Terminal...
+          </button>
+        </div>
       {:else}
-        <!-- shell: just a terminal container -->
+        <!-- shell (attached or legacy ptyId): terminal container.
+             For dead panes, the xterm scrollback remains visible; the exit
+             banner is overlaid below it. -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div
-          bind:this={containerEl}
-          class="ui-terminal-frame h-full w-full overflow-hidden"
-          onclick={() => requestDomFocus(paneId)}
-        ></div>
+        <div class="relative h-full w-full">
+          <div
+            bind:this={containerEl}
+            class="ui-terminal-frame h-full w-full overflow-hidden"
+            onclick={() => requestDomFocus(paneId)}
+          ></div>
+          {#if terminalState?.kind === "dead"}
+            <!-- Exit banner overlaid on scrollback -->
+            <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-bg-deep/80 px-4 py-2">
+              <span class="font-mono text-[11px] text-text-muted">
+                Process exited (code: {terminalState.exitCode ?? "unknown"})
+              </span>
+            </div>
+          {/if}
+        </div>
       {/if}
     </div>
 
