@@ -78,11 +78,18 @@ bind "Ctrl+Alt+KeyL" "pane.resize-right"
 tree "leader" {
     bind "w" { enter-tree "leader-panes" }
     bind "b" { enter-tree "leader-sessions" }
+    bind "t" { enter-tree "leader-toggle" }
     bind "n" "ui.toggle-notes"
     bind "i" "ui.toggle-notifications"
-    bind "t" "ui.toggle-watches"
     bind "," "app.settings"
     bind "Space" "app.command-palette"
+}
+
+tree "leader-toggle" {
+    bind "n" "ui.toggle-notes"
+    bind "s" "ui.toggle-sessions"
+    bind "w" "ui.toggle-watches"
+    bind "i" "ui.toggle-notifications"
 }
 
 tree "leader-panes" {
