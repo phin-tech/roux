@@ -6,9 +6,6 @@ import { loadKeymap, exitTree as keymapExitTree } from "$lib/keymap/store";
 import { openSidebar } from "$lib/stores/ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { logError } from "$lib/logging";
-
-const DOCS_URL = "https://github.com/phin-tech/roux#readme";
-const ISSUES_URL = "https://github.com/phin-tech/roux/issues";
 import {
   setLastNotesScope,
   setNotesViewMode,
@@ -16,6 +13,9 @@ import {
   notesViewMode,
   type NotesScope,
 } from "$lib/stores/notesUi";
+
+const DOCS_URL = "https://github.com/phin-tech/roux#readme";
+const ISSUES_URL = "https://github.com/phin-tech/roux/issues";
 
 function showNotesScope(scope: NotesScope) {
   const session = queries.activeSession();

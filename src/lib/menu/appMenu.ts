@@ -189,17 +189,23 @@ async function rebuildMenu(): Promise<void> {
 
 function refreshEnabled(): void {
   for (const entry of tracked) {
-    const cmd = registry.get(entry.commandId);
-    // Predefined items skipped at track time; every tracked id should be
-    // in the registry. If not, treat as always-enabled — matches the
-    // keymap-pseudo-command case (keymap.reload is in the registry but
-    // some dispatch-only ids like help.* might be added later).
-    const enabled = !cmd || !cmd.available || cmd.available();
-    void entry.item.setEnabled(enabled).catch(() => {});
-    if (entry.refreshText) {
-      const text = entry.refreshText();
-      // MenuItem.setText exists on both MenuItem and CheckMenuItem.
-      void (entry.item as MenuItem).setText(text).catch(() => {});
+    // Guard per-entry so one failing item can't short-circuit the rest of
+    // the refresh — e.g. a future Tauri version removing setText or
+    // setEnabled on some item variant.
+    try {
+      const cmd = registry.get(entry.commandId);
+      // Predefined items skipped at track time; every tracked id should
+      // be in the registry. If not, treat as always-enabled — matches
+      // the keymap-pseudo-command case.
+      const enabled = !cmd || !cmd.available || cmd.available();
+      void entry.item.setEnabled(enabled).catch(() => {});
+      if (entry.refreshText) {
+        const text = entry.refreshText();
+        // MenuItem.setText exists on both MenuItem and CheckMenuItem.
+        void (entry.item as MenuItem).setText(text).catch(() => {});
+      }
+    } catch (e) {
+      logError(`appMenu: refresh failed for ${entry.commandId}`, e);
     }
   }
   const groupBy = get(settings).groupBy ?? "repo";

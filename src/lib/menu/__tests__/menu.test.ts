@@ -10,6 +10,7 @@ type FakeItem = {
   opts: Record<string, unknown>;
   items?: FakeItem[];
   setEnabled: ReturnType<typeof vi.fn>;
+  setText: ReturnType<typeof vi.fn>;
   setChecked?: ReturnType<typeof vi.fn>;
   setAsAppMenu: ReturnType<typeof vi.fn>;
   setAsWindowMenu: ReturnType<typeof vi.fn>;
@@ -25,6 +26,9 @@ function makeClass(kind: string, hasChecked = false) {
           ? (opts.items as FakeItem[])
           : undefined,
         setEnabled: vi.fn(async () => {}),
+        setText: vi.fn(async (text: string) => {
+          self.opts.text = text;
+        }),
         setChecked: hasChecked ? vi.fn(async () => {}) : undefined,
         setAsAppMenu: vi.fn(async () => null),
         setAsWindowMenu: vi.fn(async () => null),
