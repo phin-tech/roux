@@ -48,4 +48,13 @@ pub struct Session {
     /// kept as `None` for sessions restored from disk that haven't reconnected yet.
     #[serde(default)]
     pub primary_pty_id: Option<String>,
+    /// Soft-delete flag. Archived sessions are retained in `sessions.json`
+    /// for the history view but filtered out of the active `list_sessions`
+    /// query. Restore flips this back to `false`.
+    #[serde(default)]
+    pub archived: bool,
+    /// Unix epoch seconds of when this session was archived. `None` for
+    /// active sessions; set when `archived` flips to `true`.
+    #[serde(default)]
+    pub ended_at: Option<u64>,
 }
