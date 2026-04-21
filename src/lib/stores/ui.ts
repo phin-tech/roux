@@ -7,20 +7,38 @@ import { sessionState } from "$lib/stores/sessions";
  * Settings, Notes, Watches, Notifications. Any new panel registers here.
  * State is ephemeral (not persisted).
  */
-export type SidebarId = "settings" | "notes" | "watches" | "notifications";
+export type SidebarId = "settings" | "notes" | "watches" | "notifications" | "sessions";
 
 export const activeSidebar = writable<SidebarId | null>(null);
 
+/**
+ * When non-null, the notes panel targets this session id instead of the
+ * app's active session. Used by the sessions-history pane so clicking
+ * "View notes" on an archived row scopes the notes view to that session
+ * without changing the active session. Cleared automatically when the
+ * user leaves the notes sidebar.
+ */
+export const notesOverrideSessionId = writable<string | null>(null);
+
 export function openSidebar(id: SidebarId): void {
   activeSidebar.set(id);
+  if (id !== "notes") notesOverrideSessionId.set(null);
 }
 
 export function closeSidebar(): void {
   activeSidebar.set(null);
+  notesOverrideSessionId.set(null);
 }
 
 export function toggleSidebar(id: SidebarId): void {
-  activeSidebar.set(get(activeSidebar) === id ? null : id);
+  const next = get(activeSidebar) === id ? null : id;
+  activeSidebar.set(next);
+  if (next !== "notes") notesOverrideSessionId.set(null);
+}
+
+export function openNotesForSession(sessionId: string): void {
+  notesOverrideSessionId.set(sessionId);
+  activeSidebar.set("notes");
 }
 
 const HOLD_DELAY_MS = 200;

@@ -1,7 +1,12 @@
 import { get } from "svelte/store";
 import { removeSession } from "$lib/stores/sessions";
+import { addArchivedSessionFromEvent } from "$lib/stores/archivedSessions";
 import { closeSessionPanes } from "$lib/panes/actions";
-import { killSession, removeWorktree } from "$lib/tauri";
+import {
+  killSession,
+  removeWorktree,
+  deleteSessionPermanently,
+} from "$lib/tauri";
 import { settings } from "$lib/stores/settings";
 import {
   sessionAgentStatus,
@@ -9,20 +14,41 @@ import {
 } from "$lib/panes/agentState";
 import type { Session } from "$lib/types";
 
-export async function closeSession(session: Session, opts?: { force?: boolean }): Promise<boolean> {
+/**
+ * How to close a session. With the sessions-history pane, "archive" is the
+ * only interactive choice — the session's record is soft-deleted and its
+ * worktree is kept on disk. Users who want the worktree gone use the
+ * Clean worktree action from the History pane (safer: no ambiguity about
+ * what's being destroyed since the session is already archived).
+ *
+ * `delete-forever` is available for programmatic callers only; it does
+ * **not** touch the worktree either — use Clean worktree first, then
+ * Delete forever from History, if both are desired.
+ */
+export type CloseAction = "archive" | "delete-forever";
+
+interface CloseOpts {
+  /** Skip the interactive confirm. Used for quit-flow, spawn-rollback, etc. */
+  force?: boolean;
+  /** Defaults to `archive`. `delete-forever` skips the confirm unconditionally. */
+  action?: CloseAction;
+}
+
+export async function closeSession(session: Session, opts?: CloseOpts): Promise<boolean> {
   const s = get(settings);
   const force = opts?.force ?? false;
+  const action: CloseAction = opts?.action ?? "archive";
 
-  // Use the unified effective status so that a session whose secondary
-  // pane is actively generating still trips the confirm prompt even if
-  // the legacy Session.status field is stale.
+  // Thinking/generating confirm — preserved from the old flow. Always the
+  // same one-confirm prompt; no secondary destructive confirm stacked on
+  // top (that was the bug that made "OK, OK" delete worktrees).
   const effective = computeEffectiveSessionStatus(
     session.status,
     get(sessionAgentStatus).get(session.id) ?? null,
   );
-
   if (
     !force &&
+    action === "archive" &&
     s.confirmOnClose &&
     (effective === "thinking" || effective === "generating")
   ) {
@@ -32,27 +58,39 @@ export async function closeSession(session: Session, opts?: { force?: boolean })
     if (!confirmed) return false;
   }
 
-  // closeSessionPanes disposes all instances (terminals, listeners) and removes the layout
+  // Dispose panes / terminals regardless of action.
   closeSessionPanes(session.id);
+
+  if (action === "delete-forever") {
+    await deleteSessionPermanently(session.id);
+    removeSession(session.id);
+    return true;
+  }
+
+  // Archive path: soft-delete the record, worktree stays on disk.
   await killSession(session.id);
 
+  // Honor the legacy always-cleanup setting for users who explicitly
+  // opted in. `prompt` no longer prompts — worktree removal is a
+  // post-archive action from the History pane, not a close-time gotcha.
   if (session.isWorktree) {
-    // Prefer the new three-state enum; fall back to the legacy boolean for
-    // settings files written before the migration ran.
     const mode =
       s.worktreeCleanupOnClose ?? (s.cleanupWorktreesOnClose ? "always" : "prompt");
     if (mode === "always") {
       await removeWorktree(session.worktreePath).catch(() => {});
-    } else if (mode === "prompt" && !force) {
-      const remove = window.confirm(
-        `Also remove the worktree at ${session.worktreePath}?`
-      );
-      if (remove) {
-        await removeWorktree(session.worktreePath).catch(() => {});
-      }
     }
   }
 
+  // Remove from the active store and push into the archived store so an
+  // already-open Sessions Pane reflects the new history row immediately.
   removeSession(session.id);
+  const endedAt = Math.floor(Date.now() / 1000);
+  addArchivedSessionFromEvent({
+    ...session,
+    archived: true,
+    endedAt,
+    primaryPtyId: null,
+    status: "disconnected",
+  });
   return true;
 }

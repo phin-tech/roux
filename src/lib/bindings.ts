@@ -26,7 +26,26 @@ export const commands = {
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
 	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, nonoProfile, nonoAllowDirs, profile, initialSize })),
 	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId, profile, initialSize })),
+	/**
+	 *  Archive a session (soft-delete). The frontend command name is retained
+	 *  for backward-compat, but the record is kept on disk and shown in the
+	 *  sessions-history pane until the user permanently deletes it.
+	 */
 	killSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_session", { id })),
+	// Bring an archived session back to the active list.
+	restoreSession: (id: string) => typedError<null, string>(__TAURI_INVOKE("restore_session", { id })),
+	/**
+	 *  Permanently delete a session record. Irreversible. Does not touch the
+	 *  worktree — worktree handling is explicit via the History pane's
+	 *  Clean worktree action.
+	 */
+	deleteSessionPermanently: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_session_permanently", { id })),
+	/**
+	 *  Check whether an archived session's worktree path still exists on disk.
+	 *  The frontend uses this to disable the Restore button when the worktree
+	 *  has been removed since archival.
+	 */
+	sessionWorktreeExists: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("session_worktree_exists", { id })),
 	/**
 	 *  Kill only the PTY for `id`, leaving session state, pane-state files, and
 	 *  the session record untouched. Used by `disposePane` on the frontend so
@@ -84,7 +103,16 @@ export const commands = {
 	 *  originally launched via `create_session_shell`.
 	 */
 	reconnectSessionShell: (id: string, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, nonoProfile, nonoAllowDirs, profile, initialSize })),
+	/**
+	 *  Active sessions only — archived rows are excluded. The history view
+	 *  uses `list_archived_sessions` for those.
+	 */
 	listSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_sessions")),
+	/**
+	 *  Archived sessions, sorted newest-first by `ended_at` so the history
+	 *  pane renders in the order the user closed them.
+	 */
+	listArchivedSessions: () => typedError<Session[], string>(__TAURI_INVOKE("list_archived_sessions")),
 	listClaudeSessions: (cwd: string) => typedError<ClaudeSession[], string>(__TAURI_INVOKE("list_claude_sessions", { cwd })),
 	/**
 	 *  Return the built-in spawn profile registry, assembled from each provider
@@ -224,8 +252,12 @@ export type ClaudeSession = {
 export type CreateShellOpts = {
 	nonoProfile?: string | null,
 	nonoAllowDirs?: string[] | null,
-	initialCols?: number | null,
-	initialRows?: number | null,
+	/**
+	 *  Spawn-profile id (`claude`, `codex`, user-profile id, …). Passed to
+	 *  the PTY env so agents wake up under the right profile.
+	 */
+	profile?: string | null,
+	initialSize?: [number, number] | null,
 	/**
 	 *  Git starting point for a new worktree's branch (e.g. "main",
 	 *  "origin/main"). Ignored unless `branch` is set and new.
@@ -734,6 +766,17 @@ export type Session = {
 	 *  kept as `None` for sessions restored from disk that haven't reconnected yet.
 	 */
 	primaryPtyId?: string | null,
+	/**
+	 *  Soft-delete flag. Archived sessions are retained in `sessions.json`
+	 *  for the history view but filtered out of the active `list_sessions`
+	 *  query. Restore flips this back to `false`.
+	 */
+	archived?: boolean,
+	/**
+	 *  Unix epoch seconds of when this session was archived. `None` for
+	 *  active sessions; set when `archived` flips to `true`.
+	 */
+	endedAt?: number | null,
 };
 
 export type SessionStatus = "idle" | "thinking" | "generating" | "error" | "disconnected" | "attention";

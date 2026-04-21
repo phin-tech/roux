@@ -187,6 +187,22 @@ export async function listSessions(): Promise<Session[]> {
   return invoke("list_sessions");
 }
 
+export async function listArchivedSessions(): Promise<Session[]> {
+  return invoke("list_archived_sessions");
+}
+
+export async function restoreSession(id: string): Promise<void> {
+  return invoke("restore_session", { id });
+}
+
+export async function deleteSessionPermanently(id: string): Promise<void> {
+  return invoke("delete_session_permanently", { id });
+}
+
+export async function sessionWorktreeExists(id: string): Promise<boolean> {
+  return invoke("session_worktree_exists", { id });
+}
+
 export async function getSettings(): Promise<RouxSettings> {
   return invoke("get_settings");
 }
