@@ -73,11 +73,21 @@ export async function closeSession(session: Session, opts?: CloseOpts): Promise<
   // Honor the legacy always-cleanup setting for users who explicitly
   // opted in. `prompt` no longer prompts — worktree removal is a
   // post-archive action from the History pane, not a close-time gotcha.
+  // Track whether the worktree was actually removed so the History pane
+  // reflects the right "on disk" / "gone" state without a re-hydrate.
+  let worktreeStillOnDisk = session.isWorktree;
   if (session.isWorktree) {
     const mode =
       s.worktreeCleanupOnClose ?? (s.cleanupWorktreesOnClose ? "always" : "prompt");
     if (mode === "always") {
-      await removeWorktree(session.worktreePath).catch(() => {});
+      try {
+        await removeWorktree(session.worktreePath);
+        worktreeStillOnDisk = false;
+      } catch {
+        // If removal failed we still archive the session, but leave the
+        // worktree flagged as on disk so the user can retry from the
+        // History pane (Clean worktree).
+      }
     }
   }
 
@@ -85,12 +95,15 @@ export async function closeSession(session: Session, opts?: CloseOpts): Promise<
   // already-open Sessions Pane reflects the new history row immediately.
   removeSession(session.id);
   const endedAt = Math.floor(Date.now() / 1000);
-  addArchivedSessionFromEvent({
-    ...session,
-    archived: true,
-    endedAt,
-    primaryPtyId: null,
-    status: "disconnected",
-  });
+  addArchivedSessionFromEvent(
+    {
+      ...session,
+      archived: true,
+      endedAt,
+      primaryPtyId: null,
+      status: "disconnected",
+    },
+    worktreeStillOnDisk,
+  );
   return true;
 }

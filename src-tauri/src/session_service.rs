@@ -28,7 +28,9 @@ use tokio::time::{interval, Duration};
 use crate::session::Session;
 
 enum SessionMsg {
-    Add { session: Session, reply: oneshot::Sender<()> },
+    // `Session` is ~272 bytes; box it so this variant doesn't dominate the
+    // enum size (clippy::large_enum_variant). All other variants are tiny.
+    Add { session: Box<Session>, reply: oneshot::Sender<()> },
     Remove { id: String, reply: oneshot::Sender<()> },
     Archive { id: String, reply: oneshot::Sender<()> },
     Restore { id: String, reply: oneshot::Sender<()> },
@@ -58,7 +60,7 @@ impl SessionHandle {
 
     pub async fn add(&self, session: Session) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(SessionMsg::Add { session, reply: reply_tx })?;
+        self.send(SessionMsg::Add { session: Box::new(session), reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
@@ -177,7 +179,7 @@ async fn service_loop(
             msg = rx.recv() => {
                 match msg {
                     Some(SessionMsg::Add { session, reply }) => {
-                        sessions.push(session);
+                        sessions.push(*session);
                         dirty = true;
                         let _ = reply.send(());
                     }

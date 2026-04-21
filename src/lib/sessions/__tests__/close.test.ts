@@ -130,12 +130,13 @@ describe("closeSession", () => {
     expect(get(sessionState).sessions).toHaveLength(0);
   });
 
-  it("legacy setting worktreeCleanupOnClose=always still drops the worktree on archive", async () => {
+  it("legacy setting worktreeCleanupOnClose=always drops the worktree and marks the History row wt-gone", async () => {
     settings.update((s) => ({
       ...s,
       worktreeCleanupOnClose: "always",
       cleanupWorktreesOnClose: true,
     }));
+    archivedSessionsState.update((s) => ({ ...s, loaded: true }));
 
     const session = makeSession({ isWorktree: true, worktreePath: "/wt" });
     addSession(session);
@@ -145,6 +146,32 @@ describe("closeSession", () => {
 
     expect(killSession).toHaveBeenCalledWith(session.id);
     expect(removeWorktree).toHaveBeenCalledWith("/wt");
+    const archived = get(archivedSessionsState);
+    // Worktree gone on disk → History row must reflect that (Copilot #2):
+    // stale "on disk" badge / enabled Restore would be misleading.
+    expect(archived.worktreeExists.get(session.id)).toBe(false);
+  });
+
+  it("worktreeCleanupOnClose=always with a failing removeWorktree still archives and keeps wt flagged on disk", async () => {
+    settings.update((s) => ({
+      ...s,
+      worktreeCleanupOnClose: "always",
+      cleanupWorktreesOnClose: true,
+    }));
+    archivedSessionsState.update((s) => ({ ...s, loaded: true }));
+    vi.mocked(removeWorktree).mockRejectedValueOnce(new Error("permission denied"));
+
+    const session = makeSession({ isWorktree: true, worktreePath: "/wt" });
+    addSession(session);
+    initSession(session.id);
+
+    const result = await closeSession(session);
+
+    expect(result).toBe(true);
+    expect(killSession).toHaveBeenCalledWith(session.id);
+    // Removal was attempted but failed — the History row shows wt still on
+    // disk so the user can retry via Clean worktree.
+    expect(get(archivedSessionsState).worktreeExists.get(session.id)).toBe(true);
   });
 
   it("legacy setting worktreeCleanupOnClose=prompt does NOT prompt or drop the worktree", async () => {

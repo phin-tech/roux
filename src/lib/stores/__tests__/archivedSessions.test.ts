@@ -73,11 +73,11 @@ describe("archivedSessions store", () => {
     expect(state.worktreeExists.get("b")).toBe(false);
   });
 
-  it("restoreArchivedSession removes the row, hydrates the active store from the backend", async () => {
+  it("restoreArchivedSession removes the row + its worktreeExists entry, hydrates the active store", async () => {
     archivedSessionsState.set({
       sessions: [makeArchived("a"), makeArchived("b")],
       loaded: true,
-      worktreeExists: new Map([["a", true], ["b", true]]),
+      worktreeExists: new Map([["a", true], ["b", false]]),
     });
     const restoredActive: Session = { ...makeArchived("a"), archived: false, endedAt: null };
     vi.mocked(listSessions).mockResolvedValueOnce([restoredActive]);
@@ -86,8 +86,26 @@ describe("archivedSessions store", () => {
 
     expect(restoreSession).toHaveBeenCalledWith("a");
     expect(listSessions).toHaveBeenCalled();
-    expect(get(archivedSessionsState).sessions.map((s) => s.id)).toEqual(["b"]);
+    const state = get(archivedSessionsState);
+    expect(state.sessions.map((s) => s.id)).toEqual(["b"]);
+    // Don't leave a stale worktreeExists key for the restored id.
+    expect(state.worktreeExists.has("a")).toBe(false);
+    expect(state.worktreeExists.get("b")).toBe(false);
     expect(get(sessionState).sessions.map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("addArchivedSessionFromEvent honors explicit worktreeExists=false", () => {
+    archivedSessionsState.set({
+      sessions: [],
+      loaded: true,
+      worktreeExists: new Map(),
+    });
+
+    addArchivedSessionFromEvent(makeArchived("wt-gone"), false);
+
+    const state = get(archivedSessionsState);
+    expect(state.sessions.map((s) => s.id)).toEqual(["wt-gone"]);
+    expect(state.worktreeExists.get("wt-gone")).toBe(false);
   });
 
   it("removeArchivedSessionForever removes the row and cleans its worktree entry", async () => {
