@@ -176,6 +176,9 @@ pub(crate) fn get_pty_cwd(id: String, state: tauri::State<AppState>) -> Option<S
     state.pty_manager.get_cwd(&id)
 }
 
+/// Archive a session (soft-delete). The frontend command name is retained
+/// for backward-compat, but the record is kept on disk and shown in the
+/// sessions-history pane until the user permanently deletes it.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn kill_session(
@@ -185,6 +188,43 @@ pub(crate) async fn kill_session(
     svc::kill_session(&state.pty_manager, &state.session_handle, &id)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Bring an archived session back to the active list.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn restore_session(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    svc::restore_session(&state.session_handle, &id).await.map_err(|e| e.to_string())
+}
+
+/// Permanently delete a session record. Irreversible. Does not touch the
+/// worktree — worktree handling is explicit via the History pane's
+/// Clean worktree action.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn delete_session_permanently(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    svc::delete_session_permanently(&state.pty_manager, &state.session_handle, &id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Check whether an archived session's worktree path still exists on disk.
+/// The frontend uses this to disable the Restore button when the worktree
+/// has been removed since archival.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn session_worktree_exists(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, String> {
+    let session = state.session_handle.get(&id).await.map_err(|e| e.to_string())?;
+    Ok(session.map(|s| std::path::Path::new(&s.worktree_path).exists()).unwrap_or(false))
 }
 
 /// Kill only the PTY for `id`, leaving session state, pane-state files, and
@@ -307,12 +347,38 @@ pub(crate) async fn reconnect_session_shell(
     .map_err(|e| e.to_string())
 }
 
+/// Active sessions only — archived rows are excluded. The history view
+/// uses `list_archived_sessions` for those.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn list_sessions(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Session>, String> {
-    state.session_handle.list().await.map_err(|e| e.to_string())
+    state
+        .session_handle
+        .list()
+        .await
+        .map(|all| all.into_iter().filter(|s| !s.archived).collect())
+        .map_err(|e| e.to_string())
+}
+
+/// Archived sessions, sorted newest-first by `ended_at` so the history
+/// pane renders in the order the user closed them.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn list_archived_sessions(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Session>, String> {
+    state
+        .session_handle
+        .list()
+        .await
+        .map(|all| {
+            let mut archived: Vec<Session> = all.into_iter().filter(|s| s.archived).collect();
+            archived.sort_by_key(|s| std::cmp::Reverse(s.ended_at.unwrap_or(0)));
+            archived
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

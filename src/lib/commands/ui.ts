@@ -3,7 +3,7 @@ import { queries } from "$lib/queries";
 import { settings, updateSetting } from "$lib/stores/settings";
 import { get } from "svelte/store";
 import { loadKeymap, exitTree as keymapExitTree } from "$lib/keymap/store";
-import { openSidebar } from "$lib/stores/ui";
+import { openSidebar, toggleSidebar } from "$lib/stores/ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { logError } from "$lib/logging";
 import {
@@ -53,6 +53,7 @@ export function registerUiCommands() {
     label: "Toggle Notes",
     category: "App",
     available: () => !!queries.activeSession(),
+    execute: () => toggleSidebar("notes"),
   });
 
   registry.register({
@@ -137,6 +138,7 @@ export function registerUiCommands() {
     label: "Toggle Watches",
     category: "App",
     available: () => true,
+    execute: () => toggleSidebar("watches"),
   });
 
   registry.register({
@@ -144,6 +146,15 @@ export function registerUiCommands() {
     label: "Toggle Notifications",
     category: "App",
     available: () => true,
+    execute: () => toggleSidebar("notifications"),
+  });
+
+  registry.register({
+    id: "ui.toggle-sessions",
+    label: "Toggle Sessions History",
+    category: "App",
+    available: () => true,
+    execute: () => toggleSidebar("sessions"),
   });
 
   registry.register({

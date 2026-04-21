@@ -28,8 +28,12 @@ use tokio::time::{interval, Duration};
 use crate::session::Session;
 
 enum SessionMsg {
-    Add { session: Session, reply: oneshot::Sender<()> },
+    // `Session` is ~272 bytes; box it so this variant doesn't dominate the
+    // enum size (clippy::large_enum_variant). All other variants are tiny.
+    Add { session: Box<Session>, reply: oneshot::Sender<()> },
     Remove { id: String, reply: oneshot::Sender<()> },
+    Archive { id: String, reply: oneshot::Sender<()> },
+    Restore { id: String, reply: oneshot::Sender<()> },
     Get { id: String, reply: oneshot::Sender<Option<Session>> },
     List { reply: oneshot::Sender<Vec<Session>> },
     UpdateStatus { id: String, status: roux_core::SessionStatus, reply: oneshot::Sender<()> },
@@ -56,13 +60,32 @@ impl SessionHandle {
 
     pub async fn add(&self, session: Session) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(SessionMsg::Add { session, reply: reply_tx })?;
+        self.send(SessionMsg::Add { session: Box::new(session), reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
     pub async fn remove(&self, id: &str) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(SessionMsg::Remove { id: id.to_string(), reply: reply_tx })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
+
+    /// Soft-delete: flip `archived = true`, stamp `ended_at`, clear `primary_pty_id`.
+    /// Keeps the record in `Vec<Session>` so it persists to disk for the
+    /// history view. Callers should kill the session's PTYs separately.
+    pub async fn archive(&self, id: &str) -> Result<(), ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionMsg::Archive { id: id.to_string(), reply: reply_tx })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
+
+    /// Inverse of `archive`: clear `archived` and `ended_at`. The session
+    /// reappears in `list()` with whatever `status` it held (typically
+    /// `Disconnected` since the PTY is dead); the reconnect flow attaches
+    /// a fresh PTY when the user opens it.
+    pub async fn restore(&self, id: &str) -> Result<(), ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionMsg::Restore { id: id.to_string(), reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
@@ -156,13 +179,34 @@ async fn service_loop(
             msg = rx.recv() => {
                 match msg {
                     Some(SessionMsg::Add { session, reply }) => {
-                        sessions.push(session);
+                        sessions.push(*session);
                         dirty = true;
                         let _ = reply.send(());
                     }
                     Some(SessionMsg::Remove { id, reply }) => {
                         sessions.retain(|s| s.id != id);
                         dirty = true;
+                        let _ = reply.send(());
+                    }
+                    Some(SessionMsg::Archive { id, reply }) => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+                            s.archived = true;
+                            s.ended_at = Some(now);
+                            s.primary_pty_id = None;
+                            dirty = true;
+                        }
+                        let _ = reply.send(());
+                    }
+                    Some(SessionMsg::Restore { id, reply }) => {
+                        if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+                            s.archived = false;
+                            s.ended_at = None;
+                            dirty = true;
+                        }
                         let _ = reply.send(());
                     }
                     Some(SessionMsg::Get { id, reply }) => {
@@ -260,6 +304,8 @@ mod tests {
             is_git_repo: false,
             name_override: None,
             primary_pty_id: None,
+            archived: false,
+            ended_at: None,
         }
     }
 
@@ -293,6 +339,49 @@ mod tests {
         let sessions = handle.list().await.unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].id, "s2");
+    }
+
+    #[tokio::test]
+    async fn archive_keeps_record_and_flips_flag() {
+        let (_dir, path) = temp_persist_path();
+        let mut seed = make_session("s1");
+        seed.primary_pty_id = Some("pty-1".to_string());
+        let (handle, _join) = spawn_with_path(vec![seed], path);
+
+        handle.archive("s1").await.unwrap();
+
+        let sessions = handle.list().await.unwrap();
+        assert_eq!(sessions.len(), 1, "archived sessions stay in the vec");
+        assert!(sessions[0].archived);
+        assert!(sessions[0].ended_at.is_some());
+        assert!(
+            sessions[0].primary_pty_id.is_none(),
+            "archive clears primary_pty_id (PTY is dead)",
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_clears_archive_state() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) = spawn_with_path(vec![make_session("s1")], path);
+
+        handle.archive("s1").await.unwrap();
+        handle.restore("s1").await.unwrap();
+
+        let session = handle.get("s1").await.unwrap().unwrap();
+        assert!(!session.archived);
+        assert!(session.ended_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn archive_missing_id_is_noop() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) = spawn_with_path(vec![make_session("s1")], path);
+
+        handle.archive("does-not-exist").await.unwrap();
+
+        let session = handle.get("s1").await.unwrap().unwrap();
+        assert!(!session.archived);
     }
 
     #[tokio::test]

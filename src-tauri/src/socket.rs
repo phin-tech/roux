@@ -1412,6 +1412,8 @@ mod tests {
             is_git_repo: true,
             name_override: None,
             primary_pty_id: None,
+            archived: false,
+            ended_at: None,
         }
     }
 

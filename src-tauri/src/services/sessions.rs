@@ -228,6 +228,8 @@ pub(crate) async fn create_session_shell(
         is_git_repo: is_git_repo(repo_path),
         name_override: None,
         primary_pty_id: Some(session_id),
+        archived: false,
+        ended_at: None,
     };
 
     if let Err(e) = session_handle.add(session.clone()).await {
@@ -301,18 +303,50 @@ pub(crate) async fn reconnect_session_shell(
     Ok(updated)
 }
 
+/// Archive a session: kill its PTYs and flip the `archived` flag so the
+/// record stays on disk for the history view. The Tauri command name is
+/// still `kill_session` for frontend backward-compat — the behavior changed
+/// from hard-delete to soft-archive when the sessions-history pane shipped.
+///
+/// Worktree cleanup is **not** done here — the close dialog archives only
+/// (worktree always kept). Users remove the worktree later from the History
+/// pane via the Clean worktree action.
 pub(crate) async fn kill_session(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
     id: &str,
 ) -> anyhow::Result<()> {
-    // Kill all PTYs associated with this session, not just the primary.
-    // This ensures detached shells don't outlive their session.
     pty_manager.kill_session_ptys(id);
-    session_handle.remove(id).await?;
-    // Best-effort: remove per-session pane state file. Non-fatal if it fails.
+    session_handle.archive(id).await?;
     if let Err(e) = crate::pane_state::delete_pane_state(id) {
         rlog!("kill_session: failed to delete pane state for {id}: {e}");
+    }
+    Ok(())
+}
+
+/// Bring an archived session back to the active list. Status is normalized
+/// to `Disconnected`; the existing reconnect flow attaches a fresh PTY on
+/// first open.
+pub(crate) async fn restore_session(
+    session_handle: &SessionHandle,
+    id: &str,
+) -> anyhow::Result<()> {
+    session_handle.restore(id).await?;
+    session_handle.update_status(id, roux_core::SessionStatus::Disconnected).await?;
+    Ok(())
+}
+
+/// Permanently delete a session record. Does not touch the worktree —
+/// worktree handling is explicit from the History pane.
+pub(crate) async fn delete_session_permanently(
+    pty_manager: &PtyManager,
+    session_handle: &SessionHandle,
+    id: &str,
+) -> anyhow::Result<()> {
+    pty_manager.kill_session_ptys(id);
+    session_handle.remove(id).await?;
+    if let Err(e) = crate::pane_state::delete_pane_state(id) {
+        rlog!("delete_session_permanently: failed to delete pane state for {id}: {e}");
     }
     Ok(())
 }

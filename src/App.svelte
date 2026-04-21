@@ -9,6 +9,7 @@
   import NotesPanel from "$lib/components/NotesPanel.svelte";
   import WatchesPane from "$lib/components/WatchesPane.svelte";
   import NotificationsPane from "$lib/components/NotificationsPane.svelte";
+  import SessionsPane from "$lib/components/SessionsPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import KeymapHud from "$lib/components/KeymapHud.svelte";
   import QuitDialog from "$lib/components/QuitDialog.svelte";
@@ -33,6 +34,7 @@
   import { initSettings, settings } from "$lib/stores/settings";
   import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
+  import { archivedSessionsState } from "$lib/stores/archivedSessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
   import { initSession, initSessionWithProfile, splitPane } from "$lib/panes/actions";
@@ -73,6 +75,7 @@
     openSidebar,
     closeSidebar,
     toggleSidebar,
+    notesOverrideSessionId,
   } from "$lib/stores/ui";
 
   let showNewSessionDialog = $state(false);
@@ -153,6 +156,10 @@
     }
     if (cmd.id === "ui.toggle-notifications") {
       toggleSidebar("notifications");
+      return;
+    }
+    if (cmd.id === "ui.toggle-sessions") {
+      toggleSidebar("sessions");
       return;
     }
     if (cmd.id === "app.command-palette") {
@@ -669,12 +676,16 @@
   {#snippet settingsPanel()}
     <SettingsPanel visible={$activeSidebar === "settings"} onclose={closeSidebar} />
     {@const activeSession = $sessionState.sessions.find(s => s.id === $sessionState.activeSessionId)}
+    {@const notesSession = $notesOverrideSessionId
+      ? ($sessionState.sessions.find(s => s.id === $notesOverrideSessionId)
+        ?? $archivedSessionsState.sessions.find(s => s.id === $notesOverrideSessionId))
+      : activeSession}
     <NotesPanel
       visible={$activeSidebar === "notes"}
-      sessionId={activeSession?.id ?? null}
-      projectId={activeSession?.projectId ?? null}
-      projectName={$projects.find(p => p.id === activeSession?.projectId)?.name ?? null}
-      repoRoot={activeSession?.repoRoot ?? null}
+      sessionId={notesSession?.id ?? null}
+      projectId={notesSession?.projectId ?? null}
+      projectName={$projects.find(p => p.id === notesSession?.projectId)?.name ?? null}
+      repoRoot={notesSession?.repoRoot ?? null}
       onclose={closeSidebar}
     />
     <WatchesPane
@@ -683,6 +694,10 @@
     />
     <NotificationsPane
       visible={$activeSidebar === "notifications"}
+      onclose={closeSidebar}
+    />
+    <SessionsPane
+      visible={$activeSidebar === "sessions"}
       onclose={closeSidebar}
     />
   {/snippet}
