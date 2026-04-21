@@ -4,6 +4,8 @@ import { settings, updateSetting } from "$lib/stores/settings";
 import { get } from "svelte/store";
 import { loadKeymap, exitTree as keymapExitTree } from "$lib/keymap/store";
 import { openSidebar } from "$lib/stores/ui";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { logError } from "$lib/logging";
 import {
   setLastNotesScope,
   setNotesViewMode,
@@ -11,6 +13,9 @@ import {
   notesViewMode,
   type NotesScope,
 } from "$lib/stores/notesUi";
+
+const DOCS_URL = "https://github.com/phin-tech/roux#readme";
+const ISSUES_URL = "https://github.com/phin-tech/roux/issues";
 
 function showNotesScope(scope: NotesScope) {
   const session = queries.activeSession();
@@ -208,5 +213,23 @@ export function registerUiCommands() {
     category: "App",
     available: () => false, // only fires from inside an active tree via a bind
     execute: () => keymapExitTree(),
+  });
+
+  registry.register({
+    id: "help.open-docs",
+    label: "Roux Documentation",
+    category: "Help",
+    execute: () => {
+      openUrl(DOCS_URL).catch((e) => logError("help.open-docs failed", e));
+    },
+  });
+
+  registry.register({
+    id: "help.report-issue",
+    label: "Report an Issue",
+    category: "Help",
+    execute: () => {
+      openUrl(ISSUES_URL).catch((e) => logError("help.report-issue failed", e));
+    },
   });
 }
