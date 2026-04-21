@@ -79,8 +79,6 @@ tree "leader" {
     bind "w" { enter-tree "leader-panes" }
     bind "b" { enter-tree "leader-sessions" }
     bind "t" { enter-tree "leader-toggle" }
-    bind "n" "ui.toggle-notes"
-    bind "i" "ui.toggle-notifications"
     bind "," "app.settings"
     bind "Space" "app.command-palette"
 }
