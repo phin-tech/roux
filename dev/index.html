@@ -909,14 +909,18 @@
 <li><strong>Multi-session</strong> — run independent Claude Code sessions, each with its own git worktree</li>
 <li><strong>Split panes</strong> — horizontal and vertical splits with same-direction flattening</li>
 <li><strong>Stacked panes</strong> — Zellij-style tab stacking</li>
+<li><strong>Collapsible session rail</strong> — shrink the sidebar to a slim strip of session dots without giving up quick session switching</li>
 <li><strong>Layouts</strong> — KDL-based session templates that define multi-pane setups with spawn profiles</li>
 <li><strong>Session restore on reconnect</strong> — restores full split/shell layouts from saved pane state</li>
+<li><strong>Session history</strong> — closed sessions move into a history pane where you can restore them, open their notes, or delete them forever</li>
 <li><strong>Shell terminals</strong> — open shell panes alongside Claude for running commands</li>
 <li><strong>Command palette</strong> — quick access to every action via <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span></li>
 <li><strong>Leader mode</strong> — Vimish pane and session actions via ++cmd+;++ with inline pane rename</li>
 <li><strong>Configurable keymap</strong> — every shortcut lives in a KDL file you can edit; ships with <code>default</code> and <code>tmux</code> presets, supports sticky/passthrough modes and per-tree HUD timing</li>
 <li><strong>Layout persistence</strong> — pane layouts survive app restarts; shell panes respawn automatically</li>
 <li><strong>Session from PR URL</strong> — paste a GitHub PR URL in New Session and Roux prepares the review branch/worktree</li>
+<li><strong>Independent terminal themes</strong> — keep the terminal palette separate from the app chrome, including user-imported <code>.itermcolors</code> themes</li>
+<li><strong>Native menu bar</strong> — File/Edit/View/Session/Pane/Tools/Window/Help menus on macOS, Windows, and Linux</li>
 <li><strong>Doctor panel</strong> — inspect and reinstall CLI/hooks/skill integrations from Settings</li>
 <li><strong>Projects</strong> — tag sessions with projects to organize related work across repos and worktrees</li>
 <li><strong>Multi-scoped notes vault</strong> — plain-text notes sidebar (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span>) with four scopes (global / project / repo / session), backed by an Obsidian-compatible markdown vault. Scriptable from <code>roux notes &lt;scope&gt; &lt;verb&gt;</code> and exposed to agents through per-PTY env vars. Experimental.</li>

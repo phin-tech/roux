@@ -1129,6 +1129,12 @@
 <li><strong>Ask</strong> — prompt each time a worktree-backed session closes</li>
 <li><strong>Remove</strong> — always remove the worktree on close</li>
 </ul>
+<p>Session closure and worktree cleanup are now separate concepts:</p>
+<ul>
+<li>Closing a session archives the session into <strong>Sessions History</strong>.</li>
+<li>If the worktree is kept on disk, that history row can be restored later.</li>
+<li>If you later choose <strong>Clean worktree</strong> from Sessions History, the history row stays but Restore becomes unavailable because the checkout is gone.</li>
+</ul>
 <h2 id="caveats">Caveats<a class="headerlink" href="#caveats" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Worktrees share hooks and git config with the main repo. Be aware of any <code>post-checkout</code> or <code>post-commit</code> hooks that assume a single working copy.</li>

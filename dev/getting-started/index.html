@@ -553,6 +553,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sidebar-and-session-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sidebar and session history
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#opening-a-shell" class="md-nav__link">
     <span class="md-ellipsis">
       Opening a shell
@@ -943,6 +952,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sidebar-and-session-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sidebar and session history
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#opening-a-shell" class="md-nav__link">
     <span class="md-ellipsis">
       Opening a shell
@@ -1000,7 +1018,7 @@
 </ul>
 <p>Projects can be any directory on disk. A git repository is only required if you want to use <a href="../features/worktrees/">worktrees</a>.</p>
 <h2 id="first-launch">First launch<a class="headerlink" href="#first-launch" title="Permanent link">&para;</a></h2>
-<p>When you open Roux for the first time you'll see an empty window with a top bar and a single empty pane.</p>
+<p>On first launch, Roux opens to a single empty pane with the session sidebar on the left and the native menu bar available on supported platforms.</p>
 <h2 id="creating-your-first-session">Creating your first session<a class="headerlink" href="#creating-your-first-session" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Press <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-n">N</kbd></span> to open the <strong>New session</strong> dialog.</li>
@@ -1017,6 +1035,12 @@
 <li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-w">W</kbd></span> closes the current pane.</li>
 </ul>
 <p>Roux automatically flattens consecutive splits in the same direction, so your layout stays clean.</p>
+<h2 id="sidebar-and-session-history">Sidebar and session history<a class="headerlink" href="#sidebar-and-session-history" title="Permanent link">&para;</a></h2>
+<ul>
+<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd>\</kbd></span> collapses the session sidebar into a slim rail of session dots; press it again to expand.</li>
+<li>Closing a session archives it into <strong>Sessions History</strong> instead of immediately deleting the record.</li>
+<li>Open <strong>Toggle Sessions History</strong> from the command palette, or use the default leader chord ++cmd+; t s++, to restore closed sessions, open their notes, or permanently delete the history entry.</li>
+</ul>
 <h2 id="opening-a-shell">Opening a shell<a class="headerlink" href="#opening-a-shell" title="Permanent link">&para;</a></h2>
 <p>From the command palette (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span>), run <strong>New shell pane</strong> to open a regular shell alongside Claude. Shell panes persist across restarts and respawn automatically.</p>
 <h2 id="reconnect-and-restore">Reconnect and restore<a class="headerlink" href="#reconnect-and-restore" title="Permanent link">&para;</a></h2>

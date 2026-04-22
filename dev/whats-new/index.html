@@ -531,9 +531,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#april-17-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 17, 2026
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#april-18-2026" class="md-nav__link">
     <span class="md-ellipsis">
       April 18, 2026
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#april-20-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 20, 2026
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#april-21-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 21, 2026
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#april-22-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 22, 2026
     </span>
   </a>
   
@@ -961,9 +997,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#april-17-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 17, 2026
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#april-18-2026" class="md-nav__link">
     <span class="md-ellipsis">
       April 18, 2026
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#april-20-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 20, 2026
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#april-21-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 21, 2026
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#april-22-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      April 22, 2026
     </span>
   </a>
   
@@ -1042,9 +1114,29 @@
 <li><strong>GitHub CLI resolution improvements</strong>: login-shell PATH lookup plus explicit <code>gh</code> binary override.</li>
 <li><strong>Configurable keymap</strong>: every keyboard shortcut — including the leader prefix and chord trees — moved out of hardcoded handlers into a KDL file at <code>~/.config/roux/keymap.kdl</code>. Switch to a built-in <code>tmux</code> preset with a single line, layer your own overrides on top, declare sticky/passthrough modes, and pick per-tree HUD visibility (<code>always</code> / <code>delayed &lt;ms&gt;</code> / <code>never</code>). Reload from the palette without a restart. See <a href="../features/keymap/">Keymap</a>.</li>
 </ul>
+<h2 id="april-17-2026">April 17, 2026<a class="headerlink" href="#april-17-2026" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Collapsible session rail</strong>: <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd>\</kbd></span> now collapses the full sidebar into a narrow rail of session dots, so you can reclaim horizontal space without giving up fast session switching.</li>
+<li><strong>Updater channels</strong>: Settings gained a user-selectable <strong>Stable / Pre-release (Alpha)</strong> channel, letting alpha users follow prerelease builds without changing the default stable path for everyone else.</li>
+</ul>
 <h2 id="april-18-2026">April 18, 2026<a class="headerlink" href="#april-18-2026" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Multi-scoped notes vault (experimental)</strong>: the project-only notes scratchpad expanded into a four-scope Obsidian-compatible vault. The <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span> panel now ships a pill row for <strong>Session / Repo / Project / Global</strong> notes with sticky per-session selection. Under the hood, each session writes to <code>~/Documents/Roux/&lt;scope&gt;/...</code>, a clean Obsidian vault you can point Obsidian / Quartz / Hugo / any markdown tool at. Every PTY picks up ten new <code>ROUX_*_NOTES_*</code> env vars so agents can locate the right file without guessing. A new <code>roux notes &lt;scope&gt; &lt;verb&gt;</code> CLI exposes show / append (optionally timestamped, with stable entry ids) / write / path / search-by-tag, plus <code>--topic</code> and <code>--tag</code> flags for the "many files per scope, tagged" workflow. Existing project notes migrate to <code>projects/&lt;slug&gt;/notes.md</code> on first launch; originals are kept as backup. Subject to change until the banner is removed. See <a href="../features/notes/">Notes</a>.</li>
+<li><strong>Multi-scoped notes vault (experimental)</strong>: the project-only scratchpad expanded into a four-scope, Obsidian-compatible vault. The <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span> panel now supports <strong>Session / Repo / Project / Global</strong> notes with sticky per-session selection. Under the hood, each session writes to <code>~/Documents/Roux/&lt;scope&gt;/...</code>, giving you a plain markdown vault you can open in Obsidian, Quartz, Hugo, or other markdown tooling. PTYs now expose <code>ROUX_*_NOTES_*</code> env vars so agents can locate the right file without guessing, and <code>roux notes &lt;scope&gt; &lt;verb&gt;</code> adds CLI support for show / append / write / path / search-by-tag, plus <code>--topic</code> and <code>--tag</code> for more structured note sets. Existing project notes migrate to <code>projects/&lt;slug&gt;/notes.md</code> on first launch, with the originals kept as backup. Subject to change until the experimental banner is removed. See <a href="../features/notes/">Notes</a>.</li>
+</ul>
+<h2 id="april-20-2026">April 20, 2026<a class="headerlink" href="#april-20-2026" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Worktree base selection</strong>: new worktrees can now start from <strong>current branch</strong>, <strong>main</strong>, or <strong>origin/main</strong>. The same choices are exposed in the New Worktree flows, and Settings now lets you pick the default starting point.</li>
+</ul>
+<h2 id="april-21-2026">April 21, 2026<a class="headerlink" href="#april-21-2026" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Native menu bar</strong>: Roux now ships File/Edit/View/Session/Pane/Tools/Window/Help menus on macOS, Windows, and Linux, wired to the same command registry and active keymap as the palette.</li>
+<li><strong>Sessions History</strong>: closing a session now soft-archives it into a history pane instead of immediately deleting the record. Archived rows can be restored, opened in Notes, cleaned up on disk, or permanently deleted later.</li>
+</ul>
+<h2 id="april-22-2026">April 22, 2026<a class="headerlink" href="#april-22-2026" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Independent terminal themes</strong>: terminal colors are now selected separately from the GUI theme, so you can keep a light UI with a dark shell, or the reverse.</li>
+<li><strong>User-imported terminal themes</strong>: drop iTerm2 <code>.itermcolors</code> files into <code>~/.config/roux/themes/</code> and Roux will surface them in Settings alongside the built-in palettes.</li>
+<li><strong>v0.5.0</strong>: the late-April UI and workflow polish shipped as the <code>v0.5.0</code> release.</li>
 </ul>
 
 

@@ -506,6 +506,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Windows
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#updating" class="md-nav__link">
     <span class="md-ellipsis">
       Updating
@@ -880,6 +889,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Windows
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#updating" class="md-nav__link">
     <span class="md-ellipsis">
       Updating
@@ -921,7 +939,7 @@
 
 
 <h1 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h1>
-<p>Roux ships signed and notarized macOS builds. Windows and Linux are not yet supported.</p>
+<p>Roux ships signed and notarized macOS builds. Native Windows x64 builds are also supported from source with an unsigned NSIS installer. Linux is not yet supported.</p>
 <h2 id="macos">macOS<a class="headerlink" href="#macos" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Download the latest <code>.dmg</code> from the <a href="https://github.com/phin-tech/roux/releases">GitHub releases page</a>.</li>
@@ -929,12 +947,22 @@
 <li>Launch Roux from Launchpad or Spotlight.</li>
 </ol>
 <p>The app is code-signed and notarized, so Gatekeeper should not block the first launch.</p>
+<h2 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">&para;</a></h2>
+<p>Roux also supports native Windows x64 local builds. For now, Windows is a source-first install path rather than a signed public installer flow:</p>
+<ol>
+<li>Set up a Windows x64 machine with Claude Code, Git, Node.js, Rust MSVC, and Go Task.</li>
+<li>Follow <a href="../windows-build/">Windows build</a>.</li>
+<li>Run <code>task windows:build</code> to produce <code>src-tauri\target\release\bundle\nsis\Roux_&lt;version&gt;_x64-setup.exe</code>.</li>
+</ol>
+<p>Current Windows limitations are documented on <a href="../windows-build/">Windows build</a>. In particular, the first Windows milestone does not include auto-update.</p>
 <h2 id="updating">Updating<a class="headerlink" href="#updating" title="Permanent link">&para;</a></h2>
 <p>Roux has a built-in auto-updater. When a new version is published, Roux checks for it silently on launch and shows a small banner offering to install it. You can also check manually at any time:</p>
 <ul>
-<li><strong>Settings</strong> (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd>,</kbd></span>) → <strong>Updates</strong> → <strong>Check for updates</strong></li>
-<li>Or <strong>Command palette</strong> (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span>) → <strong>Check for Updates</strong></li>
+<li><strong>Settings</strong> (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd>,</kbd></span>) → <strong>Advanced</strong> → <strong>Check for updates</strong></li>
+<li><strong>Command palette</strong> (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span>) → <strong>Check for Updates</strong></li>
+<li>Native app menu (<strong>Roux/File</strong> → <strong>Check for Updates…</strong>, depending on platform)</li>
 </ul>
+<p>You can also switch between <strong>Stable</strong> and <strong>Pre-release (Alpha)</strong> in <strong>Settings</strong> → <strong>Advanced</strong>. The prerelease channel follows the newest published prerelease build; switching back to Stable takes effect on the next stable release at or above your current version.</p>
 <p>Updates are signed and verified on device before they're installed.</p>
 <p>After you click <strong>Install and restart</strong>, Roux downloads the new version, verifies the signature, and replaces the app bundle in place. In most cases it will then relaunch itself into the new version automatically. Occasionally — on macOS, after the bundle has just been swapped on disk — the automatic relaunch fails. When that happens the banner changes to <strong>"Update installed. Quit and reopen Roux to finish."</strong> with a <strong>Quit Roux</strong> button. Click it (or quit the app yourself) and reopen Roux from Launchpad or Spotlight — you'll be on the new version.</p>
 <div class="admonition note">
