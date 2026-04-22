@@ -7,6 +7,7 @@ mod project;
 mod session;
 mod settings;
 mod task;
+mod user_terminal_themes;
 mod watch;
 mod worktree;
 
@@ -31,5 +32,9 @@ pub use settings::{
     WorktreeCleanupMode, WorktreeDefaultBase,
 };
 pub use task::{KeepOpen, TaskDefinition, TaskGroup};
+pub use user_terminal_themes::{
+    scan_user_terminal_themes, TerminalAnsiPalette, TerminalThemePalette,
+    UserTerminalTheme, UserThemeError,
+};
 pub use watch::*;
 pub use worktree::Worktree;

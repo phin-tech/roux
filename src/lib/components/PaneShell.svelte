@@ -16,7 +16,8 @@
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
-  import { getTerminalTheme } from "$lib/themes";
+  import { resolveTerminalTheme } from "$lib/themes";
+  import { userTerminalThemes } from "$lib/stores/userTerminalThemes";
   import { reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
   import { rerunCommandPane } from "$lib/panes/commandPaneRuntime";
   import { getTerminalController, terminalRuntimeVersionStore } from "$lib/panes/terminalRuntime";
@@ -288,12 +289,15 @@
     }
   });
 
-  // Theme sync
+  // Theme sync — re-run whenever either the GUI theme (for "match-gui") or
+  // the explicit terminal theme changes.
   $effect(() => {
     void $terminalRuntimeVersionStore;
     const controller = getTerminalController(paneId);
     if (controller) {
-      controller.setTheme(getTerminalTheme($settings.theme));
+      controller.setTheme(
+        resolveTerminalTheme($settings.theme, $settings.terminalTheme, $userTerminalThemes),
+      );
     }
   });
 
