@@ -33,7 +33,55 @@ Examples:
 
 ## Closing
 
-++cmd+w++ closes the focused pane. If a pane hosts a Claude session, the session is stopped. If it hosts a shell, the shell is terminated.
+++cmd+w++ closes the focused pane.
+
+- If the pane hosts a Claude session, the session is stopped.
+- If the pane hosts a shell or command PTY, Roux **detaches** that terminal by default instead of killing it. The process keeps running in the background and can be re-attached later.
+
+This matters because closing a pane and killing the underlying terminal are not the same operation in Roux.
+
+## Attaching and detaching terminals
+
+Shell and command panes can own a PTY independently of the pane that is currently displaying it.
+
+### What detach means
+
+When a PTY is **detached**:
+
+- the process keeps running
+- its output continues to accumulate in the background
+- it is no longer bound to a visible pane
+- you can attach it to another shell or command pane later
+
+Detaching is the default behavior when you close a pane that has an attached PTY.
+
+### How to re-attach
+
+Roux currently exposes terminal re-attachment in three places:
+
+- **Empty shell/command pane UI** — when a pane has no terminal attached, it shows **Attach Terminal...**
+- **Command palette** — run **Attach Terminal...**
+- **Native menu bar** — **Pane** → **Attach Terminal...**
+
+The picker shows terminals from the **current session** only. It can include:
+
+- terminals already attached to another pane
+- terminals currently detached and running in the background
+
+Choosing one moves that PTY into the focused pane. If the terminal was already attached somewhere else, Roux clears the old pane’s binding and reattaches the PTY to the new pane.
+
+### Detached terminal badges
+
+Session cards show a small detached-terminal count when a session has background PTYs that are no longer attached to a pane. If unread output arrived while detached, the badge is highlighted.
+
+### Kill vs close
+
+Use **Kill Terminal** when you want to stop the underlying PTY immediately.
+
+- **Close pane** removes the pane and, by default, detaches the PTY
+- **Kill Terminal** stops the PTY process itself
+
+This distinction is especially useful for long-running shells or command panes that you want to keep alive while reorganizing the layout.
 
 ## Persistence
 
