@@ -1,6 +1,6 @@
 # Install
 
-Roux ships signed and notarized macOS builds. Windows and Linux are not yet supported.
+Roux ships signed and notarized macOS builds. Native Windows x64 builds are also supported from source with an unsigned NSIS installer. Linux is not yet supported.
 
 ## macOS
 
@@ -10,12 +10,25 @@ Roux ships signed and notarized macOS builds. Windows and Linux are not yet supp
 
 The app is code-signed and notarized, so Gatekeeper should not block the first launch.
 
+## Windows
+
+Roux also supports native Windows x64 local builds. For now, Windows is a source-first install path rather than a signed public installer flow:
+
+1. Set up a Windows x64 machine with Claude Code, Git, Node.js, Rust MSVC, and Go Task.
+2. Follow [Windows build](windows-build.md).
+3. Run `task windows:build` to produce `src-tauri\target\release\bundle\nsis\Roux_<version>_x64-setup.exe`.
+
+Current Windows limitations are documented on [Windows build](windows-build.md). In particular, the first Windows milestone does not include auto-update.
+
 ## Updating
 
 Roux has a built-in auto-updater. When a new version is published, Roux checks for it silently on launch and shows a small banner offering to install it. You can also check manually at any time:
 
-- **Settings** (++cmd+","++) → **Updates** → **Check for updates**
-- Or **Command palette** (++cmd+k++) → **Check for Updates**
+- **Settings** (++cmd+","++) → **Advanced** → **Check for updates**
+- **Command palette** (++cmd+k++) → **Check for Updates**
+- Native app menu (**Roux/File** → **Check for Updates…**, depending on platform)
+
+You can also switch between **Stable** and **Pre-release (Alpha)** in **Settings** → **Advanced**. The prerelease channel follows the newest published prerelease build; switching back to Stable takes effect on the next stable release at or above your current version.
 
 Updates are signed and verified on device before they're installed.
 
