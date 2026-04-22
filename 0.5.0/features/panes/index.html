@@ -609,6 +609,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#split-with-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      Split with profile
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stacking" class="md-nav__link">
     <span class="md-ellipsis">
       Stacking
@@ -630,6 +639,75 @@
   <a href="#closing" class="md-nav__link">
     <span class="md-ellipsis">
       Closing
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attaching-and-detaching-terminals" class="md-nav__link">
+    <span class="md-ellipsis">
+      Attaching and detaching terminals
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Attaching and detaching terminals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-detach-means" class="md-nav__link">
+    <span class="md-ellipsis">
+      What detach means
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-to-re-attach" class="md-nav__link">
+    <span class="md-ellipsis">
+      How to re-attach
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detached-terminal-badges" class="md-nav__link">
+    <span class="md-ellipsis">
+      Detached terminal badges
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kill-vs-close" class="md-nav__link">
+    <span class="md-ellipsis">
+      Kill vs close
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Command panes
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#other-pane-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      Other pane types
     </span>
   </a>
   
@@ -903,6 +981,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#split-with-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      Split with profile
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stacking" class="md-nav__link">
     <span class="md-ellipsis">
       Stacking
@@ -924,6 +1011,75 @@
   <a href="#closing" class="md-nav__link">
     <span class="md-ellipsis">
       Closing
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attaching-and-detaching-terminals" class="md-nav__link">
+    <span class="md-ellipsis">
+      Attaching and detaching terminals
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Attaching and detaching terminals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-detach-means" class="md-nav__link">
+    <span class="md-ellipsis">
+      What detach means
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-to-re-attach" class="md-nav__link">
+    <span class="md-ellipsis">
+      How to re-attach
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detached-terminal-badges" class="md-nav__link">
+    <span class="md-ellipsis">
+      Detached terminal badges
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kill-vs-close" class="md-nav__link">
+    <span class="md-ellipsis">
+      Kill vs close
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Command panes
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#other-pane-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      Other pane types
     </span>
   </a>
   
@@ -969,6 +1125,17 @@
 <li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-d">D</kbd></span> — split vertically (new pane below)</li>
 </ul>
 <p>Consecutive splits in the same direction are flattened into a single row or column, so your layout never accumulates redundant nesting.</p>
+<h2 id="split-with-profile">Split with profile<a class="headerlink" href="#split-with-profile" title="Permanent link">&para;</a></h2>
+<p>Roux can also split the current pane and seed the new shell with a specific spawn profile.</p>
+<p>Available command-palette actions include:</p>
+<ul>
+<li><strong>Split Right with Profile…</strong></li>
+<li><strong>Split Down with Profile…</strong></li>
+<li><strong>Split Right → Claude</strong></li>
+<li><strong>Split Right → Codex</strong></li>
+</ul>
+<p>The profile-driven path is what lets a new pane start as more than a plain shell. A profile can attach setup commands, startup commands, environment variables, and optional sandbox settings before you start using the pane.</p>
+<p>This is the fastest way to drop a second agent or a specialized shell next to the current pane without opening the New Session dialog.</p>
 <h2 id="stacking">Stacking<a class="headerlink" href="#stacking" title="Permanent link">&para;</a></h2>
 <p>Toggle stacking with <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-s">S</kbd></span>. Stacked panes behave like Zellij tabs: the active pane fills the space while inactive panes collapse into a title bar strip. Click a title bar to activate that pane.</p>
 <h2 id="focus">Focus<a class="headerlink" href="#focus" title="Permanent link">&para;</a></h2>
@@ -988,7 +1155,66 @@
 <li>++cmd+; w d++ close the active pane</li>
 </ul>
 <h2 id="closing">Closing<a class="headerlink" href="#closing" title="Permanent link">&para;</a></h2>
-<p><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-w">W</kbd></span> closes the focused pane. If a pane hosts a Claude session, the session is stopped. If it hosts a shell, the shell is terminated.</p>
+<p><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-w">W</kbd></span> closes the focused pane.</p>
+<ul>
+<li>If the pane hosts a Claude session, the session is stopped.</li>
+<li>If the pane hosts a shell or command PTY, Roux <strong>detaches</strong> that terminal by default instead of killing it. The process keeps running in the background and can be re-attached later.</li>
+</ul>
+<p>This matters because closing a pane and killing the underlying terminal are not the same operation in Roux.</p>
+<h2 id="attaching-and-detaching-terminals">Attaching and detaching terminals<a class="headerlink" href="#attaching-and-detaching-terminals" title="Permanent link">&para;</a></h2>
+<p>Shell and command panes can own a PTY independently of the pane that is currently displaying it.</p>
+<h3 id="what-detach-means">What detach means<a class="headerlink" href="#what-detach-means" title="Permanent link">&para;</a></h3>
+<p>When a PTY is <strong>detached</strong>:</p>
+<ul>
+<li>the process keeps running</li>
+<li>its output continues to accumulate in the background</li>
+<li>it is no longer bound to a visible pane</li>
+<li>you can attach it to another shell or command pane later</li>
+</ul>
+<p>Detaching is the default behavior when you close a pane that has an attached PTY.</p>
+<h3 id="how-to-re-attach">How to re-attach<a class="headerlink" href="#how-to-re-attach" title="Permanent link">&para;</a></h3>
+<p>Roux currently exposes terminal re-attachment in three places:</p>
+<ul>
+<li><strong>Empty shell/command pane UI</strong> — when a pane has no terminal attached, it shows <strong>Attach Terminal...</strong></li>
+<li><strong>Command palette</strong> — run <strong>Attach Terminal...</strong></li>
+<li><strong>Native menu bar</strong> — <strong>Pane</strong> → <strong>Attach Terminal...</strong></li>
+</ul>
+<p>The picker shows terminals from the <strong>current session</strong> only. It can include:</p>
+<ul>
+<li>terminals already attached to another pane</li>
+<li>terminals currently detached and running in the background</li>
+</ul>
+<p>Choosing one moves that PTY into the focused pane. If the terminal was already attached somewhere else, Roux clears the old pane’s binding and reattaches the PTY to the new pane.</p>
+<h3 id="detached-terminal-badges">Detached terminal badges<a class="headerlink" href="#detached-terminal-badges" title="Permanent link">&para;</a></h3>
+<p>Session cards show a small detached-terminal count when a session has background PTYs that are no longer attached to a pane. If unread output arrived while detached, the badge is highlighted.</p>
+<h3 id="kill-vs-close">Kill vs close<a class="headerlink" href="#kill-vs-close" title="Permanent link">&para;</a></h3>
+<p>Use <strong>Kill Terminal</strong> when you want to stop the underlying PTY immediately.</p>
+<ul>
+<li><strong>Close pane</strong> removes the pane and, by default, detaches the PTY</li>
+<li><strong>Kill Terminal</strong> stops the PTY process itself</li>
+</ul>
+<p>This distinction is especially useful for long-running shells or command panes that you want to keep alive while reorganizing the layout.</p>
+<h2 id="command-panes">Command panes<a class="headerlink" href="#command-panes" title="Permanent link">&para;</a></h2>
+<p>Roux can run an ad-hoc shell command in its own dedicated pane.</p>
+<p>Open one from the command palette with <strong>Run Command</strong>.</p>
+<p>Command panes:</p>
+<ul>
+<li>start as a split next to the active pane</li>
+<li>stream terminal output like any other terminal-backed pane</li>
+<li>show elapsed time while running</li>
+<li>show success/error status when the process exits</li>
+<li>support rerun from the pane header after completion</li>
+</ul>
+<p>This is useful for one-off test runs, build commands, or long-running scripts you want visible in the layout without manually opening a shell first.</p>
+<h2 id="other-pane-types">Other pane types<a class="headerlink" href="#other-pane-types" title="Permanent link">&para;</a></h2>
+<p>Not every pane is an interactive shell.</p>
+<p>Roux also supports:</p>
+<ul>
+<li><strong>Markdown document panes</strong> via <strong>Open Document</strong></li>
+<li><strong>Notes panes</strong> via <strong>Open Notes Pane (Horizontal/Vertical)</strong></li>
+<li><strong>Command panes</strong> via <strong>Run Command</strong></li>
+</ul>
+<p>All of these participate in the same split/stack/focus system as shell and agent panes.</p>
 <h2 id="persistence">Persistence<a class="headerlink" href="#persistence" title="Permanent link">&para;</a></h2>
 <p>Layouts persist across restarts. Shell panes are respawned automatically; Claude session panes are recreated empty and you can start a new session inside them.</p>
 

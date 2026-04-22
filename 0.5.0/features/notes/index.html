@@ -744,6 +744,39 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#notes-panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Notes panes
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Notes panes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pane-local-scope-and-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pane-local scope and mode
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sidebar-notes-vs-notes-panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sidebar notes vs notes panes
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#where-notes-live" class="md-nav__link">
     <span class="md-ellipsis">
       Where notes live
@@ -957,6 +990,39 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#notes-panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Notes panes
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Notes panes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pane-local-scope-and-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pane-local scope and mode
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sidebar-notes-vs-notes-panes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sidebar notes vs notes panes
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#where-notes-live" class="md-nav__link">
     <span class="md-ellipsis">
       Where notes live
@@ -1071,6 +1137,40 @@
 </span></code></pre></div>
 <p>Click a pill to switch scope. The Project pill is greyed out when the current session has no project assigned. Your last-selected scope is remembered per session.</p>
 <p>The panel is deliberately a plain-text editor. For rich viewing — wikilinks, backlinks, graph view, search — open the vault in Obsidian (see below).</p>
+<h2 id="notes-panes">Notes panes<a class="headerlink" href="#notes-panes" title="Permanent link">&para;</a></h2>
+<p>Roux also supports notes as a real pane type, not just the sidebar panel.</p>
+<p>Open one from the command palette:</p>
+<ul>
+<li><strong>Open Notes Pane (Horizontal)</strong></li>
+<li><strong>Open Notes Pane (Vertical)</strong></li>
+</ul>
+<p>A notes pane can live beside terminals, markdown docs, and other notes panes inside the normal split tree.</p>
+<p>This is useful when you want notes visible next to a live shell, command pane, or agent session without replacing the sidebar.</p>
+<h3 id="pane-local-scope-and-mode">Pane-local scope and mode<a class="headerlink" href="#pane-local-scope-and-mode" title="Permanent link">&para;</a></h3>
+<p>Each notes pane keeps its own:</p>
+<ul>
+<li>scope (<code>session</code> / <code>repo</code> / <code>project</code> / <code>global</code>)</li>
+<li>view mode (<code>edit</code> / <code>read</code>)</li>
+</ul>
+<p>That means two notes panes in the same session can show different scopes at the same time.</p>
+<p>The available pane commands are:</p>
+<ul>
+<li><strong>Notes: Session Scope</strong></li>
+<li><strong>Notes: Repo Scope</strong></li>
+<li><strong>Notes: Project Scope</strong></li>
+<li><strong>Notes: Global Scope</strong></li>
+<li><strong>Notes: Toggle Edit/Read</strong></li>
+</ul>
+<p>The <strong>Project</strong> scope is only available when the current session has a project assigned.</p>
+<h3 id="sidebar-notes-vs-notes-panes">Sidebar notes vs notes panes<a class="headerlink" href="#sidebar-notes-vs-notes-panes" title="Permanent link">&para;</a></h3>
+<p>The sidebar notes panel and notes panes use the same underlying notes files, but they behave differently:</p>
+<ul>
+<li>the sidebar is a global side panel for the active session</li>
+<li>a notes pane is part of the split layout and can remain visible beside terminals</li>
+<li>sidebar scope selection is remembered per session</li>
+<li>notes panes remember scope and mode per pane</li>
+</ul>
+<p>If you just need a quick scratchpad, use <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span>. If you want notes to stay onscreen as part of the layout, open a notes pane.</p>
 <h2 id="where-notes-live">Where notes live<a class="headerlink" href="#where-notes-live" title="Permanent link">&para;</a></h2>
 <p>Notes are stored as regular markdown files in an Obsidian-compatible vault:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>~/Documents/Roux/                     # configurable in Settings
@@ -1136,7 +1236,7 @@
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>append<span class="w"> </span><span class="s2">&quot;just shipped the TLS fix&quot;</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>append<span class="w"> </span>--timestamp<span class="w"> </span><span class="s2">&quot;retried, still failing&quot;</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>roux<span class="w"> </span>notes<span class="w"> </span>repo<span class="w"> </span>path
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>roux<span class="w"> </span>notes<span class="w"> </span>global<span class="w"> </span>open
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>roux<span class="w"> </span>notes<span class="w"> </span>global<span class="w"> </span>show
 </span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
 </span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Target a specific topic file instead of the scope&#39;s notes.md anchor:</span>
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>roux<span class="w"> </span>notes<span class="w"> </span>repo<span class="w"> </span>append<span class="w"> </span>--topic<span class="w"> </span>api-gotchas<span class="w"> </span><span class="s2">&quot;handshake fails when SNI is missing&quot;</span>
