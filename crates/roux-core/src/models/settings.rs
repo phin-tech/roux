@@ -350,7 +350,10 @@ fn normalize_terminal_theme(theme: &str) -> String {
         // Editor-style palettes (iterm2colorschemes-inspired).
         | "dracula" | "solarized-dark" | "solarized-light" | "monokai"
         | "nord" | "gruvbox-dark" | "tokyo-night" | "one-dark"
-        | "catppuccin-mocha" | "github-dark" => theme.to_string(),
+        | "catppuccin-mocha" | "github-dark"
+        // Light editor palettes.
+        | "github-light" | "one-light" | "catppuccin-latte" | "tokyo-night-day"
+        | "gruvbox-light" | "tomorrow" | "ayu-light" => theme.to_string(),
         _ => DEFAULT_TERMINAL_THEME.to_string(),
     }
 }
