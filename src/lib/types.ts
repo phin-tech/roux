@@ -88,6 +88,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   worktreeCleanupOnClose: "prompt",
   worktreeDefaultBase: "currentBranch",
   theme: "deep-blue",
+  terminalTheme: "match-gui",
   defaultModel: null,
   claudeBinaryPath: null,
   ghBinaryPath: null,

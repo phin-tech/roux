@@ -1,4 +1,5 @@
 import type { ThemePreset } from "$lib/types";
+import type { UserTerminalTheme } from "$lib/bindings";
 
 export interface ThemeDefinition {
   id: ThemePreset;
@@ -355,4 +356,535 @@ const TERMINAL_THEMES: Record<ThemePreset, TerminalTheme> = {
 
 export function getTerminalTheme(theme: string | null | undefined): TerminalTheme {
   return TERMINAL_THEMES[normalizeTheme(theme)];
+}
+
+// ---------------------------------------------------------------------------
+// Terminal-only themes (decoupled from GUI theme)
+// ---------------------------------------------------------------------------
+//
+// The terminal can be driven by any of:
+//   - "match-gui"  → follow the GUI theme's bundled palette (default, legacy
+//                    behavior)
+//   - one of the GUI theme IDs (e.g. "midnight-copper") → reuse that theme's
+//                    bundled terminal palette without changing the GUI
+//   - one of the editor-style IDs below (Dracula, Solarized, etc.) → a
+//                    standalone palette with no GUI counterpart
+//
+// Adding a new editor palette: append to EDITOR_TERMINAL_THEMES *and* the
+// editor section of TERMINAL_THEME_DEFINITIONS *and* the Rust
+// `normalize_terminal_theme` allow-list. All three must agree.
+
+export const MATCH_GUI_TERMINAL_THEME_ID = "match-gui";
+
+export type TerminalThemeCategory = "auto" | "matching" | "editor" | "user";
+
+export interface TerminalThemeDefinition {
+  id: string;
+  label: string;
+  category: TerminalThemeCategory;
+  description?: string;
+}
+
+// Popular iterm2colorschemes-inspired palettes. Picked for breadth of taste;
+// not a comprehensive port of the upstream gallery.
+const EDITOR_TERMINAL_THEMES: Record<string, TerminalTheme> = {
+  dracula: {
+    background: "#282a36",
+    foreground: "#f8f8f2",
+    cursor: "#f8f8f0",
+    selectionBackground: "#44475a",
+    ansi: {
+      black: "#21222c",
+      red: "#ff5555",
+      green: "#50fa7b",
+      yellow: "#f1fa8c",
+      blue: "#bd93f9",
+      magenta: "#ff79c6",
+      cyan: "#8be9fd",
+      white: "#f8f8f2",
+      brightBlack: "#6272a4",
+      brightRed: "#ff6e6e",
+      brightGreen: "#69ff94",
+      brightYellow: "#ffffa5",
+      brightBlue: "#d6acff",
+      brightMagenta: "#ff92df",
+      brightCyan: "#a4ffff",
+      brightWhite: "#ffffff",
+    },
+  },
+  "solarized-dark": {
+    background: "#002b36",
+    foreground: "#839496",
+    cursor: "#93a1a1",
+    selectionBackground: "#073642",
+    ansi: {
+      black: "#073642",
+      red: "#dc322f",
+      green: "#859900",
+      yellow: "#b58900",
+      blue: "#268bd2",
+      magenta: "#d33682",
+      cyan: "#2aa198",
+      white: "#eee8d5",
+      brightBlack: "#002b36",
+      brightRed: "#cb4b16",
+      brightGreen: "#586e75",
+      brightYellow: "#657b83",
+      brightBlue: "#839496",
+      brightMagenta: "#6c71c4",
+      brightCyan: "#93a1a1",
+      brightWhite: "#fdf6e3",
+    },
+  },
+  "solarized-light": {
+    background: "#fdf6e3",
+    foreground: "#657b83",
+    cursor: "#586e75",
+    selectionBackground: "#eee8d5",
+    ansi: {
+      black: "#073642",
+      red: "#dc322f",
+      green: "#859900",
+      yellow: "#b58900",
+      blue: "#268bd2",
+      magenta: "#d33682",
+      cyan: "#2aa198",
+      white: "#eee8d5",
+      brightBlack: "#002b36",
+      brightRed: "#cb4b16",
+      brightGreen: "#586e75",
+      brightYellow: "#657b83",
+      brightBlue: "#839496",
+      brightMagenta: "#6c71c4",
+      brightCyan: "#93a1a1",
+      brightWhite: "#fdf6e3",
+    },
+  },
+  monokai: {
+    background: "#272822",
+    foreground: "#f8f8f2",
+    cursor: "#f8f8f0",
+    selectionBackground: "#49483e",
+    ansi: {
+      black: "#272822",
+      red: "#f92672",
+      green: "#a6e22e",
+      yellow: "#f4bf75",
+      blue: "#66d9ef",
+      magenta: "#ae81ff",
+      cyan: "#a1efe4",
+      white: "#f8f8f2",
+      brightBlack: "#75715e",
+      brightRed: "#f92672",
+      brightGreen: "#a6e22e",
+      brightYellow: "#f4bf75",
+      brightBlue: "#66d9ef",
+      brightMagenta: "#ae81ff",
+      brightCyan: "#a1efe4",
+      brightWhite: "#f9f8f5",
+    },
+  },
+  nord: {
+    background: "#2e3440",
+    foreground: "#d8dee9",
+    cursor: "#d8dee9",
+    selectionBackground: "#4c566a",
+    ansi: {
+      black: "#3b4252",
+      red: "#bf616a",
+      green: "#a3be8c",
+      yellow: "#ebcb8b",
+      blue: "#81a1c1",
+      magenta: "#b48ead",
+      cyan: "#88c0d0",
+      white: "#e5e9f0",
+      brightBlack: "#4c566a",
+      brightRed: "#bf616a",
+      brightGreen: "#a3be8c",
+      brightYellow: "#ebcb8b",
+      brightBlue: "#81a1c1",
+      brightMagenta: "#b48ead",
+      brightCyan: "#8fbcbb",
+      brightWhite: "#eceff4",
+    },
+  },
+  "gruvbox-dark": {
+    background: "#282828",
+    foreground: "#ebdbb2",
+    cursor: "#ebdbb2",
+    selectionBackground: "#3c3836",
+    ansi: {
+      black: "#282828",
+      red: "#cc241d",
+      green: "#98971a",
+      yellow: "#d79921",
+      blue: "#458588",
+      magenta: "#b16286",
+      cyan: "#689d6a",
+      white: "#a89984",
+      brightBlack: "#928374",
+      brightRed: "#fb4934",
+      brightGreen: "#b8bb26",
+      brightYellow: "#fabd2f",
+      brightBlue: "#83a598",
+      brightMagenta: "#d3869b",
+      brightCyan: "#8ec07c",
+      brightWhite: "#ebdbb2",
+    },
+  },
+  "tokyo-night": {
+    background: "#1a1b26",
+    foreground: "#c0caf5",
+    cursor: "#c0caf5",
+    selectionBackground: "#283457",
+    ansi: {
+      black: "#15161e",
+      red: "#f7768e",
+      green: "#9ece6a",
+      yellow: "#e0af68",
+      blue: "#7aa2f7",
+      magenta: "#bb9af7",
+      cyan: "#7dcfff",
+      white: "#a9b1d6",
+      brightBlack: "#414868",
+      brightRed: "#f7768e",
+      brightGreen: "#9ece6a",
+      brightYellow: "#e0af68",
+      brightBlue: "#7aa2f7",
+      brightMagenta: "#bb9af7",
+      brightCyan: "#7dcfff",
+      brightWhite: "#c0caf5",
+    },
+  },
+  "one-dark": {
+    background: "#282c34",
+    foreground: "#abb2bf",
+    cursor: "#528bff",
+    selectionBackground: "#3e4451",
+    ansi: {
+      black: "#282c34",
+      red: "#e06c75",
+      green: "#98c379",
+      yellow: "#d19a66",
+      blue: "#61afef",
+      magenta: "#c678dd",
+      cyan: "#56b6c2",
+      white: "#abb2bf",
+      brightBlack: "#5c6370",
+      brightRed: "#e06c75",
+      brightGreen: "#98c379",
+      brightYellow: "#d19a66",
+      brightBlue: "#61afef",
+      brightMagenta: "#c678dd",
+      brightCyan: "#56b6c2",
+      brightWhite: "#ffffff",
+    },
+  },
+  "catppuccin-mocha": {
+    background: "#1e1e2e",
+    foreground: "#cdd6f4",
+    cursor: "#f5e0dc",
+    selectionBackground: "#585b70",
+    ansi: {
+      black: "#45475a",
+      red: "#f38ba8",
+      green: "#a6e3a1",
+      yellow: "#f9e2af",
+      blue: "#89b4fa",
+      magenta: "#f5c2e7",
+      cyan: "#94e2d5",
+      white: "#bac2de",
+      brightBlack: "#585b70",
+      brightRed: "#f38ba8",
+      brightGreen: "#a6e3a1",
+      brightYellow: "#f9e2af",
+      brightBlue: "#89b4fa",
+      brightMagenta: "#f5c2e7",
+      brightCyan: "#94e2d5",
+      brightWhite: "#a6adc8",
+    },
+  },
+  "github-dark": {
+    background: "#0d1117",
+    foreground: "#c9d1d9",
+    cursor: "#58a6ff",
+    selectionBackground: "#163356",
+    ansi: {
+      black: "#484f58",
+      red: "#ff7b72",
+      green: "#3fb950",
+      yellow: "#d29922",
+      blue: "#58a6ff",
+      magenta: "#bc8cff",
+      cyan: "#39c5cf",
+      white: "#b1bac4",
+      brightBlack: "#6e7681",
+      brightRed: "#ffa198",
+      brightGreen: "#56d364",
+      brightYellow: "#e3b341",
+      brightBlue: "#79c0ff",
+      brightMagenta: "#d2a8ff",
+      brightCyan: "#56d4dd",
+      brightWhite: "#f0f6fc",
+    },
+  },
+  // Light editor palettes ---------------------------------------------------
+  "github-light": {
+    background: "#ffffff",
+    foreground: "#24292f",
+    cursor: "#0969da",
+    selectionBackground: "#0969da40",
+    ansi: {
+      black: "#24292f",
+      red: "#cf222e",
+      green: "#116329",
+      yellow: "#4d2d00",
+      blue: "#0969da",
+      magenta: "#8250df",
+      cyan: "#1b7c83",
+      white: "#6e7781",
+      brightBlack: "#57606a",
+      brightRed: "#a40e26",
+      brightGreen: "#1a7f37",
+      brightYellow: "#633c01",
+      brightBlue: "#218bff",
+      brightMagenta: "#8250df",
+      brightCyan: "#3192aa",
+      brightWhite: "#8c959f",
+    },
+  },
+  "one-light": {
+    background: "#fafafa",
+    foreground: "#383a42",
+    cursor: "#383a42",
+    selectionBackground: "#f0f0f0",
+    ansi: {
+      black: "#383a42",
+      red: "#e45649",
+      green: "#50a14f",
+      yellow: "#c18401",
+      blue: "#4078f2",
+      magenta: "#a626a4",
+      cyan: "#0184bc",
+      white: "#fafafa",
+      brightBlack: "#4f525e",
+      brightRed: "#e06c75",
+      brightGreen: "#98c379",
+      brightYellow: "#d19a66",
+      brightBlue: "#4dc4ff",
+      brightMagenta: "#ee5396",
+      brightCyan: "#56b6c2",
+      brightWhite: "#ffffff",
+    },
+  },
+  "catppuccin-latte": {
+    background: "#eff1f5",
+    foreground: "#4c4f69",
+    cursor: "#dc8a78",
+    selectionBackground: "#acb0be",
+    ansi: {
+      black: "#5c5f77",
+      red: "#d20f39",
+      green: "#40a02b",
+      yellow: "#df8e1d",
+      blue: "#1e66f5",
+      magenta: "#ea76cb",
+      cyan: "#179299",
+      white: "#acb0be",
+      brightBlack: "#6c6f85",
+      brightRed: "#d20f39",
+      brightGreen: "#40a02b",
+      brightYellow: "#df8e1d",
+      brightBlue: "#1e66f5",
+      brightMagenta: "#ea76cb",
+      brightCyan: "#179299",
+      brightWhite: "#bcc0cc",
+    },
+  },
+  "tokyo-night-day": {
+    background: "#e1e2e7",
+    foreground: "#3760bf",
+    cursor: "#3760bf",
+    selectionBackground: "#b6bfe2",
+    ansi: {
+      black: "#b4b5b9",
+      red: "#f52a65",
+      green: "#587539",
+      yellow: "#8c6c3e",
+      blue: "#2e7de9",
+      magenta: "#9854f1",
+      cyan: "#007197",
+      white: "#6172b0",
+      brightBlack: "#a1a6c5",
+      brightRed: "#f52a65",
+      brightGreen: "#587539",
+      brightYellow: "#8c6c3e",
+      brightBlue: "#2e7de9",
+      brightMagenta: "#9854f1",
+      brightCyan: "#007197",
+      brightWhite: "#3760bf",
+    },
+  },
+  "gruvbox-light": {
+    background: "#fbf1c7",
+    foreground: "#3c3836",
+    cursor: "#3c3836",
+    selectionBackground: "#ebdbb2",
+    ansi: {
+      black: "#fbf1c7",
+      red: "#cc241d",
+      green: "#98971a",
+      yellow: "#d79921",
+      blue: "#458588",
+      magenta: "#b16286",
+      cyan: "#689d6a",
+      white: "#7c6f64",
+      brightBlack: "#928374",
+      brightRed: "#9d0006",
+      brightGreen: "#79740e",
+      brightYellow: "#b57614",
+      brightBlue: "#076678",
+      brightMagenta: "#8f3f71",
+      brightCyan: "#427b58",
+      brightWhite: "#3c3836",
+    },
+  },
+  tomorrow: {
+    background: "#ffffff",
+    foreground: "#4d4d4c",
+    cursor: "#4d4d4c",
+    selectionBackground: "#d6d6d6",
+    ansi: {
+      black: "#000000",
+      red: "#c82829",
+      green: "#718c00",
+      yellow: "#eab700",
+      blue: "#4271ae",
+      magenta: "#8959a8",
+      cyan: "#3e999f",
+      white: "#ffffff",
+      brightBlack: "#000000",
+      brightRed: "#c82829",
+      brightGreen: "#718c00",
+      brightYellow: "#eab700",
+      brightBlue: "#4271ae",
+      brightMagenta: "#8959a8",
+      brightCyan: "#3e999f",
+      brightWhite: "#ffffff",
+    },
+  },
+  "ayu-light": {
+    background: "#fafafa",
+    foreground: "#5c6166",
+    cursor: "#ff9940",
+    selectionBackground: "#035bd626",
+    ansi: {
+      black: "#000000",
+      red: "#ea6c73",
+      green: "#6cbf43",
+      yellow: "#eca944",
+      blue: "#3199e1",
+      magenta: "#9d57d3",
+      cyan: "#4cbf99",
+      white: "#fcfcfc",
+      brightBlack: "#323232",
+      brightRed: "#f07171",
+      brightGreen: "#86b300",
+      brightYellow: "#f2ae49",
+      brightBlue: "#399ee6",
+      brightMagenta: "#a37acc",
+      brightCyan: "#4cbf99",
+      brightWhite: "#ffffff",
+    },
+  },
+};
+
+export const TERMINAL_THEME_DEFINITIONS: TerminalThemeDefinition[] = [
+  {
+    id: MATCH_GUI_TERMINAL_THEME_ID,
+    label: "Match GUI Theme",
+    category: "auto",
+    description: "Follow the terminal palette bundled with the active GUI theme.",
+  },
+  ...THEME_DEFINITIONS.map<TerminalThemeDefinition>((t) => ({
+    id: t.id,
+    label: t.label,
+    category: "matching",
+    description: `Terminal palette from the ${t.label} GUI theme.`,
+  })),
+  { id: "dracula", label: "Dracula", category: "editor" },
+  { id: "solarized-dark", label: "Solarized Dark", category: "editor" },
+  { id: "solarized-light", label: "Solarized Light", category: "editor" },
+  { id: "monokai", label: "Monokai", category: "editor" },
+  { id: "nord", label: "Nord", category: "editor" },
+  { id: "gruvbox-dark", label: "Gruvbox Dark", category: "editor" },
+  { id: "tokyo-night", label: "Tokyo Night", category: "editor" },
+  { id: "one-dark", label: "One Dark", category: "editor" },
+  { id: "catppuccin-mocha", label: "Catppuccin Mocha", category: "editor" },
+  { id: "github-dark", label: "GitHub Dark", category: "editor" },
+  { id: "github-light", label: "GitHub Light", category: "editor" },
+  { id: "one-light", label: "One Light", category: "editor" },
+  { id: "catppuccin-latte", label: "Catppuccin Latte", category: "editor" },
+  { id: "tokyo-night-day", label: "Tokyo Night Day", category: "editor" },
+  { id: "gruvbox-light", label: "Gruvbox Light", category: "editor" },
+  { id: "tomorrow", label: "Tomorrow", category: "editor" },
+  { id: "ayu-light", label: "Ayu Light", category: "editor" },
+];
+
+const BUILTIN_TERMINAL_THEME_IDS = new Set(TERMINAL_THEME_DEFINITIONS.map((d) => d.id));
+
+// `user:*` IDs are accepted unconditionally — the file may be missing at
+// validation time but will resolve once the user themes are reloaded.
+function isAcceptableTerminalThemeId(id: string): boolean {
+  if (BUILTIN_TERMINAL_THEME_IDS.has(id)) return true;
+  return id.startsWith("user:") && id.length > "user:".length;
+}
+
+export function normalizeTerminalThemeId(id: string | null | undefined): string {
+  if (!id) return MATCH_GUI_TERMINAL_THEME_ID;
+  return isAcceptableTerminalThemeId(id) ? id : MATCH_GUI_TERMINAL_THEME_ID;
+}
+
+/**
+ * Merge built-in terminal theme definitions with the user-supplied ones
+ * loaded from `~/.config/roux/themes/`. The "User" group is appended last
+ * and only when non-empty; this keeps the picker tidy for users who
+ * haven't dropped any files in the folder.
+ */
+export function getAllTerminalThemeDefinitions(
+  userThemes: ReadonlyArray<UserTerminalTheme>,
+): TerminalThemeDefinition[] {
+  if (userThemes.length === 0) {
+    return TERMINAL_THEME_DEFINITIONS;
+  }
+  const userDefs = userThemes.map<TerminalThemeDefinition>((t) => ({
+    id: t.id,
+    label: t.label,
+    category: "user",
+    description: "From ~/.config/roux/themes/",
+  }));
+  return [...TERMINAL_THEME_DEFINITIONS, ...userDefs];
+}
+
+export function resolveTerminalTheme(
+  uiTheme: string | null | undefined,
+  terminalThemeId: string | null | undefined,
+  userThemes: ReadonlyArray<UserTerminalTheme> = [],
+): TerminalTheme {
+  const id = normalizeTerminalThemeId(terminalThemeId);
+  if (id === MATCH_GUI_TERMINAL_THEME_ID) {
+    return TERMINAL_THEMES[normalizeTheme(uiTheme)];
+  }
+  if (id.startsWith("user:")) {
+    const user = userThemes.find((t) => t.id === id);
+    if (user) return user.palette;
+    // File missing — fall through to GUI palette so the terminal still
+    // renders something sane until the user fixes/reloads.
+    return TERMINAL_THEMES[normalizeTheme(uiTheme)];
+  }
+  const matching = TERMINAL_THEMES[id as ThemePreset];
+  if (matching) return matching;
+  const editor = EDITOR_TERMINAL_THEMES[id];
+  if (editor) return editor;
+  return TERMINAL_THEMES[normalizeTheme(uiTheme)];
 }

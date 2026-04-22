@@ -4,6 +4,11 @@ use std::collections::HashSet;
 use super::profile::{ProfileSource, SpawnProfile};
 
 const DEFAULT_THEME: &str = "deep-blue";
+const DEFAULT_TERMINAL_THEME: &str = "match-gui";
+
+fn default_terminal_theme() -> String {
+    DEFAULT_TERMINAL_THEME.to_string()
+}
 
 fn default_ui_font_family() -> String {
     "Geist, Inter, SF Pro Display, Segoe UI, sans-serif".to_string()
@@ -132,6 +137,13 @@ pub struct RouxSettings {
     #[serde(default)]
     pub worktree_default_base: WorktreeDefaultBase,
     pub theme: String,
+    /// Terminal color palette. `"match-gui"` (default) follows the GUI
+    /// theme's bundled terminal palette; any other value names a standalone
+    /// palette (one of the GUI-matching IDs or a built-in editor scheme like
+    /// `dracula`, `solarized-dark`, etc.). Unknown IDs normalize back to
+    /// `"match-gui"` so a future schema addition cannot brick old clients.
+    #[serde(default = "default_terminal_theme")]
+    pub terminal_theme: String,
     pub default_model: Option<String>,
     #[serde(default)]
     pub claude_binary_path: Option<String>,
@@ -241,6 +253,7 @@ impl Default for RouxSettings {
             worktree_cleanup_on_close: WorktreeCleanupMode::Prompt,
             worktree_default_base: WorktreeDefaultBase::CurrentBranch,
             theme: DEFAULT_THEME.to_string(),
+            terminal_theme: DEFAULT_TERMINAL_THEME.to_string(),
             default_model: None,
             claude_binary_path: None,
             gh_binary_path: None,
@@ -272,6 +285,7 @@ impl RouxSettings {
     pub fn normalized(&self) -> Self {
         let mut s = self.clone();
         s.theme = normalize_theme(&s.theme);
+        s.terminal_theme = normalize_terminal_theme(&s.terminal_theme);
         // Force-set source on user profiles regardless of what the JSON says,
         // so a malicious or copy-pasted profile cannot masquerade as built-in.
         for profile in &mut s.spawn_profiles {
@@ -312,6 +326,56 @@ fn normalize_theme(theme: &str) -> String {
         "steel-amber" | "slate-emerald" | "graphite-rose" | "nordic-night" | "cyber-audit"
         | "mocha-soft" | "paper-ink" | "github-day" => theme.to_string(),
         _ => DEFAULT_THEME.to_string(),
+    }
+}
+
+fn normalize_terminal_theme(theme: &str) -> String {
+    // User-supplied themes from `~/.config/roux/themes/*.itermcolors` are
+    // identified by `user:<stem>`. The validator can't enumerate them
+    // (they live on disk and the file may be temporarily missing on
+    // load), so accept any non-empty `user:*` ID and let the resolver
+    // fall back to "match-gui" at render time if the file is gone.
+    if let Some(rest) = theme.strip_prefix("user:") {
+        if !rest.is_empty() {
+            return theme.to_string();
+        }
+    }
+    match theme {
+        // Sentinel: follow the GUI theme's bundled terminal palette.
+        "match-gui"
+        // GUI-matching palettes (one per GUI preset).
+        | "deep-blue" | "midnight-copper" | "steel-amber" | "slate-emerald"
+        | "graphite-rose" | "nordic-night" | "cyber-audit" | "mocha-soft"
+        | "paper-ink" | "github-day"
+        // Editor-style palettes (iterm2colorschemes-inspired).
+        | "dracula" | "solarized-dark" | "solarized-light" | "monokai"
+        | "nord" | "gruvbox-dark" | "tokyo-night" | "one-dark"
+        | "catppuccin-mocha" | "github-dark"
+        // Light editor palettes.
+        | "github-light" | "one-light" | "catppuccin-latte" | "tokyo-night-day"
+        | "gruvbox-light" | "tomorrow" | "ayu-light" => theme.to_string(),
+        _ => DEFAULT_TERMINAL_THEME.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod terminal_theme_tests {
+    use super::normalize_terminal_theme;
+
+    #[test]
+    fn user_prefix_passes_through() {
+        assert_eq!(normalize_terminal_theme("user:dracula-mod"), "user:dracula-mod");
+        assert_eq!(normalize_terminal_theme("user:my fav"), "user:my fav");
+    }
+
+    #[test]
+    fn empty_user_prefix_falls_back() {
+        assert_eq!(normalize_terminal_theme("user:"), "match-gui");
+    }
+
+    #[test]
+    fn unknown_falls_back_to_match_gui() {
+        assert_eq!(normalize_terminal_theme("not-a-theme"), "match-gui");
     }
 }
 

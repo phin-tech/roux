@@ -1,7 +1,9 @@
 <script lang="ts">
   import { settings, updateSetting } from "$lib/stores/settings";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { THEME_DEFINITIONS } from "$lib/themes";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
+  import { THEME_DEFINITIONS, getAllTerminalThemeDefinitions } from "$lib/themes";
+  import { userTerminalThemes, loadUserTerminalThemes } from "$lib/stores/userTerminalThemes";
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import { notificationsPush } from "$lib/tauri";
   import { commands } from "$lib/bindings";
@@ -241,7 +243,7 @@
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <div class="text-[13px]">Theme</div>
-                  <div class="text-[11px] text-text-muted mt-0.5">Choose the color preset for the app chrome and terminals</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">Color preset for the app chrome. Terminal palette is configured separately under Terminal.</div>
                 </div>
                 <select
                   class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
@@ -447,6 +449,82 @@
               </select>
             </div>
           {:else if selected === "terminal"}
+            {@const allTerminalThemes = getAllTerminalThemeDefinitions($userTerminalThemes)}
+            {@const currentTerminalThemeId = $settings.terminalTheme ?? "match-gui"}
+            {@const currentDef = allTerminalThemes.find((t) => t.id === currentTerminalThemeId)}
+            {@const isMissingUserTheme = !currentDef && currentTerminalThemeId.startsWith("user:")}
+            <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3 mb-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="text-[13px]">Terminal theme</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">Color palette for the xterm pane. Independent of the GUI theme. Save iTerm2 <code>.itermcolors</code> files into <code>~/.config/roux/themes/</code> to add your own.</div>
+                </div>
+                <div class="flex items-center gap-1">
+                  <select
+                    class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6 max-w-[14rem]"
+                    value={currentTerminalThemeId}
+                    onchange={(e) => updateSetting("terminalTheme", e.currentTarget.value)}
+                  >
+                    <optgroup label="Auto">
+                      {#each allTerminalThemes.filter((t) => t.category === "auto") as t}
+                        <option value={t.id}>{t.label}</option>
+                      {/each}
+                    </optgroup>
+                    <optgroup label="App theme palettes">
+                      {#each allTerminalThemes.filter((t) => t.category === "matching") as t}
+                        <option value={t.id}>{t.label}</option>
+                      {/each}
+                    </optgroup>
+                    <optgroup label="Editor themes">
+                      {#each allTerminalThemes.filter((t) => t.category === "editor") as t}
+                        <option value={t.id}>{t.label}</option>
+                      {/each}
+                    </optgroup>
+                    {#if $userTerminalThemes.length > 0}
+                      <optgroup label="User">
+                        {#each allTerminalThemes.filter((t) => t.category === "user") as t}
+                          <option value={t.id}>{t.label}</option>
+                        {/each}
+                      </optgroup>
+                    {/if}
+                    {#if isMissingUserTheme}
+                      <!-- Persisted theme references a user file that's not
+                           present right now (deleted, renamed, or themes
+                           folder hasn't loaded yet). Surface it as a
+                           disabled option so the dropdown reflects the
+                           setting; selecting any other entry overwrites it. -->
+                      <option value={currentTerminalThemeId} disabled>
+                        Missing: {currentTerminalThemeId.slice("user:".length)}
+                      </option>
+                    {/if}
+                  </select>
+                  <button
+                    class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                    title="Open ~/.config/roux/themes/ in the file manager"
+                    onclick={async () => {
+                      try {
+                        const dir = await commands.userThemesDir();
+                        await revealItemInDir(dir);
+                      } catch (e) {
+                        console.error("reveal user themes dir failed", e);
+                      }
+                    }}
+                  >Reveal</button>
+                  <button
+                    class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                    title="Re-scan ~/.config/roux/themes/"
+                    onclick={() => void loadUserTerminalThemes()}
+                  >Reload</button>
+                </div>
+              </div>
+              {#if isMissingUserTheme}
+                <p class="mt-2 text-[11px] text-amber-500/90">
+                  This theme file isn't currently loaded. The setting is preserved — drop the file back into <code>~/.config/roux/themes/</code> and hit Reload, or pick a different theme.
+                </p>
+              {:else if currentDef?.description}
+                <p class="mt-2 text-[11px] text-text-muted">{currentDef.description}</p>
+              {/if}
+            </div>
             <div class="flex items-center justify-between py-2">
               <span class="text-[13px]">Font size</span>
               <input

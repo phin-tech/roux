@@ -224,6 +224,18 @@ export const commands = {
 	attachPtyToPane: (ptyId: string, paneId: string, cols: number, rows: number) => typedError<AttachResult, string>(__TAURI_INVOKE("attach_pty_to_pane", { ptyId, paneId, cols, rows })),
 	markPtyRead: (ptyId: string) => typedError<null, string>(__TAURI_INVOKE("mark_pty_read", { ptyId })),
 	setPtyName: (ptyId: string, name: string | null) => typedError<null, string>(__TAURI_INVOKE("set_pty_name", { ptyId, name })),
+	/**
+	 *  List user-supplied terminal themes. The directory is created on first
+	 *  call so it's discoverable by the user. Files that fail to parse are
+	 *  dropped silently from the response (logged to stderr) — a single bad
+	 *  file should not poison the whole picker.
+	 */
+	listUserTerminalThemes: () => __TAURI_INVOKE<UserTerminalTheme[]>("list_user_terminal_themes"),
+	/**
+	 *  Absolute path to `~/.config/roux/themes/`. Created if missing so the
+	 *  "Reveal" button always lands on a real folder.
+	 */
+	userThemesDir: () => __TAURI_INVOKE<string>("user_themes_dir"),
 };
 
 /* Types */
@@ -651,6 +663,14 @@ export type RouxSettings = {
 	 */
 	worktreeDefaultBase?: WorktreeDefaultBase,
 	theme: string,
+	/**
+	 *  Terminal color palette. `"match-gui"` (default) follows the GUI
+	 *  theme's bundled terminal palette; any other value names a standalone
+	 *  palette (one of the GUI-matching IDs or a built-in editor scheme like
+	 *  `dracula`, `solarized-dark`, etc.). Unknown IDs normalize back to
+	 *  `"match-gui"` so a future schema addition cannot brick old clients.
+	 */
+	terminalTheme?: string,
 	defaultModel: string | null,
 	claudeBinaryPath?: string | null,
 	/**
@@ -836,6 +856,37 @@ export type TaskGroup = {
 	tasks: TaskDefinition[],
 };
 
+/**
+ *  16-color ANSI palette plus the special UI slots, mirroring the frontend
+ *  `TerminalTheme` shape so the bindings stay 1:1.
+ */
+export type TerminalAnsiPalette = {
+	black: string,
+	red: string,
+	green: string,
+	yellow: string,
+	blue: string,
+	magenta: string,
+	cyan: string,
+	white: string,
+	brightBlack: string,
+	brightRed: string,
+	brightGreen: string,
+	brightYellow: string,
+	brightBlue: string,
+	brightMagenta: string,
+	brightCyan: string,
+	brightWhite: string,
+};
+
+export type TerminalThemePalette = {
+	background: string,
+	foreground: string,
+	cursor: string,
+	selectionBackground: string,
+	ansi: TerminalAnsiPalette,
+};
+
 export type UpdateChannel = "stable" | "preRelease";
 
 export type UpdateInfo = {
@@ -844,6 +895,18 @@ export type UpdateInfo = {
 };
 
 export type UpdaterError = { kind: "network" } | { kind: "signature-invalid" } | { kind: "not-found" } | { kind: "internal"; message: string };
+
+export type UserTerminalTheme = {
+	/**
+	 *  `"user:" + filename-stem`. Stable across reloads, so settings can
+	 *  persist a reference to a user theme even when the file is briefly
+	 *  missing.
+	 */
+	id: string,
+	// Human label derived from the filename stem.
+	label: string,
+	palette: TerminalThemePalette,
+};
 
 export type Watch = {
 	id: string,
