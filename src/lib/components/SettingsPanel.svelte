@@ -452,6 +452,7 @@
             {@const allTerminalThemes = getAllTerminalThemeDefinitions($userTerminalThemes)}
             {@const currentTerminalThemeId = $settings.terminalTheme ?? "match-gui"}
             {@const currentDef = allTerminalThemes.find((t) => t.id === currentTerminalThemeId)}
+            {@const isMissingUserTheme = !currentDef && currentTerminalThemeId.startsWith("user:")}
             <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3 mb-3">
               <div class="flex items-start justify-between gap-3">
                 <div>
@@ -486,6 +487,16 @@
                         {/each}
                       </optgroup>
                     {/if}
+                    {#if isMissingUserTheme}
+                      <!-- Persisted theme references a user file that's not
+                           present right now (deleted, renamed, or themes
+                           folder hasn't loaded yet). Surface it as a
+                           disabled option so the dropdown reflects the
+                           setting; selecting any other entry overwrites it. -->
+                      <option value={currentTerminalThemeId} disabled>
+                        Missing: {currentTerminalThemeId.slice("user:".length)}
+                      </option>
+                    {/if}
                   </select>
                   <button
                     class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
@@ -506,7 +517,11 @@
                   >Reload</button>
                 </div>
               </div>
-              {#if currentDef?.description}
+              {#if isMissingUserTheme}
+                <p class="mt-2 text-[11px] text-amber-500/90">
+                  This theme file isn't currently loaded. The setting is preserved — drop the file back into <code>~/.config/roux/themes/</code> and hit Reload, or pick a different theme.
+                </p>
+              {:else if currentDef?.description}
                 <p class="mt-2 text-[11px] text-text-muted">{currentDef.description}</p>
               {/if}
             </div>

@@ -219,7 +219,7 @@ fn rgb_to_hex(r: f64, g: f64, b: f64) -> String {
 }
 
 fn stem_to_label(stem: &str) -> String {
-    let parts = stem.split(|c: char| c == '-' || c == '_' || c == ' ');
+    let parts = stem.split(['-', '_', ' ']);
     let mut out = String::new();
     for (i, part) in parts.filter(|p| !p.is_empty()).enumerate() {
         if i > 0 {

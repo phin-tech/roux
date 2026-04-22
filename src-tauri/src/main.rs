@@ -297,6 +297,8 @@ fn main() {
             commands::pty::attach_pty_to_pane,
             commands::pty::mark_pty_read,
             commands::pty::set_pty_name,
+            commands::user_themes::list_user_terminal_themes,
+            commands::user_themes::user_themes_dir,
         ])
         .setup(|app| {
             // Install the roux-cli shim dir (~/.config/roux/bin) with
