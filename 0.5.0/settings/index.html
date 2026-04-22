@@ -808,6 +808,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#terminal-themes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Terminal themes
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes-experimental" class="md-nav__link">
     <span class="md-ellipsis">
       Notes (experimental)
@@ -907,6 +916,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#terminal-themes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Terminal themes
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes-experimental" class="md-nav__link">
     <span class="md-ellipsis">
       Notes (experimental)
@@ -964,13 +982,20 @@
 <ul>
 <li><strong>General</strong> — theme, tab position, status bar position.</li>
 <li><strong>Sessions</strong> — close/reconnect behavior, default project path, repo roots quick-pick sources, worktree base template, worktree cleanup mode, and the New Worktree default starting point.</li>
-<li><strong>Terminal</strong> — font, scrollback, and cursor settings.</li>
+<li><strong>Terminal</strong> — independent terminal theme selection, user-imported <code>.itermcolors</code> themes, font, scrollback, and cursor settings.</li>
 <li><strong>Claude</strong> — binary path override, default model, additional flags.</li>
 <li><strong>Integrations</strong> — GitHub CLI (<code>gh</code>) path override for PR/session integrations.</li>
 <li><strong>Notifications</strong> — OS notification master switch and test notification trigger.</li>
 <li><strong>Keyboard</strong> — toggles for Option-pane and Command-session hint overlays.</li>
 <li><strong>Notes</strong> — experimental multi-scoped vault settings. See below.</li>
-<li><strong>Advanced</strong> — app version and updater controls.</li>
+<li><strong>Advanced</strong> — app version, updater controls, update channel, logging, and the Doctor panel.</li>
+</ul>
+<h2 id="terminal-themes">Terminal themes<a class="headerlink" href="#terminal-themes" title="Permanent link">&para;</a></h2>
+<p>The <strong>Terminal</strong> section controls xterm's palette separately from the rest of the app.</p>
+<ul>
+<li><strong>Terminal theme</strong> (<code>terminalTheme</code>) — choose between auto-follow, built-in app-matched palettes, built-in editor-style palettes, or user themes.</li>
+<li><strong>User themes</strong> — drop iTerm2 <code>.itermcolors</code> files into <code>~/.config/roux/themes/</code>, then use <strong>Reload</strong> to rescan them or <strong>Reveal</strong> to open the folder in your file manager.</li>
+<li>Missing user themes are preserved as setting values until you restore the file or pick a different theme, so Roux does not silently overwrite a temporarily unavailable palette.</li>
 </ul>
 <h2 id="notes-experimental">Notes (experimental)<a class="headerlink" href="#notes-experimental" title="Permanent link">&para;</a></h2>
 <p>The <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span> notes panel writes to an Obsidian-compatible vault on disk.</p>
@@ -989,9 +1014,10 @@
 </ul>
 <p>Use <strong>Install / Update / Reinstall</strong> actions per item if anything is missing or stale.</p>
 <h2 id="updates">Updates<a class="headerlink" href="#updates" title="Permanent link">&para;</a></h2>
-<p>The Updates section shows the currently running Roux version and lets you manage the built-in auto-updater.</p>
+<p>The <strong>Advanced</strong> section shows the currently running Roux version and exposes the built-in auto-updater controls.</p>
 <ul>
 <li><strong>Check for updates</strong> — runs a manual check against the release server. If a new version is available, release notes appear inline along with an <strong>Install and restart</strong> button.</li>
+<li><strong>Update channel</strong> (<code>updateChannel</code>) — choose <strong>Stable</strong> or <strong>Pre-release (Alpha)</strong>. Stable follows <code>latest.json</code>; Pre-release follows the newest published prerelease manifest. Switching back to Stable only takes effect once a stable release exists at or above the version you're currently running.</li>
 <li><strong>Check for updates on launch</strong> — when enabled (the default), Roux silently checks for a new version a few seconds after startup. If one is available, a small banner appears at the top of the window with <strong>Install and restart</strong> and <strong>Later</strong> buttons. Disabling this means you'll only see updates when you click <strong>Check for updates</strong> manually.</li>
 </ul>
 <p>Updates are signed by Roux's release key and verified on your machine before they're installed. A signature failure always surfaces visibly — Roux will never silently ignore one.</p>

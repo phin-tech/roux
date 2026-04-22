@@ -639,6 +639,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sidebar-and-grouping" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sidebar and grouping
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#session-persistence" class="md-nav__link">
     <span class="md-ellipsis">
       Session persistence
@@ -651,6 +660,15 @@
   <a href="#closing-a-session" class="md-nav__link">
     <span class="md-ellipsis">
       Closing a session
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sessions-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sessions History
     </span>
   </a>
   
@@ -903,6 +921,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sidebar-and-grouping" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sidebar and grouping
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#session-persistence" class="md-nav__link">
     <span class="md-ellipsis">
       Session persistence
@@ -915,6 +942,15 @@
   <a href="#closing-a-session" class="md-nav__link">
     <span class="md-ellipsis">
       Closing a session
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sessions-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sessions History
     </span>
   </a>
   
@@ -954,6 +990,13 @@
 </ul>
 <h2 id="projects">Projects<a class="headerlink" href="#projects" title="Permanent link">&para;</a></h2>
 <p>Sessions can be tagged with a <strong>project</strong>. Projects group related sessions across repos and worktrees so notes, documents, and defaults are shared between them.</p>
+<h2 id="sidebar-and-grouping">Sidebar and grouping<a class="headerlink" href="#sidebar-and-grouping" title="Permanent link">&para;</a></h2>
+<p>The session sidebar has a couple of useful modes:</p>
+<ul>
+<li>Sessions can be grouped by <strong>repository</strong> or <strong>project</strong>.</li>
+<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd>\</kbd></span> collapses the full sidebar into a slim rail of session dots instead of hiding session switching entirely.</li>
+<li>The native <strong>View</strong> menu exposes the same sidebar toggle and session-grouping controls as the command palette.</li>
+</ul>
 <h2 id="session-persistence">Session persistence<a class="headerlink" href="#session-persistence" title="Permanent link">&para;</a></h2>
 <p>Session metadata (project, worktree, working directory) is persisted. When you relaunch Roux:</p>
 <ul>
@@ -963,7 +1006,23 @@
 </ul>
 <p>This is intentional: active agent processes are not silently resumed on launch.</p>
 <h2 id="closing-a-session">Closing a session<a class="headerlink" href="#closing-a-session" title="Permanent link">&para;</a></h2>
-<p>Closing the pane (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-w">W</kbd></span>) terminates the Claude process. Roux takes care not to kill unrelated <code>node</code> processes — only the session it owns.</p>
+<p>Closing the session terminates the Claude process and archives the session record instead of immediately hard-deleting it. Roux takes care not to kill unrelated <code>node</code> processes — only the session it owns.</p>
+<h2 id="sessions-history">Sessions History<a class="headerlink" href="#sessions-history" title="Permanent link">&para;</a></h2>
+<p>Closed sessions move into <strong>Sessions History</strong>. Open it from the command palette with <strong>Toggle Sessions History</strong>, or use the default leader chord ++cmd+; t s++.</p>
+<p>The history pane shows two sections:</p>
+<ul>
+<li><strong>Active</strong> — your currently live sessions, with their current status.</li>
+<li><strong>History</strong> — archived sessions, sorted by most recently closed.</li>
+</ul>
+<p>For an archived session you can:</p>
+<ul>
+<li><strong>Restore</strong> it to the active list if its worktree still exists on disk.</li>
+<li>Open that session's <strong>Notes</strong>.</li>
+<li><strong>Show worktree</strong> in your file manager.</li>
+<li><strong>Clean worktree</strong> to remove the checkout but keep the history row.</li>
+<li><strong>Delete forever</strong> to remove the archived record itself.</li>
+</ul>
+<p>If you clean or manually remove a worktree, Restore is disabled for that archived row because Roux no longer has a checkout to reconnect.</p>
 <p>See <a href="../worktrees/">Worktrees</a> for how sessions interact with git worktrees.</p>
 
 
