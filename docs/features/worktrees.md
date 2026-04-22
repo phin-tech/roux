@@ -84,6 +84,12 @@ Use **Settings → Sessions → On session close** to choose worktree cleanup be
 - **Ask** — prompt each time a worktree-backed session closes
 - **Remove** — always remove the worktree on close
 
+Session closure and worktree cleanup are now separate concepts:
+
+- Closing a session archives the session into **Sessions History**.
+- If the worktree is kept on disk, that history row can be restored later.
+- If you later choose **Clean worktree** from Sessions History, the history row stays but Restore becomes unavailable because the checkout is gone.
+
 ## Caveats
 
 - Worktrees share hooks and git config with the main repo. Be aware of any `post-checkout` or `post-commit` hooks that assume a single working copy.

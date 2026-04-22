@@ -10,13 +10,21 @@ Settings are grouped into categories in a sidebar modal. Changes are persisted a
 
 - **General** — theme, tab position, status bar position.
 - **Sessions** — close/reconnect behavior, default project path, repo roots quick-pick sources, worktree base template, worktree cleanup mode, and the New Worktree default starting point.
-- **Terminal** — font, scrollback, and cursor settings.
+- **Terminal** — independent terminal theme selection, user-imported `.itermcolors` themes, font, scrollback, and cursor settings.
 - **Claude** — binary path override, default model, additional flags.
 - **Integrations** — GitHub CLI (`gh`) path override for PR/session integrations.
 - **Notifications** — OS notification master switch and test notification trigger.
 - **Keyboard** — toggles for Option-pane and Command-session hint overlays.
 - **Notes** — experimental multi-scoped vault settings. See below.
-- **Advanced** — app version and updater controls.
+- **Advanced** — app version, updater controls, update channel, logging, and the Doctor panel.
+
+## Terminal themes
+
+The **Terminal** section controls xterm's palette separately from the rest of the app.
+
+- **Terminal theme** (`terminalTheme`) — choose between auto-follow, built-in app-matched palettes, built-in editor-style palettes, or user themes.
+- **User themes** — drop iTerm2 `.itermcolors` files into `~/.config/roux/themes/`, then use **Reload** to rescan them or **Reveal** to open the folder in your file manager.
+- Missing user themes are preserved as setting values until you restore the file or pick a different theme, so Roux does not silently overwrite a temporarily unavailable palette.
 
 ## Notes (experimental)
 
@@ -40,9 +48,10 @@ Use **Install / Update / Reinstall** actions per item if anything is missing or 
 
 ## Updates
 
-The Updates section shows the currently running Roux version and lets you manage the built-in auto-updater.
+The **Advanced** section shows the currently running Roux version and exposes the built-in auto-updater controls.
 
 - **Check for updates** — runs a manual check against the release server. If a new version is available, release notes appear inline along with an **Install and restart** button.
+- **Update channel** (`updateChannel`) — choose **Stable** or **Pre-release (Alpha)**. Stable follows `latest.json`; Pre-release follows the newest published prerelease manifest. Switching back to Stable only takes effect once a stable release exists at or above the version you're currently running.
 - **Check for updates on launch** — when enabled (the default), Roux silently checks for a new version a few seconds after startup. If one is available, a small banner appears at the top of the window with **Install and restart** and **Later** buttons. Disabling this means you'll only see updates when you click **Check for updates** manually.
 
 Updates are signed by Roux's release key and verified on your machine before they're installed. A signature failure always surfaces visibly — Roux will never silently ignore one.

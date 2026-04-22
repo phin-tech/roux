@@ -50,6 +50,26 @@ This page tracks major shipped features across Roux's full history.
 - **GitHub CLI resolution improvements**: login-shell PATH lookup plus explicit `gh` binary override.
 - **Configurable keymap**: every keyboard shortcut — including the leader prefix and chord trees — moved out of hardcoded handlers into a KDL file at `~/.config/roux/keymap.kdl`. Switch to a built-in `tmux` preset with a single line, layer your own overrides on top, declare sticky/passthrough modes, and pick per-tree HUD visibility (`always` / `delayed <ms>` / `never`). Reload from the palette without a restart. See [Keymap](features/keymap.md).
 
+## April 17, 2026
+
+- **Collapsible session rail**: ++cmd+"\\"++ now collapses the full sidebar into a narrow rail of session dots, so you can reclaim horizontal space without giving up fast session switching.
+- **Updater channels**: Settings gained a user-selectable **Stable / Pre-release (Alpha)** channel, letting alpha users follow prerelease builds without changing the default stable path for everyone else.
+
 ## April 18, 2026
 
-- **Multi-scoped notes vault (experimental)**: the project-only notes scratchpad expanded into a four-scope Obsidian-compatible vault. The ++cmd+b++ panel now ships a pill row for **Session / Repo / Project / Global** notes with sticky per-session selection. Under the hood, each session writes to `~/Documents/Roux/<scope>/...`, a clean Obsidian vault you can point Obsidian / Quartz / Hugo / any markdown tool at. Every PTY picks up ten new `ROUX_*_NOTES_*` env vars so agents can locate the right file without guessing. A new `roux notes <scope> <verb>` CLI exposes show / append (optionally timestamped, with stable entry ids) / write / path / search-by-tag, plus `--topic` and `--tag` flags for the "many files per scope, tagged" workflow. Existing project notes migrate to `projects/<slug>/notes.md` on first launch; originals are kept as backup. Subject to change until the banner is removed. See [Notes](features/notes.md).
+- **Multi-scoped notes vault (experimental)**: the project-only scratchpad expanded into a four-scope, Obsidian-compatible vault. The ++cmd+b++ panel now supports **Session / Repo / Project / Global** notes with sticky per-session selection. Under the hood, each session writes to `~/Documents/Roux/<scope>/...`, giving you a plain markdown vault you can open in Obsidian, Quartz, Hugo, or other markdown tooling. PTYs now expose `ROUX_*_NOTES_*` env vars so agents can locate the right file without guessing, and `roux notes <scope> <verb>` adds CLI support for show / append / write / path / search-by-tag, plus `--topic` and `--tag` for more structured note sets. Existing project notes migrate to `projects/<slug>/notes.md` on first launch, with the originals kept as backup. Subject to change until the experimental banner is removed. See [Notes](features/notes.md).
+
+## April 20, 2026
+
+- **Worktree base selection**: new worktrees can now start from **current branch**, **main**, or **origin/main**. The same choices are exposed in the New Worktree flows, and Settings now lets you pick the default starting point.
+
+## April 21, 2026
+
+- **Native menu bar**: Roux now ships File/Edit/View/Session/Pane/Tools/Window/Help menus on macOS, Windows, and Linux, wired to the same command registry and active keymap as the palette.
+- **Sessions History**: closing a session now soft-archives it into a history pane instead of immediately deleting the record. Archived rows can be restored, opened in Notes, cleaned up on disk, or permanently deleted later.
+
+## April 22, 2026
+
+- **Independent terminal themes**: terminal colors are now selected separately from the GUI theme, so you can keep a light UI with a dark shell, or the reverse.
+- **User-imported terminal themes**: drop iTerm2 `.itermcolors` files into `~/.config/roux/themes/` and Roux will surface them in Settings alongside the built-in palettes.
+- **v0.5.0**: the late-April UI and workflow polish shipped as the `v0.5.0` release.

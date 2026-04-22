@@ -10,7 +10,7 @@ Projects can be any directory on disk. A git repository is only required if you 
 
 ## First launch
 
-When you open Roux for the first time you'll see an empty window with a top bar and a single empty pane.
+On first launch, Roux opens to a single empty pane with the session sidebar on the left and the native menu bar available on supported platforms.
 
 ## Creating your first session
 
@@ -28,6 +28,12 @@ When you open Roux for the first time you'll see an empty window with a top bar 
 - ++cmd+w++ closes the current pane.
 
 Roux automatically flattens consecutive splits in the same direction, so your layout stays clean.
+
+## Sidebar and session history
+
+- ++cmd+"\\"++ collapses the session sidebar into a slim rail of session dots; press it again to expand.
+- Closing a session archives it into **Sessions History** instead of immediately deleting the record.
+- Open **Toggle Sessions History** from the command palette, or use the default leader chord ++cmd+; t s++, to restore closed sessions, open their notes, or permanently delete the history entry.
 
 ## Opening a shell
 
