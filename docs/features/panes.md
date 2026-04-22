@@ -9,6 +9,21 @@ Panes are the basic building block of a Roux window. Every Claude Code session, 
 
 Consecutive splits in the same direction are flattened into a single row or column, so your layout never accumulates redundant nesting.
 
+## Split with profile
+
+Roux can also split the current pane and seed the new shell with a specific spawn profile.
+
+Available command-palette actions include:
+
+- **Split Right with Profile…**
+- **Split Down with Profile…**
+- **Split Right → Claude**
+- **Split Right → Codex**
+
+The profile-driven path is what lets a new pane start as more than a plain shell. A profile can attach setup commands, startup commands, environment variables, and optional sandbox settings before you start using the pane.
+
+This is the fastest way to drop a second agent or a specialized shell next to the current pane without opening the New Session dialog.
+
 ## Stacking
 
 Toggle stacking with ++cmd+shift+s++. Stacked panes behave like Zellij tabs: the active pane fills the space while inactive panes collapse into a title bar strip. Click a title bar to activate that pane.
@@ -82,6 +97,34 @@ Use **Kill Terminal** when you want to stop the underlying PTY immediately.
 - **Kill Terminal** stops the PTY process itself
 
 This distinction is especially useful for long-running shells or command panes that you want to keep alive while reorganizing the layout.
+
+## Command panes
+
+Roux can run an ad-hoc shell command in its own dedicated pane.
+
+Open one from the command palette with **Run Command**.
+
+Command panes:
+
+- start as a split next to the active pane
+- stream terminal output like any other terminal-backed pane
+- show elapsed time while running
+- show success/error status when the process exits
+- support rerun from the pane header after completion
+
+This is useful for one-off test runs, build commands, or long-running scripts you want visible in the layout without manually opening a shell first.
+
+## Other pane types
+
+Not every pane is an interactive shell.
+
+Roux also supports:
+
+- **Markdown document panes** via **Open Document**
+- **Notes panes** via **Open Notes Pane (Horizontal/Vertical)**
+- **Command panes** via **Run Command**
+
+All of these participate in the same split/stack/focus system as shell and agent panes.
 
 ## Persistence
 
