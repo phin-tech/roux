@@ -4,7 +4,6 @@ use std::process::Command;
 
 use crate::detect::WtBinary;
 use crate::exec::WtError;
-use crate::list::list_worktrees;
 
 /// Options for [`create_worktree`].
 #[derive(Debug, Default, Clone)]
@@ -70,9 +69,8 @@ pub fn create_worktree(
         .into_iter()
         .find(|i| i.branch.as_deref() == Some(branch))
         .and_then(|i| i.path)
-        .ok_or_else(|| WtError::NonZeroExit {
-            status: 0,
-            stderr: format!(
+        .ok_or_else(|| WtError::NotFound {
+            path: format!(
                 "wt reported success but no worktree named {branch:?} is listed"
             ),
         })
@@ -97,11 +95,6 @@ fn list_worktrees_with_env(
             status: output.status.code().unwrap_or(-1),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         });
-    }
-    // Reuse the public `list_worktrees` when env is empty, else parse
-    // here to avoid re-spawning.
-    if env.is_empty() {
-        return list_worktrees(wt, repo_path);
     }
     serde_json::from_slice::<Vec<crate::schema::WtItem>>(&output.stdout)
         .map_err(|source| WtError::Parse { source })

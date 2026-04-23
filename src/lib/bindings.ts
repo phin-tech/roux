@@ -28,20 +28,27 @@ export const commands = {
 	 *  Read a single worktrunk log file, capped at 256 KiB. Returns `None`
 	 *  when the file doesn't exist (was rotated / pruned between listing
 	 *  and read).
-	 */
-	cmdWorktrunkReadLog: (path: string) => typedError<string | null, string>(__TAURI_INVOKE("cmd_worktrunk_read_log", { path })),
-	/**
-	 *  Open the host OS's default terminal at `path`. Used by the
-	 *  Worktrunk panel's right-click context menu.
 	 * 
-	 *  macOS: `open -a Terminal <path>` — respects the user's default
-	 *  Terminal app binding.
+	 *  Defense-in-depth: even though the UI only supplies paths it received
+	 *  from `cmd_worktrunk_diagnostics`, we refuse any path whose canonical
+	 *  form does not live under `<repo_path>/.git/wt/logs/`. That way a
+	 *  compromised frontend / XSS can't turn this into an arbitrary-file
+	 *  read primitive.
+	 */
+	cmdWorktrunkReadLog: (repoPath: string, path: string) => typedError<string | null, string>(__TAURI_INVOKE("cmd_worktrunk_read_log", { repoPath, path })),
+	/**
+	 *  Open a terminal at `path`. Used by the Worktrunk panel's
+	 *  right-click context menu.
+	 * 
+	 *  macOS: `open -a Terminal <path>` — always Apple Terminal. (The
+	 *  user's "default terminal" preference on macOS is not exposed via a
+	 *  stable API, so we pick Terminal.app deliberately.)
 	 *  Linux: best-effort `xdg-terminal-exec` if available, else
 	 *  `x-terminal-emulator` (Debian/Ubuntu wrapper); returns an error
 	 *  if neither resolves.
 	 *  Windows: `wt.exe -d <path>` (Windows Terminal) — falls back to
 	 *  `cmd /c start cmd /k "cd /d <path>"` when Windows Terminal is
-	 *  absent.
+	 *  absent or fails.
 	 */
 	cmdOpenTerminalAt: (path: string) => typedError<null, string>(__TAURI_INVOKE("cmd_open_terminal_at", { path })),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
   import { ciChipFor } from "$lib/ciIcon";
+  import { safeHref } from "$lib/safeUrl";
 
   interface Props {
     /**
@@ -18,6 +19,7 @@
   );
   let m = $derived(metadata ? $metadata : null);
   let ciChip = $derived(ciChipFor(m?.ciStatus ?? null));
+  let devServerHref = $derived(safeHref(m?.devServerUrl));
 </script>
 
 {#if m}
@@ -64,15 +66,15 @@
     </span>
   {/if}
 
-  {#if m.devServerUrl}
+  {#if devServerHref}
     <a
       data-testid="session-wt-dev-server"
-      href={m.devServerUrl}
+      href={devServerHref}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       class="font-mono text-[10px] leading-none text-blue underline"
       onclick={(e) => e.stopPropagation()}
-      title={`Dev server: ${m.devServerUrl}`}>url</a
+      title={`Dev server: ${devServerHref}`}>url</a
     >
   {/if}
 {/if}

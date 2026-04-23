@@ -273,34 +273,58 @@ pub(crate) async fn cmd_worktrunk_diagnostics(
 /// Read a single worktrunk log file, capped at 256 KiB. Returns `None`
 /// when the file doesn't exist (was rotated / pruned between listing
 /// and read).
+///
+/// Defense-in-depth: even though the UI only supplies paths it received
+/// from `cmd_worktrunk_diagnostics`, we refuse any path whose canonical
+/// form does not live under `<repo_path>/.git/wt/logs/`. That way a
+/// compromised frontend / XSS can't turn this into an arbitrary-file
+/// read primitive.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_worktrunk_read_log(path: String) -> Result<Option<String>, String> {
-    // Safety: the panel only ever passes paths it received from
-    // `cmd_worktrunk_diagnostics`, which come directly from `wt config
-    // state logs` — i.e. worktrunk-owned paths under `.git/wt/logs/`.
-    // We still read via `std::fs` from the exact path supplied; no
-    // shell interpolation, no symlink expansion beyond what the OS does
-    // natively.
+pub(crate) async fn cmd_worktrunk_read_log(
+    repo_path: String,
+    path: String,
+) -> Result<Option<String>, String> {
     const MAX_BYTES: u64 = 256 * 1024;
     tauri::async_runtime::spawn_blocking(move || {
-        roux_worktrunk::read_log_file(&PathBuf::from(path), MAX_BYTES).map_err(|e| e.to_string())
+        let target = PathBuf::from(&path);
+        let logs_root = PathBuf::from(&repo_path).join(".git").join("wt").join("logs");
+
+        // Canonicalize both so `..` traversal and symlink trickery can't
+        // smuggle a path out of logs_root. `logs_root` may not exist yet
+        // on a fresh repo; in that case any read must be refused.
+        let canonical_root = logs_root
+            .canonicalize()
+            .map_err(|_| "worktrunk logs directory does not exist for this repo".to_string())?;
+        let canonical_target = target
+            .canonicalize()
+            .map_err(|e| format!("cannot resolve log path: {e}"))?;
+
+        if !canonical_target.starts_with(&canonical_root) {
+            return Err(format!(
+                "refusing to read {path}: not under {}",
+                canonical_root.display()
+            ));
+        }
+
+        roux_worktrunk::read_log_file(&canonical_target, MAX_BYTES).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("worktrunk_read_log task panicked: {e}"))?
 }
 
-/// Open the host OS's default terminal at `path`. Used by the
-/// Worktrunk panel's right-click context menu.
+/// Open a terminal at `path`. Used by the Worktrunk panel's
+/// right-click context menu.
 ///
-/// macOS: `open -a Terminal <path>` — respects the user's default
-/// Terminal app binding.
+/// macOS: `open -a Terminal <path>` — always Apple Terminal. (The
+/// user's "default terminal" preference on macOS is not exposed via a
+/// stable API, so we pick Terminal.app deliberately.)
 /// Linux: best-effort `xdg-terminal-exec` if available, else
 /// `x-terminal-emulator` (Debian/Ubuntu wrapper); returns an error
 /// if neither resolves.
 /// Windows: `wt.exe -d <path>` (Windows Terminal) — falls back to
 /// `cmd /c start cmd /k "cd /d <path>"` when Windows Terminal is
-/// absent.
+/// absent or fails.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_open_terminal_at(path: String) -> Result<(), String> {
@@ -348,11 +372,23 @@ pub(crate) async fn cmd_open_terminal_at(path: String) -> Result<(), String> {
 
         #[cfg(target_os = "windows")]
         {
-            if Command::new("wt.exe").args(["-d", &path]).status().is_ok() {
-                return Ok(());
+            // Windows Terminal: require exit success, not just spawn.
+            // `.status().is_ok()` only verifies the process started; a
+            // missing `wt.exe` that somehow returned non-zero would
+            // bypass the cmd.exe fallback and silently succeed.
+            if let Ok(status) = Command::new("wt.exe").args(["-d", &path]).status() {
+                if status.success() {
+                    return Ok(());
+                }
             }
+
+            // cmd.exe fallback: paths with spaces or `&`/`|`/`^` would
+            // break (or worse, inject) an unquoted `cd /d`. Wrap the
+            // path in quotes and escape embedded quotes by doubling.
+            let escaped_path = path.replace('"', "\"\"");
+            let cd_command = format!("cd /d \"{escaped_path}\"");
             Command::new("cmd")
-                .args(["/c", "start", "cmd", "/k", &format!("cd /d {path}")])
+                .args(["/c", "start", "cmd", "/k", &cd_command])
                 .status()
                 .map_err(|e| format!("cmd failed: {e}"))
                 .and_then(|s| {

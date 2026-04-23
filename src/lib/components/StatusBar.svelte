@@ -2,6 +2,7 @@
   import { activeSession } from "$lib/stores/sessions";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
   import { ciChipFor } from "$lib/ciIcon";
+  import { safeHref } from "$lib/safeUrl";
   import type { StatusBarPosition } from "$lib/types";
 
   interface Props {
@@ -27,6 +28,7 @@
   );
   let wtMeta = $derived(sessionMetadata ? $sessionMetadata : null);
   let ciChip = $derived(ciChipFor(wtMeta?.ciStatus ?? null));
+  let ciHref = $derived(safeHref(wtMeta?.ciUrl));
 
   /** Extract a PR-style label from a GitHub/GitLab URL (e.g. "PR #42"). */
   function prLabel(url: string): string {
@@ -50,20 +52,20 @@
       <span class="text-text-secondary">&bull;</span>
       <span class="font-mono text-text-muted">&#9095; {$activeSession.branch}</span>
     {/if}
-    {#if wtMeta?.ciUrl && ciChip}
+    {#if ciHref && ciChip && wtMeta}
       {@const Icon = ciChip.icon}
       {@const running = wtMeta.ciStatus === "running"}
       <span class="text-text-secondary">&bull;</span>
       <a
         data-testid="status-bar-pr-link"
-        href={wtMeta.ciUrl}
+        href={ciHref}
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         class={`inline-flex items-center gap-1 font-mono underline ${ciChip.color} ${wtMeta.ciStale ? "opacity-60" : ""}`}
         title={`CI: ${ciChip.label}${wtMeta.ciStale ? " (stale — unpushed changes)" : ""}`}
       >
         <Icon size={12} class={running ? "animate-spin" : ""} />
-        <span>{prLabel(wtMeta.ciUrl)}</span>
+        <span>{prLabel(ciHref)}</span>
       </a>
     {:else if ciChip && wtMeta}
       {@const Icon = ciChip.icon}

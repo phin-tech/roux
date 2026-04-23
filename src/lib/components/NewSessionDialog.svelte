@@ -55,12 +55,15 @@
   } | null>(null);
   // Effective provider given the user's setting and what's installed.
   // Mirrors backend `create_worktree_with_provider` routing so we can
-  // show "using wt" affordance truthfully.
+  // show "using wt" affordance truthfully — a `worktrunk` preference
+  // without a detected binary still routes through git in the backend,
+  // so claim `git` here to keep the UI from lying.
   let effectiveProvider = $derived.by<"git" | "worktrunk">(() => {
     const pref = $settings.worktreeProvider ?? "auto";
+    const hasWorktrunk = !!worktrunkDetection?.binaryPath;
     if (pref === "git") return "git";
-    if (pref === "worktrunk") return "worktrunk";
-    return worktrunkDetection?.binaryPath ? "worktrunk" : "git";
+    if (pref === "worktrunk") return hasWorktrunk ? "worktrunk" : "git";
+    return hasWorktrunk ? "worktrunk" : "git";
   });
   let worktreeFilterInput = $state("");
   let worktreePickOpen = $state(true);

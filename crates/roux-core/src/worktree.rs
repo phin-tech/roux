@@ -319,7 +319,43 @@ pub fn remove_worktree_with_provider(
         }
     }
 
-    remove_worktree(worktree_path)
+    // Capture the branch name BEFORE removing the worktree — once the
+    // worktree directory is gone, `rev-parse` has nothing to resolve
+    // against.
+    let branch = if also_branch { resolve_worktree_branch(worktree_path) } else { None };
+
+    remove_worktree(worktree_path)?;
+
+    if let Some(branch) = branch {
+        // Best-effort: if wt's fallback path already deleted the branch,
+        // `git branch -D` exits non-zero — that's fine.
+        let _ = Command::new("git")
+            .args(["branch", "-D", &branch])
+            .current_dir(repo_path)
+            .output();
+    }
+
+    Ok(())
+}
+
+/// Resolve the branch checked out in a worktree, skipping detached-HEAD
+/// states. Returns `None` when the worktree is detached, unreadable, or
+/// already gone.
+fn resolve_worktree_branch(worktree_path: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(worktree_path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() || branch == "HEAD" {
+        None
+    } else {
+        Some(branch)
+    }
 }
 
 pub fn remove_worktree(worktree_path: &str) -> Result<(), WorktreeError> {

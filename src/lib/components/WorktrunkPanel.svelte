@@ -349,7 +349,11 @@
     readerError = null;
     readerLoading = true;
     try {
-      const result = await commands.cmdWorktrunkReadLog(path);
+      if (!currentRepo) {
+        readerError = "No active repo; cannot read worktrunk log.";
+        return;
+      }
+      const result = await commands.cmdWorktrunkReadLog(currentRepo, path);
       if (result.status === "ok") {
         readerContent = result.data ?? "";
       } else {

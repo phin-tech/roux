@@ -209,6 +209,7 @@ describe("WorktrunkPanel", () => {
     const content = await findAllByTestId("worktrunk-reader-content");
     expect(content[0].textContent).toContain("line 1");
     expect(commands.cmdWorktrunkReadLog).toHaveBeenCalledWith(
+      "/repo",
       "/repo/.git/wt/logs/trace.log",
     );
   });

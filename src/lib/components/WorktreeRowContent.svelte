@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Worktree } from "$lib/types";
   import { ciChipFor } from "$lib/ciIcon";
+  import { safeHref } from "$lib/safeUrl";
 
   interface Props {
     wt: Worktree;
@@ -10,6 +11,8 @@
 
   let metadata = $derived(wt.worktrunk);
   let ciChip = $derived(ciChipFor(metadata?.ciStatus ?? null));
+  let ciHref = $derived(safeHref(metadata?.ciUrl));
+  let devServerHref = $derived(safeHref(metadata?.devServerUrl));
 </script>
 
 {#if wt.isMain}
@@ -91,12 +94,12 @@
   {@const stale = metadata.ciStale}
   {@const Icon = ciChip.icon}
   {@const running = metadata.ciStatus === "running"}
-  {#if metadata.ciUrl}
+  {#if ciHref}
     <a
       data-testid="wt-ci"
-      href={metadata.ciUrl}
+      href={ciHref}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       class={`inline-flex items-center gap-0.5 text-[10px] ${ciChip.color} ${stale ? "opacity-60" : ""}`}
       onclick={(e) => e.stopPropagation()}
       title={`CI: ${ciChip.label}${stale ? " (stale — unpushed changes)" : ""}`}
@@ -120,14 +123,14 @@
   >{wt.path}</span
 >
 
-{#if metadata?.devServerUrl}
+{#if devServerHref}
   <a
     data-testid="wt-dev-server"
-    href={metadata.devServerUrl}
+    href={devServerHref}
     target="_blank"
-    rel="noreferrer"
+    rel="noopener noreferrer"
     class="font-mono text-[10px] text-blue underline"
     onclick={(e) => e.stopPropagation()}
-    title={`Dev server: ${metadata.devServerUrl}`}>url</a
+    title={`Dev server: ${devServerHref}`}>url</a
   >
 {/if}
