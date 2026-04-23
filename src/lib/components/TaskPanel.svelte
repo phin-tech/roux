@@ -12,6 +12,8 @@
   import type { CreateWatchConfig } from "$lib/types";
 
   import PinButton from "./PinButton.svelte";
+  import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
+  import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
 
   interface Props {
     onCollapse?: () => void;
@@ -124,9 +126,8 @@
 <svelte:window onclick={handleClickOutside} />
 
 <div class="flex h-full flex-col bg-transparent">
-  <div class="flex h-9 shrink-0 items-center justify-between px-3">
-    <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Tasks</span>
-    <div class="flex items-center gap-1.5">
+  <SidebarPanelHeader title="Tasks">
+    {#snippet actions()}
       <span class="border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
         {filteredGroups.reduce((n, g) => n + g.tasks.length, 0)}
       </span>
@@ -134,14 +135,14 @@
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
       {#if onCollapse}
-        <button
-          class="cursor-pointer bg-transparent p-1 text-[12px] font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+        <CollapseSidebarButton
           onclick={onCollapse}
-          title="Close tasks panel"
-        >&times;</button>
+          label="Collapse tasks sidebar"
+          title="Collapse tasks sidebar"
+        />
       {/if}
-    </div>
-  </div>
+    {/snippet}
+  </SidebarPanelHeader>
 
   {#if $taskGroups.length > 0}
     <div class="px-3 pb-2">

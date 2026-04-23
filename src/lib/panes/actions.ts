@@ -124,7 +124,7 @@ export function closePane(sessionId: string, paneId: string): boolean {
     return new Map(m);
   });
 
-  const onPaneClose = get(settings).onPaneClose ?? "detach";
+  const onPaneClose = get(settings).onPaneClose ?? "kill";
   const ptyId = getAttachedPtyId(instance);
   if (onPaneClose === "detach" && ptyId) {
     // Detach the PTY so it keeps running in the background. Fire-and-forget:

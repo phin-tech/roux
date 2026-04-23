@@ -11,6 +11,8 @@
     computeEffectiveSessionStatus,
   } from "$lib/panes/agentState";
   import { listSessionPtys } from "$lib/tauri";
+  import CloseButton from "./CloseButton.svelte";
+  import Pencil from "@lucide/svelte/icons/pencil";
 
   interface Props {
     session: Session;
@@ -40,16 +42,25 @@
     slotNumber == null ? null : slotNumber === 10 ? "0" : String(slotNumber),
   );
 
-  // Detached PTY inventory — polled periodically.
-  // No backend event stream for PTY status changes yet, so polling is the
-  // stopgap. 5s matches the git-status poll interval in SessionTabs.
+  // Poll PTY inventory so the sidebar can show how many panes are active and
+  // whether a session is carrying detached terminals in the background.
+  let attachedCount = $state(0);
   let detachedCount = $state(0);
   let detachedHasUnread = $state(false);
+  let showPaneInventory = $derived(attachedCount > 1 || detachedCount > 0);
+  let activePaneTitle = $derived(
+    `${attachedCount} active pane${attachedCount === 1 ? "" : "s"}`
+  );
+  let detachedPaneTitle = $derived(
+    `${detachedCount} detached terminal${detachedCount === 1 ? "" : "s"}${detachedHasUnread ? " (unread output)" : ""}`
+  );
 
   async function refreshDetachedState() {
     try {
       const ptys = await listSessionPtys(session.id);
+      const attached = ptys.filter((p) => p.status.type === "RunningAttached");
       const detached = ptys.filter((p) => p.status.type === "RunningDetached");
+      attachedCount = attached.length;
       detachedCount = detached.length;
       detachedHasUnread = detached.some((p) => p.unread_output);
     } catch {
@@ -152,7 +163,7 @@
   title={tooltip}
 >
   <!-- Left gutter: persistent status dot -->
-  <div class="flex w-5 shrink-0 items-center justify-center pt-[10px] self-start">
+  <div class="flex h-9 w-5 shrink-0 items-center justify-center self-start">
     <span class="relative inline-flex h-2 w-2 items-center justify-center">
       {#if effectiveStatus === "attention"}
         <span class="absolute inline-flex h-2 w-2 rounded-full {statusDotClasses[effectiveStatus]} animate-ping opacity-60"></span>
@@ -166,7 +177,7 @@
     <div class="flex items-center gap-2">
       {#if editing}
         <input
-          class="flex-1 border border-accent-dim/30 bg-bg-deep px-2 py-1 text-[13px] font-semibold tracking-tight text-text-primary outline-none"
+          class="h-5 min-w-0 flex-1 border border-accent-dim/30 bg-bg-deep px-1.5 py-0 text-[13px] font-semibold leading-none tracking-tight text-text-primary outline-none"
           bind:value={editName}
           onblur={commitRename}
           onkeydown={(e) => {
@@ -182,15 +193,30 @@
         >
           {displayName}
         </span>
+        <button
+          type="button"
+          class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center border border-transparent bg-transparent p-0 text-text-muted opacity-0 transition-colors duration-150 hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 group-hover:opacity-100"
+          onclick={startEditing}
+          aria-label="Rename session"
+          title="Rename session"
+        >
+          <Pencil size={12} />
+        </button>
       {/if}
 
+      {#if showPaneInventory}
+        <span
+          class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold tabular-nums bg-bg-surface text-text-muted"
+          title={activePaneTitle}
+        >{attachedCount}</span>
+      {/if}
       {#if detachedCount > 0}
         <span
           class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold tabular-nums
             {detachedHasUnread
               ? 'bg-accent text-white'
               : 'bg-bg-surface text-text-muted'}"
-          title="{detachedCount} detached terminal{detachedCount === 1 ? '' : 's'}{detachedHasUnread ? ' (unread output)' : ''}"
+          title={detachedPaneTitle}
         >{detachedCount}</span>
       {/if}
       {#if unreadCount > 0}
@@ -207,13 +233,13 @@
           reconnect
         </button>
       {/if}
-      <button
-        class="flex h-5 w-5 cursor-pointer items-center justify-center bg-transparent text-[11px] leading-none text-text-secondary opacity-70 transition-all duration-150 group-hover:opacity-100 hover:bg-bg-hover hover:text-red"
+      <CloseButton
+        class="flex h-5 w-5 items-center justify-center p-0 opacity-70 duration-150 group-hover:opacity-100 hover:border-transparent hover:text-red"
         onclick={(e) => { e.stopPropagation(); onclose(); }}
-        aria-label="Close session"
-      >
-        &times;
-      </button>
+        label="Close session"
+        title="Close session"
+        size={13}
+      />
     </div>
 
     {#if showRow2}

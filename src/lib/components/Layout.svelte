@@ -11,13 +11,10 @@
 
   interface Props {
     onNewSession: () => void;
-    onOpenSettings: () => void;
-    onToggleWatches: () => void;
-    onToggleNotifications: () => void;
     settingsPanel?: Snippet;
   }
 
-  let { onNewSession, onOpenSettings, onToggleWatches, onToggleNotifications, settingsPanel }: Props = $props();
+  let { onNewSession, settingsPanel }: Props = $props();
 
   let statusBarPosition = $derived($settings.statusBarPosition ?? "bottom");
   let railSide = $derived($sidebarLayout.railSide);
@@ -33,9 +30,6 @@
 {#snippet dock()}
   <SidebarDock
     {onNewSession}
-    {onOpenSettings}
-    {onToggleWatches}
-    {onToggleNotifications}
   />
 {/snippet}
 

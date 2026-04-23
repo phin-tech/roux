@@ -11,6 +11,7 @@
   import { readFile, writeFile } from "$lib/tauri";
   import { hasPrimaryModifier } from "$lib/platform";
   import { settings } from "$lib/stores/settings";
+  import CloseButton from "./CloseButton.svelte";
 
   interface Props {
     docPath?: string;
@@ -253,11 +254,14 @@
           <span class="max-w-[120px] truncate">
             {#if tab.dirty}<span class="text-accent">&#8226; </span>{/if}{tabName(tab)}
           </span>
-          <button
-            class="ml-0.5 cursor-pointer rounded border-none bg-transparent p-0 text-[10px] leading-none opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100"
+          <CloseButton
+            class="ml-0.5 p-0 opacity-0 transition-opacity hover:border-transparent group-hover:opacity-100"
             onclick={(e: MouseEvent) => { e.stopPropagation(); closeTab(tab.id); }}
+            label="Close tab"
+            title="Close tab"
+            size={11}
             tabindex={-1}
-          >&times;</button>
+          />
         </div>
       {/each}
     </div>

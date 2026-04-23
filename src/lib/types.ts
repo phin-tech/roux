@@ -104,7 +104,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   spawnProfiles: [],
   trustedWorkspaces: [],
   statusBarPosition: "bottom",
-  onPaneClose: "detach",
+  onPaneClose: "kill",
 };
 
 // Re-export frontend-only task types

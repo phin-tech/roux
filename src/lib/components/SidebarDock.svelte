@@ -30,16 +30,10 @@
 
   interface Props {
     onNewSession: () => void;
-    onOpenSettings: () => void;
-    onToggleWatches: () => void;
-    onToggleNotifications: () => void;
   }
 
   let {
     onNewSession,
-    onOpenSettings,
-    onToggleWatches,
-    onToggleNotifications,
   }: Props = $props();
 
   type Slot = "hidden" | "solo" | "pinned-half" | "active-half";
@@ -225,7 +219,7 @@
     {/if}
     <div
       bind:this={dockEl}
-      class="relative h-full shrink-0 bg-bg-deep {railSide === 'left' ? 'border-r border-hairline' : 'border-l border-hairline'}"
+      class="relative h-full shrink-0 bg-bg-deep"
       style="width: {dockWidth}px"
     >
       {#each DOCK_PANEL_IDS as id (id)}
@@ -235,9 +229,6 @@
           {#if id === "sessions"}
             <SessionTabs
               {onNewSession}
-              {onOpenSettings}
-              {onToggleWatches}
-              {onToggleNotifications}
               onclose={onCloseFor(id)}
               pinned={$pinnedSidebar === id}
               onTogglePin={onTogglePinFor(id)}

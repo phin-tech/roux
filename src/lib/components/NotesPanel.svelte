@@ -9,6 +9,8 @@
   import NotesContent from "./NotesContent.svelte";
 
   import PinButton from "./PinButton.svelte";
+  import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
+  import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
 
   interface Props {
     visible: boolean;
@@ -69,17 +71,18 @@
   class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
   class:hidden={!visible}
 >
-  <!-- Sidebar-specific close button row -->
-  <div class="flex h-9 shrink-0 items-center justify-end gap-1 border-b border-hairline bg-bg-surface/30 px-3">
-    {#if onTogglePin}
-      <PinButton {pinned} ontoggle={onTogglePin} />
-    {/if}
-    <button
-      class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
-      onclick={onclose}
-      aria-label="Close notes"
-    >&times;</button>
-  </div>
+  <SidebarPanelHeader title="Notes">
+    {#snippet actions()}
+      {#if onTogglePin}
+        <PinButton {pinned} ontoggle={onTogglePin} />
+      {/if}
+      <CollapseSidebarButton
+        onclick={onclose}
+        label="Collapse notes sidebar"
+        title="Collapse notes sidebar"
+      />
+    {/snippet}
+  </SidebarPanelHeader>
 
   {#if sessionId}
     <div class="flex flex-1 min-h-0 flex-col overflow-hidden">

@@ -78,32 +78,36 @@
   }
 
   function buttonTitle(item: Item): string {
-    const suffix = PINNABLE_SIDEBARS.has(item.id)
-      ? isPinned(item.id)
-        ? " (right-click or shift-click to unpin)"
-        : " (right-click to pin)"
-      : "";
-    return `${item.label}${suffix}`;
+    return item.label;
+  }
+
+  const tooltipBaseClass =
+    "pointer-events-none absolute top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded border border-border-subtle bg-bg-elevated px-2 py-1 text-[11px] font-medium text-text-primary opacity-0 shadow-lg shadow-black/30 transition-opacity duration-75 group-hover:opacity-100 group-focus-visible:opacity-100";
+
+  function tooltipClass(): string {
+    return $sidebarLayout.railSide === "right"
+      ? `${tooltipBaseClass} right-full mr-1`
+      : `${tooltipBaseClass} left-full ml-1`;
   }
 </script>
 
-<div class="flex h-full flex-col items-center gap-0.5 p-1">
+<div class="flex h-full flex-col items-center p-1">
   {#each dockItems as item (item.id)}
     {@const active = $activeSidebar === item.id}
     {@const pinned = $pinnedSidebar === item.id}
     {@const showBadge = item.id === "notifications" && $unreadTotal > 0}
     <button
       type="button"
-      title={buttonTitle(item)}
       aria-label={item.label}
       aria-pressed={active || pinned}
-      class="relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {active
+      class="group relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {active
         ? 'bg-white/10 text-text-primary'
         : ''} {pinned ? 'text-accent' : ''}"
       onclick={(e) => handleClick(e, item.id)}
       oncontextmenu={(e) => handleContextMenu(e, item.id)}
     >
       <item.icon size={16} />
+      <span class={tooltipClass()} aria-hidden="true">{buttonTitle(item)}</span>
       {#if pinned}
         <span class="absolute -top-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[8px] text-bg-deep">
           <Pin size={8} />
@@ -121,12 +125,12 @@
 
   <button
     type="button"
-    title={settingsItem.label}
     aria-label={settingsItem.label}
     aria-pressed={$activeSidebar === "settings"}
-    class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {$activeSidebar === 'settings' ? 'bg-white/10 text-text-primary' : ''}"
+    class="group relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {$activeSidebar === 'settings' ? 'bg-white/10 text-text-primary' : ''}"
     onclick={handleSettingsClick}
   >
     <settingsItem.icon size={16} />
+    <span class={tooltipClass()} aria-hidden="true">{settingsItem.label}</span>
   </button>
 </div>

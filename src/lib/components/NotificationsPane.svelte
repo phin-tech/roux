@@ -10,6 +10,9 @@
   import type { Notification, NotificationAction, NotificationLevel, NotificationSource } from "$lib/types";
 
   import PinButton from "./PinButton.svelte";
+  import CloseButton from "./CloseButton.svelte";
+  import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
+  import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
 
   interface Props {
     visible: boolean;
@@ -111,9 +114,8 @@
   class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
   class:hidden={!visible}
 >
-  <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
-    <span class="text-sm font-semibold tracking-tight">Notifications</span>
-    <div class="flex items-center gap-1">
+  <SidebarPanelHeader title="Notifications">
+    {#snippet actions()}
       {#if $notifications.length > 0}
         <button
           class="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
@@ -129,12 +131,13 @@
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
-      <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
+      <CollapseSidebarButton
         onclick={onclose}
-      >&times;</button>
-    </div>
-  </div>
+        label="Collapse notifications sidebar"
+        title="Collapse notifications sidebar"
+      />
+    {/snippet}
+  </SidebarPanelHeader>
 
   <div class="flex-1 overflow-y-auto p-2">
     {#if $notifications.length === 0}
@@ -163,11 +166,13 @@
                 <span class="min-w-0 flex-1 truncate {n.read ? 'text-text-muted' : 'text-text-primary'}">{n.title}</span>
                 <span class="shrink-0 text-[9px] uppercase tracking-wider text-text-muted/60">{sourceLabel(n.source)}</span>
                 <span class="shrink-0 text-[10px] text-text-muted">{formatRelative(n.createdAt)}</span>
-                <button
-                  class="cursor-pointer border-none bg-transparent px-1 text-[11px] leading-none text-text-muted hover:text-red"
+                <CloseButton
+                  class="shrink-0 p-0.5 hover:border-transparent hover:text-red"
                   onclick={(e) => handleDismiss(e, n)}
+                  label="Dismiss notification"
                   title="Dismiss"
-                >&times;</button>
+                  size={12}
+                />
               </div>
 
               {#if n.subtitle}
