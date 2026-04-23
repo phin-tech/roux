@@ -44,6 +44,14 @@ describe("ActivityRail", () => {
     }
   });
 
+  it("uses custom rail tooltips instead of native title tooltips", () => {
+    render(ActivityRail);
+
+    const notes = screen.getByRole("button", { name: /notes/i });
+    expect(notes.getAttribute("title")).toBeNull();
+    expect(notes.textContent).toContain("Notes");
+  });
+
   it("clicking the Notes icon activates the notes sidebar", async () => {
     render(ActivityRail);
     await fireEvent.click(screen.getByRole("button", { name: /notes/i }));
