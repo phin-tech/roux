@@ -4,6 +4,7 @@ import {
   activeSidebar,
   armPaneHints,
   armSessionHints,
+  closePinned,
   closeSidebar,
   hidePaneHints,
   hideSessionHints,
@@ -165,6 +166,21 @@ describe("sidebar pin-slot state", () => {
       unpinSidebar();
       expect(get(pinnedSidebar)).toBeNull();
       expect(get(activeSidebar)).toBe("settings");
+    });
+
+    it("closePinned clears only the pinned slot, leaving active untouched", () => {
+      pinSidebar("notes");
+      openSidebar("watches");
+      closePinned();
+      expect(get(pinnedSidebar)).toBeNull();
+      expect(get(activeSidebar)).toBe("watches");
+    });
+
+    it("closePinned on a solo pinned panel clears the pin (no promotion)", () => {
+      pinSidebar("notes");
+      closePinned();
+      expect(get(pinnedSidebar)).toBeNull();
+      expect(get(activeSidebar)).toBeNull();
     });
 
     it("pinning the currently-active panel clears active so the panel sits in the pin slot only", () => {

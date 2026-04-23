@@ -4,6 +4,7 @@
     activeSidebar,
     pinnedSidebar,
     closeSidebar,
+    closePinned,
     unpinSidebar,
     pinSidebar,
     PINNABLE_SIDEBARS,
@@ -173,14 +174,12 @@
   }
 
   function onCloseFor(id: SidebarId): () => void {
-    // If the panel is pinned AND in the active slot, closing should just clear
-    // the active slot (not unpin). If it's only pinned, close should unpin.
+    // Close button (×) on a panel = "dismiss THIS panel" — clear whichever
+    // slot(s) hold it. Do NOT trigger the anchor-promotion that unpinSidebar
+    // does (that's reserved for the explicit PinButton / unpin actions).
     return () => {
-      if (pinned === id && active !== id) {
-        unpinSidebar();
-      } else {
-        closeSidebar();
-      }
+      if ($pinnedSidebar === id) closePinned();
+      if ($activeSidebar === id) closeSidebar();
     };
   }
 

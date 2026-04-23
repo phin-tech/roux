@@ -143,6 +143,15 @@ export function unpinSidebar(): void {
   });
 }
 
+/**
+ * Clear only the pinned slot without touching the active slot. Used by a
+ * panel's own close (×) button — the user is asking to dismiss THIS panel,
+ * not to collapse the split (which is `unpinSidebar`'s anchor-promotion).
+ */
+export function closePinned(): void {
+  sidebarState.update((s) => ({ ...s, pinned: null }));
+}
+
 export function isPinned(id: SidebarId): boolean {
   return get(sidebarState).pinned === id;
 }

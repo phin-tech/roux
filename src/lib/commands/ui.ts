@@ -14,6 +14,7 @@ import {
 } from "$lib/stores/ui";
 import {
   setRailSide,
+  showSidebar,
   toggleRailSide,
   toggleSidebarHidden,
 } from "$lib/stores/sidebarLayout";
@@ -238,14 +239,6 @@ export function registerUiCommands() {
   });
 
   registry.register({
-    id: "ui.toggle-tasks",
-    label: "Toggle Tasks Panel",
-    category: "App",
-    available: () => !!queries.activeSessionId(),
-    execute: () => toggleSidebar("tasks"),
-  });
-
-  registry.register({
     id: "ui.toggle-docs",
     label: "Toggle Docs",
     category: "App",
@@ -379,7 +372,12 @@ export function registerUiCommands() {
     id: "help.open-docs",
     label: "Roux Documentation",
     category: "Help",
-    execute: () => openSidebar("docs"),
+    execute: () => {
+      // Help menu must work even if the user has hidden the whole sidebar —
+      // force it back open before dispatching the Docs panel.
+      showSidebar();
+      openSidebar("docs");
+    },
   });
 
   registry.register({
