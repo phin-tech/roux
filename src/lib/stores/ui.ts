@@ -1,6 +1,7 @@
 import { derived, get, writable, type Readable } from "svelte/store";
 import { sessionLayouts, collectVisibleLeafIds } from "$lib/panes/layout";
 import { sessionState } from "$lib/stores/sessions";
+import { showSidebar } from "$lib/stores/sidebarLayout";
 
 /**
  * Global sidebar slots. The docked sidebar has a pin slot (for lightweight,
@@ -87,6 +88,9 @@ function clearNotesOverrideIfLeaving(id: SidebarId | null): void {
 }
 
 export function openSidebar(id: SidebarId): void {
+  // Opening a panel implies the user wants to see it — bring the dock back
+  // if the sidebar is currently collapsed to icons.
+  showSidebar();
   sidebarState.update((s) => {
     if (s.pinned === id) return s;
     return { ...s, active: id };
@@ -110,12 +114,15 @@ export function toggleSidebar(id: SidebarId): void {
     clearNotesOverrideIfLeaving(null);
     return;
   }
+  // Activating a panel implies the user wants to see it.
+  showSidebar();
   sidebarState.set({ ...s, active: id });
   clearNotesOverrideIfLeaving(id);
 }
 
 export function pinSidebar(id: SidebarId): void {
   if (!PINNABLE_SIDEBARS.has(id)) return;
+  showSidebar();
   sidebarState.update((s) => ({
     pinned: id,
     active: s.active === id ? null : s.active,
@@ -157,6 +164,7 @@ export function isPinned(id: SidebarId): boolean {
 }
 
 export function openNotesForSession(sessionId: string): void {
+  showSidebar();
   notesOverrideSessionId.set(sessionId);
   sidebarState.update((s) => ({ ...s, active: "notes" }));
 }

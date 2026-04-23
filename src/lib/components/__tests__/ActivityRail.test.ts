@@ -4,21 +4,29 @@ import { fireEvent, render, screen } from "@testing-library/svelte";
 import {
   activeSidebar,
   closeSidebar,
+  openSidebar,
   pinnedSidebar,
   pinSidebar,
   unpinSidebar,
 } from "$lib/stores/ui";
+import {
+  sidebarLayout,
+  hideSidebar,
+  showSidebar,
+} from "$lib/stores/sidebarLayout";
 import ActivityRail from "../ActivityRail.svelte";
 
 describe("ActivityRail", () => {
   beforeEach(() => {
     closeSidebar();
     unpinSidebar();
+    showSidebar();
   });
 
   afterEach(() => {
     closeSidebar();
     unpinSidebar();
+    showSidebar();
   });
 
   it("renders an icon button for each sidebar item", () => {
@@ -111,5 +119,33 @@ describe("ActivityRail", () => {
     await fireEvent.click(screen.getByRole("button", { name: /docs/i }));
     expect(get(pinnedSidebar)).toBe("notes");
     expect(get(activeSidebar)).toBe("docs");
+  });
+
+  describe("collapsed-to-icons interactions", () => {
+    it("clicking the active icon while collapsed reopens in one click", async () => {
+      openSidebar("watches");
+      hideSidebar();
+      render(ActivityRail);
+      await fireEvent.click(screen.getByRole("button", { name: /watches/i }));
+      expect(get(sidebarLayout).hidden).toBe(false);
+      expect(get(activeSidebar)).toBe("watches");
+    });
+
+    it("clicking the pinned icon while collapsed reopens in one click", async () => {
+      pinSidebar("notes");
+      hideSidebar();
+      render(ActivityRail);
+      await fireEvent.click(screen.getByRole("button", { name: /notes/i }));
+      expect(get(sidebarLayout).hidden).toBe(false);
+      expect(get(pinnedSidebar)).toBe("notes");
+    });
+
+    it("clicking a non-active icon while collapsed reopens and activates", async () => {
+      hideSidebar();
+      render(ActivityRail);
+      await fireEvent.click(screen.getByRole("button", { name: /tasks/i }));
+      expect(get(sidebarLayout).hidden).toBe(false);
+      expect(get(activeSidebar)).toBe("tasks");
+    });
   });
 });
