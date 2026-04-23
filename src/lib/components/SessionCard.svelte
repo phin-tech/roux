@@ -12,6 +12,7 @@
   } from "$lib/panes/agentState";
   import { listSessionPtys } from "$lib/tauri";
   import CloseButton from "./CloseButton.svelte";
+  import Pencil from "@lucide/svelte/icons/pencil";
 
   interface Props {
     session: Session;
@@ -176,7 +177,7 @@
     <div class="flex items-center gap-2">
       {#if editing}
         <input
-          class="flex-1 border border-accent-dim/30 bg-bg-deep px-2 py-1 text-[13px] font-semibold tracking-tight text-text-primary outline-none"
+          class="h-5 min-w-0 flex-1 border border-accent-dim/30 bg-bg-deep px-1.5 py-0 text-[13px] font-semibold leading-none tracking-tight text-text-primary outline-none"
           bind:value={editName}
           onblur={commitRename}
           onkeydown={(e) => {
@@ -192,6 +193,15 @@
         >
           {displayName}
         </span>
+        <button
+          type="button"
+          class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center border border-transparent bg-transparent p-0 text-text-muted opacity-0 transition-colors duration-150 hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 group-hover:opacity-100"
+          onclick={startEditing}
+          aria-label="Rename session"
+          title="Rename session"
+        >
+          <Pencil size={12} />
+        </button>
       {/if}
 
       {#if showPaneInventory}
@@ -224,7 +234,7 @@
         </button>
       {/if}
       <CloseButton
-        class="h-5 w-5 p-0 opacity-70 duration-150 group-hover:opacity-100 hover:border-transparent hover:text-red"
+        class="flex h-5 w-5 items-center justify-center p-0 opacity-70 duration-150 group-hover:opacity-100 hover:border-transparent hover:text-red"
         onclick={(e) => { e.stopPropagation(); onclose(); }}
         label="Close session"
         title="Close session"
