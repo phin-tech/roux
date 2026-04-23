@@ -32,7 +32,7 @@ describe("pane actions", () => {
     resetLayouts();
     resetFocus();
     fullscreenPaneId.set(null);
-    settings.set(DEFAULT_SETTINGS); // resets to onPaneClose: "detach"
+    settings.set(DEFAULT_SETTINGS); // resets to onPaneClose: "kill"
     vi.mocked(killPty).mockClear();
     vi.mocked(killSession).mockClear();
     vi.mocked(detachPty).mockClear();
@@ -119,9 +119,18 @@ describe("pane actions", () => {
       expect(get(sessionLayouts).has("s1")).toBe(false);
     });
 
-    it("detaches PTY (not kills) when onPaneClose is 'detach' (the default)", () => {
-      // Default behaviour: closing a pane detaches the PTY so it keeps
-      // running in the background. killPty must not be called.
+    it("uses killPty (not killSession) by default", () => {
+      // Default behaviour: closing a pane kills its PTY. This makes "close"
+      // behave like close rather than hide.
+      initSession("s1");
+      closePane("s1", "s1-main");
+      expect(killPty).toHaveBeenCalledWith("s1");
+      expect(detachPty).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+    });
+
+    it("detaches PTY (not kills) when onPaneClose is explicitly 'detach'", () => {
+      settings.set({ ...DEFAULT_SETTINGS, onPaneClose: "detach" });
       initSession("s1");
       closePane("s1", "s1-main");
       expect(detachPty).toHaveBeenCalledWith("s1");

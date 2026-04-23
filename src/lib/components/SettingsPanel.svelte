@@ -12,7 +12,7 @@
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import { notificationsPush } from "$lib/tauri";
   import { commands } from "$lib/bindings";
-  import type { UpdateChannel, WorktreeCleanupMode, WorktreeDefaultBase } from "$lib/bindings";
+  import type { OnPaneCloseMode, UpdateChannel, WorktreeCleanupMode, WorktreeDefaultBase } from "$lib/bindings";
   import { updateStatus, runManualCheck, performInstall } from "$lib/stores/updater";
   import { getVersion } from "@tauri-apps/api/app";
   import { quitApp } from "$lib/tauri";
@@ -179,6 +179,10 @@
     updateSetting("worktreeDefaultBase", mode);
   }
 
+  function setPaneCloseMode(mode: OnPaneCloseMode) {
+    updateSetting("onPaneClose", mode);
+  }
+
   async function browseAndAddRepoRoot() {
     const selected = await open({ directory: true, title: "Select Repo Root Directory" });
     if (selected) addRepoRoot(selected as string);
@@ -317,6 +321,26 @@
                 <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
                   {$settings.restoreSessionsOnLaunch ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
               </button>
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">On pane close</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Kill the terminal by default, or keep it running detached for later reconnect.</div>
+              </div>
+              <div class="flex overflow-hidden rounded border border-border bg-bg-deep">
+                {#each [
+                  { id: "kill", label: "Kill" },
+                  { id: "detach", label: "Detach" },
+                ] as const as opt}
+                  {@const active = ($settings.onPaneClose ?? "kill") === opt.id}
+                  <button
+                    class="px-2.5 py-1 text-[11px] cursor-pointer transition-colors
+                      {active ? 'bg-accent-dim text-text-primary' : 'text-text-secondary hover:bg-bg-hover'}"
+                    aria-pressed={active}
+                    onclick={() => setPaneCloseMode(opt.id)}
+                  >{opt.label}</button>
+                {/each}
+              </div>
             </div>
             <div class="flex items-center justify-between py-2">
               <span class="text-[13px]">Default project path</span>
