@@ -61,6 +61,48 @@ fn find_gh_via_login_shell() -> Option<String> {
         .clone()
 }
 
+/// Resolve the `wt` (worktrunk) binary as a typed `WtBinary`.
+///
+/// Precedence mirrors [`gh_command`]:
+///   1. `settings.worktrunk_binary_path` override (trimmed, non-empty).
+///   2. First match in the login-shell `PATH`.
+///   3. Process `PATH`.
+///
+/// Returns `None` when no binary is found, `wt --version` is unparseable,
+/// or the resolved version is below `roux_worktrunk::MIN_WT_VERSION`. A
+/// caller receiving `None` should fall back to the native git path.
+pub(crate) fn resolve_wt_binary() -> Option<roux_worktrunk::WtBinary> {
+    let override_path = crate::settings::load_settings()
+        .worktrunk_binary_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    if let Some(path) = override_path.as_deref() {
+        return roux_worktrunk::detect_wt(Some(path));
+    }
+    if let Some(path) = find_wt_via_login_shell() {
+        return roux_worktrunk::detect_wt(Some(&path));
+    }
+    roux_worktrunk::detect_wt(None)
+}
+
+fn find_wt_via_login_shell() -> Option<String> {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<Option<String>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            let path = crate::pty::get_user_path();
+            if path.is_empty() {
+                return None;
+            }
+            crate::platform::find_executable_in_paths(path.as_str(), "wt")
+                .map(|p| p.to_string_lossy().to_string())
+        })
+        .clone()
+}
+
 pub(crate) fn is_cli_installed() -> bool {
     crate::hooks::cli_is_installed()
 }

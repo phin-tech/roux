@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/roux-core"]
+members = ["src-tauri", "crates/roux-core", "crates/roux-worktrunk"]
 resolver = "2"
 
 [workspace.lints.clippy]

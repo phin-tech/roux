@@ -99,7 +99,7 @@
     );
     if (!confirmed) return;
     try {
-      await cleanArchivedWorktree(s.id, s.worktreePath);
+      await cleanArchivedWorktree(s.id, s.repoRoot, s.worktreePath);
     } catch (err) {
       loadError = `Failed to remove worktree: ${err}`;
     }

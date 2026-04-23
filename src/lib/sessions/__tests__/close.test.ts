@@ -145,7 +145,7 @@ describe("closeSession", () => {
     await closeSession(session);
 
     expect(killSession).toHaveBeenCalledWith(session.id);
-    expect(removeWorktree).toHaveBeenCalledWith("/wt");
+    expect(removeWorktree).toHaveBeenCalledWith("/repo", "/wt");
     const archived = get(archivedSessionsState);
     // Worktree gone on disk → History row must reflect that (Copilot #2):
     // stale "on disk" badge / enabled Restore would be misleading.

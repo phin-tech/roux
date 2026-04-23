@@ -74,3 +74,25 @@ jobs:
       - name: Test
         working-directory: src-tauri
         run: cargo nextest run --workspace
+
+  # Exhaustive integration tests for the `roux-worktrunk` wrapper that
+  # exercise the real `wt` binary against real temp git repositories.
+  # Kept in its own job because the default `cargo test --workspace`
+  # (above) should pass on machines without worktrunk installed.
+  worktrunk-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          key: worktrunk-integration
+      - name: Install worktrunk (pinned to MIN_WT_VERSION)
+        run: cargo install worktrunk --version 0.44.0 --locked --no-default-features --features cli
+      - name: Configure git identity for test repos
+        run: |
+          git config --global user.email t@t.test
+          git config --global user.name  "Test"
+      - name: Run real-wt integration tests
+        run: cargo test -p roux-worktrunk --features real-wt-integration --test real_wt

@@ -215,15 +215,27 @@ export async function updateSettings(
 
 export async function createWorktree(
   repoPath: string,
-  branch: string
+  branch: string,
+  opts: { startPoint?: string | null; fetchFirst?: boolean } = {},
 ): Promise<string> {
-  return invoke("cmd_create_worktree", { repoPath, branch });
+  return invoke("cmd_create_worktree", {
+    repoPath,
+    branch,
+    startPoint: opts.startPoint ?? null,
+    fetchFirst: opts.fetchFirst ?? false,
+  });
 }
 
 export async function removeWorktree(
-  worktreePath: string
+  repoPath: string,
+  worktreePath: string,
+  alsoBranch: boolean = false
 ): Promise<void> {
-  return invoke("cmd_remove_worktree", { worktreePath });
+  return invoke("cmd_remove_worktree", {
+    repoPath,
+    worktreePath,
+    alsoBranch,
+  });
 }
 
 export async function listWorktrees(

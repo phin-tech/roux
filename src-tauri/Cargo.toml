@@ -49,6 +49,7 @@ octocrab = "0.44"
 tauri-plugin-opener = "2.5.3"
 thiserror = "2"
 roux-core = { path = "../crates/roux-core" }
+roux-worktrunk = { path = "../crates/roux-worktrunk" }
 specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }
 specta-typescript = "0.0.11"
 tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }

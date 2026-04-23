@@ -6,7 +6,9 @@
   import BookOpen from "@lucide/svelte/icons/book-open";
   import Bell from "@lucide/svelte/icons/bell";
   import SettingsIcon from "@lucide/svelte/icons/settings";
+  import Trees from "@lucide/svelte/icons/trees";
   import Pin from "@lucide/svelte/icons/pin";
+  import { worktrunkDetection } from "$lib/stores/worktrunkDetection";
   import type { Component } from "svelte";
   import {
     activeSidebar,
@@ -29,7 +31,10 @@
     icon: Component<{ size?: number; class?: string }>;
   }
 
-  const dockItems: Item[] = [
+  // Static rail items. The Worktrunk icon is appended dynamically
+  // below only when the wt binary is detected — users without
+  // worktrunk installed see no extra icon.
+  const baseDockItems: Item[] = [
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "notes", label: "Notes", icon: StickyNote },
     { id: "watches", label: "Watches", icon: Eye },
@@ -37,6 +42,17 @@
     { id: "docs", label: "Docs", icon: BookOpen },
     { id: "notifications", label: "Notifications", icon: Bell },
   ];
+  const worktrunkItem: Item = {
+    id: "worktrunk",
+    label: "Worktrunk",
+    icon: Trees,
+  };
+
+  let dockItems = $derived<Item[]>(
+    $worktrunkDetection.binaryPath
+      ? [...baseDockItems, worktrunkItem]
+      : baseDockItems,
+  );
 
   const settingsItem: Item = { id: "settings", label: "Settings", icon: SettingsIcon };
 

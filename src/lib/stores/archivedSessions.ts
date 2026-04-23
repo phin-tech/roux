@@ -65,8 +65,12 @@ export async function restoreArchivedSession(id: string): Promise<void> {
  * exists); Delete forever still works. Use this to reclaim disk space
  * without losing the session history entry.
  */
-export async function cleanArchivedWorktree(id: string, worktreePath: string): Promise<void> {
-  await removeWorktree(worktreePath);
+export async function cleanArchivedWorktree(
+  id: string,
+  repoPath: string,
+  worktreePath: string,
+): Promise<void> {
+  await removeWorktree(repoPath, worktreePath);
   archivedSessionsState.update((s) => {
     const worktreeExists = new Map(s.worktreeExists);
     worktreeExists.set(id, false);
