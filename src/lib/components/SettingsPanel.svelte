@@ -43,6 +43,11 @@
     { id: "advanced", label: "Advanced", icon: Wrench },
   ];
 
+  const PANE_CLOSE_OPTIONS = [
+    { id: "kill", label: "Kill" },
+    { id: "detach", label: "Detach" },
+  ] as const;
+
   let selected = $state<CategoryId>("general");
 
   let appVersion = $state<string>("…");
@@ -327,12 +332,8 @@
                 <div class="text-[13px]">On pane close</div>
                 <div class="text-[11px] text-text-muted mt-0.5">Kill the terminal by default, or keep it running detached for later reconnect.</div>
               </div>
-              {@const paneCloseOptions = [
-                { id: "kill", label: "Kill" },
-                { id: "detach", label: "Detach" },
-              ] as const}
               <div class="flex overflow-hidden rounded border border-border bg-bg-deep">
-                {#each paneCloseOptions as opt}
+                {#each PANE_CLOSE_OPTIONS as opt}
                   {@const active = ($settings.onPaneClose ?? "kill") === opt.id}
                   <button
                     class="px-2.5 py-1 text-[11px] cursor-pointer transition-colors
