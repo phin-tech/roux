@@ -41,9 +41,11 @@
 
 <div class="flex h-screen flex-col overflow-hidden bg-bg-deep text-text-primary">
   <div class="flex min-h-0 flex-1 flex-row">
-    {#if !sidebarHidden && railSide === "left"}
+    {#if railSide === "left"}
       {@render rail()}
-      {@render dock()}
+      {#if !sidebarHidden}
+        {@render dock()}
+      {/if}
     {/if}
 
     <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-bg-deep">
@@ -94,8 +96,10 @@
       {/if}
     </div>
 
-    {#if !sidebarHidden && railSide === "right"}
-      {@render dock()}
+    {#if railSide === "right"}
+      {#if !sidebarHidden}
+        {@render dock()}
+      {/if}
       {@render rail()}
     {/if}
   </div>

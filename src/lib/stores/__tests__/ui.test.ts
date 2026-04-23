@@ -218,6 +218,51 @@ describe("sidebar pin-slot state", () => {
       expect(get(activeSidebar)).toBe("docs");
     });
   });
+
+  describe("collapse-to-icons: opening a panel unhides the dock", () => {
+    it("openSidebar unhides the dock when collapsed", async () => {
+      const { sidebarLayout, hideSidebar, showSidebar } = await import(
+        "../sidebarLayout"
+      );
+      showSidebar();
+      hideSidebar();
+      expect(get(sidebarLayout).hidden).toBe(true);
+      openSidebar("watches");
+      expect(get(sidebarLayout).hidden).toBe(false);
+    });
+
+    it("toggleSidebar activating a panel unhides the dock", async () => {
+      const { sidebarLayout, hideSidebar, showSidebar } = await import(
+        "../sidebarLayout"
+      );
+      showSidebar();
+      hideSidebar();
+      expect(get(sidebarLayout).hidden).toBe(true);
+      toggleSidebar("watches");
+      expect(get(sidebarLayout).hidden).toBe(false);
+      expect(get(activeSidebar)).toBe("watches");
+    });
+
+    it("toggleSidebar dismissing the active panel does not touch hidden", async () => {
+      const { sidebarLayout, showSidebar } = await import("../sidebarLayout");
+      showSidebar();
+      openSidebar("watches");
+      toggleSidebar("watches");
+      expect(get(activeSidebar)).toBeNull();
+      expect(get(sidebarLayout).hidden).toBe(false);
+    });
+
+    it("pinSidebar unhides the dock when collapsed", async () => {
+      const { sidebarLayout, hideSidebar, showSidebar } = await import(
+        "../sidebarLayout"
+      );
+      showSidebar();
+      hideSidebar();
+      pinSidebar("notes");
+      expect(get(sidebarLayout).hidden).toBe(false);
+      expect(get(pinnedSidebar)).toBe("notes");
+    });
+  });
 });
 
 describe("showPaneHints", () => {
