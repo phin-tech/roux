@@ -3881,7 +3881,7 @@ dependencies = [
 
 [[package]]
 name = "roux"
-version = "0.4.5-beta.8"
+version = "0.5.1-pre.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3893,6 +3893,7 @@ dependencies = [
  "portable-pty",
  "reqwest 0.12.28",
  "roux-core",
+ "roux-worktrunk",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3922,11 +3923,25 @@ dependencies = [
  "dirs",
  "kdl",
  "plist",
+ "roux-worktrunk",
+ "semver",
  "serde",
  "serde_json",
  "specta",
  "tempfile",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "roux-worktrunk"
+version = "0.1.0"
+dependencies = [
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "which",
 ]
 
 [[package]]
@@ -6155,6 +6170,15 @@ dependencies = [
  "thiserror 2.0.18",
  "windows",
  "windows-core 0.61.2",
+]
+
+[[package]]
+name = "which"
+version = "8.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81995fafaaaf6ae47a7d0cc83c67caf92aeb7e5331650ae6ff856f7c0c60c459"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

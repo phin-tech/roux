@@ -33,6 +33,8 @@
   import type { Worktree } from "$lib/types";
   import { log, logError } from "$lib/logging";
   import ProfileCustomEditor from "./ProfileCustomEditor.svelte";
+  import WorktreeRowContent from "./WorktreeRowContent.svelte";
+  import { commands } from "$lib/bindings";
 
   interface Props {
     visible: boolean;
@@ -45,6 +47,21 @@
   let isGitRepo = $state(false);
   let sessionName = $state("");
   let worktrees = $state<Worktree[]>([]);
+  // Cached worktrunk-detection state. `null` while we haven't probed yet.
+  let worktrunkDetection = $state<{
+    binaryPath: string | null;
+    version: string | null;
+    hasConfig: boolean;
+  } | null>(null);
+  // Effective provider given the user's setting and what's installed.
+  // Mirrors backend `create_worktree_with_provider` routing so we can
+  // show "using wt" affordance truthfully.
+  let effectiveProvider = $derived.by<"git" | "worktrunk">(() => {
+    const pref = $settings.worktreeProvider ?? "auto";
+    if (pref === "git") return "git";
+    if (pref === "worktrunk") return "worktrunk";
+    return worktrunkDetection?.binaryPath ? "worktrunk" : "git";
+  });
   let worktreeFilterInput = $state("");
   let worktreePickOpen = $state(true);
   let worktreeActiveIndex = $state(0);
@@ -547,6 +564,17 @@
       selectedWorktree = worktrees.find((w) => w.isMain) ?? worktrees[0] ?? null;
     } catch {
       worktrees = [];
+    }
+    // Probe worktrunk in parallel so the "using wt" hint can render
+    // without an extra await on the critical path.
+    void refreshWorktrunkDetection();
+  }
+
+  async function refreshWorktrunkDetection() {
+    try {
+      worktrunkDetection = await commands.cmdDetectWorktrunk(repoPath || null);
+    } catch {
+      worktrunkDetection = { binaryPath: null, version: null, hasConfig: false };
     }
   }
 
@@ -1155,7 +1183,19 @@
 
         {#if isGitRepo}
           <fieldset class="flex flex-col gap-1.5">
-            <legend class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Worktree / Branch</legend>
+            <legend class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              <span>Worktree / Branch</span>
+              {#if effectiveProvider === "worktrunk"}
+                <span
+                  data-testid="new-session-using-wt-hint"
+                  class="rounded bg-accent-dim/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent"
+                  title={worktrunkDetection?.version
+                    ? `Creating new worktrees via wt ${worktrunkDetection.version}. Change in Settings → Integrations.`
+                    : "Creating new worktrees via wt. Change in Settings → Integrations."}
+                  >using wt</span
+                >
+              {/if}
+            </legend>
             <p class="text-[11px] text-text-muted">Pick an existing worktree, or type a new branch name to create one.</p>
             <div
               class={pickerShellClass}
@@ -1215,11 +1255,7 @@
                           worktreePickOpen = false;
                         }}
                       >
-                        {#if wt.isMain}
-                          <span class="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-green/10 text-green">main</span>
-                        {/if}
-                        <span class="font-mono text-xs text-accent">{wt.branch}</span>
-                        <span class="ml-auto max-w-40 truncate font-mono text-[10px] text-text-muted">{wt.path}</span>
+                        <WorktreeRowContent {wt} />
                       </button>
                     {/each}
                   {/if}

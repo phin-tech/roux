@@ -1,0 +1,23 @@
+[package]
+name = "roux-worktrunk"
+version = "0.1.0"
+edition = "2021"
+description = "Shell-out wrapper around the worktrunk (`wt`) CLI for Roux"
+
+[lints]
+workspace = true
+
+[features]
+# Opt-in: exercises `tests/real_wt.rs` which require a real `wt` binary on PATH.
+# Default `cargo test` skips those tests and runs only the stub-based tier.
+real-wt-integration = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+semver = "1"
+which = "8"
+
+[dev-dependencies]
+tempfile = "3"

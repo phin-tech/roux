@@ -413,9 +413,24 @@
     const { loadProjects } = await import("$lib/stores/projects");
     await loadProjects();
 
+    // Probe worktrunk once at launch so the activity rail can conditionally
+    // render the Worktrunk icon without each consumer running its own probe.
+    // Non-blocking; failures leave the store in "not detected" state.
+    const { refreshWorktrunkDetection } = await import(
+      "$lib/stores/worktrunkDetection"
+    );
+    void refreshWorktrunkDetection();
+
     if (loadedSettings.restoreSessionsOnLaunch) {
       const sessions = await listSessions();
       log(`Restoring ${sessions.length} session(s)`);
+      // Fan out a worktrunk-metadata refresh in parallel so session cards
+      // can surface dirty/ahead/behind/dev-server chips without each card
+      // making its own Tauri call. Non-blocking; failures are silent.
+      const { refreshWorktreeMetadataForRepos } = await import(
+        "$lib/stores/worktreeMetadata"
+      );
+      void refreshWorktreeMetadataForRepos(sessions.map((s) => s.repoRoot));
       const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
       for (const s of sessions) {
         addSession(s);

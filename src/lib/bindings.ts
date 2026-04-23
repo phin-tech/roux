@@ -13,8 +13,8 @@ export const commands = {
 	notes: string,
 } | null, UpdaterError>(__TAURI_INVOKE("check_for_update", { channel })),
 	installUpdate: (channel: UpdateChannel) => typedError<null, UpdaterError>(__TAURI_INVOKE("install_update", { channel })),
-	cmdCreateWorktree: (repoPath: string, branch: string) => typedError<string, string>(__TAURI_INVOKE("cmd_create_worktree", { repoPath, branch })),
-	cmdRemoveWorktree: (worktreePath: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { worktreePath })),
+	cmdCreateWorktree: (repoPath: string, branch: string, startPoint: string | null, fetchFirst: boolean | null) => typedError<string, string>(__TAURI_INVOKE("cmd_create_worktree", { repoPath, branch, startPoint, fetchFirst })),
+	cmdRemoveWorktree: (repoPath: string, worktreePath: string, alsoBranch: boolean | null) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { repoPath, worktreePath, alsoBranch })),
 	cmdListWorktrees: (repoPath: string) => typedError<Worktree[], string>(__TAURI_INVOKE("cmd_list_worktrees", { repoPath })),
 	/**
 	 *  Resolve a worktree-base-path template (`{project_dir}`, `{git_root}`,
@@ -22,6 +22,28 @@ export const commands = {
 	 *  Settings can show a live preview.
 	 */
 	cmdPreviewWorktreeBase: (template: string, repoPath: string) => __TAURI_INVOKE<string>("cmd_preview_worktree_base", { template, repoPath }),
+	cmdDetectWorktrunk: (repoPath: string | null) => __TAURI_INVOKE<WorktrunkDetection>("cmd_detect_worktrunk", { repoPath }),
+	cmdWorktrunkDiagnostics: (repoPath: string) => typedError<WorktrunkDiagnostics, string>(__TAURI_INVOKE("cmd_worktrunk_diagnostics", { repoPath })),
+	/**
+	 *  Read a single worktrunk log file, capped at 256 KiB. Returns `None`
+	 *  when the file doesn't exist (was rotated / pruned between listing
+	 *  and read).
+	 */
+	cmdWorktrunkReadLog: (path: string) => typedError<string | null, string>(__TAURI_INVOKE("cmd_worktrunk_read_log", { path })),
+	/**
+	 *  Open the host OS's default terminal at `path`. Used by the
+	 *  Worktrunk panel's right-click context menu.
+	 * 
+	 *  macOS: `open -a Terminal <path>` — respects the user's default
+	 *  Terminal app binding.
+	 *  Linux: best-effort `xdg-terminal-exec` if available, else
+	 *  `x-terminal-emulator` (Debian/Ubuntu wrapper); returns an error
+	 *  if neither resolves.
+	 *  Windows: `wt.exe -d <path>` (Windows Terminal) — falls back to
+	 *  `cmd /c start cmd /k "cd /d <path>"` when Windows Terminal is
+	 *  absent.
+	 */
+	cmdOpenTerminalAt: (path: string) => typedError<null, string>(__TAURI_INVOKE("cmd_open_terminal_at", { path })),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
 	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, nonoProfile, nonoAllowDirs, profile, initialSize })),
@@ -525,9 +547,9 @@ export type NotifyConfig = {
 /**
  *  What happens to a PTY when its pane is closed.
  * 
+ *  - `Kill` — the PTY process is killed immediately.
  *  - `Detach` — the PTY keeps running in the background; it can be
  *    re-attached to another pane later.
- *  - `Kill` — the PTY process is killed immediately (legacy behaviour).
  */
 export type OnPaneCloseMode = "detach" | "kill";
 
@@ -681,6 +703,20 @@ export type RouxSettings = {
 	 *  typically need to set this explicitly.
 	 */
 	ghBinaryPath?: string | null,
+	/**
+	 *  Absolute path to the `wt` (worktrunk) binary. When set and non-empty,
+	 *  Roux uses it directly instead of resolving `wt` from `PATH`. Same
+	 *  motivation as `gh_binary_path` — macOS GUI apps inherit a minimal
+	 *  PATH that often excludes `/opt/homebrew/bin`. Leave unset to resolve
+	 *  via the login-shell PATH and fall back to "no worktrunk available"
+	 *  when nothing is found.
+	 */
+	worktrunkBinaryPath?: string | null,
+	/**
+	 *  Which backend Roux uses to create worktrees. Default `Auto` prefers
+	 *  `wt` when available and falls back to git when not.
+	 */
+	worktreeProvider?: WorktreeProvider,
 	additionalFlags: string[],
 	taskPanelSplit: number,
 	taskPanelCollapsed: boolean,
@@ -759,8 +795,8 @@ export type RouxSettings = {
 	showSessionHintsOnCommand?: boolean,
 	/**
 	 *  What happens to a PTY when its pane is closed.
-	 *  `Detach` (default): the process keeps running and can be re-attached.
-	 *  `Kill`: the process is killed immediately (legacy behaviour).
+	 *  `Kill` (default): the process is killed immediately.
+	 *  `Detach`: the process keeps running and can be re-attached.
 	 */
 	onPaneClose?: OnPaneCloseMode,
 };
@@ -935,6 +971,12 @@ export type Worktree = {
 	path: string,
 	branch: string,
 	isMain: boolean,
+	/**
+	 *  Optional metadata sourced from `wt list --format=json` when the
+	 *  worktrunk CLI is available. `null` means either `wt` is not
+	 *  installed or the current command did not attempt enrichment.
+	 */
+	worktrunk: WorktrunkMetadata | null,
 };
 
 /**
@@ -958,6 +1000,127 @@ export type WorktreeCleanupMode = "never" | "prompt" | "always";
  *  - `OriginMain` — the remote `origin/main`, with a `git fetch origin` first
  */
 export type WorktreeDefaultBase = "currentBranch" | "main" | "originMain";
+
+/**
+ *  Which backend Roux uses to create worktrees.
+ * 
+ *  - `Auto` (default) — use `wt` when it is detected on the system;
+ *    otherwise fall back to native `git worktree add`. This is the
+ *    recommended setting: users without worktrunk see no change, users
+ *    with worktrunk get its hooks/templates/project config for free.
+ *  - `Git` — always use native git. Useful as an escape hatch if a
+ *    worktrunk hook is misbehaving.
+ *  - `Worktrunk` — always prefer `wt`. If `wt` fails for any reason,
+ *    Roux still falls back to native git so worktree creation never
+ *    breaks entirely — the setting expresses preference, not veto.
+ */
+export type WorktreeProvider = "auto" | "git" | "worktrunk";
+
+// Summary of where worktrunk's configs live on disk.
+export type WorktrunkConfigSummary = {
+	userPath: string,
+	userExists: boolean,
+	projectPath: string,
+	projectExists: boolean,
+};
+
+/**
+ *  Result of probing the user's environment for a usable worktrunk install.
+ *  Either field can be populated independently: the binary may be on PATH
+ *  without any project config, or a project may carry `.config/wt.toml`
+ *  without the user having the CLI installed.
+ */
+export type WorktrunkDetection = {
+	/**
+	 *  Resolved binary path, when detection succeeds and the version meets
+	 *  `roux_worktrunk::MIN_WT_VERSION`. `null` when no usable wt is found.
+	 */
+	binaryPath: string | null,
+	// Human-readable version string (e.g. "0.44.0") when binary_path is set.
+	version: string | null,
+	// True when `{repo_path}/.config/wt.toml` exists as a file.
+	hasConfig: boolean,
+};
+
+// Everything the Worktrunk sidebar panel needs in a single call.
+export type WorktrunkDiagnostics = {
+	hooks: WorktrunkHookDef[],
+	config: WorktrunkConfigSummary,
+	logs: WorktrunkLogsSummary,
+};
+
+// Hook definition extracted from a worktrunk config file.
+export type WorktrunkHookDef = {
+	// "user" or "project".
+	source: string,
+	// Absolute path to the config file this hook lives in.
+	configPath: string,
+	// e.g. "post-start", "pre-merge".
+	name: string,
+	/**
+	 *  Displayable command value — a plain string for simple hooks, a
+	 *  JSON-encoded string for array/object values.
+	 */
+	command: string,
+};
+
+// Hook-output log entry with extra fields identifying which hook fired.
+export type WorktrunkHookOutputEntry = {
+	file: string,
+	path: string,
+	size: number,
+	modifiedAt: number | null,
+	branch: string,
+	source: string,
+	hookType: string | null,
+	name: string,
+};
+
+// One log-file entry (command log or diagnostic).
+export type WorktrunkLogEntry = {
+	file: string,
+	path: string,
+	size: number,
+	modifiedAt: number | null,
+};
+
+export type WorktrunkLogsSummary = {
+	commandLog: WorktrunkLogEntry[],
+	hookOutput: WorktrunkHookOutputEntry[],
+	diagnostic: WorktrunkLogEntry[],
+};
+
+export type WorktrunkMetadata = {
+	dirty: boolean,
+	ahead: number,
+	behind: number,
+	locked: boolean,
+	lockReason: string | null,
+	prunable: boolean,
+	prunableReason: string | null,
+	isCurrent: boolean,
+	isPrevious: boolean,
+	devServerUrl: string | null,
+	/**
+	 *  Branch's relationship to the default branch as reported by wt.
+	 *  Common values: "is_main" (same as main), "integrated" (merged),
+	 *  "diverged", "ahead", "behind", "same_commit", "would_conflict".
+	 *  Absent for entries wt can't classify.
+	 */
+	mainState: string | null,
+	/**
+	 *  CI status summary — "passed" | "failed" | "running" | "conflicts"
+	 *  | "no-ci" | "error". `null` when wt has no CI data for the branch.
+	 */
+	ciStatus: string | null,
+	// Link to the PR or workflow run when wt surfaced one.
+	ciUrl: string | null,
+	/**
+	 *  True when the CI status is for an older commit than local HEAD
+	 *  (there are unpushed changes).
+	 */
+	ciStale: boolean,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

@@ -130,9 +130,9 @@ describe("archivedSessions store", () => {
       worktreeExists: new Map([["a", true]]),
     });
 
-    await cleanArchivedWorktree("a", "/wt/a");
+    await cleanArchivedWorktree("a", "/repo/a", "/wt/a");
 
-    expect(removeWorktree).toHaveBeenCalledWith("/wt/a");
+    expect(removeWorktree).toHaveBeenCalledWith("/repo/a", "/wt/a");
     const state = get(archivedSessionsState);
     expect(state.sessions.map((s) => s.id)).toEqual(["a"]);
     expect(state.worktreeExists.get("a")).toBe(false);

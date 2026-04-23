@@ -12,7 +12,13 @@
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import { notificationsPush } from "$lib/tauri";
   import { commands } from "$lib/bindings";
-  import type { OnPaneCloseMode, UpdateChannel, WorktreeCleanupMode, WorktreeDefaultBase } from "$lib/bindings";
+  import type {
+    OnPaneCloseMode,
+    UpdateChannel,
+    WorktreeCleanupMode,
+    WorktreeDefaultBase,
+    WorktreeProvider,
+  } from "$lib/bindings";
   import { updateStatus, runManualCheck, performInstall } from "$lib/stores/updater";
   import { getVersion } from "@tauri-apps/api/app";
   import { quitApp } from "$lib/tauri";
@@ -115,6 +121,38 @@
     const selected = await open({ directory: false, title: "Select gh (GitHub CLI) Binary" });
     if (selected) updateSetting("ghBinaryPath", selected as string);
   }
+
+  async function browseWorktrunkBinary() {
+    const selected = await open({
+      directory: false,
+      title: "Select wt (worktrunk) Binary",
+    });
+    if (selected) updateSetting("worktrunkBinaryPath", selected as string);
+  }
+
+  // Live detection state for the worktrunk subsection. Re-resolved on
+  // panel open and whenever the override path changes.
+  let worktrunkDetection = $state<{
+    binaryPath: string | null;
+    version: string | null;
+    hasConfig: boolean;
+  } | null>(null);
+
+  async function refreshWorktrunkDetection() {
+    try {
+      worktrunkDetection = await commands.cmdDetectWorktrunk(null);
+    } catch {
+      worktrunkDetection = { binaryPath: null, version: null, hasConfig: false };
+    }
+  }
+
+  $effect(() => {
+    // Re-probe whenever the override changes. Tauri's `cmdDetectWorktrunk`
+    // reads the current settings override internally, so a bare re-fetch
+    // is enough.
+    void $settings.worktrunkBinaryPath;
+    void refreshWorktrunkDetection();
+  });
 
   async function browseWorktreeBase() {
     const selected = await open({ directory: true, title: "Select Worktree Base Directory" });
@@ -688,6 +726,93 @@
                     class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
                     onclick={browseGhBinary}
                   >...</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-center justify-between">
+                <div class="text-[13px] font-semibold">Worktrunk (wt)</div>
+                {#if worktrunkDetection?.binaryPath}
+                  <span
+                    data-testid="worktrunk-detected-badge"
+                    class="rounded bg-green/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green"
+                    >detected{worktrunkDetection.version
+                      ? ` ${worktrunkDetection.version}`
+                      : ""}</span
+                  >
+                {:else}
+                  <span
+                    data-testid="worktrunk-not-detected-badge"
+                    class="rounded bg-bg-active px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted"
+                    >not detected</span
+                  >
+                {/if}
+              </div>
+              <div class="mt-0.5 text-[11px] text-text-muted">
+                When available, Roux enriches the New Session worktree picker
+                with <code class="font-mono">wt</code>'s richer metadata (dirty
+                state, ahead/behind, locked/prunable, current/previous). Opt-in
+                — no regression for users without <code class="font-mono">wt</code>.
+                Set the path only if auto-detection misses your install.
+              </div>
+              {#if worktrunkDetection?.binaryPath}
+                <div class="mt-2 font-mono text-[10px] text-text-muted">
+                  {worktrunkDetection.binaryPath}
+                </div>
+              {/if}
+              <div class="mt-3 flex items-center justify-between gap-2">
+                <span class="text-[13px]">Binary path</span>
+                <div class="flex gap-1">
+                  <input
+                    class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-64 text-right focus:border-accent-dim"
+                    value={$settings.worktrunkBinaryPath ?? ""}
+                    oninput={(e) =>
+                      updateSetting(
+                        "worktrunkBinaryPath",
+                        e.currentTarget.value || null
+                      )}
+                    placeholder="/opt/homebrew/bin/wt"
+                  />
+                  <button
+                    class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                    onclick={browseWorktrunkBinary}>...</button
+                  >
+                </div>
+              </div>
+              <div class="mt-3 flex items-center justify-between gap-2">
+                <div>
+                  <div class="text-[13px]">Worktree provider</div>
+                  <div class="mt-0.5 text-[11px] text-text-muted">
+                    How Roux creates new worktrees. Auto uses <code
+                      class="font-mono">wt</code
+                    > when detected and falls back to git otherwise.
+                  </div>
+                </div>
+                <div
+                  data-testid="worktrunk-provider-selector"
+                  class="flex overflow-hidden rounded border border-border bg-bg-deep"
+                >
+                  {#each [
+                    { id: "auto", label: "Auto" },
+                    { id: "git", label: "Git" },
+                    { id: "worktrunk", label: "wt" },
+                  ] as const as opt}
+                    {@const active =
+                      ($settings.worktreeProvider ?? "auto") === opt.id}
+                    <button
+                      data-testid={`worktrunk-provider-${opt.id}`}
+                      class="cursor-pointer px-2.5 py-1 text-[11px] transition-colors
+                        {active
+                        ? 'bg-accent-dim text-text-primary'
+                        : 'text-text-secondary hover:bg-bg-hover'}"
+                      onclick={() =>
+                        updateSetting(
+                          "worktreeProvider",
+                          opt.id as WorktreeProvider
+                        )}>{opt.label}</button
+                    >
+                  {/each}
                 </div>
               </div>
             </div>

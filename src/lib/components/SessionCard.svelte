@@ -13,6 +13,7 @@
   import { listSessionPtys } from "$lib/tauri";
   import CloseButton from "./CloseButton.svelte";
   import Pencil from "@lucide/svelte/icons/pencil";
+  import SessionWorktrunkChips from "./SessionWorktrunkChips.svelte";
 
   interface Props {
     session: Session;
@@ -249,6 +250,9 @@
             <span class="opacity-70">&#9095;</span>
             <span>worktree</span>
           </span>
+        {/if}
+        {#if session.isWorktree}
+          <SessionWorktrunkChips worktreePath={session.worktreePath} />
         {/if}
         {#if showProjectTag}
           <span class="bg-accent-dim/15 px-1.5 py-0.5 font-semibold text-accent">{projectName}</span>

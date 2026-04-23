@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
 
-use crate::models::Worktree;
+use crate::models::{Worktree, WorktreeProvider, WorktrunkMetadata};
 
 #[derive(Debug, Error)]
 pub enum WorktreeError {
@@ -21,6 +21,10 @@ pub enum WorktreeError {
     FetchFailed { stderr: String },
     #[error("Invalid start point: '{start_point}' does not resolve to a commit")]
     InvalidStartPoint { start_point: String },
+    /// `wt` refused to remove a worktree because it is locked. Surface this
+    /// to the user so they can unlock deliberately — see issue #101.
+    #[error("worktree is locked (wt): {reason}")]
+    WorktrunkLocked { reason: String },
 }
 
 fn sanitize_branch_for_path(branch: &str) -> String {
@@ -172,6 +176,47 @@ pub fn fetch_origin(repo_path: &str) -> Result<(), WorktreeError> {
 ///   `git worktree add -b <branch> <path> <sp>` (new branch from `sp`).
 /// - If `branch` does not exist and `start_point` is `None`, run
 ///   `git worktree add -b <branch> <path>` (new branch from HEAD).
+/// Create a worktree using the requested provider.
+///
+/// - `provider = Git` (or `Auto` with `wt = None`) → native `git worktree add`.
+/// - `provider = Worktrunk` (or `Auto` with `wt = Some`) → shell out to
+///   `wt switch --create`. On any wt failure, log and fall back to native git
+///   so worktree creation never breaks entirely.
+pub fn create_worktree_with_provider(
+    repo_path: &str,
+    branch: &str,
+    base_path: Option<&str>,
+    start_point: Option<&str>,
+    provider: WorktreeProvider,
+    wt: Option<&roux_worktrunk::WtBinary>,
+) -> Result<String, WorktreeError> {
+    let use_wt = match provider {
+        WorktreeProvider::Git => false,
+        WorktreeProvider::Worktrunk => wt.is_some(),
+        WorktreeProvider::Auto => wt.is_some(),
+    };
+
+    if use_wt {
+        if let Some(wt) = wt {
+            let opts = roux_worktrunk::CreateOpts {
+                base: start_point,
+                env: Vec::new(),
+            };
+            match roux_worktrunk::create_worktree(wt, Path::new(repo_path), branch, &opts) {
+                Ok(path) => return Ok(path.to_string_lossy().into_owned()),
+                Err(err) => {
+                    eprintln!(
+                        "roux-worktrunk: create failed ({err}); falling back to native git for {repo_path}"
+                    );
+                    // Fall through to native path.
+                }
+            }
+        }
+    }
+
+    create_worktree(repo_path, branch, base_path, start_point)
+}
+
 pub fn create_worktree(
     repo_path: &str,
     branch: &str,
@@ -221,6 +266,61 @@ pub fn create_worktree(
     Ok(target_str)
 }
 
+/// Remove a worktree using the requested provider.
+///
+/// - `provider = Git` (or `Auto` + `wt = None`) → native `git worktree remove --force`.
+/// - `provider = Worktrunk` (or `Auto` + `wt = Some`) → `wt remove` via
+///   [`roux_worktrunk::remove_worktree`], which honors lock semantics:
+///   a locked worktree raises `WorktrunkLocked` instead of being silently forced.
+///
+/// Fallback: on non-lock wt failures, falls through to native git so
+/// removal doesn't get stuck when `wt` has a transient issue. Lock
+/// errors DO propagate — the caller is meant to surface them to the
+/// user per issue #101's "GUI cleanup defaults must be more
+/// conservative than terminal cleanup" principle.
+pub fn remove_worktree_with_provider(
+    repo_path: &str,
+    worktree_path: &str,
+    also_branch: bool,
+    provider: WorktreeProvider,
+    wt: Option<&roux_worktrunk::WtBinary>,
+) -> Result<(), WorktreeError> {
+    let use_wt = match provider {
+        WorktreeProvider::Git => false,
+        WorktreeProvider::Worktrunk | WorktreeProvider::Auto => wt.is_some(),
+    };
+
+    if use_wt {
+        if let Some(wt) = wt {
+            let opts = roux_worktrunk::RemoveOpts {
+                also_branch,
+                force: false,
+                env: Vec::new(),
+            };
+            match roux_worktrunk::remove_worktree(
+                wt,
+                Path::new(repo_path),
+                Path::new(worktree_path),
+                &opts,
+            ) {
+                Ok(()) => return Ok(()),
+                Err(roux_worktrunk::WtError::Locked { reason }) => {
+                    // Locks are user-visible: do NOT silently fall back.
+                    return Err(WorktreeError::WorktrunkLocked { reason });
+                }
+                Err(err) => {
+                    eprintln!(
+                        "roux-worktrunk: remove failed ({err}); falling back to native git for {worktree_path}"
+                    );
+                    // Fall through to native.
+                }
+            }
+        }
+    }
+
+    remove_worktree(worktree_path)
+}
+
 pub fn remove_worktree(worktree_path: &str) -> Result<(), WorktreeError> {
     let output = Command::new("git")
         .args(["worktree", "remove", worktree_path, "--force"])
@@ -233,6 +333,65 @@ pub fn remove_worktree(worktree_path: &str) -> Result<(), WorktreeError> {
     }
 
     Ok(())
+}
+
+/// List worktrees, enriching each entry with metadata from
+/// `wt list --format=json` when `wt` is supplied. Falls back to the
+/// native porcelain path on any `wt` error, so users without a
+/// functioning `wt` see no regression.
+///
+/// When `wt` is `None`, this is identical to [`list_worktrees`] plus
+/// a `worktrunk: None` field on every entry.
+pub fn list_worktrees_enriched(
+    repo_path: &str,
+    wt: Option<&roux_worktrunk::WtBinary>,
+) -> Result<Vec<Worktree>, WorktreeError> {
+    let Some(wt) = wt else {
+        return list_worktrees(repo_path);
+    };
+
+    match roux_worktrunk::list_worktrees(wt, Path::new(repo_path)) {
+        Ok(items) => Ok(items.into_iter().filter_map(wt_item_to_worktree).collect()),
+        Err(err) => {
+            eprintln!(
+                "roux-worktrunk: list failed ({err}); falling back to native git for {repo_path}"
+            );
+            list_worktrees(repo_path)
+        }
+    }
+}
+
+fn wt_item_to_worktree(item: roux_worktrunk::WtItem) -> Option<Worktree> {
+    // Entries without a path are branch-only (no worktree on disk). Skip
+    // them to match the native porcelain behavior which only reports
+    // materialised worktrees.
+    let path = item.path.as_ref()?.to_string_lossy().into_owned();
+    let branch = item.branch.clone().unwrap_or_else(|| "HEAD".to_string());
+    let ci_status = item.ci.as_ref().map(|c| c.status.clone());
+    let ci_url = item.ci.as_ref().and_then(|c| c.url.clone());
+    let ci_stale = item.ci.as_ref().map(|c| c.stale).unwrap_or(false);
+    let metadata = WorktrunkMetadata {
+        dirty: item.is_dirty(),
+        ahead: item.ahead(),
+        behind: item.behind(),
+        locked: item.is_locked(),
+        lock_reason: item.lock_reason().map(String::from),
+        prunable: item.is_prunable(),
+        prunable_reason: item.prunable_reason().map(String::from),
+        is_current: item.is_current,
+        is_previous: item.is_previous,
+        dev_server_url: item.url.clone(),
+        main_state: item.main_state.clone(),
+        ci_status,
+        ci_url,
+        ci_stale,
+    };
+    Some(Worktree {
+        path,
+        branch,
+        is_main: item.is_main,
+        worktrunk: Some(metadata),
+    })
 }
 
 pub fn list_worktrees(repo_path: &str) -> Result<Vec<Worktree>, WorktreeError> {
@@ -273,7 +432,7 @@ fn parse_porcelain(stdout: &str) -> Vec<Worktree> {
                 if !is_bare {
                     let branch = current_branch.take().unwrap_or_else(|| "HEAD".to_string());
                     let is_main = worktrees.is_empty(); // first entry is main worktree
-                    worktrees.push(Worktree { path, branch, is_main });
+                    worktrees.push(Worktree { path, branch, is_main, worktrunk: None });
                 }
             }
             current_branch = None;
@@ -286,7 +445,7 @@ fn parse_porcelain(stdout: &str) -> Vec<Worktree> {
         if !is_bare {
             let branch = current_branch.unwrap_or_else(|| "HEAD".to_string());
             let is_main = worktrees.is_empty();
-            worktrees.push(Worktree { path, branch, is_main });
+            worktrees.push(Worktree { path, branch, is_main, worktrunk: None });
         }
     }
 
@@ -451,11 +610,21 @@ mod tests {
     }
 
     // ---- Integration-style tests against a real temp git repo ----
+    //
+    // Git invocations here deliberately ignore the host's global and
+    // system config. Without this, dev machines that sign commits via
+    // SSH agents (e.g. 1Password) flake under the parallel test load
+    // because the agent can't keep up with simultaneous signing
+    // requests. Test commits need neither signing nor credential
+    // helpers; dropping global config makes the tests hermetic.
 
     fn git(repo: &Path, args: &[&str]) {
         let out = Command::new("git")
             .args(args)
             .current_dir(repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .output()
             .expect("failed to invoke git");
         assert!(
@@ -470,6 +639,9 @@ mod tests {
         let out = Command::new("git")
             .args(args)
             .current_dir(repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .output()
             .expect("failed to invoke git");
         assert!(out.status.success());
@@ -586,5 +758,158 @@ mod tests {
 
         let wt_head = git_stdout(Path::new(&wt_path), &["rev-parse", "HEAD"]);
         assert_eq!(wt_head, tag_commit);
+    }
+
+    fn broken_wt_binary() -> roux_worktrunk::WtBinary {
+        // Path points at a binary that definitely doesn't exist, so any
+        // actual shell-out will fail. Used to prove Git-provider and
+        // Auto+fallback behavior in a deterministic way.
+        roux_worktrunk::WtBinary {
+            path: PathBuf::from("/this/path/definitely/does/not/exist/wt"),
+            version: semver::Version::parse("99.0.0").unwrap(),
+        }
+    }
+
+    #[test]
+    fn create_with_provider_git_ignores_wt_binary_entirely() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+
+        let broken = broken_wt_binary();
+        let path = create_worktree_with_provider(
+            &repo_str,
+            "feat-git-only",
+            Some(&base_str),
+            None,
+            WorktreeProvider::Git,
+            Some(&broken),
+        )
+        .expect("Git provider must succeed and ignore wt binary");
+
+        assert!(Path::new(&path).is_dir());
+        // Verify the path is under our explicit base (proves git path was used,
+        // not wt's default layout).
+        assert!(
+            path.starts_with(&base_str),
+            "Git provider should honor base_path; got {path}"
+        );
+    }
+
+    #[test]
+    fn create_with_provider_auto_and_none_wt_uses_native() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+
+        let path = create_worktree_with_provider(
+            &repo_str,
+            "feat-auto-no-wt",
+            Some(&base_str),
+            None,
+            WorktreeProvider::Auto,
+            None,
+        )
+        .expect("Auto with no wt must fall through to native git");
+        assert!(Path::new(&path).is_dir());
+        assert!(path.starts_with(&base_str));
+    }
+
+    #[test]
+    fn create_with_provider_auto_falls_back_to_git_when_wt_spawn_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+
+        let broken = broken_wt_binary();
+        let path = create_worktree_with_provider(
+            &repo_str,
+            "feat-fallback",
+            Some(&base_str),
+            None,
+            WorktreeProvider::Auto,
+            Some(&broken),
+        )
+        .expect("Auto must fall back to native when wt spawn fails");
+
+        assert!(Path::new(&path).is_dir());
+        assert!(
+            path.starts_with(&base_str),
+            "fallback must land at the git base path; got {path}"
+        );
+    }
+
+    #[test]
+    fn create_with_provider_worktrunk_falls_back_to_git_when_wt_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+
+        let broken = broken_wt_binary();
+        let path = create_worktree_with_provider(
+            &repo_str,
+            "feat-wtrunk-fallback",
+            Some(&base_str),
+            None,
+            WorktreeProvider::Worktrunk,
+            Some(&broken),
+        )
+        .expect("Worktrunk provider must still fall back on wt failure");
+
+        assert!(Path::new(&path).is_dir());
+        assert!(path.starts_with(&base_str));
+    }
+
+    #[test]
+    fn list_worktrees_enriched_with_none_matches_legacy_listing_plus_worktrunk_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_repo(&repo);
+
+        let base = tmp.path().join("wts");
+        std::fs::create_dir_all(&base).unwrap();
+        let repo_str = repo.to_string_lossy().to_string();
+        let base_str = base.to_string_lossy().to_string();
+        create_worktree(&repo_str, "feature", Some(&base_str), None).expect("create");
+
+        let legacy = list_worktrees(&repo_str).expect("legacy list");
+        let enriched = list_worktrees_enriched(&repo_str, None).expect("enriched list");
+
+        assert_eq!(legacy.len(), enriched.len());
+        for (l, e) in legacy.iter().zip(enriched.iter()) {
+            assert_eq!(l.path, e.path);
+            assert_eq!(l.branch, e.branch);
+            assert_eq!(l.is_main, e.is_main);
+            assert!(
+                e.worktrunk.is_none(),
+                "enriched with None wt must carry worktrunk=None; got {:?}",
+                e.worktrunk
+            );
+        }
     }
 }

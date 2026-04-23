@@ -158,8 +158,22 @@ pub(crate) async fn create_session_shell(
                 crate::worktree::fetch_origin(repo_path)?;
             }
             let base = settings.worktree_base_path.as_deref();
-            let wt_path =
-                crate::worktree::create_worktree(repo_path, branch, base, start_point)?;
+            // Route through the provider-aware create so right-click →
+            // New Worktree honors the user's WorktreeProvider setting
+            // (Auto / Git / Worktrunk). Without this, every entry point
+            // except the Tauri `cmd_create_worktree` command silently
+            // bypassed worktrunk and the "using wt" badge in the New
+            // Session dialog was the only signal the provider was even
+            // active.
+            let wt = crate::services::setup::resolve_wt_binary();
+            let wt_path = roux_core::create_worktree_with_provider(
+                repo_path,
+                branch,
+                base,
+                start_point,
+                settings.worktree_provider,
+                wt.as_ref(),
+            )?;
             (wt_path, branch.to_string(), true)
         }
         SessionTarget::Repo => {
@@ -205,6 +219,11 @@ pub(crate) async fn create_session_shell(
     if let Err(e) = spawn_result {
         rlog!("Shell session spawn failed: {}", e);
         if is_wt {
+            // Error-recovery rollback: stay on the native git path even
+            // when the user's provider is Worktrunk. A failing pre-remove
+            // hook or a lock error here would leave the user with a
+            // stranded worktree + no session. Cleanup-always-succeeds
+            // trumps hooks-always-fire for error paths.
             let _ = crate::worktree::remove_worktree(&work_dir);
         }
         return Err(anyhow!("{}", e));
@@ -235,6 +254,8 @@ pub(crate) async fn create_session_shell(
     if let Err(e) = session_handle.add(session.clone()).await {
         pty_manager.kill(&session.id);
         if is_wt {
+            // Same rollback policy as the spawn-failure path above:
+            // emergency cleanup stays native.
             let _ = crate::worktree::remove_worktree(&session.worktree_path);
         }
         return Err(e.into());

@@ -16,7 +16,8 @@ export type SidebarId =
   | "notifications"
   | "tasks"
   | "docs"
-  | "sessions";
+  | "sessions"
+  | "worktrunk";
 
 export const PINNABLE_SIDEBARS: ReadonlySet<SidebarId> = new Set<SidebarId>([
   "sessions",
@@ -24,6 +25,7 @@ export const PINNABLE_SIDEBARS: ReadonlySet<SidebarId> = new Set<SidebarId>([
   "watches",
   "tasks",
   "notifications",
+  "worktrunk",
 ]);
 
 interface SidebarState {

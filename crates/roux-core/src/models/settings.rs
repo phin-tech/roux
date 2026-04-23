@@ -75,6 +75,26 @@ pub enum WorktreeDefaultBase {
     OriginMain,
 }
 
+/// Which backend Roux uses to create worktrees.
+///
+/// - `Auto` (default) — use `wt` when it is detected on the system;
+///   otherwise fall back to native `git worktree add`. This is the
+///   recommended setting: users without worktrunk see no change, users
+///   with worktrunk get its hooks/templates/project config for free.
+/// - `Git` — always use native git. Useful as an escape hatch if a
+///   worktrunk hook is misbehaving.
+/// - `Worktrunk` — always prefer `wt`. If `wt` fails for any reason,
+///   Roux still falls back to native git so worktree creation never
+///   breaks entirely — the setting expresses preference, not veto.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum WorktreeProvider {
+    #[default]
+    Auto,
+    Git,
+    Worktrunk,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum GroupBy {
@@ -154,6 +174,18 @@ pub struct RouxSettings {
     /// typically need to set this explicitly.
     #[serde(default)]
     pub gh_binary_path: Option<String>,
+    /// Absolute path to the `wt` (worktrunk) binary. When set and non-empty,
+    /// Roux uses it directly instead of resolving `wt` from `PATH`. Same
+    /// motivation as `gh_binary_path` — macOS GUI apps inherit a minimal
+    /// PATH that often excludes `/opt/homebrew/bin`. Leave unset to resolve
+    /// via the login-shell PATH and fall back to "no worktrunk available"
+    /// when nothing is found.
+    #[serde(default)]
+    pub worktrunk_binary_path: Option<String>,
+    /// Which backend Roux uses to create worktrees. Default `Auto` prefers
+    /// `wt` when available and falls back to git when not.
+    #[serde(default)]
+    pub worktree_provider: WorktreeProvider,
     pub additional_flags: Vec<String>,
     pub task_panel_split: f64,
     pub task_panel_collapsed: bool,
@@ -257,6 +289,8 @@ impl Default for RouxSettings {
             default_model: None,
             claude_binary_path: None,
             gh_binary_path: None,
+            worktrunk_binary_path: None,
+            worktree_provider: WorktreeProvider::default(),
             additional_flags: Vec::new(),
             task_panel_split: 0.5,
             task_panel_collapsed: true,

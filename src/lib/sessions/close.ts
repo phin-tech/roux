@@ -81,7 +81,7 @@ export async function closeSession(session: Session, opts?: CloseOpts): Promise<
       s.worktreeCleanupOnClose ?? (s.cleanupWorktreesOnClose ? "always" : "prompt");
     if (mode === "always") {
       try {
-        await removeWorktree(session.worktreePath);
+        await removeWorktree(session.repoRoot, session.worktreePath);
         worktreeStillOnDisk = false;
       } catch {
         // If removal failed we still archive the session, but leave the

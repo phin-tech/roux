@@ -29,7 +29,7 @@ pub use project::Project;
 pub use session::{Session, SessionStatus};
 pub use settings::{
     CursorStyle, GroupBy, RouxSettings, StatusBarPosition, TabPosition, UpdateChannel,
-    WorktreeCleanupMode, WorktreeDefaultBase,
+    WorktreeCleanupMode, WorktreeDefaultBase, WorktreeProvider,
 };
 pub use task::{KeepOpen, TaskDefinition, TaskGroup};
 pub use user_terminal_themes::{
@@ -37,4 +37,4 @@ pub use user_terminal_themes::{
     UserTerminalTheme, UserThemeError,
 };
 pub use watch::*;
-pub use worktree::Worktree;
+pub use worktree::{Worktree, WorktrunkMetadata};
