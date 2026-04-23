@@ -11,11 +11,15 @@
   import { createWatch } from "$lib/tauri";
   import type { CreateWatchConfig } from "$lib/types";
 
+  import PinButton from "./PinButton.svelte";
+
   interface Props {
     onCollapse?: () => void;
+    pinned?: boolean;
+    onTogglePin?: () => void;
   }
 
-  let { onCollapse }: Props = $props();
+  let { onCollapse, pinned = false, onTogglePin }: Props = $props();
 
   let collapsedGroups = $state(new Set<string>());
   let contextMenu = $state<{ x: number; y: number; task: TaskDefinition; repoRoot: string } | null>(null);
@@ -126,12 +130,15 @@
       <span class="border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
         {filteredGroups.reduce((n, g) => n + g.tasks.length, 0)}
       </span>
+      {#if onTogglePin}
+        <PinButton {pinned} ontoggle={onTogglePin} />
+      {/if}
       {#if onCollapse}
         <button
           class="cursor-pointer bg-transparent p-1 text-[12px] font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
           onclick={onCollapse}
-          title="Collapse tasks panel"
-        >&#9660;</button>
+          title="Close tasks panel"
+        >&times;</button>
       {/if}
     </div>
   </div>

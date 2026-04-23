@@ -3,13 +3,75 @@ import { sessionLayouts, collectVisibleLeafIds } from "$lib/panes/layout";
 import { sessionState } from "$lib/stores/sessions";
 
 /**
- * Global sidebar slot. The app renders at most one side panel at a time —
- * Settings, Notes, Watches, Notifications. Any new panel registers here.
- * State is ephemeral (not persisted).
+ * Global sidebar slots. The docked sidebar has a pin slot (for lightweight,
+ * always-visible panels like Notes) and an active slot (for the currently
+ * focused panel). When both are set to different ids they render stacked;
+ * otherwise the single panel takes the full docked region.
  */
-export type SidebarId = "settings" | "notes" | "watches" | "notifications" | "sessions";
+export type SidebarId =
+  | "settings"
+  | "notes"
+  | "watches"
+  | "notifications"
+  | "tasks"
+  | "docs"
+  | "sessions";
 
-export const activeSidebar = writable<SidebarId | null>(null);
+export const PINNABLE_SIDEBARS: ReadonlySet<SidebarId> = new Set<SidebarId>([
+  "sessions",
+  "notes",
+  "watches",
+  "tasks",
+  "notifications",
+]);
+
+interface SidebarState {
+  pinned: SidebarId | null;
+  active: SidebarId | null;
+}
+
+const PIN_STORAGE_KEY = "roux.sidebar.pin";
+
+function loadInitialPin(): SidebarId | null {
+  try {
+    const raw =
+      typeof window !== "undefined" && window.localStorage
+        ? window.localStorage.getItem(PIN_STORAGE_KEY)
+        : null;
+    // First launch (no persisted state) → pin Sessions so the tab list is visible by default.
+    if (!raw) return "sessions";
+    const parsed = JSON.parse(raw) as { pinned?: SidebarId | null };
+    const p = parsed.pinned ?? null;
+    return p && PINNABLE_SIDEBARS.has(p) ? p : null;
+  } catch {
+    return "sessions";
+  }
+}
+
+const sidebarState = writable<SidebarState>({
+  pinned: loadInitialPin(),
+  active: null,
+});
+
+sidebarState.subscribe((s) => {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(
+      PIN_STORAGE_KEY,
+      JSON.stringify({ pinned: s.pinned }),
+    );
+  } catch {}
+});
+
+export const activeSidebar: Readable<SidebarId | null> = derived(
+  sidebarState,
+  ($s) => $s.active,
+);
+
+export const pinnedSidebar: Readable<SidebarId | null> = derived(
+  sidebarState,
+  ($s) => $s.pinned,
+);
 
 /**
  * When non-null, the notes panel targets this session id instead of the
@@ -20,25 +82,83 @@ export const activeSidebar = writable<SidebarId | null>(null);
  */
 export const notesOverrideSessionId = writable<string | null>(null);
 
-export function openSidebar(id: SidebarId): void {
-  activeSidebar.set(id);
+function clearNotesOverrideIfLeaving(id: SidebarId | null): void {
   if (id !== "notes") notesOverrideSessionId.set(null);
 }
 
+export function openSidebar(id: SidebarId): void {
+  sidebarState.update((s) => {
+    if (s.pinned === id) return s;
+    return { ...s, active: id };
+  });
+  clearNotesOverrideIfLeaving(id);
+}
+
 export function closeSidebar(): void {
-  activeSidebar.set(null);
+  sidebarState.update((s) => ({ ...s, active: null }));
   notesOverrideSessionId.set(null);
 }
 
 export function toggleSidebar(id: SidebarId): void {
-  const next = get(activeSidebar) === id ? null : id;
-  activeSidebar.set(next);
-  if (next !== "notes") notesOverrideSessionId.set(null);
+  const s = get(sidebarState);
+  if (s.pinned === id) {
+    unpinSidebar();
+    return;
+  }
+  if (s.active === id) {
+    sidebarState.set({ ...s, active: null });
+    clearNotesOverrideIfLeaving(null);
+    return;
+  }
+  sidebarState.set({ ...s, active: id });
+  clearNotesOverrideIfLeaving(id);
+}
+
+export function pinSidebar(id: SidebarId): void {
+  if (!PINNABLE_SIDEBARS.has(id)) return;
+  sidebarState.update((s) => ({
+    pinned: id,
+    active: s.active === id ? null : s.active,
+  }));
+}
+
+export function unpinSidebar(): void {
+  // Unpin = "stop forcing a split, collapse back to single view."
+  // The previously-pinned panel is the user's anchor — it returns to the active
+  // slot and the transient sibling drops away.
+  //
+  // Exception: when active is a non-pinnable takeover panel (Settings, Docs),
+  // leave it alone. Otherwise unpinning Notes while Docs is open would
+  // close Docs — jarring and not what the user asked for.
+  sidebarState.update((s) => {
+    const activeIsTakeover =
+      s.active !== null && !PINNABLE_SIDEBARS.has(s.active);
+    if (activeIsTakeover) {
+      return { ...s, pinned: null };
+    }
+    return {
+      pinned: null,
+      active: s.pinned ?? s.active,
+    };
+  });
+}
+
+/**
+ * Clear only the pinned slot without touching the active slot. Used by a
+ * panel's own close (×) button — the user is asking to dismiss THIS panel,
+ * not to collapse the split (which is `unpinSidebar`'s anchor-promotion).
+ */
+export function closePinned(): void {
+  sidebarState.update((s) => ({ ...s, pinned: null }));
+}
+
+export function isPinned(id: SidebarId): boolean {
+  return get(sidebarState).pinned === id;
 }
 
 export function openNotesForSession(sessionId: string): void {
   notesOverrideSessionId.set(sessionId);
-  activeSidebar.set("notes");
+  sidebarState.update((s) => ({ ...s, active: "notes" }));
 }
 
 const HOLD_DELAY_MS = 200;

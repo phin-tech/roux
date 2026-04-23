@@ -6,10 +6,6 @@
   import ProfileCustomEditor from "$lib/components/ProfileCustomEditor.svelte";
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
-  import NotesPanel from "$lib/components/NotesPanel.svelte";
-  import WatchesPane from "$lib/components/WatchesPane.svelte";
-  import NotificationsPane from "$lib/components/NotificationsPane.svelte";
-  import SessionsPane from "$lib/components/SessionsPane.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import KeymapHud from "$lib/components/KeymapHud.svelte";
   import QuitDialog from "$lib/components/QuitDialog.svelte";
@@ -32,9 +28,7 @@
   } from "$lib/stores/commandSurface";
   import { runStartupCheck, runManualCheck } from "$lib/stores/updater";
   import { initSettings, settings } from "$lib/stores/settings";
-  import { projects } from "$lib/stores/projects";
   import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
-  import { archivedSessionsState } from "$lib/stores/archivedSessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
   import { initSession, initSessionWithProfile, splitPane } from "$lib/panes/actions";
@@ -76,7 +70,6 @@
     openSidebar,
     closeSidebar,
     toggleSidebar,
-    notesOverrideSessionId,
   } from "$lib/stores/ui";
 
   let showNewSessionDialog = $state(false);
@@ -686,31 +679,6 @@
 >
   {#snippet settingsPanel()}
     <SettingsPanel visible={$activeSidebar === "settings"} onclose={closeSidebar} />
-    {@const activeSession = $sessionState.sessions.find(s => s.id === $sessionState.activeSessionId)}
-    {@const notesSession = $notesOverrideSessionId
-      ? ($sessionState.sessions.find(s => s.id === $notesOverrideSessionId)
-        ?? $archivedSessionsState.sessions.find(s => s.id === $notesOverrideSessionId))
-      : activeSession}
-    <NotesPanel
-      visible={$activeSidebar === "notes"}
-      sessionId={notesSession?.id ?? null}
-      projectId={notesSession?.projectId ?? null}
-      projectName={$projects.find(p => p.id === notesSession?.projectId)?.name ?? null}
-      repoRoot={notesSession?.repoRoot ?? null}
-      onclose={closeSidebar}
-    />
-    <WatchesPane
-      visible={$activeSidebar === "watches"}
-      onclose={closeSidebar}
-    />
-    <NotificationsPane
-      visible={$activeSidebar === "notifications"}
-      onclose={closeSidebar}
-    />
-    <SessionsPane
-      visible={$activeSidebar === "sessions"}
-      onclose={closeSidebar}
-    />
   {/snippet}
 </Layout>
 

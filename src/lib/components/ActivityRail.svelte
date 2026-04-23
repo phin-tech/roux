@@ -1,0 +1,122 @@
+<script lang="ts">
+  import FolderTree from "@lucide/svelte/icons/folder-tree";
+  import StickyNote from "@lucide/svelte/icons/sticky-note";
+  import Eye from "@lucide/svelte/icons/eye";
+  import ListTodo from "@lucide/svelte/icons/list-todo";
+  import BookOpen from "@lucide/svelte/icons/book-open";
+  import Bell from "@lucide/svelte/icons/bell";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
+  import Pin from "@lucide/svelte/icons/pin";
+  import type { Component } from "svelte";
+  import {
+    activeSidebar,
+    closeSidebar,
+    isPinned,
+    openSidebar,
+    pinnedSidebar,
+    PINNABLE_SIDEBARS,
+    pinSidebar,
+    unpinSidebar,
+    toggleSidebar,
+    type SidebarId,
+  } from "$lib/stores/ui";
+  import { unreadTotal } from "$lib/stores/notifications";
+
+  interface Item {
+    id: SidebarId;
+    label: string;
+    icon: Component<{ size?: number; class?: string }>;
+  }
+
+  const dockItems: Item[] = [
+    { id: "sessions", label: "Sessions", icon: FolderTree },
+    { id: "notes", label: "Notes", icon: StickyNote },
+    { id: "watches", label: "Watches", icon: Eye },
+    { id: "tasks", label: "Tasks", icon: ListTodo },
+    { id: "docs", label: "Docs", icon: BookOpen },
+    { id: "notifications", label: "Notifications", icon: Bell },
+  ];
+
+  const settingsItem: Item = { id: "settings", label: "Settings", icon: SettingsIcon };
+
+  function handleClick(event: MouseEvent, id: SidebarId): void {
+    event.preventDefault();
+    if ($pinnedSidebar === id) {
+      if (event.shiftKey) unpinSidebar();
+      return;
+    }
+    if ($activeSidebar === id) {
+      closeSidebar();
+      return;
+    }
+    openSidebar(id);
+  }
+
+  function handleContextMenu(event: MouseEvent, id: SidebarId): void {
+    event.preventDefault();
+    if (!PINNABLE_SIDEBARS.has(id)) return;
+    if (isPinned(id)) {
+      unpinSidebar();
+    } else {
+      pinSidebar(id);
+    }
+  }
+
+  function handleSettingsClick(event: MouseEvent): void {
+    event.preventDefault();
+    toggleSidebar("settings");
+  }
+
+  function buttonTitle(item: Item): string {
+    const suffix = PINNABLE_SIDEBARS.has(item.id)
+      ? isPinned(item.id)
+        ? " (right-click or shift-click to unpin)"
+        : " (right-click to pin)"
+      : "";
+    return `${item.label}${suffix}`;
+  }
+</script>
+
+<div class="flex h-full flex-col items-center gap-0.5 p-1">
+  {#each dockItems as item (item.id)}
+    {@const active = $activeSidebar === item.id}
+    {@const pinned = $pinnedSidebar === item.id}
+    {@const showBadge = item.id === "notifications" && $unreadTotal > 0}
+    <button
+      type="button"
+      title={buttonTitle(item)}
+      aria-label={item.label}
+      aria-pressed={active || pinned}
+      class="relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {active
+        ? 'bg-white/10 text-text-primary'
+        : ''} {pinned ? 'text-accent' : ''}"
+      onclick={(e) => handleClick(e, item.id)}
+      oncontextmenu={(e) => handleContextMenu(e, item.id)}
+    >
+      <item.icon size={16} />
+      {#if pinned}
+        <span class="absolute -top-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[8px] text-bg-deep">
+          <Pin size={8} />
+        </span>
+      {/if}
+      {#if showBadge}
+        <span class="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-semibold leading-none text-white">
+          {$unreadTotal > 9 ? "9+" : $unreadTotal}
+        </span>
+      {/if}
+    </button>
+  {/each}
+
+  <div class="flex-1"></div>
+
+  <button
+    type="button"
+    title={settingsItem.label}
+    aria-label={settingsItem.label}
+    aria-pressed={$activeSidebar === "settings"}
+    class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {$activeSidebar === 'settings' ? 'bg-white/10 text-text-primary' : ''}"
+    onclick={handleSettingsClick}
+  >
+    <settingsItem.icon size={16} />
+  </button>
+</div>

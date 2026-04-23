@@ -8,6 +8,8 @@
   } from "$lib/stores/notesUi";
   import NotesContent from "./NotesContent.svelte";
 
+  import PinButton from "./PinButton.svelte";
+
   interface Props {
     visible: boolean;
     sessionId: string | null;
@@ -15,6 +17,8 @@
     projectName: string | null;
     repoRoot: string | null;
     onclose: () => void;
+    pinned?: boolean;
+    onTogglePin?: () => void;
   }
 
   let {
@@ -24,6 +28,8 @@
     projectName,
     repoRoot,
     onclose,
+    pinned = false,
+    onTogglePin,
   }: Props = $props();
 
   let scope = $state<NotesScope>("session");
@@ -60,11 +66,14 @@
 </script>
 
 <div
-  style="right: {visible ? '0.5rem' : '-400px'}; visibility: {visible ? 'visible' : 'hidden'};"
-  class="absolute top-2 bottom-2 z-50 flex w-[380px] flex-col rounded-2xl border border-hairline bg-bg-deep shadow-[-8px_8px_48px_rgba(2,6,23,0.55),0_0_0_1px_rgba(255,255,255,0.04)] transition-[right] duration-250"
+  class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
+  class:hidden={!visible}
 >
   <!-- Sidebar-specific close button row -->
-  <div class="flex h-9 shrink-0 items-center justify-end border-b border-hairline bg-bg-surface/30 px-3 rounded-t-2xl">
+  <div class="flex h-9 shrink-0 items-center justify-end gap-1 border-b border-hairline bg-bg-surface/30 px-3">
+    {#if onTogglePin}
+      <PinButton {pinned} ontoggle={onTogglePin} />
+    {/if}
     <button
       class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
       onclick={onclose}

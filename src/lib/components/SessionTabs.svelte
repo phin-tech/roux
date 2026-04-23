@@ -1,6 +1,6 @@
 <script lang="ts">
   import SessionCard from "./SessionCard.svelte";
-  import TaskPanel from "./TaskPanel.svelte";
+  import ArchivedSessionsList from "./ArchivedSessionsList.svelte";
   import {
     sessionState,
     setActiveSession,
@@ -16,6 +16,7 @@
   } from "$lib/tauri";
   import type { SpawnProfileRef } from "$lib/panes/profiles";
   import { settings, updateSetting } from "$lib/stores/settings";
+  import { sidebarLayout } from "$lib/stores/sidebarLayout";
   import { reconnectSession } from "$lib/sessions/reconnect";
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
@@ -28,17 +29,28 @@
   import type { Session } from "$lib/types";
   import { getGroupedSessions } from "$lib/sessions/order";
 
+  import PinButton from "./PinButton.svelte";
+
   interface Props {
+    onclose?: () => void;
     onNewSession: () => void;
     onOpenSettings: () => void;
     onToggleWatches: () => void;
     onToggleNotifications: () => void;
+    pinned?: boolean;
+    onTogglePin?: () => void;
   }
 
-  let { onNewSession, onOpenSettings, onToggleWatches, onToggleNotifications }: Props = $props();
+  let {
+    onclose,
+    onNewSession,
+    onOpenSettings,
+    onToggleWatches,
+    onToggleNotifications,
+    pinned = false,
+    onTogglePin,
+  }: Props = $props();
 
-  let dragging = $state(false);
-  let containerEl: HTMLDivElement | undefined = $state();
   let collapsedGroups = $state(new Set<string>());
 
   let grouped = $derived(
@@ -319,45 +331,28 @@
     await reconnectSession(session);
   }
 
-  function handleDividerDown(e: MouseEvent) {
-    e.preventDefault();
-    dragging = true;
-
-    function onMove(ev: MouseEvent) {
-      if (!containerEl) return;
-      const rect = containerEl.getBoundingClientRect();
-      const ratio = (ev.clientY - rect.top) / rect.height;
-      const clamped = Math.max(0.15, Math.min(0.85, ratio));
-      updateSetting("taskPanelSplit", 1 - clamped);
-    }
-
-    function onUp() {
-      dragging = false;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    }
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
 </script>
 
 <svelte:window onclick={closeContextMenu} />
 
 <div
   class="flex h-full flex-col overflow-hidden bg-bg-base/96 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
-  bind:this={containerEl}
 >
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
     <div class="flex items-center gap-2">
+      {#if onTogglePin}
+        <PinButton {pinned} ontoggle={onTogglePin} />
+      {/if}
+      {#if onclose}
       <button
         class="flex h-5 w-5 items-center justify-center text-text-secondary cursor-pointer transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-        onclick={() => updateSetting("sidebarCollapsed", true)}
-        title="Collapse sidebar"
-        aria-label="Collapse sidebar"
+        onclick={onclose}
+        title="Hide sessions list"
+        aria-label="Hide sessions list"
       >
-        <span class="text-[11px]">{$settings.tabPosition === "right" ? "\u25B6" : "\u25C0"}</span>
+        <span class="text-[11px]">{$sidebarLayout.railSide === "right" ? "\u25B6" : "\u25C0"}</span>
       </button>
+      {/if}
       <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Sessions</span>
       <button
         class="relative flex items-center justify-center text-text-secondary cursor-pointer transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
@@ -417,10 +412,7 @@
     </button>
   </div>
 
-  <div
-    class="app-scrollbar overflow-y-auto px-2"
-    style="flex: {!$settings.taskPanelCollapsed && $sessionState.activeSessionId ? 1 - $settings.taskPanelSplit : 1};"
-  >
+  <div class="app-scrollbar flex-1 overflow-y-auto px-2">
     {#each grouped as group (group.key)}
       {#if showGroupHeaders}
         <button
@@ -450,30 +442,8 @@
         </div>
       {/if}
     {/each}
+    <ArchivedSessionsList />
   </div>
-
-  {#if $sessionState.activeSessionId}
-    {#if $settings.taskPanelCollapsed}
-      <button
-        class="shrink-0 flex w-full items-center gap-1.5 border-t border-hairline bg-bg-deep/35 px-3 py-2 text-left cursor-pointer hover:bg-bg-active/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-        onclick={() => updateSetting("taskPanelCollapsed", false)}
-      >
-        <span class="text-[11px] text-text-secondary">&#9654;</span>
-        <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Tasks</span>
-      </button>
-    {:else}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="group flex h-3 shrink-0 cursor-row-resize items-center px-2" onmousedown={handleDividerDown}>
-        <div
-          class="h-px w-full transition-all duration-150 {dragging ? 'bg-white/22' : 'bg-white/10 group-hover:bg-white/16'}"
-        ></div>
-      </div>
-
-      <div class="min-h-0 bg-bg-deep/35" style="flex: {$settings.taskPanelSplit};">
-        <TaskPanel onCollapse={() => updateSetting("taskPanelCollapsed", true)} />
-      </div>
-    {/if}
-  {/if}
 
 </div>
 
