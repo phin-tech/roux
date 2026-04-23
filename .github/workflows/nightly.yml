@@ -1,0 +1,116 @@
+name: Nightly Build
+
+# Computes a nightly version (patch-bumped above the latest non-nightly release),
+# creates and pushes a tag on the target branch, then dispatches the Release
+# workflow against that tag. Release handles signing, notarization, and the
+# updater manifest. Stale nightly releases + tags are cleaned up by release.yml's
+# cleanup-old-prereleases job.
+#
+# GitHub Actions cron is UTC only. 09:00 UTC = 05:00 EDT (Mar–Nov) / 04:00 EST (Nov–Mar).
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to build"
+        required: false
+        type: string
+        default: "main"
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: nightly-${{ github.event.inputs.branch || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  trigger-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || 'main' }}
+          fetch-depth: 0
+
+      - name: Compute nightly version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Latest non-nightly, non-draft release — stable or pre. Sorted by semver.
+          # Filter nightly tags in jq so the pipeline doesn't fail under pipefail
+          # when every release is a nightly (grep -v would exit 1 on no matches).
+          LATEST=$(gh release list \
+            --repo "$REPO" \
+            --limit 100 \
+            --json tagName,isDraft \
+            --jq '.[] | select((.isDraft | not) and (.tagName | contains("-nightly.") | not)) | .tagName' \
+            | sort -V \
+            | tail -n1)
+          if [[ -z "$LATEST" ]]; then
+            echo "No prior release found; defaulting to v0.0.0" >&2
+            LATEST="v0.0.0"
+          fi
+          # Strip leading 'v' and any prerelease suffix (e.g. v0.5.1-pre.1 -> 0.5.1)
+          CORE="${LATEST#v}"
+          CORE="${CORE%%-*}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CORE"
+          NEW_PATCH=$((PATCH + 1))
+          DATE=$(date -u +%Y%m%d)
+          # Include run_attempt so re-running a nightly produces a distinct tag
+          # (run_number alone is stable across re-runs and would collide).
+          NIGHTLY="v${MAJOR}.${MINOR}.${NEW_PATCH}-nightly.${DATE}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          echo "Latest release: $LATEST"
+          echo "Nightly version: $NIGHTLY"
+          echo "version=$NIGHTLY" >> "$GITHUB_OUTPUT"
+
+      - name: Write nightly version into version sources
+        env:
+          TAG: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # release.yml's `task sign` and `task publish` read the version from
+          # src-tauri/tauri.conf.json, not from RELEASE_VERSION, so we must
+          # update the version files before tagging. The tag will point at
+          # this commit; the commit is never pushed to a branch, so it only
+          # exists as the tag target.
+          VERSION="${TAG#v}"
+          python3 -c "
+          import json
+          with open('src-tauri/tauri.conf.json') as f:
+              d = json.load(f)
+          d['version'] = '${VERSION}'
+          with open('src-tauri/tauri.conf.json', 'w') as f:
+              json.dump(d, f, indent=2)
+          "
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+          sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/tauri.conf.json src-tauri/Cargo.toml package.json
+          git commit -m "nightly: ${TAG}"
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git tag -a "$TAG" -m "Nightly build: $TAG"
+          git push origin "$TAG"
+
+      - name: Dispatch Release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.version }}
+          BRANCH: ${{ github.event.inputs.branch || 'main' }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            --ref "$BRANCH" \
+            -f version="$TAG"

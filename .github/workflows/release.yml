@@ -131,7 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: release-macos
     steps:
-      - name: Delete prior prereleases (keep current, leave tags)
+      - name: Delete prior prereleases (keep current; nightly tags fully removed)
         env:
           GH_TOKEN: ${{ github.token }}
           CURRENT: ${{ needs.release-macos.outputs.release_version }}
@@ -151,6 +151,11 @@ jobs:
             exit 0
           fi
           for tag in "${stale[@]}"; do
-            echo "Deleting prerelease: $tag"
-            gh release delete "$tag" --repo "$REPO" --yes
+            if [[ "$tag" == *-nightly.* ]]; then
+              echo "Deleting nightly prerelease and tag: $tag"
+              gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag
+            else
+              echo "Deleting prerelease (keep tag): $tag"
+              gh release delete "$tag" --repo "$REPO" --yes
+            fi
           done
