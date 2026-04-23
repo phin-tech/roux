@@ -12,7 +12,19 @@
   import type { Session } from "$lib/types";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
 
-  let collapsed = $state(true);
+  interface Props {
+    collapsed?: boolean;
+    oncollapsedchange?: (collapsed: boolean) => void;
+    onresizestart?: (event: MouseEvent) => void;
+    resizing?: boolean;
+  }
+
+  let {
+    collapsed = true,
+    oncollapsedchange,
+    onresizestart,
+    resizing = false,
+  }: Props = $props();
   let loadError = $state<string | null>(null);
 
   $effect(() => {
@@ -92,12 +104,29 @@
       loadError = `Failed to remove worktree: ${err}`;
     }
   }
+
+  function toggleCollapsed() {
+    collapsed = !collapsed;
+    oncollapsedchange?.(collapsed);
+  }
 </script>
 
-<div class="mt-3 border-t border-hairline pt-2">
+<div class="flex h-full min-h-0 flex-col">
+  {#if collapsed}
+    <div class="border-t border-hairline pt-2"></div>
+  {:else}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="group flex h-2 shrink-0 cursor-row-resize items-center"
+      onmousedown={onresizestart}
+      title="Resize archived sessions"
+    >
+      <div class="h-px w-full transition-colors duration-150 {resizing ? 'bg-white/30' : 'bg-white/15 group-hover:bg-white/35'}"></div>
+    </div>
+  {/if}
   <button
-    class="flex w-full cursor-pointer items-center gap-1.5 bg-transparent px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-    onclick={() => (collapsed = !collapsed)}
+    class="flex w-full shrink-0 cursor-pointer items-center gap-1.5 bg-transparent px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+    onclick={toggleCollapsed}
     title="Archived sessions"
   >
     <ChevronRight size={12} class="text-text-secondary transition-transform duration-150 {collapsed ? '' : 'rotate-90'}" />
@@ -106,7 +135,7 @@
   </button>
 
   {#if !collapsed}
-    <div class="px-1 pb-2">
+    <div class="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1 pb-2">
       {#if loadError}
         <div class="mb-2 rounded border border-red/40 bg-red/10 px-2 py-1 text-[11px] text-red">
           {loadError}

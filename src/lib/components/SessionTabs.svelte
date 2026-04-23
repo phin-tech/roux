@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import SessionCard from "./SessionCard.svelte";
   import ArchivedSessionsList from "./ArchivedSessionsList.svelte";
   import {
@@ -101,6 +102,11 @@
   let newProjectInput = $state(false);
   let newProjectName = $state("");
   let lastTaskWorktreePath = $state<string | null>(null);
+  let rootEl = $state<HTMLDivElement | null>(null);
+  let archivedCollapsed = $state(true);
+  let archivedHeight = $state(180);
+  let archivedDragging = $state(false);
+  let archivedDragTeardown: (() => void) | null = null;
 
   function handleContextMenu(e: MouseEvent, session: Session) {
     contextMenu = { x: e.clientX, y: e.clientY, session };
@@ -331,11 +337,60 @@
     await reconnectSession(session);
   }
 
+  function archivedMaxHeight(): number {
+    if (!rootEl) return 420;
+    const rect = rootEl.getBoundingClientRect();
+    return Math.max(140, Math.min(520, rect.height * 0.65));
+  }
+
+  function clampArchivedHeight(height: number): number {
+    return Math.max(96, Math.min(archivedMaxHeight(), height));
+  }
+
+  function archivedSectionStyle(): string {
+    return archivedCollapsed ? "" : `height: ${archivedHeight}px;`;
+  }
+
+  function endArchivedDrag(): void {
+    archivedDragTeardown?.();
+    archivedDragTeardown = null;
+    archivedDragging = false;
+  }
+
+  function onArchivedResizeStart(e: MouseEvent): void {
+    if (archivedCollapsed) return;
+    e.preventDefault();
+    endArchivedDrag();
+    archivedDragging = true;
+    const startY = e.clientY;
+    const startHeight = archivedHeight;
+    const onMove = (ev: MouseEvent) => {
+      archivedHeight = clampArchivedHeight(startHeight - (ev.clientY - startY));
+    };
+    const onUp = () => endArchivedDrag();
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") endArchivedDrag();
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("blur", endArchivedDrag);
+    window.addEventListener("keydown", onKey);
+    archivedDragTeardown = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("blur", endArchivedDrag);
+      window.removeEventListener("keydown", onKey);
+    };
+  }
+
+  onDestroy(() => endArchivedDrag());
+
 </script>
 
 <svelte:window onclick={closeContextMenu} />
 
 <div
+  bind:this={rootEl}
   class="flex h-full flex-col overflow-hidden bg-bg-base/96 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
 >
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
@@ -412,7 +467,7 @@
     </button>
   </div>
 
-  <div class="app-scrollbar flex-1 overflow-y-auto px-2">
+  <div class="app-scrollbar min-h-0 flex-1 overflow-y-auto px-2">
     {#each grouped as group (group.key)}
       {#if showGroupHeaders}
         <button
@@ -442,7 +497,15 @@
         </div>
       {/if}
     {/each}
-    <ArchivedSessionsList />
+  </div>
+
+  <div class="min-h-0 shrink-0 px-2 pb-2" style={archivedSectionStyle()}>
+    <ArchivedSessionsList
+      collapsed={archivedCollapsed}
+      oncollapsedchange={(next) => (archivedCollapsed = next)}
+      onresizestart={onArchivedResizeStart}
+      resizing={archivedDragging}
+    />
   </div>
 
 </div>
