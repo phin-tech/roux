@@ -57,7 +57,8 @@
   import { eventToAccelerator } from "$lib/menu/accelerators";
   import { closeFocusedPane } from "$lib/panes/actions";
   import { queries } from "$lib/queries";
-  import { normalizeTheme, isLightTheme } from "$lib/themes";
+  import { normalizeTheme, isLightTheme, resolveTerminalTheme } from "$lib/themes";
+  import { userTerminalThemes, loadUserTerminalThemes } from "$lib/stores/userTerminalThemes";
   import { initLogging, log, logError } from "$lib/logging";
   import { isMacPlatform } from "$lib/platform";
   import {
@@ -335,6 +336,15 @@
     document.body.dataset.theme = theme;
     document.documentElement.style.setProperty("--font-sans", $settings.uiFontFamily ?? "sans-serif");
     document.documentElement.style.colorScheme = isLightTheme(theme) ? "light" : "dark";
+    // Drive the terminal frame chrome from the *actual* terminal palette so a
+    // light terminal theme inside a light GUI doesn't get wrapped in a dark
+    // frame (and vice versa).
+    const terminalBg = resolveTerminalTheme(
+      theme,
+      $settings.terminalTheme,
+      $userTerminalThemes,
+    ).background;
+    document.documentElement.style.setProperty("--color-terminal-bg", terminalBg);
   });
 
   onDestroy(() => {
@@ -370,6 +380,7 @@
     await listen("quit-requested", () => void handleQuitRequested());
 
     const loadedSettings = await initSettings();
+    void loadUserTerminalThemes();
     await initLogging(loadedSettings.enableLogging ?? false);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
 

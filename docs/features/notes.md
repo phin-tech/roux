@@ -26,6 +26,49 @@ Click a pill to switch scope. The Project pill is greyed out when the current se
 
 The panel is deliberately a plain-text editor. For rich viewing — wikilinks, backlinks, graph view, search — open the vault in Obsidian (see below).
 
+## Notes panes
+
+Roux also supports notes as a real pane type, not just the sidebar panel.
+
+Open one from the command palette:
+
+- **Open Notes Pane (Horizontal)**
+- **Open Notes Pane (Vertical)**
+
+A notes pane can live beside terminals, markdown docs, and other notes panes inside the normal split tree.
+
+This is useful when you want notes visible next to a live shell, command pane, or agent session without replacing the sidebar.
+
+### Pane-local scope and mode
+
+Each notes pane keeps its own:
+
+- scope (`session` / `repo` / `project` / `global`)
+- view mode (`edit` / `read`)
+
+That means two notes panes in the same session can show different scopes at the same time.
+
+The available pane commands are:
+
+- **Notes: Session Scope**
+- **Notes: Repo Scope**
+- **Notes: Project Scope**
+- **Notes: Global Scope**
+- **Notes: Toggle Edit/Read**
+
+The **Project** scope is only available when the current session has a project assigned.
+
+### Sidebar notes vs notes panes
+
+The sidebar notes panel and notes panes use the same underlying notes files, but they behave differently:
+
+- the sidebar is a global side panel for the active session
+- a notes pane is part of the split layout and can remain visible beside terminals
+- sidebar scope selection is remembered per session
+- notes panes remember scope and mode per pane
+
+If you just need a quick scratchpad, use ++cmd+b++. If you want notes to stay onscreen as part of the layout, open a notes pane.
+
 ## Where notes live
 
 Notes are stored as regular markdown files in an Obsidian-compatible vault:
@@ -68,7 +111,7 @@ roux notes session show
 roux notes session append "just shipped the TLS fix"
 roux notes session append --timestamp "retried, still failing"
 roux notes repo path
-roux notes global open
+roux notes global show
 
 # Target a specific topic file instead of the scope's notes.md anchor:
 roux notes repo append --topic api-gotchas "handshake fails when SNI is missing"

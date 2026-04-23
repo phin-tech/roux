@@ -20,6 +20,15 @@ import {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { logError } from "$lib/logging";
 import {
+  THEME_DEFINITIONS,
+  getAllTerminalThemeDefinitions,
+  MATCH_GUI_TERMINAL_THEME_ID,
+} from "$lib/themes";
+import {
+  userTerminalThemes,
+  loadUserTerminalThemes,
+} from "$lib/stores/userTerminalThemes";
+import {
   setLastNotesScope,
   setNotesViewMode,
   toggleNotesViewMode,
@@ -57,6 +66,57 @@ export function registerUiCommands() {
           action: () => updateSetting("groupBy", "project"),
         },
       ];
+    },
+  });
+
+  registry.register({
+    id: "appearance.theme",
+    label: "Switch GUI Theme",
+    category: "Appearance",
+    getItems: () => {
+      const current = get(settings).theme;
+      return THEME_DEFINITIONS.map((t) => ({
+        id: t.id,
+        label: t.label,
+        description: t.id === current ? "current" : t.description,
+        action: () => updateSetting("theme", t.id),
+      }));
+    },
+  });
+
+  registry.register({
+    id: "appearance.terminal-theme",
+    label: "Switch Terminal Theme",
+    category: "Appearance",
+    getItems: () => {
+      const current = get(settings).terminalTheme ?? MATCH_GUI_TERMINAL_THEME_ID;
+      const defs = getAllTerminalThemeDefinitions(get(userTerminalThemes));
+      return defs.map((t) => {
+        const tag =
+          t.category === "auto"
+            ? "auto"
+            : t.category === "matching"
+              ? "app palette"
+              : t.category === "editor"
+                ? "editor"
+                : "user";
+        const description = t.id === current ? "current" : tag;
+        return {
+          id: t.id,
+          label: t.label,
+          description,
+          action: () => updateSetting("terminalTheme", t.id),
+        };
+      });
+    },
+  });
+
+  registry.register({
+    id: "appearance.reload-terminal-themes",
+    label: "Reload Terminal Themes",
+    category: "Appearance",
+    execute: () => {
+      void loadUserTerminalThemes();
     },
   });
 

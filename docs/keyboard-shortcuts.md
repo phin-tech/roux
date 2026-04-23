@@ -49,6 +49,14 @@ Roux also has a Vimish leader-mode surface for pane and session commands. The le
 - ++r++ — reconnect session
 - ++e++ — open the session worktree in your editor
 
+### Toggle leader keys
+
+- ++cmd+; t++ — UI toggles
+- ++n++ — toggle notes
+- ++s++ — toggle sessions history
+- ++w++ — toggle watches
+- ++i++ — toggle notifications
+
 ## Sessions and windows
 
 | Action | Shortcut |
@@ -67,10 +75,13 @@ You can disable this overlay in **Settings → Keyboard** while keeping ++cmd+di
 |---|---|
 | Command palette | ++cmd+k++ |
 | Toggle notes | ++cmd+b++ |
+| Toggle sessions history | ++cmd+; t s++ |
 | Toggle notifications | ++cmd+i++ |
 | Toggle watches | ++cmd+shift+w++ |
 | Toggle sidebar | ++cmd+"\\"++ |
 | Reload keymap | *(from palette)* |
+
+The native menu bar uses the same active keymap, so menu accelerators follow your current preset and any custom overrides after you reload the keymap.
 
 ## Customizing shortcuts
 

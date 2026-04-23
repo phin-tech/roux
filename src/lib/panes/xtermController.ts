@@ -6,7 +6,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { get } from "svelte/store";
 
 import { settings } from "$lib/stores/settings";
-import { getTerminalTheme, type TerminalTheme } from "$lib/themes";
+import { userTerminalThemes } from "$lib/stores/userTerminalThemes";
+import { resolveTerminalTheme, type TerminalTheme } from "$lib/themes";
 
 import { installXtermWatchDecorations } from "./xtermWatchDecorations";
 import type { TerminalController, TerminalDimensions } from "./terminalRuntime";
@@ -28,7 +29,7 @@ class XtermTerminalController implements TerminalController {
       scrollback: s.scrollback,
       cursorStyle: s.cursorStyle as "block" | "underline" | "bar",
       cursorBlink: s.cursorBlink,
-      theme: toXtermTheme(getTerminalTheme(s.theme)),
+      theme: toXtermTheme(resolveTerminalTheme(s.theme, s.terminalTheme, get(userTerminalThemes))),
       disableStdin: true,
       allowProposedApi: true,
     });

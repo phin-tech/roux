@@ -11,18 +11,22 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Multi-session** -- Run independent Claude Code sessions, each with its own git worktree
 - **Split panes** -- Horizontal and vertical splits with same-direction flattening
 - **Stacked panes** -- Zellij-style tab stacking where collapsed title bars show inactive panes
+- **Collapsible session rail** -- Collapse the sidebar to a slim strip of session dots without losing quick session switching
 - **Session restore on reconnect** -- Restore full split/shell layouts when reconnecting a saved session
+- **Session history** -- Closing a session archives it into a restorable history pane instead of immediately hard-deleting the record
 - **Shell terminals** -- Open shell panes alongside Claude for running commands
 - **Command palette** -- Quick access to all actions via the primary shortcut (`cmd+k` on macOS, `ctrl+k` on Windows/Linux)
 - **Leader mode** -- Vimish pane/session commands via `cmd+;`
+- **Configurable keymap** -- Edit `~/.config/roux/keymap.kdl`, switch between `default` and `tmux`, and reload shortcuts without restarting
 - **Layout persistence** -- Pane layouts survive app restarts; shell panes respawn automatically
-- **Themes** -- Multiple built-in color schemes
+- **Themes** -- Separate GUI and terminal themes, including imported user `.itermcolors` terminal themes
 - **Projects** -- Tag sessions with projects to organize related work across repos and worktrees
 - **Multi-scoped notes vault** (experimental) -- Plain-text notes sidebar (`cmd+b`) with four scopes (global / project / repo / session), backed by an Obsidian-compatible markdown vault at `~/Documents/Roux`. Scriptable from `roux notes <scope> <verb>` and surfaced to agents via per-PTY `ROUX_*_NOTES_*` env vars.
 - **Command panes** -- Run shell commands in dedicated panes with rerun support
 - **Task runner** -- Run predefined commands from configuration files
 - **Document viewer** -- Open markdown files in dedicated panes
 - **Session from PR URL** -- Paste a GitHub PR URL in New Session and auto-prepare a local review worktree
+- **Native menu bar** -- File/Edit/View/Session/Pane/Tools/Window/Help menus wired to the same command registry and keymap as the palette
 - **Doctor panel + setup automation** -- Verify/reinstall CLI, hooks, and Claude skill from Settings
 - **Worktree templates + close policy** -- Use path templates and choose keep/ask/remove behavior on close
 - **Notification center** -- In-app notifications, unread badges, and OS notification fan-out
@@ -41,9 +45,12 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 | Focus up | `alt+k` |
 | Focus right | `alt+l` |
 | Toggle notes | `cmd+b` |
+| Toggle sessions history | `cmd+; t s` |
 | Command palette | `cmd+k` |
 | New session | `cmd+n` |
 | Settings | `cmd+,` |
+
+These are the defaults from the bundled `default` keymap. Roux also ships a `tmux` preset, and every shortcut is editable in `~/.config/roux/keymap.kdl`.
 
 ## Tech Stack
 
@@ -75,7 +82,7 @@ Native Windows x64 builds are supported with a per-user NSIS installer:
 task windows:build
 ```
 
-See [docs/windows-build.md](docs/windows-build.md) for prerequisites and runtime notes.
+See [docs/windows-build.md](docs/windows-build.md) for prerequisites, installer output, and current platform limitations.
 
 ## Release
 
