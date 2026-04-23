@@ -3881,7 +3881,7 @@ dependencies = [
 
 [[package]]
 name = "roux"
-version = "0.4.5-beta.7"
+version = "0.4.5-beta.8"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

@@ -3,7 +3,20 @@ import { queries } from "$lib/queries";
 import { settings, updateSetting } from "$lib/stores/settings";
 import { get } from "svelte/store";
 import { loadKeymap, exitTree as keymapExitTree } from "$lib/keymap/store";
-import { openSidebar, toggleSidebar } from "$lib/stores/ui";
+import {
+  activeSidebar,
+  openSidebar,
+  pinnedSidebar,
+  pinSidebar,
+  PINNABLE_SIDEBARS,
+  toggleSidebar,
+  unpinSidebar,
+} from "$lib/stores/ui";
+import {
+  setRailSide,
+  toggleRailSide,
+  toggleSidebarHidden,
+} from "$lib/stores/sidebarLayout";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { logError } from "$lib/logging";
 import {
@@ -14,7 +27,6 @@ import {
   type NotesScope,
 } from "$lib/stores/notesUi";
 
-const DOCS_URL = "https://github.com/phin-tech/roux#readme";
 const ISSUES_URL = "https://github.com/phin-tech/roux/issues";
 
 function showNotesScope(scope: NotesScope) {
@@ -151,7 +163,7 @@ export function registerUiCommands() {
 
   registry.register({
     id: "ui.toggle-sessions",
-    label: "Toggle Sessions History",
+    label: "Toggle Sessions List",
     category: "App",
     available: () => true,
     execute: () => toggleSidebar("sessions"),
@@ -159,24 +171,101 @@ export function registerUiCommands() {
 
   registry.register({
     id: "ui.toggle-task-panel",
-    label: "Toggle Task Panel",
+    label: "Toggle Tasks",
     category: "App",
     available: () => !!queries.activeSessionId(),
+    execute: () => toggleSidebar("tasks"),
+  });
+
+  registry.register({
+    id: "ui.toggle-tasks",
+    label: "Toggle Tasks Panel",
+    category: "App",
+    available: () => !!queries.activeSessionId(),
+    execute: () => toggleSidebar("tasks"),
+  });
+
+  registry.register({
+    id: "ui.toggle-docs",
+    label: "Toggle Docs",
+    category: "App",
+    available: () => true,
+    execute: () => toggleSidebar("docs"),
+  });
+
+  registry.register({
+    id: "ui.pin-sidebar",
+    label: "Pin Current Sidebar",
+    category: "App",
+    available: () => {
+      const id = get(activeSidebar);
+      return id !== null && PINNABLE_SIDEBARS.has(id);
+    },
     execute: () => {
-      const current = get(settings);
-      updateSetting("taskPanelCollapsed", !current.taskPanelCollapsed);
+      const id = get(activeSidebar);
+      if (id && PINNABLE_SIDEBARS.has(id)) pinSidebar(id);
+    },
+  });
+
+  registry.register({
+    id: "ui.unpin-sidebar",
+    label: "Unpin Sidebar",
+    category: "App",
+    available: () => get(pinnedSidebar) !== null,
+    execute: () => unpinSidebar(),
+  });
+
+  registry.register({
+    id: "ui.rail-side-left",
+    label: "Sidebar: Move to Left",
+    category: "App",
+    available: () => true,
+    execute: () => setRailSide("left"),
+  });
+
+  registry.register({
+    id: "ui.rail-side-right",
+    label: "Sidebar: Move to Right",
+    category: "App",
+    available: () => true,
+    execute: () => setRailSide("right"),
+  });
+
+  registry.register({
+    id: "ui.toggle-rail-side",
+    label: "Toggle Sidebar Left/Right",
+    category: "App",
+    available: () => true,
+    execute: () => toggleRailSide(),
+  });
+
+  registry.register({
+    id: "ui.toggle-pin-sidebar",
+    label: "Pin / Unpin Current Sidebar",
+    category: "App",
+    available: () => {
+      const pinned = get(pinnedSidebar);
+      const active = get(activeSidebar);
+      if (pinned) return true;
+      return active !== null && PINNABLE_SIDEBARS.has(active);
+    },
+    execute: () => {
+      const pinned = get(pinnedSidebar);
+      if (pinned) {
+        unpinSidebar();
+        return;
+      }
+      const active = get(activeSidebar);
+      if (active && PINNABLE_SIDEBARS.has(active)) pinSidebar(active);
     },
   });
 
   registry.register({
     id: "ui.toggle-sidebar",
-    label: "Toggle Sidebar",
+    label: "Toggle Sidebar (Rail + Dock)",
     category: "App",
     available: () => true,
-    execute: () => {
-      const current = get(settings);
-      updateSetting("sidebarCollapsed", !current.sidebarCollapsed);
-    },
+    execute: () => toggleSidebarHidden(),
   });
 
   registry.register({
@@ -230,9 +319,7 @@ export function registerUiCommands() {
     id: "help.open-docs",
     label: "Roux Documentation",
     category: "Help",
-    execute: () => {
-      openUrl(DOCS_URL).catch((e) => logError("help.open-docs failed", e));
-    },
+    execute: () => openSidebar("docs"),
   });
 
   registry.register({

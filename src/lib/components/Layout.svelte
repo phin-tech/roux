@@ -1,11 +1,12 @@
 <script lang="ts">
-  import SessionTabs from "./SessionTabs.svelte";
-  import CollapsedSidebar from "./CollapsedSidebar.svelte";
+  import ActivityRail from "./ActivityRail.svelte";
+  import SidebarDock from "./SidebarDock.svelte";
   import SplitPane from "./SplitPane.svelte";
   import StatusBar from "./StatusBar.svelte";
   import { sessionState } from "$lib/stores/sessions";
   import { sessionLayouts } from "$lib/panes/layout";
-  import { settings, updateSetting } from "$lib/stores/settings";
+  import { settings } from "$lib/stores/settings";
+  import { sidebarLayout } from "$lib/stores/sidebarLayout";
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -18,50 +19,31 @@
 
   let { onNewSession, onOpenSettings, onToggleWatches, onToggleNotifications, settingsPanel }: Props = $props();
 
-  let dragging = $state(false);
-  let sidebarWidth = $derived($settings.tabWidth);
   let statusBarPosition = $derived($settings.statusBarPosition ?? "bottom");
-
-  function onDragStart(e: MouseEvent) {
-    dragging = true;
-    e.preventDefault();
-    const onMove = (ev: MouseEvent) => {
-      const w = $settings.tabPosition === "left" ? ev.clientX : window.innerWidth - ev.clientX;
-      const clamped = Math.max(180, Math.min(500, w));
-      updateSetting("tabWidth", clamped);
-    };
-    const onUp = () => {
-      dragging = false;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
+  let railSide = $derived($sidebarLayout.railSide);
+  let sidebarHidden = $derived($sidebarLayout.hidden);
 </script>
 
-<div class="flex h-screen flex-col overflow-hidden bg-bg-deep text-text-primary">
-  <div
-    class="flex min-h-0 flex-1"
-    class:flex-row={$settings.tabPosition === "left"}
-    class:flex-row-reverse={$settings.tabPosition === "right"}
-  >
-    {#if $settings.sidebarCollapsed}
-      <CollapsedSidebar />
-    {:else}
-      <div style="width: {sidebarWidth}px" class="shrink-0">
-        <SessionTabs {onNewSession} {onOpenSettings} {onToggleWatches} {onToggleNotifications} />
-      </div>
+{#snippet rail()}
+  <div class="flex h-full w-[36px] shrink-0 flex-col border-hairline bg-bg-base/96 {railSide === 'left' ? 'border-r' : 'border-l'}">
+    <ActivityRail />
+  </div>
+{/snippet}
 
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="group relative flex min-h-0 w-1 shrink-0 cursor-col-resize self-stretch flex-col items-center"
-        onmousedown={onDragStart}
-      >
-        <div
-          class="min-h-0 max-w-[0.5px] min-w-[0.5px] flex-1 transition-all duration-150 {dragging ? 'bg-white/30' : 'bg-white/20 group-hover:bg-white/40'}"
-        ></div>
-      </div>
+{#snippet dock()}
+  <SidebarDock
+    {onNewSession}
+    {onOpenSettings}
+    {onToggleWatches}
+    {onToggleNotifications}
+  />
+{/snippet}
+
+<div class="flex h-screen flex-col overflow-hidden bg-bg-deep text-text-primary">
+  <div class="flex min-h-0 flex-1 flex-row">
+    {#if !sidebarHidden && railSide === "left"}
+      {@render rail()}
+      {@render dock()}
     {/if}
 
     <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-bg-deep">
@@ -111,5 +93,10 @@
         <StatusBar position="bottom" />
       {/if}
     </div>
+
+    {#if !sidebarHidden && railSide === "right"}
+      {@render dock()}
+      {@render rail()}
+    {/if}
   </div>
 </div>

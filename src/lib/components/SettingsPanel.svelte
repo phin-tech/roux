@@ -1,5 +1,10 @@
 <script lang="ts">
   import { settings, updateSetting } from "$lib/stores/settings";
+  import {
+    sidebarLayout,
+    setRailSide,
+    type Side,
+  } from "$lib/stores/sidebarLayout";
   import { open } from "@tauri-apps/plugin-dialog";
   import { THEME_DEFINITIONS } from "$lib/themes";
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
@@ -259,11 +264,11 @@
             </div>
 
             <div class="mt-4 flex items-center justify-between py-2">
-              <span class="text-[13px]">Tab position</span>
+              <span class="text-[13px]">Sidebar position</span>
               <select
                 class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
-                value={$settings.tabPosition}
-                onchange={(e) => updateSetting("tabPosition", e.currentTarget.value as "left" | "right")}
+                value={$sidebarLayout.railSide}
+                onchange={(e) => setRailSide(e.currentTarget.value as Side)}
               >
                 <option value="left">Left</option>
                 <option value="right">Right</option>

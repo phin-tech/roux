@@ -88,8 +88,8 @@
 </script>
 
 <div
-  class="absolute top-0 right-0 bottom-0 z-50 flex w-[480px] flex-col border-l border-hairline bg-bg-deep shadow-[-18px_0_48px_rgba(2,6,23,0.45)] transition-transform duration-250
-    {visible ? 'translate-x-0' : 'translate-x-full'}"
+  class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
+  class:hidden={!visible}
 >
   <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
     <div class="space-y-0.5">

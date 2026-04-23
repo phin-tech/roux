@@ -1,12 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
 import {
+  activeSidebar,
   armPaneHints,
   armSessionHints,
+  closeSidebar,
   hidePaneHints,
   hideSessionHints,
+  isPinned,
+  openSidebar,
+  pinnedSidebar,
+  pinSidebar,
+  PINNABLE_SIDEBARS,
   showPaneHints,
   showSessionHints,
+  toggleSidebar,
+  unpinSidebar,
 } from "../ui";
 
 describe("showSessionHints", () => {
@@ -51,6 +60,147 @@ describe("showSessionHints", () => {
     armSessionHints(200); // should not reset the timer
     vi.advanceTimersByTime(50);
     expect(get(showSessionHints)).toBe(true);
+  });
+});
+
+describe("sidebar pin-slot state", () => {
+  beforeEach(() => {
+    closeSidebar();
+    unpinSidebar();
+  });
+
+  afterEach(() => {
+    closeSidebar();
+    unpinSidebar();
+  });
+
+  describe("openSidebar / closeSidebar / toggleSidebar", () => {
+    it("openSidebar sets active and leaves pinned null", () => {
+      openSidebar("notes");
+      expect(get(activeSidebar)).toBe("notes");
+      expect(get(pinnedSidebar)).toBeNull();
+    });
+
+    it("closeSidebar clears active but preserves pinned", () => {
+      pinSidebar("notes");
+      openSidebar("watches");
+      closeSidebar();
+      expect(get(activeSidebar)).toBeNull();
+      expect(get(pinnedSidebar)).toBe("notes");
+    });
+
+    it("toggleSidebar clears active when id matches active", () => {
+      openSidebar("watches");
+      toggleSidebar("watches");
+      expect(get(activeSidebar)).toBeNull();
+    });
+
+    it("toggleSidebar unpins when id matches pinned", () => {
+      pinSidebar("notes");
+      toggleSidebar("notes");
+      expect(get(pinnedSidebar)).toBeNull();
+    });
+
+    it("toggleSidebar activates a panel that is neither active nor pinned", () => {
+      toggleSidebar("watches");
+      expect(get(activeSidebar)).toBe("watches");
+    });
+
+    it("opening a pinned panel while active slot has another keeps both visible", () => {
+      pinSidebar("notes");
+      openSidebar("watches");
+      expect(get(pinnedSidebar)).toBe("notes");
+      expect(get(activeSidebar)).toBe("watches");
+    });
+  });
+
+  describe("pinSidebar / unpinSidebar / isPinned", () => {
+    it("pinSidebar sets the pinned slot for a pinnable panel", () => {
+      pinSidebar("notes");
+      expect(get(pinnedSidebar)).toBe("notes");
+      expect(isPinned("notes")).toBe(true);
+    });
+
+    it("pinSidebar is a no-op for non-pinnable panels (settings)", () => {
+      pinSidebar("settings");
+      expect(get(pinnedSidebar)).toBeNull();
+    });
+
+    it("pinSidebar is a no-op for non-pinnable panels (docs)", () => {
+      pinSidebar("docs");
+      expect(get(pinnedSidebar)).toBeNull();
+    });
+
+    it("unpinSidebar clears the pinned slot", () => {
+      pinSidebar("notes");
+      unpinSidebar();
+      expect(get(pinnedSidebar)).toBeNull();
+    });
+
+    it("unpinSidebar promotes the former pin to active (anchor wins over transient)", () => {
+      pinSidebar("notes");
+      openSidebar("watches");
+      unpinSidebar();
+      expect(get(pinnedSidebar)).toBeNull();
+      expect(get(activeSidebar)).toBe("notes");
+    });
+
+    it("unpinSidebar leaves active unchanged when nothing was pinned", () => {
+      openSidebar("watches");
+      unpinSidebar();
+      expect(get(activeSidebar)).toBe("watches");
+    });
+
+    it("unpinSidebar preserves a docs takeover (doesn't close docs)", () => {
+      pinSidebar("notes");
+      openSidebar("docs");
+      unpinSidebar();
+      expect(get(pinnedSidebar)).toBeNull();
+      expect(get(activeSidebar)).toBe("docs");
+    });
+
+    it("unpinSidebar preserves a settings takeover (doesn't close settings)", () => {
+      pinSidebar("notes");
+      openSidebar("settings");
+      unpinSidebar();
+      expect(get(pinnedSidebar)).toBeNull();
+      expect(get(activeSidebar)).toBe("settings");
+    });
+
+    it("pinning the currently-active panel clears active so the panel sits in the pin slot only", () => {
+      openSidebar("notes");
+      pinSidebar("notes");
+      expect(get(pinnedSidebar)).toBe("notes");
+      expect(get(activeSidebar)).toBeNull();
+    });
+
+    it("PINNABLE_SIDEBARS includes the lightweight panels", () => {
+      expect(PINNABLE_SIDEBARS.has("notes")).toBe(true);
+      expect(PINNABLE_SIDEBARS.has("watches")).toBe(true);
+      expect(PINNABLE_SIDEBARS.has("tasks")).toBe(true);
+      expect(PINNABLE_SIDEBARS.has("notifications")).toBe(true);
+    });
+
+    it("PINNABLE_SIDEBARS excludes heavy panels", () => {
+      expect(PINNABLE_SIDEBARS.has("settings")).toBe(false);
+      expect(PINNABLE_SIDEBARS.has("docs")).toBe(false);
+    });
+  });
+
+  describe("takeover behavior for Settings / Docs", () => {
+    it("opening settings while another panel is pinned leaves pinned state intact", () => {
+      pinSidebar("notes");
+      openSidebar("settings");
+      expect(get(pinnedSidebar)).toBe("notes");
+      expect(get(activeSidebar)).toBe("settings");
+    });
+
+    it("opening docs while another panel is pinned leaves pinned state intact", () => {
+      pinSidebar("watches");
+      openSidebar("docs");
+      expect(get(pinnedSidebar)).toBe("watches");
+      expect(get(activeSidebar)).toBe("docs");
+    });
   });
 });
 

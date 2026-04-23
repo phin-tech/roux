@@ -9,12 +9,16 @@
   import { dispatchNotificationAction } from "$lib/notifications/dispatchAction";
   import type { Notification, NotificationAction, NotificationLevel, NotificationSource } from "$lib/types";
 
+  import PinButton from "./PinButton.svelte";
+
   interface Props {
     visible: boolean;
     onclose: () => void;
+    pinned?: boolean;
+    onTogglePin?: () => void;
   }
 
-  let { visible, onclose }: Props = $props();
+  let { visible, onclose, pinned = false, onTogglePin }: Props = $props();
 
   interface Group {
     key: string;
@@ -104,8 +108,8 @@
 </script>
 
 <div
-  style="right: {visible ? '0.5rem' : '-420px'}; visibility: {visible ? 'visible' : 'hidden'};"
-  class="absolute top-2 bottom-2 z-50 flex w-[400px] flex-col border border-hairline bg-bg-deep shadow-[-8px_8px_48px_rgba(2,6,23,0.55),0_0_0_1px_rgba(255,255,255,0.04)] transition-[right] duration-250"
+  class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
+  class:hidden={!visible}
 >
   <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
     <span class="text-sm font-semibold tracking-tight">Notifications</span>
@@ -121,6 +125,9 @@
           onclick={handleClearAll}
           title="Clear all"
         >clear</button>
+      {/if}
+      {#if onTogglePin}
+        <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
       <button
         class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
