@@ -40,16 +40,25 @@
     slotNumber == null ? null : slotNumber === 10 ? "0" : String(slotNumber),
   );
 
-  // Detached PTY inventory — polled periodically.
-  // No backend event stream for PTY status changes yet, so polling is the
-  // stopgap. 5s matches the git-status poll interval in SessionTabs.
+  // Poll PTY inventory so the sidebar can show how many panes are active and
+  // whether a session is carrying detached terminals in the background.
+  let attachedCount = $state(0);
   let detachedCount = $state(0);
   let detachedHasUnread = $state(false);
+  let showPaneInventory = $derived(attachedCount > 1 || detachedCount > 0);
+  let activePaneTitle = $derived(
+    `${attachedCount} active pane${attachedCount === 1 ? "" : "s"}`
+  );
+  let detachedPaneTitle = $derived(
+    `${detachedCount} detached terminal${detachedCount === 1 ? "" : "s"}${detachedHasUnread ? " (unread output)" : ""}`
+  );
 
   async function refreshDetachedState() {
     try {
       const ptys = await listSessionPtys(session.id);
+      const attached = ptys.filter((p) => p.status.type === "RunningAttached");
       const detached = ptys.filter((p) => p.status.type === "RunningDetached");
+      attachedCount = attached.length;
       detachedCount = detached.length;
       detachedHasUnread = detached.some((p) => p.unread_output);
     } catch {
@@ -184,13 +193,19 @@
         </span>
       {/if}
 
+      {#if showPaneInventory}
+        <span
+          class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold tabular-nums bg-bg-surface text-text-muted"
+          title={activePaneTitle}
+        >{attachedCount}</span>
+      {/if}
       {#if detachedCount > 0}
         <span
           class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold tabular-nums
             {detachedHasUnread
               ? 'bg-accent text-white'
               : 'bg-bg-surface text-text-muted'}"
-          title="{detachedCount} detached terminal{detachedCount === 1 ? '' : 's'}{detachedHasUnread ? ' (unread output)' : ''}"
+          title={detachedPaneTitle}
         >{detachedCount}</span>
       {/if}
       {#if unreadCount > 0}
