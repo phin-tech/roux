@@ -12,6 +12,7 @@
   import PinButton from "./PinButton.svelte";
   import CloseButton from "./CloseButton.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
+  import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
 
   interface Props {
     visible: boolean;
@@ -113,9 +114,8 @@
   class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
   class:hidden={!visible}
 >
-  <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
-    <span class="text-sm font-semibold tracking-tight">Notifications</span>
-    <div class="flex items-center gap-1">
+  <SidebarPanelHeader title="Notifications">
+    {#snippet actions()}
       {#if $notifications.length > 0}
         <button
           class="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
@@ -136,8 +136,8 @@
         label="Collapse notifications sidebar"
         title="Collapse notifications sidebar"
       />
-    </div>
-  </div>
+    {/snippet}
+  </SidebarPanelHeader>
 
   <div class="flex-1 overflow-y-auto p-2">
     {#if $notifications.length === 0}

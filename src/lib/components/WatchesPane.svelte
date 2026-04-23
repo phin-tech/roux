@@ -7,6 +7,7 @@
 
   import PinButton from "./PinButton.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
+  import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
 
   interface Props {
     visible: boolean;
@@ -104,9 +105,8 @@
   class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
   class:hidden={!visible}
 >
-  <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
-    <span class="text-sm font-semibold tracking-tight">Watches</span>
-    <div class="flex items-center gap-1">
+  <SidebarPanelHeader title="Watches">
+    {#snippet actions()}
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
@@ -115,8 +115,8 @@
         label="Collapse watches sidebar"
         title="Collapse watches sidebar"
       />
-    </div>
-  </div>
+    {/snippet}
+  </SidebarPanelHeader>
 
   <div class="flex-1 overflow-y-auto p-2">
     {#if $watchState.length === 0}

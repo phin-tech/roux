@@ -4,6 +4,7 @@
   import { listDocs, readFile, type DocFile } from "$lib/tauri";
   import { activeSession } from "$lib/stores/sessions";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
+  import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
 
   interface Props {
     visible: boolean;
@@ -92,17 +93,11 @@
   class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
   class:hidden={!visible}
 >
-  <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
-    <div class="space-y-0.5">
-      <div class="flex items-center gap-2">
-        <span class="text-[10px] font-bold uppercase tracking-widest text-text-muted">Documentation</span>
-        <span class="rounded-full border border-border-subtle bg-bg-surface px-2 py-0.5 text-[10px] font-medium text-text-muted">
-          {docs.length}
-        </span>
-      </div>
-      <p class="text-[11px] text-text-muted">Session markdown, notes, and specs</p>
-    </div>
-    <div class="flex items-center gap-2">
+  <SidebarPanelHeader title="Docs">
+    {#snippet actions()}
+      <span class="border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
+        {docs.length}
+      </span>
       <button
         class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-text-muted hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={refreshDocs}
@@ -113,8 +108,8 @@
         label="Collapse documentation sidebar"
         title="Collapse documentation sidebar"
       />
-    </div>
-  </div>
+    {/snippet}
+  </SidebarPanelHeader>
 
   {#if !$activeSession}
     <div class="flex flex-1 items-center justify-center text-sm text-text-muted">

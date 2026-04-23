@@ -29,6 +29,7 @@
 
   import PinButton from "./PinButton.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
+  import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
 
   interface Props {
     onclose?: () => void;
@@ -385,11 +386,8 @@
   bind:this={rootEl}
   class="flex h-full flex-col overflow-hidden bg-bg-base/96 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
 >
-  <div class="flex h-9 shrink-0 items-center justify-between px-3">
-    <div class="flex items-center gap-2">
-      <span class="text-sm font-semibold tracking-tight text-text-primary">Sessions</span>
-    </div>
-    <div class="flex items-center gap-1.5">
+  <SidebarPanelHeader title="Sessions">
+    {#snippet actions()}
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
@@ -400,8 +398,8 @@
           title="Collapse sessions sidebar"
         />
       {/if}
-    </div>
-  </div>
+    {/snippet}
+  </SidebarPanelHeader>
 
   <div class="flex shrink-0 items-center gap-1.5 border-b border-hairline p-2">
     <button
