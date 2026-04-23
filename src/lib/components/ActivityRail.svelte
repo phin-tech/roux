@@ -20,6 +20,7 @@
     toggleSidebar,
     type SidebarId,
   } from "$lib/stores/ui";
+  import { sidebarLayout } from "$lib/stores/sidebarLayout";
   import { unreadTotal } from "$lib/stores/notifications";
 
   interface Item {
@@ -41,6 +42,15 @@
 
   function handleClick(event: MouseEvent, id: SidebarId): void {
     event.preventDefault();
+    // When the dock is collapsed to icons, any rail click should bring it
+    // back — there's no visible panel to dismiss, and the pinned-icon
+    // branch below would otherwise make plain-clicks dead. openSidebar()
+    // calls showSidebar() internally and is a no-op on the active slot
+    // when id is already pinned, so the pinned panel re-appears correctly.
+    if ($sidebarLayout.hidden) {
+      openSidebar(id);
+      return;
+    }
     if ($pinnedSidebar === id) {
       if (event.shiftKey) unpinSidebar();
       return;
