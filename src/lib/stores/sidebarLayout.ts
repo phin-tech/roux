@@ -92,6 +92,12 @@ export function toggleRailSide(): void {
 }
 
 export function showSidebar(): void {
+  // No-op when already visible. Callers invoke this on every open/pin
+  // action; Svelte's writable notifies subscribers on any `update` (even
+  // when returning the same object ref), so we must short-circuit before
+  // touching the store to avoid redundant localStorage writes and
+  // downstream $derived re-evaluations.
+  if (!get(sidebarLayout).hidden) return;
   sidebarLayout.update((s) => ({ ...s, hidden: false }));
 }
 
