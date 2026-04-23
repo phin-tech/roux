@@ -48,6 +48,25 @@
   let removing = $state<string | null>(null); // path currently being removed
   let menuOpenFor = $state<string | null>(null); // kebab menu target
 
+  // Close the kebab menu on any click that isn't inside the currently
+  // open row. `pointerdown` fires before `onclick`, so toggling the
+  // kebab button on a different row still works: this handler closes
+  // the old menu, then the button's own click opens the new one.
+  $effect(() => {
+    if (menuOpenFor == null) return;
+    const openPath = menuOpenFor;
+    const onPointerDown = (ev: PointerEvent) => {
+      const target = ev.target;
+      if (!(target instanceof Element)) return;
+      const row = target.closest<HTMLElement>("[data-worktrunk-menu-root]");
+      if (!row || row.dataset.worktrunkMenuRoot !== openPath) {
+        menuOpenFor = null;
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  });
+
   // "New worktree" inline form state.
   let newFormOpen = $state(false);
   let newBranch = $state("");
@@ -573,6 +592,7 @@
               {@const isSpawning = spawning === wt.path}
               <li
                 data-testid="worktrunk-worktree-row"
+                data-worktrunk-menu-root={wt.path}
                 class="relative rounded border border-border-subtle bg-bg-surface/30 p-2"
                 oncontextmenu={(e) => openContextMenu(e, wt)}
               >
