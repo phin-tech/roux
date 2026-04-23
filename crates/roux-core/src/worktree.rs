@@ -176,6 +176,7 @@ pub fn fetch_origin(repo_path: &str) -> Result<(), WorktreeError> {
 ///   `git worktree add -b <branch> <path> <sp>` (new branch from `sp`).
 /// - If `branch` does not exist and `start_point` is `None`, run
 ///   `git worktree add -b <branch> <path>` (new branch from HEAD).
+///
 /// Create a worktree using the requested provider.
 ///
 /// - `provider = Git` (or `Auto` with `wt = None`) → native `git worktree add`.

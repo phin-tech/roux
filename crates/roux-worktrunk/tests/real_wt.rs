@@ -522,8 +522,15 @@ fn remove_worktree_returns_typed_error_for_nonexistent_path() {
 // ---------------------------------------------------------------------------
 
 fn diag_env(home: &Path) -> Vec<(String, std::ffi::OsString)> {
+    // XDG_CONFIG_HOME must be redirected alongside HOME: GitHub Actions
+    // runners pre-set XDG_CONFIG_HOME=/home/runner/.config, which wt
+    // honors over HOME when resolving user config paths, so setting only
+    // HOME leaves the "user config lives under $HOME" assertion checking
+    // the real runner path instead of the tempdir.
+    let xdg_config = home.join(".config");
     vec![
         ("HOME".into(), home.as_os_str().into()),
+        ("XDG_CONFIG_HOME".into(), xdg_config.into_os_string()),
         ("GIT_CONFIG_GLOBAL".into(), std::ffi::OsString::from("/dev/null")),
         ("GIT_CONFIG_SYSTEM".into(), std::ffi::OsString::from("/dev/null")),
         ("GIT_CONFIG_NOSYSTEM".into(), std::ffi::OsString::from("1")),
