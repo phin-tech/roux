@@ -12,6 +12,7 @@
   import type { CreateWatchConfig } from "$lib/types";
 
   import PinButton from "./PinButton.svelte";
+  import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
 
   interface Props {
     onCollapse?: () => void;
@@ -134,11 +135,11 @@
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
       {#if onCollapse}
-        <button
-          class="cursor-pointer bg-transparent p-1 text-[12px] font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+        <CollapseSidebarButton
           onclick={onCollapse}
-          title="Close tasks panel"
-        >&times;</button>
+          label="Collapse tasks sidebar"
+          title="Collapse tasks sidebar"
+        />
       {/if}
     </div>
   </div>

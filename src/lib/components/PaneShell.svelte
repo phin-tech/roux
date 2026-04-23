@@ -26,6 +26,7 @@
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
   import DeadPaneView from "./DeadPaneView.svelte";
   import NotesPane from "./NotesPane.svelte";
+  import CloseButton from "./CloseButton.svelte";
   import { projects } from "$lib/stores/projects";
 
   interface Props {
@@ -369,16 +370,16 @@
           </button>
         {/if}
         {#if canClose()}
-          <button
-            class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[12px] leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+          <CloseButton
+            class="h-5 w-5 shrink-0 p-0"
             onclick={(e) => {
               e.stopPropagation();
               void closePane(sessionId, paneId);
             }}
+            label="Close pane"
             title="Close pane"
-          >
-            &times;
-          </button>
+            size={13}
+          />
         {/if}
       </div>
     </div>

@@ -6,6 +6,7 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
 
   import PinButton from "./PinButton.svelte";
+  import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
 
   interface Props {
     visible: boolean;
@@ -109,10 +110,11 @@
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
-      <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
+      <CollapseSidebarButton
         onclick={onclose}
-      >&times;</button>
+        label="Collapse watches sidebar"
+        title="Collapse watches sidebar"
+      />
     </div>
   </div>
 

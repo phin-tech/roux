@@ -3,6 +3,7 @@
   import { marked } from "marked";
   import { listDocs, readFile, type DocFile } from "$lib/tauri";
   import { activeSession } from "$lib/stores/sessions";
+  import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
 
   interface Props {
     visible: boolean;
@@ -107,10 +108,11 @@
         onclick={refreshDocs}
         title="Refresh"
       >&#8635;</button>
-      <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      <CollapseSidebarButton
         onclick={onclose}
-      >&times;</button>
+        label="Collapse documentation sidebar"
+        title="Collapse documentation sidebar"
+      />
     </div>
   </div>
 

@@ -11,6 +11,7 @@
     computeEffectiveSessionStatus,
   } from "$lib/panes/agentState";
   import { listSessionPtys } from "$lib/tauri";
+  import CloseButton from "./CloseButton.svelte";
 
   interface Props {
     session: Session;
@@ -222,13 +223,13 @@
           reconnect
         </button>
       {/if}
-      <button
-        class="flex h-5 w-5 cursor-pointer items-center justify-center bg-transparent text-[11px] leading-none text-text-secondary opacity-70 transition-all duration-150 group-hover:opacity-100 hover:bg-bg-hover hover:text-red"
+      <CloseButton
+        class="h-5 w-5 p-0 opacity-70 duration-150 group-hover:opacity-100 hover:border-transparent hover:text-red"
         onclick={(e) => { e.stopPropagation(); onclose(); }}
-        aria-label="Close session"
-      >
-        &times;
-      </button>
+        label="Close session"
+        title="Close session"
+        size={13}
+      />
     </div>
 
     {#if showRow2}

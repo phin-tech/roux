@@ -10,6 +10,8 @@
   import type { Notification, NotificationAction, NotificationLevel, NotificationSource } from "$lib/types";
 
   import PinButton from "./PinButton.svelte";
+  import CloseButton from "./CloseButton.svelte";
+  import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
 
   interface Props {
     visible: boolean;
@@ -129,10 +131,11 @@
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
-      <button
-        class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-base text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
+      <CollapseSidebarButton
         onclick={onclose}
-      >&times;</button>
+        label="Collapse notifications sidebar"
+        title="Collapse notifications sidebar"
+      />
     </div>
   </div>
 
@@ -163,11 +166,13 @@
                 <span class="min-w-0 flex-1 truncate {n.read ? 'text-text-muted' : 'text-text-primary'}">{n.title}</span>
                 <span class="shrink-0 text-[9px] uppercase tracking-wider text-text-muted/60">{sourceLabel(n.source)}</span>
                 <span class="shrink-0 text-[10px] text-text-muted">{formatRelative(n.createdAt)}</span>
-                <button
-                  class="cursor-pointer border-none bg-transparent px-1 text-[11px] leading-none text-text-muted hover:text-red"
+                <CloseButton
+                  class="shrink-0 p-0.5 hover:border-transparent hover:text-red"
                   onclick={(e) => handleDismiss(e, n)}
+                  label="Dismiss notification"
                   title="Dismiss"
-                >&times;</button>
+                  size={12}
+                />
               </div>
 
               {#if n.subtitle}

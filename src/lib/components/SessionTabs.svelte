@@ -17,7 +17,6 @@
   } from "$lib/tauri";
   import type { SpawnProfileRef } from "$lib/panes/profiles";
   import { settings, updateSetting } from "$lib/stores/settings";
-  import { sidebarLayout } from "$lib/stores/sidebarLayout";
   import { reconnectSession } from "$lib/sessions/reconnect";
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
@@ -25,19 +24,15 @@
   import { setSessionProject } from "$lib/stores/sessions";
   import { setSessionProject as tauriSetSessionProject } from "$lib/tauri";
   import { log, logError } from "$lib/logging";
-  import { failureCount } from "$lib/stores/watches";
-  import { unreadTotal } from "$lib/stores/notifications";
   import type { Session } from "$lib/types";
   import { getGroupedSessions } from "$lib/sessions/order";
 
   import PinButton from "./PinButton.svelte";
+  import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
 
   interface Props {
     onclose?: () => void;
     onNewSession: () => void;
-    onOpenSettings: () => void;
-    onToggleWatches: () => void;
-    onToggleNotifications: () => void;
     pinned?: boolean;
     onTogglePin?: () => void;
   }
@@ -45,9 +40,6 @@
   let {
     onclose,
     onNewSession,
-    onOpenSettings,
-    onToggleWatches,
-    onToggleNotifications,
     pinned = false,
     onTogglePin,
   }: Props = $props();
@@ -395,75 +387,37 @@
 >
   <div class="flex h-9 shrink-0 items-center justify-between px-3">
     <div class="flex items-center gap-2">
+      <span class="text-sm font-semibold tracking-tight text-text-primary">Sessions</span>
+    </div>
+    <div class="flex items-center gap-1.5">
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
       {#if onclose}
-      <button
-        class="flex h-5 w-5 items-center justify-center text-text-secondary cursor-pointer transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-        onclick={onclose}
-        title="Hide sessions list"
-        aria-label="Hide sessions list"
-      >
-        <span class="text-[11px]">{$sidebarLayout.railSide === "right" ? "\u25B6" : "\u25C0"}</span>
-      </button>
+        <CollapseSidebarButton
+          onclick={onclose}
+          label="Collapse sessions sidebar"
+          title="Collapse sessions sidebar"
+        />
       {/if}
-      <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">Sessions</span>
-      <button
-        class="relative flex items-center justify-center text-text-secondary cursor-pointer transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-        onclick={onToggleNotifications}
-        title="Toggle notifications (⌘I)"
-        aria-label="Toggle notifications"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-        </svg>
-        {#if $unreadTotal > 0}
-          <span class="absolute -right-1.5 -top-1 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-white">
-            {$unreadTotal}
-          </span>
-        {/if}
-      </button>
-    </div>
-    <div class="flex items-center gap-1.5">
-      <button
-        class="border border-border-subtle bg-bg-surface px-2 py-1 text-[13px] font-medium text-text-secondary cursor-pointer transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-        onclick={toggleGroupBy}
-        title="Group by {$settings.groupBy === 'project' ? 'repo' : 'project'}"
-      >
-        {$settings.groupBy === "project" ? "project" : "repo"}
-      </button>
-      <span class="border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
-        {$sessionState.sessions.length}
-      </span>
     </div>
   </div>
 
-  <div class="flex shrink-0 gap-1 border-b border-hairline p-2">
+  <div class="flex shrink-0 items-center gap-1.5 border-b border-hairline p-2">
     <button
-      class="flex flex-1 items-center justify-center gap-1.5 bg-bg-active/50 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      class="flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 border border-accent-dim/20 bg-accent-dim/15 px-3 text-[13px] font-semibold text-accent transition-all duration-150 hover:bg-accent-dim/24 hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
       onclick={onNewSession}
     >
-      <span class="text-sm">+</span> New
+      <span class="relative -top-px text-sm leading-none">+</span>
+      <span>New</span>
     </button>
     <button
-      class="flex items-center justify-center gap-1 bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-      onclick={onToggleWatches}
-      title="Toggle watches"
+      class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 border border-border-subtle bg-bg-surface px-3 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent-dim/50"
+      onclick={toggleGroupBy}
+      title="Group by {$settings.groupBy === 'project' ? 'repo' : 'project'}"
     >
-      Watches
-      {#if $failureCount > 0}
-        <span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red px-1 text-[10px] font-bold text-white">
-          {$failureCount}
-        </span>
-      {/if}
-    </button>
-    <button
-      class="flex items-center justify-center bg-bg-active/50 px-3 py-2 text-[13px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
-      onclick={onOpenSettings}
-    >
-      &#9881;
+      <span class="text-text-muted/70">Group</span>
+      <span class="text-text-primary">{$settings.groupBy === "project" ? "project" : "repo"}</span>
     </button>
   </div>
 

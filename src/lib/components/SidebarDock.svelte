@@ -30,16 +30,10 @@
 
   interface Props {
     onNewSession: () => void;
-    onOpenSettings: () => void;
-    onToggleWatches: () => void;
-    onToggleNotifications: () => void;
   }
 
   let {
     onNewSession,
-    onOpenSettings,
-    onToggleWatches,
-    onToggleNotifications,
   }: Props = $props();
 
   type Slot = "hidden" | "solo" | "pinned-half" | "active-half";
@@ -235,9 +229,6 @@
           {#if id === "sessions"}
             <SessionTabs
               {onNewSession}
-              {onOpenSettings}
-              {onToggleWatches}
-              {onToggleNotifications}
               onclose={onCloseFor(id)}
               pinned={$pinnedSidebar === id}
               onTogglePin={onTogglePinFor(id)}

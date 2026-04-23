@@ -673,9 +673,6 @@
 
 <Layout
   onNewSession={() => (showNewSessionDialog = true)}
-  onOpenSettings={() => toggleSidebar("settings")}
-  onToggleWatches={() => toggleSidebar("watches")}
-  onToggleNotifications={() => toggleSidebar("notifications")}
 >
   {#snippet settingsPanel()}
     <SettingsPanel visible={$activeSidebar === "settings"} onclose={closeSidebar} />
