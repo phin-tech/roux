@@ -18,15 +18,15 @@
 </script>
 
 <div
-  class="flex h-6 items-center gap-3 bg-bg-base px-3 text-[11px] text-text-muted"
+  class="flex h-8 items-center gap-3 bg-bg-base px-3 text-[12px] text-text-muted"
   class:border-t={position === "bottom"}
   class:border-b={position === "top"}
   class:border-border-subtle={true}
 >
   {#if $activeSession}
-    <div class="flex items-center gap-1.5">
-      <div class="w-1.5 h-1.5 rounded-full {statusDotClass[$activeSession.status] ?? 'bg-gray'}"></div>
-      <span class="font-medium tracking-tight text-text-secondary">{$activeSession.name}</span>
+    <div class="flex items-center gap-2">
+      <div class="w-2.5 h-2.5 rounded-full {statusDotClass[$activeSession.status] ?? 'bg-gray'}"></div>
+      <span class="text-[14px] font-semibold tracking-tight text-text-primary">{$activeSession.name}</span>
     </div>
     {#if $activeSession.isGitRepo}
       <span class="text-text-secondary">&bull;</span>
