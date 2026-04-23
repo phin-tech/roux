@@ -219,7 +219,7 @@
     {/if}
     <div
       bind:this={dockEl}
-      class="relative h-full shrink-0 bg-bg-deep {railSide === 'left' ? 'border-r border-hairline' : 'border-l border-hairline'}"
+      class="relative h-full shrink-0 bg-bg-deep"
       style="width: {dockWidth}px"
     >
       {#each DOCK_PANEL_IDS as id (id)}

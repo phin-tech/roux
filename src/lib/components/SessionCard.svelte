@@ -162,7 +162,7 @@
   title={tooltip}
 >
   <!-- Left gutter: persistent status dot -->
-  <div class="flex w-5 shrink-0 items-center justify-center pt-[10px] self-start">
+  <div class="flex h-9 w-5 shrink-0 items-center justify-center self-start">
     <span class="relative inline-flex h-2 w-2 items-center justify-center">
       {#if effectiveStatus === "attention"}
         <span class="absolute inline-flex h-2 w-2 rounded-full {statusDotClasses[effectiveStatus]} animate-ping opacity-60"></span>
