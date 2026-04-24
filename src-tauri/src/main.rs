@@ -2,6 +2,7 @@
 
 mod agent_registry;
 mod agent_sources;
+mod automation_hooks;
 mod hooks;
 #[macro_use]
 mod logging;
@@ -89,6 +90,13 @@ fn main() {
         commands::worktrees::cmd_worktrunk_diagnostics,
         commands::worktrees::cmd_worktrunk_read_log,
         commands::worktrees::cmd_open_terminal_at,
+        automation_hooks::cmd_list_automation_hooks,
+        automation_hooks::cmd_preview_automation_hooks,
+        automation_hooks::cmd_run_automation_hook,
+        automation_hooks::cmd_approve_automation_hook,
+        automation_hooks::cmd_clear_automation_hook_approvals,
+        automation_hooks::cmd_list_automation_hook_logs,
+        automation_hooks::cmd_read_automation_hook_log,
         commands::sessions::write_to_session,
         commands::sessions::resize_session,
         commands::sessions::spawn_shell,
@@ -199,6 +207,7 @@ fn main() {
             session_handle,
             project_handle,
             watch_manager: watches::WatchManager::new(watch_store_handle),
+            automation_hooks: automation_hooks::AutomationHookManager::new(),
             notification_manager: notifications::NotificationManager::new(),
             pending_replies: Mutex::new(std::collections::HashMap::new()),
         })
@@ -214,9 +223,16 @@ fn main() {
             commands::worktrees::cmd_list_worktrees,
             commands::worktrees::cmd_preview_worktree_base,
             commands::worktrees::cmd_detect_worktrunk,
-        commands::worktrees::cmd_worktrunk_diagnostics,
-        commands::worktrees::cmd_worktrunk_read_log,
-        commands::worktrees::cmd_open_terminal_at,
+            commands::worktrees::cmd_worktrunk_diagnostics,
+            commands::worktrees::cmd_worktrunk_read_log,
+            commands::worktrees::cmd_open_terminal_at,
+            automation_hooks::cmd_list_automation_hooks,
+            automation_hooks::cmd_preview_automation_hooks,
+            automation_hooks::cmd_run_automation_hook,
+            automation_hooks::cmd_approve_automation_hook,
+            automation_hooks::cmd_clear_automation_hook_approvals,
+            automation_hooks::cmd_list_automation_hook_logs,
+            automation_hooks::cmd_read_automation_hook_log,
             commands::sessions::write_to_session,
             commands::sessions::resize_session,
             commands::sessions::attach_pty_output,
@@ -349,16 +365,16 @@ fn main() {
                 let ctx = pty_lifecycle::LifecycleHandlerContext {
                     pty_manager: state.pty_manager.clone(),
                     agent_registry_tx: agent_input_tx.clone(),
+                    automation_hooks: state.automation_hooks.clone(),
                     app: app.handle().clone(),
                 };
                 let lifecycle_tx = pty_lifecycle::spawn_handler(ctx);
                 state.pty_manager.set_lifecycle_tx(lifecycle_tx);
             }
 
-            if let Err(e) = agent_sources::file_status::start_watching(
-                app.handle().clone(),
-                agent_input_tx,
-            ) {
+            if let Err(e) =
+                agent_sources::file_status::start_watching(app.handle().clone(), agent_input_tx)
+            {
                 eprintln!("Warning: failed to start file status source: {}", e);
             }
             socket::start_socket_server(app.handle().clone());
@@ -470,14 +486,10 @@ async fn run_notes_migration(app: tauri::AppHandle) {
     let mut svc = services::notes::NotesService::new(vault_root);
     let now = {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         format!("migration-{secs}")
     };
-    let migrated =
-        services::notes::migrate_legacy_project_notes(&legacy, &lookup, &mut svc, &now);
+    let migrated = services::notes::migrate_legacy_project_notes(&legacy, &lookup, &mut svc, &now);
     rlog!("notes migration: {migrated} file(s) moved into vault at startup");
 
     mark_migrated(&state);

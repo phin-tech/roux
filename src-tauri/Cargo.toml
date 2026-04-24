@@ -32,6 +32,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 portable-pty = "0.9"
 base64 = "0.22"
@@ -48,6 +49,8 @@ url = "2"
 octocrab = "0.44"
 tauri-plugin-opener = "2.5.3"
 thiserror = "2"
+toml = "0.8"
+minijinja = "2"
 roux-core = { path = "../crates/roux-core" }
 roux-worktrunk = { path = "../crates/roux-worktrunk" }
 specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }

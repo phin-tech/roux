@@ -130,6 +130,7 @@ pub fn channel() -> (LifecycleTx, LifecycleRx) {
 pub struct LifecycleHandlerContext {
     pub pty_manager: Arc<crate::pty::PtyManager>,
     pub agent_registry_tx: mpsc::Sender<crate::agent_registry::RegistryMessage>,
+    pub automation_hooks: crate::automation_hooks::AutomationHookManager,
     pub app: tauri::AppHandle,
 }
 
@@ -177,6 +178,7 @@ fn handle_event(ctx: &LifecycleHandlerContext, event: PtyLifecycleEvent) {
                 );
                 return;
             }
+            let pty_info = ctx.pty_manager.get_info_direct(&pty_id);
 
             // 2. Emit frontend event
             use tauri::Emitter;
@@ -197,6 +199,26 @@ fn handle_event(ctx: &LifecycleHandlerContext, event: PtyLifecycleEvent) {
                         session_id: sid,
                     },
                 );
+            }
+
+            if let Some(info) = pty_info {
+                if info.profile.as_deref() == Some("task") {
+                    let event = if code == Some(0) {
+                        crate::automation_hooks::HookEvent::PostTaskSuccess
+                    } else {
+                        crate::automation_hooks::HookEvent::PostTaskFailure
+                    };
+                    let context = crate::automation_hooks::HookContext {
+                        repo_path: info.working_dir.clone(),
+                        worktree_path: info.working_dir.clone(),
+                        task_id: Some(pty_id.clone()),
+                        session_id: info.session_id.clone(),
+                        scope: info.session_id.as_ref().map(|_| "session".to_string()),
+                        cwd: info.working_dir,
+                        ..crate::automation_hooks::HookContext::new(event)
+                    };
+                    ctx.automation_hooks.spawn_background(event, context);
+                }
             }
 
             rlog!(

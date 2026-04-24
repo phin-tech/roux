@@ -38,7 +38,7 @@ If the Roux app is not running, socket-backed commands fail with a direct `Roux 
 - Focus a pane by id (`roux focus`)
 - Run a shell command in a new pane (`roux run`)
 - Push notifications (`roux notify`)
-- Emit hook status transitions (`roux hook`)
+- Emit hook status transitions and run automation hooks (`roux hook`)
 - Read, append, write, or search the multi-scoped notes vault (`roux notes <scope> <verb>` — experimental; see [Notes](notes.md))
 
 ## Context-aware defaults
@@ -213,7 +213,9 @@ Session resolution order is:
 
 ### `roux hook`
 
-Handle a Claude Code hook event. This is intended for automation/hooks, not normal interactive use.
+Handle Claude Code status hooks and Roux automation hooks.
+
+Claude status events are installed by Roux's setup flow:
 
 ```sh
 roux hook working
@@ -224,6 +226,17 @@ roux hook disconnected
 ```
 
 It reads a JSON payload from stdin and writes provider/session status state for Roux to consume.
+
+Automation hook commands talk to the running app over the socket:
+
+```sh
+roux hook show
+roux hook show --repo-path ~/src/my-repo
+roux hook run post-watch-success --repo-path ~/src/my-repo
+roux hook run post-worktree-create --repo-path ~/src/my-repo --branch feat/x --provider worktrunk
+```
+
+See [Automation hooks](hooks.md) for config files, event names, conditions, templates, logs, and Worktrunk differences.
 
 ### `roux status` and `roux clear`
 

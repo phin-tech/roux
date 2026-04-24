@@ -21,6 +21,7 @@ pub(crate) struct AppState {
     pub(crate) session_handle: SessionHandle,
     pub(crate) project_handle: ProjectHandle,
     pub(crate) watch_manager: crate::watches::WatchManager,
+    pub(crate) automation_hooks: crate::automation_hooks::AutomationHookManager,
     pub(crate) notification_manager: NotificationManager,
     pub(crate) pending_replies: PendingReplies,
 }

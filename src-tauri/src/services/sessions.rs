@@ -2,6 +2,9 @@ use anyhow::anyhow;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use crate::automation_hooks::{
+    worktree_provider_hooks, AutomationHookManager, HookContext, HookEvent,
+};
 use crate::paths::default_notes_vault_root;
 use crate::pty::{NotesEnvInputs, PtyManager};
 use crate::services::notes::{self as notes_svc, NotesService};
@@ -82,7 +85,11 @@ fn git_origin_url(repo_path: &str) -> Option<String> {
         return None;
     }
     let url = String::from_utf8(output.stdout).ok()?.trim().to_string();
-    if url.is_empty() { None } else { Some(url) }
+    if url.is_empty() {
+        None
+    } else {
+        Some(url)
+    }
 }
 
 pub(crate) fn is_git_repo(path: &str) -> bool {
@@ -118,11 +125,7 @@ pub(crate) enum SessionTarget<'a> {
     /// created from `sp` instead of HEAD. When `fetch_first` is true, we
     /// `git fetch origin` before resolving the start point (used for
     /// `origin/main`-style bases that may be stale).
-    NewWorktree {
-        branch: &'a str,
-        start_point: Option<&'a str>,
-        fetch_first: bool,
-    },
+    NewWorktree { branch: &'a str, start_point: Option<&'a str>, fetch_first: bool },
 }
 
 /// Create a session with a plain shell in its primary PTY. The shell is
@@ -143,6 +146,7 @@ pub(crate) async fn create_session_shell(
     nono: Option<&crate::pty::NonoConfig>,
     profile: Option<&str>,
     initial_size: Option<(u16, u16)>,
+    hooks: Option<&AutomationHookManager>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -166,6 +170,16 @@ pub(crate) async fn create_session_shell(
             // Session dialog was the only signal the provider was even
             // active.
             let wt = crate::services::setup::resolve_wt_binary();
+            if let Some(hooks) = hooks {
+                let context = HookContext {
+                    repo_path: Some(repo_path.to_string()),
+                    branch: Some(branch.to_string()),
+                    cwd: Some(repo_path.to_string()),
+                    ..HookContext::new(HookEvent::PreWorktreeCreate)
+                        .with_provider(settings.worktree_provider, wt.is_some())
+                };
+                hooks.run_blocking(HookEvent::PreWorktreeCreate, context).await?;
+            }
             let wt_path = roux_core::create_worktree_with_provider(
                 repo_path,
                 branch,
@@ -174,6 +188,19 @@ pub(crate) async fn create_session_shell(
                 settings.worktree_provider,
                 wt.as_ref(),
             )?;
+            if let Some(hooks) = hooks {
+                let mut context = HookContext {
+                    repo_path: Some(repo_path.to_string()),
+                    worktree_path: Some(wt_path.clone()),
+                    branch: Some(branch.to_string()),
+                    cwd: Some(wt_path.clone()),
+                    ..HookContext::new(HookEvent::PostWorktreeCreate)
+                        .with_provider(settings.worktree_provider, wt.is_some())
+                };
+                context.provider_hooks_ran =
+                    worktree_provider_hooks(HookEvent::PostWorktreeCreate, context.worktrunk);
+                hooks.spawn_background(HookEvent::PostWorktreeCreate, context);
+            }
             (wt_path, branch.to_string(), true)
         }
         SessionTarget::Repo => {
@@ -195,12 +222,8 @@ pub(crate) async fn create_session_shell(
     // tier-1 hook routing happy the moment the user starts an agent.
     let pane_id = format!("{}-main", session_id);
     let worktree_env = if is_wt { Some(work_dir.as_str()) } else { None };
-    let notes_env = Some(build_notes_env_for_new_session(
-        settings,
-        &session_id,
-        &actual_branch,
-        repo_path,
-    ));
+    let notes_env =
+        Some(build_notes_env_for_new_session(settings, &session_id, &actual_branch, repo_path));
     let spawn_result = pty_manager.spawn_shell(
         &session_id,
         &work_dir,
@@ -260,6 +283,19 @@ pub(crate) async fn create_session_shell(
         }
         return Err(e.into());
     }
+    if let Some(hooks) = hooks {
+        let context = HookContext {
+            repo_path: Some(session.repo_root.clone()),
+            worktree_path: Some(session.worktree_path.clone()),
+            branch: Some(session.branch.clone()),
+            session_id: Some(session.id.clone()),
+            project_id: session.project_id.clone(),
+            scope: Some("session".into()),
+            cwd: Some(session.worktree_path.clone()),
+            ..HookContext::new(HookEvent::PostSessionCreate)
+        };
+        hooks.spawn_background(HookEvent::PostSessionCreate, context);
+    }
     Ok(session)
 }
 
@@ -295,7 +331,8 @@ pub(crate) async fn reconnect_session_shell(
     // id matches the frontend's formula so tier-1 hook routing stays
     // deterministic the moment the user starts an agent in the shell.
     let pane_id = format!("{}-main", id);
-    let worktree_env = if session.is_worktree { Some(session.worktree_path.as_str()) } else { None };
+    let worktree_env =
+        if session.is_worktree { Some(session.worktree_path.as_str()) } else { None };
     let notes_env =
         Some(build_notes_env_for_existing_session(settings, project_handle, &session).await);
     pty_manager
@@ -593,11 +630,8 @@ mod tests {
 
         std::fs::create_dir_all(root.join("repo-main/.git")).unwrap();
         std::fs::create_dir_all(root.join("repo-wt")).unwrap();
-        std::fs::write(
-            root.join("repo-wt/.git"),
-            "gitdir: /tmp/project/.git/worktrees/repo-wt\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("repo-wt/.git"), "gitdir: /tmp/project/.git/worktrees/repo-wt\n")
+            .unwrap();
 
         let roots = [root.to_string_lossy().to_string()];
         let included = list_git_repos_in_roots(&roots, false);

@@ -23,3 +23,4 @@ When a watch is pinned to a pane, Roux keeps the output buffer alive even if you
 
 - [Panes](panes.md)
 - [CLI bridge](cli.md) — drive watches from scripts via `roux-cli`
+- [Automation hooks](hooks.md) — react to watch runs and outcome transitions
