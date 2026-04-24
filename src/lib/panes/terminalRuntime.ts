@@ -5,6 +5,7 @@ import type { TerminalTheme } from "$lib/themes";
 import { type PtyOutputPayload } from "$lib/tauri";
 
 import { createXtermTerminalController } from "./xtermController";
+import type { PromptSnapshot } from "./promptSnapshot";
 
 export interface TerminalDimensions {
   cols: number;
@@ -24,6 +25,8 @@ export interface TerminalController {
   focus(): void;
   setTheme(theme: TerminalTheme): void;
   setCustomKeyHandler(handler: ((event: KeyboardEvent) => boolean) | null): void;
+  /** Read the current logical prompt line from the xterm buffer. */
+  getPromptSnapshot(): PromptSnapshot | null;
 }
 
 interface PaneTerminalRuntime {

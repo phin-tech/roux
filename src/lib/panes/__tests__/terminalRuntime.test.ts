@@ -33,6 +33,7 @@ describe("terminalRuntime", () => {
       focus: vi.fn(),
       setTheme: vi.fn(),
       setCustomKeyHandler: vi.fn(),
+      getPromptSnapshot: vi.fn().mockReturnValue(null),
     }));
   });
 

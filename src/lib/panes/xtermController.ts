@@ -10,6 +10,7 @@ import { userTerminalThemes } from "$lib/stores/userTerminalThemes";
 import { resolveTerminalTheme, type TerminalTheme } from "$lib/themes";
 
 import { installXtermWatchDecorations } from "./xtermWatchDecorations";
+import { readPromptSnapshot, type PromptSnapshot } from "./promptSnapshot";
 import type { TerminalController, TerminalDimensions } from "./terminalRuntime";
 
 interface CreateTerminalControllerOptions {
@@ -122,6 +123,10 @@ class XtermTerminalController implements TerminalController {
       if (!handler) return true;
       return handler(event);
     });
+  }
+
+  getPromptSnapshot(): PromptSnapshot | null {
+    return readPromptSnapshot(this.terminal.buffer.active);
   }
 }
 

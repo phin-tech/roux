@@ -7,6 +7,8 @@
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
+  import MultiLineEditor from "$lib/components/MultiLineEditor.svelte";
+  import { multiLineEditor } from "$lib/stores/multiLineEditor";
   import KeymapHud from "$lib/components/KeymapHud.svelte";
   import QuitDialog from "$lib/components/QuitDialog.svelte";
   import UpdateBanner from "$lib/components/UpdateBanner.svelte";
@@ -247,6 +249,11 @@
     const surface = get(commandSurface);
     if (surface.open && surface.mode === "palette") {
       // Palette handles its own keys; stay out of the way.
+      return;
+    }
+    // MultiLineEditor modal owns all keys while open — otherwise global
+    // chords like Cmd+D (split pane) would fire while the user is editing.
+    if (get(multiLineEditor).open) {
       return;
     }
     if (surface.open && surface.mode === "leader" && surface.leaderPromptCommandId) {
@@ -716,6 +723,8 @@
   onCheckForUpdates={() => { openSidebar("settings"); void runManualCheck(); }}
   initialCommandId={$commandSurface.initialCommandId}
 />
+
+<MultiLineEditor />
 
 {#if $hudVisible || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
   <KeymapHud
