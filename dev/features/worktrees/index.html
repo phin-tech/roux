@@ -511,6 +511,8 @@
       
         
       
+        
+      
     
     
       
@@ -881,6 +883,27 @@
   
   <span class="md-ellipsis">
     Watches
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hooks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Automation hooks
   </span>
   
 
@@ -1450,6 +1473,7 @@
 <li>Worktrees share hooks and git config with the main repo. Be aware of any <code>post-checkout</code> or <code>post-commit</code> hooks that assume a single working copy.</li>
 <li>Do not <code>git worktree remove</code> the directory a running session is using — stop the session first.</li>
 <li>Worktrunk hooks and Roux's own agent hooks are separate systems. Roux does not install, route, or interfere with <code>wt</code>'s hook machinery; likewise <code>wt</code> has no visibility into Roux sessions. If you configure a <code>wt</code> post-start hook that needs the Roux session's environment, pass it explicitly in your hook template.</li>
+<li><a href="../hooks/">Automation hooks</a> can wrap Roux's own worktree create/remove operations and receive provider context (<code>git</code> vs <code>worktrunk</code>) without replacing Worktrunk's hook machinery.</li>
 </ul>
 
 
