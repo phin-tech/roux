@@ -101,7 +101,7 @@ Supported conditions:
 |---|---|
 | `when.provider` | `"git"`, `"worktrunk"`, or `"auto"` context values |
 | `when.worktrunk` | `true` or `false` |
-| `when.scope` | `"user"`, `"project"`, `"global"`, or `"session"` |
+| `when.scope` | `"global"`, `"project"`, or `"session"` |
 
 For conditions, `when.provider = "git"` and `when.provider = "worktrunk"` match the effective provider Roux intends to use for the operation. `when.provider = "auto"` matches when the user's configured provider is `auto`. The rendered context includes both `provider` and `configured_provider` when you need to distinguish those values in a template or stdin JSON.
 

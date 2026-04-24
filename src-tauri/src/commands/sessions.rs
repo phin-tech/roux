@@ -172,12 +172,13 @@ pub(crate) async fn spawn_task(
             app.clone(),
         )
         .map_err(|e| e.to_string())?;
+    let scope = session_id.as_ref().map(|_| "session".to_string());
     let context = crate::automation_hooks::HookContext {
         repo_path: Some(working_dir.clone()),
         worktree_path: Some(working_dir.clone()),
         task_id: Some(id),
         session_id,
-        scope: Some("session".into()),
+        scope,
         cwd: Some(working_dir),
         ..crate::automation_hooks::HookContext::new(crate::automation_hooks::HookEvent::PostTaskRun)
     };

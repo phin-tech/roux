@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
@@ -159,23 +160,32 @@ impl HookContext {
     }
 
     pub fn for_watch(event: HookEvent, watch: &Watch) -> Self {
+        let mut session_id = None;
+        let mut project_id = None;
         let scope = match &watch.scope {
             roux_core::WatchScope::Global => Some("global".to_string()),
-            roux_core::WatchScope::Session { session_id } => Some({
-                let _ = session_id;
-                "session".to_string()
-            }),
-            roux_core::WatchScope::Project { project_id } => Some({
-                let _ = project_id;
-                "project".to_string()
-            }),
+            roux_core::WatchScope::Session { session_id: sid } => {
+                session_id = Some(sid.clone());
+                Some("session".to_string())
+            }
+            roux_core::WatchScope::Project { project_id: pid } => {
+                project_id = Some(pid.clone());
+                Some("project".to_string())
+            }
         };
         let cwd = match &watch.kind {
             roux_core::WatchKind::ShellCommand { working_dir, .. } => working_dir.clone(),
             roux_core::WatchKind::Task { working_dir, .. } => Some(working_dir.clone()),
             _ => None,
         };
-        Self { scope, cwd, watch: Some(watch.clone()), ..Self::new(event) }
+        Self {
+            scope,
+            cwd,
+            session_id,
+            project_id,
+            watch: Some(watch.clone()),
+            ..Self::new(event)
+        }
     }
 
     pub fn with_provider(mut self, configured: WorktreeProvider, wt_available: bool) -> Self {
@@ -306,6 +316,8 @@ pub enum HookError {
     ParseConfig { path: String, source: toml::de::Error },
     #[error("failed to create hook log directory: {0}")]
     CreateLogDir(std::io::Error),
+    #[error("failed to write hook log: {0}")]
+    WriteLog(std::io::Error),
     #[error("project hook requires approval: {0}")]
     ApprovalRequired(String),
     #[error("hook `{name}` failed with exit code {code}: {stderr}")]
@@ -348,13 +360,21 @@ impl AutomationHookManager {
     ) -> Result<usize, HookError> {
         context.hook_type = event.as_str().to_string();
         let commands = self.matching_commands(event, &context)?;
+        let worktrees = precompute_worktrees(context.repo_path.as_deref()).await;
         let mut ran = 0;
         for step in group_by_step(commands) {
             for command in step {
                 self.ensure_approved(&command)?;
-                let rendered = render_template(&command.command, &context, &command.name)?;
+                let rendered = render_template(
+                    &command.command,
+                    &context,
+                    &command.name,
+                    worktrees.as_deref(),
+                )?;
                 let result = execute_command(&command, &rendered, &context).await?;
-                self.write_log(&command, &rendered, &result).await?;
+                if let Err(e) = self.write_log(&command, &rendered, &result).await {
+                    rlog!("automation hook log write failed for `{}`: {e}", command.name);
+                }
                 ran += 1;
                 if result.exit_code != 0 {
                     return Err(HookError::CommandFailed {
@@ -385,16 +405,23 @@ impl AutomationHookManager {
     ) -> Result<usize, HookError> {
         context.hook_type = event.as_str().to_string();
         let commands = self.matching_commands(event, &context)?;
+        let worktrees = precompute_worktrees(context.repo_path.as_deref()).await;
         let mut ran = 0;
         for step in group_by_step(commands) {
             let mut joins = Vec::new();
             for command in step {
                 let manager = self.clone();
                 let ctx = context.clone();
+                let worktrees = worktrees.clone();
                 joins.push(tauri::async_runtime::spawn(async move {
                     if let Err(e) = manager.ensure_approved(&command) {
-                        let rendered = render_template(&command.command, &ctx, &command.name)
-                            .unwrap_or_else(|e| format!("<template error: {e}>"));
+                        let rendered = render_template(
+                            &command.command,
+                            &ctx,
+                            &command.name,
+                            worktrees.as_deref(),
+                        )
+                        .unwrap_or_else(|e| format!("<template error: {e}>"));
                         let result = HookCommandResult {
                             exit_code: -1,
                             stdout: String::new(),
@@ -405,7 +432,12 @@ impl AutomationHookManager {
                         let _ = manager.write_log(&command, &rendered, &result).await;
                         return 0;
                     }
-                    match render_template(&command.command, &ctx, &command.name) {
+                    match render_template(
+                        &command.command,
+                        &ctx,
+                        &command.name,
+                        worktrees.as_deref(),
+                    ) {
                         Ok(rendered) => match execute_command(&command, &rendered, &ctx).await {
                             Ok(result) => {
                                 let _ = manager.write_log(&command, &rendered, &result).await;
@@ -490,8 +522,13 @@ impl AutomationHookManager {
                     config_path: command.config_path.to_string_lossy().into_owned(),
                     name: command.name.clone(),
                     command: command.command.clone(),
-                    rendered_command: render_template(&command.command, context, &command.name)
-                        .unwrap_or_else(|e| format!("<template error: {e}>")),
+                    rendered_command: render_template(
+                        &command.command,
+                        context,
+                        &command.name,
+                        None,
+                    )
+                    .unwrap_or_else(|e| format!("<template error: {e}>")),
                     approval_id,
                     approved,
                     matched,
@@ -628,14 +665,17 @@ impl AutomationHookManager {
             "startedAt": result.started_at,
             "finishedAt": result.finished_at,
         });
+        static LOG_SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = LOG_SEQ.fetch_add(1, Ordering::Relaxed);
         let file = format!(
-            "{}-{}-{}.json",
+            "{}-{}-{}-{}.json",
             result.finished_at,
+            seq,
             command.event.as_str(),
             sanitize_file_component(&command.name)
         );
         let json = serde_json::to_string_pretty(&payload).map_err(HookError::SerializeContext)?;
-        tokio::fs::write(self.log_dir.join(file), json).await.map_err(HookError::CreateLogDir)
+        tokio::fs::write(self.log_dir.join(file), json).await.map_err(HookError::WriteLog)
     }
 }
 
@@ -830,6 +870,7 @@ fn render_template(
     command: &str,
     context: &HookContext,
     hook_name: &str,
+    worktrees: Option<&[(String, String)]>,
 ) -> Result<String, HookError> {
     let mut env = Environment::new();
     env.set_auto_escape_callback(|_| AutoEscape::None);
@@ -840,7 +881,15 @@ fn render_template(
     env.add_filter("hash_port", hash_port_filter);
 
     let repo_path = context.repo_path.clone();
+    let precomputed: Option<Vec<(String, String)>> = worktrees.map(|w| w.to_vec());
     env.add_function("worktree_path_of_branch", move |branch: String| -> String {
+        if let Some(map) = precomputed.as_ref() {
+            return map
+                .iter()
+                .find(|(b, _)| b == &branch)
+                .map(|(_, p)| p.clone())
+                .unwrap_or_default();
+        }
         repo_path
             .as_deref()
             .and_then(|repo| roux_core::list_worktrees(repo).ok())
@@ -853,6 +902,15 @@ fn render_template(
     let data = context.as_json(hook_name);
     env.render_str(command, MiniValue::from_serialize(&data))
         .map_err(|source| HookError::RenderTemplate { name: hook_name.to_string(), source })
+}
+
+async fn precompute_worktrees(repo_path: Option<&str>) -> Option<Vec<(String, String)>> {
+    let repo = repo_path?.to_string();
+    tokio::task::spawn_blocking(move || roux_core::list_worktrees(&repo).ok())
+        .await
+        .ok()
+        .flatten()
+        .map(|ws| ws.into_iter().map(|w| (w.branch, w.path)).collect())
 }
 
 fn sanitize_filter(value: String) -> String {
@@ -1188,9 +1246,13 @@ one = "echo b"
             ..HookContext::new(HookEvent::PostWatchSuccess)
         };
 
-        let rendered =
-            render_template("echo {{ hook_type }} {{ branch }} {{ session_id }}", &context, "ci")
-                .unwrap();
+        let rendered = render_template(
+            "echo {{ hook_type }} {{ branch }} {{ session_id }}",
+            &context,
+            "ci",
+            None,
+        )
+        .unwrap();
 
         assert_eq!(rendered, "echo post-watch-success feature/search s1");
     }
@@ -1207,6 +1269,7 @@ one = "echo b"
             "{% if provider == 'worktrunk' %}wt{% endif %} {{ missing | default('fallback') }}",
             &context,
             "notify",
+            None,
         )
         .unwrap();
 
@@ -1224,6 +1287,7 @@ one = "echo b"
             "{{ branch | sanitize }} {{ branch | sanitize_db }} {{ branch | hash_port }}",
             &context,
             "ports",
+            None,
         )
         .unwrap();
         let parts = rendered.split_whitespace().collect::<Vec<_>>();
