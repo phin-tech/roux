@@ -5,8 +5,10 @@ import { queries } from "$lib/queries";
 import { navigatePane, movePaneInDirection, resizePane, toggleStack } from "$lib/panes/layout";
 import { toggleFullscreen, setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
 import { paneSlotById } from "$lib/stores/ui";
-import { paneInstances, updateInstance, getAttachedPtyId } from "$lib/panes/instances";
+import { paneInstances, updateInstance, getAttachedPtyId, getInstance, type PaneInstance } from "$lib/panes/instances";
 import { splitPane, closeFocusedPane } from "$lib/panes/actions";
+import { getTerminalController } from "$lib/panes/terminalRuntime";
+import { openMultiLineEditor, type MultiLineTarget } from "$lib/stores/multiLineEditor";
 import {
   profileList,
   type SpawnProfile,
@@ -159,6 +161,68 @@ function profileSubItems(
  */
 function findBuiltinProfile(id: string): SpawnProfile | null {
   return get(profileList).find((p) => p.id === id) ?? null;
+}
+
+function getProfileId(pane: PaneInstance): string | null {
+  const ref = pane.spawnProfileRef;
+  if (!ref) return null;
+  if (ref.kind === "registered") return ref.id;
+  if (ref.kind === "inline") return ref.profile?.id ?? null;
+  return null;
+}
+
+function resolveMultiLineTarget(pane: PaneInstance): MultiLineTarget {
+  // Claude Code panes use an alt-buffer TUI with its own multi-line input
+  // handling via Shift+Enter; we can't reliably read or clear its input
+  // buffer, so we classify them separately to skip the Ctrl+E/Ctrl+U
+  // prompt-clear on submit.
+  const profileId = getProfileId(pane);
+  return profileId === "claude" ? "claude" : "shell";
+}
+
+function paneLabel(pane: PaneInstance): string {
+  return pane.name ?? getProfileId(pane) ?? "shell";
+}
+
+function canOpenMultiLineEditor(): boolean {
+  const paneId = queries.focusedPaneId();
+  if (!paneId) return false;
+  const pane = getInstance(paneId);
+  if (!pane) return false;
+  // Only terminal-hosting panes. Markdown / notes panes have their own
+  // editor and no PTY to write to.
+  if (pane.type !== "shell" && pane.type !== "command") return false;
+  return !!getAttachedPtyId(pane);
+}
+
+async function openMultiLineEditorForFocusedPane(initialText: string | null): Promise<void> {
+  const paneId = queries.focusedPaneId();
+  if (!paneId) return;
+  const pane = getInstance(paneId);
+  if (!pane) return;
+  const target = resolveMultiLineTarget(pane);
+  let seedText = initialText ?? "";
+  let seeded = !!initialText;
+
+  // Only try to seed from the live terminal buffer when the caller did not
+  // already supply text (the clipboard command passes its own payload) and
+  // the pane is a plain shell (Claude's TUI buffer is unreliable).
+  if (initialText === null && target === "shell") {
+    const controller = getTerminalController(paneId);
+    const snapshot = controller?.getPromptSnapshot();
+    if (snapshot) {
+      seedText = snapshot.text;
+      seeded = snapshot.seeded;
+    }
+  }
+
+  openMultiLineEditor({
+    paneId,
+    paneLabel: paneLabel(pane),
+    initialText: seedText,
+    seeded,
+    target,
+  });
 }
 
 function formatTimeAgo(timestampMs: number): string {
@@ -471,6 +535,32 @@ export function registerPaneCommands() {
       if (ptyId) {
         await setPtyName(ptyId, trimmed ?? null).catch(() => {});
       }
+    },
+  });
+
+  registry.register({
+    id: "pane.open-multiline-editor",
+    label: "Open Multi-Line Prompt Editor",
+    category: "Panes",
+    available: canOpenMultiLineEditor,
+    execute: async () => {
+      await openMultiLineEditorForFocusedPane(null);
+    },
+  });
+
+  registry.register({
+    id: "pane.open-multiline-editor-with-clipboard",
+    label: "Open Multi-Line Prompt Editor with Clipboard",
+    category: "Panes",
+    available: canOpenMultiLineEditor,
+    execute: async () => {
+      let clipboardText = "";
+      try {
+        clipboardText = await navigator.clipboard.readText();
+      } catch (e) {
+        logError("pane.open-multiline-editor-with-clipboard: clipboard read failed", e);
+      }
+      await openMultiLineEditorForFocusedPane(clipboardText);
     },
   });
 

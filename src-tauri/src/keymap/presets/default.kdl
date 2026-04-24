@@ -30,6 +30,8 @@ bind "Cmd+KeyW"        "pane.close"
 bind "Cmd+Shift+KeyS"  "pane.toggle-stack"
 bind "Cmd+Shift+KeyF"  "pane.toggle-fullscreen"
 bind "Cmd+Shift+KeyB"  "pane.open-doc"
+bind "Cmd+Shift+KeyE"  "pane.open-multiline-editor"
+bind "Cmd+Shift+KeyV"  "pane.open-multiline-editor-with-clipboard"
 
 // Pane focus (Option+h/j/k/l)
 bind "Alt+KeyH" "pane.focus-left"

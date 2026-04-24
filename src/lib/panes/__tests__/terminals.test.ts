@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
     focus: vi.fn(),
     setTheme: vi.fn(),
     setCustomKeyHandler: vi.fn(),
+    getPromptSnapshot: vi.fn().mockReturnValue(null),
   };
 
   return {
