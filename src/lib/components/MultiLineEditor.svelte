@@ -213,8 +213,12 @@
 
     try {
       await writeToSession(ptyId, payload);
-    } finally {
       closeMultiLineEditor();
+    } catch (err) {
+      // Keep the modal open so the user can retry or copy the text out —
+      // silently closing on a failed PTY write would drop their edits.
+      // eslint-disable-next-line no-console
+      console.error("MultiLineEditor: writeToSession failed", err);
     }
   }
 

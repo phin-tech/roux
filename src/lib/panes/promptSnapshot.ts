@@ -20,9 +20,12 @@ export interface SnapshotBuffer {
   getLine(y: number): SnapshotBufferLine | undefined;
 }
 
-// Matches `$`, `>`, `❯`, `#` followed by whitespace OR end-of-string, so
-// a bare prompt marker on an otherwise empty line also gets stripped.
-const PROMPT_PREFIX_RE = /^(?:\$|>|❯|#)(?:\s+|$)/;
+// Matches `$`, `>`, `❯`, `#` followed by EXACTLY ONE whitespace char or
+// end-of-string. One whitespace only — not `\s+` — so that if the user typed
+// an extra leading space (common with HISTCONTROL=ignorespace), it survives
+// the strip. `$ ` and `$  echo` both still get the marker stripped, but the
+// latter keeps the user's leading space.
+const PROMPT_PREFIX_RE = /^(?:\$|>|❯|#)(?:\s|$)/;
 
 /**
  * Read the current logical prompt line from an xterm buffer. Walks backwards
@@ -49,14 +52,24 @@ export function readPromptSnapshot(buffer: SnapshotBuffer): PromptSnapshot | nul
     startLine -= 1;
   }
 
+  // Walk forward too — when the cursor is positioned mid-way through a
+  // wrapped input (arrow-keyed back into the middle of a long command),
+  // the rest of the logical line lives below the cursor row.
+  let endLine = absCursor;
+  while (true) {
+    const next = buffer.getLine(endLine + 1);
+    if (!next?.isWrapped) break;
+    endLine += 1;
+  }
+
   const pieces: string[] = [];
-  for (let y = startLine; y <= absCursor; y++) {
+  for (let y = startLine; y <= endLine; y++) {
     const line = buffer.getLine(y);
     if (!line) continue;
     pieces.push(line.translateToString(true));
   }
   const joined = pieces.join("");
-  const stripped = joined.replace(/^\s+/, "").replace(PROMPT_PREFIX_RE, "");
+  const stripped = joined.replace(PROMPT_PREFIX_RE, "");
   const text = stripped.trimEnd();
 
   if (!text) return null;

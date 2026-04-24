@@ -93,4 +93,34 @@ describe("readPromptSnapshot", () => {
     const buf = buildBuffer([line("$ echo hi   ")], { cursorY: 0 });
     expect(readPromptSnapshot(buf)).toEqual({ text: "echo hi", seeded: true });
   });
+
+  it("walks FORWARD through wrapped continuations when cursor is mid-wrap", () => {
+    // User typed a long command, then arrow-keyed back to an earlier row —
+    // the cursor is on line 1, but the logical input continues on line 2.
+    const buf = buildBuffer(
+      [
+        line("$ echo aaaaaaaaaaaaaaaa"),
+        line("bbbbbbbbbbbbbbbb", true),
+        line("ccccccccccccc", true),
+      ],
+      { cursorY: 1 },
+    );
+    expect(readPromptSnapshot(buf)).toEqual({
+      text: "echo aaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbccccccccccccc",
+      seeded: true,
+    });
+  });
+
+  it("preserves a leading space the user typed (HISTCONTROL=ignorespace)", () => {
+    // Bash's `HISTCONTROL=ignorespace` — prefixing a command with a space
+    // keeps it out of history. That leading space is user-meaningful and
+    // must not be stripped along with the prompt marker.
+    const buf = buildBuffer([line("$  ls -la")], { cursorY: 0 });
+    expect(readPromptSnapshot(buf)).toEqual({ text: " ls -la", seeded: true });
+  });
+
+  it("still strips the prompt marker when followed by a tab", () => {
+    const buf = buildBuffer([line("$\techo hi")], { cursorY: 0 });
+    expect(readPromptSnapshot(buf)).toEqual({ text: "echo hi", seeded: true });
+  });
 });
