@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use roux_core::WorktreeProvider;
 use serde::Serialize;
 
 use crate::automation_hooks::{worktree_provider_hooks, HookContext, HookEvent};
@@ -11,6 +12,40 @@ use crate::state::AppState;
 // Without this, `wt remove` (which can run user-defined post-remove hooks
 // for seconds) blocks Tauri's webview thread and the user sees a macOS
 // beachball until the subprocess returns.
+
+fn build_post_worktree_create_context(
+    provider: WorktreeProvider,
+    wt_available: bool,
+    repo_path: &str,
+    branch: &str,
+    worktree_path: &str,
+) -> HookContext {
+    let mut context =
+        HookContext::new(HookEvent::PostWorktreeCreate).with_provider(provider, wt_available);
+    context.repo_path = Some(repo_path.to_string());
+    context.worktree_path = Some(worktree_path.to_string());
+    context.branch = Some(branch.to_string());
+    context.cwd = Some(worktree_path.to_string());
+    context.provider_hooks_ran =
+        worktree_provider_hooks(HookEvent::PostWorktreeCreate, context.worktrunk);
+    context
+}
+
+fn build_post_worktree_remove_context(
+    provider: WorktreeProvider,
+    wt_available: bool,
+    repo_path: &str,
+    worktree_path: &str,
+) -> HookContext {
+    let mut context =
+        HookContext::new(HookEvent::PostWorktreeRemove).with_provider(provider, wt_available);
+    context.repo_path = Some(repo_path.to_string());
+    context.worktree_path = Some(worktree_path.to_string());
+    context.cwd = Some(worktree_path.to_string());
+    context.provider_hooks_ran =
+        worktree_provider_hooks(HookEvent::PostWorktreeRemove, context.worktrunk);
+    context
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -47,7 +82,7 @@ pub(crate) async fn cmd_create_worktree(
     let post_provider = provider;
     let post_repo_path = repo_path.clone();
     let post_branch = branch.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let worktree_path = tauri::async_runtime::spawn_blocking(move || {
         if fetch_first {
             roux_core::fetch_origin(&repo_path).map_err(|e| e.to_string())?;
         }
@@ -63,18 +98,16 @@ pub(crate) async fn cmd_create_worktree(
     })
     .await
     .map_err(|e| format!("create_worktree task panicked: {e}"))?
-    .map(|worktree_path| {
-        let mut context = HookContext::new(HookEvent::PostWorktreeCreate)
-            .with_provider(post_provider, wt_available);
-        context.repo_path = Some(post_repo_path.clone());
-        context.worktree_path = Some(worktree_path.clone());
-        context.branch = Some(post_branch);
-        context.cwd = Some(worktree_path.clone());
-        context.provider_hooks_ran =
-            worktree_provider_hooks(HookEvent::PostWorktreeCreate, context.worktrunk);
-        post_hooks.spawn_background(HookEvent::PostWorktreeCreate, context);
-        worktree_path
-    })
+    .map_err(|e| e.to_string())?;
+    let context = build_post_worktree_create_context(
+        post_provider,
+        wt_available,
+        &post_repo_path,
+        &post_branch,
+        &worktree_path,
+    );
+    post_hooks.spawn_background(HookEvent::PostWorktreeCreate, context);
+    Ok(worktree_path)
 }
 
 #[tauri::command]
@@ -115,16 +148,15 @@ pub(crate) async fn cmd_remove_worktree(
     })
     .await
     .map_err(|e| format!("remove_worktree task panicked: {e}"))?
-    .map(|()| {
-        let mut context =
-            HookContext::new(HookEvent::PostWorktreeRemove).with_provider(provider, wt_available);
-        context.repo_path = Some(post_repo_path);
-        context.worktree_path = Some(post_worktree_path.clone());
-        context.cwd = Some(post_worktree_path);
-        context.provider_hooks_ran =
-            worktree_provider_hooks(HookEvent::PostWorktreeRemove, context.worktrunk);
-        post_hooks.spawn_background(HookEvent::PostWorktreeRemove, context);
-    })
+    .map_err(|e| e.to_string())?;
+    let context = build_post_worktree_remove_context(
+        provider,
+        wt_available,
+        &post_repo_path,
+        &post_worktree_path,
+    );
+    post_hooks.spawn_background(HookEvent::PostWorktreeRemove, context);
+    Ok(())
 }
 
 #[tauri::command]
@@ -473,4 +505,60 @@ fn detect_worktrunk_inner(repo_path: Option<String>) -> WorktrunkDetection {
         .map(|p| roux_worktrunk::detect_wt_config(&PathBuf::from(p)))
         .unwrap_or(false);
     WorktrunkDetection { binary_path, version, has_config }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn post_create_context_sets_worktrunk_provider_hooks() {
+        let context = build_post_worktree_create_context(
+            WorktreeProvider::Worktrunk,
+            true,
+            "/repo",
+            "feat/x",
+            "/repo/.worktrees/feat-x",
+        );
+
+        assert_eq!(context.provider.as_deref(), Some("worktrunk"));
+        assert!(context.worktrunk);
+        assert_eq!(context.repo_path.as_deref(), Some("/repo"));
+        assert_eq!(context.worktree_path.as_deref(), Some("/repo/.worktrees/feat-x"));
+        assert_eq!(context.branch.as_deref(), Some("feat/x"));
+        assert_eq!(context.cwd.as_deref(), Some("/repo/.worktrees/feat-x"));
+        assert_eq!(context.provider_hooks_ran, vec!["pre-start", "post-start"]);
+    }
+
+    #[test]
+    fn post_create_context_uses_git_when_worktrunk_unavailable() {
+        let context = build_post_worktree_create_context(
+            WorktreeProvider::Worktrunk,
+            false,
+            "/repo",
+            "feat/x",
+            "/repo/.worktrees/feat-x",
+        );
+
+        assert_eq!(context.provider.as_deref(), Some("git"));
+        assert!(!context.worktrunk);
+        assert!(context.provider_hooks_ran.is_empty());
+    }
+
+    #[test]
+    fn post_remove_context_sets_worktrunk_provider_hooks() {
+        let context = build_post_worktree_remove_context(
+            WorktreeProvider::Worktrunk,
+            true,
+            "/repo",
+            "/repo/.worktrees/feat-x",
+        );
+
+        assert_eq!(context.provider.as_deref(), Some("worktrunk"));
+        assert!(context.worktrunk);
+        assert_eq!(context.repo_path.as_deref(), Some("/repo"));
+        assert_eq!(context.worktree_path.as_deref(), Some("/repo/.worktrees/feat-x"));
+        assert_eq!(context.cwd.as_deref(), Some("/repo/.worktrees/feat-x"));
+        assert_eq!(context.provider_hooks_ran, vec!["pre-remove", "post-remove"]);
+    }
 }

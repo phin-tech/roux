@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use serde_json::Value;
 use std::fs;
 use std::io::Read;
@@ -176,35 +176,41 @@ enum HookAction {
     /// Claude status: disconnected
     Disconnected,
     /// Show configured Roux automation hooks
-    Show {
-        /// Repo path whose project hooks should be included
-        #[arg(long)]
-        repo_path: Option<String>,
-    },
+    Show(HookShowArgs),
     /// Run a Roux automation hook through the running app
-    Run {
-        /// Hook event name, e.g. post-watch-success
-        event: String,
-        #[arg(long)]
-        repo_path: Option<String>,
-        #[arg(long)]
-        worktree_path: Option<String>,
-        #[arg(long)]
-        branch: Option<String>,
-        #[arg(long)]
-        session: Option<String>,
-        #[arg(long)]
-        project: Option<String>,
-        #[arg(long)]
-        task: Option<String>,
-        #[arg(long)]
-        scope: Option<String>,
-        #[arg(long)]
-        provider: Option<String>,
-        /// Extra args passed into the hook context. Use `--` before values.
-        #[arg(last = true)]
-        extra: Vec<String>,
-    },
+    Run(Box<HookRunArgs>),
+}
+
+#[derive(Args)]
+struct HookShowArgs {
+    /// Repo path whose project hooks should be included
+    #[arg(long)]
+    repo_path: Option<String>,
+}
+
+#[derive(Args)]
+struct HookRunArgs {
+    /// Hook event name, e.g. post-watch-success
+    event: String,
+    #[arg(long)]
+    repo_path: Option<String>,
+    #[arg(long)]
+    worktree_path: Option<String>,
+    #[arg(long)]
+    branch: Option<String>,
+    #[arg(long)]
+    session: Option<String>,
+    #[arg(long)]
+    project: Option<String>,
+    #[arg(long)]
+    task: Option<String>,
+    #[arg(long)]
+    scope: Option<String>,
+    #[arg(long)]
+    provider: Option<String>,
+    /// Extra args passed into the hook context. Use `--` before values.
+    #[arg(last = true)]
+    extra: Vec<String>,
 }
 
 #[derive(Subcommand)]
@@ -527,7 +533,7 @@ fn handle_hook_action(action: HookAction) {
         HookAction::Attention => handle_hook("attention"),
         HookAction::Error => handle_hook("error"),
         HookAction::Disconnected => handle_hook("disconnected"),
-        HookAction::Show { repo_path } => {
+        HookAction::Show(HookShowArgs { repo_path }) => {
             let mut args = serde_json::Map::new();
             if let Some(path) = repo_path {
                 args.insert("repo_path".into(), Value::String(path));
@@ -537,18 +543,19 @@ fn handle_hook_action(action: HookAction) {
                 "args": Value::Object(args),
             }));
         }
-        HookAction::Run {
-            event,
-            repo_path,
-            worktree_path,
-            branch,
-            session,
-            project,
-            task,
-            scope,
-            provider,
-            extra,
-        } => {
+        HookAction::Run(args) => {
+            let HookRunArgs {
+                event,
+                repo_path,
+                worktree_path,
+                branch,
+                session,
+                project,
+                task,
+                scope,
+                provider,
+                extra,
+            } = *args;
             let mut args = serde_json::Map::new();
             args.insert("event".into(), Value::String(event));
             if let Some(path) = repo_path {
@@ -1037,7 +1044,7 @@ mod tests {
         let cli =
             Cli::try_parse_from(["roux-cli", "hook", "show", "--repo-path", "/repo"]).unwrap();
         match cli.command {
-            Commands::Hook { action: HookAction::Show { repo_path } } => {
+            Commands::Hook { action: HookAction::Show(HookShowArgs { repo_path }) } => {
                 assert_eq!(repo_path.as_deref(), Some("/repo"));
             }
             _ => panic!("expected Hook::Show"),
@@ -1070,21 +1077,19 @@ mod tests {
         ])
         .unwrap();
         match cli.command {
-            Commands::Hook {
-                action:
-                    HookAction::Run {
-                        event,
-                        repo_path,
-                        worktree_path,
-                        branch,
-                        session,
-                        task,
-                        scope,
-                        provider,
-                        extra,
-                        ..
-                    },
-            } => {
+            Commands::Hook { action: HookAction::Run(args) } => {
+                let HookRunArgs {
+                    event,
+                    repo_path,
+                    worktree_path,
+                    branch,
+                    session,
+                    task,
+                    scope,
+                    provider,
+                    extra,
+                    ..
+                } = *args;
                 assert_eq!(event, "post-watch-success");
                 assert_eq!(repo_path.as_deref(), Some("/repo"));
                 assert_eq!(worktree_path.as_deref(), Some("/repo/.worktrees/x"));
