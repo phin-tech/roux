@@ -128,7 +128,7 @@ pub(crate) fn spawn_shell(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn spawn_task(
+pub(crate) async fn spawn_task(
     id: String,
     command: String,
     working_dir: String,
@@ -136,11 +136,25 @@ pub(crate) fn spawn_task(
     pane_id: Option<String>,
     profile: Option<String>,
     initial_size: Option<(u16, u16)>,
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     // See spawn_shell above: project/worktree env is deferred for the
     // secondary-pane path until this command goes async.
+    let context = crate::automation_hooks::HookContext {
+        repo_path: Some(working_dir.clone()),
+        worktree_path: Some(working_dir.clone()),
+        task_id: Some(id.clone()),
+        session_id: session_id.clone(),
+        scope: session_id.as_ref().map(|_| "session".to_string()),
+        cwd: Some(working_dir.clone()),
+        ..crate::automation_hooks::HookContext::new(crate::automation_hooks::HookEvent::PreTaskRun)
+    };
+    state
+        .automation_hooks
+        .run_blocking(crate::automation_hooks::HookEvent::PreTaskRun, context)
+        .await
+        .map_err(|e| e.to_string())?;
     state
         .pty_manager
         .spawn_task(
@@ -157,7 +171,20 @@ pub(crate) fn spawn_task(
             profile.as_deref(),
             app.clone(),
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let context = crate::automation_hooks::HookContext {
+        repo_path: Some(working_dir.clone()),
+        worktree_path: Some(working_dir.clone()),
+        task_id: Some(id),
+        session_id,
+        scope: Some("session".into()),
+        cwd: Some(working_dir),
+        ..crate::automation_hooks::HookContext::new(crate::automation_hooks::HookEvent::PostTaskRun)
+    };
+    state
+        .automation_hooks
+        .spawn_background(crate::automation_hooks::HookEvent::PostTaskRun, context);
+    Ok(())
 }
 
 #[tauri::command]
@@ -185,9 +212,47 @@ pub(crate) async fn kill_session(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    let session = state.session_handle.get(&id).await.map_err(|e| e.to_string())?;
+    if let Some(session) = session.as_ref() {
+        let context = crate::automation_hooks::HookContext {
+            repo_path: Some(session.repo_root.clone()),
+            worktree_path: Some(session.worktree_path.clone()),
+            branch: Some(session.branch.clone()),
+            session_id: Some(session.id.clone()),
+            project_id: session.project_id.clone(),
+            scope: Some("session".into()),
+            cwd: Some(session.worktree_path.clone()),
+            ..crate::automation_hooks::HookContext::new(
+                crate::automation_hooks::HookEvent::PreSessionClose,
+            )
+        };
+        state
+            .automation_hooks
+            .run_blocking(crate::automation_hooks::HookEvent::PreSessionClose, context)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     svc::kill_session(&state.pty_manager, &state.session_handle, &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if let Some(session) = session {
+        let context = crate::automation_hooks::HookContext {
+            repo_path: Some(session.repo_root.clone()),
+            worktree_path: Some(session.worktree_path.clone()),
+            branch: Some(session.branch.clone()),
+            session_id: Some(session.id.clone()),
+            project_id: session.project_id.clone(),
+            scope: Some("session".into()),
+            cwd: Some(session.worktree_path.clone()),
+            ..crate::automation_hooks::HookContext::new(
+                crate::automation_hooks::HookEvent::PostSessionClose,
+            )
+        };
+        state
+            .automation_hooks
+            .spawn_background(crate::automation_hooks::HookEvent::PostSessionClose, context);
+    }
+    Ok(())
 }
 
 /// Bring an archived session back to the active list.
@@ -307,6 +372,7 @@ pub(crate) async fn create_session_shell(
         nono.as_ref(),
         opts.profile.as_deref(),
         initial_size,
+        Some(&state.automation_hooks),
         &app,
     )
     .await

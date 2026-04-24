@@ -82,6 +82,7 @@ nav:
       - Layouts: features/layouts.md
       - Worktrees: features/worktrees.md
       - Watches: features/watches.md
+      - Automation hooks: features/hooks.md
       - CLI: features/cli.md
       - Notes: features/notes.md
       - Keymap: features/keymap.md

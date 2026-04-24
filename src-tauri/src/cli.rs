@@ -18,10 +18,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Handle a Claude Code hook event (called by hooks in ~/.claude/settings.json)
+    /// Hook commands. Status variants are called by hooks in ~/.claude/settings.json.
     Hook {
-        /// Status to set: working, idle, attention, error, disconnected
-        status: String,
+        #[command(subcommand)]
+        action: HookAction,
     },
     /// Show current session statuses
     Status,
@@ -160,6 +160,50 @@ enum SessionAction {
     Panes {
         #[command(subcommand)]
         action: PaneAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum HookAction {
+    /// Claude status: working
+    Working,
+    /// Claude status: idle
+    Idle,
+    /// Claude status: attention
+    Attention,
+    /// Claude status: error
+    Error,
+    /// Claude status: disconnected
+    Disconnected,
+    /// Show configured Roux automation hooks
+    Show {
+        /// Repo path whose project hooks should be included
+        #[arg(long)]
+        repo_path: Option<String>,
+    },
+    /// Run a Roux automation hook through the running app
+    Run {
+        /// Hook event name, e.g. post-watch-success
+        event: String,
+        #[arg(long)]
+        repo_path: Option<String>,
+        #[arg(long)]
+        worktree_path: Option<String>,
+        #[arg(long)]
+        branch: Option<String>,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        scope: Option<String>,
+        #[arg(long)]
+        provider: Option<String>,
+        /// Extra args passed into the hook context. Use `--` before values.
+        #[arg(last = true)]
+        extra: Vec<String>,
     },
 }
 
@@ -476,6 +520,75 @@ fn handle_hook(status: &str) {
     let _ = fs::write(path, json);
 }
 
+fn handle_hook_action(action: HookAction) {
+    match action {
+        HookAction::Working => handle_hook("working"),
+        HookAction::Idle => handle_hook("idle"),
+        HookAction::Attention => handle_hook("attention"),
+        HookAction::Error => handle_hook("error"),
+        HookAction::Disconnected => handle_hook("disconnected"),
+        HookAction::Show { repo_path } => {
+            let mut args = serde_json::Map::new();
+            if let Some(path) = repo_path {
+                args.insert("repo_path".into(), Value::String(path));
+            }
+            run_socket_command(serde_json::json!({
+                "command": "hook-show",
+                "args": Value::Object(args),
+            }));
+        }
+        HookAction::Run {
+            event,
+            repo_path,
+            worktree_path,
+            branch,
+            session,
+            project,
+            task,
+            scope,
+            provider,
+            extra,
+        } => {
+            let mut args = serde_json::Map::new();
+            args.insert("event".into(), Value::String(event));
+            if let Some(path) = repo_path {
+                args.insert("repoPath".into(), Value::String(path));
+            }
+            if let Some(path) = worktree_path {
+                args.insert("worktreePath".into(), Value::String(path));
+            }
+            if let Some(branch) = branch {
+                args.insert("branch".into(), Value::String(branch));
+            }
+            if let Some(session) = session.or_else(get_session_id) {
+                args.insert("sessionId".into(), Value::String(session));
+            }
+            if let Some(project) = project {
+                args.insert("projectId".into(), Value::String(project));
+            }
+            if let Some(task) = task {
+                args.insert("taskId".into(), Value::String(task));
+            }
+            if let Some(scope) = scope {
+                args.insert("scope".into(), Value::String(scope));
+            }
+            if let Some(provider) = provider {
+                args.insert("provider".into(), Value::String(provider));
+            }
+            if !extra.is_empty() {
+                args.insert(
+                    "args".into(),
+                    Value::Array(extra.into_iter().map(Value::String).collect()),
+                );
+            }
+            run_socket_command(serde_json::json!({
+                "command": "hook-run",
+                "args": Value::Object(args),
+            }));
+        }
+    }
+}
+
 fn show_status() {
     let dir = status_dir();
     if !dir.exists() {
@@ -523,11 +636,10 @@ fn clear_status() {
     }
 }
 
-
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Hook { status } => handle_hook(&status),
+        Commands::Hook { action } => handle_hook_action(action),
         Commands::Status => show_status(),
         Commands::Clear => clear_status(),
 
@@ -754,10 +866,7 @@ fn scope_name(a: &NotesAction) -> Option<&'static str> {
     }
 }
 
-fn build_target(
-    scope: &str,
-    topic: Option<String>,
-) -> serde_json::Value {
+fn build_target(scope: &str, topic: Option<String>) -> serde_json::Value {
     serde_json::json!({
         "scope": scope,
         "sessionId": get_session_id(),
@@ -911,6 +1020,82 @@ mod tests {
         match cli.command {
             Commands::Session { action: SessionAction::List } => {}
             _ => panic!("expected Session::List"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_hook_status_compat_command() {
+        let cli = Cli::try_parse_from(["roux-cli", "hook", "working"]).unwrap();
+        match cli.command {
+            Commands::Hook { action: HookAction::Working } => {}
+            _ => panic!("expected Hook::Working"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_hook_show_with_repo_path() {
+        let cli =
+            Cli::try_parse_from(["roux-cli", "hook", "show", "--repo-path", "/repo"]).unwrap();
+        match cli.command {
+            Commands::Hook { action: HookAction::Show { repo_path } } => {
+                assert_eq!(repo_path.as_deref(), Some("/repo"));
+            }
+            _ => panic!("expected Hook::Show"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_hook_run_with_context_and_extra_args() {
+        let cli = Cli::try_parse_from([
+            "roux-cli",
+            "hook",
+            "run",
+            "post-watch-success",
+            "--repo-path",
+            "/repo",
+            "--worktree-path",
+            "/repo/.worktrees/x",
+            "--branch",
+            "feat/x",
+            "--session",
+            "sid",
+            "--task",
+            "tid",
+            "--scope",
+            "session",
+            "--provider",
+            "worktrunk",
+            "--",
+            "--verbose",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Hook {
+                action:
+                    HookAction::Run {
+                        event,
+                        repo_path,
+                        worktree_path,
+                        branch,
+                        session,
+                        task,
+                        scope,
+                        provider,
+                        extra,
+                        ..
+                    },
+            } => {
+                assert_eq!(event, "post-watch-success");
+                assert_eq!(repo_path.as_deref(), Some("/repo"));
+                assert_eq!(worktree_path.as_deref(), Some("/repo/.worktrees/x"));
+                assert_eq!(branch.as_deref(), Some("feat/x"));
+                assert_eq!(session.as_deref(), Some("sid"));
+                assert_eq!(task.as_deref(), Some("tid"));
+                assert_eq!(scope.as_deref(), Some("session"));
+                assert_eq!(provider.as_deref(), Some("worktrunk"));
+                assert_eq!(extra, vec!["--verbose"]);
+            }
+            _ => panic!("expected Hook::Run"),
         }
     }
 

@@ -181,12 +181,55 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "notes-path" => handle_notes_path(req, app).await,
         "notes-search" => handle_notes_search(req, app).await,
         "notes-vault-root" => handle_notes_vault_root(app),
+        "hook-show" => handle_hook_show(req, app).await,
+        "hook-run" => handle_hook_run(req, app).await,
         "session-list" => handle_session_list(req, app).await,
         "session-poll" => handle_session_poll(req, app).await,
         "session-panes-list" => handle_session_panes_list(req, app).await,
         "session-panes-create" => handle_session_panes_create(req, app).await,
         "app-open" => handle_app_open(req, app).await,
         _ => Response::err(format!("unknown command: {}", req.command)),
+    }
+}
+
+async fn handle_hook_show(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let repo_path = req.args.get("repo_path").and_then(|v| v.as_str());
+    match state.automation_hooks.list_hooks(repo_path) {
+        Ok(items) => Response::success(crate::automation_hooks::hook_list_to_value(items)),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_hook_run(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let request = match crate::automation_hooks::request_from_socket_args(req.args) {
+        Ok(request) => request,
+        Err(e) => return Response::err(e),
+    };
+    let settings = match state.settings.lock() {
+        Ok(settings) => settings.clone(),
+        Err(e) => return Response::err(e.to_string()),
+    };
+    let wt_available = crate::services::setup::resolve_wt_binary().is_some();
+    let (event, context) = match crate::automation_hooks::context_from_run_request(
+        request,
+        Some(settings.worktree_provider),
+        wt_available,
+    ) {
+        Ok(parts) => parts,
+        Err(e) => return Response::err(e.to_string()),
+    };
+    let result = if event.is_blocking() {
+        state.automation_hooks.run_blocking(event, context).await
+    } else {
+        state.automation_hooks.run_background(event, context).await
+    };
+    match result {
+        Ok(ran) => Response::success(crate::automation_hooks::hook_run_to_value(
+            crate::automation_hooks::HookRunSummary { event: event.as_str().into(), ran },
+        )),
+        Err(e) => Response::err(e.to_string()),
     }
 }
 
@@ -588,6 +631,7 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
         None, // profile - CLI-initiated, frontend will set via profile runner
         // CLI-initiated sessions have no pane context yet.
         None,
+        Some(&state.automation_hooks),
         app,
     )
     .await
@@ -716,6 +760,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         nono_config.as_ref(),
         Some(&profile),
         None,
+        Some(&state.automation_hooks),
         app,
     )
     .await
@@ -854,6 +899,24 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
     );
 
+    let pre_context = crate::automation_hooks::HookContext {
+        repo_path: Some(working_dir.clone()),
+        worktree_path: Some(working_dir.clone()),
+        task_id: Some(pty_id.clone()),
+        session_id: Some(session_id.to_string()),
+        project_id: project_id.clone(),
+        scope: Some("session".into()),
+        cwd: Some(working_dir.clone()),
+        ..crate::automation_hooks::HookContext::new(crate::automation_hooks::HookEvent::PreTaskRun)
+    };
+    if let Err(e) = state
+        .automation_hooks
+        .run_blocking(crate::automation_hooks::HookEvent::PreTaskRun, pre_context)
+        .await
+    {
+        return Response::err(e.to_string());
+    }
+
     if let Err(e) = state.pty_manager.spawn_task(
         &pty_id,
         &command,
@@ -865,11 +928,24 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         None, // notes env snapshot — wired only from session creation path
         None,
         crate::pty::PtyRole::Secondary,
-        None, // profile — CLI-spawned task
+        Some("task"),
         app.clone(),
     ) {
         return Response::err(format!("Failed to spawn task: {}", e));
     }
+    let post_context = crate::automation_hooks::HookContext {
+        repo_path: Some(working_dir.clone()),
+        worktree_path: Some(working_dir.clone()),
+        task_id: Some(pty_id.clone()),
+        session_id: Some(session_id.to_string()),
+        project_id,
+        scope: Some("session".into()),
+        cwd: Some(working_dir.clone()),
+        ..crate::automation_hooks::HookContext::new(crate::automation_hooks::HookEvent::PostTaskRun)
+    };
+    state
+        .automation_hooks
+        .spawn_background(crate::automation_hooks::HookEvent::PostTaskRun, post_context);
 
     use tauri::Emitter;
     let _ = app.emit(
@@ -993,7 +1069,16 @@ async fn handle_notify(req: Request, app: &tauri::AppHandle) -> Response {
     });
 
     let notification = state.notification_manager.push(
-        NReq { level, source: NotificationSource::Cli, title, subtitle, body, session_id, actions, dedup_key: None },
+        NReq {
+            level,
+            source: NotificationSource::Cli,
+            title,
+            subtitle,
+            body,
+            session_id,
+            actions,
+            dedup_key: None,
+        },
         Some(app),
     );
 

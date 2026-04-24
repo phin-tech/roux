@@ -143,14 +143,41 @@ impl WatchManager {
                     _ => Duration::from_secs(30),
                 };
 
-                let result = tokio::select! {
-                    r = tokio::time::timeout(check_timeout, checks::execute_check(&watch.kind)) => {
-                        match r {
-                            Ok(result) => result,
-                            Err(_) => checks::timeout_result(&watch.kind),
+                let state = app.state::<AppState>();
+                let mut hook_context = crate::automation_hooks::HookContext::for_watch(
+                    crate::automation_hooks::HookEvent::PreWatchRun,
+                    &watch,
+                );
+                let pre_hook_result = state
+                    .automation_hooks
+                    .run_blocking(
+                        crate::automation_hooks::HookEvent::PreWatchRun,
+                        hook_context.clone(),
+                    )
+                    .await;
+
+                let result = match pre_hook_result {
+                    Ok(_) => {
+                        tokio::select! {
+                            r = tokio::time::timeout(check_timeout, checks::execute_check(&watch.kind)) => {
+                                match r {
+                                    Ok(result) => result,
+                                    Err(_) => checks::timeout_result(&watch.kind),
+                                }
+                            }
+                            _ = cancel_clone.cancelled() => break,
                         }
                     }
-                    _ = cancel_clone.cancelled() => break,
+                    Err(e) => {
+                        hook_context.hook_type =
+                            crate::automation_hooks::HookEvent::PreWatchRun.as_str().to_string();
+                        WatchResult::CommandRun {
+                            exit_code: -1,
+                            stdout: String::new(),
+                            stderr: format!("pre-watch-run hook failed: {e}"),
+                            outcome: WatchOutcome::Failure,
+                        }
+                    }
                 };
 
                 let new_outcome = result.outcome().clone();
@@ -177,6 +204,56 @@ impl WatchManager {
                         previous_outcome,
                     };
                     let _ = app.emit("watch-update", &event);
+
+                    let mut post_context = crate::automation_hooks::HookContext::for_watch(
+                        crate::automation_hooks::HookEvent::PostWatchRun,
+                        &updated_watch,
+                    );
+                    post_context.previous_outcome = event.previous_outcome.clone();
+                    post_context.outcome =
+                        updated_watch.last_result.as_ref().map(|r| r.outcome().clone());
+                    state.automation_hooks.spawn_background(
+                        crate::automation_hooks::HookEvent::PostWatchRun,
+                        post_context.clone(),
+                    );
+                    if changed {
+                        state.automation_hooks.spawn_background(
+                            crate::automation_hooks::HookEvent::PostWatchChange,
+                            crate::automation_hooks::HookContext {
+                                hook_type: crate::automation_hooks::HookEvent::PostWatchChange
+                                    .as_str()
+                                    .into(),
+                                ..post_context.clone()
+                            },
+                        );
+                        match post_context.outcome.as_ref() {
+                            Some(WatchOutcome::Failure) => {
+                                state.automation_hooks.spawn_background(
+                                    crate::automation_hooks::HookEvent::PostWatchFailure,
+                                    crate::automation_hooks::HookContext {
+                                        hook_type:
+                                            crate::automation_hooks::HookEvent::PostWatchFailure
+                                                .as_str()
+                                                .into(),
+                                        ..post_context.clone()
+                                    },
+                                );
+                            }
+                            Some(WatchOutcome::Success) => {
+                                state.automation_hooks.spawn_background(
+                                    crate::automation_hooks::HookEvent::PostWatchSuccess,
+                                    crate::automation_hooks::HookContext {
+                                        hook_type:
+                                            crate::automation_hooks::HookEvent::PostWatchSuccess
+                                                .as_str()
+                                                .into(),
+                                        ..post_context.clone()
+                                    },
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
 
                     // Desktop notification with flap debouncing
                     if changed {

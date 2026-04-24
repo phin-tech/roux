@@ -1303,6 +1303,21 @@ impl PtyManager {
         self.sessions.lock().unwrap().get(session_id).map(|s| s.generation)
     }
 
+    pub(crate) fn get_info_direct(&self, pty_id: &str) -> Option<PtyInfo> {
+        let sessions = self.sessions.lock().unwrap();
+        sessions.get(pty_id).map(|s| PtyInfo {
+            id: pty_id.to_string(),
+            session_id: s.session_id.clone(),
+            role: s.role.clone(),
+            status: s.status.clone(),
+            name: s.name.clone(),
+            working_dir: s.working_dir.clone(),
+            profile: s.profile.clone(),
+            unread_output: s.unread_output,
+            bell_pending: s.bell_pending,
+        })
+    }
+
     /// List PTY info snapshots for a given session (for picker UI).
     pub fn list_for_session(&self, session_id: &str) -> Vec<PtyInfo> {
         let sessions = self.sessions.lock().unwrap();

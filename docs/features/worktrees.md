@@ -196,3 +196,4 @@ Hook-output rows additionally show the source (`user` / `project` / `internal`),
 - Worktrees share hooks and git config with the main repo. Be aware of any `post-checkout` or `post-commit` hooks that assume a single working copy.
 - Do not `git worktree remove` the directory a running session is using — stop the session first.
 - Worktrunk hooks and Roux's own agent hooks are separate systems. Roux does not install, route, or interfere with `wt`'s hook machinery; likewise `wt` has no visibility into Roux sessions. If you configure a `wt` post-start hook that needs the Roux session's environment, pass it explicitly in your hook template.
+- [Automation hooks](hooks.md) can wrap Roux's own worktree create/remove operations and receive provider context (`git` vs `worktrunk`) without replacing Worktrunk's hook machinery.

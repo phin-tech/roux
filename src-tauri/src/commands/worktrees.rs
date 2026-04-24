@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::automation_hooks::{worktree_provider_hooks, HookContext, HookEvent};
 use crate::services::worktrees as svc;
 use crate::state::AppState;
 
@@ -24,17 +25,32 @@ pub(crate) async fn cmd_create_worktree(
     // the blocking task.
     let (base_path, provider) = {
         let settings = state.settings.lock().unwrap();
-        (
-            settings.worktree_base_path.clone(),
-            settings.worktree_provider,
-        )
+        (settings.worktree_base_path.clone(), settings.worktree_provider)
     };
     let fetch_first = fetch_first.unwrap_or(false);
+    let wt = crate::services::setup::resolve_wt_binary();
+    let wt_available = wt.is_some();
+    let pre_context =
+        HookContext::new(HookEvent::PreWorktreeCreate).with_provider(provider, wt_available);
+    let pre_context = HookContext {
+        repo_path: Some(repo_path.clone()),
+        branch: Some(branch.clone()),
+        cwd: Some(repo_path.clone()),
+        ..pre_context
+    };
+    state
+        .automation_hooks
+        .run_blocking(HookEvent::PreWorktreeCreate, pre_context)
+        .await
+        .map_err(|e| e.to_string())?;
+    let post_hooks = state.automation_hooks.clone();
+    let post_provider = provider;
+    let post_repo_path = repo_path.clone();
+    let post_branch = branch.clone();
     tauri::async_runtime::spawn_blocking(move || {
         if fetch_first {
             roux_core::fetch_origin(&repo_path).map_err(|e| e.to_string())?;
         }
-        let wt = crate::services::setup::resolve_wt_binary();
         roux_core::create_worktree_with_provider(
             &repo_path,
             &branch,
@@ -47,6 +63,18 @@ pub(crate) async fn cmd_create_worktree(
     })
     .await
     .map_err(|e| format!("create_worktree task panicked: {e}"))?
+    .map(|worktree_path| {
+        let mut context = HookContext::new(HookEvent::PostWorktreeCreate)
+            .with_provider(post_provider, wt_available);
+        context.repo_path = Some(post_repo_path.clone());
+        context.worktree_path = Some(worktree_path.clone());
+        context.branch = Some(post_branch);
+        context.cwd = Some(worktree_path.clone());
+        context.provider_hooks_ran =
+            worktree_provider_hooks(HookEvent::PostWorktreeCreate, context.worktrunk);
+        post_hooks.spawn_background(HookEvent::PostWorktreeCreate, context);
+        worktree_path
+    })
 }
 
 #[tauri::command]
@@ -59,8 +87,23 @@ pub(crate) async fn cmd_remove_worktree(
 ) -> Result<(), String> {
     let provider = state.settings.lock().unwrap().worktree_provider;
     let also_branch = also_branch.unwrap_or(false);
+    let wt = crate::services::setup::resolve_wt_binary();
+    let wt_available = wt.is_some();
+    let pre_context = HookContext {
+        repo_path: Some(repo_path.clone()),
+        worktree_path: Some(worktree_path.clone()),
+        cwd: Some(worktree_path.clone()),
+        ..HookContext::new(HookEvent::PreWorktreeRemove).with_provider(provider, wt_available)
+    };
+    state
+        .automation_hooks
+        .run_blocking(HookEvent::PreWorktreeRemove, pre_context)
+        .await
+        .map_err(|e| e.to_string())?;
+    let post_hooks = state.automation_hooks.clone();
+    let post_repo_path = repo_path.clone();
+    let post_worktree_path = worktree_path.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let wt = crate::services::setup::resolve_wt_binary();
         roux_core::remove_worktree_with_provider(
             &repo_path,
             &worktree_path,
@@ -72,6 +115,16 @@ pub(crate) async fn cmd_remove_worktree(
     })
     .await
     .map_err(|e| format!("remove_worktree task panicked: {e}"))?
+    .map(|()| {
+        let mut context =
+            HookContext::new(HookEvent::PostWorktreeRemove).with_provider(provider, wt_available);
+        context.repo_path = Some(post_repo_path);
+        context.worktree_path = Some(post_worktree_path.clone());
+        context.cwd = Some(post_worktree_path);
+        context.provider_hooks_ran =
+            worktree_provider_hooks(HookEvent::PostWorktreeRemove, context.worktrunk);
+        post_hooks.spawn_background(HookEvent::PostWorktreeRemove, context);
+    })
 }
 
 #[tauri::command]
@@ -100,11 +153,9 @@ pub(crate) async fn cmd_list_branches(repo_path: String) -> Result<Vec<String>, 
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn git_init(path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        svc::git_init(&path).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("git_init task panicked: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || svc::git_init(&path).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| format!("git_init task panicked: {e}"))?
 }
 
 /// Resolve a worktree-base-path template (`{project_dir}`, `{git_root}`,
@@ -296,15 +347,11 @@ pub(crate) async fn cmd_worktrunk_read_log(
         let canonical_root = logs_root
             .canonicalize()
             .map_err(|_| "worktrunk logs directory does not exist for this repo".to_string())?;
-        let canonical_target = target
-            .canonicalize()
-            .map_err(|e| format!("cannot resolve log path: {e}"))?;
+        let canonical_target =
+            target.canonicalize().map_err(|e| format!("cannot resolve log path: {e}"))?;
 
         if !canonical_target.starts_with(&canonical_root) {
-            return Err(format!(
-                "refusing to read {path}: not under {}",
-                canonical_root.display()
-            ));
+            return Err(format!("refusing to read {path}: not under {}", canonical_root.display()));
         }
 
         roux_worktrunk::read_log_file(&canonical_target, MAX_BYTES).map_err(|e| e.to_string())
@@ -338,20 +385,21 @@ pub(crate) async fn cmd_open_terminal_at(path: String) -> Result<(), String> {
                 .arg(&path)
                 .status()
                 .map_err(|e| format!("open failed: {e}"))
-                .and_then(|s| {
-                    if s.success() {
-                        Ok(())
-                    } else {
-                        Err(format!("open exited with {s}"))
-                    }
-                })
+                .and_then(
+                    |s| {
+                        if s.success() {
+                            Ok(())
+                        } else {
+                            Err(format!("open exited with {s}"))
+                        }
+                    },
+                )
         }
 
         #[cfg(target_os = "linux")]
         {
-            if let Ok(status) = Command::new("xdg-terminal-exec")
-                .env("TERMINAL_EXEC_WORKDIR", &path)
-                .status()
+            if let Ok(status) =
+                Command::new("xdg-terminal-exec").env("TERMINAL_EXEC_WORKDIR", &path).status()
             {
                 if status.success() {
                     return Ok(());
@@ -391,13 +439,15 @@ pub(crate) async fn cmd_open_terminal_at(path: String) -> Result<(), String> {
                 .args(["/c", "start", "cmd", "/k", &cd_command])
                 .status()
                 .map_err(|e| format!("cmd failed: {e}"))
-                .and_then(|s| {
-                    if s.success() {
-                        Ok(())
-                    } else {
-                        Err(format!("cmd exited with {s}"))
-                    }
-                })
+                .and_then(
+                    |s| {
+                        if s.success() {
+                            Ok(())
+                        } else {
+                            Err(format!("cmd exited with {s}"))
+                        }
+                    },
+                )
         }
     })
     .await
@@ -409,20 +459,13 @@ pub(crate) async fn cmd_open_terminal_at(path: String) -> Result<(), String> {
 pub(crate) async fn cmd_detect_worktrunk(repo_path: Option<String>) -> WorktrunkDetection {
     tauri::async_runtime::spawn_blocking(move || detect_worktrunk_inner(repo_path))
         .await
-        .unwrap_or(WorktrunkDetection {
-            binary_path: None,
-            version: None,
-            has_config: false,
-        })
+        .unwrap_or(WorktrunkDetection { binary_path: None, version: None, has_config: false })
 }
 
 fn detect_worktrunk_inner(repo_path: Option<String>) -> WorktrunkDetection {
     let wt = crate::services::setup::resolve_wt_binary();
     let (binary_path, version) = match wt {
-        Some(w) => (
-            Some(w.path.to_string_lossy().into_owned()),
-            Some(w.version.to_string()),
-        ),
+        Some(w) => (Some(w.path.to_string_lossy().into_owned()), Some(w.version.to_string())),
         None => (None, None),
     };
     let has_config = repo_path
