@@ -283,8 +283,13 @@
 
   async function handleOpenInCode() {
     if (!contextMenu) return;
-    await openInEditor(contextMenu.session.worktreePath).catch(() => {});
-    closeContextMenu();
+    try {
+      await openInEditor(contextMenu.session.worktreePath);
+    } catch (e) {
+      logError("Failed to open in editor", e);
+    } finally {
+      closeContextMenu();
+    }
   }
 
   $effect(() => {
