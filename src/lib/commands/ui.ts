@@ -384,47 +384,61 @@ export function registerUiCommands() {
         "Reset all keybindings to default?\n\nYour current keymap.kdl will be overwritten. This cannot be undone.",
       );
       if (!confirmed) return;
-      const presetResult = await commands.getBuiltinKeymapPreset("default");
-      if (presetResult.status === "error") {
-        logError(`keymap.reset-to-default: get preset failed: ${presetResult.error}`);
+      try {
+        const presetResult = await commands.getBuiltinKeymapPreset("default");
+        if (presetResult.status === "error") {
+          logError(`keymap.reset-to-default: get preset failed: ${presetResult.error}`);
+          void notificationsPush({
+            level: "error",
+            source: { type: "internal" },
+            title: "Reset keybindings failed",
+            subtitle: null,
+            body: presetResult.error,
+            sessionId: null,
+            actions: [],
+            dedupKey: "keymap-reset-error",
+          }).catch(() => {});
+          return;
+        }
+        const writeResult = await commands.setKeymap(presetResult.data);
+        if (writeResult.status === "error") {
+          logError(`keymap.reset-to-default: write failed: ${writeResult.error}`);
+          void notificationsPush({
+            level: "error",
+            source: { type: "internal" },
+            title: "Reset keybindings failed",
+            subtitle: null,
+            body: writeResult.error,
+            sessionId: null,
+            actions: [],
+            dedupKey: "keymap-reset-error",
+          }).catch(() => {});
+          return;
+        }
+        await loadKeymap();
+        void notificationsPush({
+          level: "info",
+          source: { type: "internal" },
+          title: "Keybindings reset to default",
+          subtitle: null,
+          body: null,
+          sessionId: null,
+          actions: [],
+          dedupKey: "keymap-reset-ok",
+        }).catch(() => {});
+      } catch (error) {
+        logError("keymap.reset-to-default failed", error);
         void notificationsPush({
           level: "error",
           source: { type: "internal" },
           title: "Reset keybindings failed",
           subtitle: null,
-          body: presetResult.error,
+          body: error instanceof Error ? error.message : String(error),
           sessionId: null,
           actions: [],
           dedupKey: "keymap-reset-error",
         }).catch(() => {});
-        return;
       }
-      const writeResult = await commands.setKeymap(presetResult.data);
-      if (writeResult.status === "error") {
-        logError(`keymap.reset-to-default: write failed: ${writeResult.error}`);
-        void notificationsPush({
-          level: "error",
-          source: { type: "internal" },
-          title: "Reset keybindings failed",
-          subtitle: null,
-          body: writeResult.error,
-          sessionId: null,
-          actions: [],
-          dedupKey: "keymap-reset-error",
-        }).catch(() => {});
-        return;
-      }
-      await loadKeymap();
-      void notificationsPush({
-        level: "info",
-        source: { type: "internal" },
-        title: "Keybindings reset to default",
-        subtitle: null,
-        body: null,
-        sessionId: null,
-        actions: [],
-        dedupKey: "keymap-reset-ok",
-      }).catch(() => {});
     },
   });
 
