@@ -15,10 +15,11 @@ pub(crate) fn frontend_log(message: String) {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn cmd_open_in_editor(path: String) -> Result<(), String> {
-    std::process::Command::new("code")
+    let code = crate::services::setup::code_command();
+    std::process::Command::new(&code)
         .arg(&path)
         .spawn()
-        .map_err(|e| format!("Failed to open VS Code: {}", e))?;
+        .map_err(|e| format!("Failed to open VS Code (resolved binary: {code:?}): {e}"))?;
     Ok(())
 }
 

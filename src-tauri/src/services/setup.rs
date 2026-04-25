@@ -103,6 +103,40 @@ fn find_wt_via_login_shell() -> Option<String> {
         .clone()
 }
 
+/// Resolve the `code` (VS Code) binary Roux should invoke for "Open in Code".
+///
+/// Mirrors [`gh_command`] precedence (minus the settings override — there is
+/// no editor setting yet):
+///   1. First match in the login-shell `PATH` — GUI launches on macOS get a
+///      minimal launchd PATH that excludes `/opt/homebrew/bin` etc., so the
+///      `code` shim is invisible without this step.
+///   2. Process `PATH`.
+///   3. Bare `"code"` — lets `Command::new` error naturally.
+pub(crate) fn code_command() -> String {
+    if let Some(path) = find_code_via_login_shell() {
+        return path;
+    }
+    if let Some(path) = crate::platform::find_executable_on_path("code") {
+        return path.to_string_lossy().to_string();
+    }
+    "code".to_string()
+}
+
+fn find_code_via_login_shell() -> Option<String> {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<Option<String>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            let path = crate::pty::get_user_path();
+            if path.is_empty() {
+                return None;
+            }
+            crate::platform::find_executable_in_paths(path.as_str(), "code")
+                .map(|p| p.to_string_lossy().to_string())
+        })
+        .clone()
+}
+
 pub(crate) fn is_cli_installed() -> bool {
     crate::hooks::cli_is_installed()
 }
