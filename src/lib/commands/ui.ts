@@ -3,6 +3,8 @@ import { queries } from "$lib/queries";
 import { settings, updateSetting } from "$lib/stores/settings";
 import { get } from "svelte/store";
 import { loadKeymap, exitTree as keymapExitTree } from "$lib/keymap/store";
+import { commands } from "$lib/bindings";
+import { openInEditor, notificationsPush } from "$lib/tauri";
 import {
   activeSidebar,
   openSidebar,
@@ -356,6 +358,87 @@ export function registerUiCommands() {
     category: "App",
     execute: () => {
       void loadKeymap();
+    },
+  });
+
+  registry.register({
+    id: "keymap.open-in-editor",
+    label: "Open Keybindings in Editor",
+    category: "App",
+    execute: async () => {
+      try {
+        const path = await commands.getKeymapPath();
+        await openInEditor(path);
+      } catch (e) {
+        logError("keymap.open-in-editor failed", e);
+      }
+    },
+  });
+
+  registry.register({
+    id: "keymap.reset-to-default",
+    label: "Reset Keybindings to Default",
+    category: "App",
+    execute: async () => {
+      const confirmed = window.confirm(
+        "Reset all keybindings to default?\n\nYour current keymap.kdl will be overwritten. This cannot be undone.",
+      );
+      if (!confirmed) return;
+      try {
+        const presetResult = await commands.getBuiltinKeymapPreset("default");
+        if (presetResult.status === "error") {
+          logError(`keymap.reset-to-default: get preset failed: ${presetResult.error}`);
+          void notificationsPush({
+            level: "error",
+            source: { type: "internal" },
+            title: "Reset keybindings failed",
+            subtitle: null,
+            body: presetResult.error,
+            sessionId: null,
+            actions: [],
+            dedupKey: "keymap-reset-error",
+          }).catch(() => {});
+          return;
+        }
+        const writeResult = await commands.setKeymap(presetResult.data);
+        if (writeResult.status === "error") {
+          logError(`keymap.reset-to-default: write failed: ${writeResult.error}`);
+          void notificationsPush({
+            level: "error",
+            source: { type: "internal" },
+            title: "Reset keybindings failed",
+            subtitle: null,
+            body: writeResult.error,
+            sessionId: null,
+            actions: [],
+            dedupKey: "keymap-reset-error",
+          }).catch(() => {});
+          return;
+        }
+        await loadKeymap();
+        void notificationsPush({
+          level: "info",
+          source: { type: "internal" },
+          title: "Keybindings reset to default",
+          subtitle: null,
+          body: null,
+          sessionId: null,
+          actions: [],
+          dedupKey: "keymap-reset-ok",
+        }).catch(() => {});
+      } catch (error) {
+        logError("keymap.reset-to-default failed", error);
+        void notificationsPush({
+          level: "error",
+          source: { type: "internal" },
+          title: "Reset keybindings failed",
+          subtitle: null,
+          body: error instanceof Error ? error.message : String(error),
+          sessionId: null,
+          actions: [],
+          dedupKey: "keymap-reset-error",
+        }).catch(() => {});
+      }
     },
   });
 

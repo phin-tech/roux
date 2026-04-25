@@ -444,6 +444,8 @@ async function buildToolsMenu(ctx: BuildContext): Promise<Submenu> {
       await Submenu.new({ text: "Add Watch", items: watchItems }),
       await sep(),
       await cmdItem(ctx, "keymap.reload", "Reload Keymap"),
+      await cmdItem(ctx, "keymap.open-in-editor", "Open Keybindings in Editor"),
+      await cmdItem(ctx, "keymap.reset-to-default", "Reset Keybindings to Default…"),
     ],
   });
 }
