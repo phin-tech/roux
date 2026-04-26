@@ -35,13 +35,14 @@
   } from "$lib/panes/textTransforms";
 
   // Panel width — kept in sync with the inline `w-[680px]` class below so
-  // drag clamping uses the right horizontal dimension. (No height constant
-  // needed: the y-clamp pins on the header, not the bottom edge.)
+  // drag clamping uses the right horizontal dimension.
   const PANEL_WIDTH = 680;
+  // Panel height — kept in sync with the inline `h-[480px]` class below for
+  // positioning relative to the focused pane.
+  const PANEL_HEIGHT = 480;
   // Pixels of the panel header that must remain inside the viewport during
   // a drag, so the user can always grab it back.
   const MIN_VISIBLE = 80;
-  const POSITION_STORAGE_KEY = "roux:multiLineEditor:position";
 
   interface ToolbarAction {
     label: string;
@@ -123,7 +124,7 @@
     if (state.open && editorContainer && !editorView) {
       mountEditor(state.initialText);
       disableTargetPaneInput(state.paneId);
-      position = loadPosition() ?? defaultPosition();
+      position = paneRelativePosition() ?? defaultPosition();
       window.addEventListener("resize", onWindowResize);
     } else if (!state.open && editorView) {
       tearDownEditor();
@@ -144,6 +145,31 @@
     return { x, y };
   }
 
+  function isTerminalNewShell(paneId: string | null): boolean {
+    if (!paneId) return false;
+    const controller = getTerminalController(paneId);
+    if (!controller) return false;
+    return controller.isNewShell();
+  }
+
+  function paneRelativePosition(): { x: number; y: number } | null {
+    const focusedEl = document.querySelector('[data-focused="true"]');
+    if (!focusedEl) return null;
+    const paneId = $multiLineEditor.paneId;
+    const isNewShell = isTerminalNewShell(paneId);
+    const rect = focusedEl.getBoundingClientRect();
+    const x = Math.round(rect.left + (rect.width - PANEL_WIDTH) / 2);
+    const y = isNewShell
+      ? Math.round(rect.top + 80)
+      : Math.round(rect.bottom - PANEL_HEIGHT - 32);
+    // Clamp strictly to viewport bounds to keep panel fully on-screen.
+    const clamped = {
+      x: Math.max(0, Math.min(window.innerWidth - PANEL_WIDTH, x)),
+      y: Math.max(0, Math.min(window.innerHeight - PANEL_HEIGHT, y)),
+    };
+    return clamped;
+  }
+
   function clampPosition(p: { x: number; y: number }): { x: number; y: number } {
     const maxX = window.innerWidth - MIN_VISIBLE;
     const maxY = window.innerHeight - MIN_VISIBLE;
@@ -153,26 +179,6 @@
       x: Math.min(maxX, Math.max(minX, p.x)),
       y: Math.min(maxY, Math.max(minY, p.y)),
     };
-  }
-
-  function loadPosition(): { x: number; y: number } | null {
-    try {
-      const raw = localStorage.getItem(POSITION_STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (typeof parsed?.x !== "number" || typeof parsed?.y !== "number") return null;
-      return clampPosition(parsed);
-    } catch {
-      return null;
-    }
-  }
-
-  function savePosition(p: { x: number; y: number }): void {
-    try {
-      localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(p));
-    } catch {
-      // localStorage can be unavailable (private mode, quota); silently ignore.
-    }
   }
 
   function onWindowResize(): void {
@@ -338,7 +344,6 @@
     if (!dragging) return;
     dragging = false;
     (e.currentTarget as Element).releasePointerCapture(e.pointerId);
-    if (position) savePosition(position);
   }
 </script>
 
@@ -425,32 +430,28 @@
       <div bind:this={editorContainer} class="flex-1 overflow-hidden"></div>
 
       <!-- Footer -->
-      <div class="flex items-center justify-between border-t border-border-subtle px-4 py-2.5 text-[11px] text-text-muted">
-        <div class="flex items-center gap-2">
-          <button
-            class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-accent-dim/20 bg-accent-dim/15 px-3 py-1.5 text-[12px] font-medium text-accent transition-colors hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-            onclick={() => void submitInsert()}
+      <div class="flex items-center gap-3 border-t border-border-subtle px-4 py-2.5">
+        <button
+          class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border-subtle bg-bg-surface px-3 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+          onclick={closeMultiLineEditor}
+        >
+          <kbd
+            class="rounded border border-border-subtle bg-bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-text-muted"
+            >Esc</kbd
           >
-            <kbd
-              class="rounded border border-accent-dim/30 bg-accent-dim/20 px-1.5 py-0.5 font-mono text-[10px] text-accent"
-              >{formatShortcut("cmd+enter")}</kbd
-            >
-            <span>Insert</span>
-          </button>
-          <button
-            class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border-subtle bg-bg-surface px-3 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
-            onclick={closeMultiLineEditor}
+          <span>Cancel</span>
+        </button>
+        <div class="flex-1"></div>
+        <button
+          class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-accent bg-accent px-3 py-1.5 text-[12px] font-medium text-bg-deep transition-colors hover:bg-accent hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+          onclick={() => void submitInsert()}
+        >
+          <kbd
+            class="rounded border border-accent/30 bg-accent/20 px-1.5 py-0.5 font-mono text-[10px] text-bg-deep"
+            >{formatShortcut("cmd+enter")}</kbd
           >
-            <kbd
-              class="rounded border border-border-subtle bg-bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-text-muted"
-              >Esc</kbd
-            >
-            <span>Cancel</span>
-          </button>
-        </div>
-        <span class="text-[10px]">
-          target · <span class="text-text-primary">{$multiLineEditor.paneLabel ?? "pane"}</span>
-        </span>
+          <span>Insert</span>
+        </button>
       </div>
     </div>
   </Tooltip.Provider>
