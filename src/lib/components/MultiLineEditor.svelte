@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { fade, scale } from "svelte/transition";
+  import { scale } from "svelte/transition";
   import { onDestroy } from "svelte";
   import { Tooltip } from "bits-ui";
   import Keyboard from "@lucide/svelte/icons/keyboard";
+  import X from "@lucide/svelte/icons/x";
   import { EditorState, type Extension } from "@codemirror/state";
   import { EditorView, keymap } from "@codemirror/view";
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -32,6 +33,15 @@
     trimDocument,
     unwrapContinuations,
   } from "$lib/panes/textTransforms";
+
+  // Panel width — kept in sync with the inline `w-[680px]` class below so
+  // drag clamping uses the right horizontal dimension. (No height constant
+  // needed: the y-clamp pins on the header, not the bottom edge.)
+  const PANEL_WIDTH = 680;
+  // Pixels of the panel header that must remain inside the viewport during
+  // a drag, so the user can always grab it back.
+  const MIN_VISIBLE = 80;
+  const POSITION_STORAGE_KEY = "roux:multiLineEditor:position";
 
   interface ToolbarAction {
     label: string;
@@ -84,7 +94,7 @@
     action: string;
   }
 
-  // Everything a user can trigger while the modal has focus — shown on
+  // Everything a user can trigger while the editor has focus — shown on
   // hover of the keyboard hint in the header. Covers both our custom
   // keybindings and the CodeMirror defaults that users commonly rely on.
   const modalShortcuts: ShortcutEntry[] = [
@@ -99,6 +109,11 @@
   let editorContainer: HTMLElement | undefined = $state();
   let editorView: EditorView | null = null;
 
+  // null → fall back to defaultPosition() (centered horizontally, top at 14vh).
+  let position = $state<{ x: number; y: number } | null>(null);
+  let dragging = $state(false);
+  let dragOffset = { x: 0, y: 0 };
+
   // Track the pane id we disabled input on so we can re-enable the right one
   // even if the store state races with a pane change.
   let disabledPaneId: string | null = null;
@@ -108,16 +123,61 @@
     if (state.open && editorContainer && !editorView) {
       mountEditor(state.initialText);
       disableTargetPaneInput(state.paneId);
+      position = loadPosition() ?? defaultPosition();
+      window.addEventListener("resize", onWindowResize);
     } else if (!state.open && editorView) {
       tearDownEditor();
       restoreTargetPaneInput();
+      window.removeEventListener("resize", onWindowResize);
     }
   });
 
   onDestroy(() => {
     tearDownEditor();
     restoreTargetPaneInput();
+    window.removeEventListener("resize", onWindowResize);
   });
+
+  function defaultPosition(): { x: number; y: number } {
+    const x = Math.max(0, Math.round((window.innerWidth - PANEL_WIDTH) / 2));
+    const y = Math.max(0, Math.round(window.innerHeight * 0.14));
+    return { x, y };
+  }
+
+  function clampPosition(p: { x: number; y: number }): { x: number; y: number } {
+    const maxX = window.innerWidth - MIN_VISIBLE;
+    const maxY = window.innerHeight - MIN_VISIBLE;
+    const minX = MIN_VISIBLE - PANEL_WIDTH;
+    const minY = 0;
+    return {
+      x: Math.min(maxX, Math.max(minX, p.x)),
+      y: Math.min(maxY, Math.max(minY, p.y)),
+    };
+  }
+
+  function loadPosition(): { x: number; y: number } | null {
+    try {
+      const raw = localStorage.getItem(POSITION_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.x !== "number" || typeof parsed?.y !== "number") return null;
+      return clampPosition(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  function savePosition(p: { x: number; y: number }): void {
+    try {
+      localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(p));
+    } catch {
+      // localStorage can be unavailable (private mode, quota); silently ignore.
+    }
+  }
+
+  function onWindowResize(): void {
+    if (position) position = clampPosition(position);
+  }
 
   function mountEditor(initialText: string): void {
     if (!editorContainer) return;
@@ -215,7 +275,7 @@
       await writeToSession(ptyId, payload);
       closeMultiLineEditor();
     } catch (err) {
-      // Keep the modal open so the user can retry or copy the text out —
+      // Keep the editor open so the user can retry or copy the text out —
       // silently closing on a failed PTY write would drop their edits.
       // eslint-disable-next-line no-console
       console.error("MultiLineEditor: writeToSession failed", err);
@@ -248,78 +308,103 @@
     }
   }
 
-  // Track whether the *mouse-down* started on the backdrop. Using `click`
-  // alone closes the modal even when the user drags from inside the editor
-  // out to the backdrop to make a text selection — the browser fires
-  // `click` on the common ancestor (the backdrop). By gating on where the
-  // pointer went DOWN, a selection drag no longer trips closure.
-  let mouseDownOnBackdrop = false;
-
-  function onBackdropPointerDown(e: PointerEvent): void {
-    mouseDownOnBackdrop = e.target === e.currentTarget;
+  // Skip drag init when the pointer landed on an interactive control inside
+  // the header (e.g. the keyboard-shortcut tooltip trigger) — otherwise
+  // clicking those would start a drag instead of activating them.
+  function isInteractiveTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    return target.closest("button, [role='button']") !== null;
   }
 
-  function onBackdropClick(e: MouseEvent): void {
-    if (e.target === e.currentTarget && mouseDownOnBackdrop) {
-      closeMultiLineEditor();
-    }
-    mouseDownOnBackdrop = false;
+  function onHeaderPointerDown(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    if (isInteractiveTarget(e.target)) return;
+    if (!position) position = defaultPosition();
+    dragOffset = { x: e.clientX - position.x, y: e.clientY - position.y };
+    dragging = true;
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+
+  function onHeaderPointerMove(e: PointerEvent): void {
+    if (!dragging) return;
+    position = clampPosition({
+      x: e.clientX - dragOffset.x,
+      y: e.clientY - dragOffset.y,
+    });
+  }
+
+  function onHeaderPointerUp(e: PointerEvent): void {
+    if (!dragging) return;
+    dragging = false;
+    (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+    if (position) savePosition(position);
   }
 </script>
 
 {#if $multiLineEditor.open}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="fixed inset-0 z-50 flex items-start justify-center bg-black/65 pt-[14vh] backdrop-blur-md"
-    onpointerdown={onBackdropPointerDown}
-    onclick={onBackdropClick}
-    onkeydown={handleKeyDown}
-    transition:fade={{ duration: 120 }}
-  >
+  <Tooltip.Provider delayDuration={350} skipDelayDuration={150}>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <Tooltip.Provider delayDuration={350} skipDelayDuration={150}>
     <div
-      class="ui-dialog flex h-[480px] w-[680px] flex-col overflow-hidden rounded-[1.4rem] border-l-2 border-l-accent"
+      class="ui-dialog fixed z-50 flex h-[480px] w-[680px] flex-col overflow-hidden rounded-2xl"
+      style="top: {position?.y ?? 0}px; left: {position?.x ?? 0}px;"
+      onkeydown={handleKeyDown}
       transition:scale={{ duration: 120, start: 0.985 }}
     >
-      <!-- Header -->
-      <div class="flex items-center justify-between px-5 pt-4 pb-3 text-[11px] uppercase tracking-[0.22em] text-text-muted">
-        <span>
-          Editing prompt for
-          <span class="text-text-primary normal-case tracking-normal ml-1">
-            {$multiLineEditor.paneLabel ?? "pane"}
-          </span>
-        </span>
-        <div class="flex items-center gap-3">
-          {#if $multiLineEditor.seeded}
-            <span class="text-[10px] normal-case tracking-normal text-text-muted">
-              Seeded from prompt
+      <!-- Header (drag handle) -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="flex items-center justify-between gap-3 px-4 pt-3 pb-3 select-none {dragging
+          ? 'cursor-grabbing'
+          : 'cursor-grab'}"
+        onpointerdown={onHeaderPointerDown}
+        onpointermove={onHeaderPointerMove}
+        onpointerup={onHeaderPointerUp}
+      >
+        <div class="flex items-center gap-2.5">
+          <button
+            type="button"
+            onclick={closeMultiLineEditor}
+            class="cursor-pointer rounded border border-transparent bg-transparent p-1 text-text-muted transition-colors hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            aria-label="Close editor"
+          >
+            <X class="h-3.5 w-3.5" />
+          </button>
+          <div class="flex flex-col gap-0.5">
+            <span class="text-[12px] font-medium text-text-primary">Edit prompt</span>
+            <span class="text-[11px] text-text-muted">
+              {$multiLineEditor.paneLabel ?? "pane"}
+              {#if $multiLineEditor.seeded}
+                <span class="text-text-muted/70"> · seeded from prompt</span>
+              {/if}
             </span>
-          {/if}
-          <Tooltip.Root>
-            <Tooltip.Trigger class="mle-icon-btn" aria-label="Show keyboard shortcuts">
-              <Keyboard class="w-3.5 h-3.5" />
-            </Tooltip.Trigger>
-            <Tooltip.Portal>
-              <Tooltip.Content sideOffset={6} class="mle-tooltip mle-tooltip-grid">
-                <div class="mle-tooltip-title">Shortcuts</div>
-                {#each modalShortcuts as entry (entry.shortcut)}
-                  <kbd class="mle-tooltip-kbd">{formatShortcut(entry.shortcut)}</kbd>
-                  <span>{entry.action}</span>
-                {/each}
-              </Tooltip.Content>
-            </Tooltip.Portal>
-          </Tooltip.Root>
+          </div>
         </div>
+        <Tooltip.Root>
+          <Tooltip.Trigger
+            class="cursor-pointer rounded border border-transparent bg-transparent p-1 text-text-muted transition-colors hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            aria-label="Show keyboard shortcuts"
+          >
+            <Keyboard class="w-3.5 h-3.5" />
+          </Tooltip.Trigger>
+          <Tooltip.Portal>
+            <Tooltip.Content sideOffset={6} class="mle-tooltip mle-tooltip-grid">
+              <div class="mle-tooltip-title">Shortcuts</div>
+              {#each modalShortcuts as entry (entry.shortcut)}
+                <kbd class="mle-tooltip-kbd">{formatShortcut(entry.shortcut)}</kbd>
+                <span>{entry.action}</span>
+              {/each}
+            </Tooltip.Content>
+          </Tooltip.Portal>
+        </Tooltip.Root>
       </div>
 
       <!-- Toolbar -->
-      <div class="flex flex-wrap items-center gap-1.5 border-b border-border-subtle bg-bg-surface/55 px-4 py-2.5">
+      <div class="flex flex-wrap items-center gap-1 border-b border-border-subtle bg-bg-surface/55 px-4 py-2.5">
         {#each toolbarActions as action (action.label)}
           <Tooltip.Root>
             <Tooltip.Trigger
-              class="mle-btn"
+              class="cursor-pointer rounded-md border border-transparent px-2.5 py-1 text-[11px] text-text-secondary transition-colors hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
               onclick={() => applyTransform(action.transform)}
             >
               {action.label}
@@ -342,12 +427,24 @@
       <!-- Footer -->
       <div class="flex items-center justify-between border-t border-border-subtle px-4 py-2.5 text-[11px] text-text-muted">
         <div class="flex items-center gap-2">
-          <button class="mle-footer-btn mle-footer-btn-primary" onclick={() => void submitInsert()}>
-            <kbd class="mle-kbd">{formatShortcut("cmd+enter")}</kbd>
+          <button
+            class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-accent-dim/20 bg-accent-dim/15 px-3 py-1.5 text-[12px] font-medium text-accent transition-colors hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            onclick={() => void submitInsert()}
+          >
+            <kbd
+              class="rounded border border-accent-dim/30 bg-accent-dim/20 px-1.5 py-0.5 font-mono text-[10px] text-accent"
+              >{formatShortcut("cmd+enter")}</kbd
+            >
             <span>Insert</span>
           </button>
-          <button class="mle-footer-btn" onclick={closeMultiLineEditor}>
-            <kbd class="mle-kbd">Esc</kbd>
+          <button
+            class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border-subtle bg-bg-surface px-3 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            onclick={closeMultiLineEditor}
+          >
+            <kbd
+              class="rounded border border-border-subtle bg-bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-text-muted"
+              >Esc</kbd
+            >
             <span>Cancel</span>
           </button>
         </div>
@@ -356,38 +453,13 @@
         </span>
       </div>
     </div>
-    </Tooltip.Provider>
-  </div>
+  </Tooltip.Provider>
 {/if}
 
 <style>
-  :global(.mle-btn) {
-    padding: 4px 10px;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--color-text-muted);
-    border: 1px solid var(--color-border-subtle);
-    font-size: 11px;
-    cursor: pointer;
-    transition: background 0.1s, color 0.1s, border-color 0.1s;
-  }
-  :global(.mle-btn:hover) {
-    background: var(--color-bg-hover);
-    color: var(--color-text-primary);
-    border-color: var(--color-border);
-  }
-  :global(.mle-kbd) {
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 10px;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: var(--color-bg-elevated);
-    border: 1px solid var(--color-border-subtle);
-    color: var(--color-text-muted);
-  }
-  :global(.border-l-accent) {
-    border-left-color: var(--color-border);
-  }
+  /* bits-ui Tooltip Content only accepts a `class` prop (no slot for inline
+     class names from the parent), so the tooltip styles have to live as
+     :global rules. Everything else is utility-driven. */
   :global(.mle-tooltip) {
     display: inline-flex;
     align-items: center;
@@ -426,50 +498,5 @@
     letter-spacing: 0.22em;
     color: var(--color-text-muted);
     margin-bottom: 4px;
-  }
-  :global(.mle-icon-btn) {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--color-text-muted);
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: background 0.1s, color 0.1s, border-color 0.1s;
-  }
-  :global(.mle-icon-btn:hover) {
-    background: var(--color-bg-hover);
-    color: var(--color-text-primary);
-    border-color: var(--color-border-subtle);
-  }
-  :global(.mle-footer-btn) {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px 4px 6px;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--color-text-muted);
-    border: 1px solid var(--color-border-subtle);
-    font-size: 11px;
-    cursor: pointer;
-    transition: background 0.1s, color 0.1s, border-color 0.1s;
-  }
-  :global(.mle-footer-btn:hover) {
-    background: var(--color-bg-hover);
-    color: var(--color-text-primary);
-    border-color: var(--color-border);
-  }
-  :global(.mle-footer-btn-primary) {
-    background: var(--color-bg-active);
-    color: var(--color-text-primary);
-    border-color: var(--color-border);
-  }
-  :global(.mle-footer-btn-primary:hover) {
-    background: var(--color-bg-active);
-    filter: brightness(1.12);
   }
 </style>
