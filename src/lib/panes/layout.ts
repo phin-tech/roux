@@ -243,6 +243,8 @@ const dropSideToDirection: Record<DropSide, SplitDirection> = {
   bottom: "v",
 };
 
+const MIN_PANE_FRACTION = 0.05;
+
 // ── Internal tree helpers ────────────────────────────────────────────────────
 
 /** Builds the path of { parent, childIndex } entries from root to target leaf. */
@@ -345,6 +347,52 @@ function splitAtPath(
   }
   if (node.kind !== "split") throw new Error("Expected split at path");
   return node;
+}
+
+function splitAtExactPath(
+  root: LayoutNode,
+  path: readonly number[]
+): (LayoutNode & { kind: "split" }) | null {
+  let node = root;
+  for (const index of path) {
+    if (node.kind !== "split") return null;
+    if (!Number.isInteger(index) || index < 0 || index >= node.children.length) return null;
+    node = node.children[index];
+  }
+  return node.kind === "split" ? node : null;
+}
+
+function replaceSplitAtPath(
+  root: LayoutNode,
+  path: readonly number[],
+  replacement: LayoutNode & { kind: "split" },
+  depth = 0
+): LayoutNode {
+  if (depth === path.length) return replacement;
+  if (root.kind === "leaf") return root;
+
+  const childIdx = path[depth];
+  const newChildren = root.children.map((child, i) =>
+    i === childIdx ? replaceSplitAtPath(child, path, replacement, depth + 1) : child
+  );
+  if (newChildren.every((c, i) => c === root.children[i])) return root;
+  return { ...root, children: newChildren };
+}
+
+function normalizedSplitSizes(split: LayoutNode & { kind: "split" }): number[] {
+  const count = split.children.length;
+  const sizes = split.sizes;
+  if (
+    !sizes ||
+    sizes.length !== count ||
+    sizes.some((size) => !Number.isFinite(size) || size < 0)
+  ) {
+    return Array(count).fill(1 / count);
+  }
+
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  if (total <= 0) return Array(count).fill(1 / count);
+  return sizes.map((size) => size / total);
 }
 
 /** Collect the depths of ancestor split nodes along the path. */
@@ -718,13 +766,12 @@ export function resizePane(sessionId: string, direction: Direction, step: number
     const newSizes = [...currentSizes];
 
     const delta = Math.abs(step);
-    const MIN_SIZE = 0.05;
 
     newSizes[childIndex] = Math.min(
-      1 - MIN_SIZE * (count - 1),
+      1 - MIN_PANE_FRACTION * (count - 1),
       newSizes[childIndex] + delta
     );
-    newSizes[neighborIndex] = Math.max(MIN_SIZE, newSizes[neighborIndex] - delta);
+    newSizes[neighborIndex] = Math.max(MIN_PANE_FRACTION, newSizes[neighborIndex] - delta);
 
     const total = newSizes.reduce((a, b) => a + b, 0);
     for (let j = 0; j < newSizes.length; j++) newSizes[j] /= total;
@@ -738,4 +785,55 @@ export function resizePane(sessionId: string, direction: Direction, step: number
     });
     return;
   }
+}
+
+/** Resize the two children adjacent to a rendered split divider. */
+export function resizeSplitDivider(
+  sessionId: string,
+  splitPath: readonly number[],
+  dividerIndex: number,
+  deltaPx: number,
+  containerPx: number
+): void {
+  if (
+    !Number.isInteger(dividerIndex) ||
+    !Number.isFinite(deltaPx) ||
+    !Number.isFinite(containerPx) ||
+    containerPx <= 0
+  ) {
+    return;
+  }
+
+  sessionLayouts.update((m) => {
+    const root = m.get(sessionId);
+    if (!root) return m;
+
+    const split = splitAtExactPath(root, splitPath);
+    if (!split || split.stacked) return m;
+
+    const count = split.children.length;
+    if (count < 2 || dividerIndex < 0 || dividerIndex >= count - 1) return m;
+
+    const leftIndex = dividerIndex;
+    const rightIndex = dividerIndex + 1;
+    const sizes = normalizedSplitSizes(split);
+    const pairTotal = sizes[leftIndex] + sizes[rightIndex];
+    const minSize = Math.min(MIN_PANE_FRACTION, pairTotal / 2);
+    const delta = deltaPx / containerPx;
+    const nextLeft = Math.max(
+      minSize,
+      Math.min(pairTotal - minSize, sizes[leftIndex] + delta)
+    );
+
+    const newSizes = [...sizes];
+    newSizes[leftIndex] = nextLeft;
+    newSizes[rightIndex] = pairTotal - nextLeft;
+
+    const total = newSizes.reduce((sum, size) => sum + size, 0);
+    const normalized = total > 0 ? newSizes.map((size) => size / total) : newSizes;
+
+    const next = new Map(m);
+    next.set(sessionId, replaceSplitAtPath(root, splitPath, { ...split, sizes: normalized }));
+    return next;
+  });
 }
