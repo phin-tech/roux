@@ -85,11 +85,12 @@ impl OscState {
         // `rest` is everything after the "9;" prefix; join with ';' to
         // preserve any literal semicolons in the user's message.
         let raw = join_params(rest);
-        if raw.trim().is_empty() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("osc 9") {
             return;
         }
 
-        if let Some(parsed) = parse_osc9_payload(&raw) {
+        if let Some(parsed) = parse_osc9_payload(trimmed) {
             self.push(
                 NotificationSource::Osc { code: 9, sender_id: None },
                 parsed.title,
@@ -100,7 +101,13 @@ impl OscState {
             return;
         }
 
-        self.push(NotificationSource::Osc { code: 9, sender_id: None }, raw, None, None, None);
+        self.push(
+            NotificationSource::Osc { code: 9, sender_id: None },
+            trimmed.to_string(),
+            None,
+            None,
+            None,
+        );
     }
 
     fn handle_osc_777(&mut self, rest: &[&[u8]]) {
@@ -287,6 +294,9 @@ fn parse_osc9_payload(raw: &str) -> Option<ParsedOsc9Payload> {
     if trimmed.is_empty() {
         return None;
     }
+    if trimmed.eq_ignore_ascii_case("osc 9") {
+        return None;
+    }
 
     match serde_json::from_str::<Value>(trimmed).ok()? {
         Value::String(s) => {
@@ -299,11 +309,16 @@ fn parse_osc9_payload(raw: &str) -> Option<ParsedOsc9Payload> {
         Value::Object(obj) => {
             let subtitle = first_string(&obj, &["subtitle", "subTitle"]);
             let title = first_string(&obj, &["title", "summary", "subject"]);
-            let message = first_string(&obj, &["body", "message", "text", "detail", "details"]);
+            let detail = first_string(&obj, &["detail", "details"]);
+            let message = first_string(&obj, &["body", "message", "text"]);
 
-            let final_title = title.clone().or_else(|| message.clone())?;
-            let body = match (title.is_some(), message) {
-                (true, Some(m)) if m != final_title => Some(m),
+            let final_title = title
+                .clone()
+                .or_else(|| message.clone())
+                .or_else(|| detail.as_ref().map(|_| "Terminal notification".to_string()))?;
+            let body = match message {
+                _ if detail.is_some() => detail,
+                Some(m) if title.is_some() && m != final_title => Some(m),
                 _ => None,
             };
 
@@ -370,6 +385,27 @@ mod tests {
         let captured = parse(seq);
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0][2], b"hello");
+    }
+
+    #[test]
+    fn osc_9_protocol_only_payload_is_ignored() {
+        assert_eq!(parse_osc9_payload("osc 9"), None);
+        assert_eq!(parse_osc9_payload(" OSC 9 "), None);
+    }
+
+    #[test]
+    fn osc_9_json_detail_without_title_becomes_body() {
+        let parsed = parse_osc9_payload(r#"{"detail":"Claude needs attention"}"#).unwrap();
+        assert_eq!(parsed.title, "Terminal notification");
+        assert_eq!(parsed.body.as_deref(), Some("Claude needs attention"));
+    }
+
+    #[test]
+    fn osc_9_json_detail_wins_body_when_message_is_present() {
+        let parsed =
+            parse_osc9_payload(r#"{"message":"Build failed","detail":"exit code 1"}"#).unwrap();
+        assert_eq!(parsed.title, "Build failed");
+        assert_eq!(parsed.body.as_deref(), Some("exit code 1"));
     }
 
     #[test]

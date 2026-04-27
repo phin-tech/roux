@@ -87,7 +87,7 @@ async function fireCompletionNotification(
   const instance = get(paneInstances).get(paneId);
   const profile = resolveProfileRef(instance?.spawnProfileRef);
   const title = deriveTitle(instance?.name, profile?.name, state.provider);
-  const body = `${capitalize(state.provider)} finished generating.`;
+  const body = deriveBody(state);
 
   try {
     await notificationsPush({
@@ -127,6 +127,21 @@ function deriveTitle(
   if (paneName) return `${paneName} is idle`;
   if (profileName) return `${profileName} is idle`;
   return `${capitalize(provider)} is idle`;
+}
+
+function deriveBody(state: AgentState): string {
+  const query = state.completionSummary?.query;
+  const response = state.completionSummary?.response;
+  if (query && response) {
+    return `Prompt: ${query}\nResponse: ${response}`;
+  }
+  if (query) {
+    return `Prompt: ${query}`;
+  }
+  if (response) {
+    return `Response: ${response}`;
+  }
+  return `${capitalize(state.provider)} finished generating.`;
 }
 
 function capitalize(s: string): string {

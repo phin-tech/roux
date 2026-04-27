@@ -1,6 +1,11 @@
 import { get } from "svelte/store";
 import type { StatusUpdate } from "$lib/tauri";
-import { updateAgentState, type AgentStateEvent, type PermissionInfo } from "./agentState";
+import {
+  updateAgentState,
+  type AgentStateEvent,
+  type CompletionSummary,
+  type PermissionInfo,
+} from "./agentState";
 import { sessionLayouts, collectLeafIds } from "./layout";
 import type { Provider } from "./profiles";
 
@@ -107,6 +112,7 @@ export function routeStatusUpdate(
       provider,
       status: routed,
       permissionInfo,
+      completionSummary: buildCompletionSummary(update),
       providerSessionId: update.providerSessionId ?? undefined,
       source: "hook",
     },
@@ -163,5 +169,15 @@ function buildPermissionInfo(update: StatusUpdate): PermissionInfo | undefined {
     toolName: update.toolName ?? undefined,
     toolInput: (update.toolInput as Record<string, unknown> | null) ?? undefined,
     message: update.message ?? undefined,
+  };
+}
+
+function buildCompletionSummary(update: StatusUpdate): CompletionSummary | undefined {
+  const query = update.query?.trim();
+  const response = update.response?.trim();
+  if (!query && !response) return undefined;
+  return {
+    query: query || undefined,
+    response: response || undefined,
   };
 }
