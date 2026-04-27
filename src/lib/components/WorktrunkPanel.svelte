@@ -680,7 +680,7 @@
                 <a
                   href={`file://${diagnostics.config.userPath}`}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   class="text-blue underline"
                   class:opacity-50={!diagnostics.config.userExists}
                   title={diagnostics.config.userExists
@@ -693,7 +693,7 @@
                 <a
                   href={`file://${diagnostics.config.projectPath}`}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   class="text-blue underline"
                   class:opacity-50={!diagnostics.config.projectExists}
                   title={diagnostics.config.projectExists
