@@ -34,11 +34,8 @@
     unwrapContinuations,
   } from "$lib/panes/textTransforms";
 
-  // Panel width — kept in sync with the inline `w-[680px]` class below so
-  // drag clamping uses the right horizontal dimension.
+  // Panel dimensions feed both layout styles and positioning math.
   const PANEL_WIDTH = 680;
-  // Panel height — kept in sync with the inline `h-[480px]` class below for
-  // positioning relative to the focused pane.
   const PANEL_HEIGHT = 480;
   // Pixels of the panel header that must remain inside the viewport during
   // a drag, so the user can always grab it back.
@@ -343,16 +340,34 @@
   function onHeaderPointerUp(e: PointerEvent): void {
     if (!dragging) return;
     dragging = false;
-    (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+    releaseHeaderPointerCapture(e);
+  }
+
+  function onHeaderPointerCancel(e: PointerEvent): void {
+    if (!dragging) return;
+    dragging = false;
+    releaseHeaderPointerCapture(e);
+  }
+
+  function onHeaderLostPointerCapture(): void {
+    dragging = false;
+  }
+
+  function releaseHeaderPointerCapture(e: PointerEvent): void {
+    const target = e.currentTarget as Element;
+    if (target.hasPointerCapture(e.pointerId)) {
+      target.releasePointerCapture(e.pointerId);
+    }
   }
 </script>
 
 {#if $multiLineEditor.open}
+  {@const panelPosition = position ?? defaultPosition()}
   <Tooltip.Provider delayDuration={350} skipDelayDuration={150}>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="ui-dialog fixed z-50 flex h-[480px] w-[680px] flex-col overflow-hidden rounded-2xl"
-      style="top: {position?.y ?? 0}px; left: {position?.x ?? 0}px;"
+      class="ui-dialog fixed z-50 flex flex-col overflow-hidden rounded-2xl"
+      style="top: {panelPosition.y}px; left: {panelPosition.x}px; width: {PANEL_WIDTH}px; height: {PANEL_HEIGHT}px;"
       onkeydown={handleKeyDown}
       transition:scale={{ duration: 120, start: 0.985 }}
     >
@@ -365,6 +380,8 @@
         onpointerdown={onHeaderPointerDown}
         onpointermove={onHeaderPointerMove}
         onpointerup={onHeaderPointerUp}
+        onpointercancel={onHeaderPointerCancel}
+        onlostpointercapture={onHeaderLostPointerCapture}
       >
         <div class="flex items-center gap-2.5">
           <button
