@@ -51,6 +51,14 @@ export const commands = {
 	 *  absent or fails.
 	 */
 	cmdOpenTerminalAt: (path: string) => typedError<null, string>(__TAURI_INVOKE("cmd_open_terminal_at", { path })),
+	cmdOpenPathInFinder: (path: string) => typedError<null, string>(__TAURI_INVOKE("cmd_open_path_in_finder", { path })),
+	cmdListAutomationHooks: (repoPath: string | null) => typedError<HookListItem[], string>(__TAURI_INVOKE("cmd_list_automation_hooks", { repoPath })),
+	cmdPreviewAutomationHooks: (request: HookRunRequest) => typedError<HookPreviewItem[], string>(__TAURI_INVOKE("cmd_preview_automation_hooks", { request })),
+	cmdRunAutomationHook: (request: HookRunRequest) => typedError<HookRunSummary, string>(__TAURI_INVOKE("cmd_run_automation_hook", { request })),
+	cmdApproveAutomationHook: (approvalId: string) => typedError<null, string>(__TAURI_INVOKE("cmd_approve_automation_hook", { approvalId })),
+	cmdClearAutomationHookApprovals: () => typedError<null, string>(__TAURI_INVOKE("cmd_clear_automation_hook_approvals")),
+	cmdListAutomationHookLogs: () => __TAURI_INVOKE<HookLogEntry[]>("cmd_list_automation_hook_logs"),
+	cmdReadAutomationHookLog: (path: string) => typedError<string, string>(__TAURI_INVOKE("cmd_read_automation_hook_log", { path })),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
 	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, nonoProfile, nonoAllowDirs, profile, initialSize })),
@@ -353,6 +361,59 @@ export type GithubJob = {
 };
 
 export type GroupBy = "repo" | "project";
+
+export type HookListItem = {
+	event: string,
+	source: HookSourceKind,
+	configPath: string,
+	name: string,
+	command: string,
+	approvalId: string | null,
+	approved: boolean,
+};
+
+export type HookLogEntry = {
+	file: string,
+	path: string,
+	event: string | null,
+	name: string | null,
+	source: HookSourceKind | null,
+	exitCode: number | null,
+	startedAt: number | null,
+	finishedAt: number | null,
+};
+
+export type HookPreviewItem = {
+	event: string,
+	source: HookSourceKind,
+	configPath: string,
+	name: string,
+	command: string,
+	renderedCommand: string,
+	approvalId: string | null,
+	approved: boolean,
+	matched: boolean,
+};
+
+export type HookRunRequest = {
+	event: string,
+	repoPath: string | null,
+	worktreePath: string | null,
+	branch: string | null,
+	sessionId: string | null,
+	projectId: string | null,
+	taskId: string | null,
+	scope: string | null,
+	provider: string | null,
+	args: string[] | null,
+};
+
+export type HookRunSummary = {
+	event: string,
+	ran: number,
+};
+
+export type HookSourceKind = "user" | "project";
 
 // HUD visibility for a tree.
 export type HudMode = { kind: "always" } | { kind: "delayed"; ms: number } | { kind: "never" };

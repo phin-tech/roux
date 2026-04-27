@@ -1,4 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { openPathInFinder } from "$lib/tauri";
 import { setActiveSession, sessionState } from "$lib/stores/sessions";
 import { setLogicalFocus } from "$lib/panes/focus";
 import { paneInstances } from "$lib/panes/instances";
@@ -12,6 +13,19 @@ import {
   getNotificationSnapshot,
 } from "$lib/stores/notifications";
 import type { NotificationAction } from "$lib/types";
+
+function normalizeOpenPath(path: string): string {
+  if (!path.startsWith("file://")) return path;
+  try {
+    const url = new URL(path);
+    const decodedPath = decodeURIComponent(url.pathname);
+    if (/^\/[A-Za-z]:\//.test(decodedPath)) return decodedPath.slice(1);
+    if (url.hostname) return `//${url.hostname}${decodedPath}`;
+    return decodedPath;
+  } catch {
+    return path.slice("file://".length);
+  }
+}
 
 /** Find which session owns a pane by walking layouts. Returns null if none. */
 function findSessionForPane(paneId: string): string | null {
@@ -93,11 +107,7 @@ export async function dispatchNotificationAction(
       break;
     }
     case "openPath": {
-      // openUrl handles file:// paths on all platforms.
-      const path = kind.path.startsWith("file://")
-        ? kind.path
-        : `file://${kind.path}`;
-      await openUrl(path);
+      await openPathInFinder(normalizeOpenPath(kind.path));
       await markNotificationRead(notificationId);
       break;
     }
