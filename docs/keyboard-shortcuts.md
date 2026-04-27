@@ -69,6 +69,17 @@ Roux also has a Vimish leader-mode surface for pane and session commands. The le
 The session-switch shortcuts target the Nth session in the sidebar's top-to-bottom order. Hold ++cmd++ on its own for a moment to see the digit for each session drawn as an overlay on top of the card.
 You can disable this overlay in **Settings → Keyboard** while keeping ++cmd+digit++ session switching enabled.
 
+## Editor
+
+| Action | Shortcut |
+|---|---|
+| Open multi-line prompt editor | ++cmd+shift+e++ |
+| Open with clipboard | ++cmd+shift+v++ |
+| Insert into terminal | ++cmd+enter++ |
+| Cancel editor | ++escape++ |
+
+The multi-line editor is available in shell and command panes. ++cmd+enter++ inserts the edited text without auto-executing, so you can review it in the terminal before pressing Enter. See [Editor](features/editor.md) for details on the transform toolbar and how the editor positions itself.
+
 ## Navigation
 
 | Action | Shortcut |

@@ -73,3 +73,10 @@ This page tracks major shipped features across Roux's full history.
 - **Independent terminal themes**: terminal colors are now selected separately from the GUI theme, so you can keep a light UI with a dark shell, or the reverse.
 - **User-imported terminal themes**: drop iTerm2 `.itermcolors` files into `~/.config/roux/themes/` and Roux will surface them in Settings alongside the built-in palettes.
 - **v0.5.0**: the late-April UI and workflow polish shipped as the `v0.5.0` release.
+
+## April 23, 2026
+
+- **Multi-line prompt editor**: ++cmd+shift+e++ opens a dedicated editor for cleaning up pasted CLI commands before inserting them into the terminal. Six one-shot text transforms (join lines, unwrap continuations, strip prompt markers, strip code fences, smart-quote conversion, trim) plus CodeMirror syntax highlighting and undo history. Submit with ++cmd+enter++ to insert without auto-executing; ++escape++ to cancel.
+- **Clipboard-seeded editor**: ++cmd+shift+v++ opens the multi-line editor pre-populated with clipboard contents.
+- **Smart editor positioning**: the floating editor panel positions intelligently—near the top for new shells (to avoid obscuring output) and near the bottom for active ones. Drag by the header; position persists across restarts.
+- **Draggable pane dividers**: split pane dividers are now draggable for quick manual resize, in addition to the existing keybindings.

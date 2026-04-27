@@ -43,8 +43,20 @@ From the command palette (++cmd+k++), run **New shell pane** to open a regular s
 
 On launch, restored sessions appear disconnected by design. Click **Reconnect** on a session card to restore its saved pane layout (including shell splits) and reconnect the main agent pane.
 
+## Working with commands
+
+When working with shell terminals, you can use the multi-line editor to clean up pasted commands:
+
+- ++cmd+shift+e++ opens an editor for preparing shell commands
+- ++cmd+shift+v++ opens the editor with clipboard contents
+- Use the transform toolbar to remove markdown code fences, join wrapped lines, strip prompt markers, or fix smart quotes
+- ++cmd+enter++ inserts the cleaned command without auto-executing
+
+See [Editor](features/editor.md) for full details.
+
 ## Next steps
 
 - [Panes](features/panes.md) — splits, stacks, focus
 - [Sessions](features/sessions.md) — Claude and shell lifetimes
+- [Editor](features/editor.md) — multi-line prompt editor and text transforms
 - [Keyboard shortcuts](keyboard-shortcuts.md)
