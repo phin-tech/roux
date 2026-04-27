@@ -306,13 +306,10 @@ fn parse_osc9_payload(raw: &str) -> Option<ParsedOsc9Payload> {
             let message =
                 first_string(&obj, &["body", "message", "text"]).or_else(|| detail.clone());
 
-            let Some(final_title) = title
+            let final_title = title
                 .clone()
                 .or_else(|| detail.as_ref().map(|_| "Terminal notification".to_string()))
-                .or_else(|| message.clone())
-            else {
-                return None;
-            };
+                .or_else(|| message.clone())?;
             let body = match message {
                 Some(m) if detail.is_some() || (title.is_some() && m != final_title) => Some(m),
                 _ => None,
