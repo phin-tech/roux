@@ -111,6 +111,33 @@ pub enum UpdateChannel {
     PreRelease,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum LibrarySourceKind {
+    #[default]
+    LocalRepo,
+    GitRepo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibrarySource {
+    pub id: String,
+    #[serde(default)]
+    pub kind: LibrarySourceKind,
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub order: u32,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+}
+
 /// What happens to a PTY when its pane is closed.
 ///
 /// - `Kill` — the PTY process is killed immediately.
@@ -174,6 +201,11 @@ pub struct RouxSettings {
     /// typically need to set this explicitly.
     #[serde(default)]
     pub gh_binary_path: Option<String>,
+    /// Absolute path to the `git` binary. When set and non-empty, Roux uses
+    /// it for git-backed Library sources instead of resolving `git` from the
+    /// login-shell PATH or process PATH.
+    #[serde(default)]
+    pub git_binary_path: Option<String>,
     /// Absolute path to the `wt` (worktrunk) binary. When set and non-empty,
     /// Roux uses it directly instead of resolving `wt` from `PATH`. Same
     /// motivation as `gh_binary_path` — macOS GUI apps inherit a minimal
@@ -246,6 +278,16 @@ pub struct RouxSettings {
     /// settings schema bump when they arrive.
     #[serde(default)]
     pub trusted_workspaces: Vec<String>,
+    /// Ordered git repositories that contribute reusable Library items
+    /// under `.roux/library/prompts/` and `.roux/library/skills/`.
+    /// The active repo is layered separately at runtime and wins over these.
+    #[serde(default)]
+    pub library_pinned_repos: Vec<String>,
+    /// Ordered Library sources. Local repo sources read `.roux/library` from
+    /// an existing checkout; Git repo sources are managed by Roux and synced
+    /// through native Git operations.
+    #[serde(default)]
+    pub library_sources: Vec<LibrarySource>,
     #[serde(default)]
     pub status_bar_position: StatusBarPosition,
     /// Reveal the pane-number overlay while Option (⌥) is held. The
@@ -289,6 +331,7 @@ impl Default for RouxSettings {
             default_model: None,
             claude_binary_path: None,
             gh_binary_path: None,
+            git_binary_path: None,
             worktrunk_binary_path: None,
             worktree_provider: WorktreeProvider::default(),
             additional_flags: Vec::new(),
@@ -307,6 +350,8 @@ impl Default for RouxSettings {
             update_channel: UpdateChannel::default(),
             spawn_profiles: Vec::new(),
             trusted_workspaces: Vec::new(),
+            library_pinned_repos: Vec::new(),
+            library_sources: Vec::new(),
             status_bar_position: StatusBarPosition::Bottom,
             show_pane_hints_on_option: false,
             show_session_hints_on_command: true,
@@ -326,17 +371,112 @@ impl RouxSettings {
             profile.source = ProfileSource::User;
         }
         s.repo_roots = normalize_repo_roots(&s.repo_roots);
+        s.library_pinned_repos = normalize_repo_roots(&s.library_pinned_repos);
+        if s.library_sources.is_empty() && !s.library_pinned_repos.is_empty() {
+            s.library_sources = s
+                .library_pinned_repos
+                .iter()
+                .enumerate()
+                .map(|(index, path)| LibrarySource {
+                    id: stable_source_id("local", path),
+                    kind: LibrarySourceKind::LocalRepo,
+                    name: source_name_from_path(path),
+                    enabled: true,
+                    order: index as u32,
+                    path: Some(path.clone()),
+                    url: None,
+                    branch: None,
+                })
+                .collect();
+        }
+        s.library_sources = normalize_library_sources(&s.library_sources);
         // One-way migration: if an older settings file only has the legacy
         // `cleanupWorktreesOnClose: true` flag, promote the new enum to
         // Always. The `Prompt` default already matches legacy `false`, so
         // no migration is needed in that direction. Keep the legacy bool
         // in sync so older code paths and pre-migration consumers agree.
-        if s.cleanup_worktrees_on_close && s.worktree_cleanup_on_close == WorktreeCleanupMode::Prompt {
+        if s.cleanup_worktrees_on_close
+            && s.worktree_cleanup_on_close == WorktreeCleanupMode::Prompt
+        {
             s.worktree_cleanup_on_close = WorktreeCleanupMode::Always;
         }
         s.cleanup_worktrees_on_close = s.worktree_cleanup_on_close == WorktreeCleanupMode::Always;
         s
     }
+}
+
+fn normalize_library_sources(sources: &[LibrarySource]) -> Vec<LibrarySource> {
+    let mut dedup = HashSet::new();
+    let mut cleaned = Vec::new();
+    for (fallback_order, source) in sources.iter().enumerate() {
+        let mut next = source.clone();
+        next.name = next.name.trim().to_string();
+        next.path = next.path.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        next.url = next.url.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        next.branch = next.branch.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let identity = match next.kind {
+            LibrarySourceKind::LocalRepo => next.path.clone(),
+            LibrarySourceKind::GitRepo => next.url.clone(),
+        };
+        let Some(identity) = identity else {
+            continue;
+        };
+        if next.id.trim().is_empty() {
+            let prefix = match next.kind {
+                LibrarySourceKind::LocalRepo => "local",
+                LibrarySourceKind::GitRepo => "git",
+            };
+            let branch = next.branch.clone().unwrap_or_default();
+            next.id = stable_source_id(prefix, &format!("{identity}@{branch}"));
+        } else {
+            next.id = next.id.trim().to_string();
+        }
+        if next.name.is_empty() {
+            next.name = match next.kind {
+                LibrarySourceKind::LocalRepo => source_name_from_path(&identity),
+                LibrarySourceKind::GitRepo => source_name_from_url(&identity),
+            };
+        }
+        if next.order == 0 && fallback_order > 0 {
+            next.order = fallback_order as u32;
+        }
+        if dedup.insert(next.id.clone()) {
+            cleaned.push(next);
+        }
+    }
+    cleaned.sort_by_key(|source| source.order);
+    for (index, source) in cleaned.iter_mut().enumerate() {
+        source.order = index as u32;
+    }
+    cleaned
+}
+
+fn stable_source_id(prefix: &str, value: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{prefix}-{hash:016x}")
+}
+
+fn source_name_from_path(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Library Source")
+        .to_string()
+}
+
+fn source_name_from_url(url: &str) -> String {
+    let trimmed = url.trim_end_matches('/').trim_end_matches(".git");
+    trimmed
+        .rsplit(['/', ':'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Git Library")
+        .to_string()
 }
 
 fn normalize_repo_roots(roots: &[String]) -> Vec<String> {
@@ -415,7 +555,7 @@ mod terminal_theme_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{RouxSettings, UpdateChannel};
+    use super::{stable_source_id, RouxSettings, UpdateChannel};
 
     #[test]
     fn hint_overlay_defaults_preserve_command_drop_option() {
@@ -488,6 +628,41 @@ mod tests {
         }"#;
         let parsed: RouxSettings = serde_json::from_str(legacy).unwrap();
         assert_eq!(parsed.update_channel, UpdateChannel::Stable);
+    }
+
+    #[test]
+    fn settings_without_git_binary_path_deserializes_as_none() {
+        let json = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.4,
+            "taskPanelCollapsed": false
+        }"#;
+
+        let settings: RouxSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.git_binary_path, None);
+    }
+
+    #[test]
+    fn stable_source_id_is_deterministic() {
+        assert_eq!(
+            stable_source_id("git", "https://example.com/team/lib@main"),
+            "git-abf3a29bca551e36"
+        );
     }
 
     #[test]

@@ -122,6 +122,11 @@
     if (selected) updateSetting("ghBinaryPath", selected as string);
   }
 
+  async function browseGitBinary() {
+    const selected = await open({ directory: false, title: "Select git Binary" });
+    if (selected) updateSetting("gitBinaryPath", selected as string);
+  }
+
   async function browseWorktrunkBinary() {
     const selected = await open({
       directory: false,
@@ -253,10 +258,19 @@
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
       tabindex="-1"
-    >
-      <!-- Sidebar -->
-      <aside class="flex w-[180px] shrink-0 flex-col border-r border-hairline bg-bg-surface/30 py-3">
-        <div class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-widest text-text-muted">Settings</div>
+      >
+        <!-- Sidebar -->
+        <aside class="flex w-[180px] shrink-0 flex-col border-r border-hairline bg-bg-surface/30 py-3">
+        <div class="flex items-center gap-2 px-3 pb-2">
+          <button
+            aria-label="Close settings"
+            class="cursor-pointer rounded border border-transparent bg-transparent p-1 text-text-muted transition-colors hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            onclick={onclose}
+          >
+            <X size={14} />
+          </button>
+          <div class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Settings</div>
+        </div>
         <nav class="flex flex-col gap-0.5 px-2">
           {#each CATEGORIES as cat}
             {@const Icon = cat.icon}
@@ -276,17 +290,10 @@
 
       <!-- Detail pane -->
       <div class="flex min-w-0 flex-1 flex-col">
-        <div class="flex h-10 shrink-0 items-center justify-between border-b border-hairline px-4">
+        <div class="flex h-10 shrink-0 items-center border-b border-hairline px-4">
           <h2 class="text-sm font-semibold tracking-tight">
             {CATEGORIES.find((c) => c.id === selected)?.label}
           </h2>
-          <button
-            aria-label="Close settings"
-            class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1 text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
-            onclick={onclose}
-          >
-            <X size={14} />
-          </button>
         </div>
 
         <div class="app-scrollbar flex-1 overflow-y-auto px-5 py-4">
@@ -725,6 +732,30 @@
                   <button
                     class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
                     onclick={browseGhBinary}
+                  >...</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="text-[13px] font-semibold">Git</div>
+              <div class="mt-0.5 text-[11px] text-text-muted">
+                Used for git-backed Library sources. Roux checks this override,
+                then <code class="font-mono">ROUX_GIT</code>, then your login shell's PATH, then the app PATH.
+                Set this only if auto-detection misses your install.
+              </div>
+              <div class="mt-3 flex items-center justify-between gap-2">
+                <span class="text-[13px]">Binary path</span>
+                <div class="flex gap-1">
+                  <input
+                    class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-64 text-right focus:border-accent-dim"
+                    value={$settings.gitBinaryPath ?? ""}
+                    oninput={(e) => updateSetting("gitBinaryPath", e.currentTarget.value || null)}
+                    placeholder="/opt/homebrew/bin/git"
+                  />
+                  <button
+                    class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                    onclick={browseGitBinary}
                   >...</button>
                 </div>
               </div>

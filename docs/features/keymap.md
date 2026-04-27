@@ -206,7 +206,7 @@ Bindings target commands by id. The complete, always-current list is the command
 | `app.settings` | Open settings |
 | `app.quit` | Quit Roux |
 | `app.check-updates` | Check for an update |
-| `ui.toggle-notes` / `ui.toggle-notifications` / `ui.toggle-watches` | Sidebar panels |
+| `ui.toggle-notes` / `ui.toggle-notifications` / `ui.toggle-watches` / `ui.toggle-library` | Sidebar panels |
 | `ui.toggle-sidebar` / `ui.toggle-task-panel` | Layout panels |
 | `ui.group-by` | Toggle session grouping (repo / project) |
 

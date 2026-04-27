@@ -224,6 +224,14 @@ export function registerUiCommands() {
   });
 
   registry.register({
+    id: "ui.toggle-library",
+    label: "Toggle Library",
+    category: "App",
+    available: () => true,
+    execute: () => toggleSidebar("library"),
+  });
+
+  registry.register({
     id: "ui.toggle-sessions",
     label: "Toggle Sessions List",
     category: "App",

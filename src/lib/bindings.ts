@@ -512,6 +512,19 @@ export type LayoutSpec = {
  */
 export type LayoutSplitDirection = "horizontal" | "vertical";
 
+export type LibrarySource = {
+	id: string,
+	kind?: LibrarySourceKind,
+	name: string,
+	enabled?: boolean,
+	order?: number,
+	path?: string | null,
+	url?: string | null,
+	branch?: string | null,
+};
+
+export type LibrarySourceKind = "localRepo" | "gitRepo";
+
 /**
  *  A modifier key. `Cmd` is platform-dispatched: on macOS it matches Meta,
  *  elsewhere it matches Ctrl. The resolver decides which physical flag to
@@ -772,6 +785,12 @@ export type RouxSettings = {
 	 */
 	ghBinaryPath?: string | null,
 	/**
+	 *  Absolute path to the `git` binary. When set and non-empty, Roux uses
+	 *  it for git-backed Library sources instead of resolving `git` from the
+	 *  login-shell PATH or process PATH.
+	 */
+	gitBinaryPath?: string | null,
+	/**
 	 *  Absolute path to the `wt` (worktrunk) binary. When set and non-empty,
 	 *  Roux uses it directly instead of resolving `wt` from `PATH`. Same
 	 *  motivation as `gh_binary_path` — macOS GUI apps inherit a minimal
@@ -850,6 +869,18 @@ export type RouxSettings = {
 	 *  settings schema bump when they arrive.
 	 */
 	trustedWorkspaces?: string[],
+	/**
+	 *  Ordered git repositories that contribute reusable Library items
+	 *  under `.roux/library/prompts/` and `.roux/library/skills/`.
+	 *  The active repo is layered separately at runtime and wins over these.
+	 */
+	libraryPinnedRepos?: string[],
+	/**
+	 *  Ordered Library sources. Local repo sources read `.roux/library` from
+	 *  an existing checkout; Git repo sources are managed by Roux and synced
+	 *  through native Git operations.
+	 */
+	librarySources?: LibrarySource[],
 	statusBarPosition?: StatusBarPosition,
 	/**
 	 *  Reveal the pane-number overlay while Option (⌥) is held. The
@@ -1199,4 +1230,3 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
-

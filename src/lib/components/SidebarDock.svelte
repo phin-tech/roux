@@ -26,6 +26,7 @@
   import WatchesPane from "./WatchesPane.svelte";
   import NotificationsPane from "./NotificationsPane.svelte";
   import DocPanel from "./DocPanel.svelte";
+  import LibraryPanel from "./LibraryPanel.svelte";
   import TaskPanel from "./TaskPanel.svelte";
   import SessionTabs from "./SessionTabs.svelte";
 
@@ -119,6 +120,7 @@
     "sessions",
     "notes",
     "watches",
+    "library",
     "tasks",
     "notifications",
     "docs",
@@ -248,6 +250,13 @@
             />
           {:else if id === "watches"}
             <WatchesPane
+              {visible}
+              onclose={onCloseFor(id)}
+              pinned={$pinnedSidebar === id}
+              onTogglePin={onTogglePinFor(id)}
+            />
+          {:else if id === "library"}
+            <LibraryPanel
               {visible}
               onclose={onCloseFor(id)}
               pinned={$pinnedSidebar === id}

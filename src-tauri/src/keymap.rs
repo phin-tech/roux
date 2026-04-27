@@ -20,10 +20,7 @@ pub fn keymap_path() -> PathBuf {
 }
 
 pub fn builtin_preset(name: &str) -> Option<&'static str> {
-    BUILTIN_PRESETS
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, src)| *src)
+    BUILTIN_PRESETS.iter().find(|(n, _)| *n == name).map(|(_, src)| *src)
 }
 
 /// Load and fully resolve the active keymap. If the file does not exist,
@@ -58,9 +55,8 @@ pub fn resolve(src: &str) -> Result<ParsedKeymap, KeymapLoadError> {
     let parsed = parse_keymap_kdl(src).map_err(KeymapLoadError::Parse)?;
     match parsed.preset_ref.clone() {
         Some(name) => {
-            let preset_src = builtin_preset(&name).ok_or_else(|| {
-                KeymapLoadError::UnknownPreset(name.clone())
-            })?;
+            let preset_src = builtin_preset(&name)
+                .ok_or_else(|| KeymapLoadError::UnknownPreset(name.clone()))?;
             let preset = parse_keymap_kdl(preset_src).map_err(KeymapLoadError::Parse)?;
             Ok(merge_keymaps(preset, parsed))
         }
@@ -118,9 +114,7 @@ pub(crate) fn set_keymap(contents: String) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn get_builtin_keymap_preset(name: String) -> Result<String, String> {
-    builtin_preset(&name)
-        .map(|s| s.to_string())
-        .ok_or_else(|| format!("unknown preset `{name}`"))
+    builtin_preset(&name).map(|s| s.to_string()).ok_or_else(|| format!("unknown preset `{name}`"))
 }
 
 /// Return the absolute path to the user's `keymap.kdl`. Used by the Settings
@@ -174,17 +168,12 @@ mod tests {
             .iter()
             .find(|b| match &b.key {
                 roux_core::KeyRef::Physical { mods, code } => {
-                    code == "KeyK"
-                        && mods.len() == 1
-                        && mods.contains(&roux_core::Modifier::Cmd)
+                    code == "KeyK" && mods.len() == 1 && mods.contains(&roux_core::Modifier::Cmd)
                 }
                 _ => false,
             })
             .expect("Cmd+KeyK bind present");
-        assert_eq!(
-            cmd_k.action,
-            roux_core::KeymapAction::Command { id: "app.quit".into() }
-        );
+        assert_eq!(cmd_k.action, roux_core::KeymapAction::Command { id: "app.quit".into() });
     }
 
     #[test]

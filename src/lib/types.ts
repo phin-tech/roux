@@ -94,6 +94,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   defaultModel: null,
   claudeBinaryPath: null,
   ghBinaryPath: null,
+  gitBinaryPath: null,
   additionalFlags: [],
   taskPanelSplit: 0.4,
   taskPanelCollapsed: false,
@@ -105,6 +106,8 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   updateCheckOnLaunch: true,
   spawnProfiles: [],
   trustedWorkspaces: [],
+  libraryPinnedRepos: [],
+  librarySources: [],
   statusBarPosition: "bottom",
   onPaneClose: "kill",
 };

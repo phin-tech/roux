@@ -248,6 +248,158 @@ export async function listWorktrees(
   return invoke("cmd_list_worktrees", { repoPath });
 }
 
+export type LibraryItemType = "prompt" | "skill";
+export type LibraryLayerKind = "global" | "localRepo" | "gitRepo" | "activeRepo";
+export type LibrarySourceKind = "localRepo" | "gitRepo";
+export type LibraryRemoteState = "upToDate" | "ahead" | "behind" | "diverged" | "unknown";
+export type LibraryVariableType = "string" | "int" | "float" | "select";
+
+export interface LibrarySource {
+  id: string;
+  kind: LibrarySourceKind;
+  name: string;
+  enabled: boolean;
+  order: number;
+  path?: string | null;
+  url?: string | null;
+  branch?: string | null;
+}
+
+export interface LibraryVariable {
+  name: string;
+  label?: string | null;
+  default?: string | null;
+  required: boolean;
+  valueType?: LibraryVariableType;
+  options?: string[];
+}
+
+export interface LibraryItem {
+  id: string;
+  itemType: LibraryItemType;
+  title: string;
+  description?: string | null;
+  tags: string[];
+  provider?: string | null;
+  sourceLayer: LibraryLayerKind;
+  sourceId?: string | null;
+  sourceLabel: string;
+  sourcePath: string;
+  overriddenPaths: string[];
+  variables: LibraryVariable[];
+}
+
+export interface LibraryRead {
+  item: LibraryItem;
+  body: string;
+}
+
+export interface RenderLibraryPromptRequest {
+  itemId: string;
+  variables: Record<string, string>;
+  sessionId?: string | null;
+}
+
+export interface RenderedLibraryPrompt {
+  itemId: string;
+  content: string;
+}
+
+export type SaveLibraryTarget =
+  | { type: "global" }
+  | { type: "source"; id: string }
+  | { type: "activeRepo" };
+
+export interface SaveLibraryItemRequest {
+  originalId?: string | null;
+  itemId: string;
+  itemType: LibraryItemType;
+  title: string;
+  description?: string | null;
+  tags: string[];
+  provider?: string | null;
+  variables: LibraryVariable[];
+  body: string;
+  target: SaveLibraryTarget;
+  expectedSourcePath?: string | null;
+}
+
+export interface SavedLibraryItem {
+  itemId: string;
+  sourcePath: string;
+}
+
+export interface LibraryGitStatus {
+  sourceId: string;
+  checkedOut: boolean;
+  checkoutPath: string;
+  branch: string;
+  trackingBranch?: string | null;
+  defaultBranch?: string | null;
+  dirty: boolean;
+  remoteState: LibraryRemoteState;
+  ahead: number;
+  behind: number;
+  behindDefault?: number | null;
+  error?: string | null;
+}
+
+export async function listLibraryItems(sessionId?: string | null): Promise<LibraryItem[]> {
+  return invoke("list_library_items", { sessionId: sessionId ?? null });
+}
+
+export async function readLibraryItem(
+  itemId: string,
+  sessionId?: string | null,
+): Promise<LibraryRead> {
+  return invoke("read_library_item", { itemId, sessionId: sessionId ?? null });
+}
+
+export async function renderLibraryPrompt(
+  request: RenderLibraryPromptRequest,
+): Promise<RenderedLibraryPrompt> {
+  return invoke("render_library_prompt", { request });
+}
+
+export async function saveLibraryItem(
+  request: SaveLibraryItemRequest,
+  sessionId?: string | null,
+): Promise<SavedLibraryItem> {
+  return invoke("save_library_item", { request, sessionId: sessionId ?? null });
+}
+
+export async function getLibraryPinnedRepos(): Promise<string[]> {
+  return invoke("get_library_pinned_repos");
+}
+
+export async function setLibraryPinnedRepos(pinnedRepos: string[]): Promise<string[]> {
+  return invoke("set_library_pinned_repos", { pinnedRepos });
+}
+
+export async function listLibrarySources(): Promise<LibrarySource[]> {
+  return invoke("list_library_sources");
+}
+
+export async function setLibrarySources(sources: LibrarySource[]): Promise<LibrarySource[]> {
+  return invoke("set_library_sources", { sources });
+}
+
+export async function cloneLibrarySource(sourceId: string): Promise<string> {
+  return invoke("clone_library_source", { sourceId });
+}
+
+export async function syncLibrarySource(sourceId: string): Promise<LibraryGitStatus> {
+  return invoke("sync_library_source", { sourceId });
+}
+
+export async function getLibrarySourceStatus(sourceId: string): Promise<LibraryGitStatus> {
+  return invoke("get_library_source_status", { sourceId });
+}
+
+export async function getLibrarySourceStatuses(): Promise<LibraryGitStatus[]> {
+  return invoke("get_library_source_statuses");
+}
+
 // Claude sessions
 export async function listClaudeSessions(cwd: string): Promise<ClaudeSession[]> {
   return invoke("list_claude_sessions", { cwd });
