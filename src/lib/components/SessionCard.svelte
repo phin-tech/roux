@@ -246,7 +246,7 @@
     {#if showRow2}
       <div class="mt-1 flex items-center gap-2 text-[10px] text-text-muted">
         {#if session.isWorktree}
-          <span class="flex items-center gap-1 font-mono text-text-secondary">
+          <span class="flex items-center gap-1 text-text-secondary">
             <span class="opacity-70">&#9095;</span>
             <span>worktree</span>
           </span>
@@ -271,7 +271,7 @@
       aria-hidden="true"
       style:--flash-color="transparent"
     >
-      <span class="font-mono text-[28px] font-bold leading-none text-text-primary drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+      <span class="text-[28px] font-bold leading-none text-text-primary drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
         &#8984;{slotLabel}
       </span>
     </div>

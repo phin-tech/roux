@@ -50,7 +50,7 @@
     </div>
     {#if $activeSession.isGitRepo}
       <span class="text-text-secondary">&bull;</span>
-      <span class="font-mono text-text-muted">&#9095; {$activeSession.branch}</span>
+      <span class="text-text-muted">&#9095; {$activeSession.branch}</span>
     {/if}
     {#if ciHref && ciChip && wtMeta}
       {@const Icon = ciChip.icon}
@@ -61,7 +61,7 @@
         href={ciHref}
         target="_blank"
         rel="noopener noreferrer"
-        class={`inline-flex items-center gap-1 font-mono underline ${ciChip.color} ${wtMeta.ciStale ? "opacity-60" : ""}`}
+        class={`inline-flex items-center gap-1 underline ${ciChip.color} ${wtMeta.ciStale ? "opacity-60" : ""}`}
         title={`CI: ${ciChip.label}${wtMeta.ciStale ? " (stale — unpushed changes)" : ""}`}
       >
         <Icon size={12} class={running ? "animate-spin" : ""} />
@@ -73,7 +73,7 @@
       <span class="text-text-secondary">&bull;</span>
       <span
         data-testid="status-bar-ci-chip"
-        class={`inline-flex items-center gap-1 font-mono ${ciChip.color} ${wtMeta.ciStale ? "opacity-60" : ""}`}
+        class={`inline-flex items-center gap-1 ${ciChip.color} ${wtMeta.ciStale ? "opacity-60" : ""}`}
         title={`CI: ${ciChip.label}${wtMeta.ciStale ? " (stale)" : ""}`}
       >
         <Icon size={12} class={running ? "animate-spin" : ""} />
@@ -81,9 +81,9 @@
       </span>
     {/if}
     <span class="text-text-secondary">&bull;</span>
-    <span class="font-mono text-text-muted">{$activeSession.model ?? "--"}</span>
+    <span class="text-text-muted">{$activeSession.model ?? "--"}</span>
     <span class="text-text-secondary">&bull;</span>
-    <span class="font-mono text-text-muted">
+    <span class="text-text-muted">
       {$activeSession.cost != null ? `$${$activeSession.cost.toFixed(2)}` : "--"}
     </span>
   {:else}

@@ -94,7 +94,7 @@
         onclick={() => setActiveStackIndex(sessionId, i)}
       >
         <span class="text-[10px] text-text-muted/60 shrink-0">{i === (node.activeIndex ?? 0) ? '\u25BE' : '\u25B8'}</span>
-        <span class="text-[11px] font-mono truncate {i === (node.activeIndex ?? 0) ? 'text-text-secondary' : 'text-text-muted'}">{getStackDisplayLabel(child)}</span>
+        <span class="text-[11px] truncate {i === (node.activeIndex ?? 0) ? 'text-text-secondary' : 'text-text-muted'}">{getStackDisplayLabel(child)}</span>
       </div>
       <div class="min-h-0 min-w-0 flex flex-col {i === (node.activeIndex ?? 0) ? 'flex-1' : 'hidden'}">
         {#if child.kind === "leaf"}

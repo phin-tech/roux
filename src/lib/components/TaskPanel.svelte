@@ -128,7 +128,7 @@
 <div class="flex h-full flex-col bg-transparent">
   <SidebarPanelHeader title="Tasks">
     {#snippet actions()}
-      <span class="border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
+      <span class="border border-border-subtle bg-bg-surface px-2 py-1 text-[12px] text-text-secondary">
         {filteredGroups.reduce((n, g) => n + g.tasks.length, 0)}
       </span>
       {#if onTogglePin}
@@ -167,7 +167,7 @@
         >
           <span class="text-[11px] text-text-secondary transition-transform {collapsedGroups.has(group.runner) ? '' : 'rotate-90'}">&#9654;</span>
           {group.runner}
-          <span class="ml-auto border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[11px] font-medium normal-case tracking-normal text-text-secondary">{group.tasks.length}</span>
+          <span class="ml-auto border border-border-subtle bg-bg-surface px-2 py-1 text-[11px] font-medium normal-case tracking-normal text-text-secondary">{group.tasks.length}</span>
         </button>
 
         {#if !collapsedGroups.has(group.runner)}
@@ -196,7 +196,7 @@
                 </div>
                 {#if run?.status === "running"}
                   <div class="flex shrink-0 items-center gap-2 pt-0.5">
-                    <span class="font-mono text-[11px] text-text-secondary">{elapsed(run.startedAt)}</span>
+                    <span class="text-[11px] text-text-secondary">{elapsed(run.startedAt)}</span>
                     <span class="inline-flex items-center gap-1 border border-accent-dim/20 bg-accent-dim/15 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-accent">
                       <span class="h-1.5 w-1.5 rounded-full bg-accent animate-pulse"></span>
                       live
@@ -220,7 +220,7 @@
               {#if run && run.outputLines.length > 0}
                 <div class="ui-panel mx-3 mb-2 overflow-hidden">
                   <div class="flex items-center justify-between border-b border-border-subtle px-2.5 py-1.5">
-                    <span class="font-mono text-[10px] text-text-secondary">
+                    <span class="text-[10px] text-text-secondary">
                       {run.status === "running"
                         ? "running..."
                         : run.status === "succeeded"

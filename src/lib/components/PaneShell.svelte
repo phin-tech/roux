@@ -339,7 +339,7 @@
         <!-- svelte-ignore a11y_autofocus -->
         <input
           type="text"
-          class="min-w-0 flex-1 bg-transparent text-[11px] text-text-primary font-mono outline-none placeholder:text-text-muted/40"
+          class="min-w-0 flex-1 bg-transparent text-[11px] text-text-primary outline-none placeholder:text-text-muted/40"
           placeholder="name this pane..."
           bind:value={nameInput}
           autofocus
@@ -350,7 +350,7 @@
           }}
         />
       {:else if instance.name}
-        <span class="min-w-0 flex-1 truncate text-[11px] text-text-secondary font-mono">{instance.name}</span>
+        <span class="min-w-0 flex-1 truncate text-[11px] text-text-secondary">{instance.name}</span>
       {:else}
         <span class="flex-1"></span>
       {/if}
@@ -411,7 +411,7 @@
           </span>
           <span class="max-w-xs text-[13px] text-text-secondary">
             {#if activeProfile}
-              Reconnect will respawn a shell and re-run the <span class="font-mono text-text-primary">{activeProfile.name}</span> profile.
+              Reconnect will respawn a shell and re-run the <span class="text-text-primary">{activeProfile.name}</span> profile.
             {:else}
               Reconnect will respawn a plain shell in this pane.
             {/if}
@@ -440,22 +440,22 @@
         <div class="relative flex h-full w-full flex-col bg-bg-deep">
           <div class="flex h-9 shrink-0 select-none items-center gap-2 border-b border-hairline bg-bg-surface/30 px-3">
             <span class="font-mono text-[11px] text-text-secondary truncate flex-1">{instance.command ?? ""}</span>
-            <span class="text-[10px] text-text-muted font-mono">{elapsed}</span>
+            <span class="text-[10px] text-text-muted">{elapsed}</span>
             {#if commandStatus === "running"}
               <span class="h-2 w-2 shrink-0 rounded-full bg-accent animate-pulse"></span>
               <button
-                class="bg-transparent px-1 font-mono text-[10px] text-text-muted border-none cursor-pointer hover:text-red"
+                class="bg-transparent px-1 text-[10px] text-text-muted border-none cursor-pointer hover:text-red"
                 onclick={() => { void killPty(instance.ptyId).catch(() => {}); }}
                 title="Stop"
               >&#9632;</button>
             {:else}
               {#if commandStatus === "success"}
-                <span class="text-[10px] text-green font-mono">exit 0</span>
+                <span class="text-[10px] text-green">exit 0</span>
               {:else}
-                <span class="text-[10px] text-red font-mono">exit {commandExitCode ?? "?"}</span>
+                <span class="text-[10px] text-red">exit {commandExitCode ?? "?"}</span>
               {/if}
               <button
-                class="bg-transparent px-1 font-mono text-[10px] text-text-muted border-none cursor-pointer hover:text-accent"
+                class="bg-transparent px-1 text-[10px] text-text-muted border-none cursor-pointer hover:text-accent"
                 onclick={() => void rerunCommand()}
                 title="Rerun (r)"
               >&#8635;</button>
@@ -495,7 +495,7 @@
           {#if terminalState?.kind === "dead"}
             <!-- Exit banner overlaid on scrollback -->
             <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-bg-deep/80 px-4 py-2">
-              <span class="font-mono text-[11px] text-text-muted">
+              <span class="text-[11px] text-text-muted">
                 Process exited (code: {terminalState.exitCode ?? "unknown"})
               </span>
             </div>
@@ -510,7 +510,7 @@
         class:pane-slot-hint--visible={$showPaneHints}
         aria-hidden="true"
       >
-        <span class="font-mono text-[64px] font-bold leading-none text-text-primary drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]">
+        <span class="text-[64px] font-bold leading-none text-text-primary drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]">
           &#8997;{paneSlotLabel}
         </span>
       </div>

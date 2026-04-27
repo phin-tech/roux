@@ -35,7 +35,7 @@
   {#if m.ahead > 0 || m.behind > 0}
     <span
       data-testid="session-wt-ahead-behind"
-      class="font-mono text-[10px] leading-none text-text-muted"
+      class="text-[10px] leading-none text-text-muted"
       title={`${m.ahead} ahead, ${m.behind} behind main`}
     >
       {#if m.ahead > 0}↑{m.ahead}{/if}
@@ -72,7 +72,7 @@
       href={devServerHref}
       target="_blank"
       rel="noopener noreferrer"
-      class="font-mono text-[10px] leading-none text-blue underline"
+      class="text-[10px] leading-none text-blue underline"
       onclick={(e) => e.stopPropagation()}
       title={`Dev server: ${devServerHref}`}>url</a
     >

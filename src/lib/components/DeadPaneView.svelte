@@ -27,13 +27,13 @@
 
     <div class="flex gap-2 pt-1">
       <button
-        class="flex-1 rounded border border-hairline bg-bg-surface px-3 py-1.5 font-mono text-[11px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+        class="flex-1 rounded border border-hairline bg-bg-surface px-3 py-1.5 text-[11px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
         onclick={onRetry}
       >
         Retry
       </button>
       <button
-        class="flex-1 rounded border border-hairline bg-bg-surface px-3 py-1.5 font-mono text-[11px] text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+        class="flex-1 rounded border border-hairline bg-bg-surface px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
         onclick={onClose}
       >
         Close pane

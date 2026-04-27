@@ -275,7 +275,7 @@
                     {/if}
                   </div>
                   {#if item.substeps}
-                    <span class="text-text-muted text-xs font-mono shrink-0">&#8594;</span>
+                    <span class="text-text-muted text-xs shrink-0">&#8594;</span>
                   {/if}
                 </Command.Item>
               {/if}
@@ -297,7 +297,7 @@
                         <span class="text-text-primary">{cmd.label}</span>
                       </div>
                       {#if cmd.getItems}
-                        <span class="text-text-muted text-xs font-mono shrink-0">&#8594;</span>
+                        <span class="text-text-muted text-xs shrink-0">&#8594;</span>
                       {/if}
                       {@const shortcut = resolveShortcut(cmd, $keymapState)}
                       {#if shortcut}

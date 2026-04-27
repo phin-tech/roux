@@ -277,7 +277,7 @@
         title="Open file"
       >&#128194;</button>
       <button
-        class="cursor-pointer rounded-lg px-1.5 py-0.5 font-mono text-[10px] transition-colors
+        class="cursor-pointer rounded-lg px-1.5 py-0.5 text-[10px] transition-colors
           {vimEnabled
             ? 'bg-accent-dim/20 text-accent'
             : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'}"
