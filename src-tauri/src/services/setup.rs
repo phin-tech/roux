@@ -24,6 +24,50 @@ pub(crate) fn gh_command() -> String {
     "gh".to_string()
 }
 
+/// Resolve the `git` binary Roux should invoke for native git operations.
+///
+/// Precedence mirrors [`gh_command`]:
+///   1. `settings.git_binary_path` override (trimmed, non-empty).
+///   2. `ROUX_GIT` env override for dev/support sessions.
+///   3. First match in the login-shell `PATH`.
+///   4. Process `PATH` plus `roux-git`'s common macOS fallbacks.
+pub(crate) fn git_cli() -> roux_git::GitCli {
+    if let Some(path) = git_override_path() {
+        return roux_git::GitCli::new(path);
+    }
+    if let Some(path) = std::env::var_os("ROUX_GIT").filter(|path| !path.is_empty()) {
+        return roux_git::GitCli::new(path);
+    }
+    if let Some(path) = find_git_via_login_shell() {
+        return roux_git::GitCli::new(path);
+    }
+    roux_git::GitCli::default()
+}
+
+fn git_override_path() -> Option<String> {
+    crate::settings::load_settings()
+        .git_binary_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+fn find_git_via_login_shell() -> Option<String> {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<Option<String>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            let path = crate::pty::get_user_path();
+            if path.is_empty() {
+                return None;
+            }
+            crate::platform::find_executable_in_paths(path.as_str(), "git")
+                .map(|p| p.to_string_lossy().to_string())
+        })
+        .clone()
+}
+
 /// True iff a usable `gh` can be found via any of the resolution steps in
 /// [`gh_command`].
 pub(crate) fn is_gh_available() -> bool {

@@ -8,7 +8,11 @@
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import MultiLineEditor from "$lib/components/MultiLineEditor.svelte";
+  import LibraryWindow from "$lib/components/LibraryWindow.svelte";
+  import LibraryVariablePrompt from "$lib/components/LibraryVariablePrompt.svelte";
   import { multiLineEditor } from "$lib/stores/multiLineEditor";
+  import { libraryWindow } from "$lib/stores/libraryWindow";
+  import { libraryVariablePrompt } from "$lib/stores/libraryVariablePrompt";
   import KeymapHud from "$lib/components/KeymapHud.svelte";
   import QuitDialog from "$lib/components/QuitDialog.svelte";
   import UpdateBanner from "$lib/components/UpdateBanner.svelte";
@@ -24,6 +28,7 @@
   import {
     closeCommandSurface,
     commandSurface,
+    openCommandPaletteWithCommand,
     openLeaderPrompt,
     setLeaderPromptValue,
     toggleCommandSurface,
@@ -177,6 +182,11 @@
       return;
     }
 
+    if (cmd.getItems) {
+      openCommandPaletteWithCommand(cmd.id);
+      return;
+    }
+
     if (cmd.execute) void cmd.execute();
   }
 
@@ -254,6 +264,12 @@
     // MultiLineEditor modal owns all keys while open — otherwise global
     // chords like Cmd+D (split pane) would fire while the user is editing.
     if (get(multiLineEditor).open) {
+      return;
+    }
+    if (get(libraryWindow).open) {
+      return;
+    }
+    if (get(libraryVariablePrompt).open) {
       return;
     }
     if (surface.open && surface.mode === "leader" && surface.leaderPromptCommandId) {
@@ -725,6 +741,10 @@
 />
 
 <MultiLineEditor />
+
+<LibraryWindow />
+
+<LibraryVariablePrompt />
 
 {#if $hudVisible || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
   <KeymapHud

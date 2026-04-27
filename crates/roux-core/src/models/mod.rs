@@ -28,8 +28,9 @@ pub use profile::{ProfileSource, Provider, SpawnProfile, StartupBehavior};
 pub use project::Project;
 pub use session::{Session, SessionStatus};
 pub use settings::{
-    CursorStyle, GroupBy, RouxSettings, StatusBarPosition, TabPosition, UpdateChannel,
-    WorktreeCleanupMode, WorktreeDefaultBase, WorktreeProvider,
+    CursorStyle, GroupBy, LibrarySource, LibrarySourceKind, RouxSettings,
+    StatusBarPosition, TabPosition, UpdateChannel, WorktreeCleanupMode,
+    WorktreeDefaultBase, WorktreeProvider,
 };
 pub use task::{KeepOpen, TaskDefinition, TaskGroup};
 pub use user_terminal_themes::{

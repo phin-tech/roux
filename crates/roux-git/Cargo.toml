@@ -1,0 +1,15 @@
+[package]
+name = "roux-git"
+version = "0.1.0"
+edition = "2021"
+description = "Shell-out wrapper around native git for Roux"
+
+[lints]
+workspace = true
+
+[dependencies]
+duct = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

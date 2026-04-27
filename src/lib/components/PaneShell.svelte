@@ -16,6 +16,13 @@
   import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
+  import {
+    clearDraggedLibraryPrompt,
+    draggedLibraryPrompt,
+    hasLibraryPromptDragData,
+    readLibraryPromptDragData,
+  } from "$lib/library/drag";
+  import { sendDroppedLibraryPromptToPty } from "$lib/library/sendToPane";
   import { resolveTerminalTheme } from "$lib/themes";
   import { userTerminalThemes } from "$lib/stores/userTerminalThemes";
   import { reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
@@ -42,6 +49,7 @@
   let resizeObserver: ResizeObserver | null = null;
   let editingName = $state(false);
   let nameInput = $state("");
+  let libraryDropActive = $state(false);
 
   // Command pane local state
   let elapsed = $state("0s");
@@ -186,6 +194,60 @@
     setLogicalFocus(paneId);
   }
 
+  function panePtyId(): string | null {
+    return instance ? getAttachedPtyId(instance) : null;
+  }
+
+  function handleDragEnter(event: DragEvent) {
+    if (!hasLibraryPromptDragData(event.dataTransfer) || !panePtyId()) return;
+    event.preventDefault();
+    libraryDropActive = true;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragOver(event: DragEvent) {
+    if (!hasLibraryPromptDragData(event.dataTransfer) || !panePtyId()) return;
+    event.preventDefault();
+    libraryDropActive = true;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragLeave(event: DragEvent) {
+    if (event.currentTarget instanceof HTMLElement && event.relatedTarget instanceof Node) {
+      if (event.currentTarget.contains(event.relatedTarget)) return;
+    }
+    libraryDropActive = false;
+  }
+
+  async function handleDrop(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const ptyId = panePtyId();
+    libraryDropActive = false;
+    if (!readLibraryPromptDragData(event.dataTransfer) || !ptyId) return;
+    clearDraggedLibraryPrompt();
+    setLogicalFocus(paneId);
+    requestDomFocus(paneId);
+
+    try {
+      await sendDroppedLibraryPromptToPty(event.dataTransfer, ptyId, sessionId);
+    } catch (e) {
+      logError("Failed to send dropped Library prompt", e);
+      void notificationsPush({
+        level: "error",
+        source: { type: "internal" },
+        title: "Library prompt drop failed",
+        subtitle: null,
+        body: e instanceof Error ? e.message : String(e),
+        sessionId,
+        actions: [],
+        dedupKey: `library-drop:${paneId}`,
+      }).catch((pushErr) =>
+        logError("library drop: notificationsPush failed", pushErr),
+      );
+    }
+  }
+
   // Reconnect handlers for claude pane SessionPicker
   async function handleContinue() {
     if (!session) return;
@@ -327,6 +389,10 @@
     data-focused={isFocused}
     data-focus-chrome={(isFocused && hasMultipleVisiblePanes) ? "true" : undefined}
     onmousedown={handleMouseDown}
+    ondragenter={handleDragEnter}
+    ondragover={handleDragOver}
+    ondragleave={handleDragLeave}
+    ondrop={(event) => void handleDrop(event)}
   >
     <!-- Mini title bar -->
     <div
@@ -513,6 +579,21 @@
         <span class="text-[64px] font-bold leading-none text-text-primary drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]">
           &#8997;{paneSlotLabel}
         </span>
+      </div>
+    {/if}
+
+    {#if libraryDropActive}
+      <div
+        class="pointer-events-none absolute inset-1 z-20 flex items-center justify-center rounded border border-accent-dim/70 bg-accent-dim/12 shadow-[inset_0_0_0_1px_rgba(125,211,252,0.18)]"
+        aria-hidden="true"
+      >
+        <div class="max-w-[min(260px,calc(100%-24px))] rounded border border-accent-dim/45 bg-bg-panel/95 px-3 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.35)]">
+          <div class="text-[9px] font-semibold uppercase tracking-wider text-accent">Insert prompt</div>
+          <div class="mt-1 truncate text-[12px] font-semibold text-text-primary">
+            {$draggedLibraryPrompt?.title ?? "Library prompt"}
+          </div>
+          <div class="mt-1 text-[10px] text-text-muted">Drop to paste into this pane</div>
+        </div>
       </div>
     {/if}
   </div>

@@ -1,9 +1,10 @@
 pub(crate) mod docs;
 pub(crate) mod layouts;
+pub(crate) mod library;
 pub(crate) mod misc;
 pub(crate) mod notes;
-pub(crate) mod panes;
 pub(crate) mod pane_state;
+pub(crate) mod panes;
 pub(crate) mod pr;
 pub(crate) mod projects;
 pub(crate) mod pty;

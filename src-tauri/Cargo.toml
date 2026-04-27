@@ -1,6 +1,6 @@
 [package]
 name = "roux"
-version = "0.5.2"
+version = "0.5.1"
 description = "A multi-session Claude Code terminal manager"
 authors = ["phin-tech"]
 edition = "2021"
@@ -52,6 +52,7 @@ thiserror = "2"
 toml = "0.8"
 minijinja = "2"
 roux-core = { path = "../crates/roux-core" }
+roux-git = { path = "../crates/roux-git" }
 roux-worktrunk = { path = "../crates/roux-worktrunk" }
 specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }
 specta-typescript = "0.0.11"

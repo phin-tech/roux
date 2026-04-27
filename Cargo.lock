@@ -980,6 +980,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "duct"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e66e9c0c03d094e1a0ba1be130b849034aa80c3a2ab8ee94316bc809f3fa684"
+dependencies = [
+ "libc",
+ "os_pipe",
+ "shared_child",
+ "shared_thread",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3910,6 +3922,7 @@ dependencies = [
  "portable-pty",
  "reqwest 0.12.28",
  "roux-core",
+ "roux-git",
  "roux-worktrunk",
  "serde",
  "serde_json",
@@ -3947,6 +3960,15 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "roux-git"
+version = "0.1.0"
+dependencies = [
+ "duct",
  "tempfile",
  "thiserror 2.0.18",
 ]
@@ -4476,6 +4498,12 @@ dependencies = [
  "lazy_static",
  "libc",
 ]
+
+[[package]]
+name = "shared_thread"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52b86057fcb5423f5018e331ac04623e32d6b5ce85e33300f92c79a1973928b0"
 
 [[package]]
 name = "shell-words"

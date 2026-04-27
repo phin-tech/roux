@@ -18,6 +18,12 @@ bind "Cmd+KeyI"        "ui.toggle-notifications"
 bind "Cmd+Shift+KeyW"  "ui.toggle-watches"
 bind "Cmd+Backslash"   "ui.toggle-sidebar"
 
+// Library
+bind "Cmd+Alt+KeyP"       "library.search-prompts"
+bind "Cmd+Alt+KeyS"       "library.search-skills"
+bind "Cmd+Alt+Shift+KeyP" "library.copy-prompt-to-clipboard"
+bind "Cmd+Alt+Shift+KeyS" "library.copy-skill-to-clipboard"
+
 // Sessions
 bind "Cmd+KeyN" "session.new"
 
@@ -81,6 +87,7 @@ tree "leader" {
     bind "w" { enter-tree "leader-panes" }
     bind "b" { enter-tree "leader-sessions" }
     bind "t" { enter-tree "leader-toggle" }
+    bind "l" { enter-tree "leader-library" }
     bind "," "app.settings"
     bind "Space" "app.command-palette"
 }
@@ -90,6 +97,7 @@ tree "leader-toggle" {
     bind "s" "ui.toggle-sessions"
     bind "w" "ui.toggle-watches"
     bind "i" "ui.toggle-notifications"
+    bind "l" "ui.toggle-library"
 }
 
 tree "leader-panes" {
@@ -110,6 +118,14 @@ tree "leader-sessions" {
     bind "d" "session.close"
     bind "r" "session.reconnect"
     bind "e" "session.open-in-editor"
+}
+
+tree "leader-library" {
+    bind "p" "library.search-prompts"
+    bind "s" "library.search-skills"
+    bind "c" "library.copy-prompt-to-clipboard"
+    bind "x" "library.copy-skill-to-clipboard"
+    bind "m" "library.open-manager"
 }
 
 prefix "Cmd+Semicolon" tree="leader"

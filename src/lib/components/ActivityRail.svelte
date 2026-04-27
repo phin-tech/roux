@@ -3,6 +3,7 @@
   import StickyNote from "@lucide/svelte/icons/sticky-note";
   import Eye from "@lucide/svelte/icons/eye";
   import ListTodo from "@lucide/svelte/icons/list-todo";
+  import Library from "@lucide/svelte/icons/library";
   import BookOpen from "@lucide/svelte/icons/book-open";
   import Bell from "@lucide/svelte/icons/bell";
   import SettingsIcon from "@lucide/svelte/icons/settings";
@@ -38,6 +39,7 @@
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "notes", label: "Notes", icon: StickyNote },
     { id: "watches", label: "Watches", icon: Eye },
+    { id: "library", label: "Library", icon: Library },
     { id: "tasks", label: "Tasks", icon: ListTodo },
     { id: "docs", label: "Docs", icon: BookOpen },
     { id: "notifications", label: "Notifications", icon: Bell },
