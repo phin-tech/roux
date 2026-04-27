@@ -349,6 +349,7 @@ function splitAtPath(
   return node;
 }
 
+/** Safely resolve a split node at the given path; returns null if path is invalid or target is not a split. */
 function splitAtExactPath(
   root: LayoutNode,
   path: readonly number[]
@@ -362,6 +363,7 @@ function splitAtExactPath(
   return node.kind === "split" ? node : null;
 }
 
+/** Immutably replace a split node at the given path with a replacement split, returning the updated root. */
 function replaceSplitAtPath(
   root: LayoutNode,
   path: readonly number[],
@@ -379,6 +381,7 @@ function replaceSplitAtPath(
   return { ...root, children: newChildren };
 }
 
+/** Return normalized split sizes (sum to 1); returns equal distribution if sizes are missing or invalid. */
 function normalizedSplitSizes(split: LayoutNode & { kind: "split" }): number[] {
   const count = split.children.length;
   const sizes = split.sizes;
@@ -623,6 +626,7 @@ export function movePaneInDirection(sessionId: string, direction: Direction): vo
   setLogicalFocus(focused);
 }
 
+/** Move a pane within the tree (swap, enter a split, or extract from nesting); returns null if not possible. */
 function movePaneInTree(
   root: LayoutNode,
   paneId: string,
