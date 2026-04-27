@@ -27,6 +27,8 @@ export interface TerminalController {
   setCustomKeyHandler(handler: ((event: KeyboardEvent) => boolean) | null): void;
   /** Read the current logical prompt line from the xterm buffer. */
   getPromptSnapshot(): PromptSnapshot | null;
+  /** Check if the terminal has minimal output (new/empty shell). */
+  isNewShell(): boolean;
 }
 
 interface PaneTerminalRuntime {

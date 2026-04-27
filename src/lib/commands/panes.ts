@@ -7,7 +7,6 @@ import { toggleFullscreen, setLogicalFocus, focusedPaneId } from "$lib/panes/foc
 import { paneSlotById } from "$lib/stores/ui";
 import { paneInstances, updateInstance, getAttachedPtyId, getInstance, type PaneInstance } from "$lib/panes/instances";
 import { splitPane, closeFocusedPane } from "$lib/panes/actions";
-import { getTerminalController } from "$lib/panes/terminalRuntime";
 import { openMultiLineEditor, type MultiLineTarget } from "$lib/stores/multiLineEditor";
 import {
   profileList,
@@ -201,20 +200,8 @@ async function openMultiLineEditorForFocusedPane(initialText: string | null): Pr
   const pane = getInstance(paneId);
   if (!pane) return;
   const target = resolveMultiLineTarget(pane);
-  let seedText = initialText ?? "";
-  let seeded = !!initialText;
-
-  // Only try to seed from the live terminal buffer when the caller did not
-  // already supply text (the clipboard command passes its own payload) and
-  // the pane is a plain shell (Claude's TUI buffer is unreliable).
-  if (initialText === null && target === "shell") {
-    const controller = getTerminalController(paneId);
-    const snapshot = controller?.getPromptSnapshot();
-    if (snapshot) {
-      seedText = snapshot.text;
-      seeded = snapshot.seeded;
-    }
-  }
+  const seedText = initialText ?? "";
+  const seeded = !!initialText;
 
   openMultiLineEditor({
     paneId,

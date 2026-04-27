@@ -128,6 +128,10 @@ class XtermTerminalController implements TerminalController {
   getPromptSnapshot(): PromptSnapshot | null {
     return readPromptSnapshot(this.terminal.buffer.active);
   }
+
+  isNewShell(): boolean {
+    return this.terminal.buffer.active.length < 5;
+  }
 }
 
 function toXtermTheme(theme: TerminalTheme): ITheme {
