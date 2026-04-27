@@ -209,6 +209,16 @@ fn roux_hooks_config(cli_path: &Path) -> Value {
                     ]
                 }
             ],
+            "PostToolUse": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": hook_command(cli_path, "working")
+                        }
+                    ]
+                }
+            ],
             "StopFailure": [
                 {
                     "hooks": [
@@ -475,6 +485,18 @@ mod tests {
         let cli_path = Path::new("C:\\Program Files\\Roux\\roux-cli.exe");
         let settings = roux_hooks_config(cli_path);
         assert!(hook_config_contains_expected_entries(&settings, &roux_hooks_config(cli_path)));
+    }
+
+    #[test]
+    fn hook_config_marks_post_tool_use_as_working() {
+        let cli_path = Path::new("/Applications/Roux.app/Contents/MacOS/roux-cli");
+        let settings = roux_hooks_config(cli_path);
+        let entries = settings["hooks"]["PostToolUse"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(hook_entry_contains_command(
+            &entries[0],
+            "/Applications/Roux.app/Contents/MacOS/roux-cli hook working"
+        ));
     }
 
     #[test]

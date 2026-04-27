@@ -88,6 +88,30 @@ describe("agentNotifications", () => {
     expect(request.actions[0].kind).toEqual({ type: "focusPane", paneId: "pane-1" });
   });
 
+  it("includes Claude Stop transcript summaries when present", async () => {
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "generating",
+      source: "hook",
+    });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "idle",
+      completionSummary: {
+        query: "update the notifications",
+        response: "notifications now include summaries",
+      },
+      source: "hook",
+    });
+    await waitTick();
+
+    expect(notificationsPush).toHaveBeenCalledTimes(1);
+    const request = vi.mocked(notificationsPush).mock.calls[0][0];
+    expect(request.body).toBe(
+      "Prompt: update the notifications\nResponse: notifications now include summaries",
+    );
+  });
+
   it("fires once per pane — two panes finishing in the same session produces two notifications", async () => {
     updateAgentState("pane-a", {
       provider: "claude",

@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use serde_json::Value;
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -433,6 +433,76 @@ fn get_pane_id() -> Option<String> {
     std::env::var("ROUX_PANE_ID").ok()
 }
 
+fn text_from_content(content: &Value) -> Option<String> {
+    match content {
+        Value::String(s) => {
+            let trimmed = s.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }
+        Value::Array(parts) => {
+            let text = parts
+                .iter()
+                .filter_map(|part| {
+                    let obj = part.as_object()?;
+                    (obj.get("type").and_then(|v| v.as_str()) == Some("text"))
+                        .then(|| obj.get("text").and_then(|v| v.as_str()))
+                        .flatten()
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            let trimmed = text.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn truncate_summary(s: String) -> String {
+    const MAX_CHARS: usize = 200;
+    if s.chars().count() <= MAX_CHARS {
+        return s;
+    }
+    let mut out = s.chars().take(MAX_CHARS - 3).collect::<String>();
+    out.push_str("...");
+    out
+}
+
+fn extract_transcript_summary(path: &str) -> Option<(Option<String>, Option<String>)> {
+    let file = fs::File::open(path).ok()?;
+    let reader = BufReader::new(file);
+    let mut query = None;
+    let mut response = None;
+
+    for line in reader.lines().map_while(Result::ok) {
+        let Ok(entry) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let entry_type = entry.get("type").and_then(|v| v.as_str());
+        let message = entry.get("message").unwrap_or(&Value::Null);
+        let message_content = message.get("content").unwrap_or(&Value::Null);
+
+        match entry_type {
+            Some("user") => {
+                if let Some(text) = text_from_content(message_content) {
+                    query = Some(truncate_summary(text));
+                }
+            }
+            Some("assistant") => {
+                if let Some(text) = text_from_content(message_content) {
+                    response = Some(truncate_summary(text));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if query.is_some() || response.is_some() {
+        Some((query, response))
+    } else {
+        None
+    }
+}
+
 fn run_socket_command(request: Value) {
     match send_socket_command(request) {
         Ok(response) => {
@@ -465,6 +535,10 @@ fn handle_hook(status: &str) {
         Ok(v) => v,
         Err(_) => return,
     };
+
+    if status == "idle" && data.get("stop_hook_active").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return;
+    }
 
     let sid = match data.get("session_id").and_then(|s| s.as_str()) {
         Some(s) if !s.is_empty() => s.to_string(),
@@ -507,6 +581,22 @@ fn handle_hook(status: &str) {
         }
         if let Some(msg) = data.get("message") {
             out["message"] = msg.clone();
+        }
+    }
+
+    if status == "idle" {
+        if let Some(path) =
+            data.get("transcript_path").and_then(|s| s.as_str()).filter(|s| !s.is_empty())
+        {
+            out["transcript_path"] = Value::String(path.to_string());
+            if let Some((query, response)) = extract_transcript_summary(path) {
+                if let Some(query) = query {
+                    out["query"] = Value::String(query);
+                }
+                if let Some(response) = response {
+                    out["response"] = Value::String(response);
+                }
+            }
         }
     }
 
@@ -1002,6 +1092,46 @@ mod tests {
     }
 
     // ── Cli parsing ─────────────────────────────────────────
+
+    #[test]
+    fn transcript_summary_extracts_last_user_prompt_and_assistant_response() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("transcript.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"type":"user","message":{"content":"first prompt"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"first response"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"ignored"}]}}
+{"type":"user","message":{"content":[{"type":"text","text":"final prompt"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"final response"}]}}
+"#,
+        )
+        .unwrap();
+
+        let (query, response) = extract_transcript_summary(path.to_str().unwrap()).unwrap();
+        assert_eq!(query.as_deref(), Some("final prompt"));
+        assert_eq!(response.as_deref(), Some("final response"));
+    }
+
+    #[test]
+    fn transcript_summary_truncates_long_text() {
+        let long = "x".repeat(250);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("transcript.jsonl");
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"type":"user","message":{{"content":{long:?}}}}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let (query, _) = extract_transcript_summary(path.to_str().unwrap()).unwrap();
+        let query = query.unwrap();
+        assert_eq!(query.chars().count(), 200);
+        assert!(query.ends_with("..."));
+    }
 
     #[test]
     fn cli_parses_app_with_default_path() {

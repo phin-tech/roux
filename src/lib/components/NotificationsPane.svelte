@@ -66,7 +66,7 @@
       case "watch": return "watch";
       case "task": return "task";
       case "cli": return "cli";
-      case "osc": return `osc ${source.code}`;
+      case "osc": return source.code === 9 ? "terminal" : `osc ${source.code}`;
       case "internal": return "roux";
     }
   }
