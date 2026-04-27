@@ -25,6 +25,11 @@ export interface PermissionInfo {
   message?: string;
 }
 
+export interface CompletionSummary {
+  query?: string;
+  response?: string;
+}
+
 /**
  * Runtime-only view of what an agent is doing in a particular pane. Never
  * persisted — entries are populated by incoming hook / OSC / `roux notify`
@@ -34,6 +39,7 @@ export interface AgentState {
   provider: Provider;
   status: AgentStatus;
   permissionInfo?: PermissionInfo;
+  completionSummary?: CompletionSummary;
   providerSessionId?: string;
   /** Which event stream set this state last — useful for tracing. */
   source: "hook" | "osc" | "notify";
@@ -54,6 +60,7 @@ export interface AgentStateEvent {
   provider: Provider;
   status: AgentStatus;
   permissionInfo?: PermissionInfo;
+  completionSummary?: CompletionSummary;
   providerSessionId?: string;
   source: AgentState["source"];
 }
@@ -72,6 +79,7 @@ export function updateAgentState(paneId: string, event: AgentStateEvent): void {
       provider: event.provider,
       status: event.status,
       permissionInfo: event.permissionInfo ?? prev?.permissionInfo,
+      completionSummary: event.completionSummary ?? prev?.completionSummary,
       providerSessionId: event.providerSessionId ?? prev?.providerSessionId,
       source: event.source,
       updatedAt: Date.now(),

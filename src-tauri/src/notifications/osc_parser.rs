@@ -287,6 +287,9 @@ fn parse_osc9_payload(raw: &str) -> Option<ParsedOsc9Payload> {
     if trimmed.is_empty() {
         return None;
     }
+    if trimmed.eq_ignore_ascii_case("osc 9") {
+        return None;
+    }
 
     match serde_json::from_str::<Value>(trimmed).ok()? {
         Value::String(s) => {
@@ -299,11 +302,19 @@ fn parse_osc9_payload(raw: &str) -> Option<ParsedOsc9Payload> {
         Value::Object(obj) => {
             let subtitle = first_string(&obj, &["subtitle", "subTitle"]);
             let title = first_string(&obj, &["title", "summary", "subject"]);
-            let message = first_string(&obj, &["body", "message", "text", "detail", "details"]);
+            let detail = first_string(&obj, &["detail", "details"]);
+            let message =
+                first_string(&obj, &["body", "message", "text"]).or_else(|| detail.clone());
 
-            let final_title = title.clone().or_else(|| message.clone())?;
-            let body = match (title.is_some(), message) {
-                (true, Some(m)) if m != final_title => Some(m),
+            let Some(final_title) = title
+                .clone()
+                .or_else(|| detail.as_ref().map(|_| "Terminal notification".to_string()))
+                .or_else(|| message.clone())
+            else {
+                return None;
+            };
+            let body = match message {
+                Some(m) if detail.is_some() || (title.is_some() && m != final_title) => Some(m),
                 _ => None,
             };
 
@@ -370,6 +381,19 @@ mod tests {
         let captured = parse(seq);
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0][2], b"hello");
+    }
+
+    #[test]
+    fn osc_9_protocol_only_payload_is_ignored() {
+        assert_eq!(parse_osc9_payload("osc 9"), None);
+        assert_eq!(parse_osc9_payload(" OSC 9 "), None);
+    }
+
+    #[test]
+    fn osc_9_json_detail_without_title_becomes_body() {
+        let parsed = parse_osc9_payload(r#"{"detail":"Claude needs attention"}"#).unwrap();
+        assert_eq!(parsed.title, "Terminal notification");
+        assert_eq!(parsed.body.as_deref(), Some("Claude needs attention"));
     }
 
     #[test]

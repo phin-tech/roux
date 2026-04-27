@@ -107,6 +107,7 @@ export function routeStatusUpdate(
       provider,
       status: routed,
       permissionInfo,
+      completionSummary: buildCompletionSummary(update),
       providerSessionId: update.providerSessionId ?? undefined,
       source: "hook",
     },
@@ -163,5 +164,15 @@ function buildPermissionInfo(update: StatusUpdate): PermissionInfo | undefined {
     toolName: update.toolName ?? undefined,
     toolInput: (update.toolInput as Record<string, unknown> | null) ?? undefined,
     message: update.message ?? undefined,
+  };
+}
+
+function buildCompletionSummary(update: StatusUpdate): { query?: string; response?: string } | undefined {
+  const query = update.query?.trim();
+  const response = update.response?.trim();
+  if (!query && !response) return undefined;
+  return {
+    query: query || undefined,
+    response: response || undefined,
   };
 }
