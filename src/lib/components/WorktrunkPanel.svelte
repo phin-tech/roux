@@ -681,7 +681,7 @@
                   href={`file://${diagnostics.config.userPath}`}
                   target="_blank"
                   rel="noreferrer"
-                  class="font-mono text-blue underline"
+                  class="text-blue underline"
                   class:opacity-50={!diagnostics.config.userExists}
                   title={diagnostics.config.userExists
                     ? "Open user config"
@@ -694,7 +694,7 @@
                   href={`file://${diagnostics.config.projectPath}`}
                   target="_blank"
                   rel="noreferrer"
-                  class="font-mono text-blue underline"
+                  class="text-blue underline"
                   class:opacity-50={!diagnostics.config.projectExists}
                   title={diagnostics.config.projectExists
                     ? "Open project config"
@@ -729,7 +729,7 @@
                           class="rounded bg-accent-dim/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent"
                           >{hook.source}</span
                         >
-                        <span class="font-mono text-xs text-text-primary"
+                        <span class="text-xs text-text-primary"
                           >{hook.name}</span
                         >
                       </div>
@@ -801,7 +801,7 @@
     style:left={`${contextMenuPos.x}px`}
     style:top={`${contextMenuPos.y}px`}
   >
-    <div class="border-b border-border-subtle/40 px-2 py-1 font-mono text-[10px] text-text-muted">
+    <div class="border-b border-border-subtle/40 px-2 py-1 text-[10px] text-text-muted">
       {contextMenuFor.branch}
     </div>
     <button
@@ -852,10 +852,10 @@
             <span class="flex-1 truncate font-mono text-[11px] text-text-primary"
               >{entry.file}</span
             >
-            <span class="font-mono text-[10px] text-text-muted"
+            <span class="text-[10px] text-text-muted"
               >{formatSize(entry.size)}</span
             >
-            <span class="font-mono text-[10px] text-text-muted"
+            <span class="text-[10px] text-text-muted"
               >{formatRelativeTime(entry.modifiedAt ?? null)}</span
             >
           </button>
@@ -887,18 +887,18 @@
                 >{entry.source}</span
               >
               {#if entry.hookType}
-                <span class="font-mono text-[10px] text-text-muted"
+                <span class="text-[10px] text-text-muted"
                   >{entry.hookType}</span
                 >
               {/if}
-              <span class="font-mono text-[11px] text-text-primary"
+              <span class="text-[11px] text-text-primary"
                 >{entry.name}</span
               >
-              <span class="ml-auto font-mono text-[10px] text-text-muted"
+              <span class="ml-auto text-[10px] text-text-muted"
                 >{formatRelativeTime(entry.modifiedAt ?? null)}</span
               >
             </div>
-            <div class="truncate font-mono text-[10px] text-text-muted">
+            <div class="truncate text-[10px] text-text-muted">
               {entry.branch} · {formatSize(entry.size)}
             </div>
           </button>

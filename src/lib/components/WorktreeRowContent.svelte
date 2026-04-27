@@ -54,7 +54,7 @@
 {#if metadata && (metadata.ahead > 0 || metadata.behind > 0)}
   <span
     data-testid="wt-ahead-behind"
-    class="font-mono text-[10px] text-text-muted"
+    class="text-[10px] text-text-muted"
     title={`${metadata.ahead} ahead, ${metadata.behind} behind main`}
   >
     {#if metadata.ahead > 0}↑{metadata.ahead}{/if}
@@ -129,7 +129,7 @@
     href={devServerHref}
     target="_blank"
     rel="noopener noreferrer"
-    class="font-mono text-[10px] text-blue underline"
+    class="text-[10px] text-blue underline"
     onclick={(e) => e.stopPropagation()}
     title={`Dev server: ${devServerHref}`}>url</a
   >

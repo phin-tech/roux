@@ -1147,7 +1147,7 @@
                           }}
                           class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
                         >
-                          <span class="truncate font-mono text-[12px] text-text-primary">{opt.label}</span>
+                          <span class="truncate text-[12px] text-text-primary">{opt.label}</span>
                           <span class="ml-2 max-w-40 truncate font-mono text-[10px] text-text-muted">{opt.path}</span>
                         </Command.Item>
                       {/each}
@@ -1289,7 +1289,7 @@
               <button
                 id="new-session-layout"
                 type="button"
-                class="flex w-full items-center justify-between bg-transparent px-1 py-1 text-left font-mono text-[12px] text-text-primary outline-none"
+                class="flex w-full items-center justify-between bg-transparent px-1 py-1 text-left text-[12px] text-text-primary outline-none"
                 onclick={() => { layoutPickOpen = !layoutPickOpen; }}
                 aria-expanded={layoutPickOpen}
                 aria-haspopup="listbox"
@@ -1308,7 +1308,7 @@
                     class={`${pickerItemClass} w-full justify-between py-1.5 ${selectedLayoutId === option.value ? "bg-bg-active" : ""}`}
                     onclick={() => selectLayoutOption(option.value)}
                   >
-                    <span class="truncate font-mono text-[12px] text-text-primary">{option.label}</span>
+                    <span class="truncate text-[12px] text-text-primary">{option.label}</span>
                     {#if selectedLayoutId === option.value}
                       <span class="ml-2 text-[10px] text-accent">selected</span>
                     {/if}
@@ -1362,7 +1362,7 @@
                   />
                   <button
                     type="button"
-                    class="bg-transparent px-1 py-1 leading-none font-mono text-[12px]"
+                    class="bg-transparent px-1 py-1 leading-none text-[12px]"
                     onclick={() => openProfilePicker(true)}
                     aria-label="Open spawn profile options"
                   >
@@ -1383,7 +1383,7 @@
                             onSelect={() => selectProfileOption(option.value, option.label)}
                             class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
                           >
-                            <span class="truncate font-mono text-[12px] text-text-primary">{option.label}</span>
+                            <span class="truncate text-[12px] text-text-primary">{option.label}</span>
                             {#if selectedProfileId === option.value}
                               <span class="ml-2 text-[10px] text-accent">selected</span>
                             {/if}
@@ -1453,7 +1453,7 @@
                               onSelect={() => selectNonoOption(option.value, option.label)}
                               class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
                             >
-                              <span class="truncate font-mono text-[12px] text-text-primary">{option.label}</span>
+                              <span class="truncate text-[12px] text-text-primary">{option.label}</span>
                               {#if (selectedNonoProfile ?? "") === option.value}
                                 <span class="ml-2 text-[10px] text-accent">selected</span>
                               {/if}
@@ -1480,7 +1480,7 @@
           </label>
           <input
             id="new-session-name"
-            class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[13px] text-text-primary outline-none focus:border-accent-dim"
+            class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim"
             bind:value={sessionName}
             placeholder="roux-my-feature"
             oninput={() => { userEditedName = true; }}

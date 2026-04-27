@@ -315,7 +315,7 @@
             <div class="mt-4 flex items-center justify-between py-2">
               <span class="text-[13px]">Sidebar position</span>
               <select
-                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
                 value={$sidebarLayout.railSide}
                 onchange={(e) => setRailSide(e.currentTarget.value as Side)}
               >
@@ -326,7 +326,7 @@
             <div class="flex items-center justify-between py-2">
               <span class="text-[13px]">Status bar position</span>
               <select
-                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
                 value={$settings.statusBarPosition ?? "bottom"}
                 onchange={(e) => updateSetting("statusBarPosition", e.currentTarget.value as "top" | "bottom")}
               >
@@ -508,7 +508,7 @@
                 <div class="text-[11px] text-text-muted mt-0.5">Default starting point for new worktree branches — applies to the New Session dialog and the "New Worktree" context-menu click. Hover / command palette always expose all three.</div>
               </div>
               <select
-                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
                 value={$settings.worktreeDefaultBase ?? "currentBranch"}
                 onchange={(e) => setDefaultBase(e.currentTarget.value as WorktreeDefaultBase)}
               >
@@ -597,7 +597,7 @@
             <div class="flex items-center justify-between py-2">
               <span class="text-[13px]">Font size</span>
               <input
-                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-20 text-right focus:border-accent-dim"
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-20 text-right focus:border-accent-dim"
                 type="number"
                 value={$settings.fontSize}
                 oninput={(e) => updateSetting("fontSize", parseInt(e.currentTarget.value) || 14)}
@@ -622,7 +622,7 @@
             <div class="flex items-center justify-between py-2">
               <span class="text-[13px]">Scrollback lines</span>
               <input
-                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-24 text-right focus:border-accent-dim"
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-24 text-right focus:border-accent-dim"
                 type="number"
                 value={$settings.scrollback}
                 oninput={(e) => updateSetting("scrollback", parseInt(e.currentTarget.value) || 5000)}
@@ -895,7 +895,7 @@
             <div class="flex items-center justify-between py-2">
               <div>
                 <div class="text-[13px]">Current version</div>
-                <div class="text-[11px] text-text-muted mt-0.5 font-mono">{appVersion}</div>
+                <div class="text-[11px] text-text-muted mt-0.5">{appVersion}</div>
               </div>
               <button
                 class="rounded border border-border px-2.5 py-1 text-[11px] text-text-primary hover:bg-bg-hover disabled:opacity-50"
@@ -954,7 +954,7 @@
                 <div class="text-[11px] text-text-muted mt-0.5">Switching to Stable takes effect on the next stable release at or above your current version.</div>
               </div>
               <select
-                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
                 value={$settings.updateChannel ?? "stable"}
                 onchange={(e) => updateSetting("updateChannel", e.currentTarget.value as UpdateChannel)}
               >

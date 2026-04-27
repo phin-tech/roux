@@ -95,7 +95,7 @@
 >
   <SidebarPanelHeader title="Docs">
     {#snippet actions()}
-      <span class="border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[12px] text-text-secondary">
+      <span class="border border-border-subtle bg-bg-surface px-2 py-1 text-[12px] text-text-secondary">
         {docs.length}
       </span>
       <button
