@@ -238,6 +238,10 @@ export async function removeWorktree(
   });
 }
 
+export async function openPathInFinder(path: string): Promise<void> {
+  return invoke("cmd_open_path_in_finder", { path });
+}
+
 export async function listWorktrees(
   repoPath: string
 ): Promise<Worktree[]> {

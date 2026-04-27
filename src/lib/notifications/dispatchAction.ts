@@ -1,4 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { openPathInFinder } from "$lib/tauri";
 import { setActiveSession, sessionState } from "$lib/stores/sessions";
 import { setLogicalFocus } from "$lib/panes/focus";
 import { paneInstances } from "$lib/panes/instances";
@@ -93,11 +94,7 @@ export async function dispatchNotificationAction(
       break;
     }
     case "openPath": {
-      // openUrl handles file:// paths on all platforms.
-      const path = kind.path.startsWith("file://")
-        ? kind.path
-        : `file://${kind.path}`;
-      await openUrl(path);
+      await openPathInFinder(kind.path);
       await markNotificationRead(notificationId);
       break;
     }

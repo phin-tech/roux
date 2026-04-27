@@ -488,6 +488,62 @@ pub(crate) async fn cmd_open_terminal_at(path: String) -> Result<(), String> {
 
 #[tauri::command]
 #[specta::specta]
+pub(crate) async fn cmd_open_path_in_finder(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::process::Command;
+
+        #[cfg(target_os = "macos")]
+        {
+            Command::new("open")
+                .arg(&path)
+                .status()
+                .map_err(|e| format!("open failed: {e}"))
+                .and_then(|s| {
+                    if s.success() {
+                        Ok(())
+                    } else {
+                        Err(format!("open exited with {s}"))
+                    }
+                })
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            Command::new("xdg-open")
+                .arg(&path)
+                .status()
+                .map_err(|e| format!("xdg-open failed: {e}"))
+                .and_then(|s| {
+                    if s.success() {
+                        Ok(())
+                    } else {
+                        Err(format!("xdg-open exited with {s}"))
+                    }
+                })
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("explorer")
+                .arg("/select,")
+                .arg(&path)
+                .status()
+                .map_err(|e| format!("explorer failed: {e}"))
+                .and_then(|s| {
+                    if s.success() {
+                        Ok(())
+                    } else {
+                        Err(format!("explorer exited with {s}"))
+                    }
+                })
+        }
+    })
+    .await
+    .map_err(|e| format!("open_path_in_finder task panicked: {e}"))?
+}
+
+#[tauri::command]
+#[specta::specta]
 pub(crate) async fn cmd_detect_worktrunk(repo_path: Option<String>) -> WorktrunkDetection {
     tauri::async_runtime::spawn_blocking(move || detect_worktrunk_inner(repo_path))
         .await

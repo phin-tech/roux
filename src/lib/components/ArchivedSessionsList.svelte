@@ -8,7 +8,7 @@
   } from "$lib/stores/archivedSessions";
   import { sessionDisplayName } from "$lib/stores/sessions";
   import { openNotesForSession } from "$lib/stores/ui";
-  import { openUrl } from "@tauri-apps/plugin-opener";
+  import { openPathInFinder } from "$lib/tauri";
   import type { Session } from "$lib/types";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
 
@@ -82,10 +82,7 @@
   async function handleShowWorktree(e: Event, s: Session) {
     e.stopPropagation();
     try {
-      const url = s.worktreePath.startsWith("file://")
-        ? s.worktreePath
-        : `file://${s.worktreePath}`;
-      await openUrl(url);
+      await openPathInFinder(s.worktreePath);
     } catch (err) {
       loadError = `Failed to open worktree: ${err}`;
     }
