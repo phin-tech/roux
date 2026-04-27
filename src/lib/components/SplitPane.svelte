@@ -1,17 +1,28 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import SplitPane from "./SplitPane.svelte";
   import PaneShell from "./PaneShell.svelte";
   import { fullscreenPaneId } from "$lib/panes/focus";
   import { paneInstances } from "$lib/panes/instances";
-  import { containsPaneId, setActiveStackIndex, type LayoutNode } from "$lib/panes/layout";
+  import {
+    containsPaneId,
+    resizeSplitDivider,
+    setActiveStackIndex,
+    type LayoutNode,
+  } from "$lib/panes/layout";
 
   interface Props {
     node: LayoutNode;
     sessionId: string;
     visible?: boolean;
+    path?: number[];
   }
 
-  let { node, sessionId, visible = true }: Props = $props();
+  let { node, sessionId, visible = true, path = [] }: Props = $props();
+
+  let splitEl: HTMLDivElement | null = $state(null);
+  let activeDivider = $state<number | null>(null);
+  let dragTeardown: (() => void) | null = null;
 
   function getStackDisplayLabel(node: LayoutNode): string {
     if (node.kind === "leaf") {
@@ -20,6 +31,53 @@
     }
     return node.children.map(getStackDisplayLabel).join(" | ");
   }
+
+  function endDividerDrag(): void {
+    dragTeardown?.();
+    dragTeardown = null;
+    activeDivider = null;
+  }
+
+  function installDividerDragHandlers(onMove: (ev: PointerEvent) => void): void {
+    const onUp = () => endDividerDrag();
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") endDividerDrag();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("blur", endDividerDrag);
+    window.addEventListener("keydown", onKey);
+    dragTeardown = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", endDividerDrag);
+      window.removeEventListener("keydown", onKey);
+    };
+  }
+
+  function onDividerPointerDown(ev: PointerEvent, dividerIndex: number): void {
+    if (node.kind !== "split" || node.stacked || !splitEl) return;
+
+    ev.preventDefault();
+    ev.stopPropagation();
+    endDividerDrag();
+    activeDivider = dividerIndex;
+
+    let lastPosition = node.direction === "h" ? ev.clientX : ev.clientY;
+    const rect = splitEl.getBoundingClientRect();
+    const containerSize = node.direction === "h" ? rect.width : rect.height;
+    const splitPath = [...path];
+
+    installDividerDragHandlers((moveEv) => {
+      const position = node.direction === "h" ? moveEv.clientX : moveEv.clientY;
+      resizeSplitDivider(sessionId, splitPath, dividerIndex, position - lastPosition, containerSize);
+      lastPosition = position;
+    });
+  }
+
+  onDestroy(() => endDividerDrag());
 </script>
 
 {#if node.kind === "leaf"}
@@ -47,13 +105,19 @@
             suppressTitleAccent={i === (node.activeIndex ?? 0)}
           />
         {:else}
-          <SplitPane node={child} {sessionId} visible={visible && i === (node.activeIndex ?? 0)} />
+          <SplitPane
+            node={child}
+            {sessionId}
+            visible={visible && i === (node.activeIndex ?? 0)}
+            path={[...path, i]}
+          />
         {/if}
       </div>
     {/each}
   </div>
 {:else}
   <div
+    bind:this={splitEl}
     class="flex flex-1 min-h-0 min-w-0 gap-px bg-hairline"
     class:flex-row={node.direction === "h"}
     class:flex-col={node.direction === "v"}
@@ -68,8 +132,32 @@
         class="flex flex-col min-h-0 min-w-0 {childVisible ? '' : 'hidden'}"
         style={childVisible ? `flex: ${size ?? 1}` : ''}
       >
-        <SplitPane node={child} {sessionId} visible={visible && childVisible} />
+        <SplitPane
+          node={child}
+          {sessionId}
+          visible={visible && childVisible}
+          path={[...path, i]}
+        />
       </div>
+      {#if childVisible && i < node.children.length - 1}
+        {@const nextChild = node.children[i + 1]}
+        {@const nextVisible = !isFullscreenActive || (fsId ? containsPaneId(nextChild, fsId) : false)}
+        {#if nextVisible}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            data-testid={`pane-divider-${node.direction}-${i}`}
+            role="separator"
+            aria-orientation={node.direction === "h" ? "vertical" : "horizontal"}
+            class="group relative z-10 shrink-0 select-none touch-none {node.direction === 'h' ? 'cursor-col-resize w-2 -mx-1' : 'cursor-row-resize h-2 -my-1'}"
+            onpointerdown={(ev) => onDividerPointerDown(ev, i)}
+          >
+            <div
+              class="pointer-events-none absolute bg-transparent transition-colors duration-150 group-hover:bg-accent-dim/40 {node.direction === 'h' ? 'inset-y-0 left-1/2 w-px -translate-x-1/2' : 'inset-x-0 top-1/2 h-px -translate-y-1/2'}"
+              class:bg-accent-dim={activeDivider === i}
+            ></div>
+          </div>
+        {/if}
+      {/if}
     {/each}
   </div>
 {/if}
