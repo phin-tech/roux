@@ -838,6 +838,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#library-leader-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      Library leader keys
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -847,15 +856,6 @@
   <a href="#sessions-and-windows" class="md-nav__link">
     <span class="md-ellipsis">
       Sessions and windows
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#editor" class="md-nav__link">
-    <span class="md-ellipsis">
-      Editor
     </span>
   </a>
   
@@ -999,6 +999,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#library-leader-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      Library leader keys
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1008,15 +1017,6 @@
   <a href="#sessions-and-windows" class="md-nav__link">
     <span class="md-ellipsis">
       Sessions and windows
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#editor" class="md-nav__link">
-    <span class="md-ellipsis">
-      Editor
     </span>
   </a>
   
@@ -1154,6 +1154,16 @@ You can disable this overlay in <strong>Settings → Keyboard</strong> without d
 <li><span class="keys"><kbd class="key-s">S</kbd></span> — toggle sessions history</li>
 <li><span class="keys"><kbd class="key-w">W</kbd></span> — toggle watches</li>
 <li><span class="keys"><kbd class="key-i">I</kbd></span> — toggle notifications</li>
+<li><span class="keys"><kbd class="key-l">L</kbd></span> — toggle library</li>
+</ul>
+<h3 id="library-leader-keys">Library leader keys<a class="headerlink" href="#library-leader-keys" title="Permanent link">&para;</a></h3>
+<ul>
+<li>++cmd+; l++ — library commands</li>
+<li><span class="keys"><kbd class="key-p">P</kbd></span> — search prompts and send to the active pane</li>
+<li><span class="keys"><kbd class="key-s">S</kbd></span> — search skills and send to the active pane</li>
+<li><span class="keys"><kbd class="key-c">C</kbd></span> — search prompts and copy to clipboard</li>
+<li><span class="keys"><kbd class="key-x">X</kbd></span> — search skills and copy to clipboard</li>
+<li><span class="keys"><kbd class="key-m">M</kbd></span> — open the Library manager</li>
 </ul>
 <h2 id="sessions-and-windows">Sessions and windows<a class="headerlink" href="#sessions-and-windows" title="Permanent link">&para;</a></h2>
 <table>
@@ -1184,34 +1194,6 @@ You can disable this overlay in <strong>Settings → Keyboard</strong> without d
 </table>
 <p>The session-switch shortcuts target the Nth session in the sidebar's top-to-bottom order. Hold <span class="keys"><kbd class="key-command">Cmd</kbd></span> on its own for a moment to see the digit for each session drawn as an overlay on top of the card.
 You can disable this overlay in <strong>Settings → Keyboard</strong> while keeping ++cmd+digit++ session switching enabled.</p>
-<h2 id="editor">Editor<a class="headerlink" href="#editor" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Action</th>
-<th>Shortcut</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Open multi-line prompt editor</td>
-<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-e">E</kbd></span></td>
-</tr>
-<tr>
-<td>Open with clipboard</td>
-<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-v">V</kbd></span></td>
-</tr>
-<tr>
-<td>Insert into terminal</td>
-<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span></td>
-</tr>
-<tr>
-<td>Cancel editor</td>
-<td><span class="keys"><kbd class="key-escape">Esc</kbd></span></td>
-</tr>
-</tbody>
-</table>
-<p>The multi-line editor is available in shell and command panes. <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span> inserts the edited text without auto-executing, so you can review it in the terminal before pressing Enter. See <a href="../features/editor/">Editor</a> for details on the transform toolbar and how the editor positions itself.</p>
 <h2 id="navigation">Navigation<a class="headerlink" href="#navigation" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1240,6 +1222,18 @@ You can disable this overlay in <strong>Settings → Keyboard</strong> while kee
 <tr>
 <td>Toggle watches</td>
 <td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-w">W</kbd></span></td>
+</tr>
+<tr>
+<td>Toggle library</td>
+<td>++cmd+; t l++</td>
+</tr>
+<tr>
+<td>Search library prompts</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-p">P</kbd></span></td>
+</tr>
+<tr>
+<td>Search library skills</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-s">S</kbd></span></td>
 </tr>
 <tr>
 <td>Toggle sidebar</td>
