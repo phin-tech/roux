@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use serde_json::Value;
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -468,12 +468,13 @@ fn truncate_summary(s: String) -> String {
 }
 
 fn extract_transcript_summary(path: &str) -> Option<(Option<String>, Option<String>)> {
-    let content = fs::read_to_string(path).ok()?;
+    let file = fs::File::open(path).ok()?;
+    let reader = BufReader::new(file);
     let mut query = None;
     let mut response = None;
 
-    for line in content.lines() {
-        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+    for line in reader.lines().map_while(Result::ok) {
+        let Ok(entry) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
         let entry_type = entry.get("type").and_then(|v| v.as_str());

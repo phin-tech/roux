@@ -1,6 +1,11 @@
 import { get } from "svelte/store";
 import type { StatusUpdate } from "$lib/tauri";
-import { updateAgentState, type AgentStateEvent, type PermissionInfo } from "./agentState";
+import {
+  updateAgentState,
+  type AgentStateEvent,
+  type CompletionSummary,
+  type PermissionInfo,
+} from "./agentState";
 import { sessionLayouts, collectLeafIds } from "./layout";
 import type { Provider } from "./profiles";
 
@@ -167,7 +172,7 @@ function buildPermissionInfo(update: StatusUpdate): PermissionInfo | undefined {
   };
 }
 
-function buildCompletionSummary(update: StatusUpdate): { query?: string; response?: string } | undefined {
+function buildCompletionSummary(update: StatusUpdate): CompletionSummary | undefined {
   const query = update.query?.trim();
   const response = update.response?.trim();
   if (!query && !response) return undefined;

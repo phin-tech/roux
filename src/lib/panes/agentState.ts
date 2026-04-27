@@ -79,7 +79,7 @@ export function updateAgentState(paneId: string, event: AgentStateEvent): void {
       provider: event.provider,
       status: event.status,
       permissionInfo: event.permissionInfo ?? prev?.permissionInfo,
-      completionSummary: event.completionSummary ?? prev?.completionSummary,
+      completionSummary: event.status === "idle" ? event.completionSummary : undefined,
       providerSessionId: event.providerSessionId ?? prev?.providerSessionId,
       source: event.source,
       updatedAt: Date.now(),
