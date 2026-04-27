@@ -104,9 +104,9 @@ describe("ArchivedSessionsList", () => {
     expect(screen.getByText("Notes").closest("button")?.getAttribute("title")).toBe(
       "Open notes for this archived session",
     );
-    expect(
-      screen.getByText("Reveal in Finder").closest("button")?.getAttribute("title"),
-    ).toBe("Show this worktree folder in Finder");
+    expect(screen.getByText("Reveal").closest("button")?.getAttribute("title")).toBe(
+      "Show this worktree folder in your file manager",
+    );
     expect(
       screen.getByText("Remove worktree").closest("button")?.getAttribute("title"),
     ).toBe("Delete the worktree folder but keep this history entry");
@@ -115,6 +115,26 @@ describe("ArchivedSessionsList", () => {
     ).toBe("Permanently delete this archived session entry");
     expect(screen.queryByText("Clean")).toBeNull();
     expect(screen.queryByText("Delete")).toBeNull();
+  });
+
+  it("closes the overflow menu on outside pointerdown and Escape", async () => {
+    mockListArchivedSessions.mockResolvedValue([makeArchived("feature-a")]);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+
+    render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("feature-a");
+    await fireEvent.click(screen.getByTestId("archived-session-menu"));
+    expect(screen.getByTestId("archived-session-menu-content")).not.toBeNull();
+
+    await fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId("archived-session-menu-content")).toBeNull();
+
+    await fireEvent.click(screen.getByTestId("archived-session-menu"));
+    expect(screen.getByTestId("archived-session-menu-content")).not.toBeNull();
+
+    await fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("archived-session-menu-content")).toBeNull();
   });
 
   it("shows remove-worktree failures inline with the affected archived row", async () => {

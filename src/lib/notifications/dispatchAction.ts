@@ -14,6 +14,19 @@ import {
 } from "$lib/stores/notifications";
 import type { NotificationAction } from "$lib/types";
 
+function normalizeOpenPath(path: string): string {
+  if (!path.startsWith("file://")) return path;
+  try {
+    const url = new URL(path);
+    const decodedPath = decodeURIComponent(url.pathname);
+    if (/^\/[A-Za-z]:\//.test(decodedPath)) return decodedPath.slice(1);
+    if (url.hostname) return `//${url.hostname}${decodedPath}`;
+    return decodedPath;
+  } catch {
+    return path.slice("file://".length);
+  }
+}
+
 /** Find which session owns a pane by walking layouts. Returns null if none. */
 function findSessionForPane(paneId: string): string | null {
   for (const [sessionId, layout] of get(sessionLayouts)) {
@@ -94,7 +107,7 @@ export async function dispatchNotificationAction(
       break;
     }
     case "openPath": {
-      await openPathInFinder(kind.path);
+      await openPathInFinder(normalizeOpenPath(kind.path));
       await markNotificationRead(notificationId);
       break;
     }

@@ -47,6 +47,28 @@
   const archivedList = $derived($archivedSessionsState.sessions);
   const worktreeExists = $derived($archivedSessionsState.worktreeExists);
 
+  $effect(() => {
+    if (menuOpenFor == null) return;
+    const openSessionId = menuOpenFor;
+    const onPointerDown = (ev: PointerEvent) => {
+      const target = ev.target;
+      if (!(target instanceof Element)) return;
+      const row = target.closest<HTMLElement>("[data-archived-menu-root]");
+      if (!row || row.dataset.archivedMenuRoot !== openSessionId) {
+        menuOpenFor = null;
+      }
+    };
+    const onKeydown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") menuOpenFor = null;
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeydown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeydown);
+    };
+  });
+
   function formatRelative(ts: number): string {
     const secs = Math.floor(Date.now() / 1000 - ts);
     if (secs < 10) return "just now";
@@ -180,6 +202,7 @@
           <div
             class="group relative mb-1 border border-transparent px-2 py-1.5 text-left text-sm transition-colors duration-150 hover:border-border-subtle hover:bg-bg-active/40 focus-within:border-border-subtle focus-within:bg-bg-active/40"
             data-testid="archived-session-row"
+            data-archived-menu-root={s.id}
           >
             <div class="flex min-h-6 items-center gap-2">
               <span class="inline-block h-2 w-2 shrink-0 rounded-full bg-text-muted/40"></span>
@@ -266,12 +289,12 @@
                     type="button"
                     class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
                     disabled={!wtExists}
-                    title="Show this worktree folder in Finder"
-                    aria-label="Show this worktree folder in Finder"
+                    title="Show this worktree folder in your file manager"
+                    aria-label="Show this worktree folder in your file manager"
                     onclick={(e) => handleShowWorktree(e, s)}
                   >
                     <FolderOpen size={12} />
-                    <span>Reveal in Finder</span>
+                    <span>Reveal</span>
                   </button>
                   <button
                     type="button"
