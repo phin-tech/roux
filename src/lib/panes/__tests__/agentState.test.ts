@@ -93,6 +93,30 @@ describe("agentState store", () => {
       });
       expect(get(agentStates).get("pane-1")?.permissionInfo?.toolName).toBe("Bash");
     });
+
+    it("does not carry a stale completionSummary into later events", () => {
+      updateAgentState("pane-1", {
+        provider: "claude",
+        status: "idle",
+        completionSummary: { query: "old prompt", response: "old response" },
+        source: "hook",
+      });
+      expect(get(agentStates).get("pane-1")?.completionSummary?.query).toBe("old prompt");
+
+      updateAgentState("pane-1", {
+        provider: "claude",
+        status: "generating",
+        source: "hook",
+      });
+      expect(get(agentStates).get("pane-1")?.completionSummary).toBeUndefined();
+
+      updateAgentState("pane-1", {
+        provider: "claude",
+        status: "idle",
+        source: "hook",
+      });
+      expect(get(agentStates).get("pane-1")?.completionSummary).toBeUndefined();
+    });
   });
 
   describe("clearPermissionInfo", () => {

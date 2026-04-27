@@ -545,6 +545,10 @@ export interface StatusUpdate {
   toolName: string | null;
   toolInput: Record<string, any> | null;
   message: string | null;
+  /** Last human prompt extracted from Claude's transcript on Stop, when available. */
+  query: string | null;
+  /** Last assistant response extracted from Claude's transcript on Stop, when available. */
+  response: string | null;
 }
 
 export function onRouxStatusUpdate(

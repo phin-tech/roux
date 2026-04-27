@@ -19,6 +19,8 @@ function ev(partial: Partial<StatusUpdate> = {}): StatusUpdate {
     toolName: null,
     toolInput: null,
     message: null,
+    query: null,
+    response: null,
     ...partial,
   };
 }
@@ -148,6 +150,23 @@ describe("routeStatusUpdate", () => {
       toolName: "Edit",
       toolInput: { file: "README.md" },
       message: "Allow tool use?",
+    });
+  });
+
+  it("builds completionSummary from Stop transcript fields", () => {
+    const routing = routeStatusUpdate(
+      ev({
+        status: "idle",
+        query: "make it work",
+        response: "done",
+      }),
+      trustAll,
+    );
+    expect(routing.kind).toBe("pane");
+    if (routing.kind !== "pane") throw new Error("unreachable");
+    expect(routing.event.completionSummary).toEqual({
+      query: "make it work",
+      response: "done",
     });
   });
 });

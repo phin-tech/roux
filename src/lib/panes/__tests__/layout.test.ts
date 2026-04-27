@@ -18,6 +18,7 @@ import {
   getStackLabel,
   movePane,
   resizePane,
+  resizeSplitDivider,
   type LayoutNode,
 } from "../layout";
 import { focusedPaneId, setLogicalFocus, resetFocus } from "../focus";
@@ -393,6 +394,133 @@ describe("resizePane", () => {
       expect(tree.sizes).toBeDefined();
       expect(tree.sizes![0]).toBeGreaterThan(0.5);
     }
+  });
+});
+
+describe("resizeSplitDivider", () => {
+  beforeEach(() => {
+    resetLayouts();
+    resetFocus();
+  });
+
+  it("resizes adjacent children in a two-pane split", () => {
+    sessionLayouts.set(new Map([
+      ["s1", {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "p1" },
+          { kind: "leaf", paneId: "p2" },
+        ],
+      }],
+    ]));
+
+    resizeSplitDivider("s1", [], 0, 100, 1000);
+
+    const tree = getLayout("s1");
+    expect(tree.kind).toBe("split");
+    if (tree.kind === "split") {
+      expect(tree.sizes).toEqual([0.6, 0.4]);
+    }
+  });
+
+  it("only changes the adjacent pair in a multi-child split", () => {
+    sessionLayouts.set(new Map([
+      ["s1", {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "p1" },
+          { kind: "leaf", paneId: "p2" },
+          { kind: "leaf", paneId: "p3" },
+        ],
+        sizes: [0.2, 0.5, 0.3],
+      }],
+    ]));
+
+    resizeSplitDivider("s1", [], 1, -100, 1000);
+
+    const tree = getLayout("s1");
+    expect(tree.kind).toBe("split");
+    if (tree.kind === "split") {
+      expect(tree.sizes).toEqual([0.2, 0.4, 0.4]);
+    }
+  });
+
+  it("clamps adjacent children to the minimum size", () => {
+    sessionLayouts.set(new Map([
+      ["s1", {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "p1" },
+          { kind: "leaf", paneId: "p2" },
+        ],
+        sizes: [0.5, 0.5],
+      }],
+    ]));
+
+    resizeSplitDivider("s1", [], 0, 900, 1000);
+
+    const tree = getLayout("s1");
+    expect(tree.kind).toBe("split");
+    if (tree.kind === "split") {
+      expect(tree.sizes![0]).toBeCloseTo(0.95);
+      expect(tree.sizes![1]).toBeCloseTo(0.05);
+    }
+  });
+
+  it("resizes a nested split by path without changing the root split", () => {
+    sessionLayouts.set(new Map([
+      ["s1", {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "p1" },
+          {
+            kind: "split",
+            direction: "v",
+            children: [
+              { kind: "leaf", paneId: "p2" },
+              { kind: "leaf", paneId: "p3" },
+            ],
+          },
+        ],
+        sizes: [0.3, 0.7],
+      }],
+    ]));
+
+    resizeSplitDivider("s1", [1], 0, 50, 500);
+
+    const tree = getLayout("s1");
+    expect(tree.kind).toBe("split");
+    if (tree.kind === "split") {
+      expect(tree.sizes).toEqual([0.3, 0.7]);
+      const nested = tree.children[1];
+      expect(nested.kind).toBe("split");
+      if (nested.kind === "split") {
+        expect(nested.sizes).toEqual([0.6, 0.4]);
+      }
+    }
+  });
+
+  it("does nothing for invalid divider inputs", () => {
+    const tree: LayoutNode = {
+      kind: "split",
+      direction: "h",
+      children: [
+        { kind: "leaf", paneId: "p1" },
+        { kind: "leaf", paneId: "p2" },
+      ],
+      sizes: [0.25, 0.75],
+    };
+    sessionLayouts.set(new Map([["s1", tree]]));
+
+    resizeSplitDivider("s1", [], 1, 100, 1000);
+    resizeSplitDivider("s1", [9], 0, 100, 1000);
+    resizeSplitDivider("s1", [], 0, 100, 0);
+
+    expect(getLayout("s1")).toEqual(tree);
   });
 });
 

@@ -40,6 +40,8 @@ pub struct StatusUpdate {
     pub tool_name: Option<String>,
     pub tool_input: Option<Value>,
     pub message: Option<String>,
+    pub query: Option<String>,
+    pub response: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -107,6 +109,16 @@ pub fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
         .and_then(|s| s.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let query = parsed
+        .get("query")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let response = parsed
+        .get("response")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
 
     Some(StatusUpdate {
         status: map_status(&raw_status).to_string(),
@@ -118,6 +130,8 @@ pub fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
         tool_name,
         tool_input,
         message,
+        query,
+        response,
     })
 }
 
@@ -153,11 +167,7 @@ pub fn payload_to_identity(update: &StatusUpdate) -> AgentIdentity {
     AgentIdentity {
         pane_id: update.roux_pane_id.clone(),
         session_id: update.roux_session_id.clone(),
-        cwd: if update.cwd.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(&update.cwd))
-        },
+        cwd: if update.cwd.is_empty() { None } else { Some(PathBuf::from(&update.cwd)) },
     }
 }
 
@@ -215,7 +225,11 @@ pub fn start_watching(
 
             for path in &changed_paths {
                 if let Err(e) = process_path_change(&app, &tx, path) {
-                    crate::rlog!("file_status: process_path_change error {}: {}", path.display(), e);
+                    crate::rlog!(
+                        "file_status: process_path_change error {}: {}",
+                        path.display(),
+                        e
+                    );
                 }
             }
 
@@ -240,11 +254,7 @@ pub fn start_watching(
     Ok(())
 }
 
-fn collect_paths(
-    event: &Event,
-    changed: &mut HashSet<PathBuf>,
-    removed: &mut HashSet<PathBuf>,
-) {
+fn collect_paths(event: &Event, changed: &mut HashSet<PathBuf>, removed: &mut HashSet<PathBuf>) {
     let is_json = |path: &Path| path.extension().and_then(|e| e.to_str()) == Some("json");
     match event.kind {
         EventKind::Create(_) | EventKind::Modify(_) => {
@@ -272,7 +282,8 @@ fn process_path_change(
 ) -> Result<(), String> {
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let parsed: Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-    let update = parse_status_payload(&parsed).ok_or_else(|| "payload missing status".to_string())?;
+    let update =
+        parse_status_payload(&parsed).ok_or_else(|| "payload missing status".to_string())?;
 
     let _ = app.emit("roux-status-update", &update);
 
@@ -284,11 +295,7 @@ fn process_path_change(
 
     let identity = payload_to_identity(&update);
     let context = payload_to_event_context(&update);
-    let input = AgentInput {
-        identity,
-        event: AgentEvent::HookStatus(mapped),
-        context,
-    };
+    let input = AgentInput { identity, event: AgentEvent::HookStatus(mapped), context };
     tx.send(RegistryMessage::Input(Box::new(input))).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -307,6 +314,8 @@ mod tests {
             "provider": "claude",
             "roux_session_id": "sess-1",
             "roux_pane_id": "pane-1",
+            "query": "please fix it",
+            "response": "fixed",
         });
         let update = parse_status_payload(&payload).expect("parse ok");
         assert_eq!(update.status, "generating");
@@ -315,6 +324,8 @@ mod tests {
         assert_eq!(update.provider, "claude");
         assert_eq!(update.roux_session_id.as_deref(), Some("sess-1"));
         assert_eq!(update.roux_pane_id.as_deref(), Some("pane-1"));
+        assert_eq!(update.query.as_deref(), Some("please fix it"));
+        assert_eq!(update.response.as_deref(), Some("fixed"));
     }
 
     #[test]
@@ -446,6 +457,8 @@ mod tests {
             tool_name: None,
             tool_input: None,
             message: None,
+            query: None,
+            response: None,
         }
     }
 }
