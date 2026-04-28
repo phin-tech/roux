@@ -137,6 +137,8 @@ fn main() {
         commands::setup::reinstall_hooks,
         commands::setup::reinstall_skill,
         commands::setup::install_all_missing,
+        commands::setup::cmd_detect_gh,
+        commands::setup::cmd_detect_git,
         commands::pr::check_gh_installed,
         commands::pr::lookup_pr,
         commands::pr::fetch_pr_branch,

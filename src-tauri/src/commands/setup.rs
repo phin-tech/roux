@@ -2,6 +2,13 @@ use crate::services::setup as svc;
 
 #[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct IntegrationDetection {
+    binary_path: Option<String>,
+    version: Option<String>,
+}
+
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SetupStatus {
     cli_installed: bool,
     gh_available: bool,
@@ -10,10 +17,7 @@ pub(crate) struct SetupStatus {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn check_setup_status() -> SetupStatus {
-    SetupStatus {
-        cli_installed: svc::is_cli_installed(),
-        gh_available: svc::is_gh_available(),
-    }
+    SetupStatus { cli_installed: svc::is_cli_installed(), gh_available: svc::is_gh_available() }
 }
 
 #[tauri::command]
@@ -168,4 +172,32 @@ pub(crate) fn install_all_missing() -> Result<(), String> {
         svc::install_skill().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_detect_gh() -> IntegrationDetection {
+    tauri::async_runtime::spawn_blocking(|| {
+        let result = crate::services::setup::detect_gh();
+        IntegrationDetection {
+            binary_path: result.as_ref().map(|(p, _)| p.clone()),
+            version: result.map(|(_, v)| v),
+        }
+    })
+    .await
+    .unwrap_or(IntegrationDetection { binary_path: None, version: None })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_detect_git() -> IntegrationDetection {
+    tauri::async_runtime::spawn_blocking(|| {
+        let result = crate::services::setup::detect_git();
+        IntegrationDetection {
+            binary_path: result.as_ref().map(|(p, _)| p.clone()),
+            version: result.map(|(_, v)| v),
+        }
+    })
+    .await
+    .unwrap_or(IntegrationDetection { binary_path: None, version: None })
 }

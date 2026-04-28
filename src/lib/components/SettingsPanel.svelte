@@ -135,13 +135,39 @@
     if (selected) updateSetting("worktrunkBinaryPath", selected as string);
   }
 
-  // Live detection state for the worktrunk subsection. Re-resolved on
+  async function browseShellBinary() {
+    const selected = await open({
+      directory: false,
+      title: "Select Shell Binary",
+    });
+    if (selected) updateSetting("shellBinaryPath", selected as string);
+  }
+
+  // Live detection state for integrations. Re-resolved on
   // panel open and whenever the override path changes.
+  let ghDetection = $state<{ binaryPath: string | null; version: string | null } | null>(null);
+  let gitDetection = $state<{ binaryPath: string | null; version: string | null } | null>(null);
   let worktrunkDetection = $state<{
     binaryPath: string | null;
     version: string | null;
     hasConfig: boolean;
   } | null>(null);
+
+  async function refreshGhDetection() {
+    try {
+      ghDetection = await commands.cmdDetectGh();
+    } catch {
+      ghDetection = { binaryPath: null, version: null };
+    }
+  }
+
+  async function refreshGitDetection() {
+    try {
+      gitDetection = await commands.cmdDetectGit();
+    } catch {
+      gitDetection = { binaryPath: null, version: null };
+    }
+  }
 
   async function refreshWorktrunkDetection() {
     try {
@@ -150,6 +176,16 @@
       worktrunkDetection = { binaryPath: null, version: null, hasConfig: false };
     }
   }
+
+  $effect(() => {
+    void $settings.ghBinaryPath;
+    void refreshGhDetection();
+  });
+
+  $effect(() => {
+    void $settings.gitBinaryPath;
+    void refreshGitDetection();
+  });
 
   $effect(() => {
     // Re-probe whenever the override changes. Tauri's `cmdDetectWorktrunk`
@@ -713,13 +749,59 @@
             </div>
           {:else if selected === "integrations"}
             <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
-              <div class="text-[13px] font-semibold">GitHub CLI</div>
+              <div class="flex items-center justify-between">
+                <div class="text-[13px] font-semibold">Shell</div>
+              </div>
+              <div class="mt-0.5 text-[11px] text-text-muted">
+                Shell used for terminal panes and login-shell PATH discovery
+                (for finding <code class="font-mono">gh</code>, <code class="font-mono">git</code>,
+                <code class="font-mono">wt</code>, etc. via Homebrew). Defaults to your OS login shell,
+                then <code class="font-mono">$SHELL</code>. Set this only if auto-detection chooses the
+                wrong shell. Takes effect after restarting Roux.
+              </div>
+              <div class="mt-3 flex items-center justify-between gap-2">
+                <span class="text-[13px]">Binary path</span>
+                <div class="flex gap-1">
+                  <input
+                    class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-64 text-right focus:border-accent-dim"
+                    value={$settings.shellBinaryPath ?? ""}
+                    oninput={(e) => updateSetting("shellBinaryPath", e.currentTarget.value || null)}
+                    placeholder="/opt/homebrew/bin/fish"
+                  />
+                  <button
+                    class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                    onclick={browseShellBinary}
+                  >...</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-center justify-between">
+                <div class="text-[13px] font-semibold">GitHub CLI</div>
+                {#if ghDetection?.binaryPath}
+                  <span
+                    class="rounded bg-green/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green"
+                    >detected{ghDetection.version ? ` ${ghDetection.version}` : ""}</span
+                  >
+                {:else if ghDetection !== null}
+                  <span
+                    class="rounded bg-red/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red"
+                    >missing</span
+                  >
+                {/if}
+              </div>
               <div class="mt-0.5 text-[11px] text-text-muted">
                 Used for "Session from PR" and PR watches. Roux auto-detects
                 <code class="font-mono">gh</code> via your login shell's PATH (including fish). Set this only if
                 auto-detection misses your install — paste the output of <code class="font-mono">which gh</code>.
                 Takes effect after restarting Roux.
               </div>
+              {#if ghDetection?.binaryPath}
+                <div class="mt-2 font-mono text-[10px] text-text-muted">
+                  {ghDetection.binaryPath}
+                </div>
+              {/if}
               <div class="mt-3 flex items-center justify-between gap-2">
                 <span class="text-[13px]">Binary path</span>
                 <div class="flex gap-1">
@@ -738,12 +820,30 @@
             </div>
 
             <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
-              <div class="text-[13px] font-semibold">Git</div>
+              <div class="flex items-center justify-between">
+                <div class="text-[13px] font-semibold">Git</div>
+                {#if gitDetection?.binaryPath}
+                  <span
+                    class="rounded bg-green/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green"
+                    >detected{gitDetection.version ? ` ${gitDetection.version}` : ""}</span
+                  >
+                {:else if gitDetection !== null}
+                  <span
+                    class="rounded bg-red/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red"
+                    >missing</span
+                  >
+                {/if}
+              </div>
               <div class="mt-0.5 text-[11px] text-text-muted">
                 Used for git-backed Library sources. Roux checks this override,
                 then <code class="font-mono">ROUX_GIT</code>, then your login shell's PATH, then the app PATH.
                 Set this only if auto-detection misses your install.
               </div>
+              {#if gitDetection?.binaryPath}
+                <div class="mt-2 font-mono text-[10px] text-text-muted">
+                  {gitDetection.binaryPath}
+                </div>
+              {/if}
               <div class="mt-3 flex items-center justify-between gap-2">
                 <span class="text-[13px]">Binary path</span>
                 <div class="flex gap-1">

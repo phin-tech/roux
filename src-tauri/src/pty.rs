@@ -1641,8 +1641,9 @@ fn apply_notes_env(cmd: &mut CommandBuilder, n: &NotesEnvInputs) {
     // so shell idioms like `${ROUX_SESSION_PROJECT:-no-project}` work.
 }
 
-/// Get the user's login shell PATH by invoking their actual shell (from $SHELL)
-/// instead of hardcoding /bin/bash. This ensures paths added in .zshrc etc. are found.
+/// Get the user's login shell PATH by invoking the same shell Roux would use
+/// for terminal panes. This keeps Homebrew and other shell-managed prefixes
+/// visible to GUI launches.
 pub fn get_user_path() -> String {
     get_user_path_impl()
 }
@@ -1654,7 +1655,7 @@ fn get_user_path_impl() -> String {
 
 #[cfg(not(windows))]
 fn get_user_path_impl() -> String {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = resolve_default_shell();
     // Fish outputs $PATH as a space-separated list; other shells use colons.
     // Use fish's `string join` to get colon-separated output.
     let path_cmd = if shell.contains("fish") { "string join : $PATH" } else { "echo $PATH" };
@@ -1697,7 +1698,64 @@ fn resolve_default_shell() -> String {
 
     #[cfg(not(windows))]
     {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+        let settings = crate::settings::load_settings();
+        resolve_default_shell_from_sources(
+            settings.shell_binary_path.as_deref(),
+            login_shell_for_current_user().as_deref(),
+            std::env::var("SHELL").ok().as_deref(),
+        )
+    }
+}
+
+#[cfg(not(windows))]
+fn resolve_default_shell_from_sources(
+    setting_shell: Option<&str>,
+    login_shell: Option<&str>,
+    env_shell: Option<&str>,
+) -> String {
+    setting_shell
+        .and_then(nonempty_trimmed)
+        .or_else(|| login_shell.and_then(nonempty_trimmed))
+        .or_else(|| env_shell.and_then(nonempty_trimmed))
+        .unwrap_or("/bin/zsh")
+        .to_string()
+}
+
+#[cfg(not(windows))]
+fn nonempty_trimmed(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
+#[cfg(unix)]
+fn login_shell_for_current_user() -> Option<String> {
+    let uid = unsafe { libc::getuid() };
+    let mut result: *mut libc::passwd = std::ptr::null_mut();
+    let mut buf_size = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
+    if buf_size < 1024 {
+        buf_size = 16 * 1024;
+    }
+    let mut buf = vec![0 as libc::c_char; buf_size as usize];
+
+    loop {
+        let mut passwd = std::mem::MaybeUninit::<libc::passwd>::zeroed();
+        let rc = unsafe {
+            libc::getpwuid_r(uid, passwd.as_mut_ptr(), buf.as_mut_ptr(), buf.len(), &mut result)
+        };
+        if rc == libc::ERANGE {
+            buf.resize(buf.len() * 2, 0);
+            continue;
+        }
+        if rc != 0 || result.is_null() {
+            return None;
+        }
+
+        let passwd = unsafe { passwd.assume_init() };
+        if passwd.pw_shell.is_null() {
+            return None;
+        }
+        let shell = unsafe { std::ffi::CStr::from_ptr(passwd.pw_shell) };
+        return shell.to_str().ok().and_then(nonempty_trimmed).map(str::to_string);
     }
 }
 
@@ -1818,6 +1876,38 @@ mod tests {
             "PATH should contain standard bin directories, got: {}",
             path
         );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn default_shell_prefers_explicit_setting_over_login_shell_and_env() {
+        let shell = resolve_default_shell_from_sources(
+            Some(" /custom/fish "),
+            Some("/bin/zsh"),
+            Some("/bin/bash"),
+        );
+
+        assert_eq!(shell, "/custom/fish");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn default_shell_prefers_login_shell_over_env_shell() {
+        let shell = resolve_default_shell_from_sources(
+            None,
+            Some("/opt/homebrew/bin/fish"),
+            Some("/bin/zsh"),
+        );
+
+        assert_eq!(shell, "/opt/homebrew/bin/fish");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn default_shell_uses_env_shell_when_login_shell_is_unavailable() {
+        let shell = resolve_default_shell_from_sources(None, None, Some("/bin/bash"));
+
+        assert_eq!(shell, "/bin/bash");
     }
 
     #[test]
