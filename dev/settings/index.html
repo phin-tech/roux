@@ -877,6 +877,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gpu-acceleration" class="md-nav__link">
+    <span class="md-ellipsis">
+      GPU acceleration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes-experimental" class="md-nav__link">
     <span class="md-ellipsis">
       Notes (experimental)
@@ -985,6 +994,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gpu-acceleration" class="md-nav__link">
+    <span class="md-ellipsis">
+      GPU acceleration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes-experimental" class="md-nav__link">
     <span class="md-ellipsis">
       Notes (experimental)
@@ -1042,7 +1060,7 @@
 <ul>
 <li><strong>General</strong> — theme, tab position, status bar position.</li>
 <li><strong>Sessions</strong> — close/reconnect behavior, default project path, repo roots quick-pick sources, worktree base template, worktree cleanup mode, and the New Worktree default starting point.</li>
-<li><strong>Terminal</strong> — independent terminal theme selection, user-imported <code>.itermcolors</code> themes, font, scrollback, and cursor settings.</li>
+<li><strong>Terminal</strong> — independent terminal theme selection, user-imported <code>.itermcolors</code> themes, font, scrollback, cursor, and GPU acceleration settings.</li>
 <li><strong>Claude</strong> — binary path override, default model, additional flags.</li>
 <li><strong>Integrations</strong> — GitHub CLI (<code>gh</code>) path override for PR/session integrations.</li>
 <li><strong>Notifications</strong> — OS notification master switch and test notification trigger.</li>
@@ -1057,6 +1075,14 @@
 <li><strong>User themes</strong> — drop iTerm2 <code>.itermcolors</code> files into <code>~/.config/roux/themes/</code>, then use <strong>Reload</strong> to rescan them or <strong>Reveal</strong> to open the folder in your file manager.</li>
 <li>Missing user themes are preserved as setting values until you restore the file or pick a different theme, so Roux does not silently overwrite a temporarily unavailable palette.</li>
 </ul>
+<h2 id="gpu-acceleration">GPU acceleration<a class="headerlink" href="#gpu-acceleration" title="Permanent link">&para;</a></h2>
+<p>Terminal panes use a WebGL renderer by default for smooth rendering of large output buffers. The <strong>Terminal</strong> section exposes a <strong>GPU acceleration</strong> dropdown for the rare cases where the default isn't right.</p>
+<ul>
+<li><strong>Auto</strong> (default) — try WebGL; if construction fails or the WebGL context is lost (GPU process crash, suspended tab, too many WebGL contexts on the page), fall back silently to xterm's built-in DOM renderer. Recommended for almost everyone.</li>
+<li><strong>On (WebGL)</strong> — same fallback behavior as Auto today; reserved as a distinct option in case future Roux versions add a Canvas tier or stricter "WebGL only" semantics.</li>
+<li><strong>Off (DOM)</strong> — skip WebGL entirely and use the DOM renderer. Useful if you suspect a driver/GPU issue, are running over a remote desktop with poor GL passthrough, or just want lower power draw at the cost of slower scrollback rendering.</li>
+</ul>
+<p>The setting (<code>gpuAcceleration</code>) applies to terminal panes opened <strong>after</strong> you change it. Existing panes keep their current renderer until they're closed and reopened (or the session is restarted).</p>
 <h2 id="notes-experimental">Notes (experimental)<a class="headerlink" href="#notes-experimental" title="Permanent link">&para;</a></h2>
 <p>The <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-b">B</kbd></span> notes panel writes to an Obsidian-compatible vault on disk.</p>
 <ul>
