@@ -16,6 +16,7 @@ pub(crate) fn update_settings(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let settings = svc::update_settings(settings).map_err(|e| e.to_string())?;
+    crate::pty::set_shell_binary_path_override(settings.shell_binary_path.clone());
     *state.settings.lock().unwrap() = settings.clone();
     app.emit("settings-changed", &settings).map_err(|e| e.to_string())
 }

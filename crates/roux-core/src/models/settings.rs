@@ -214,6 +214,11 @@ pub struct RouxSettings {
     /// when nothing is found.
     #[serde(default)]
     pub worktrunk_binary_path: Option<String>,
+    /// Absolute path to the shell binary for terminal panes and login-shell
+    /// PATH discovery. When set and non-empty, overrides automatic resolution
+    /// from the OS login shell, then $SHELL.
+    #[serde(default)]
+    pub shell_binary_path: Option<String>,
     /// Which backend Roux uses to create worktrees. Default `Auto` prefers
     /// `wt` when available and falls back to git when not.
     #[serde(default)]
@@ -333,6 +338,7 @@ impl Default for RouxSettings {
             gh_binary_path: None,
             git_binary_path: None,
             worktrunk_binary_path: None,
+            shell_binary_path: None,
             worktree_provider: WorktreeProvider::default(),
             additional_flags: Vec::new(),
             task_panel_split: 0.5,

@@ -208,6 +208,8 @@ export const commands = {
 	reinstallHooks: () => typedError<null, string>(__TAURI_INVOKE("reinstall_hooks")),
 	reinstallSkill: () => typedError<null, string>(__TAURI_INVOKE("reinstall_skill")),
 	installAllMissing: () => typedError<null, string>(__TAURI_INVOKE("install_all_missing")),
+	cmdDetectGh: () => __TAURI_INVOKE<IntegrationDetection>("cmd_detect_gh"),
+	cmdDetectGit: () => __TAURI_INVOKE<IntegrationDetection>("cmd_detect_git"),
 	checkGhInstalled: () => __TAURI_INVOKE<boolean>("check_gh_installed"),
 	lookupPr: (repoPath: string | null, url: string) => typedError<PrInfo, string>(__TAURI_INVOKE("lookup_pr", { repoPath, url })),
 	fetchPrBranch: (repoPath: string, number: number, headRef: string, isCrossRepository: boolean) => typedError<string, string>(__TAURI_INVOKE("fetch_pr_branch", { repoPath, number, headRef, isCrossRepository })),
@@ -417,6 +419,11 @@ export type HookSourceKind = "user" | "project";
 
 // HUD visibility for a tree.
 export type HudMode = { kind: "always" } | { kind: "delayed"; ms: number } | { kind: "never" };
+
+export type IntegrationDetection = {
+	binaryPath: string | null,
+	version: string | null,
+};
 
 export type KeepOpen = "always" | "on-error" | "never";
 
@@ -799,6 +806,12 @@ export type RouxSettings = {
 	 *  when nothing is found.
 	 */
 	worktrunkBinaryPath?: string | null,
+	/**
+	 *  Absolute path to the shell binary for terminal panes and login-shell
+	 *  PATH discovery. When set and non-empty, overrides automatic resolution
+	 *  from the OS login shell, then $SHELL.
+	 */
+	shellBinaryPath?: string | null,
 	/**
 	 *  Which backend Roux uses to create worktrees. Default `Auto` prefers
 	 *  `wt` when available and falls back to git when not.

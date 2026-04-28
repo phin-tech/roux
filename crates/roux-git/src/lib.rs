@@ -25,6 +25,10 @@ impl GitCli {
         Self { git_bin: path.into() }
     }
 
+    pub fn git_bin(&self) -> &Path {
+        &self.git_bin
+    }
+
     pub fn clone_repo(
         &self,
         url: &str,
