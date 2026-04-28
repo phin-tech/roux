@@ -13,11 +13,13 @@
   import { notificationsPush } from "$lib/tauri";
   import { commands } from "$lib/bindings";
   import type {
+    IntegrationDetection,
     OnPaneCloseMode,
     UpdateChannel,
     WorktreeCleanupMode,
     WorktreeDefaultBase,
     WorktreeProvider,
+    WorktrunkDetection,
   } from "$lib/bindings";
   import { updateStatus, runManualCheck, performInstall } from "$lib/stores/updater";
   import { getVersion } from "@tauri-apps/api/app";
@@ -143,56 +145,76 @@
     if (selected) updateSetting("shellBinaryPath", selected as string);
   }
 
-  // Live detection state for integrations. Re-resolved on
-  // panel open and whenever the override path changes.
-  let ghDetection = $state<{ binaryPath: string | null; version: string | null } | null>(null);
-  let gitDetection = $state<{ binaryPath: string | null; version: string | null } | null>(null);
-  let worktrunkDetection = $state<{
-    binaryPath: string | null;
-    version: string | null;
-    hasConfig: boolean;
-  } | null>(null);
+  let ghDetection = $state<IntegrationDetection | null>(null);
+  let gitDetection = $state<IntegrationDetection | null>(null);
+  let worktrunkDetection = $state<WorktrunkDetection | null>(null);
+  let ghDetectionRun = 0;
+  let gitDetectionRun = 0;
+  let worktrunkDetectionRun = 0;
 
-  async function refreshGhDetection() {
+  async function refreshGhDetection(run: number) {
     try {
-      ghDetection = await commands.cmdDetectGh();
+      const result = await commands.cmdDetectGh();
+      if (run === ghDetectionRun) ghDetection = result;
     } catch {
-      ghDetection = { binaryPath: null, version: null };
+      if (run === ghDetectionRun) ghDetection = { binaryPath: null, version: null };
     }
   }
 
-  async function refreshGitDetection() {
+  async function refreshGitDetection(run: number) {
     try {
-      gitDetection = await commands.cmdDetectGit();
+      const result = await commands.cmdDetectGit();
+      if (run === gitDetectionRun) gitDetection = result;
     } catch {
-      gitDetection = { binaryPath: null, version: null };
+      if (run === gitDetectionRun) gitDetection = { binaryPath: null, version: null };
     }
   }
 
-  async function refreshWorktrunkDetection() {
+  async function refreshWorktrunkDetection(run: number) {
     try {
-      worktrunkDetection = await commands.cmdDetectWorktrunk(null);
+      const result = await commands.cmdDetectWorktrunk(null);
+      if (run === worktrunkDetectionRun) worktrunkDetection = result;
     } catch {
-      worktrunkDetection = { binaryPath: null, version: null, hasConfig: false };
+      if (run === worktrunkDetectionRun) {
+        worktrunkDetection = { binaryPath: null, version: null, hasConfig: false };
+      }
     }
   }
 
   $effect(() => {
-    void $settings.ghBinaryPath;
-    void refreshGhDetection();
+    const path = $settings.ghBinaryPath;
+    void path;
+    if (!visible || selected !== "integrations") {
+      ghDetectionRun += 1;
+      return;
+    }
+    const run = ++ghDetectionRun;
+    const timer = setTimeout(() => void refreshGhDetection(run), 250);
+    return () => clearTimeout(timer);
   });
 
   $effect(() => {
-    void $settings.gitBinaryPath;
-    void refreshGitDetection();
+    const path = $settings.gitBinaryPath;
+    void path;
+    if (!visible || selected !== "integrations") {
+      gitDetectionRun += 1;
+      return;
+    }
+    const run = ++gitDetectionRun;
+    const timer = setTimeout(() => void refreshGitDetection(run), 250);
+    return () => clearTimeout(timer);
   });
 
   $effect(() => {
-    // Re-probe whenever the override changes. Tauri's `cmdDetectWorktrunk`
-    // reads the current settings override internally, so a bare re-fetch
-    // is enough.
-    void $settings.worktrunkBinaryPath;
-    void refreshWorktrunkDetection();
+    const path = $settings.worktrunkBinaryPath;
+    void path;
+    if (!visible || selected !== "integrations") {
+      worktrunkDetectionRun += 1;
+      return;
+    }
+    const run = ++worktrunkDetectionRun;
+    const timer = setTimeout(() => void refreshWorktrunkDetection(run), 250);
+    return () => clearTimeout(timer);
   });
 
   async function browseWorktreeBase() {
@@ -757,7 +779,8 @@
                 (for finding <code class="font-mono">gh</code>, <code class="font-mono">git</code>,
                 <code class="font-mono">wt</code>, etc. via Homebrew). Defaults to your OS login shell,
                 then <code class="font-mono">$SHELL</code>. Set this only if auto-detection chooses the
-                wrong shell. Takes effect after restarting Roux.
+                wrong shell. New terminal panes use the updated shell right away; restart Roux if
+                integration PATH discovery needs to be refreshed.
               </div>
               <div class="mt-3 flex items-center justify-between gap-2">
                 <span class="text-[13px]">Binary path</span>
@@ -795,7 +818,6 @@
                 Used for "Session from PR" and PR watches. Roux auto-detects
                 <code class="font-mono">gh</code> via your login shell's PATH (including fish). Set this only if
                 auto-detection misses your install — paste the output of <code class="font-mono">which gh</code>.
-                Takes effect after restarting Roux.
               </div>
               {#if ghDetection?.binaryPath}
                 <div class="mt-2 font-mono text-[10px] text-text-muted">

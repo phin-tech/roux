@@ -1683,8 +1683,13 @@ fn get_user_path_impl() -> String {
 }
 
 fn resolve_default_shell() -> String {
+    let shell_binary_path = shell_binary_path_override();
+
     #[cfg(windows)]
     {
+        if let Some(shell) = shell_binary_path {
+            return shell;
+        }
         if platform::find_executable_on_path("pwsh").is_some()
             || platform::find_executable_on_path("pwsh.exe").is_some()
         {
@@ -1698,13 +1703,37 @@ fn resolve_default_shell() -> String {
 
     #[cfg(not(windows))]
     {
-        let settings = crate::settings::load_settings();
         resolve_default_shell_from_sources(
-            settings.shell_binary_path.as_deref(),
+            shell_binary_path.as_deref(),
             login_shell_for_current_user().as_deref(),
             std::env::var("SHELL").ok().as_deref(),
         )
     }
+}
+
+pub(crate) fn set_shell_binary_path_override(path: Option<String>) {
+    let cache = shell_binary_path_cache();
+    *cache.lock().unwrap() = Some(path.as_deref().and_then(nonempty_trimmed).map(str::to_string));
+}
+
+fn shell_binary_path_override() -> Option<String> {
+    let cache = shell_binary_path_cache();
+    let mut guard = cache.lock().unwrap();
+    if guard.is_none() {
+        *guard = Some(
+            crate::settings::load_settings()
+                .shell_binary_path
+                .as_deref()
+                .and_then(nonempty_trimmed)
+                .map(str::to_string),
+        );
+    }
+    guard.clone().flatten()
+}
+
+fn shell_binary_path_cache() -> &'static Mutex<Option<Option<String>>> {
+    static CACHE: std::sync::OnceLock<Mutex<Option<Option<String>>>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
 }
 
 #[cfg(not(windows))]
@@ -1721,7 +1750,6 @@ fn resolve_default_shell_from_sources(
         .to_string()
 }
 
-#[cfg(not(windows))]
 fn nonempty_trimmed(value: &str) -> Option<&str> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then_some(trimmed)
