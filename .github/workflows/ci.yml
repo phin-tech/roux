@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -22,8 +26,38 @@ env:
     libjavascriptcoregtk-4.1-dev
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.docs-only.outputs.docs_only }}
+    steps:
+      - uses: actions/github-script@v7
+        id: docs-only
+        with:
+          script: |
+            if (context.eventName !== 'pull_request') {
+              core.setOutput('docs_only', 'false');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            });
+
+            const docsOnly = files.length > 0 && files.every((file) =>
+              file.filename.startsWith('docs/') || file.filename === 'mkdocs.yml'
+            );
+            core.setOutput('docs_only', String(docsOnly));
+
   frontend:
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,6 +70,8 @@ jobs:
 
   rust-clippy:
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
@@ -57,6 +93,8 @@ jobs:
 
   rust-test:
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
@@ -81,6 +119,8 @@ jobs:
   # (above) should pass on machines without worktrunk installed.
   worktrunk-integration:
     runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
