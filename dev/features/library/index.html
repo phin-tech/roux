@@ -737,6 +737,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#skill-sync" class="md-nav__link">
+    <span class="md-ellipsis">
+      Skill sync
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -980,6 +989,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#skill-sync" class="md-nav__link">
+    <span class="md-ellipsis">
+      Skill sync
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1007,7 +1025,7 @@
 <p>The Library is a scoped collection of reusable <strong>prompts</strong> and <strong>skills</strong>. Prompts can be rendered with variables and sent directly into the focused terminal. Skills are reusable markdown context blocks you can send to an agent or copy to the clipboard.</p>
 <div class="admonition warning">
 <p class="admonition-title">Experimental — subject to change</p>
-<p>Library prompts and skills require Roux <code>v0.5.3-pre.1</code> or greater and are in active development. Vault layout, source layering, frontmatter schema, variable syntax, Git source handling, and command shapes may change in future releases before stabilizing. If you keep important prompts or skills in your Roux vault or shared Library repos, keep your own backups and expect breaking migrations until this banner is removed.</p>
+<p>Library prompts and skills require Roux <code>v0.5.3-pre.1</code> or greater (skill sync requires <code>v0.5.3-pre.3</code> or greater) and are in active development. Vault layout, source layering, frontmatter schema, variable syntax, Git source handling, sync manifest format, and command shapes may change in future releases before stabilizing. If you keep important prompts or skills in your Roux vault or shared Library repos, keep your own backups and expect breaking migrations until this banner is removed.</p>
 </div>
 <h2 id="where-library-items-live">Where Library items live<a class="headerlink" href="#where-library-items-live" title="Permanent link">&para;</a></h2>
 <p>Roux reads Library markdown from layered sources:</p>
@@ -1020,6 +1038,7 @@
 <p>Sources are ordered. Later sources override earlier sources when they define the same item id, so a repo-specific prompt can replace a global default without deleting it.</p>
 <h2 id="item-format">Item format<a class="headerlink" href="#item-format" title="Permanent link">&para;</a></h2>
 <p>Library items are markdown files with YAML frontmatter. Prompt files live under <code>prompts</code>; skill files live under <code>skills</code>.</p>
+<p>Prompts:</p>
 <div class="language-markdown highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>---
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>id: review.diff
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>type: prompt
@@ -1033,7 +1052,18 @@
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="gu">---</span>
 </span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>Review this diff for {{ goal }}.
 </span></code></pre></div>
-<p>The <code>id</code>, <code>type</code>, and <code>title</code> fields identify the item in Roux. Prompt variables use <code>{{ variableName }}</code> placeholders. Variables can be strings, integers, floats, or selects; Roux prompts for values before sending the rendered prompt.</p>
+<p>Skills (also valid as Claude <code>SKILL.md</code> — see <a href="#skill-sync">Skill sync</a>):</p>
+<div class="language-markdown highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>---
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>name: rust.errors
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>id: rust.errors
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>type: skill
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>title: Rust Errors
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>description: Prefer typed errors over Result&lt;_, String&gt;
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="gu">tags: [rust]</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="gu">---</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>Body...
+</span></code></pre></div>
+<p>The <code>id</code>, <code>type</code>, and <code>title</code> fields identify the item in Roux. <strong>Prompts</strong> support variables (<code>{{ variableName }}</code> placeholders, strings/integers/floats/selects); Roux prompts for values before sending. <strong>Skills do not support variables</strong> — they are pure context blocks. The <code>name</code> field on skills must equal the <code>id</code> and is required so the file is loadable as a Claude <code>SKILL.md</code> when <a href="#skill-sync">skill sync</a> is enabled.</p>
 <h2 id="using-the-library">Using the Library<a class="headerlink" href="#using-the-library" title="Permanent link">&para;</a></h2>
 <p>Open the Library from the activity rail, the command palette, or the leader Library tree. From there you can:</p>
 <ul>
@@ -1055,7 +1085,27 @@
 <li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-s">S</kbd></span> — copy a Library skill to the clipboard</li>
 <li>++cmd+; l++ — open the leader Library tree</li>
 </ul>
-<p>The same actions are available from <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span> under the <strong>Library</strong> category.</p>
+<p>The same actions are available from <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span> under the <strong>Library</strong> category, including:</p>
+<ul>
+<li><strong>Sync Library Skills</strong> — run a sync pass (see below)</li>
+<li><strong>Unsync All Library Skills</strong> — remove all synced files (hash-checked)</li>
+</ul>
+<h2 id="skill-sync">Skill sync<a class="headerlink" href="#skill-sync" title="Permanent link">&para;</a></h2>
+<p>Library skills can be mirrored into Claude-readable <code>.claude/skills/&lt;name&gt;/SKILL.md</code> directories so Claude loads them automatically. Sync is <strong>off by default</strong>.</p>
+<p><strong>Modes</strong> (set globally in the Library panel under "Skill sync", or per-source via <code>librarySources[].skillSync</code> in <code>settings.json</code>):</p>
+<ul>
+<li><code>off</code> — Roux does not write any skill files outside the Library.</li>
+<li><code>copy</code> — Roux writes a copy of each skill on sync. A manifest at <code>&lt;vault&gt;/library/.skill-sync.json</code> records SHA-256 hashes so Roux can detect when a synced file has been edited locally and skip overwriting it.</li>
+<li><code>symlink</code> — Roux symlinks each <code>.claude/skills/&lt;name&gt;/SKILL.md</code> back to the source skill file. Edits in either place are the same edit. On Windows without Developer Mode the OS rejects symlink creation; Roux auto-degrades to <code>copy</code> for that sync run.</li>
+</ul>
+<p><strong>Destinations</strong> are determined by the source layer:</p>
+<ul>
+<li>Global vault and Git-repo sources sync to user-level <code>~/.claude/skills/</code>.</li>
+<li>Local-repo and active-repo sources sync to that repo's own <code>.claude/skills/</code>.</li>
+</ul>
+<p><strong>Conflict policy.</strong> Sync is conservative: it never overwrites a file at the destination that Roux did not write. Untracked files and files whose content has drifted from the manifest hash are skipped and reported, never modified. For copy-mode files inside a git repo, treat git as the safety net — the synced file is part of your tree and <code>git diff</code> will show any drift.</p>
+<p><strong>Removal.</strong> Disabling a source or removing a skill from the Library marks the corresponding manifest entry as <strong>stale</strong> in the next sync report. To delete the synced files, run <strong>Unsync All Library Skills</strong> from the command palette. Unsync hash-checks every entry first and refuses to delete files that have been edited locally.</p>
+<p><strong>One-time format migration.</strong> On first launch after upgrading to skill sync, Roux silently rewrites global-vault skills that lack a <code>name:</code> field and strips any legacy <code>variables:</code> blocks. Repo and Git-source skills are migrated implicitly the next time they are saved through the Library editor. The migration leaves <code>{{ variable }}</code> placeholders in skill bodies untouched — review and clean them up by hand if any existed.</p>
 
 
 
