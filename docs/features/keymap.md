@@ -210,6 +210,16 @@ Bindings target commands by id. The complete, always-current list is the command
 | `ui.toggle-sidebar` / `ui.toggle-task-panel` | Layout panels |
 | `ui.group-by` | Toggle session grouping (repo / project) |
 
+### Library
+
+| Id | What it does |
+|---|---|
+| `library.search-prompts` | Search Library prompts and send one to the active pane |
+| `library.search-skills` | Search Library skills and send one to the active pane |
+| `library.copy-prompt-to-clipboard` | Search Library prompts and copy one to the clipboard |
+| `library.copy-skill-to-clipboard` | Search Library skills and copy one to the clipboard |
+| `library.open-manager` | Open the Library manager |
+
 ### Tasks and watches
 
 | Id | What it does |
