@@ -150,6 +150,7 @@ pub(crate) struct LibraryLayer {
 }
 
 impl LibraryLayer {
+    #[cfg(test)]
     pub(crate) fn new(
         kind: LibraryLayerKind,
         source_id: Option<String>,
