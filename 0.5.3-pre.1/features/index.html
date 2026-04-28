@@ -517,6 +517,8 @@
       
         
       
+        
+      
     
     
       
@@ -638,6 +640,27 @@
   
   <span class="md-ellipsis">
     Worktrees
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="library/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Library
   </span>
   
 
@@ -846,60 +869,27 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#library" class="md-nav__link">
+  <a href="#workspace" class="md-nav__link">
     <span class="md-ellipsis">
-      Library
+      Workspace
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Library">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#where-library-items-live" class="md-nav__link">
-    <span class="md-ellipsis">
-      Where Library items live
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#item-format" class="md-nav__link">
-    <span class="md-ellipsis">
-      Item format
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#using-the-library" class="md-nav__link">
-    <span class="md-ellipsis">
-      Using the Library
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#keyboard-and-command-palette" class="md-nav__link">
-    <span class="md-ellipsis">
-      Keyboard and command palette
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#other-features" class="md-nav__link">
+  <a href="#context" class="md-nav__link">
     <span class="md-ellipsis">
-      Other features
+      Context
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#automation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Automation
     </span>
   </a>
   
@@ -929,70 +919,24 @@
 
 
 <h1 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h1>
-<p>Roux is built around terminal-first agent work: sessions keep work isolated, panes keep related processes visible, and the Library keeps reusable prompts and skills close to the terminal where you need them.</p>
-<h2 id="library">Library<a class="headerlink" href="#library" title="Permanent link">&para;</a></h2>
-<p>The Library is a scoped collection of reusable <strong>prompts</strong> and <strong>skills</strong>. Prompts can be rendered with variables and sent directly into the focused terminal. Skills are reusable markdown context blocks you can send to an agent or copy to the clipboard.</p>
-<div class="admonition warning">
-<p class="admonition-title">Experimental — subject to change</p>
-<p>Library prompts and skills are in active development. Vault layout, source layering, frontmatter schema, variable syntax, Git source handling, and command shapes may change in future releases before stabilizing. If you keep important prompts or skills in your Roux vault or shared Library repos, keep your own backups and expect breaking migrations until this banner is removed.</p>
-</div>
-<h3 id="where-library-items-live">Where Library items live<a class="headerlink" href="#where-library-items-live" title="Permanent link">&para;</a></h3>
-<p>Roux reads Library markdown from layered sources:</p>
-<ul>
-<li><strong>Global Library</strong> — <code>library/prompts</code> and <code>library/skills</code> inside your Roux vault.</li>
-<li><strong>Active Repo Library</strong> — <code>.roux/library/prompts</code> and <code>.roux/library/skills</code> inside the active session repo.</li>
-<li><strong>Local repo sources</strong> — pinned repositories that expose <code>.roux/library</code>.</li>
-<li><strong>Git sources</strong> — managed checkouts that Roux can clone, status-check, and sync.</li>
-</ul>
-<p>Sources are ordered. Later sources override earlier sources when they define the same item id, so a repo-specific prompt can replace a global default without deleting it.</p>
-<h3 id="item-format">Item format<a class="headerlink" href="#item-format" title="Permanent link">&para;</a></h3>
-<p>Library items are markdown files with YAML frontmatter. Prompt files live under <code>prompts</code>; skill files live under <code>skills</code>.</p>
-<div class="language-markdown highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>---
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>id: review.diff
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>type: prompt
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>title: Review Diff
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>description: Review a change with a specific concern in mind
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>tags: [review]
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>variables:
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>name: goal
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    label: Review focus
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="gu">    default: correctness</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="gu">---</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>Review this diff for {{ goal }}.
-</span></code></pre></div>
-<p>The <code>id</code>, <code>type</code>, and <code>title</code> fields identify the item in Roux. Prompt variables use <code>{{ variableName }}</code> placeholders. Variables can be strings, integers, floats, or selects; Roux prompts for values before sending the rendered prompt.</p>
-<h3 id="using-the-library">Using the Library<a class="headerlink" href="#using-the-library" title="Permanent link">&para;</a></h3>
-<p>Open the Library from the activity rail, the command palette, or the leader Library tree. From there you can:</p>
-<ul>
-<li>filter prompts and skills</li>
-<li>preview rendered markdown</li>
-<li>create or edit Library items</li>
-<li>send an item to the focused terminal</li>
-<li>drag a prompt onto a terminal pane</li>
-<li>copy prompts or skills to the clipboard from the command palette</li>
-<li>add, remove, reorder, enable, disable, clone, or sync Library sources</li>
-</ul>
-<p>Prompt sends append a carriage return, so the target terminal receives the rendered prompt as submitted input. Skills send their markdown body as context.</p>
-<h3 id="keyboard-and-command-palette">Keyboard and command palette<a class="headerlink" href="#keyboard-and-command-palette" title="Permanent link">&para;</a></h3>
-<p>Default Library shortcuts:</p>
-<ul>
-<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-p">P</kbd></span> — search Library prompts and send to the active pane</li>
-<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-s">S</kbd></span> — search Library skills and send to the active pane</li>
-<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-p">P</kbd></span> — copy a Library prompt to the clipboard</li>
-<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-s">S</kbd></span> — copy a Library skill to the clipboard</li>
-<li>++cmd+; l++ — open the leader Library tree</li>
-</ul>
-<p>The same actions are available from <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span> under the <strong>Library</strong> category.</p>
-<h2 id="other-features">Other features<a class="headerlink" href="#other-features" title="Permanent link">&para;</a></h2>
+<p>Roux is a terminal-first workspace for running agent sessions, shells, notes, watches, and reusable context side by side. These are the major feature areas.</p>
+<h2 id="workspace">Workspace<a class="headerlink" href="#workspace" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="panes/">Panes</a> — split, stack, focus, attach, detach, and run commands.</li>
 <li><a href="sessions/">Sessions</a> — create, reconnect, archive, restore, and group agent workflows.</li>
 <li><a href="layouts/">Layouts</a> — start sessions from KDL templates and spawn profiles.</li>
 <li><a href="worktrees/">Worktrees</a> — manage isolated git checkouts for session work.</li>
-<li><a href="watches/">Watches</a> — track long-running checks, HTTP endpoints, and GitHub PRs.</li>
-<li><a href="hooks/">Automation hooks</a> — integrate Roux with external events and scripts.</li>
-<li><a href="cli/">CLI</a> — drive sessions, panes, notes, and notifications from <code>roux-cli</code>.</li>
+</ul>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="library/">Library</a> — reuse scoped prompts and skills from global, repo, local-source, and Git-backed libraries.</li>
 <li><a href="notes/">Notes</a> — keep scoped markdown notes beside your sessions.</li>
+<li><a href="hooks/">Automation hooks</a> — integrate Roux with external events and scripts.</li>
+</ul>
+<h2 id="automation">Automation<a class="headerlink" href="#automation" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="watches/">Watches</a> — track long-running checks, HTTP endpoints, and GitHub PRs.</li>
+<li><a href="cli/">CLI</a> — drive sessions, panes, notes, notifications, and automation from <code>roux-cli</code>.</li>
 <li><a href="keymap/">Keymap</a> — customize direct shortcuts, leader chords, and command bindings.</li>
 </ul>
 
