@@ -528,6 +528,11 @@ export type LibrarySource = {
 	path?: string | null,
 	url?: string | null,
 	branch?: string | null,
+	/**
+	 *  Per-source override for skill sync mode. `null`/absent means
+	 *  "inherit the global default" (`RouxSettings::library_skill_sync_default`).
+	 */
+	skillSync?: SkillSyncMode | null,
 };
 
 export type LibrarySourceKind = "localRepo" | "gitRepo";
@@ -911,7 +916,26 @@ export type RouxSettings = {
 	 *  `Detach`: the process keeps running and can be re-attached.
 	 */
 	onPaneClose?: OnPaneCloseMode,
+	/**
+	 *  Set to `true` once the global Library skills have been rewritten to
+	 *  the SKILL.md-compatible format (adds a `name:` field, strips legacy
+	 *  `variables:` blocks). Guards against re-running on every launch.
+	 */
+	librarySkillFormatV2Migrated?: boolean,
+	/**
+	 *  Default skill-sync mode applied to Library sources that don't
+	 *  override it (`LibrarySource::skill_sync`), to the global vault,
+	 *  and to the active session repo. Defaults to `Off` so existing
+	 *  users see no behavior change after upgrade.
+	 */
+	librarySkillSyncDefault?: SkillSyncMode,
 };
+
+/**
+ *  Whether and how a Library source's skills are written into a
+ *  Claude-readable `.claude/skills/<name>/SKILL.md` directory.
+ */
+export type SkillSyncMode = "off" | "copy" | "symlink";
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
 

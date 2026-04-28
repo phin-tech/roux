@@ -2,12 +2,16 @@ import { get } from "svelte/store";
 import { registry } from "./registry";
 import type { CommandItem } from "./registry";
 import {
+  librarySkillSyncRun,
+  librarySkillSyncUnsync,
   listLibraryItems,
   notificationsPush,
   readLibraryItem,
   renderLibraryPrompt,
   writeToSession,
   type LibraryItem,
+  type SkillSyncRunReport,
+  type UnsyncReport,
 } from "$lib/tauri";
 import { activeSession } from "$lib/stores/sessions";
 import { focusedPaneId } from "$lib/panes/focus";
@@ -115,6 +119,56 @@ async function libraryItems(
   }));
 }
 
+function summarizeSyncReport(report: SkillSyncRunReport): {
+  title: string;
+  body: string;
+  level: "success" | "warning";
+} {
+  const synced = report.results.filter(
+    (r) => r.outcome === "synced" || r.outcome === "syncedAsCopyFallback",
+  ).length;
+  const skipped = report.results.filter((r) => r.outcome === "skipped").length;
+  const failed = report.results.filter((r) => r.outcome === "failed").length;
+
+  const parts: string[] = [];
+  if (synced) parts.push(`Synced ${synced}`);
+  if (skipped) parts.push(`skipped ${skipped} (conflicts)`);
+  if (failed) parts.push(`${failed} failed`);
+  if (report.stale.length) parts.push(`${report.stale.length} stale`);
+  if (report.symlinkFallbackCount) {
+    parts.push(`${report.symlinkFallbackCount} fell back to copy (OS denied symlink)`);
+  }
+
+  const level: "success" | "warning" =
+    failed > 0 || skipped > 0 || report.symlinkFallbackCount > 0 ? "warning" : "success";
+  const body = parts.length > 0 ? parts.join(" · ") : "Nothing to sync.";
+  return {
+    title: synced > 0 ? "Skills synced" : "Skill sync complete",
+    body,
+    level,
+  };
+}
+
+function summarizeUnsyncReport(report: UnsyncReport): {
+  title: string;
+  body: string;
+  level: "success" | "warning";
+} {
+  const deleted = report.results.filter((r) => r.outcome === "deleted").length;
+  const kept = report.results.filter((r) => r.outcome === "keptDueToDrift").length;
+  const failed = report.results.filter((r) => r.outcome === "failed").length;
+  const parts: string[] = [];
+  if (deleted) parts.push(`Removed ${deleted}`);
+  if (kept) parts.push(`kept ${kept} (locally edited)`);
+  if (failed) parts.push(`${failed} failed`);
+  const level: "success" | "warning" = kept > 0 || failed > 0 ? "warning" : "success";
+  return {
+    title: deleted > 0 ? "Skills unsynced" : "Nothing to unsync",
+    body: parts.length > 0 ? parts.join(" · ") : "No matching entries.",
+    level,
+  };
+}
+
 export function registerLibraryCommands() {
   registry.register({
     id: "library.search-prompts",
@@ -153,5 +207,45 @@ export function registerLibraryCommands() {
     label: "Open Library Manager",
     category: "Library",
     execute: openLibraryWindow,
+  });
+
+  registry.register({
+    id: "library.skills.sync",
+    label: "Sync Library Skills",
+    category: "Library",
+    execute: async () => {
+      try {
+        const report = await librarySkillSyncRun(sessionId());
+        const summary = summarizeSyncReport(report);
+        await notify(summary.title, summary.body, summary.level);
+      } catch (error) {
+        logError("library.skills.sync failed", error);
+        await notify(
+          "Skill sync failed",
+          error instanceof Error ? error.message : String(error),
+          "error",
+        );
+      }
+    },
+  });
+
+  registry.register({
+    id: "library.skills.unsync-all",
+    label: "Unsync All Library Skills",
+    category: "Library",
+    execute: async () => {
+      try {
+        const report = await librarySkillSyncUnsync({ type: "all" });
+        const summary = summarizeUnsyncReport(report);
+        await notify(summary.title, summary.body, summary.level);
+      } catch (error) {
+        logError("library.skills.unsync-all failed", error);
+        await notify(
+          "Unsync failed",
+          error instanceof Error ? error.message : String(error),
+          "error",
+        );
+      }
+    },
   });
 }

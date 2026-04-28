@@ -149,6 +149,29 @@ pub(crate) struct LibraryLayer {
     root: PathBuf,
 }
 
+impl LibraryLayer {
+    pub(crate) fn new(
+        kind: LibraryLayerKind,
+        source_id: Option<String>,
+        label: String,
+        root: PathBuf,
+    ) -> Self {
+        Self { kind, source_id, label, root }
+    }
+
+    pub(crate) fn kind(&self) -> LibraryLayerKind {
+        self.kind
+    }
+
+    pub(crate) fn source_id(&self) -> Option<&str> {
+        self.source_id.as_deref()
+    }
+
+    pub(crate) fn root(&self) -> &Path {
+        &self.root
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ParsedItem {
     item: LibraryItem,
@@ -275,6 +298,11 @@ pub(crate) fn save_item(
                 .to_string(),
         );
     }
+    if request.item_type == LibraryItemType::Skill
+        && request.variables.iter().any(|variable| !variable.name.trim().is_empty())
+    {
+        return Err("skills cannot define variables".to_string());
+    }
     if let Some(original_id) =
         request.original_id.as_ref().map(|id| id.trim()).filter(|id| !id.is_empty())
     {
@@ -341,6 +369,85 @@ pub(crate) fn save_item(
         item_id: item_id.to_string(),
         source_path: next_path.to_string_lossy().into_owned(),
     })
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct SkillMigrationReport {
+    pub(crate) migrated: Vec<PathBuf>,
+    pub(crate) errors: Vec<(PathBuf, String)>,
+}
+
+pub(crate) fn migrate_global_skills(global_root: &Path) -> SkillMigrationReport {
+    let skills_dir = global_root.join("library").join("skills");
+    let mut report = SkillMigrationReport::default();
+    if !skills_dir.is_dir() {
+        return report;
+    }
+    let mut paths = Vec::new();
+    collect_markdown_files(&skills_dir, &mut paths);
+    for path in paths {
+        match migrate_skill_file(&path) {
+            Ok(true) => report.migrated.push(path),
+            Ok(false) => {}
+            Err(e) => report.errors.push((path, e)),
+        }
+    }
+    report
+}
+
+fn migrate_skill_file(path: &Path) -> Result<bool, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| format!("read failed: {e}"))?;
+    let Some((frontmatter_str, body)) = split_frontmatter(&content) else {
+        return Ok(false);
+    };
+    let mut value: serde_yaml::Value = serde_yaml::from_str(frontmatter_str)
+        .map_err(|e| format!("invalid frontmatter: {e}"))?;
+    let Some(map) = value.as_mapping_mut() else {
+        return Ok(false);
+    };
+
+    let type_key = serde_yaml::Value::String("type".into());
+    if let Some(t) = map.get(&type_key).and_then(|v| v.as_str()) {
+        if t.trim() != "skill" {
+            return Ok(false);
+        }
+    }
+
+    let id_key = serde_yaml::Value::String("id".into());
+    let id = map
+        .get(&id_key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let Some(id) = id else { return Ok(false) };
+
+    let mut changed = false;
+    let variables_key = serde_yaml::Value::String("variables".into());
+    if map.remove(&variables_key).is_some() {
+        changed = true;
+    }
+    let name_key = serde_yaml::Value::String("name".into());
+    if !map.contains_key(&name_key) {
+        let new_map: serde_yaml::Mapping = std::iter::once((
+            name_key,
+            serde_yaml::Value::String(id),
+        ))
+        .chain(std::mem::take(map))
+        .collect();
+        *map = new_map;
+        changed = true;
+    }
+
+    if !changed {
+        return Ok(false);
+    }
+
+    let new_yaml =
+        serde_yaml::to_string(&value).map_err(|e| format!("yaml serialize failed: {e}"))?;
+    let body_clean = body.trim_start_matches('\n');
+    let new_content = format!("---\n{new_yaml}---\n{body_clean}");
+    std::fs::write(path, new_content).map_err(|e| format!("write failed: {e}"))?;
+    Ok(true)
 }
 
 pub(crate) fn checkout_path_for_source(
@@ -589,10 +696,12 @@ fn parse_file(
     }
     let title = fm.title.unwrap_or_else(|| title_from_path(path));
     let body = body.trim_start_matches('\n').to_string();
-    let mut variables = normalize_variables(fm.variables.unwrap_or_default());
-    if item_type == LibraryItemType::Prompt {
-        variables = infer_body_variables(&body, variables);
-    }
+    let variables = match item_type {
+        LibraryItemType::Skill => Vec::new(),
+        LibraryItemType::Prompt => {
+            infer_body_variables(&body, normalize_variables(fm.variables.unwrap_or_default()))
+        }
+    };
     Some(ParsedItem {
         item: LibraryItem {
             id,
@@ -860,6 +969,9 @@ fn serialize_item_markdown(
 ) -> Result<String, String> {
     let mut lines = Vec::new();
     lines.push("---".to_string());
+    if request.item_type == LibraryItemType::Skill {
+        lines.push(format!("name: {}", yaml_string(item_id)?));
+    }
     lines.push(format!("id: {}", yaml_string(item_id)?));
     lines.push(format!(
         "type: {}",
@@ -1322,6 +1434,205 @@ mod tests {
         assert_eq!(err, "source file changed on disk; reload before saving");
         assert!(victim.exists());
         assert!(existing.exists());
+    }
+
+    #[test]
+    fn skill_with_name_frontmatter_parses_and_ignores_name_for_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("library");
+        write(
+            &root.join("skills/rust.md"),
+            "---\nname: rust-errors\ndescription: Prefer typed errors\nid: rust.errors\ntype: skill\ntitle: Rust Errors\n---\nPrefer typed errors.\n",
+        );
+
+        let layer = LibraryLayer {
+            kind: LibraryLayerKind::Global,
+            source_id: None,
+            label: "Global".into(),
+            root,
+        };
+        let items = list_items(&[layer]);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "rust.errors");
+        assert_eq!(items[0].item_type, LibraryItemType::Skill);
+        assert!(items[0].variables.is_empty());
+    }
+
+    #[test]
+    fn skill_with_legacy_variables_block_drops_variables_on_parse() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("library");
+        write(
+            &root.join("skills/legacy.md"),
+            "---\nid: legacy\ntype: skill\ntitle: Legacy Skill\nvariables:\n  - goal\n---\nBody with {{ goal }}\n",
+        );
+
+        let layer = LibraryLayer {
+            kind: LibraryLayerKind::Global,
+            source_id: None,
+            label: "Global".into(),
+            root,
+        };
+        let items = list_items(&[layer]);
+
+        assert_eq!(items.len(), 1);
+        assert!(
+            items[0].variables.is_empty(),
+            "skills must never expose variables, even if frontmatter has them"
+        );
+    }
+
+    #[test]
+    fn skill_save_writes_name_and_omits_variables() {
+        let tmp = tempfile::tempdir().unwrap();
+        let saved = save_item(
+            tmp.path().to_path_buf(),
+            &[],
+            &tmp.path().join("managed"),
+            None,
+            SaveLibraryItemRequest {
+                original_id: None,
+                item_id: "rust.errors".into(),
+                item_type: LibraryItemType::Skill,
+                title: "Rust Errors".into(),
+                description: Some("Prefer typed errors".into()),
+                tags: vec!["rust".into()],
+                provider: None,
+                variables: vec![],
+                body: "Prefer typed errors.\n".into(),
+                target: SaveLibraryTarget::Global,
+                expected_source_path: None,
+            },
+        )
+        .unwrap();
+
+        assert!(saved.source_path.ends_with("library/skills/rust-errors.md"));
+        let content = std::fs::read_to_string(saved.source_path).unwrap();
+        assert!(content.contains("name: rust.errors"), "expected name field, got:\n{content}");
+        assert!(content.contains("description: Prefer typed errors"));
+        assert!(content.contains("id: rust.errors"));
+        assert!(!content.contains("variables:"));
+    }
+
+    #[test]
+    fn skill_save_rejects_variables() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = save_item(
+            tmp.path().to_path_buf(),
+            &[],
+            &tmp.path().join("managed"),
+            None,
+            SaveLibraryItemRequest {
+                original_id: None,
+                item_id: "bad.skill".into(),
+                item_type: LibraryItemType::Skill,
+                title: "Bad Skill".into(),
+                description: None,
+                tags: vec![],
+                provider: None,
+                variables: vec![LibraryVariable {
+                    name: "focus".into(),
+                    label: None,
+                    default: None,
+                    required: true,
+                    value_type: LibraryVariableType::String,
+                    options: Vec::new(),
+                }],
+                body: "irrelevant\n".into(),
+                target: SaveLibraryTarget::Global,
+                expected_source_path: None,
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            err.contains("skills cannot define variables"),
+            "expected variable rejection, got: {err}"
+        );
+    }
+
+    #[test]
+    fn migrate_skills_adds_name_field_when_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let global = tmp.path();
+        let path = global.join("library/skills/legacy.md");
+        write(
+            &path,
+            "---\nid: legacy\ntype: skill\ntitle: Legacy\n---\nBody {{ goal }}\n",
+        );
+
+        let report = migrate_global_skills(global);
+        assert_eq!(report.migrated.len(), 1);
+        assert!(report.errors.is_empty());
+
+        let new_content = std::fs::read_to_string(&path).unwrap();
+        assert!(new_content.contains("name: legacy"), "missing name:\n{new_content}");
+        assert!(new_content.contains("Body {{ goal }}"), "body preserved");
+    }
+
+    #[test]
+    fn migrate_skills_strips_variables_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        let global = tmp.path();
+        let path = global.join("library/skills/with_vars.md");
+        write(
+            &path,
+            "---\nid: vars\ntype: skill\ntitle: Vars\nvariables:\n  - name: goal\n    default: x\n---\nBody {{ goal }}\n",
+        );
+
+        let report = migrate_global_skills(global);
+        assert_eq!(report.migrated.len(), 1);
+
+        let new_content = std::fs::read_to_string(&path).unwrap();
+        assert!(!new_content.contains("variables:"), "variables not stripped:\n{new_content}");
+        assert!(new_content.contains("name: vars"));
+        assert!(new_content.contains("Body {{ goal }}"));
+    }
+
+    #[test]
+    fn migrate_skills_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let global = tmp.path();
+        let path = global.join("library/skills/already.md");
+        write(
+            &path,
+            "---\nname: already\nid: already\ntype: skill\ntitle: Already\n---\nBody\n",
+        );
+        let original = std::fs::read_to_string(&path).unwrap();
+
+        let r1 = migrate_global_skills(global);
+        assert!(r1.migrated.is_empty(), "first run should not migrate");
+        let after_first = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(original, after_first);
+
+        let r2 = migrate_global_skills(global);
+        assert!(r2.migrated.is_empty(), "second run should not migrate");
+    }
+
+    #[test]
+    fn migrate_skills_does_not_touch_prompts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let global = tmp.path();
+        let prompt_path = global.join("library/prompts/p.md");
+        write(
+            &prompt_path,
+            "---\nid: p\ntype: prompt\ntitle: P\nvariables:\n  - goal\n---\n{{ goal }}\n",
+        );
+        let original = std::fs::read_to_string(&prompt_path).unwrap();
+
+        let report = migrate_global_skills(global);
+        assert!(report.migrated.is_empty());
+        assert!(report.errors.is_empty());
+        assert_eq!(std::fs::read_to_string(&prompt_path).unwrap(), original);
+    }
+
+    #[test]
+    fn migrate_skills_handles_missing_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let report = migrate_global_skills(tmp.path());
+        assert!(report.migrated.is_empty());
+        assert!(report.errors.is_empty());
     }
 
     #[cfg(unix)]

@@ -6,6 +6,7 @@
   import {
     cloneLibrarySource,
     getLibrarySourceStatuses,
+    librarySkillSyncRun,
     listLibraryItems,
     listLibrarySources,
     readLibraryItem,
@@ -18,7 +19,9 @@
     type LibraryItem,
     type LibraryRead,
     type LibrarySource,
+    type SkillSyncMode,
   } from "$lib/tauri";
+  import { settings, updateSetting } from "$lib/stores/settings";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Check from "@lucide/svelte/icons/check";
@@ -696,6 +699,45 @@
               Pin active repo
             </button>
           {/if}
+        </div>
+
+        <div class="rounded border border-border-subtle bg-bg-surface/30 p-3">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-semibold text-text-primary">Skill sync</div>
+              <div class="mt-1 text-xs text-text-secondary">
+                Mirror Library skills into <code class="font-mono text-[11px]">.claude/skills/</code> so Claude can load them.
+                Off by default.
+              </div>
+            </div>
+            <select
+              class="shrink-0 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
+              value={$settings.librarySkillSyncDefault ?? "off"}
+              onchange={(event) => {
+                const next = (event.currentTarget as HTMLSelectElement).value as SkillSyncMode;
+                updateSetting("librarySkillSyncDefault", next);
+              }}
+              aria-label="Default skill sync mode"
+            >
+              <option value="off">Off</option>
+              <option value="copy">Copy</option>
+              <option value="symlink">Symlink</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            class="mt-2 rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:border-accent hover:text-accent disabled:opacity-30"
+            disabled={($settings.librarySkillSyncDefault ?? "off") === "off"}
+            onclick={async () => {
+              try {
+                await librarySkillSyncRun(sessionId);
+              } catch (e) {
+                console.error("library skill sync failed", e);
+              }
+            }}
+          >
+            Sync now
+          </button>
         </div>
 
         <div class="rounded border border-border-subtle bg-bg-surface/30 p-3">

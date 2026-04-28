@@ -80,3 +80,7 @@ This page tracks major shipped features across Roux's full history.
 - **Clipboard-seeded editor**: ++cmd+shift+v++ opens the multi-line editor pre-populated with clipboard contents.
 - **Smart editor positioning**: the floating editor panel positions intelligently—near the top for new shells (to avoid obscuring output) and near the bottom for active ones. Drag by the header; position persists across restarts.
 - **Draggable pane dividers**: split pane dividers are now draggable for quick manual resize, in addition to the existing keybindings.
+
+## April 28, 2026
+
+- **Library skill sync (experimental)**: Library skills can now be mirrored into Claude-readable `.claude/skills/<name>/SKILL.md` directories so Claude loads them automatically without copy-paste. Pick **Off / Copy / Symlink** as the global default in the Library sources panel; on Windows without Developer Mode, symlink mode auto-degrades to copy. Sync is conservative — it never overwrites a file Roux didn't write, and unsync hash-checks before deleting so locally-edited files are kept. Skills lose support for `{{ variable }}` placeholders to keep the format compatible with Claude's skill loader; existing global-vault skills are silently rewritten on first launch (the `name:` field is added, legacy `variables:` blocks are stripped). Run from the command palette (**Sync Library Skills**, **Unsync All Library Skills**) or the **Sync now** button in the Library panel. See [Library → Skill sync](features/library.md#skill-sync).
