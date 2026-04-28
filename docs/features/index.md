@@ -7,7 +7,7 @@ Roux is built around terminal-first agent work: sessions keep work isolated, pan
 The Library is a scoped collection of reusable **prompts** and **skills**. Prompts can be rendered with variables and sent directly into the focused terminal. Skills are reusable markdown context blocks you can send to an agent or copy to the clipboard.
 
 !!! warning "Experimental — subject to change"
-    Library prompts and skills are in active development. Vault layout, source layering, frontmatter schema, variable syntax, Git source handling, and command shapes may change in future releases before stabilizing. If you keep important prompts or skills in your Roux vault or shared Library repos, keep your own backups and expect breaking migrations until this banner is removed.
+    Library prompts and skills require Roux `v0.5.3-pre.1` or greater and are in active development. Vault layout, source layering, frontmatter schema, variable syntax, Git source handling, and command shapes may change in future releases before stabilizing. If you keep important prompts or skills in your Roux vault or shared Library repos, keep your own backups and expect breaking migrations until this banner is removed.
 
 ### Where Library items live
 
