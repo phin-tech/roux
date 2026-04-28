@@ -182,6 +182,7 @@ fn merge_pinned_repos(
                 path: Some(path),
                 url: None,
                 branch: None,
+                skill_sync: source.skill_sync,
             });
         }
     }
@@ -197,6 +198,7 @@ fn merge_pinned_repos(
                 path: Some(path),
                 url: None,
                 branch: None,
+                skill_sync: None,
             });
         }
     }
@@ -224,6 +226,7 @@ mod tests {
                     path: None,
                     url: Some("https://example.com/lib.git".into()),
                     branch: Some("main".into()),
+                    skill_sync: None,
                 },
                 LibrarySource {
                     id: "local-1".into(),
@@ -234,6 +237,7 @@ mod tests {
                     path: Some("/repo".into()),
                     url: None,
                     branch: None,
+                    skill_sync: None,
                 },
                 LibrarySource {
                     id: "git-2".into(),
@@ -244,6 +248,7 @@ mod tests {
                     path: None,
                     url: Some("https://example.com/later.git".into()),
                     branch: Some("main".into()),
+                    skill_sync: None,
                 },
             ],
             vec!["/repo".into(), "/other".into()],

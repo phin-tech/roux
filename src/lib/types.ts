@@ -110,6 +110,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   librarySources: [],
   statusBarPosition: "bottom",
   onPaneClose: "kill",
+  librarySkillSyncDefault: "off",
   gpuAcceleration: "auto",
 };
 
