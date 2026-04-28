@@ -59,6 +59,8 @@
   import { runProfileInPane } from "$lib/panes/profileRunner";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+  import { handleFileDrop } from "$lib/dnd/handleFileDrop";
   import { registerCommands, registry } from "$lib/commands";
   import { setupAppMenu, teardownAppMenu, claimFire } from "$lib/menu/appMenu";
   import { eventToAccelerator } from "$lib/menu/accelerators";
@@ -370,10 +372,14 @@
     document.documentElement.style.setProperty("--color-terminal-bg", terminalBg);
   });
 
+  let unlistenDragDrop: (() => void) | null = null;
+
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
     window.removeEventListener("blur", handleWindowBlur);
+    unlistenDragDrop?.();
+    unlistenDragDrop = null;
     teardownAppMenu();
   });
 
@@ -401,6 +407,15 @@
     await listen("close-requested", () => void handleCloseRequested());
     // Listen for macOS Quit menu / Dock quit
     await listen("quit-requested", () => void handleQuitRequested());
+
+    // Native file drag-and-drop: write the dropped path(s) into the target pane's terminal.
+    unlistenDragDrop = await getCurrentWebviewWindow().onDragDropEvent((event) => {
+      if (event.payload.type !== "drop") return;
+      void handleFileDrop({
+        paths: event.payload.paths,
+        position: { x: event.payload.position.x, y: event.payload.position.y },
+      });
+    });
 
     const loadedSettings = await initSettings();
     void loadUserTerminalThemes();

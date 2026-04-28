@@ -386,6 +386,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="pane-shell group relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden bg-bg-deep"
+    data-pane-id={paneId}
     data-focused={isFocused}
     data-focus-chrome={(isFocused && hasMultipleVisiblePanes) ? "true" : undefined}
     onmousedown={handleMouseDown}
