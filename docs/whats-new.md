@@ -80,3 +80,7 @@ This page tracks major shipped features across Roux's full history.
 - **Clipboard-seeded editor**: ++cmd+shift+v++ opens the multi-line editor pre-populated with clipboard contents.
 - **Smart editor positioning**: the floating editor panel positions intelligently—near the top for new shells (to avoid obscuring output) and near the bottom for active ones. Drag by the header; position persists across restarts.
 - **Draggable pane dividers**: split pane dividers are now draggable for quick manual resize, in addition to the existing keybindings.
+
+## April 28, 2026
+
+- **Auto WebGL terminal renderer**: terminal panes now recover gracefully when the WebGL context is lost (GPU process crash, suspended tab, too many WebGL contexts) — the WebGL addon is disposed and xterm reverts to its built-in DOM renderer without dropping the pane. Settings → Terminal gained a **GPU acceleration** dropdown (`Auto` / `On (WebGL)` / `Off (DOM)`) modeled on VSCode's `terminal.integrated.gpuAcceleration`. Setting changes apply to terminals opened afterward. See [Settings → GPU acceleration](settings.md#gpu-acceleration).

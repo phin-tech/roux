@@ -151,6 +151,20 @@ pub enum OnPaneCloseMode {
     Kill,
 }
 
+/// xterm.js renderer selection. `Auto` (default) tries WebGL and silently
+/// falls back to the built-in DOM renderer if construction fails or the
+/// WebGL context is lost. `On` is identical to `Auto` today — kept as a
+/// distinct option because users have a clear mental model from VSCode's
+/// `terminal.integrated.gpuAcceleration`. `Off` skips WebGL entirely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum GpuAcceleration {
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RouxSettings {
@@ -308,6 +322,11 @@ pub struct RouxSettings {
     /// `Detach`: the process keeps running and can be re-attached.
     #[serde(default)]
     pub on_pane_close: OnPaneCloseMode,
+    /// xterm.js renderer hint. `Auto` (default) tries WebGL with DOM fallback.
+    /// Setting changes apply to terminals created afterward; existing panes
+    /// keep their renderer until reopened.
+    #[serde(default)]
+    pub gpu_acceleration: GpuAcceleration,
 }
 
 impl Default for RouxSettings {
@@ -362,6 +381,7 @@ impl Default for RouxSettings {
             show_pane_hints_on_option: false,
             show_session_hints_on_command: true,
             on_pane_close: OnPaneCloseMode::Kill,
+            gpu_acceleration: GpuAcceleration::Auto,
         }
     }
 }
