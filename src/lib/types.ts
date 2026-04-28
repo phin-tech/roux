@@ -111,6 +111,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   statusBarPosition: "bottom",
   onPaneClose: "kill",
   librarySkillSyncDefault: "off",
+  gpuAcceleration: "auto",
 };
 
 // Re-export frontend-only task types

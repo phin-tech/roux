@@ -331,6 +331,15 @@ export type CreateWatchConfig = {
 
 export type CursorStyle = "block" | "underline" | "bar";
 
+/**
+ * xterm.js renderer selection. `Auto` (default) tries WebGL and silently
+ * falls back to the built-in DOM renderer if construction fails or the
+ * WebGL context is lost. `On` is identical to `Auto` today — kept as a
+ * distinct option because users have a clear mental model from VSCode's
+ * `terminal.integrated.gpuAcceleration`. `Off` skips WebGL entirely.
+ */
+export type GpuAcceleration = "auto" | "on" | "off";
+
 export type DocFile = {
 	path: string,
 	name: string,
@@ -929,6 +938,12 @@ export type RouxSettings = {
 	 *  users see no behavior change after upgrade.
 	 */
 	librarySkillSyncDefault?: SkillSyncMode,
+	/**
+	 *  xterm.js renderer hint. `Auto` (default) tries WebGL with DOM fallback.
+	 *  Setting changes apply to terminals created afterward; existing panes
+	 *  keep their renderer until reopened.
+	 */
+	gpuAcceleration?: GpuAcceleration,
 };
 
 /**
