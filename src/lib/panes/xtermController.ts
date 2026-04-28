@@ -22,6 +22,7 @@ class XtermTerminalController implements TerminalController {
   private readonly terminal: Terminal;
   private readonly fitAddon: FitAddon;
   private webglAddon: WebglAddon | null = null;
+  private webglContextLossSub: { dispose(): void } | null = null;
 
   constructor(options?: CreateTerminalControllerOptions) {
     const s = get(settings);
@@ -63,11 +64,13 @@ class XtermTerminalController implements TerminalController {
       const webgl = new WebglAddon();
       this.terminal.loadAddon(webgl);
       this.webglAddon = webgl;
-      webgl.onContextLoss(() => {
+      this.webglContextLossSub = webgl.onContextLoss(() => {
+        // Guard against the handler firing twice (xterm hands us an event
+        // disposable, not a one-shot) or after the controller is disposed.
+        // Null the ref before dispose() so a re-entrant call is a no-op.
+        if (this.webglAddon !== webgl) return;
+        this.webglAddon = null;
         webgl.dispose();
-        if (this.webglAddon === webgl) {
-          this.webglAddon = null;
-        }
       });
     } catch {
       this.webglAddon = null;
@@ -100,6 +103,8 @@ class XtermTerminalController implements TerminalController {
   }
 
   dispose(): void {
+    this.webglContextLossSub?.dispose();
+    this.webglContextLossSub = null;
     this.webglAddon?.dispose();
     this.webglAddon = null;
     this.terminal.dispose();

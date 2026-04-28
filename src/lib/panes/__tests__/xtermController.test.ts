@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
     webglConstructor: vi.fn(),
     webglDispose: vi.fn(),
     webglOnContextLoss: vi.fn(),
+    contextLossSubDispose: vi.fn(),
     nextWebglShouldThrow: false,
     lastWebglContextLossHandler: null as (() => void) | null,
   };
@@ -98,7 +99,7 @@ vi.mock("@xterm/addon-webgl", () => ({
     this.onContextLoss = (handler: () => void) => {
       mocks.lastWebglContextLossHandler = handler;
       mocks.webglOnContextLoss(handler);
-      return { dispose: vi.fn() };
+      return { dispose: mocks.contextLossSubDispose };
     };
   }),
 }));
@@ -111,6 +112,7 @@ beforeEach(() => {
   mocks.webglConstructor.mockClear();
   mocks.webglDispose.mockClear();
   mocks.webglOnContextLoss.mockClear();
+  mocks.contextLossSubDispose.mockClear();
   mocks.lastWebglContextLossHandler = null;
   mocks.nextWebglShouldThrow = false;
   mocks.settingsStore.set({ ...DEFAULT_SETTINGS });
@@ -193,5 +195,41 @@ describe("XtermTerminalController renderer setup", () => {
 
     expect(mocks.webglDispose).toHaveBeenCalledTimes(1);
     expect(mocks.terminalDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes the onContextLoss subscription when the controller is disposed", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+
+    const controller = createXtermTerminalController();
+    expect(mocks.contextLossSubDispose).not.toHaveBeenCalled();
+
+    controller.dispose();
+
+    expect(mocks.contextLossSubDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a context-loss event that fires after the controller is disposed", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+
+    const controller = createXtermTerminalController();
+    controller.dispose();
+    expect(mocks.webglDispose).toHaveBeenCalledTimes(1);
+
+    // Simulate a stray late event despite the subscription being disposed.
+    mocks.lastWebglContextLossHandler?.();
+
+    // The handler's guard (`this.webglAddon !== webgl`) drops the late event,
+    // so no second dispose() call lands on the WebGL addon.
+    expect(mocks.webglDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("only disposes the WebglAddon once if onContextLoss fires twice", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+
+    createXtermTerminalController();
+    mocks.lastWebglContextLossHandler?.();
+    mocks.lastWebglContextLossHandler?.();
+
+    expect(mocks.webglDispose).toHaveBeenCalledTimes(1);
   });
 });
