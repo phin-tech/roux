@@ -409,12 +409,23 @@
     await listen("quit-requested", () => void handleQuitRequested());
 
     // Native file drag-and-drop: write the dropped path(s) into the target pane's terminal.
-    unlistenDragDrop = await getCurrentWebviewWindow().onDragDropEvent((event) => {
+    // Tauri reports drop position in PHYSICAL pixels; document.elementFromPoint expects CSS
+    // (logical) pixels, so divide by the current scaleFactor for correct hit-testing on HiDPI.
+    const dragDropWebview = getCurrentWebviewWindow();
+    unlistenDragDrop = await dragDropWebview.onDragDropEvent((event) => {
       if (event.payload.type !== "drop") return;
-      void handleFileDrop({
-        paths: event.payload.paths,
-        position: { x: event.payload.position.x, y: event.payload.position.y },
-      });
+      const { paths, position } = event.payload;
+      void (async () => {
+        try {
+          const scale = await dragDropWebview.scaleFactor();
+          await handleFileDrop({
+            paths,
+            position: { x: position.x / scale, y: position.y / scale },
+          });
+        } catch (error) {
+          logError("Failed to handle dropped file(s)", error);
+        }
+      })();
     });
 
     const loadedSettings = await initSettings();
