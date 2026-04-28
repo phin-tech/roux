@@ -91,7 +91,7 @@ pub(crate) struct UnsyncReportDto {
     pub(crate) results: Vec<UnsyncResultDto>,
 }
 
-fn now_iso() -> String {
+fn now_unix_secs() -> String {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     format!("{secs}")
 }
@@ -163,7 +163,7 @@ pub(crate) fn library_skill_sync_run(
         user_claude_skills: user_claude_skills_dir(),
         default_mode: settings.library_skill_sync_default,
         source_modes,
-        timestamp: now_iso(),
+        timestamp: now_unix_secs(),
     };
     let report = sync::run_skill_sync(&request, &mut manifest);
 

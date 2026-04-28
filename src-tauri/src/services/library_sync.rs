@@ -34,6 +34,12 @@ pub(crate) struct SkillSyncEntry {
     pub(crate) mode: SkillSyncMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) content_hash: Option<String>,
+    /// Set for `Symlink` entries: the path the symlink originally pointed at.
+    /// Used by unsync to verify the link still points where Roux wrote it
+    /// before deleting; if the user re-pointed the symlink, the entry is
+    /// reported as `KeptDueToDrift` and left alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) symlink_target: Option<PathBuf>,
     pub(crate) synced_at: String,
 }
 
@@ -201,6 +207,7 @@ pub(crate) fn sync_skill_copy(
             destination: request.destination.to_path_buf(),
             mode: SkillSyncMode::Copy,
             content_hash: Some(new_hash),
+            symlink_target: None,
             synced_at: request.timestamp.to_string(),
         },
     );
@@ -273,6 +280,7 @@ pub(crate) fn sync_skill_symlink(
                     destination: request.destination.to_path_buf(),
                     mode: SkillSyncMode::Symlink,
                     content_hash: None,
+                    symlink_target: Some(request.source_file.to_path_buf()),
                     synced_at: request.timestamp.to_string(),
                 },
             );
@@ -543,6 +551,16 @@ fn unsync_one(entry: &SkillSyncEntry) -> UnsyncOutcome {
             if !metadata.file_type().is_symlink() {
                 return UnsyncOutcome::KeptDueToDrift;
             }
+            // Verify the link still points where Roux wrote it. If the user
+            // re-pointed the symlink (or the manifest predates symlink-target
+            // tracking), refuse to delete.
+            let Some(expected) = entry.symlink_target.as_deref() else {
+                return UnsyncOutcome::KeptDueToDrift;
+            };
+            match std::fs::read_link(&entry.destination) {
+                Ok(actual) if actual == expected => {}
+                _ => return UnsyncOutcome::KeptDueToDrift,
+            }
             if let Err(e) = std::fs::remove_file(&entry.destination) {
                 return UnsyncOutcome::Failed(format!("remove failed: {e}"));
             }
@@ -640,6 +658,7 @@ mod tests {
                 destination: PathBuf::from("/home/user/.claude/skills/rust.errors/SKILL.md"),
                 mode: SkillSyncMode::Copy,
                 content_hash: Some("abc123".into()),
+                symlink_target: None,
                 synced_at: "2026-04-28T00:00:00Z".into(),
             },
         );
@@ -651,6 +670,7 @@ mod tests {
                 destination: PathBuf::from("/repo/.claude/skills/linked/SKILL.md"),
                 mode: SkillSyncMode::Symlink,
                 content_hash: None,
+                symlink_target: Some(PathBuf::from("/vault/library/skills/linked.md")),
                 synced_at: "2026-04-28T00:00:01Z".into(),
             },
         );
@@ -1209,6 +1229,59 @@ mod tests {
         assert_eq!(report.results[0].outcome, UnsyncOutcome::Deleted);
         assert!(std::fs::symlink_metadata(&dest).is_err());
         assert!(manifest.entries.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unsync_keeps_symlink_when_user_repointed_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = write_source_skill(&tmp.path().join("library/skills"), "rust", "body\n");
+        let other = write_source_skill(&tmp.path().join("library/skills"), "other", "x\n");
+        let dest = tmp.path().join("dest/rust/SKILL.md");
+        let mut manifest = SkillSyncManifest::default();
+        sync_skill_symlink(&symlink_request(None, "rust", &source, &dest), &mut manifest);
+
+        // User re-points the link at a different file.
+        std::fs::remove_file(&dest).unwrap();
+        std::os::unix::fs::symlink(&other, &dest).unwrap();
+
+        let report = unsync_skills(&UnsyncScope::All, &mut manifest);
+
+        assert_eq!(report.results[0].outcome, UnsyncOutcome::KeptDueToDrift);
+        assert!(std::fs::symlink_metadata(&dest).is_ok(), "user's link must remain");
+        assert!(manifest.entries.contains_key("global:rust"), "manifest entry must remain");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unsync_keeps_symlink_when_manifest_predates_target_tracking() {
+        // Simulates a manifest written before `symlink_target` existed —
+        // the entry has Symlink mode but no recorded target. We can't
+        // verify drift, so the conservative outcome is KeptDueToDrift.
+        let tmp = tempfile::tempdir().unwrap();
+        let source = write_source_skill(&tmp.path().join("library/skills"), "rust", "body\n");
+        let dest = tmp.path().join("dest/rust/SKILL.md");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&source, &dest).unwrap();
+
+        let mut manifest = SkillSyncManifest::default();
+        manifest.entries.insert(
+            "global:rust".into(),
+            SkillSyncEntry {
+                skill_id: "rust".into(),
+                source_id: None,
+                destination: dest.clone(),
+                mode: SkillSyncMode::Symlink,
+                content_hash: None,
+                symlink_target: None,
+                synced_at: "ts".into(),
+            },
+        );
+
+        let report = unsync_skills(&UnsyncScope::All, &mut manifest);
+
+        assert_eq!(report.results[0].outcome, UnsyncOutcome::KeptDueToDrift);
+        assert!(std::fs::symlink_metadata(&dest).is_ok());
     }
 
     #[test]

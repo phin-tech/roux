@@ -1636,6 +1636,37 @@ mod tests {
         assert!(report.errors.is_empty());
     }
 
+    #[test]
+    fn migrated_skill_is_still_parseable_via_list_items() {
+        // Guards against frontmatter formatting regressions in the migration:
+        // after rewriting, the file must still parse as a skill (preserving
+        // id/title) so it stays visible in the Library.
+        let tmp = tempfile::tempdir().unwrap();
+        let global = tmp.path();
+        let path = global.join("library/skills/legacy.md");
+        write(
+            &path,
+            "---\nid: legacy.skill\ntype: skill\ntitle: Legacy\ntags: [old]\nvariables:\n  - goal\n---\nBody {{ goal }}\n",
+        );
+
+        let report = migrate_global_skills(global);
+        assert_eq!(report.migrated.len(), 1);
+        assert!(report.errors.is_empty());
+
+        let layer = LibraryLayer {
+            kind: LibraryLayerKind::Global,
+            source_id: None,
+            label: "Global".into(),
+            root: global.join("library"),
+        };
+        let items = list_items(&[layer]);
+        let item = items.iter().find(|i| i.id == "legacy.skill").expect("migrated skill missing");
+        assert_eq!(item.item_type, LibraryItemType::Skill);
+        assert_eq!(item.title, "Legacy");
+        assert_eq!(item.tags, vec!["old".to_string()]);
+        assert!(item.variables.is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn scanner_skips_symlinked_directories() {

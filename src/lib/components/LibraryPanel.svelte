@@ -80,6 +80,18 @@
   let sessionId = $derived($activeSession?.id ?? null);
   let activeRepo = $derived($activeSession?.repoRoot ?? null);
 
+  // Sync now should be enabled whenever the effective mode for any source
+  // (or the global vault / active repo, which always inherit the default)
+  // is non-off. A user can have global=off plus a per-source override of
+  // copy/symlink, in which case a sync run still does work.
+  function skillSyncEnabledForAnySource(s: typeof $settings): boolean {
+    const def = s.librarySkillSyncDefault ?? "off";
+    if (def !== "off") return true;
+    return (s.librarySources ?? []).some(
+      (source) => (source.skillSync ?? def) !== "off",
+    );
+  }
+
   const filteredItems = $derived.by(() => {
     const q = filter.trim().toLowerCase();
     return items.filter((item) => {
@@ -727,7 +739,7 @@
           <button
             type="button"
             class="mt-2 rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:border-accent hover:text-accent disabled:opacity-30"
-            disabled={($settings.librarySkillSyncDefault ?? "off") === "off"}
+            disabled={!skillSyncEnabledForAnySource($settings)}
             onclick={async () => {
               try {
                 await librarySkillSyncRun(sessionId);
