@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://phin-tech.github.io/roux/dev/features/watches/">
+        <link rel="canonical" href="https://phin-tech.github.io/roux/dev/features/library/">
       
       
-        <link rel="prev" href="../library/">
+        <link rel="prev" href="../worktrees/">
       
       
-        <link rel="next" href="../hooks/">
+        <link rel="next" href="../watches/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Watches - Roux</title>
+        <title>Library - Roux</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#watches" class="md-skip">
+        <a href="#library" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Watches
+              Library
             
           </span>
         </div>
@@ -653,27 +653,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../library/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Library
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -690,7 +669,7 @@
           
   
   <span class="md-ellipsis">
-    Watches
+    Library
   </span>
   
 
@@ -701,7 +680,7 @@
         
   
   <span class="md-ellipsis">
-    Watches
+    Library
   </span>
   
 
@@ -723,27 +702,36 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-a-watch-is" class="md-nav__link">
+  <a href="#where-library-items-live" class="md-nav__link">
     <span class="md-ellipsis">
-      What a watch is
+      Where Library items live
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#watch-panes" class="md-nav__link">
+  <a href="#item-format" class="md-nav__link">
     <span class="md-ellipsis">
-      Watch panes
+      Item format
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
+  <a href="#using-the-library" class="md-nav__link">
     <span class="md-ellipsis">
-      See also
+      Using the Library
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keyboard-and-command-palette" class="md-nav__link">
+    <span class="md-ellipsis">
+      Keyboard and command palette
     </span>
   </a>
   
@@ -753,6 +741,27 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../watches/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Watches
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -936,27 +945,36 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-a-watch-is" class="md-nav__link">
+  <a href="#where-library-items-live" class="md-nav__link">
     <span class="md-ellipsis">
-      What a watch is
+      Where Library items live
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#watch-panes" class="md-nav__link">
+  <a href="#item-format" class="md-nav__link">
     <span class="md-ellipsis">
-      Watch panes
+      Item format
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
+  <a href="#using-the-library" class="md-nav__link">
     <span class="md-ellipsis">
-      See also
+      Using the Library
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keyboard-and-command-palette" class="md-nav__link">
+    <span class="md-ellipsis">
+      Keyboard and command palette
     </span>
   </a>
   
@@ -977,7 +995,7 @@
                   
 
   
-    <a href="https://github.com/phin-tech/roux/edit/main/docs/features/watches.md" title="Edit this page" class="md-content__button md-icon">
+    <a href="https://github.com/phin-tech/roux/edit/main/docs/features/library.md" title="Edit this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -985,28 +1003,59 @@
   
 
 
-<h1 id="watches">Watches<a class="headerlink" href="#watches" title="Permanent link">&para;</a></h1>
-<p>Watches are long-running commands whose output Roux surfaces in dedicated panes. Typical uses are test runners, build watchers, and log tails.</p>
-<div class="admonition note">
-<p class="admonition-title">Stub page</p>
-<p>Detailed documentation for watches is still being written.</p>
+<h1 id="library">Library<a class="headerlink" href="#library" title="Permanent link">&para;</a></h1>
+<p>The Library is a scoped collection of reusable <strong>prompts</strong> and <strong>skills</strong>. Prompts can be rendered with variables and sent directly into the focused terminal. Skills are reusable markdown context blocks you can send to an agent or copy to the clipboard.</p>
+<div class="admonition warning">
+<p class="admonition-title">Experimental — subject to change</p>
+<p>Library prompts and skills require Roux <code>v0.5.3-pre.1</code> or greater and are in active development. Vault layout, source layering, frontmatter schema, variable syntax, Git source handling, and command shapes may change in future releases before stabilizing. If you keep important prompts or skills in your Roux vault or shared Library repos, keep your own backups and expect breaking migrations until this banner is removed.</p>
 </div>
-<h2 id="what-a-watch-is">What a watch is<a class="headerlink" href="#what-a-watch-is" title="Permanent link">&para;</a></h2>
-<p>A watch is:</p>
+<h2 id="where-library-items-live">Where Library items live<a class="headerlink" href="#where-library-items-live" title="Permanent link">&para;</a></h2>
+<p>Roux reads Library markdown from layered sources:</p>
 <ul>
-<li>a command to run</li>
-<li>a working directory</li>
-<li>a set of lifecycle rules (restart on exit, restart on file change, manual rerun only, etc.)</li>
+<li><strong>Global Library</strong> — <code>library/prompts</code> and <code>library/skills</code> inside your Roux vault.</li>
+<li><strong>Active Repo Library</strong> — <code>.roux/library/prompts</code> and <code>.roux/library/skills</code> inside the active session repo.</li>
+<li><strong>Local repo sources</strong> — pinned repositories that expose <code>.roux/library</code>.</li>
+<li><strong>Git sources</strong> — managed checkouts that Roux can clone, status-check, and sync.</li>
 </ul>
-<p>Watches are managed from the command palette and settings UI.</p>
-<h2 id="watch-panes">Watch panes<a class="headerlink" href="#watch-panes" title="Permanent link">&para;</a></h2>
-<p>When a watch is pinned to a pane, Roux keeps the output buffer alive even if you close and reopen the pane or toggle stacking. You can rerun a watch from its pane's header.</p>
-<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<p>Sources are ordered. Later sources override earlier sources when they define the same item id, so a repo-specific prompt can replace a global default without deleting it.</p>
+<h2 id="item-format">Item format<a class="headerlink" href="#item-format" title="Permanent link">&para;</a></h2>
+<p>Library items are markdown files with YAML frontmatter. Prompt files live under <code>prompts</code>; skill files live under <code>skills</code>.</p>
+<div class="language-markdown highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>---
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>id: review.diff
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>type: prompt
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>title: Review Diff
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>description: Review a change with a specific concern in mind
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>tags: [review]
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>variables:
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>name: goal
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    label: Review focus
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="gu">    default: correctness</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="gu">---</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>Review this diff for {{ goal }}.
+</span></code></pre></div>
+<p>The <code>id</code>, <code>type</code>, and <code>title</code> fields identify the item in Roux. Prompt variables use <code>{{ variableName }}</code> placeholders. Variables can be strings, integers, floats, or selects; Roux prompts for values before sending the rendered prompt.</p>
+<h2 id="using-the-library">Using the Library<a class="headerlink" href="#using-the-library" title="Permanent link">&para;</a></h2>
+<p>Open the Library from the activity rail, the command palette, or the leader Library tree. From there you can:</p>
 <ul>
-<li><a href="../panes/">Panes</a></li>
-<li><a href="../cli/">CLI bridge</a> — drive watches from scripts via <code>roux-cli</code></li>
-<li><a href="../hooks/">Automation hooks</a> — react to watch runs and outcome transitions</li>
+<li>filter prompts and skills</li>
+<li>preview rendered markdown</li>
+<li>create or edit Library items</li>
+<li>send an item to the focused terminal</li>
+<li>drag a prompt onto a terminal pane</li>
+<li>copy prompts or skills to the clipboard from the command palette</li>
+<li>add, remove, reorder, enable, disable, clone, or sync Library sources</li>
 </ul>
+<p>Prompt sends append a carriage return, so the target terminal receives the rendered prompt as submitted input. Skills send their markdown body as context.</p>
+<h2 id="keyboard-and-command-palette">Keyboard and command palette<a class="headerlink" href="#keyboard-and-command-palette" title="Permanent link">&para;</a></h2>
+<p>Default Library shortcuts:</p>
+<ul>
+<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-p">P</kbd></span> — search Library prompts and send to the active pane</li>
+<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-s">S</kbd></span> — search Library skills and send to the active pane</li>
+<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-p">P</kbd></span> — copy a Library prompt to the clipboard</li>
+<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-s">S</kbd></span> — copy a Library skill to the clipboard</li>
+<li>++cmd+; l++ — open the leader Library tree</li>
+</ul>
+<p>The same actions are available from <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span> under the <strong>Library</strong> category.</p>
 
 
 
