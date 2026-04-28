@@ -59,6 +59,8 @@
   import { runProfileInPane } from "$lib/panes/profileRunner";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+  import { handleFileDrop } from "$lib/dnd/handleFileDrop";
   import { registerCommands, registry } from "$lib/commands";
   import { setupAppMenu, teardownAppMenu, claimFire } from "$lib/menu/appMenu";
   import { eventToAccelerator } from "$lib/menu/accelerators";
@@ -370,10 +372,14 @@
     document.documentElement.style.setProperty("--color-terminal-bg", terminalBg);
   });
 
+  let unlistenDragDrop: (() => void) | null = null;
+
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
     window.removeEventListener("blur", handleWindowBlur);
+    unlistenDragDrop?.();
+    unlistenDragDrop = null;
     teardownAppMenu();
   });
 
@@ -401,6 +407,26 @@
     await listen("close-requested", () => void handleCloseRequested());
     // Listen for macOS Quit menu / Dock quit
     await listen("quit-requested", () => void handleQuitRequested());
+
+    // Native file drag-and-drop: write the dropped path(s) into the target pane's terminal.
+    // Tauri reports drop position in PHYSICAL pixels; document.elementFromPoint expects CSS
+    // (logical) pixels, so divide by the current scaleFactor for correct hit-testing on HiDPI.
+    const dragDropWebview = getCurrentWebviewWindow();
+    unlistenDragDrop = await dragDropWebview.onDragDropEvent((event) => {
+      if (event.payload.type !== "drop") return;
+      const { paths, position } = event.payload;
+      void (async () => {
+        try {
+          const scale = await dragDropWebview.scaleFactor();
+          await handleFileDrop({
+            paths,
+            position: { x: position.x / scale, y: position.y / scale },
+          });
+        } catch (error) {
+          logError("Failed to handle dropped file(s)", error);
+        }
+      })();
+    });
 
     const loadedSettings = await initSettings();
     void loadUserTerminalThemes();
