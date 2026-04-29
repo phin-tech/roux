@@ -13,7 +13,7 @@
 //! `main.rs`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use image::{ImageBuffer, Rgba};
 use tauri::{
@@ -22,6 +22,7 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, Wry,
 };
+use tokio::sync::Notify;
 
 use crate::state::AppState;
 use roux_core::{Notification, NotificationLevel, Session, SessionStatus};
@@ -57,80 +58,110 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(handle_menu_event)
         .build(app)?;
 
-    refresh(app.clone());
+    start_refresh_worker(app.clone());
+    refresh();
     Ok(())
 }
 
-/// Rebuild the tray menu from current session + notification state.
-/// Spawns a tokio task because `SessionHandle::list` is async; safe to
-/// call from any context.
-pub fn refresh(app: AppHandle) {
+/// Single `Notify` shared by every `refresh()` caller and consumed by
+/// the worker started in `setup()`. `notify_one` is idempotent when no
+/// waiter is parked, so a burst of triggers (status events +
+/// notification events + ticker) coalesces into at most one extra run
+/// after the in-progress one finishes — no overlapping tasks, no
+/// chance of an older snapshot's `set_menu` clobbering a newer one's.
+static REFRESH_SIGNAL: OnceLock<Arc<Notify>> = OnceLock::new();
+
+fn start_refresh_worker(app: AppHandle) {
+    let notify = Arc::new(Notify::new());
+    if REFRESH_SIGNAL.set(notify.clone()).is_err() {
+        // Worker already running (e.g. `setup` called twice in tests).
+        return;
+    }
     tauri::async_runtime::spawn(async move {
-        let sessions = {
-            let state = app.state::<AppState>();
-            match state.session_handle.list().await {
-                Ok(list) => list,
-                Err(e) => {
-                    rlog!("tray: list_sessions failed: {e}");
-                    return;
-                }
-            }
-        };
-        let active: Vec<Session> = sessions.into_iter().filter(|s| !s.archived).collect();
-
-        let (unread, total_unread) = {
-            let state = app.state::<AppState>();
-            let all = state.notification_manager.list();
-            let total = all.iter().filter(|n| !n.read).count();
-            let top: Vec<Notification> = all
-                .into_iter()
-                .filter(|n| !n.read)
-                .take(MAX_NOTIFS_IN_TRAY)
-                .collect();
-            (top, total)
-        };
-
-        let needs_attention = active
-            .iter()
-            .any(|s| matches!(s.status, SessionStatus::Attention));
-
-        let menu = match build_menu(&app, &active, &unread, total_unread) {
-            Ok(m) => m,
-            Err(e) => {
-                rlog!("tray: build_menu failed: {e}");
-                return;
-            }
-        };
-        if let Some(tray) = app.tray_by_id(TRAY_ID) {
-            if let Err(e) = tray.set_menu(Some(menu)) {
-                rlog!("tray: set_menu failed: {e}");
-            }
-            // macOS: surface the unread count next to the icon. No-op
-            // on platforms where set_title isn't supported.
-            let _ = tray.set_title(if total_unread > 0 {
-                Some(format!("{}", total_unread))
-            } else {
-                None
-            });
-
-            // Swap the icon only when the attention state actually flips.
-            // Avoids per-tick set_icon churn (cheap but visible flicker on
-            // some platforms) when nothing changed.
-            let prev = ATTENTION_ICON_ACTIVE.swap(needs_attention, Ordering::Relaxed);
-            if prev != needs_attention {
-                let icons = tray_icons();
-                if needs_attention {
-                    let _ = tray.set_icon(Some(icons.attention.clone()));
-                    // Attention dot is colored; template mode would
-                    // strip the color on macOS.
-                    let _ = tray.set_icon_as_template(false);
-                } else {
-                    let _ = tray.set_icon(Some(icons.normal.clone()));
-                    let _ = tray.set_icon_as_template(true);
-                }
-            }
+        loop {
+            notify.notified().await;
+            do_refresh(&app).await;
         }
     });
+}
+
+/// Request a tray refresh. Cheap and lock-free: signals the worker and
+/// returns. Safe to call from any context, including event listener
+/// callbacks that fire on the main thread.
+pub fn refresh() {
+    if let Some(signal) = REFRESH_SIGNAL.get() {
+        signal.notify_one();
+    }
+}
+
+/// Rebuild the tray menu from current session + notification state.
+/// Always runs on the worker task, so completions are serialized and
+/// the latest call wins.
+async fn do_refresh(app: &AppHandle) {
+    let sessions = {
+        let state = app.state::<AppState>();
+        match state.session_handle.list().await {
+            Ok(list) => list,
+            Err(e) => {
+                rlog!("tray: list_sessions failed: {e}");
+                return;
+            }
+        }
+    };
+    let active: Vec<Session> = sessions.into_iter().filter(|s| !s.archived).collect();
+
+    let (unread, total_unread) = {
+        let state = app.state::<AppState>();
+        let all = state.notification_manager.list();
+        let total = all.iter().filter(|n| !n.read).count();
+        let top: Vec<Notification> = all
+            .into_iter()
+            .filter(|n| !n.read)
+            .take(MAX_NOTIFS_IN_TRAY)
+            .collect();
+        (top, total)
+    };
+
+    let needs_attention = active
+        .iter()
+        .any(|s| matches!(s.status, SessionStatus::Attention));
+
+    let menu = match build_menu(app, &active, &unread, total_unread) {
+        Ok(m) => m,
+        Err(e) => {
+            rlog!("tray: build_menu failed: {e}");
+            return;
+        }
+    };
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        if let Err(e) = tray.set_menu(Some(menu)) {
+            rlog!("tray: set_menu failed: {e}");
+        }
+        // macOS: surface the unread count next to the icon. No-op
+        // on platforms where set_title isn't supported.
+        let _ = tray.set_title(if total_unread > 0 {
+            Some(format!("{}", total_unread))
+        } else {
+            None
+        });
+
+        // Swap the icon only when the attention state actually flips.
+        // Avoids per-tick set_icon churn (cheap but visible flicker on
+        // some platforms) when nothing changed.
+        let prev = ATTENTION_ICON_ACTIVE.swap(needs_attention, Ordering::Relaxed);
+        if prev != needs_attention {
+            let icons = tray_icons();
+            if needs_attention {
+                let _ = tray.set_icon(Some(icons.attention.clone()));
+                // Attention dot is colored; template mode would
+                // strip the color on macOS.
+                let _ = tray.set_icon_as_template(false);
+            } else {
+                let _ = tray.set_icon(Some(icons.normal.clone()));
+                let _ = tray.set_icon_as_template(true);
+            }
+        }
+    }
 }
 
 /// Tracks whether the tray currently shows the attention-state icon, so

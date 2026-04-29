@@ -412,38 +412,30 @@ fn main() {
             }
 
             // Refresh the tray menu when any session's status changes.
-            {
-                let app_handle = app.handle().clone();
-                app.listen("roux-status-update", move |_event| {
-                    tray::refresh(app_handle.clone());
-                });
-            }
+            // `tray::refresh` is a cheap signal — the worker started in
+            // `tray::setup` does the actual work.
+            app.listen("roux-status-update", |_event| {
+                tray::refresh();
+            });
 
             // Refresh the tray menu when notifications change (added,
             // read, removed, cleared). Surfaces the unread count and
             // the recent-unread submenu without polling.
-            {
-                let app_handle = app.handle().clone();
-                app.listen(notifications::NOTIFICATION_EVENT, move |_event| {
-                    tray::refresh(app_handle.clone());
-                });
-            }
+            app.listen(notifications::NOTIFICATION_EVENT, |_event| {
+                tray::refresh();
+            });
 
             // Low-frequency poll catches session add/remove/archive
-            // (no dedicated event bus for those today). 3s is fine — the
-            // refresh is just a list + menu rebuild.
-            {
-                let app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    let mut ticker =
-                        tokio::time::interval(std::time::Duration::from_secs(3));
-                    ticker.tick().await; // skip the immediate first tick
-                    loop {
-                        ticker.tick().await;
-                        tray::refresh(app_handle.clone());
-                    }
-                });
-            }
+            // (no dedicated event bus for those today). 3s is fine —
+            // the refresh worker coalesces overlapping signals.
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3));
+                ticker.tick().await; // skip the immediate first tick
+                loop {
+                    ticker.tick().await;
+                    tray::refresh();
+                }
+            });
 
             // Experimental notes vault: one-shot migration of legacy
             // project notes (`~/.config/roux/notes/<id>.txt`) into the
