@@ -338,13 +338,15 @@ describe("ArchivedSessionsList", () => {
     ]);
     mockSessionWorktreeExists.mockResolvedValue(true);
 
-    let resolveDelete!: () => void;
-    vi.mocked(deleteSessionPermanently).mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveDelete = resolve;
-        }),
-    );
+    let resolveFirstDelete!: () => void;
+    vi.mocked(deleteSessionPermanently)
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirstDelete = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
     render(ArchivedSessionsList, { collapsed: false });
@@ -364,7 +366,7 @@ describe("ArchivedSessionsList", () => {
     await fireEvent.click(deleteBtn);
     expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledTimes(1);
 
-    resolveDelete();
+    resolveFirstDelete();
     await waitFor(() => {
       // After settling, the toolbar disappears (selection cleared) — there's
       // no Delete button to re-enable, but the backend was only hit once.
