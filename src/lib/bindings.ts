@@ -214,6 +214,7 @@ export const commands = {
 	lookupPr: (repoPath: string | null, url: string) => typedError<PrInfo, string>(__TAURI_INVOKE("lookup_pr", { repoPath, url })),
 	fetchPrBranch: (repoPath: string, number: number, headRef: string, isCrossRepository: boolean) => typedError<string, string>(__TAURI_INVOKE("fetch_pr_branch", { repoPath, number, headRef, isCrossRepository })),
 	cloneRepo: (owner: string, repo: string, targetDir: string) => typedError<string, string>(__TAURI_INVOKE("clone_repo", { owner, repo, targetDir })),
+	lookupPrForBranch: (repoPath: string, branch: string) => typedError<PrInfo | null, string>(__TAURI_INVOKE("lookup_pr_for_branch", { repoPath, branch })),
 	cmdDiscoverTasks: (dir: string) => __TAURI_INVOKE<TaskGroup[]>("cmd_discover_tasks", { dir }),
 	cmdLoadTaskOverrides: () => __TAURI_INVOKE<{ [key in string]: { [key in string]: string } }>("cmd_load_task_overrides"),
 	cmdSaveTaskOverrides: (overrides: { [key in string]: { [key in string]: string } }) => typedError<null, string>(__TAURI_INVOKE("cmd_save_task_overrides", { overrides })),
@@ -229,6 +230,7 @@ export const commands = {
 	notesSearch: (query: NotesSearchQuery) => typedError<string[], string>(__TAURI_INVOKE("notes_search", { query })),
 	notesVaultRoot: () => typedError<string, string>(__TAURI_INVOKE("notes_vault_root")),
 	cmdCreateWatch: (config: CreateWatchConfig) => typedError<Watch, string>(__TAURI_INVOKE("cmd_create_watch", { config })),
+	cmdFindOrCreateWatch: (config: CreateWatchConfig) => typedError<Watch, string>(__TAURI_INVOKE("cmd_find_or_create_watch", { config })),
 	cmdRemoveWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_watch", { id })),
 	cmdListWatches: () => typedError<Watch[], string>(__TAURI_INVOKE("cmd_list_watches")),
 	cmdPauseWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_pause_watch", { id })),
@@ -691,6 +693,8 @@ export type PrInfo = {
 	headRef: string,
 	headOwner: string,
 	isCrossRepository: boolean,
+	url: string,
+	repoSlug: string,
 };
 
 export type PrReview = {
@@ -944,6 +948,22 @@ export type RouxSettings = {
 	 *  keep their renderer until reopened.
 	 */
 	gpuAcceleration?: GpuAcceleration,
+	/**
+	 *  When true, sessions whose worktree branch resolves to an open GitHub
+	 *  PR get a session-scoped `GithubPr` watch created automatically. The
+	 *  status-bar PR link is shown regardless of this setting; only the
+	 *  background watch creation is gated. Defaults to `false` so users
+	 *  don't get unexpected new watches on upgrade.
+	 */
+	autoWatchSessionPr?: boolean,
+	/**
+	 *  Master switch for the gh-backed session-PR lookup. When true (the
+	 *  default), session activation triggers a `gh pr list --head <branch>`
+	 *  call to populate the status-bar PR chip and feed the auto-watch
+	 *  flow. When false, no gh call is made, the chip falls back to
+	 *  worktrunk's `ciUrl` only, and `autoWatchSessionPr` becomes a no-op.
+	 */
+	autoLookupSessionPr?: boolean,
 };
 
 /**
