@@ -71,7 +71,10 @@ function findSessionPrimaryInstance(sessionId: string): PaneInstance | null {
 // shaped and pass cleanly; if a value falls outside this set we drop the
 // exact-resume path and let the caller fall back to `--continue` /
 // `resume --last`.
-const SAFE_SHELL_ARG = /^[A-Za-z0-9_@%+=:,./-]+$/;
+//
+// Notably excluded: `%` triggers env-var expansion in cmd.exe (`%FOO%`),
+// which would substitute environment values into the typed command.
+const SAFE_SHELL_ARG = /^[A-Za-z0-9_@+=:,./-]+$/;
 
 function providerSessionArg(value: string | undefined): string | null {
   const trimmed = value?.trim() ?? "";

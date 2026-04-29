@@ -103,6 +103,28 @@ describe("closeSession", () => {
     );
   });
 
+  it("flushes only the closing session's layout, not other sessions in memory", async () => {
+    // Regression: closing one session was force-flushing every session's
+    // live layout. On launch, restored sessions hold a transient primary-
+    // only layout until the user clicks Continue — that stub would
+    // overwrite the rich persisted layout for every other session.
+    const closingSession = makeSession({ id: "closing-sess" });
+    const otherSession = makeSession({ id: "other-sess" });
+    addSession(closingSession);
+    addSession(otherSession);
+    initSession(closingSession.id);
+    initSession(otherSession.id);
+
+    await closeSession(closingSession);
+
+    const calls = vi.mocked(saveLivePaneStateRaw).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(closingSession.id);
+    expect(
+      calls.some(([id]) => id === otherSession.id),
+    ).toBe(false);
+  });
+
   it("still archives when pane-state flush fails", async () => {
     const session = makeSession();
     addSession(session);

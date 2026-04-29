@@ -182,6 +182,7 @@ describe("routeStatusUpdate", () => {
 describe("applyStatusRouting", () => {
   beforeEach(() => {
     resetAgentStates();
+    resetInstances();
   });
 
   it("writes a pane-tier decision into agentStates", () => {
@@ -193,7 +194,7 @@ describe("applyStatusRouting", () => {
     expect(entry?.status).toBe("generating");
   });
 
-  it("writes provider session metadata into pane instances", () => {
+  it("writes providerSessionId into pane instances", () => {
     createPane({ id: "pane-1", type: "shell", ptyId: "pty-1" });
 
     applyStatusRouting(
@@ -201,8 +202,47 @@ describe("applyStatusRouting", () => {
     );
 
     const pane = get(paneInstances).get("pane-1");
-    expect(pane?.provider).toBe("claude");
     expect(pane?.providerSessionId).toBe("claude-session-123");
+  });
+
+  it("does not overwrite an existing instance.provider with the inferred routing provider", () => {
+    // Regression: routeStatusUpdate infers `provider: "claude"` for legacy
+    // hooks that omit the field. If applyStatusRouting persisted that
+    // inferred value, a Codex pane whose hook didn't carry `provider`
+    // would get its instance.provider clobbered to "claude", and
+    // continueSession would then build `claude --resume <id>` instead of
+    // `codex resume <id>`. We persist providerSessionId only.
+    createPane({
+      id: "pane-1",
+      type: "shell",
+      ptyId: "pty-1",
+      provider: "codex",
+    });
+
+    applyStatusRouting(
+      routeStatusUpdate(
+        ev({ provider: "", providerSessionId: "codex-thread-7" }),
+        trustAll,
+      ),
+    );
+
+    const pane = get(paneInstances).get("pane-1");
+    expect(pane?.provider).toBe("codex");
+    expect(pane?.providerSessionId).toBe("codex-thread-7");
+  });
+
+  it("does not write instance.provider at all from routing events", () => {
+    // Even when the routing event has an explicit provider, we don't
+    // touch instance.provider — that field is owned by createPane / the
+    // persisted descriptor and runtime status events shouldn't fight it.
+    createPane({ id: "pane-1", type: "shell", ptyId: "pty-1" });
+
+    applyStatusRouting(
+      routeStatusUpdate(ev({ provider: "claude", providerSessionId: "x" }), trustAll),
+    );
+
+    const pane = get(paneInstances).get("pane-1");
+    expect(pane?.provider).toBeUndefined();
   });
 
   it("leaves agentStates untouched for legacy events", () => {

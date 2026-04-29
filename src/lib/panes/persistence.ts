@@ -250,22 +250,54 @@ async function writeAllDirty(): Promise<void> {
 }
 
 /**
- * Cancels any pending debounce timer and writes all currently-mounted sessions
- * immediately. Call from quit/close handlers.
+ * Cancels any pending debounce timer and writes session pane state to disk.
  *
- * Always force-marks every session in sessionLayouts dirty before writing:
- * users can mutate shell cwd (via `cd`) without touching sessionLayouts, so
- * dirtySessions may be empty even when the on-disk state is stale. Quit is
- * rare, so the extra write is cheap.
+ * Without `sessionId`, force-marks every session in `sessionLayouts` dirty
+ * and writes all of them — used by quit handlers where every session's
+ * latest state needs to land before the process exits.
+ *
+ * With `sessionId`, only that session is force-marked and written. This is
+ * what `closeSession` uses: on launch, multiple disconnected sessions get
+ * a transient primary-only layout in `sessionLayouts` until the user
+ * clicks Continue. A blanket flush during one close would overwrite the
+ * other sessions' rich persisted layouts with that primary-only stub,
+ * losing their split panes for the next restore.
+ *
+ * Force-marking is necessary because shell cwd changes via `cd` don't
+ * touch `sessionLayouts`, so `dirtySessions` may be empty even when
+ * on-disk state is stale.
  */
-export async function flushPaneState(): Promise<void> {
+export async function flushPaneState(sessionId?: string): Promise<void> {
+  const layouts = get(sessionLayouts);
+
+  if (sessionId !== undefined) {
+    // Single-session flush. Don't cancel the global debounce timer or
+    // touch other sessions' dirty bits — those still belong to the
+    // ongoing debounce window. Just write this one and exit.
+    const tree = layouts.get(sessionId);
+    if (!tree) return;
+    dirtySessions.delete(sessionId);
+    try {
+      await saveLivePaneStateRaw(
+        sessionId,
+        PANE_STATE_SCHEMA_VERSION,
+        tree,
+        collectLeafIds(tree),
+      );
+    } catch (e) {
+      log(`flushPaneState(${sessionId}): failed — ${e}`);
+    }
+    return;
+  }
+
+  // Whole-app flush (quit handler): force-mark every session and write
+  // them all. This is also what cancels the pending debounce timer.
   if (saveTimer !== null) {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
-  const layouts = get(sessionLayouts);
-  for (const sessionId of layouts.keys()) {
-    dirtySessions.add(sessionId);
+  for (const id of layouts.keys()) {
+    dirtySessions.add(id);
   }
   if (dirtySessions.size > 0) {
     await writeAllDirty();

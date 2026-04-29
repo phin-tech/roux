@@ -62,7 +62,12 @@ export async function closeSession(session: Session, opts?: CloseOpts): Promise<
   // Persist the live layout before disposing panes. Once closeSessionPanes()
   // runs, the layout and pane records are gone, so a later quit/debounce
   // flush has nothing left to serialize for restore.
-  await flushPaneState();
+  //
+  // Scoped to this session id specifically: at launch, every restored
+  // session has a transient primary-only layout in `sessionLayouts` until
+  // the user clicks Continue. A blanket flush here would write that stub
+  // over each session's rich persisted layout, losing their split panes.
+  await flushPaneState(session.id);
 
   // Dispose panes / terminals regardless of action.
   closeSessionPanes(session.id);
