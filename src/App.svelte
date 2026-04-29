@@ -374,6 +374,7 @@
   });
 
   let unlistenDragDrop: (() => void) | null = null;
+  let unlistenSessionPrEffect: (() => void) | null = null;
 
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);
@@ -381,6 +382,8 @@
     window.removeEventListener("blur", handleWindowBlur);
     unlistenDragDrop?.();
     unlistenDragDrop = null;
+    unlistenSessionPrEffect?.();
+    unlistenSessionPrEffect = null;
     teardownAppMenu();
   });
 
@@ -449,7 +452,7 @@
     // Resolve the active session's branch to an open PR (when gh is
     // available) so the status bar can render a PR chip and the optional
     // auto-watch flow can create a session-scoped PR watch.
-    installSessionPrEffect();
+    unlistenSessionPrEffect = installSessionPrEffect();
 
     // Kick off a silent background update check (5s debounce, respects user toggle)
     runStartupCheck();

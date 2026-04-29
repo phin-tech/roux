@@ -6,25 +6,17 @@ import type { PrInfo } from "$lib/tauri";
 const lookupCalls: Array<[string, string]> = [];
 let nextLookupResult: PrInfo | null = null;
 let nextLookupReject: Error | null = null;
-let lookupResolveSignal: (() => void) | null = null;
+let resolveLookupNow = true;
 
 const findOrCreateCalls: unknown[] = [];
 
 vi.mock("$lib/tauri", () => ({
   lookupPrForBranch: vi.fn(async (repoPath: string, branch: string) => {
     lookupCalls.push([repoPath, branch]);
-    if (lookupResolveSignal) {
-      const resolve = lookupResolveSignal;
-      lookupResolveSignal = null;
-      await new Promise<void>((r) => {
-        // Hold the call until the test signals; lets us inspect inFlight state.
-        const tick = () => {
-          if (resolveLookupNow) r();
-          else setTimeout(tick, 1);
-        };
-        tick();
-      });
-      resolve();
+    // Polling gate so the dedupe-under-concurrency test can hold the
+    // first call open while the second one tries to start.
+    while (!resolveLookupNow) {
+      await new Promise((r) => setTimeout(r, 1));
     }
     if (nextLookupReject) throw nextLookupReject;
     return nextLookupResult;
@@ -34,8 +26,6 @@ vi.mock("$lib/tauri", () => ({
     return { id: "stub", config };
   }),
 }));
-
-let resolveLookupNow = true;
 
 import {
   _resetSessionPrLookupForTests,
@@ -73,7 +63,6 @@ describe("sessionPrLookup", () => {
     findOrCreateCalls.length = 0;
     nextLookupResult = null;
     nextLookupReject = null;
-    lookupResolveSignal = null;
     resolveLookupNow = true;
     _resetSessionPrLookupForTests();
     sessionState.set({ sessions: [], activeSessionId: null });
@@ -216,6 +205,43 @@ describe("sessionPrLookup", () => {
 
     expect(lookupCalls).toHaveLength(1);
     expect(findOrCreateCalls).toEqual([]);
+    dispose();
+  });
+
+  it("installSessionPrEffect re-runs lookup when branch changes for the same session id", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      autoLookupSessionPr: true,
+      autoWatchSessionPr: false,
+    });
+    nextLookupResult = makePr();
+    const dispose = installSessionPrEffect();
+
+    const baseSession = {
+      id: "s1",
+      repoRoot: session.repoRoot,
+      branch: "feature/x",
+      isGitRepo: true,
+    };
+    sessionState.set({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sessions: [baseSession as any],
+      activeSessionId: "s1",
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(lookupCalls).toEqual([["/tmp/repo", "feature/x"]]);
+
+    // Same session id, different branch — should trigger a fresh lookup.
+    sessionState.set({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sessions: [{ ...baseSession, branch: "feature/y" } as any],
+      activeSessionId: "s1",
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(lookupCalls).toEqual([
+      ["/tmp/repo", "feature/x"],
+      ["/tmp/repo", "feature/y"],
+    ]);
     dispose();
   });
 

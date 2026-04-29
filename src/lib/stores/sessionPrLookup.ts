@@ -195,16 +195,24 @@ async function maybeAutoWatch(
  * `autoWatchSessionPr` settings — when lookup is disabled, no gh call is
  * made and the rest is a no-op. Returns an unsubscribe function for tests
  * and clean shutdown.
+ *
+ * Dedupe key intentionally includes `repoRoot` and `branch`, not just
+ * `id` — `activeSession` re-fires when those mutate in place (e.g.
+ * branch rename, worktree move) and we want a fresh lookup in that
+ * case. `lookupPrForSession`'s own TTL/in-flight guards keep the cost
+ * bounded for unrelated session-property changes that share the same
+ * triple.
  */
 export function installSessionPrEffect(): () => void {
-  let lastSessionId: string | null = null;
+  let lastKey: string | null = null;
   return activeSession.subscribe((session) => {
     if (!session) {
-      lastSessionId = null;
+      lastKey = null;
       return;
     }
-    if (session.id === lastSessionId) return;
-    lastSessionId = session.id;
+    const key = `${session.id}|${session.repoRoot}|${session.branch}`;
+    if (key === lastKey) return;
+    lastKey = key;
 
     const s = get(settings);
     if (s.autoLookupSessionPr === false) return;
