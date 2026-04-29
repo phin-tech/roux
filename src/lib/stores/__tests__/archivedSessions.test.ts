@@ -244,27 +244,30 @@ describe("archivedSessions store", () => {
 
   it("bulk failures normalize Error and non-Error rejections to readable strings", async () => {
     archivedSessionsState.set({
-      sessions: [makeArchived("a"), makeArchived("b"), makeArchived("c")],
+      sessions: [makeArchived("a"), makeArchived("b"), makeArchived("c"), makeArchived("d")],
       loaded: true,
       worktreeExists: new Map([
         ["a", true],
         ["b", true],
         ["c", true],
+        ["d", true],
       ]),
     });
     vi.mocked(deleteSessionPermanently).mockImplementation(async (id) => {
       if (id === "a") throw new Error("error message");
       if (id === "b") throw { code: 42, detail: "object reject" };
       if (id === "c") throw "raw string";
+      if (id === "d") throw undefined;
     });
 
-    const result = await bulkDeleteArchivedSessionsForever(["a", "b", "c"]);
+    const result = await bulkDeleteArchivedSessionsForever(["a", "b", "c", "d"]);
 
-    expect(result.failures).toHaveLength(3);
+    expect(result.failures).toHaveLength(4);
     const byId = new Map(result.failures.map((f) => [f.id, f.error]));
     expect(byId.get("a")).toBe("error message");
     expect(byId.get("b")).toBe('{"code":42,"detail":"object reject"}');
     expect(byId.get("c")).toBe("raw string");
+    expect(byId.get("d")).toBe("undefined");
   });
 
   it("bulkDeleteArchivedSessionsForever removes succeeded ids and surfaces failures", async () => {

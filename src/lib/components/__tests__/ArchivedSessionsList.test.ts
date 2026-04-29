@@ -276,6 +276,28 @@ describe("ArchivedSessionsList", () => {
     });
   });
 
+  it("sets the visible select-all checkbox indeterminate state for partial selection", async () => {
+    mockListArchivedSessions.mockResolvedValue([
+      makeArchived("feature-a"),
+      makeArchived("feature-b"),
+    ]);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+
+    render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("feature-a");
+    const rowCheckboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
+    const selectAll = screen.getByTestId("archived-select-all") as HTMLInputElement;
+    expect(selectAll.indeterminate).toBe(false);
+
+    await fireEvent.click(rowCheckboxes[0]);
+
+    await waitFor(() => {
+      expect(selectAll.checked).toBe(false);
+      expect(selectAll.indeterminate).toBe(true);
+    });
+  });
+
   it("offers Clear all and Remove all worktrees from the header overflow", async () => {
     mockListArchivedSessions.mockResolvedValue([
       makeArchived("feature-a"),
@@ -307,6 +329,65 @@ describe("ArchivedSessionsList", () => {
       expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-a");
       expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-gone");
     });
+  });
+
+  it("guards bulk handlers against re-entry while a request is in flight", async () => {
+    mockListArchivedSessions.mockResolvedValue([
+      makeArchived("feature-a"),
+      makeArchived("feature-b"),
+    ]);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+
+    let resolveDelete!: () => void;
+    vi.mocked(deleteSessionPermanently).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDelete = resolve;
+        }),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("feature-a");
+    const checkboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
+    await fireEvent.click(checkboxes[0]);
+    await fireEvent.click(checkboxes[1]);
+
+    const deleteBtn = screen.getByText("Delete").closest("button") as HTMLButtonElement;
+    await fireEvent.click(deleteBtn);
+    // While pending, the button should disable and a second click must not
+    // fire another backend call.
+    await waitFor(() => {
+      expect(deleteBtn.disabled).toBe(true);
+    });
+    await fireEvent.click(deleteBtn);
+    expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledTimes(1);
+
+    resolveDelete();
+    await waitFor(() => {
+      // After settling, the toolbar disappears (selection cleared) — there's
+      // no Delete button to re-enable, but the backend was only hit once.
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("closes the header overflow menu when the pane collapses", async () => {
+    mockListArchivedSessions.mockResolvedValue([makeArchived("feature-a")]);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+
+    const { rerender } = render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("feature-a");
+    await fireEvent.click(screen.getByTestId("archived-header-menu"));
+    expect(screen.getByTestId("archived-header-menu-content")).not.toBeNull();
+
+    await rerender({ collapsed: true });
+    expect(screen.queryByTestId("archived-header-menu-content")).toBeNull();
+
+    await rerender({ collapsed: false });
+    // Menu should NOT pop back open just because we re-expanded.
+    expect(screen.queryByTestId("archived-header-menu-content")).toBeNull();
   });
 
   it("disables bulk Restore when none of the selected rows have a worktree on disk", async () => {

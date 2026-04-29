@@ -43,6 +43,12 @@
   let headerMenuOpen = $state(false);
   let filterText = $state("");
   let selected = $state(new Set<string>());
+  let selectAllCheckbox = $state<HTMLInputElement | null>(null);
+  // Single in-flight gate for every bulk/header action. Destructive ops
+  // (delete, remove worktree) must not re-enter — a fast double-click would
+  // dispatch duplicate backend calls and turn a clean run into noisy partial
+  // failures. One flag covers all entry points because they share state.
+  let bulkPending = $state(false);
 
   $effect(() => {
     if (collapsed) return;
@@ -97,6 +103,11 @@
   const someVisibleSelected = $derived(
     filteredList.some((s) => selected.has(s.id)) && !allVisibleSelected,
   );
+  $effect(() => {
+    if (selectAllCheckbox) {
+      selectAllCheckbox.indeterminate = someVisibleSelected;
+    }
+  });
   // Bulk actions act on every selected row, including ones the filter is
   // currently hiding — that matches the toolbar's "N selected" count.
   const selectedSessions = $derived(
@@ -138,6 +149,14 @@
   });
 
   $effect(() => {
+    // Collapsing the pane unmounts the trigger button but leaves the boolean
+    // state untouched — close it explicitly so the menu doesn't pop back
+    // open on next expand and so the global listeners don't stay armed
+    // while the section is hidden.
+    if (collapsed) {
+      headerMenuOpen = false;
+      return;
+    }
     if (!headerMenuOpen) return;
     const onPointerDown = (ev: PointerEvent) => {
       const target = ev.target;
@@ -273,9 +292,10 @@
   }
 
   async function handleBulkRestore() {
-    if (restorableSelected.length === 0) return;
+    if (bulkPending || restorableSelected.length === 0) return;
     bulkError = null;
     const ids = restorableSelected.map((s) => s.id);
+    bulkPending = true;
     try {
       const result = await bulkRestoreArchivedSessions(ids);
       bulkError = describeBulkResult("restore", result.succeeded.length, result.failures);
@@ -284,17 +304,20 @@
       selected = remaining;
     } catch (err) {
       bulkError = `Failed to restore: ${err}`;
+    } finally {
+      bulkPending = false;
     }
   }
 
   async function handleBulkRemoveWorktrees() {
-    if (selectableWorktreeEntries.length === 0) return;
+    if (bulkPending || selectableWorktreeEntries.length === 0) return;
     const confirmed = window.confirm(
       `Remove ${selectableWorktreeEntries.length} worktree${selectableWorktreeEntries.length === 1 ? "" : "s"} on disk?\n\n` +
         `History entries stay. Restore becomes unavailable for each one afterward.`,
     );
     if (!confirmed) return;
     bulkError = null;
+    bulkPending = true;
     try {
       const result = await bulkRemoveArchivedWorktrees(selectableWorktreeEntries);
       bulkError = describeBulkResult(
@@ -304,17 +327,20 @@
       );
     } catch (err) {
       bulkError = `Failed to remove worktrees: ${err}`;
+    } finally {
+      bulkPending = false;
     }
   }
 
   async function handleBulkDelete() {
-    if (selected.size === 0) return;
+    if (bulkPending || selected.size === 0) return;
     const ids = Array.from(selected);
     const confirmed = window.confirm(
       `Permanently delete ${ids.length} archived session${ids.length === 1 ? "" : "s"}? This cannot be undone.`,
     );
     if (!confirmed) return;
     bulkError = null;
+    bulkPending = true;
     try {
       const result = await bulkDeleteArchivedSessionsForever(ids);
       bulkError = describeBulkResult(
@@ -327,18 +353,21 @@
       selected = remaining;
     } catch (err) {
       bulkError = `Failed to delete history: ${err}`;
+    } finally {
+      bulkPending = false;
     }
   }
 
   async function handleClearAll() {
     headerMenuOpen = false;
-    if (archivedList.length === 0) return;
+    if (bulkPending || archivedList.length === 0) return;
     const confirmed = window.confirm(
       `Permanently delete all ${archivedList.length} archived session${archivedList.length === 1 ? "" : "s"}?\n\n` +
         `History entries are removed. Worktrees remain on disk — use "Remove all worktrees" first if you want them gone too. This cannot be undone.`,
     );
     if (!confirmed) return;
     bulkError = null;
+    bulkPending = true;
     try {
       const result = await bulkDeleteArchivedSessionsForever(
         archivedList.map((s) => s.id),
@@ -351,18 +380,21 @@
       selected = new Set();
     } catch (err) {
       bulkError = `Failed to clear archive: ${err}`;
+    } finally {
+      bulkPending = false;
     }
   }
 
   async function handleRemoveAllWorktrees() {
     headerMenuOpen = false;
-    if (archivedWithWorktreeOnDisk.length === 0) return;
+    if (bulkPending || archivedWithWorktreeOnDisk.length === 0) return;
     const confirmed = window.confirm(
       `Remove ${archivedWithWorktreeOnDisk.length} worktree${archivedWithWorktreeOnDisk.length === 1 ? "" : "s"} on disk?\n\n` +
         `History entries stay. Restore becomes unavailable for each one afterward.`,
     );
     if (!confirmed) return;
     bulkError = null;
+    bulkPending = true;
     try {
       const result = await bulkRemoveArchivedWorktrees(
         archivedWithWorktreeOnDisk.map((s) => ({
@@ -378,6 +410,8 @@
       );
     } catch (err) {
       bulkError = `Failed to remove worktrees: ${err}`;
+    } finally {
+      bulkPending = false;
     }
   }
 </script>
@@ -412,7 +446,7 @@
         title="More archived actions"
         aria-label="More archived actions"
         data-testid="archived-header-menu"
-        disabled={archivedList.length === 0}
+        disabled={archivedList.length === 0 || bulkPending}
         onclick={() => (headerMenuOpen = !headerMenuOpen)}
       >
         <MoreHorizontal size={13} />
@@ -425,7 +459,7 @@
           <button
             type="button"
             class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-amber/20 enabled:hover:text-amber disabled:opacity-40"
-            disabled={archivedWithWorktreeOnDisk.length === 0}
+            disabled={archivedWithWorktreeOnDisk.length === 0 || bulkPending}
             title={archivedWithWorktreeOnDisk.length === 0
               ? "No archived worktrees on disk"
               : `Delete ${archivedWithWorktreeOnDisk.length} worktree folder${archivedWithWorktreeOnDisk.length === 1 ? "" : "s"} but keep history`}
@@ -440,7 +474,7 @@
           <button
             type="button"
             class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-red/20 enabled:hover:text-red disabled:opacity-40"
-            disabled={archivedList.length === 0}
+            disabled={archivedList.length === 0 || bulkPending}
             title="Permanently delete every archived session entry"
             onclick={handleClearAll}
           >
@@ -487,7 +521,7 @@
         <button
           type="button"
           class="ml-auto inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-accent-dim/50 bg-accent-dim/15 px-1.5 text-[10px] text-accent transition-colors duration-150 hover:bg-accent-dim/30 disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={restorableSelected.length === 0}
+          disabled={restorableSelected.length === 0 || bulkPending}
           title={restorableSelected.length === 0
             ? "None of the selected sessions can be restored (worktrees missing)"
             : `Restore ${restorableSelected.length} session${restorableSelected.length === 1 ? "" : "s"}`}
@@ -499,7 +533,7 @@
         <button
           type="button"
           class="inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-1.5 text-[10px] text-text-secondary transition-colors duration-150 hover:bg-amber/20 hover:text-amber disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={selectableWorktreeEntries.length === 0}
+          disabled={selectableWorktreeEntries.length === 0 || bulkPending}
           title={selectableWorktreeEntries.length === 0
             ? "No worktrees on disk in the current selection"
             : `Remove ${selectableWorktreeEntries.length} worktree${selectableWorktreeEntries.length === 1 ? "" : "s"} on disk`}
@@ -510,7 +544,8 @@
         </button>
         <button
           type="button"
-          class="inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-1.5 text-[10px] text-text-secondary transition-colors duration-150 hover:bg-red/20 hover:text-red"
+          class="inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-1.5 text-[10px] text-text-secondary transition-colors duration-150 hover:bg-red/20 hover:text-red disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={bulkPending}
           title={`Permanently delete ${selected.size} history entr${selected.size === 1 ? "y" : "ies"}`}
           onclick={handleBulkDelete}
         >
@@ -573,8 +608,8 @@
           <input
             type="checkbox"
             class="h-3 w-3 cursor-pointer rounded border border-border bg-bg-deep accent-accent"
+            bind:this={selectAllCheckbox}
             checked={allVisibleSelected}
-            indeterminate={someVisibleSelected}
             onchange={toggleAllVisible}
             data-testid="archived-select-all"
           />
