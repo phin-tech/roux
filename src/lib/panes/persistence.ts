@@ -4,6 +4,7 @@ import { sessionLayouts, collectLeafIds } from "./layout";
 import type { PaneType } from "./instances";
 import type { NotesScope } from "$lib/tauri";
 import type { SpawnProfileRef } from "./profiles";
+import type { Provider } from "./profiles";
 import {
   loadPaneStateRaw,
   savePaneStateRaw,
@@ -30,6 +31,8 @@ export interface PaneDescriptor {
   command?: string;
   docPath?: string;
   spawnProfileRef?: SpawnProfileRef;
+  provider?: Provider;
+  providerSessionId?: string;
   nonoProfile?: string;
   nonoAllowDirs?: string[];
   notesScope?: NotesScope;
@@ -46,6 +49,55 @@ export interface PaneStatePayload {
 
 const VALID_NOTES_SCOPES = new Set(["session", "repo", "project", "global"]);
 const VALID_VIEW_MODES = new Set(["edit", "read"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isLayoutNode(value: unknown): value is LayoutNode {
+  if (!isRecord(value)) return false;
+  if (value.kind === "leaf") {
+    return typeof value.paneId === "string" && value.paneId.length > 0;
+  }
+  if (value.kind !== "split") return false;
+  if (value.direction !== "h" && value.direction !== "v") return false;
+  if (!Array.isArray(value.children) || value.children.length === 0) return false;
+  if (!value.children.every(isLayoutNode)) return false;
+  if (
+    value.sizes !== undefined &&
+    value.sizes !== null &&
+    (
+      !Array.isArray(value.sizes) ||
+      value.sizes.length !== value.children.length ||
+      value.sizes.some((size) => typeof size !== "number" || !Number.isFinite(size) || size < 0)
+    )
+  ) {
+    return false;
+  }
+  if (value.stacked !== undefined && typeof value.stacked !== "boolean") return false;
+  if (
+    value.activeIndex !== undefined &&
+    (
+      typeof value.activeIndex !== "number" ||
+      !Number.isInteger(value.activeIndex) ||
+      value.activeIndex < 0 ||
+      value.activeIndex >= value.children.length
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isDescriptor(value: unknown): value is PaneDescriptor {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.type === "string" &&
+    typeof value.ptyId === "string"
+  );
+}
 
 function validateDescriptor(d: PaneDescriptor): PaneDescriptor {
   const result = { ...d };
@@ -68,7 +120,11 @@ export async function loadPaneState(
   try {
     const raw = await loadPaneStateRaw(sessionId);
     if (raw == null) return null;
-    const payload = raw as { schemaVersion?: number } & PaneStatePayload;
+    if (!isRecord(raw)) {
+      log(`loadPaneState(${sessionId}): invalid payload shape — dropping persisted state`);
+      return null;
+    }
+    const payload = raw as { schemaVersion?: number } & Partial<PaneStatePayload>;
     if (payload.schemaVersion !== PANE_STATE_SCHEMA_VERSION) {
       log(
         `loadPaneState(${sessionId}): schema mismatch (got ${
@@ -77,9 +133,20 @@ export async function loadPaneState(
       );
       return null;
     }
+    if (!isLayoutNode(payload.layout)) {
+      log(`loadPaneState(${sessionId}): invalid layout tree — dropping persisted state`);
+      return null;
+    }
+    if (!Array.isArray(payload.descriptors) || !payload.descriptors.every(isDescriptor)) {
+      log(`loadPaneState(${sessionId}): invalid pane descriptors — dropping persisted state`);
+      return null;
+    }
     // Validate descriptors to ensure notes fields have valid values
-    payload.descriptors = payload.descriptors.map(validateDescriptor);
-    return payload;
+    return {
+      schemaVersion: PANE_STATE_SCHEMA_VERSION,
+      layout: payload.layout,
+      descriptors: payload.descriptors.map(validateDescriptor),
+    };
   } catch (e) {
     log(`loadPaneState(${sessionId}): failed — ${e}`);
     return null;

@@ -17,7 +17,7 @@
   } from "$lib/tauri";
   import type { SpawnProfileRef } from "$lib/panes/profiles";
   import { settings, updateSetting } from "$lib/stores/settings";
-  import { reconnectSession } from "$lib/sessions/reconnect";
+  import { continueSession } from "$lib/sessions/reconnect";
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
   import { projects, createProject } from "$lib/stores/projects";
@@ -332,7 +332,7 @@
   async function handleReconnect(id: string) {
     const session = $sessionState.sessions.find((s) => s.id === id);
     if (!session) return;
-    await reconnectSession(session);
+    await continueSession(session);
   }
 
   function archivedMaxHeight(): number {

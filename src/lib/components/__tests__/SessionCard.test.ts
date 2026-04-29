@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import type { PtyInfo, Session } from "$lib/types";
 import { notifications } from "$lib/stores/notifications";
 import { projects } from "$lib/stores/projects";
@@ -116,5 +116,26 @@ describe("SessionCard", () => {
     await waitFor(() => expect(mockListSessionPtys).toHaveBeenCalledWith("session-1"));
     expect(screen.queryByTitle("1 active pane")).toBeNull();
     expect(screen.queryByTitle(/detached terminal/)).toBeNull();
+  });
+
+  it("labels disconnected session action as continue", async () => {
+    mockListSessionPtys.mockResolvedValue([
+      makePty({ id: "pty-1", status: { type: "RunningAttached", pane_id: "pane-1" } }),
+    ]);
+    const onreconnect = vi.fn();
+
+    render(SessionCard, {
+      session: makeSession({ status: "disconnected" }),
+      active: false,
+      onselect: () => {},
+      onclose: () => {},
+      onrename: () => {},
+      onreconnect,
+    });
+
+    const button = screen.getByRole("button", { name: "continue" });
+    await fireEvent.click(button);
+
+    expect(onreconnect).toHaveBeenCalledTimes(1);
   });
 });

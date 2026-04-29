@@ -8,6 +8,7 @@ import {
 } from "./agentState";
 import { sessionLayouts, collectLeafIds } from "./layout";
 import type { Provider } from "./profiles";
+import { updateInstance } from "./instances";
 
 /**
  * Cross-check that a given pane id belongs to the claimed session — the
@@ -126,6 +127,10 @@ export function routeStatusUpdate(
 export function applyStatusRouting(routing: StatusRouting): StatusRouting {
   if (routing.kind === "pane") {
     updateAgentState(routing.paneId, routing.event);
+    updateInstance(routing.paneId, {
+      provider: routing.event.provider,
+      providerSessionId: routing.event.providerSessionId,
+    });
   }
   return routing;
 }

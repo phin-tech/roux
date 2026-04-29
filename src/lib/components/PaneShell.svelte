@@ -25,7 +25,7 @@
   import { sendDroppedLibraryPromptToPty } from "$lib/library/sendToPane";
   import { resolveTerminalTheme } from "$lib/themes";
   import { userTerminalThemes } from "$lib/stores/userTerminalThemes";
-  import { reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
+  import { continueSessionShell, reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
   import { rerunCommandPane } from "$lib/panes/commandPaneRuntime";
   import { getTerminalController, terminalRuntimeVersionStore } from "$lib/panes/terminalRuntime";
   import { log, logError } from "$lib/logging";
@@ -96,14 +96,19 @@
 
   // Dispatch for the disconnected reconnect UI: Claude built-in shows the
   // SessionPicker (Continue/Resume/New) so the user can pick which Claude
-  // session to resume. The chosen flags get appended to the startup command
-  // typed into the freshly respawned shell. Every other profile — Codex,
-  // Plain shell, user-defined, inline — takes the simple reconnect path
-  // with no flags. Both paths call `reconnectSessionShell` under the hood.
+  // session to resume. Other provider-aware profiles use a single Continue
+  // action with provider defaults (e.g. Codex resume --last); plain shells
+  // and unknown profiles keep the simple reconnect path.
   const isClaudeBuiltinPrimary = $derived(
     isSessionPrimary &&
       activeProfile?.id === "claude" &&
       activeProfile?.source === "builtin",
+  );
+  const canContinueProvider = $derived(
+    activeProfile?.provider === "claude" ||
+      activeProfile?.provider === "codex" ||
+      activeProfile?.id === "claude" ||
+      activeProfile?.id === "codex",
   );
 
   async function reRunProfile() {
@@ -283,7 +288,11 @@
   async function reconnectShell() {
     if (!session) return;
     try {
-      await reconnectSessionShell(session);
+      if (canContinueProvider) {
+        await continueSessionShell(session);
+      } else {
+        await reconnectSessionShell(session);
+      }
     } catch (e: any) {
       if (e?.message?.includes("already in progress")) {
         log(`Reconnect for ${sessionId} skipped — already in progress`);
@@ -478,7 +487,7 @@
           </span>
           <span class="max-w-xs text-[13px] text-text-secondary">
             {#if activeProfile}
-              Reconnect will respawn a shell and re-run the <span class="text-text-primary">{activeProfile.name}</span> profile.
+              {canContinueProvider ? "Continue" : "Reconnect"} will respawn a shell and re-run the <span class="text-text-primary">{activeProfile.name}</span> profile.
             {:else}
               Reconnect will respawn a plain shell in this pane.
             {/if}
@@ -487,7 +496,7 @@
             class="cursor-pointer rounded-xl border border-accent-dim/20 bg-accent-dim/15 px-5 py-2 text-[13px] font-medium text-accent hover:bg-accent-dim/24"
             onclick={() => void reconnectShell()}
           >
-            Reconnect
+            {canContinueProvider ? "Continue" : "Reconnect"}
           </button>
         </div>
       {:else if instance.type === "notes"}

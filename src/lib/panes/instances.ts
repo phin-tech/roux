@@ -1,5 +1,6 @@
 import { writable, get } from "svelte/store";
 import type { SpawnProfileRef } from "./profiles";
+import type { Provider } from "./profiles";
 import { clearPtyOutputBuffer } from "./ptyOutputBus";
 import {
   clearPaneOutputChannel,
@@ -51,6 +52,8 @@ export interface PaneInstance {
    * plain shell panes launched without a profile.
    */
   spawnProfileRef?: SpawnProfileRef;
+  provider?: Provider;
+  providerSessionId?: string;
 
   nonoProfile?: string;
   nonoAllowDirs?: string[];
@@ -80,6 +83,8 @@ export interface CreatePaneOpts {
   command?: string;
   docPath?: string;
   spawnProfileRef?: SpawnProfileRef;
+  provider?: Provider;
+  providerSessionId?: string;
   nonoProfile?: string;
   nonoAllowDirs?: string[];
   notesScope?: NotesScope;
@@ -106,6 +111,8 @@ function toPaneRecord(instance: PaneInstance): PaneRecordPayload {
     command: instance.command,
     docPath: instance.docPath,
     spawnProfileRef: instance.spawnProfileRef,
+    provider: instance.provider,
+    providerSessionId: instance.providerSessionId,
     nonoProfile: instance.nonoProfile,
     nonoAllowDirs: instance.nonoAllowDirs,
     notesScope: instance.notesScope,
@@ -155,6 +162,8 @@ export function createPane(opts: CreatePaneOpts): string {
     command: opts.command,
     docPath: opts.docPath,
     spawnProfileRef: opts.spawnProfileRef,
+    provider: opts.provider,
+    providerSessionId: opts.providerSessionId,
     nonoProfile: opts.nonoProfile,
     nonoAllowDirs: opts.nonoAllowDirs,
     commandStatus: "idle",

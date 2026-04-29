@@ -2,6 +2,7 @@ import { get } from "svelte/store";
 import { removeSession } from "$lib/stores/sessions";
 import { addArchivedSessionFromEvent } from "$lib/stores/archivedSessions";
 import { closeSessionPanes } from "$lib/panes/actions";
+import { flushPaneState } from "$lib/panes/persistence";
 import {
   killSession,
   removeWorktree,
@@ -57,6 +58,11 @@ export async function closeSession(session: Session, opts?: CloseOpts): Promise<
     );
     if (!confirmed) return false;
   }
+
+  // Persist the live layout before disposing panes. Once closeSessionPanes()
+  // runs, the layout and pane records are gone, so a later quit/debounce
+  // flush has nothing left to serialize for restore.
+  await flushPaneState();
 
   // Dispose panes / terminals regardless of action.
   closeSessionPanes(session.id);

@@ -1,11 +1,18 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
+
+vi.mock("$lib/tauri", () => ({
+  upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
+  removePaneRecord: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   routeStatusUpdate,
   applyStatusRouting,
   type PaneSessionCheck,
 } from "../statusRouting";
 import { agentStates, resetAgentStates } from "../agentState";
+import { createPane, paneInstances, resetInstances } from "../instances";
 import type { StatusUpdate } from "$lib/tauri";
 
 function ev(partial: Partial<StatusUpdate> = {}): StatusUpdate {
@@ -35,6 +42,7 @@ const trustAll: PaneSessionCheck = () => true;
 describe("routeStatusUpdate", () => {
   beforeEach(() => {
     resetAgentStates();
+    resetInstances();
   });
 
   it("routes to the pane tier when rouxPaneId is present", () => {
@@ -183,6 +191,18 @@ describe("applyStatusRouting", () => {
     const entry = get(agentStates).get("pane-1");
     expect(entry?.provider).toBe("claude");
     expect(entry?.status).toBe("generating");
+  });
+
+  it("writes provider session metadata into pane instances", () => {
+    createPane({ id: "pane-1", type: "shell", ptyId: "pty-1" });
+
+    applyStatusRouting(
+      routeStatusUpdate(ev({ providerSessionId: "claude-session-123" }), trustAll),
+    );
+
+    const pane = get(paneInstances).get("pane-1");
+    expect(pane?.provider).toBe("claude");
+    expect(pane?.providerSessionId).toBe("claude-session-123");
   });
 
   it("leaves agentStates untouched for legacy events", () => {
