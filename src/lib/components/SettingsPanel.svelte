@@ -877,7 +877,7 @@
                 <div>
                   <div class="text-[13px]">Auto-create PR watch for sessions</div>
                   <div class="text-[11px] text-text-muted mt-0.5">
-                    When the lookup finds a PR, create a session-scoped GithubPr watch
+                    When the lookup finds a PR, create a session-scoped GitHub PR watch
                     automatically. Requires the lookup above.
                   </div>
                 </div>

@@ -448,7 +448,7 @@
 
     // Resolve the active session's branch to an open PR (when gh is
     // available) so the status bar can render a PR chip and the optional
-    // auto-watch flow can create a session-scoped GithubPr watch.
+    // auto-watch flow can create a session-scoped PR watch.
     installSessionPrEffect();
 
     // Kick off a silent background update check (5s debounce, respects user toggle)

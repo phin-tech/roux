@@ -230,6 +230,7 @@ export const commands = {
 	notesSearch: (query: NotesSearchQuery) => typedError<string[], string>(__TAURI_INVOKE("notes_search", { query })),
 	notesVaultRoot: () => typedError<string, string>(__TAURI_INVOKE("notes_vault_root")),
 	cmdCreateWatch: (config: CreateWatchConfig) => typedError<Watch, string>(__TAURI_INVOKE("cmd_create_watch", { config })),
+	cmdFindOrCreateWatch: (config: CreateWatchConfig) => typedError<Watch, string>(__TAURI_INVOKE("cmd_find_or_create_watch", { config })),
 	cmdRemoveWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_watch", { id })),
 	cmdListWatches: () => typedError<Watch[], string>(__TAURI_INVOKE("cmd_list_watches")),
 	cmdPauseWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_pause_watch", { id })),
