@@ -331,6 +331,15 @@ export type CreateWatchConfig = {
 
 export type CursorStyle = "block" | "underline" | "bar";
 
+/**
+ * xterm.js renderer selection. `Auto` (default) tries WebGL and silently
+ * falls back to the built-in DOM renderer if construction fails or the
+ * WebGL context is lost. `On` is identical to `Auto` today — kept as a
+ * distinct option because users have a clear mental model from VSCode's
+ * `terminal.integrated.gpuAcceleration`. `Off` skips WebGL entirely.
+ */
+export type GpuAcceleration = "auto" | "on" | "off";
+
 export type DocFile = {
 	path: string,
 	name: string,
@@ -528,6 +537,11 @@ export type LibrarySource = {
 	path?: string | null,
 	url?: string | null,
 	branch?: string | null,
+	/**
+	 *  Per-source override for skill sync mode. `null`/absent means
+	 *  "inherit the global default" (`RouxSettings::library_skill_sync_default`).
+	 */
+	skillSync?: SkillSyncMode | null,
 };
 
 export type LibrarySourceKind = "localRepo" | "gitRepo";
@@ -911,7 +925,32 @@ export type RouxSettings = {
 	 *  `Detach`: the process keeps running and can be re-attached.
 	 */
 	onPaneClose?: OnPaneCloseMode,
+	/**
+	 *  Set to `true` once the global Library skills have been rewritten to
+	 *  the SKILL.md-compatible format (adds a `name:` field, strips legacy
+	 *  `variables:` blocks). Guards against re-running on every launch.
+	 */
+	librarySkillFormatV2Migrated?: boolean,
+	/**
+	 *  Default skill-sync mode applied to Library sources that don't
+	 *  override it (`LibrarySource::skill_sync`), to the global vault,
+	 *  and to the active session repo. Defaults to `Off` so existing
+	 *  users see no behavior change after upgrade.
+	 */
+	librarySkillSyncDefault?: SkillSyncMode,
+	/**
+	 *  xterm.js renderer hint. `Auto` (default) tries WebGL with DOM fallback.
+	 *  Setting changes apply to terminals created afterward; existing panes
+	 *  keep their renderer until reopened.
+	 */
+	gpuAcceleration?: GpuAcceleration,
 };
+
+/**
+ *  Whether and how a Library source's skills are written into a
+ *  Claude-readable `.claude/skills/<name>/SKILL.md` directory.
+ */
+export type SkillSyncMode = "off" | "copy" | "symlink";
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
 

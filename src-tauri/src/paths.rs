@@ -35,6 +35,14 @@ pub fn default_notes_vault_root() -> PathBuf {
     home.join("Documents").join("Roux")
 }
 
+/// User-level Claude skills directory: `~/.claude/skills`. Library skill
+/// sync writes here for Library sources whose layer is `Global` or
+/// `GitRepo` (project-bound layers route into `<repo>/.claude/skills`).
+pub fn user_claude_skills_dir() -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    home.join(".claude").join("skills")
+}
+
 /// Legacy config directory, if it differs from the current one.
 ///
 /// Returns `None` when `dirs::config_dir().join("roux")` is exactly the

@@ -13,6 +13,7 @@
   import { notificationsPush } from "$lib/tauri";
   import { commands } from "$lib/bindings";
   import type {
+    GpuAcceleration,
     IntegrationDetection,
     OnPaneCloseMode,
     UpdateChannel,
@@ -692,6 +693,21 @@
                 value={$settings.scrollback}
                 oninput={(e) => updateSetting("scrollback", parseInt(e.currentTarget.value) || 5000)}
               />
+            </div>
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">GPU acceleration</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Applies to terminals opened after this change.</div>
+              </div>
+              <select
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                value={$settings.gpuAcceleration ?? "auto"}
+                onchange={(e) => updateSetting("gpuAcceleration", e.currentTarget.value as GpuAcceleration)}
+              >
+                <option value="auto">Auto</option>
+                <option value="on">On (WebGL)</option>
+                <option value="off">Off (DOM)</option>
+              </select>
             </div>
           {:else if selected === "claude"}
             <div class="flex items-center justify-between py-2">

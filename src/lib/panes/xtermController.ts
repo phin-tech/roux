@@ -8,6 +8,7 @@ import { get } from "svelte/store";
 import { settings } from "$lib/stores/settings";
 import { userTerminalThemes } from "$lib/stores/userTerminalThemes";
 import { resolveTerminalTheme, type TerminalTheme } from "$lib/themes";
+import type { GpuAcceleration } from "$lib/bindings";
 
 import { installXtermWatchDecorations } from "./xtermWatchDecorations";
 import { readPromptSnapshot, type PromptSnapshot } from "./promptSnapshot";
@@ -20,6 +21,8 @@ interface CreateTerminalControllerOptions {
 class XtermTerminalController implements TerminalController {
   private readonly terminal: Terminal;
   private readonly fitAddon: FitAddon;
+  private webglAddon: WebglAddon | null = null;
+  private webglContextLossSub: { dispose(): void } | null = null;
 
   constructor(options?: CreateTerminalControllerOptions) {
     const s = get(settings);
@@ -37,11 +40,7 @@ class XtermTerminalController implements TerminalController {
 
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
-    try {
-      this.terminal.loadAddon(new WebglAddon());
-    } catch {
-      // WebGL not available — canvas fallback
-    }
+    this.setupRenderer(s.gpuAcceleration ?? "auto");
 
     if (options?.allowKeyboardEvent) {
       this.setCustomKeyHandler(options.allowKeyboardEvent);
@@ -52,6 +51,30 @@ class XtermTerminalController implements TerminalController {
     }));
 
     installXtermWatchDecorations(this.terminal);
+  }
+
+  private setupRenderer(mode: GpuAcceleration): void {
+    if (mode === "off") {
+      // DOM renderer (xterm's built-in default when no GPU addon is loaded).
+      return;
+    }
+    // "auto" and "on": try WebGL; on construction failure or context loss,
+    // dispose the addon so xterm reverts to its built-in DOM renderer.
+    try {
+      const webgl = new WebglAddon();
+      this.terminal.loadAddon(webgl);
+      this.webglAddon = webgl;
+      this.webglContextLossSub = webgl.onContextLoss(() => {
+        // Guard against the handler firing twice (xterm hands us an event
+        // disposable, not a one-shot) or after the controller is disposed.
+        // Null the ref before dispose() so a re-entrant call is a no-op.
+        if (this.webglAddon !== webgl) return;
+        this.webglAddon = null;
+        webgl.dispose();
+      });
+    } catch {
+      this.webglAddon = null;
+    }
   }
 
   attach(container: HTMLElement): void {
@@ -80,6 +103,10 @@ class XtermTerminalController implements TerminalController {
   }
 
   dispose(): void {
+    this.webglContextLossSub?.dispose();
+    this.webglContextLossSub = null;
+    this.webglAddon?.dispose();
+    this.webglAddon = null;
     this.terminal.dispose();
   }
 

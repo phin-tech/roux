@@ -91,6 +91,116 @@ export async function removeArchivedSessionForever(id: string): Promise<void> {
   });
 }
 
+export interface BulkActionFailure {
+  id: string;
+  error: string;
+}
+
+export interface BulkActionResult {
+  succeeded: string[];
+  failures: BulkActionFailure[];
+}
+
+// String(err) renders non-Error rejections as "[object Object]" — preserve
+// Error.message and JSON-encode plain objects so the bulk-error banner stays
+// useful regardless of where the rejection came from.
+function formatErr(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err) ?? String(err);
+  } catch {
+    return String(err);
+  }
+}
+
+/**
+ * Run a per-item async operation across many items, collecting failures
+ * instead of bailing on the first error. Sequential (not Promise.all) so a
+ * later failure doesn't abandon a partially-completed earlier op, and so
+ * the user-visible store stays consistent with each step.
+ */
+async function runBulk<T>(
+  items: readonly T[],
+  idOf: (item: T) => string,
+  op: (item: T) => Promise<void>,
+): Promise<BulkActionResult> {
+  const succeeded: string[] = [];
+  const failures: BulkActionFailure[] = [];
+  for (const item of items) {
+    const id = idOf(item);
+    try {
+      await op(item);
+      succeeded.push(id);
+    } catch (err) {
+      failures.push({ id, error: formatErr(err) });
+    }
+  }
+  return { succeeded, failures };
+}
+
+export async function bulkRestoreArchivedSessions(
+  ids: readonly string[],
+): Promise<BulkActionResult> {
+  const result = await runBulk(ids, (id) => id, (id) => restoreSessionCmd(id));
+  if (result.succeeded.length > 0) {
+    const succeededSet = new Set(result.succeeded);
+    archivedSessionsState.update((s) => {
+      const worktreeExists = new Map(s.worktreeExists);
+      for (const id of succeededSet) worktreeExists.delete(id);
+      return {
+        ...s,
+        sessions: s.sessions.filter((sess) => !succeededSet.has(sess.id)),
+        worktreeExists,
+      };
+    });
+    const sessions = await listSessions();
+    sessionState.update((state) => ({ ...state, sessions }));
+  }
+  return result;
+}
+
+export async function bulkRemoveArchivedWorktrees(
+  entries: readonly { id: string; repoRoot: string; worktreePath: string }[],
+): Promise<BulkActionResult> {
+  const result = await runBulk(
+    entries,
+    (e) => e.id,
+    (e) => removeWorktree(e.repoRoot, e.worktreePath),
+  );
+  if (result.succeeded.length > 0) {
+    archivedSessionsState.update((s) => {
+      const worktreeExists = new Map(s.worktreeExists);
+      for (const id of result.succeeded) worktreeExists.set(id, false);
+      return { ...s, worktreeExists };
+    });
+  }
+  return result;
+}
+
+export async function bulkDeleteArchivedSessionsForever(
+  ids: readonly string[],
+): Promise<BulkActionResult> {
+  const result = await runBulk(
+    ids,
+    (id) => id,
+    (id) => deleteSessionPermanently(id),
+  );
+  if (result.succeeded.length > 0) {
+    const succeededSet = new Set(result.succeeded);
+    archivedSessionsState.update((s) => {
+      const worktreeExists = new Map(s.worktreeExists);
+      for (const id of succeededSet) worktreeExists.delete(id);
+      return {
+        ...s,
+        sessions: s.sessions.filter((sess) => !succeededSet.has(sess.id)),
+        worktreeExists,
+      };
+    });
+  }
+  return result;
+}
+
 /**
  * Called when a previously-active session just moved to the archived list.
  * If the pane has already hydrated, we push the newly archived session in

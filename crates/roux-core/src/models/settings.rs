@@ -119,6 +119,25 @@ pub enum LibrarySourceKind {
     GitRepo,
 }
 
+/// Whether and how a Library source's skills are written into a
+/// Claude-readable `.claude/skills/<name>/SKILL.md` directory.
+///
+/// - `Off`: Roux does not write skill files outside the Library.
+/// - `Copy`: Roux writes a copy of each skill on sync; subsequent edits
+///   to the synced file are detected via a content-hash manifest.
+/// - `Symlink`: Roux symlinks each `.claude/skills/<name>/` entry back
+///   to the source skill file. Edits in either place are the same edit.
+///   On Windows, when symlinks are denied, Roux auto-degrades to `Copy`
+///   for that sync run and emits a one-time toast event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillSyncMode {
+    #[default]
+    Off,
+    Copy,
+    Symlink,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LibrarySource {
@@ -136,6 +155,10 @@ pub struct LibrarySource {
     pub url: Option<String>,
     #[serde(default)]
     pub branch: Option<String>,
+    /// Per-source override for skill sync mode. `None` means "inherit
+    /// the global default" (`RouxSettings::library_skill_sync_default`).
+    #[serde(default)]
+    pub skill_sync: Option<SkillSyncMode>,
 }
 
 /// What happens to a PTY when its pane is closed.
@@ -149,6 +172,20 @@ pub enum OnPaneCloseMode {
     Detach,
     #[default]
     Kill,
+}
+
+/// xterm.js renderer selection. `Auto` (default) tries WebGL and silently
+/// falls back to the built-in DOM renderer if construction fails or the
+/// WebGL context is lost. `On` is identical to `Auto` today — kept as a
+/// distinct option because users have a clear mental model from VSCode's
+/// `terminal.integrated.gpuAcceleration`. `Off` skips WebGL entirely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum GpuAcceleration {
+    #[default]
+    Auto,
+    On,
+    Off,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -308,6 +345,22 @@ pub struct RouxSettings {
     /// `Detach`: the process keeps running and can be re-attached.
     #[serde(default)]
     pub on_pane_close: OnPaneCloseMode,
+    /// Set to `true` once the global Library skills have been rewritten to
+    /// the SKILL.md-compatible format (adds a `name:` field, strips legacy
+    /// `variables:` blocks). Guards against re-running on every launch.
+    #[serde(default)]
+    pub library_skill_format_v2_migrated: bool,
+    /// Default skill-sync mode applied to Library sources that don't
+    /// override it (`LibrarySource::skill_sync`), to the global vault,
+    /// and to the active session repo. Defaults to `Off` so existing
+    /// users see no behavior change after upgrade.
+    #[serde(default)]
+    pub library_skill_sync_default: SkillSyncMode,
+    /// xterm.js renderer hint. `Auto` (default) tries WebGL with DOM fallback.
+    /// Setting changes apply to terminals created afterward; existing panes
+    /// keep their renderer until reopened.
+    #[serde(default)]
+    pub gpu_acceleration: GpuAcceleration,
 }
 
 impl Default for RouxSettings {
@@ -362,6 +415,9 @@ impl Default for RouxSettings {
             show_pane_hints_on_option: false,
             show_session_hints_on_command: true,
             on_pane_close: OnPaneCloseMode::Kill,
+            library_skill_format_v2_migrated: false,
+            library_skill_sync_default: SkillSyncMode::Off,
+            gpu_acceleration: GpuAcceleration::Auto,
         }
     }
 }
@@ -392,6 +448,7 @@ impl RouxSettings {
                     path: Some(path.clone()),
                     url: None,
                     branch: None,
+                    skill_sync: None,
                 })
                 .collect();
         }
@@ -561,7 +618,10 @@ mod terminal_theme_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{stable_source_id, RouxSettings, UpdateChannel};
+    use super::{
+        stable_source_id, LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode,
+        UpdateChannel,
+    };
 
     #[test]
     fn hint_overlay_defaults_preserve_command_drop_option() {
@@ -696,5 +756,43 @@ mod tests {
 
         let settings: RouxSettings = serde_json::from_str(json).unwrap();
         assert!(settings.repo_roots.is_empty());
+    }
+
+    #[test]
+    fn settings_default_skill_sync_is_off() {
+        let settings = RouxSettings::default();
+        assert_eq!(settings.library_skill_sync_default, SkillSyncMode::Off);
+    }
+
+    #[test]
+    fn library_source_skill_sync_defaults_to_none_when_missing() {
+        let json = r#"{
+            "id": "src-1",
+            "kind": "localRepo",
+            "name": "Repo",
+            "enabled": true,
+            "order": 0,
+            "path": "/repo"
+        }"#;
+        let source: LibrarySource = serde_json::from_str(json).unwrap();
+        assert_eq!(source.skill_sync, None);
+    }
+
+    #[test]
+    fn library_source_skill_sync_round_trips() {
+        let source = LibrarySource {
+            id: "src-1".into(),
+            kind: LibrarySourceKind::LocalRepo,
+            name: "Repo".into(),
+            enabled: true,
+            order: 0,
+            path: Some("/repo".into()),
+            url: None,
+            branch: None,
+            skill_sync: Some(SkillSyncMode::Symlink),
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        let parsed: LibrarySource = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.skill_sync, Some(SkillSyncMode::Symlink));
     }
 }

@@ -254,6 +254,8 @@ export type LibrarySourceKind = "localRepo" | "gitRepo";
 export type LibraryRemoteState = "upToDate" | "ahead" | "behind" | "diverged" | "unknown";
 export type LibraryVariableType = "string" | "int" | "float" | "select";
 
+export type SkillSyncMode = "off" | "copy" | "symlink";
+
 export interface LibrarySource {
   id: string;
   kind: LibrarySourceKind;
@@ -263,6 +265,8 @@ export interface LibrarySource {
   path?: string | null;
   url?: string | null;
   branch?: string | null;
+  /** Per-source override for skill sync. `null` = inherit the global default. */
+  skillSync?: SkillSyncMode | null;
 }
 
 export interface LibraryVariable {
@@ -398,6 +402,71 @@ export async function getLibrarySourceStatus(sourceId: string): Promise<LibraryG
 
 export async function getLibrarySourceStatuses(): Promise<LibraryGitStatus[]> {
   return invoke("get_library_source_statuses");
+}
+
+// Library skill sync
+
+export type SkillSyncOutcomeKind =
+  | "synced"
+  | "syncedAsCopyFallback"
+  | "skipped"
+  | "failed";
+
+export type SkillSyncSkipReason = "alreadyUpToDate" | "untrackedFile" | "userEdited";
+
+export interface SkillSyncResult {
+  skillId: string;
+  sourceId?: string | null;
+  destination: string;
+  requestedMode: SkillSyncMode;
+  outcome: SkillSyncOutcomeKind;
+  skipReason?: SkillSyncSkipReason | null;
+  error?: string | null;
+}
+
+export interface SkillSyncEntry {
+  skillId: string;
+  sourceId?: string | null;
+  destination: string;
+  mode: SkillSyncMode;
+  syncedAt: string;
+}
+
+export interface SkillSyncRunReport {
+  results: SkillSyncResult[];
+  /** Manifest entries no longer in the desired set (skill removed, source disabled). */
+  stale: SkillSyncEntry[];
+  /** How many syncs auto-degraded from symlink to copy (Windows OS denial). */
+  symlinkFallbackCount: number;
+}
+
+export type UnsyncScope =
+  | { type: "all" }
+  | { type: "stale"; value: string[] }
+  | { type: "source"; value: string };
+
+export type UnsyncOutcomeKind = "deleted" | "keptDueToDrift" | "alreadyGone" | "failed";
+
+export interface UnsyncResult {
+  skillId: string;
+  sourceId?: string | null;
+  destination: string;
+  outcome: UnsyncOutcomeKind;
+  error?: string | null;
+}
+
+export interface UnsyncReport {
+  results: UnsyncResult[];
+}
+
+export async function librarySkillSyncRun(
+  sessionId?: string | null,
+): Promise<SkillSyncRunReport> {
+  return invoke("library_skill_sync_run", { sessionId: sessionId ?? null });
+}
+
+export async function librarySkillSyncUnsync(scope: UnsyncScope): Promise<UnsyncReport> {
+  return invoke("library_skill_sync_unsync", { scope });
 }
 
 // Claude sessions
