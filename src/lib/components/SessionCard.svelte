@@ -94,7 +94,9 @@
       : null,
   );
   let branchParts = $derived.by(() => {
-    if (!session.isWorktree || !primaryLabel.includes("/")) {
+    const shouldSplitBranchPrimary =
+      session.isWorktree && !hasCustomName && primaryLabel.includes("/");
+    if (!shouldSplitBranchPrimary) {
       return { prefix: "", tail: primaryLabel };
     }
     const slash = primaryLabel.lastIndexOf("/");
@@ -183,7 +185,6 @@
       oncontextmenu(e);
     }
   }}
-  aria-label={detailLabel}
 >
   <!-- Left gutter: persistent status dot -->
   <div class="flex h-10 w-5 shrink-0 items-start justify-center pt-[13px]">
@@ -212,13 +213,14 @@
         {:else}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <span
+            data-testid="session-primary-label"
             class="flex min-w-0 items-baseline text-[13px] font-semibold leading-5 {active ? 'text-text-primary' : 'text-text-secondary'}"
             title={detailLabel}
             ondblclick={startEditing}
           >
             {#if session.isWorktree && branchParts.prefix}
-              <span class="min-w-0 truncate text-text-muted">{branchParts.prefix}</span>
-              <span class="shrink-0 truncate">{branchParts.tail}</span>
+              <span data-testid="session-primary-prefix" class="min-w-0 truncate text-text-muted">{branchParts.prefix}</span>
+              <span data-testid="session-primary-tail" class="min-w-0 truncate">{branchParts.tail}</span>
             {:else}
               <span class="min-w-0 truncate">{primaryLabel}</span>
             {/if}
@@ -259,7 +261,7 @@
         {#if !editing}
           <button
             type="button"
-            class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center border border-transparent bg-transparent p-0 text-text-muted opacity-0 transition-colors duration-150 hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 group-hover:opacity-100"
+            class="pointer-events-none flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center border border-transparent bg-transparent p-0 text-text-muted opacity-0 transition-colors duration-150 hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 group-hover:pointer-events-auto group-hover:opacity-100"
             onclick={startEditing}
             aria-label="Rename session"
             title="Rename session"
@@ -268,7 +270,7 @@
           </button>
         {/if}
         <CloseButton
-          class="flex h-5 w-5 items-center justify-center p-0 opacity-0 duration-150 group-hover:opacity-100 hover:border-transparent hover:text-red focus-visible:opacity-100"
+          class="pointer-events-none flex h-5 w-5 items-center justify-center p-0 opacity-0 duration-150 hover:border-transparent hover:text-red focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
           onclick={(e) => { e.stopPropagation(); onclose(); }}
           label="Close session"
           title="Close session"

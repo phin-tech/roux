@@ -195,6 +195,31 @@ describe("SessionCard", () => {
     expect(screen.getByTestId("session-wt-ahead-behind").textContent).toContain("↓5");
   });
 
+  it("does not branch-split custom names that contain slashes", async () => {
+    mockListSessionPtys.mockResolvedValue([
+      makePty({ id: "pty-1", status: { type: "RunningAttached", pane_id: "pane-1" } }),
+    ]);
+
+    render(SessionCard, {
+      session: makeSession({
+        worktreePath: "/repo/.worktrees/restore-closed-sessions",
+        branch: "feature/restore-closed-sessions",
+        isWorktree: true,
+        nameOverride: "notes/design",
+      }),
+      active: false,
+      onselect: () => {},
+      onclose: () => {},
+      onrename: () => {},
+      onreconnect: () => {},
+    });
+
+    await waitFor(() => expect(mockListSessionPtys).toHaveBeenCalledWith("session-1"));
+    expect(screen.getByTestId("session-primary-label").textContent).toBe("notes/design");
+    expect(screen.queryByTestId("session-primary-prefix")).toBeNull();
+    expect(screen.getByText("feature/restore-closed-sessions")).toBeDefined();
+  });
+
   it("keeps rename and close controls accessible", async () => {
     mockListSessionPtys.mockResolvedValue([
       makePty({ id: "pty-1", status: { type: "RunningAttached", pane_id: "pane-1" } }),
