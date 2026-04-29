@@ -558,6 +558,8 @@ export interface PrInfo {
   headRef: string;
   headOwner: string;
   isCrossRepository: boolean;
+  url: string;
+  repoSlug: string;
 }
 
 export async function checkGhInstalled(): Promise<boolean> {
@@ -566,6 +568,13 @@ export async function checkGhInstalled(): Promise<boolean> {
 
 export async function lookupPr(repoPath: string | null, url: string): Promise<PrInfo> {
   return invoke("lookup_pr", { repoPath, url });
+}
+
+export async function lookupPrForBranch(
+  repoPath: string,
+  branch: string,
+): Promise<PrInfo | null> {
+  return invoke("lookup_pr_for_branch", { repoPath, branch });
 }
 
 export async function cloneRepo(
@@ -836,6 +845,10 @@ export function onRouxCommand(
 // Watch commands
 export async function createWatch(config: CreateWatchConfig): Promise<Watch> {
   return invoke("cmd_create_watch", { config });
+}
+
+export async function findOrCreateWatch(config: CreateWatchConfig): Promise<Watch> {
+  return invoke("cmd_find_or_create_watch", { config });
 }
 
 export async function removeWatch(id: string): Promise<void> {
