@@ -52,6 +52,7 @@
   } from "$lib/stores/customProfileModal";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
+  import { installSessionPrEffect } from "$lib/stores/sessionPrLookup";
   import { clearPermissionInfo } from "$lib/panes/agentState";
   import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
@@ -373,6 +374,7 @@
   });
 
   let unlistenDragDrop: (() => void) | null = null;
+  let unlistenSessionPrEffect: (() => void) | null = null;
 
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);
@@ -380,6 +382,8 @@
     window.removeEventListener("blur", handleWindowBlur);
     unlistenDragDrop?.();
     unlistenDragDrop = null;
+    unlistenSessionPrEffect?.();
+    unlistenSessionPrEffect = null;
     teardownAppMenu();
   });
 
@@ -444,6 +448,11 @@
     // transitions fire a completion notification. Window-focus suppression
     // and OS fan-out happen on the Rust side of notificationsPush.
     initAgentNotifications();
+
+    // Resolve the active session's branch to an open PR (when gh is
+    // available) so the status bar can render a PR chip and the optional
+    // auto-watch flow can create a session-scoped PR watch.
+    unlistenSessionPrEffect = installSessionPrEffect();
 
     // Kick off a silent background update check (5s debounce, respects user toggle)
     runStartupCheck();

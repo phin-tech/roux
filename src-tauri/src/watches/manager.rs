@@ -64,6 +64,29 @@ impl WatchManager {
         watch
     }
 
+    /// Atomic find-or-create for `GithubPr` watches keyed on
+    /// `(scope, repo, pr_number)`. Concurrent callers serialize through
+    /// the store actor, so two racing `installSessionPrEffect` triggers
+    /// resolve to the same watch instead of creating duplicates. Returns
+    /// the resolved watch; only newly-created watches kick off a poll
+    /// loop (existing ones are already running).
+    pub async fn find_or_create_github_pr_watch(
+        &self,
+        mut watch: Watch,
+        app: tauri::AppHandle,
+    ) -> Watch {
+        watch.runtime_state = RuntimeState::Active;
+        match self.store.find_or_add_github_pr(watch.clone()).await {
+            Ok((resolved, was_new)) => {
+                if was_new {
+                    self.spawn_watch(resolved.id.clone(), None, app);
+                }
+                resolved
+            }
+            Err(_) => watch,
+        }
+    }
+
     pub async fn remove_watch(&self, id: &str) {
         self.cancel_watch(id);
         let _ = self.store.remove(id).await;

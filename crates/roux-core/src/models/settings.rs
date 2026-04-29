@@ -361,6 +361,22 @@ pub struct RouxSettings {
     /// keep their renderer until reopened.
     #[serde(default)]
     pub gpu_acceleration: GpuAcceleration,
+    /// When true, sessions whose worktree branch resolves to an open GitHub
+    /// PR get a session-scoped `GithubPr` watch created automatically. The
+    /// status-bar PR link is shown regardless of this setting; only the
+    /// background watch creation is gated. Defaults to `false` so users
+    /// don't get unexpected new watches on upgrade.
+    #[serde(default)]
+    pub auto_watch_session_pr: bool,
+    /// Master switch for the gh-backed session-PR lookup. When true (the
+    /// default), session activation triggers a `gh pr list --head <branch>`
+    /// call to populate the status-bar PR chip and feed the auto-watch
+    /// flow. When false, no gh call is made, the chip falls back to
+    /// worktrunk's `ciUrl` only, and `auto_watch_session_pr` becomes a
+    /// no-op. Useful for users who don't use GitHub PRs or want to avoid
+    /// the gh subprocess on every session switch.
+    #[serde(default = "default_true")]
+    pub auto_lookup_session_pr: bool,
 }
 
 impl Default for RouxSettings {
@@ -418,6 +434,8 @@ impl Default for RouxSettings {
             library_skill_format_v2_migrated: false,
             library_skill_sync_default: SkillSyncMode::Off,
             gpu_acceleration: GpuAcceleration::Auto,
+            auto_watch_session_pr: false,
+            auto_lookup_session_pr: true,
         }
     }
 }

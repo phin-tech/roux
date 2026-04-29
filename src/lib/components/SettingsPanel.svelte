@@ -855,6 +855,44 @@
                   >...</button>
                 </div>
               </div>
+              <div class="mt-3 flex items-center justify-between py-1">
+                <div>
+                  <div class="text-[13px]">Look up PR for session branch</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">
+                    Run <code class="font-mono">gh pr list --head &lt;branch&gt;</code> on session activation
+                    so the status bar can show a clickable PR link.
+                  </div>
+                </div>
+                <button
+                  aria-label="Toggle session PR lookup"
+                  class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                    {$settings.autoLookupSessionPr !== false ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                  onclick={() => updateSetting("autoLookupSessionPr", $settings.autoLookupSessionPr === false)}
+                >
+                  <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                    {$settings.autoLookupSessionPr !== false ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+                </button>
+              </div>
+              <div class="flex items-center justify-between py-1">
+                <div>
+                  <div class="text-[13px]">Auto-create PR watch for sessions</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">
+                    When the lookup finds a PR, create a session-scoped GitHub PR watch
+                    automatically. Requires the lookup above.
+                  </div>
+                </div>
+                <button
+                  aria-label="Toggle auto PR watch"
+                  disabled={$settings.autoLookupSessionPr === false}
+                  class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                    {$settings.autoWatchSessionPr ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}
+                    {$settings.autoLookupSessionPr === false ? 'opacity-40 cursor-not-allowed' : ''}"
+                  onclick={() => updateSetting("autoWatchSessionPr", !$settings.autoWatchSessionPr)}
+                >
+                  <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                    {$settings.autoWatchSessionPr ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+                </button>
+              </div>
             </div>
 
             <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
