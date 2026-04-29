@@ -158,4 +158,136 @@ describe("ArchivedSessionsList", () => {
       session.worktreePath,
     );
   });
+
+  it("filters archived rows by name, branch, or worktree path", async () => {
+    // sessionDisplayName prefers branch when isGitRepo, so the visible name
+    // for these rows is the branch string.
+    mockListArchivedSessions.mockResolvedValue([
+      makeArchived("login"),
+      makeArchived("checkout-fix"),
+      makeArchived("docs-pass", {
+        branch: "docs-pass",
+        worktreePath: "/repo/.worktrees/docs-special",
+      }),
+    ]);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+
+    render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("login");
+    expect(screen.getAllByTestId("archived-session-row")).toHaveLength(3);
+
+    const filterInput = screen.getByTestId("archived-filter-input") as HTMLInputElement;
+    await fireEvent.input(filterInput, { target: { value: "checkout" } });
+    expect(screen.getAllByTestId("archived-session-row")).toHaveLength(1);
+    expect(screen.getByText("checkout-fix")).not.toBeNull();
+
+    await fireEvent.input(filterInput, { target: { value: "docs-special" } });
+    expect(screen.getAllByTestId("archived-session-row")).toHaveLength(1);
+    expect(screen.getByText("docs-pass")).not.toBeNull();
+
+    await fireEvent.input(filterInput, { target: { value: "no-match-anywhere" } });
+    expect(screen.queryAllByTestId("archived-session-row")).toHaveLength(0);
+    expect(
+      screen.getByText(/No archived sessions match "no-match-anywhere"/),
+    ).not.toBeNull();
+  });
+
+  it("bulk-deletes selected rows via the selection toolbar", async () => {
+    const sessions = [
+      makeArchived("feature-a"),
+      makeArchived("feature-b"),
+      makeArchived("feature-c"),
+    ];
+    mockListArchivedSessions.mockResolvedValue(sessions);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+    vi.mocked(deleteSessionPermanently).mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("feature-a");
+    const checkboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
+    await fireEvent.click(checkboxes[0]);
+    await fireEvent.click(checkboxes[2]);
+
+    expect(screen.getByText("2 selected")).not.toBeNull();
+    await fireEvent.click(screen.getByText("Delete"));
+
+    await waitFor(() => {
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-a");
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-c");
+    });
+    expect(vi.mocked(deleteSessionPermanently)).not.toHaveBeenCalledWith("feature-b");
+  });
+
+  it("select-all only checks the currently filtered rows", async () => {
+    mockListArchivedSessions.mockResolvedValue([
+      makeArchived("feature-a"),
+      makeArchived("bugfix-b"),
+      makeArchived("feature-c"),
+    ]);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+
+    render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("feature-a");
+    const filterInput = screen.getByTestId("archived-filter-input") as HTMLInputElement;
+    await fireEvent.input(filterInput, { target: { value: "feature" } });
+    expect(screen.getAllByTestId("archived-session-row")).toHaveLength(2);
+
+    await fireEvent.click(screen.getByTestId("archived-select-all"));
+    expect(screen.getByText("2 selected")).not.toBeNull();
+
+    await fireEvent.input(filterInput, { target: { value: "" } });
+    // Selection is preserved across filter changes for rows still present.
+    expect(screen.getByText("2 selected")).not.toBeNull();
+  });
+
+  it("offers Clear all and Remove all worktrees from the header overflow", async () => {
+    mockListArchivedSessions.mockResolvedValue([
+      makeArchived("feature-a"),
+      makeArchived("feature-gone"),
+    ]);
+    mockSessionWorktreeExists.mockImplementation(async (id) => id !== "feature-gone");
+    vi.mocked(deleteSessionPermanently).mockResolvedValue(undefined);
+    mockRemoveWorktree.mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("feature-a");
+    await fireEvent.click(screen.getByTestId("archived-header-menu"));
+    expect(screen.getByTestId("archived-header-menu-content")).not.toBeNull();
+
+    await fireEvent.click(screen.getByText("Remove all worktrees"));
+    await waitFor(() => {
+      expect(mockRemoveWorktree).toHaveBeenCalledTimes(1);
+    });
+    expect(mockRemoveWorktree).toHaveBeenCalledWith(
+      "/repo",
+      "/repo/.worktrees/feature-a",
+    );
+
+    await fireEvent.click(screen.getByTestId("archived-header-menu"));
+    await fireEvent.click(screen.getByText("Clear all history"));
+    await waitFor(() => {
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-a");
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-gone");
+    });
+  });
+
+  it("disables bulk Restore when none of the selected rows have a worktree on disk", async () => {
+    mockListArchivedSessions.mockResolvedValue([makeArchived("feature-gone")]);
+    mockSessionWorktreeExists.mockResolvedValue(false);
+
+    render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("feature-gone");
+    const checkboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
+    await fireEvent.click(checkboxes[0]);
+
+    const restoreBtn = screen.getAllByText("Restore")[0].closest("button") as HTMLButtonElement;
+    expect(restoreBtn.disabled).toBe(true);
+  });
 });

@@ -17,6 +17,9 @@ import {
   removeArchivedSessionForever,
   addArchivedSessionFromEvent,
   cleanArchivedWorktree,
+  bulkRestoreArchivedSessions,
+  bulkRemoveArchivedWorktrees,
+  bulkDeleteArchivedSessionsForever,
 } from "../archivedSessions";
 import { sessionState } from "$lib/stores/sessions";
 import {
@@ -165,5 +168,99 @@ describe("archivedSessions store", () => {
 
     addArchivedSessionFromEvent(makeArchived("a"));
     expect(get(archivedSessionsState).sessions).toHaveLength(1);
+  });
+
+  it("bulkRestoreArchivedSessions removes succeeded ids and re-hydrates the active store", async () => {
+    archivedSessionsState.set({
+      sessions: [makeArchived("a"), makeArchived("b"), makeArchived("c")],
+      loaded: true,
+      worktreeExists: new Map([
+        ["a", true],
+        ["b", true],
+        ["c", true],
+      ]),
+    });
+    vi.mocked(restoreSession).mockImplementation(async (id) => {
+      if (id === "b") throw new Error("boom");
+    });
+    const restoredA: Session = { ...makeArchived("a"), archived: false, endedAt: null };
+    vi.mocked(listSessions).mockResolvedValueOnce([restoredA]);
+
+    const result = await bulkRestoreArchivedSessions(["a", "b", "c"]);
+
+    expect(result.succeeded).toEqual(["a", "c"]);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0].id).toBe("b");
+    const state = get(archivedSessionsState);
+    expect(state.sessions.map((s) => s.id)).toEqual(["b"]);
+    expect(state.worktreeExists.has("a")).toBe(false);
+    expect(state.worktreeExists.has("c")).toBe(false);
+    expect(get(sessionState).sessions.map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("bulkRestoreArchivedSessions skips active store rehydrate when nothing succeeded", async () => {
+    archivedSessionsState.set({
+      sessions: [makeArchived("a")],
+      loaded: true,
+      worktreeExists: new Map([["a", true]]),
+    });
+    vi.mocked(restoreSession).mockRejectedValue(new Error("nope"));
+
+    const result = await bulkRestoreArchivedSessions(["a"]);
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+    expect(listSessions).not.toHaveBeenCalled();
+    expect(get(archivedSessionsState).sessions).toHaveLength(1);
+  });
+
+  it("bulkRemoveArchivedWorktrees flips worktreeExists to false for succeeded ids only", async () => {
+    archivedSessionsState.set({
+      sessions: [
+        makeArchived("a", { isWorktree: true, worktreePath: "/wt/a" }),
+        makeArchived("b", { isWorktree: true, worktreePath: "/wt/b" }),
+      ],
+      loaded: true,
+      worktreeExists: new Map([
+        ["a", true],
+        ["b", true],
+      ]),
+    });
+    vi.mocked(removeWorktree).mockImplementation(async (_repo, path) => {
+      if (path === "/wt/b") throw new Error("locked");
+    });
+
+    const result = await bulkRemoveArchivedWorktrees([
+      { id: "a", repoRoot: "/repo", worktreePath: "/wt/a" },
+      { id: "b", repoRoot: "/repo", worktreePath: "/wt/b" },
+    ]);
+
+    expect(result.succeeded).toEqual(["a"]);
+    expect(result.failures.map((f) => f.id)).toEqual(["b"]);
+    const state = get(archivedSessionsState);
+    expect(state.worktreeExists.get("a")).toBe(false);
+    expect(state.worktreeExists.get("b")).toBe(true);
+  });
+
+  it("bulkDeleteArchivedSessionsForever removes succeeded ids and surfaces failures", async () => {
+    archivedSessionsState.set({
+      sessions: [makeArchived("a"), makeArchived("b")],
+      loaded: true,
+      worktreeExists: new Map([
+        ["a", true],
+        ["b", true],
+      ]),
+    });
+    vi.mocked(deleteSessionPermanently).mockImplementation(async (id) => {
+      if (id === "a") throw new Error("io");
+    });
+
+    const result = await bulkDeleteArchivedSessionsForever(["a", "b"]);
+
+    expect(result.succeeded).toEqual(["b"]);
+    expect(result.failures.map((f) => f.id)).toEqual(["a"]);
+    const state = get(archivedSessionsState);
+    expect(state.sessions.map((s) => s.id)).toEqual(["a"]);
+    expect(state.worktreeExists.has("b")).toBe(false);
   });
 });
