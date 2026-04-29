@@ -10,7 +10,7 @@ Settings are grouped into categories in a sidebar modal. Changes are persisted a
 
 - **General** — theme, tab position, status bar position.
 - **Sessions** — close/reconnect behavior, default project path, repo roots quick-pick sources, worktree base template, worktree cleanup mode, and the New Worktree default starting point.
-- **Terminal** — independent terminal theme selection, user-imported `.itermcolors` themes, font, scrollback, and cursor settings.
+- **Terminal** — independent terminal theme selection, user-imported `.itermcolors` themes, font, scrollback, cursor, and GPU acceleration settings.
 - **Claude** — binary path override, default model, additional flags.
 - **Integrations** — GitHub CLI (`gh`) path override for PR/session integrations.
 - **Notifications** — OS notification master switch and test notification trigger.
@@ -25,6 +25,16 @@ The **Terminal** section controls xterm's palette separately from the rest of th
 - **Terminal theme** (`terminalTheme`) — choose between auto-follow, built-in app-matched palettes, built-in editor-style palettes, or user themes.
 - **User themes** — drop iTerm2 `.itermcolors` files into `~/.config/roux/themes/`, then use **Reload** to rescan them or **Reveal** to open the folder in your file manager.
 - Missing user themes are preserved as setting values until you restore the file or pick a different theme, so Roux does not silently overwrite a temporarily unavailable palette.
+
+## GPU acceleration
+
+Terminal panes use a WebGL renderer by default for smooth rendering of large output buffers. The **Terminal** section exposes a **GPU acceleration** dropdown for the rare cases where the default isn't right.
+
+- **Auto** (default) — try WebGL; if construction fails or the WebGL context is lost (GPU process crash, suspended tab, too many WebGL contexts on the page), fall back silently to xterm's built-in DOM renderer. Recommended for almost everyone.
+- **On (WebGL)** — same fallback behavior as Auto today; reserved as a distinct option in case future Roux versions add a Canvas tier or stricter "WebGL only" semantics.
+- **Off (DOM)** — skip WebGL entirely and use the DOM renderer. Useful if you suspect a driver/GPU issue, are running over a remote desktop with poor GL passthrough, or just want lower power draw at the cost of slower scrollback rendering.
+
+The setting (`gpuAcceleration`) applies to terminal panes opened **after** you change it. Existing panes keep their current renderer until they're closed and reopened (or the session is restarted).
 
 ## Notes (experimental)
 

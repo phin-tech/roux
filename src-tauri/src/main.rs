@@ -278,6 +278,8 @@ fn main() {
             commands::library::sync_library_source,
             commands::library::get_library_source_status,
             commands::library::get_library_source_statuses,
+            commands::library_sync::library_skill_sync_run,
+            commands::library_sync::library_skill_sync_unsync,
             commands::misc::cmd_open_in_editor,
             commands::worktrees::cmd_list_branches,
             commands::setup::check_setup_needed,
@@ -410,6 +412,17 @@ fn main() {
                 });
             }
 
+            // Library skills: one-shot rewrite to SKILL.md-compatible
+            // format (adds `name:`, strips legacy `variables:` blocks).
+            // Guarded by `library_skill_format_v2_migrated`. Failures
+            // are logged per-file, never fatal.
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    run_library_skill_migration(app_handle).await;
+                });
+            }
+
             // Clean up orphaned watches and start active ones
             {
                 let state = app.state::<AppState>();
@@ -517,6 +530,48 @@ async fn run_notes_migration(app: tauri::AppHandle) {
 fn mark_migrated(state: &tauri::State<'_, crate::state::AppState>) {
     if let Ok(mut s) = state.settings.lock() {
         s.notes_migrated_v1 = true;
+        let snapshot = s.clone();
+        drop(s);
+        let _ = settings::save_settings(&snapshot);
+    }
+}
+
+/// Run the one-shot global-Library skill format migration if it hasn't
+/// run yet. Guarded by `settings.library_skill_format_v2_migrated`.
+/// Best-effort: per-file failures are logged but the flag is still set
+/// so the migration never loops. Repo and git-source Library skills are
+/// migrated implicitly the next time the user saves them.
+async fn run_library_skill_migration(app: tauri::AppHandle) {
+    let state = app.state::<crate::state::AppState>();
+    let (already_done, vault_root) = match state.settings.lock() {
+        Ok(s) => (
+            s.library_skill_format_v2_migrated,
+            s.notes_vault_root
+                .clone()
+                .filter(|p| !p.is_empty())
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(paths::default_notes_vault_root),
+        ),
+        Err(_) => return,
+    };
+    if already_done {
+        return;
+    }
+
+    let report = services::library::migrate_global_skills(&vault_root);
+    if !report.migrated.is_empty() {
+        rlog!("library skill migration: rewrote {} file(s)", report.migrated.len());
+    }
+    for (path, err) in &report.errors {
+        rlog!("library skill migration: {} failed: {err}", path.display());
+    }
+
+    mark_library_skill_migrated(&state);
+}
+
+fn mark_library_skill_migrated(state: &tauri::State<'_, crate::state::AppState>) {
+    if let Ok(mut s) = state.settings.lock() {
+        s.library_skill_format_v2_migrated = true;
         let snapshot = s.clone();
         drop(s);
         let _ = settings::save_settings(&snapshot);
