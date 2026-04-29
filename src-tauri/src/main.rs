@@ -29,12 +29,13 @@ mod skill;
 mod socket;
 mod state;
 mod tasks;
+mod tray;
 mod updater;
 mod watches;
 mod worktree;
 
 use std::sync::Mutex;
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Listener, Manager};
 #[cfg(debug_assertions)]
 use tauri_specta::{collect_commands, Builder};
 
@@ -403,6 +404,46 @@ fn main() {
                 eprintln!("Warning: failed to start file status source: {}", e);
             }
             socket::start_socket_server(app.handle().clone());
+
+            // System tray: shows active sessions + status, plus Show/Quit.
+            // Failure here is non-fatal (e.g. headless CI); log and continue.
+            if let Err(e) = tray::setup(app.handle()) {
+                eprintln!("Warning: failed to set up tray: {}", e);
+            }
+
+            // Refresh the tray menu when any session's status changes.
+            {
+                let app_handle = app.handle().clone();
+                app.listen("roux-status-update", move |_event| {
+                    tray::refresh(app_handle.clone());
+                });
+            }
+
+            // Refresh the tray menu when notifications change (added,
+            // read, removed, cleared). Surfaces the unread count and
+            // the recent-unread submenu without polling.
+            {
+                let app_handle = app.handle().clone();
+                app.listen(notifications::NOTIFICATION_EVENT, move |_event| {
+                    tray::refresh(app_handle.clone());
+                });
+            }
+
+            // Low-frequency poll catches session add/remove/archive
+            // (no dedicated event bus for those today). 3s is fine — the
+            // refresh is just a list + menu rebuild.
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut ticker =
+                        tokio::time::interval(std::time::Duration::from_secs(3));
+                    ticker.tick().await; // skip the immediate first tick
+                    loop {
+                        ticker.tick().await;
+                        tray::refresh(app_handle.clone());
+                    }
+                });
+            }
 
             // Experimental notes vault: one-shot migration of legacy
             // project notes (`~/.config/roux/notes/<id>.txt`) into the

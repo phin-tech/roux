@@ -28,7 +28,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -58,6 +58,7 @@ specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }
 specta-typescript = "0.0.11"
 tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }
 vte = "0.15"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
