@@ -14,6 +14,7 @@
 //! wrong version) but logs the cause so "my layout vanished" stays debuggable.
 //! Saves are atomic via tmp-file + rename in the same directory.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -56,7 +57,12 @@ enum PersistedLayoutNode {
     Split {
         direction: SplitDirection,
         children: Vec<PersistedLayoutNode>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         sizes: Option<Vec<f64>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stacked: Option<bool>,
+        #[serde(rename = "activeIndex", skip_serializing_if = "Option::is_none")]
+        active_index: Option<usize>,
     },
 }
 
@@ -77,6 +83,10 @@ struct PersistedPaneDescriptor {
     doc_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     spawn_profile_ref: Option<PersistedSpawnProfileRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     nono_profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,6 +111,13 @@ struct Envelope {
     data: serde_json::Value,
 }
 
+#[derive(Debug, Clone)]
+struct LatestProviderSession {
+    provider: Option<String>,
+    provider_session_id: String,
+    timestamp: i64,
+}
+
 fn parse_payload(data: serde_json::Value) -> Result<PersistedPaneStatePayload, String> {
     serde_json::from_value(data).map_err(|e| format!("invalid pane-state payload: {e}"))
 }
@@ -121,6 +138,118 @@ fn pane_state_dir(base: &Path) -> PathBuf {
 
 fn pane_state_file(base: &Path, session_id: &str) -> PathBuf {
     pane_state_dir(base).join(format!("{session_id}.json"))
+}
+
+fn status_dir(base: &Path) -> PathBuf {
+    base.join("status")
+}
+
+fn latest_provider_sessions_by_pane(
+    base: &Path,
+    session_id: &str,
+) -> HashMap<String, LatestProviderSession> {
+    let dir = status_dir(base);
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return HashMap::new();
+    };
+
+    let mut latest = HashMap::new();
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
+        if parsed
+            .get("roux_session_id")
+            .and_then(|v| v.as_str())
+            != Some(session_id)
+        {
+            continue;
+        }
+        let Some(pane_id) = parsed
+            .get("roux_pane_id")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+        else {
+            continue;
+        };
+        // Generic field is the new contract; `claude_session_id` is the
+        // legacy name kept for old hook payloads. Track which field
+        // supplied the value so we only default `provider = "claude"`
+        // for the legacy field — the new generic field is provider-
+        // agnostic and must not be auto-tagged.
+        let generic_session_id = parsed
+            .get("provider_session_id")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(str::to_string);
+        let legacy_claude_session_id = parsed
+            .get("claude_session_id")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(str::to_string);
+        let Some(provider_session_id) = generic_session_id
+            .clone()
+            .or_else(|| legacy_claude_session_id.clone())
+        else {
+            continue;
+        };
+        let provider = parsed
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+            .or_else(|| legacy_claude_session_id.as_ref().map(|_| "claude".to_string()));
+        let timestamp = parsed.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+        let candidate = LatestProviderSession { provider, provider_session_id, timestamp };
+        let should_replace = latest
+            .get(pane_id)
+            .map(|existing: &LatestProviderSession| candidate.timestamp >= existing.timestamp)
+            .unwrap_or(true);
+        if should_replace {
+            latest.insert(pane_id.to_string(), candidate);
+        }
+    }
+    latest
+}
+
+/// Fill descriptor `provider`/`provider_session_id` from the latest
+/// status-file entry per pane. Called from BOTH save and load:
+///
+/// - On load: the frontend reads the descriptor and uses it to build the
+///   resume command without having to wait for a status update first.
+/// - On save: the latest provider session id gets baked into the on-disk
+///   layout, so a hard quit (no debounce flush) can still restore it next
+///   launch even if the status file is later rotated/cleaned.
+///
+/// Existing values are never overwritten — a descriptor that already names
+/// a session id wins over anything in the status dir.
+fn enrich_payload_with_provider_sessions(
+    base: &Path,
+    session_id: &str,
+    payload: &mut PersistedPaneStatePayload,
+) {
+    let latest = latest_provider_sessions_by_pane(base, session_id);
+    if latest.is_empty() {
+        return;
+    }
+    for descriptor in &mut payload.descriptors {
+        let Some(provider_session) = latest.get(&descriptor.id) else {
+            continue;
+        };
+        if descriptor.provider_session_id.is_none() {
+            descriptor.provider_session_id = Some(provider_session.provider_session_id.clone());
+        }
+        if descriptor.provider.is_none() {
+            descriptor.provider = provider_session.provider.clone();
+        }
+    }
 }
 
 /// Test-friendly loader. Returns `None` on any failure, logging the cause.
@@ -153,13 +282,14 @@ pub fn load_from(base: &Path, session_id: &str) -> Option<serde_json::Value> {
         );
         return None;
     }
-    let payload = match parse_payload_ref(&envelope.data) {
+    let mut payload = match parse_payload_ref(&envelope.data) {
         Ok(payload) => payload,
         Err(e) => {
             rlog!("pane_state::load_from: {e}");
             return None;
         }
     };
+    enrich_payload_with_provider_sessions(base, session_id, &mut payload);
     serde_json::to_value(payload).ok()
 }
 
@@ -171,7 +301,8 @@ pub fn save_to(base: &Path, session_id: &str, data: serde_json::Value) -> Result
     let dir = pane_state_dir(base);
     fs::create_dir_all(&dir).map_err(|e| format!("create_dir_all {dir:?}: {e}"))?;
 
-    let payload = parse_payload(data)?;
+    let mut payload = parse_payload(data)?;
+    enrich_payload_with_provider_sessions(base, session_id, &mut payload);
     let data = serde_json::to_value(payload).map_err(|e| format!("serialize payload: {e}"))?;
 
     let envelope = Envelope { version: CURRENT_VERSION, data };
@@ -268,6 +399,32 @@ mod tests {
         })
     }
 
+    fn write_status(
+        base: &Path,
+        filename: &str,
+        session_id: &str,
+        pane_id: &str,
+        provider: &str,
+        provider_session_id: &str,
+        timestamp: i64,
+    ) {
+        let dir = status_dir(base);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join(filename),
+            serde_json::to_string(&json!({
+                "status": "idle",
+                "roux_session_id": session_id,
+                "roux_pane_id": pane_id,
+                "provider": provider,
+                "provider_session_id": provider_session_id,
+                "timestamp": timestamp
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
     #[test]
     fn roundtrip_save_then_load_returns_identical_payload() {
         let dir = tempfile::tempdir().unwrap();
@@ -275,6 +432,162 @@ mod tests {
         save_to(dir.path(), "sess1", payload.clone()).unwrap();
         let loaded = load_from(dir.path(), "sess1").unwrap();
         assert_eq!(loaded, payload);
+    }
+
+    fn write_status_raw(base: &Path, filename: &str, body: serde_json::Value) {
+        let dir = status_dir(base);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(filename), serde_json::to_string(&body).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn load_does_not_default_provider_to_claude_for_generic_provider_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        save_to(dir.path(), "sess1", minimal_payload()).unwrap();
+        // Status file uses the new generic field with no `provider` key —
+        // we must NOT auto-tag this as Claude.
+        write_status_raw(
+            dir.path(),
+            "generic.json",
+            json!({
+                "status": "idle",
+                "roux_session_id": "sess1",
+                "roux_pane_id": "sess1-main",
+                "provider_session_id": "agent-xyz",
+                "timestamp": 50,
+            }),
+        );
+
+        let loaded = load_from(dir.path(), "sess1").unwrap();
+
+        assert_eq!(
+            loaded["descriptors"][0]["providerSessionId"],
+            json!("agent-xyz"),
+        );
+        // Provider must remain absent — not silently coerced to "claude".
+        assert!(loaded["descriptors"][0].get("provider").is_none());
+    }
+
+    #[test]
+    fn load_defaults_provider_to_claude_only_for_legacy_claude_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        save_to(dir.path(), "sess1", minimal_payload()).unwrap();
+        // Legacy field with no explicit provider — should still default
+        // to "claude" since `claude_session_id` is by definition claude.
+        write_status_raw(
+            dir.path(),
+            "legacy.json",
+            json!({
+                "status": "idle",
+                "roux_session_id": "sess1",
+                "roux_pane_id": "sess1-main",
+                "claude_session_id": "claude-legacy-1",
+                "timestamp": 50,
+            }),
+        );
+
+        let loaded = load_from(dir.path(), "sess1").unwrap();
+
+        assert_eq!(
+            loaded["descriptors"][0]["providerSessionId"],
+            json!("claude-legacy-1"),
+        );
+        assert_eq!(loaded["descriptors"][0]["provider"], json!("claude"));
+    }
+
+    #[test]
+    fn load_enriches_descriptors_with_latest_provider_session_status() {
+        let dir = tempfile::tempdir().unwrap();
+        save_to(dir.path(), "sess1", minimal_payload()).unwrap();
+        write_status(
+            dir.path(),
+            "old.json",
+            "sess1",
+            "sess1-main",
+            "claude",
+            "claude-old",
+            10,
+        );
+        write_status(
+            dir.path(),
+            "new.json",
+            "sess1",
+            "sess1-main",
+            "claude",
+            "claude-new",
+            20,
+        );
+
+        let loaded = load_from(dir.path(), "sess1").unwrap();
+
+        assert_eq!(
+            loaded["descriptors"][0]["providerSessionId"],
+            json!("claude-new"),
+        );
+        assert_eq!(loaded["descriptors"][0]["provider"], json!("claude"));
+    }
+
+    #[test]
+    fn load_does_not_overwrite_explicit_provider_session_id_with_status_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = json!({
+            "schemaVersion": 4,
+            "layout": { "kind": "leaf", "paneId": "sess1-main" },
+            "descriptors": [
+                {
+                    "id": "sess1-main",
+                    "type": "shell",
+                    "ptyId": "sess1",
+                    "provider": "claude",
+                    "providerSessionId": "explicit-current"
+                }
+            ]
+        });
+        save_to(dir.path(), "sess1", payload).unwrap();
+        write_status(
+            dir.path(),
+            "stale.json",
+            "sess1",
+            "sess1-main",
+            "claude",
+            "stale-from-status",
+            999,
+        );
+
+        let loaded = load_from(dir.path(), "sess1").unwrap();
+
+        assert_eq!(
+            loaded["descriptors"][0]["providerSessionId"],
+            json!("explicit-current"),
+        );
+    }
+
+    #[test]
+    fn load_ignores_status_for_other_sessions_or_removed_panes() {
+        let dir = tempfile::tempdir().unwrap();
+        save_to(dir.path(), "sess1", minimal_payload()).unwrap();
+        write_status(
+            dir.path(),
+            "other-session.json",
+            "sess2",
+            "sess1-main",
+            "claude",
+            "other-session-id",
+            999,
+        );
+        write_status(
+            dir.path(),
+            "removed-pane.json",
+            "sess1",
+            "removed-pane",
+            "claude",
+            "removed-pane-id",
+            999,
+        );
+
+        let loaded = load_from(dir.path(), "sess1").unwrap();
+
+        assert!(loaded["descriptors"][0].get("providerSessionId").is_none());
     }
 
     #[test]
@@ -446,6 +759,8 @@ mod tests {
             command: None,
             doc_path: None,
             spawn_profile_ref: None,
+            provider: None,
+            provider_session_id: None,
             nono_profile: None,
             nono_allow_dirs: None,
             notes_scope: None,
@@ -478,5 +793,80 @@ mod tests {
                 ]
             })
         );
+    }
+
+    #[test]
+    fn save_live_to_enriches_descriptors_with_provider_session_status() {
+        let dir = tempfile::tempdir().unwrap();
+        write_status(
+            dir.path(),
+            "claude.json",
+            "sess1",
+            "sess1-main",
+            "claude",
+            "claude-session-123",
+            10,
+        );
+        let descriptors = vec![PaneDescriptor {
+            id: "sess1-main".into(),
+            pane_type: "shell".into(),
+            pty_id: "sess1".into(),
+            name: None,
+            working_dir: None,
+            command: None,
+            doc_path: None,
+            spawn_profile_ref: None,
+            provider: None,
+            provider_session_id: None,
+            nono_profile: None,
+            nono_allow_dirs: None,
+            notes_scope: None,
+            notes_view_mode: None,
+        }];
+
+        save_live_to(
+            dir.path(),
+            "sess1",
+            4,
+            json!({ "kind": "leaf", "paneId": "sess1-main" }),
+            descriptors,
+        )
+        .unwrap();
+
+        let saved = fs::read_to_string(pane_state_file(dir.path(), "sess1")).unwrap();
+        let envelope: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(
+            envelope["data"]["descriptors"][0]["providerSessionId"],
+            json!("claude-session-123"),
+        );
+        assert_eq!(envelope["data"]["descriptors"][0]["provider"], json!("claude"));
+    }
+
+    #[test]
+    fn roundtrip_preserves_stacked_split_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = json!({
+            "schemaVersion": 4,
+            "layout": {
+                "kind": "split",
+                "direction": "h",
+                "stacked": true,
+                "activeIndex": 1,
+                "sizes": [0.4, 0.6],
+                "children": [
+                    { "kind": "leaf", "paneId": "sess1-main" },
+                    { "kind": "leaf", "paneId": "notes-pane" }
+                ]
+            },
+            "descriptors": [
+                { "id": "sess1-main", "type": "shell", "ptyId": "sess1" },
+                { "id": "notes-pane", "type": "notes", "ptyId": "", "notesScope": "session" }
+            ]
+        });
+
+        save_to(dir.path(), "sess1", payload.clone()).unwrap();
+
+        let loaded = load_from(dir.path(), "sess1").unwrap();
+        assert_eq!(loaded, payload);
     }
 }

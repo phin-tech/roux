@@ -93,6 +93,49 @@ describe("persistence — Tauri-backed API", () => {
       const result = await loadPaneState("s1");
       expect(result).toBeNull();
     });
+
+    it("drops payloads with null children before they reach the renderer", async () => {
+      vi.mocked(loadPaneStateRaw).mockResolvedValue({
+        schemaVersion: 4,
+        layout: {
+          kind: "split",
+          direction: "h",
+          children: [
+            { kind: "leaf", paneId: "s1-main" },
+            null,
+          ],
+        },
+        descriptors: [{ id: "s1-main", type: "shell", ptyId: "s1" }],
+      } as unknown);
+
+      const result = await loadPaneState("s1");
+
+      expect(result).toBeNull();
+    });
+
+    it("drops payloads with activeIndex outside stacked children", async () => {
+      vi.mocked(loadPaneStateRaw).mockResolvedValue({
+        schemaVersion: 4,
+        layout: {
+          kind: "split",
+          direction: "h",
+          stacked: true,
+          activeIndex: 3,
+          children: [
+            { kind: "leaf", paneId: "s1-main" },
+            { kind: "leaf", paneId: "s1-shell" },
+          ],
+        },
+        descriptors: [
+          { id: "s1-main", type: "shell", ptyId: "s1" },
+          { id: "s1-shell", type: "shell", ptyId: "pty-shell" },
+        ],
+      } as unknown);
+
+      const result = await loadPaneState("s1");
+
+      expect(result).toBeNull();
+    });
   });
 
   describe("savePaneState", () => {

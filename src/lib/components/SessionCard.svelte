@@ -231,7 +231,7 @@
           class="cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2 py-0.5 text-[11px] font-semibold text-accent hover:bg-accent-dim/24"
           onclick={(e) => { e.stopPropagation(); onreconnect(); }}
         >
-          reconnect
+          continue
         </button>
       {/if}
       <CloseButton

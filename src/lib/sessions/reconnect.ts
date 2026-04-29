@@ -2,7 +2,7 @@ import { get } from "svelte/store";
 import type { Session } from "$lib/types";
 import { updateSessionStatus } from "$lib/stores/sessions";
 import { reconnectSessionShellPty, spawnShell } from "$lib/tauri";
-import { replacePty, createPane, updateInstance, getInstance } from "$lib/panes/instances";
+import { replacePty, createPane, updateInstance, getInstance, type PaneInstance } from "$lib/panes/instances";
 import { sessionLayouts, collectLeafIds, type LayoutNode } from "$lib/panes/layout";
 import { loadPaneState, stripCommandPanes, type PaneDescriptor, type PaneStatePayload } from "$lib/panes/persistence";
 import { resolveProfileRef, type SpawnProfile } from "$lib/panes/profiles";
@@ -10,6 +10,10 @@ import { runProfileInPane } from "$lib/panes/profileRunner";
 import { log } from "$lib/logging";
 
 const reconnecting = new Set<string>();
+
+interface ContinuePlan {
+  flags?: string[];
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +56,54 @@ function isSinglePrimaryLeaf(
     layout.kind === "leaf" &&
     layout.paneId === primaryPaneId
   );
+}
+
+function findSessionPrimaryInstance(sessionId: string): PaneInstance | null {
+  const primaryPaneId = findSessionPrimaryPaneId(sessionId);
+  if (!primaryPaneId) return null;
+  return getInstance(primaryPaneId) ?? null;
+}
+
+// Tokens that are safe to type into ANY shell verbatim — POSIX (bash/zsh),
+// PowerShell, and cmd.exe alike. We deliberately don't try to shell-quote
+// here: POSIX `'`-quoting doesn't escape correctly in PowerShell or cmd,
+// and Roux supports all three. Real Claude/Codex session ids are UUID-
+// shaped and pass cleanly; if a value falls outside this set we drop the
+// exact-resume path and let the caller fall back to `--continue` /
+// `resume --last`.
+//
+// Notably excluded: `%` triggers env-var expansion in cmd.exe (`%FOO%`),
+// which would substitute environment values into the typed command.
+const SAFE_SHELL_ARG = /^[A-Za-z0-9_@+=:,./-]+$/;
+
+function providerSessionArg(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+  return SAFE_SHELL_ARG.test(trimmed) ? trimmed : null;
+}
+
+function fallbackContinueFlags(provider: SpawnProfile["provider"] | null, profileId?: string): string[] | undefined {
+  if (provider === "claude" || profileId === "claude") return ["--continue"];
+  if (provider === "codex" || profileId === "codex") return ["resume", "--last"];
+  return undefined;
+}
+
+function defaultContinuePlan(
+  instance: PaneInstance | null,
+  profile: SpawnProfile | null,
+): ContinuePlan {
+  const provider = instance?.provider ?? profile?.provider ?? null;
+  const fallbackFlags = fallbackContinueFlags(provider, profile?.id);
+  const providerSessionId = providerSessionArg(instance?.providerSessionId);
+  if (providerSessionId) {
+    if (provider === "claude" || profile?.id === "claude") {
+      return { flags: ["--resume", providerSessionId] };
+    }
+    if (provider === "codex" || profile?.id === "codex") {
+      return { flags: ["resume", providerSessionId] };
+    }
+  }
+  return { flags: fallbackFlags };
 }
 
 // ── Integrity preflight ───────────────────────────────────────────────────────
@@ -163,6 +215,8 @@ async function rehydratePane(
         // restart. Dropping this silently reverted every restored
         // pane to "plain shell" in the UI.
         spawnProfileRef: descriptor.spawnProfileRef,
+        provider: descriptor.provider,
+        providerSessionId: descriptor.providerSessionId,
         nonoProfile: descriptor.nonoProfile,
         nonoAllowDirs: descriptor.nonoAllowDirs,
       });
@@ -176,6 +230,8 @@ async function rehydratePane(
         name: descriptor.name,
         workingDir: descriptor.workingDir,
         spawnProfileRef: descriptor.spawnProfileRef,
+        provider: descriptor.provider,
+        providerSessionId: descriptor.providerSessionId,
         nonoProfile: descriptor.nonoProfile,
         nonoAllowDirs: descriptor.nonoAllowDirs,
       });
@@ -229,6 +285,12 @@ async function reconnectPrimaryPaneOnly(
   // Replay the primary pane's profile, appending any extra flags to the
   // startup command so Claude's Continue/Resume/New flows still work.
   // A replay failure is logged, not surfaced — the shell itself is alive.
+  //
+  // No second-attempt fallback here on purpose: `runProfileInPane` writes
+  // the command and the trailing newline as separate PTY writes, so a
+  // partial failure (command typed, newline failed) would leave a half-
+  // typed line in the shell and a retry would compound the mess. If write
+  // fails, we leave the shell in whatever state it landed in and log.
   if (profile) {
     let effectiveProfile: SpawnProfile = profile;
     if (extraFlags?.length) {
@@ -362,6 +424,12 @@ export async function reconnectSession(
   }
 }
 
+export async function continueSession(session: Session): Promise<Session> {
+  const primary = findSessionPrimaryInstance(session.id);
+  const plan = defaultContinuePlan(primary, resolveProfileRef(primary?.spawnProfileRef));
+  return reconnectSession(session, plan.flags);
+}
+
 /**
  * Reconnect a session whose primary pane was created via
  * `createSessionShell`. Kills the old PTY, spawns a fresh plain shell on
@@ -388,6 +456,12 @@ export async function reconnectSessionShell(
   } finally {
     reconnecting.delete(session.id);
   }
+}
+
+export async function continueSessionShell(session: Session): Promise<Session> {
+  const primary = findSessionPrimaryInstance(session.id);
+  const plan = defaultContinuePlan(primary, resolveProfileRef(primary?.spawnProfileRef));
+  return reconnectSessionShell(session, plan.flags);
 }
 
 export async function retryShellPane(paneId: string, sessionId: string): Promise<void> {

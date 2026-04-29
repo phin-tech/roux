@@ -36,14 +36,15 @@ vi.mock("$lib/logging", () => ({
   logError: vi.fn(),
 }));
 
-import { reconnectSession, retryShellPane } from "../reconnect";
+import { continueSession, reconnectSession, retryShellPane } from "../reconnect";
 import { sessionState, addSession } from "$lib/stores/sessions";
 import { initSession } from "$lib/panes/actions";
 import { sessionLayouts, resetLayouts } from "$lib/panes/layout";
 import { paneInstances, resetInstances, createPane, updateInstance } from "$lib/panes/instances";
 import { resetFocus } from "$lib/panes/focus";
-import { reconnectSessionShellPty, spawnShell, loadPaneStateRaw } from "$lib/tauri";
+import { reconnectSessionShellPty, spawnShell, loadPaneStateRaw, writeToSession } from "$lib/tauri";
 import { initTerminal, attachPtyListeners, connectPaneTerminal } from "$lib/panes/terminals";
+import { resetProfileRegistry, setUserProfiles, type SpawnProfile } from "$lib/panes/profiles";
 import type { Session } from "$lib/types";
 import type { PaneStatePayload } from "$lib/panes/persistence";
 
@@ -84,15 +85,35 @@ function makePayloadWithShells(sessionId: string, shells: Array<{ id: string; wo
   };
 }
 
+function makeProfile(overrides: Partial<SpawnProfile> = {}): SpawnProfile {
+  return {
+    id: "claude",
+    name: "Claude",
+    source: "user",
+    provider: "claude",
+    startupCommand: "claude",
+    setupCommand: undefined,
+    startupBehavior: "autoRun",
+    cwdOverride: undefined,
+    env: {},
+    icon: null,
+    nonoProfile: null,
+    nonoAllowDirs: [],
+    ...overrides,
+  };
+}
+
 describe("reconnectSession — existing behavior preserved", () => {
   beforeEach(() => {
     sessionState.set({ sessions: [], activeSessionId: null });
     resetLayouts();
     resetInstances();
     resetFocus();
+    resetProfileRegistry();
     vi.mocked(reconnectSessionShellPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
     vi.mocked(loadPaneStateRaw).mockReset().mockResolvedValue(null);
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
+    vi.mocked(writeToSession).mockReset().mockResolvedValue(undefined);
     vi.mocked(initTerminal).mockReset();
     vi.mocked(attachPtyListeners).mockReset().mockResolvedValue(undefined);
     vi.mocked(connectPaneTerminal).mockReset().mockImplementation(async (paneId, onExit) => {
@@ -122,6 +143,176 @@ describe("reconnectSession — existing behavior preserved", () => {
     await reconnectSession(session, ["--resume", "abc123"]);
 
     expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+  });
+
+  it("continues a Claude primary profile with claude --continue", async () => {
+    setUserProfiles([makeProfile()]);
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+
+    await continueSession(session);
+
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "claude --continue");
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
+  });
+
+  it("continues a Claude primary profile by exact provider session id when available", async () => {
+    setUserProfiles([makeProfile()]);
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+    updateInstance(`${session.id}-main`, {
+      provider: "claude",
+      providerSessionId: "claude-session-123",
+    });
+
+    await continueSession(session);
+
+    expect(writeToSession).toHaveBeenCalledWith(
+      session.id,
+      "claude --resume claude-session-123",
+    );
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
+  });
+
+  it("falls back to Claude continue when provider session id contains shell metacharacters", async () => {
+    setUserProfiles([makeProfile()]);
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+    updateInstance(`${session.id}-main`, {
+      provider: "claude",
+      providerSessionId: "session 'quoted'; $(touch bad)",
+    });
+
+    await continueSession(session);
+
+    // Cross-shell safety: anything outside SAFE_SHELL_ARG drops to the
+    // generic continue path instead of attempting to quote — POSIX
+    // single-quoting is wrong on PowerShell/cmd.
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "claude --continue");
+    expect(writeToSession).not.toHaveBeenCalledWith(
+      session.id,
+      expect.stringContaining("--resume"),
+    );
+  });
+
+  it("falls back to Claude continue when provider session id contains control characters", async () => {
+    setUserProfiles([makeProfile()]);
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+    updateInstance(`${session.id}-main`, {
+      provider: "claude",
+      providerSessionId: "session-1\n--dangerous",
+    });
+
+    await continueSession(session);
+
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "claude --continue");
+  });
+
+  it("does not retry the profile replay when typing exact resume fails (avoid half-typed line)", async () => {
+    setUserProfiles([makeProfile()]);
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+    updateInstance(`${session.id}-main`, {
+      provider: "claude",
+      providerSessionId: "claude-session-123",
+    });
+    vi.mocked(writeToSession)
+      .mockRejectedValueOnce(new Error("dead pty during exact resume"))
+      .mockResolvedValue(undefined);
+
+    await continueSession(session);
+
+    // Only the original attempt is made. We don't auto-fall-back to
+    // `--continue` because runProfileInPane writes the command and the
+    // newline as separate PTY writes — a partial failure could leave a
+    // half-typed line, and a retry would compound the mess.
+    expect(vi.mocked(writeToSession).mock.calls.map(([, data]) => data)).toEqual([
+      "claude --resume claude-session-123",
+    ]);
+  });
+
+  it("continues a Codex primary profile with codex resume --last", async () => {
+    setUserProfiles([
+      makeProfile({
+        id: "codex",
+        name: "Codex",
+        provider: "codex",
+        startupCommand: "codex",
+      }),
+    ]);
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+    updateInstance(`${session.id}-main`, {
+      spawnProfileRef: { kind: "registered", id: "codex" },
+    });
+
+    await continueSession(session);
+
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "codex resume --last");
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
+  });
+
+  it("continues a Codex primary profile by exact provider session id when available", async () => {
+    setUserProfiles([
+      makeProfile({
+        id: "codex",
+        name: "Codex",
+        provider: "codex",
+        startupCommand: "codex",
+      }),
+    ]);
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+    updateInstance(`${session.id}-main`, {
+      spawnProfileRef: { kind: "registered", id: "codex" },
+      provider: "codex",
+      providerSessionId: "codex-session-123",
+    });
+
+    await continueSession(session);
+
+    expect(writeToSession).toHaveBeenCalledWith(
+      session.id,
+      "codex resume codex-session-123",
+    );
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
+  });
+
+  it("falls back to Codex resume --last when provider session id has spaces", async () => {
+    setUserProfiles([
+      makeProfile({
+        id: "codex",
+        name: "Codex",
+        provider: "codex",
+        startupCommand: "codex",
+      }),
+    ]);
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+    updateInstance(`${session.id}-main`, {
+      spawnProfileRef: { kind: "registered", id: "codex" },
+      provider: "codex",
+      providerSessionId: "thread name with spaces",
+    });
+
+    await continueSession(session);
+
+    // Cross-shell safety: spaces don't match SAFE_SHELL_ARG, so the
+    // exact-resume path is dropped in favor of `resume --last`.
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "codex resume --last");
+    expect(writeToSession).not.toHaveBeenCalledWith(
+      session.id,
+      expect.stringContaining("'thread"),
+    );
   });
 
   it("forwards the pane profile id when reconnecting the primary shell", async () => {
@@ -189,6 +380,7 @@ describe("reconnectSession — mid-session disconnect guard", () => {
     resetLayouts();
     resetInstances();
     resetFocus();
+    resetProfileRegistry();
     vi.mocked(reconnectSessionShellPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
     vi.mocked(loadPaneStateRaw).mockReset().mockResolvedValue(null);
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
@@ -236,6 +428,7 @@ describe("reconnectSession — full rehydration", () => {
     resetLayouts();
     resetInstances();
     resetFocus();
+    resetProfileRegistry();
     vi.mocked(reconnectSessionShellPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
     vi.mocked(loadPaneStateRaw).mockReset();
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
@@ -407,6 +600,134 @@ describe("reconnectSession — full rehydration", () => {
     });
   });
 
+  it("preserves provider session metadata on restored non-primary shell panes", async () => {
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+
+    const mainId = `${session.id}-main`;
+    vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 4,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: mainId },
+          { kind: "leaf", paneId: "codex-pane" },
+        ],
+      },
+      descriptors: [
+        { id: mainId, type: "shell", ptyId: session.id },
+        {
+          id: "codex-pane",
+          type: "shell",
+          ptyId: "old-pty",
+          workingDir: "/repo",
+          spawnProfileRef: { kind: "registered", id: "codex" },
+          provider: "codex",
+          providerSessionId: "codex-session-123",
+        },
+      ],
+    } satisfies PaneStatePayload);
+
+    await reconnectSession(session);
+
+    const codexInstance = get(paneInstances).get("codex-pane");
+    expect(codexInstance?.provider).toBe("codex");
+    expect(codexInstance?.providerSessionId).toBe("codex-session-123");
+  });
+
+  it("restores mixed shell, notes, and markdown panes with exact layout metadata", async () => {
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+
+    const mainId = `${session.id}-main`;
+    const restoredLayout = {
+      kind: "split",
+      direction: "h",
+      sizes: [0.62, 0.38],
+      children: [
+        { kind: "leaf", paneId: mainId },
+        {
+          kind: "split",
+          direction: "v",
+          stacked: true,
+          activeIndex: 1,
+          sizes: [0.25, 0.35, 0.4],
+          children: [
+            { kind: "leaf", paneId: "notes-pane" },
+            { kind: "leaf", paneId: "doc-pane" },
+            { kind: "leaf", paneId: "shell-pane" },
+          ],
+        },
+      ],
+    } satisfies PaneStatePayload["layout"];
+
+    vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 4,
+      layout: restoredLayout,
+      descriptors: [
+        { id: mainId, type: "shell", ptyId: session.id },
+        {
+          id: "notes-pane",
+          type: "notes",
+          ptyId: "",
+          name: "Session notes",
+          notesScope: "repo",
+          notesViewMode: "read",
+        },
+        {
+          id: "doc-pane",
+          type: "markdown",
+          ptyId: "",
+          name: "Plan",
+          docPath: "/repo/PLAN.md",
+        },
+        {
+          id: "shell-pane",
+          type: "shell",
+          ptyId: "old-shell",
+          name: "server",
+          workingDir: "/repo/app",
+          spawnProfileRef: { kind: "registered", id: "plain-shell" },
+        },
+      ],
+    } satisfies PaneStatePayload);
+
+    await reconnectSession(session);
+
+    expect(get(sessionLayouts).get(session.id)).toEqual(restoredLayout);
+    const instances = get(paneInstances);
+    expect(instances.get("notes-pane")).toMatchObject({
+      type: "notes",
+      name: "Session notes",
+      notesScope: "repo",
+      notesViewMode: "read",
+    });
+    expect(instances.get("doc-pane")).toMatchObject({
+      type: "markdown",
+      name: "Plan",
+      docPath: "/repo/PLAN.md",
+    });
+    expect(instances.get("shell-pane")).toMatchObject({
+      type: "shell",
+      name: "server",
+      workingDir: "/repo/app",
+      spawnProfileRef: { kind: "registered", id: "plain-shell" },
+    });
+    expect(spawnShell).toHaveBeenCalledTimes(1);
+    expect(spawnShell).toHaveBeenCalledWith(
+      expect.any(String),
+      "/repo/app",
+      session.id,
+      "shell-pane",
+      null,
+      null,
+      "plain-shell",
+    );
+  });
+
   it("strips command panes from the persisted tree before rehydration", async () => {
     const session = makeSession();
     addSession(session);
@@ -467,6 +788,33 @@ describe("reconnectSession — full rehydration", () => {
     const instances = get(paneInstances);
     expect(instances.has("orphan-pane")).toBe(false);
   });
+
+  it("falls back to primary-pane-only when persisted layout contains an invalid child", async () => {
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+
+    const mainId = `${session.id}-main`;
+    vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 4,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: mainId },
+          undefined,
+        ],
+      },
+      descriptors: [
+        { id: mainId, type: "shell", ptyId: session.id },
+      ],
+    } as unknown as PaneStatePayload);
+
+    await reconnectSession(session);
+
+    expect(get(sessionLayouts).get(session.id)).toEqual({ kind: "leaf", paneId: mainId });
+    expect(spawnShell).not.toHaveBeenCalled();
+  });
 });
 
 describe("retryShellPane", () => {
@@ -475,6 +823,7 @@ describe("retryShellPane", () => {
     resetLayouts();
     resetInstances();
     resetFocus();
+    resetProfileRegistry();
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
     vi.mocked(initTerminal).mockReset();
     vi.mocked(attachPtyListeners).mockReset().mockResolvedValue(undefined);

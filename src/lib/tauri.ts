@@ -1007,6 +1007,8 @@ export interface PaneDescriptorPayload {
   command?: string;
   docPath?: string;
   spawnProfileRef?: SpawnProfileRef;
+  provider?: "claude" | "codex";
+  providerSessionId?: string;
   nonoProfile?: string;
   nonoAllowDirs?: string[];
   notesScope?: NotesScope;

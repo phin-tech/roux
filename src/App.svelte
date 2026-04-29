@@ -38,7 +38,7 @@
   import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
-  import { initSession, initSessionWithProfile, splitPane } from "$lib/panes/actions";
+  import { initSessionWithProfile, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { getTerminalController } from "$lib/panes/terminalRuntime";
@@ -492,9 +492,12 @@
         const primaryDescriptor = persisted?.descriptors.find(
           (d) => d.ptyId === s.id,
         );
-        const mainPaneId = primaryDescriptor?.spawnProfileRef
-          ? initSessionWithProfile(s.id, primaryDescriptor.spawnProfileRef)
-          : initSession(s.id);
+        const primaryProfileRef: SpawnProfileRef =
+          primaryDescriptor?.spawnProfileRef ?? { kind: "registered", id: "claude" };
+        const mainPaneId = initSessionWithProfile(s.id, primaryProfileRef, {
+          provider: primaryDescriptor?.provider,
+          providerSessionId: primaryDescriptor?.providerSessionId,
+        });
         initTerminal(mainPaneId);
         await attachPtyListeners(mainPaneId);
         // Full layout restore (shell PTY re-spawn etc.) happens on reconnect click.
