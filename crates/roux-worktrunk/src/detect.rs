@@ -22,7 +22,8 @@ pub struct WtBinary {
 /// 1. An explicit settings override (when non-empty).
 /// 2. `which::which("wt")` on the process `PATH`.
 ///
-/// Returns `None` when no binary is found or `wt --version` is unparseable
+/// Returns `None` when no binary is found, the resolved path is Windows
+/// Terminal's `wt.exe` app execution alias, or `wt --version` is unparseable
 /// or below `MIN_WT_VERSION`.
 pub fn detect_wt(settings_override: Option<&str>) -> Option<WtBinary> {
     let path = match settings_override {
@@ -36,6 +37,10 @@ pub fn detect_wt(settings_override: Option<&str>) -> Option<WtBinary> {
         }
         _ => which::which("wt").ok()?,
     };
+
+    if is_windows_terminal_app_execution_alias(&path) {
+        return None;
+    }
 
     let version = probe_version(&path)?;
     let floor = Version::parse(MIN_WT_VERSION).ok()?;
@@ -61,6 +66,33 @@ fn probe_version(wt_path: &Path) -> Option<Version> {
     parse_version_line(&stdout)
 }
 
+#[cfg(windows)]
+fn path_component_eq_ignore_ascii_case(
+    component: Option<&std::ffi::OsStr>,
+    expected: &str,
+) -> bool {
+    component
+        .and_then(|component| component.to_str())
+        .is_some_and(|component| component.eq_ignore_ascii_case(expected))
+}
+
+fn is_windows_terminal_app_execution_alias(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let mut components = path.iter().rev();
+
+        path_component_eq_ignore_ascii_case(components.next(), "wt.exe")
+            && path_component_eq_ignore_ascii_case(components.next(), "WindowsApps")
+            && path_component_eq_ignore_ascii_case(components.next(), "Microsoft")
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
+}
+
 /// Pull the first `MAJOR.MINOR.PATCH` substring out of `wt --version` output.
 /// worktrunk emits something like `wt 0.44.0` or `worktrunk 0.44.0 (abc123)`;
 /// we accept any line that contains a parseable semver token.
@@ -81,10 +113,7 @@ mod tests {
 
     #[test]
     fn parse_version_line_plain() {
-        assert_eq!(
-            parse_version_line("wt 0.44.0\n").unwrap(),
-            Version::parse("0.44.0").unwrap()
-        );
+        assert_eq!(parse_version_line("wt 0.44.0\n").unwrap(), Version::parse("0.44.0").unwrap());
     }
 
     #[test]
@@ -106,5 +135,12 @@ mod tests {
     #[test]
     fn parse_version_line_unparseable() {
         assert!(parse_version_line("not a version at all").is_none());
+    }
+
+    #[test]
+    fn windows_terminal_app_execution_alias_is_not_worktrunk() {
+        let path = PathBuf::from(r"C:\Users\someone\AppData\Local\Microsoft\WindowsApps\wt.exe");
+
+        assert_eq!(is_windows_terminal_app_execution_alias(&path), cfg!(windows));
     }
 }
