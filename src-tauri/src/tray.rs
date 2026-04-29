@@ -148,17 +148,31 @@ async fn do_refresh(app: &AppHandle) {
         // Swap the icon only when the attention state actually flips.
         // Avoids per-tick set_icon churn (cheap but visible flicker on
         // some platforms) when nothing changed.
-        let prev = ATTENTION_ICON_ACTIVE.swap(needs_attention, Ordering::Relaxed);
-        if prev != needs_attention {
+        //
+        // The cache is updated only on success — if `set_icon` or
+        // `set_icon_as_template` fails (rare, but possible on platform
+        // edge cases), leaving the cache stale would mean future
+        // refreshes skip the retry and the tray gets stuck in the
+        // wrong state.
+        if ATTENTION_ICON_ACTIVE.load(Ordering::Relaxed) != needs_attention {
             let icons = tray_icons();
-            if needs_attention {
-                let _ = tray.set_icon(Some(icons.attention.clone()));
-                // Attention dot is colored; template mode would
-                // strip the color on macOS.
-                let _ = tray.set_icon_as_template(false);
+            // Attention dot is colored; template mode would strip the
+            // color on macOS, so flip template off for the dotted icon
+            // and back on for the normal one.
+            let result = if needs_attention {
+                tray.set_icon(Some(icons.attention.clone()))
+                    .and_then(|_| tray.set_icon_as_template(false))
             } else {
-                let _ = tray.set_icon(Some(icons.normal.clone()));
-                let _ = tray.set_icon_as_template(true);
+                tray.set_icon(Some(icons.normal.clone()))
+                    .and_then(|_| tray.set_icon_as_template(true))
+            };
+            match result {
+                Ok(()) => {
+                    ATTENTION_ICON_ACTIVE.store(needs_attention, Ordering::Relaxed);
+                }
+                Err(e) => {
+                    rlog!("tray: icon swap failed (will retry next refresh): {e}");
+                }
             }
         }
     }
