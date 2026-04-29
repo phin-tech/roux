@@ -127,10 +127,16 @@ export function routeStatusUpdate(
 export function applyStatusRouting(routing: StatusRouting): StatusRouting {
   if (routing.kind === "pane") {
     updateAgentState(routing.paneId, routing.event);
-    updateInstance(routing.paneId, {
-      provider: routing.event.provider,
-      providerSessionId: routing.event.providerSessionId,
-    });
+    // updateInstance treats undefined as a real assignment (spread), so
+    // omit fields that aren't present on this event rather than clobbering
+    // an existing provider/providerSessionId. A partial status update
+    // (e.g. a tool-call event with no provider context) shouldn't blank
+    // out metadata that earlier events established.
+    const fields: Parameters<typeof updateInstance>[1] = {};
+    if (routing.event.provider !== undefined) fields.provider = routing.event.provider;
+    if (routing.event.providerSessionId !== undefined)
+      fields.providerSessionId = routing.event.providerSessionId;
+    if (Object.keys(fields).length > 0) updateInstance(routing.paneId, fields);
   }
   return routing;
 }

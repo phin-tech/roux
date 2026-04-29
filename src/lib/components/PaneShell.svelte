@@ -104,8 +104,14 @@
       activeProfile?.id === "claude" &&
       activeProfile?.source === "builtin",
   );
+  // Restored panes may have lost their resolved profile (registry not yet
+  // hydrated, profile renamed/deleted, etc.) but still carry the persisted
+  // provider on the pane instance itself. Fall back to that so the
+  // Continue button stays available across restarts.
   const canContinueProvider = $derived(
-    activeProfile?.provider === "claude" ||
+    instance?.provider === "claude" ||
+      instance?.provider === "codex" ||
+      activeProfile?.provider === "claude" ||
       activeProfile?.provider === "codex" ||
       activeProfile?.id === "claude" ||
       activeProfile?.id === "codex",

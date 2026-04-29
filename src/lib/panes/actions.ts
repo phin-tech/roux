@@ -45,7 +45,7 @@ export function initSession(sessionId: string): string {
 export function initSessionWithProfile(
   sessionId: string,
   spawnProfileRef: SpawnProfileRef,
-  nono?: {
+  extras?: {
     nonoProfile?: string;
     nonoAllowDirs?: string[];
     provider?: CreatePaneOpts["provider"];
@@ -59,10 +59,10 @@ export function initSessionWithProfile(
       type: "shell",
       ptyId: sessionId,
       spawnProfileRef,
-      provider: nono?.provider,
-      providerSessionId: nono?.providerSessionId,
-      nonoProfile: nono?.nonoProfile,
-      nonoAllowDirs: nono?.nonoAllowDirs,
+      provider: extras?.provider,
+      providerSessionId: extras?.providerSessionId,
+      nonoProfile: extras?.nonoProfile,
+      nonoAllowDirs: extras?.nonoAllowDirs,
     });
   }
   initSessionLayout(sessionId, mainPaneId);

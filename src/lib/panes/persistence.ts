@@ -49,6 +49,9 @@ export interface PaneStatePayload {
 
 const VALID_NOTES_SCOPES = new Set(["session", "repo", "project", "global"]);
 const VALID_VIEW_MODES = new Set(["edit", "read"]);
+// Note: ptyId may be empty for non-shell panes (notes/markdown), so we
+// don't enforce a min-length on it. Type narrowing is what matters.
+const VALID_PANE_TYPES = new Set<PaneType>(["shell", "markdown", "command", "notes"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -95,6 +98,7 @@ function isDescriptor(value: unknown): value is PaneDescriptor {
     typeof value.id === "string" &&
     value.id.length > 0 &&
     typeof value.type === "string" &&
+    VALID_PANE_TYPES.has(value.type as PaneType) &&
     typeof value.ptyId === "string"
   );
 }

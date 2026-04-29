@@ -176,7 +176,7 @@ describe("reconnectSession — existing behavior preserved", () => {
     expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
   });
 
-  it("shell-quotes exact Claude provider session ids with shell metacharacters", async () => {
+  it("falls back to Claude continue when provider session id contains shell metacharacters", async () => {
     setUserProfiles([makeProfile()]);
     const session = makeSession();
     addSession(session);
@@ -188,9 +188,13 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await continueSession(session);
 
-    expect(writeToSession).toHaveBeenCalledWith(
+    // Cross-shell safety: anything outside SAFE_SHELL_ARG drops to the
+    // generic continue path instead of attempting to quote — POSIX
+    // single-quoting is wrong on PowerShell/cmd.
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "claude --continue");
+    expect(writeToSession).not.toHaveBeenCalledWith(
       session.id,
-      "claude --resume 'session '\\''quoted'\\''; $(touch bad)'",
+      expect.stringContaining("--resume"),
     );
   });
 
@@ -209,7 +213,7 @@ describe("reconnectSession — existing behavior preserved", () => {
     expect(writeToSession).toHaveBeenCalledWith(session.id, "claude --continue");
   });
 
-  it("falls back to Claude continue if typing exact resume fails", async () => {
+  it("does not retry the profile replay when typing exact resume fails (avoid half-typed line)", async () => {
     setUserProfiles([makeProfile()]);
     const session = makeSession();
     addSession(session);
@@ -224,10 +228,12 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await continueSession(session);
 
+    // Only the original attempt is made. We don't auto-fall-back to
+    // `--continue` because runProfileInPane writes the command and the
+    // newline as separate PTY writes — a partial failure could leave a
+    // half-typed line, and a retry would compound the mess.
     expect(vi.mocked(writeToSession).mock.calls.map(([, data]) => data)).toEqual([
       "claude --resume claude-session-123",
-      "claude --continue",
-      "\n",
     ]);
   });
 
@@ -280,7 +286,7 @@ describe("reconnectSession — existing behavior preserved", () => {
     expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
   });
 
-  it("shell-quotes exact Codex provider session ids with spaces", async () => {
+  it("falls back to Codex resume --last when provider session id has spaces", async () => {
     setUserProfiles([
       makeProfile({
         id: "codex",
@@ -300,9 +306,12 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await continueSession(session);
 
-    expect(writeToSession).toHaveBeenCalledWith(
+    // Cross-shell safety: spaces don't match SAFE_SHELL_ARG, so the
+    // exact-resume path is dropped in favor of `resume --last`.
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "codex resume --last");
+    expect(writeToSession).not.toHaveBeenCalledWith(
       session.id,
-      "codex resume 'thread name with spaces'",
+      expect.stringContaining("'thread"),
     );
   });
 

@@ -13,7 +13,6 @@ const reconnecting = new Set<string>();
 
 interface ContinuePlan {
   flags?: string[];
-  fallbackFlags?: string[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -65,16 +64,19 @@ function findSessionPrimaryInstance(sessionId: string): PaneInstance | null {
   return getInstance(primaryPaneId) ?? null;
 }
 
+// Tokens that are safe to type into ANY shell verbatim — POSIX (bash/zsh),
+// PowerShell, and cmd.exe alike. We deliberately don't try to shell-quote
+// here: POSIX `'`-quoting doesn't escape correctly in PowerShell or cmd,
+// and Roux supports all three. Real Claude/Codex session ids are UUID-
+// shaped and pass cleanly; if a value falls outside this set we drop the
+// exact-resume path and let the caller fall back to `--continue` /
+// `resume --last`.
 const SAFE_SHELL_ARG = /^[A-Za-z0-9_@%+=:,./-]+$/;
-
-function shellSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
 
 function providerSessionArg(value: string | undefined): string | null {
   const trimmed = value?.trim() ?? "";
-  if (!trimmed || /[\0\r\n]/.test(trimmed)) return null;
-  return SAFE_SHELL_ARG.test(trimmed) ? trimmed : shellSingleQuote(trimmed);
+  if (!trimmed) return null;
+  return SAFE_SHELL_ARG.test(trimmed) ? trimmed : null;
 }
 
 function fallbackContinueFlags(provider: SpawnProfile["provider"] | null, profileId?: string): string[] | undefined {
@@ -92,10 +94,10 @@ function defaultContinuePlan(
   const providerSessionId = providerSessionArg(instance?.providerSessionId);
   if (providerSessionId) {
     if (provider === "claude" || profile?.id === "claude") {
-      return { flags: ["--resume", providerSessionId], fallbackFlags };
+      return { flags: ["--resume", providerSessionId] };
     }
     if (provider === "codex" || profile?.id === "codex") {
-      return { flags: ["resume", providerSessionId], fallbackFlags };
+      return { flags: ["resume", providerSessionId] };
     }
   }
   return { flags: fallbackFlags };
@@ -251,7 +253,6 @@ async function rehydratePane(
 async function reconnectPrimaryPaneOnly(
   session: Session,
   extraFlags?: string[],
-  fallbackExtraFlags?: string[],
 ): Promise<Session> {
   const primaryPaneId = findSessionPrimaryPaneId(session.id);
   if (!primaryPaneId) {
@@ -281,6 +282,12 @@ async function reconnectPrimaryPaneOnly(
   // Replay the primary pane's profile, appending any extra flags to the
   // startup command so Claude's Continue/Resume/New flows still work.
   // A replay failure is logged, not surfaced — the shell itself is alive.
+  //
+  // No second-attempt fallback here on purpose: `runProfileInPane` writes
+  // the command and the trailing newline as separate PTY writes, so a
+  // partial failure (command typed, newline failed) would leave a half-
+  // typed line in the shell and a retry would compound the mess. If write
+  // fails, we leave the shell in whatever state it landed in and log.
   if (profile) {
     let effectiveProfile: SpawnProfile = profile;
     if (extraFlags?.length) {
@@ -294,26 +301,6 @@ async function reconnectPrimaryPaneOnly(
     try {
       await runProfileInPane(session.id, effectiveProfile);
     } catch (e) {
-      if (fallbackExtraFlags?.length) {
-        const baseCmd = profile.startupCommand ?? "";
-        const combined = `${baseCmd} ${fallbackExtraFlags.join(" ")}`.trim();
-        const fallbackProfile: SpawnProfile = {
-          ...profile,
-          startupCommand: combined.length ? combined : undefined,
-        };
-        try {
-          await runProfileInPane(session.id, fallbackProfile);
-          log(
-            `reconnectPrimaryPaneOnly(${session.id}): exact profile replay failed; fallback replayed for "${profile.id}" — ${e}`,
-          );
-          log(`Session ${session.id} reconnected (primary pane only, shell path)`);
-          return updated;
-        } catch (fallbackError) {
-          log(
-            `reconnectPrimaryPaneOnly(${session.id}): fallback profile "${profile.id}" replay failed — ${fallbackError}`,
-          );
-        }
-      }
       log(
         `reconnectPrimaryPaneOnly(${session.id}): profile "${profile.id}" replay failed — ${e}`,
       );
@@ -329,7 +316,6 @@ async function reconnectPrimaryPaneOnly(
 export async function reconnectSession(
   session: Session,
   extraFlags?: string[],
-  fallbackExtraFlags?: string[],
 ): Promise<Session> {
   if (reconnecting.has(session.id)) {
     throw new Error(`Reconnect already in progress for ${session.id}`);
@@ -348,13 +334,13 @@ export async function reconnectSession(
       !!currentTree && isSinglePrimaryLeaf(currentTree, livePrimaryPaneId);
 
     if (!isPrimaryOnly) {
-      return await reconnectPrimaryPaneOnly(session, extraFlags, fallbackExtraFlags);
+      return await reconnectPrimaryPaneOnly(session, extraFlags);
     }
 
     // Try to load persisted pane state from disk.
     const persisted = await loadPaneState(session.id);
     if (!persisted) {
-      return await reconnectPrimaryPaneOnly(session, extraFlags, fallbackExtraFlags);
+      return await reconnectPrimaryPaneOnly(session, extraFlags);
     }
 
     // Fast-path: persisted tree is also a lone primary leaf.
@@ -363,7 +349,7 @@ export async function reconnectSession(
       persisted.descriptors,
     );
     if (isSinglePrimaryLeaf(persisted.layout, persistedPrimaryId)) {
-      return await reconnectPrimaryPaneOnly(session, extraFlags, fallbackExtraFlags);
+      return await reconnectPrimaryPaneOnly(session, extraFlags);
     }
 
     // Integrity preflight: reject corrupt/mismatched data before touching state.
@@ -371,7 +357,7 @@ export async function reconnectSession(
       log(
         `pane restore preflight failed for ${session.id}, falling back to primary-pane-only reconnect`,
       );
-      return await reconnectPrimaryPaneOnly(session, extraFlags, fallbackExtraFlags);
+      return await reconnectPrimaryPaneOnly(session, extraFlags);
     }
 
     // Strip command panes — they cannot be restarted.
@@ -381,11 +367,11 @@ export async function reconnectSession(
     );
 
     if (!strippedTree) {
-      return await reconnectPrimaryPaneOnly(session, extraFlags, fallbackExtraFlags);
+      return await reconnectPrimaryPaneOnly(session, extraFlags);
     }
 
     // Reconnect the session-owned PTY. Abort layout restore if this fails.
-    const updated = await reconnectPrimaryPaneOnly(session, extraFlags, fallbackExtraFlags);
+    const updated = await reconnectPrimaryPaneOnly(session, extraFlags);
 
     // Rehydrate non-primary panes. All PaneInstances must exist BEFORE we
     // apply the layout tree, so the renderer can resolve every leaf.
@@ -438,11 +424,7 @@ export async function reconnectSession(
 export async function continueSession(session: Session): Promise<Session> {
   const primary = findSessionPrimaryInstance(session.id);
   const plan = defaultContinuePlan(primary, resolveProfileRef(primary?.spawnProfileRef));
-  return reconnectSession(
-    session,
-    plan.flags,
-    plan.fallbackFlags,
-  );
+  return reconnectSession(session, plan.flags);
 }
 
 /**
@@ -460,7 +442,6 @@ export async function continueSession(session: Session): Promise<Session> {
 export async function reconnectSessionShell(
   session: Session,
   extraStartupFlags?: string[],
-  fallbackStartupFlags?: string[],
 ): Promise<Session> {
   if (reconnecting.has(session.id)) {
     throw new Error(`Reconnect already in progress for ${session.id}`);
@@ -468,7 +449,7 @@ export async function reconnectSessionShell(
   reconnecting.add(session.id);
   try {
     log(`Reconnecting shell session ${session.id} (${session.name})`);
-    return await reconnectPrimaryPaneOnly(session, extraStartupFlags, fallbackStartupFlags);
+    return await reconnectPrimaryPaneOnly(session, extraStartupFlags);
   } finally {
     reconnecting.delete(session.id);
   }
@@ -477,11 +458,7 @@ export async function reconnectSessionShell(
 export async function continueSessionShell(session: Session): Promise<Session> {
   const primary = findSessionPrimaryInstance(session.id);
   const plan = defaultContinuePlan(primary, resolveProfileRef(primary?.spawnProfileRef));
-  return reconnectSessionShell(
-    session,
-    plan.flags,
-    plan.fallbackFlags,
-  );
+  return reconnectSessionShell(session, plan.flags);
 }
 
 export async function retryShellPane(paneId: string, sessionId: string): Promise<void> {

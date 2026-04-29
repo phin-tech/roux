@@ -179,12 +179,24 @@ fn latest_provider_sessions_by_pane(
         else {
             continue;
         };
-        let Some(provider_session_id) = parsed
+        // Generic field is the new contract; `claude_session_id` is the
+        // legacy name kept for old hook payloads. Track which field
+        // supplied the value so we only default `provider = "claude"`
+        // for the legacy field — the new generic field is provider-
+        // agnostic and must not be auto-tagged.
+        let generic_session_id = parsed
             .get("provider_session_id")
-            .or_else(|| parsed.get("claude_session_id"))
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
-            .map(str::to_string)
+            .map(str::to_string);
+        let legacy_claude_session_id = parsed
+            .get("claude_session_id")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(str::to_string);
+        let Some(provider_session_id) = generic_session_id
+            .clone()
+            .or_else(|| legacy_claude_session_id.clone())
         else {
             continue;
         };
@@ -193,7 +205,7 @@ fn latest_provider_sessions_by_pane(
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
             .map(str::to_string)
-            .or_else(|| Some("claude".to_string()));
+            .or_else(|| legacy_claude_session_id.as_ref().map(|_| "claude".to_string()));
         let timestamp = parsed.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
         let candidate = LatestProviderSession { provider, provider_session_id, timestamp };
         let should_replace = latest
@@ -207,6 +219,17 @@ fn latest_provider_sessions_by_pane(
     latest
 }
 
+/// Fill descriptor `provider`/`provider_session_id` from the latest
+/// status-file entry per pane. Called from BOTH save and load:
+///
+/// - On load: the frontend reads the descriptor and uses it to build the
+///   resume command without having to wait for a status update first.
+/// - On save: the latest provider session id gets baked into the on-disk
+///   layout, so a hard quit (no debounce flush) can still restore it next
+///   launch even if the status file is later rotated/cleaned.
+///
+/// Existing values are never overwritten — a descriptor that already names
+/// a session id wins over anything in the status dir.
 fn enrich_payload_with_provider_sessions(
     base: &Path,
     session_id: &str,
@@ -409,6 +432,67 @@ mod tests {
         save_to(dir.path(), "sess1", payload.clone()).unwrap();
         let loaded = load_from(dir.path(), "sess1").unwrap();
         assert_eq!(loaded, payload);
+    }
+
+    fn write_status_raw(base: &Path, filename: &str, body: serde_json::Value) {
+        let dir = status_dir(base);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(filename), serde_json::to_string(&body).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn load_does_not_default_provider_to_claude_for_generic_provider_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        save_to(dir.path(), "sess1", minimal_payload()).unwrap();
+        // Status file uses the new generic field with no `provider` key —
+        // we must NOT auto-tag this as Claude.
+        write_status_raw(
+            dir.path(),
+            "generic.json",
+            json!({
+                "status": "idle",
+                "roux_session_id": "sess1",
+                "roux_pane_id": "sess1-main",
+                "provider_session_id": "agent-xyz",
+                "timestamp": 50,
+            }),
+        );
+
+        let loaded = load_from(dir.path(), "sess1").unwrap();
+
+        assert_eq!(
+            loaded["descriptors"][0]["providerSessionId"],
+            json!("agent-xyz"),
+        );
+        // Provider must remain absent — not silently coerced to "claude".
+        assert!(loaded["descriptors"][0].get("provider").is_none());
+    }
+
+    #[test]
+    fn load_defaults_provider_to_claude_only_for_legacy_claude_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        save_to(dir.path(), "sess1", minimal_payload()).unwrap();
+        // Legacy field with no explicit provider — should still default
+        // to "claude" since `claude_session_id` is by definition claude.
+        write_status_raw(
+            dir.path(),
+            "legacy.json",
+            json!({
+                "status": "idle",
+                "roux_session_id": "sess1",
+                "roux_pane_id": "sess1-main",
+                "claude_session_id": "claude-legacy-1",
+                "timestamp": 50,
+            }),
+        );
+
+        let loaded = load_from(dir.path(), "sess1").unwrap();
+
+        assert_eq!(
+            loaded["descriptors"][0]["providerSessionId"],
+            json!("claude-legacy-1"),
+        );
+        assert_eq!(loaded["descriptors"][0]["provider"], json!("claude"));
     }
 
     #[test]
