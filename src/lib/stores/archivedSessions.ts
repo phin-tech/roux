@@ -101,24 +101,39 @@ export interface BulkActionResult {
   failures: BulkActionFailure[];
 }
 
+// String(err) renders non-Error rejections as "[object Object]" — preserve
+// Error.message and JSON-encode plain objects so the bulk-error banner stays
+// useful regardless of where the rejection came from.
+function formatErr(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 /**
- * Run a per-session async operation across many ids, collecting failures
+ * Run a per-item async operation across many items, collecting failures
  * instead of bailing on the first error. Sequential (not Promise.all) so a
  * later failure doesn't abandon a partially-completed earlier op, and so
  * the user-visible store stays consistent with each step.
  */
-async function runBulk(
-  ids: readonly string[],
-  op: (id: string) => Promise<void>,
+async function runBulk<T>(
+  items: readonly T[],
+  idOf: (item: T) => string,
+  op: (item: T) => Promise<void>,
 ): Promise<BulkActionResult> {
   const succeeded: string[] = [];
   const failures: BulkActionFailure[] = [];
-  for (const id of ids) {
+  for (const item of items) {
+    const id = idOf(item);
     try {
-      await op(id);
+      await op(item);
       succeeded.push(id);
     } catch (err) {
-      failures.push({ id, error: String(err) });
+      failures.push({ id, error: formatErr(err) });
     }
   }
   return { succeeded, failures };
@@ -127,14 +142,15 @@ async function runBulk(
 export async function bulkRestoreArchivedSessions(
   ids: readonly string[],
 ): Promise<BulkActionResult> {
-  const result = await runBulk(ids, (id) => restoreSessionCmd(id));
+  const result = await runBulk(ids, (id) => id, (id) => restoreSessionCmd(id));
   if (result.succeeded.length > 0) {
+    const succeededSet = new Set(result.succeeded);
     archivedSessionsState.update((s) => {
       const worktreeExists = new Map(s.worktreeExists);
-      for (const id of result.succeeded) worktreeExists.delete(id);
+      for (const id of succeededSet) worktreeExists.delete(id);
       return {
         ...s,
-        sessions: s.sessions.filter((sess) => !result.succeeded.includes(sess.id)),
+        sessions: s.sessions.filter((sess) => !succeededSet.has(sess.id)),
         worktreeExists,
       };
     });
@@ -148,12 +164,9 @@ export async function bulkRemoveArchivedWorktrees(
   entries: readonly { id: string; repoRoot: string; worktreePath: string }[],
 ): Promise<BulkActionResult> {
   const result = await runBulk(
-    entries.map((e) => e.id),
-    async (id) => {
-      const entry = entries.find((e) => e.id === id);
-      if (!entry) throw new Error("missing entry");
-      await removeWorktree(entry.repoRoot, entry.worktreePath);
-    },
+    entries,
+    (e) => e.id,
+    (e) => removeWorktree(e.repoRoot, e.worktreePath),
   );
   if (result.succeeded.length > 0) {
     archivedSessionsState.update((s) => {
@@ -168,14 +181,19 @@ export async function bulkRemoveArchivedWorktrees(
 export async function bulkDeleteArchivedSessionsForever(
   ids: readonly string[],
 ): Promise<BulkActionResult> {
-  const result = await runBulk(ids, (id) => deleteSessionPermanently(id));
+  const result = await runBulk(
+    ids,
+    (id) => id,
+    (id) => deleteSessionPermanently(id),
+  );
   if (result.succeeded.length > 0) {
+    const succeededSet = new Set(result.succeeded);
     archivedSessionsState.update((s) => {
       const worktreeExists = new Map(s.worktreeExists);
-      for (const id of result.succeeded) worktreeExists.delete(id);
+      for (const id of succeededSet) worktreeExists.delete(id);
       return {
         ...s,
-        sessions: s.sessions.filter((sess) => !result.succeeded.includes(sess.id)),
+        sessions: s.sessions.filter((sess) => !succeededSet.has(sess.id)),
         worktreeExists,
       };
     });

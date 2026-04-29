@@ -66,39 +66,53 @@
     });
   });
 
-  // Drop selections that no longer match the filter or no longer exist.
-  // Without this, the bulk toolbar can claim "3 selected" while showing 1 row.
+  // Drop selections only when their session leaves archivedList entirely
+  // (e.g. deleted forever, restored). Selections survive filter changes —
+  // narrowing the filter hides rows but keeps them selected so a later
+  // bulk action covers them too.
   $effect(() => {
-    const visibleIds = new Set(filteredList.map((s) => s.id));
+    const archiveIds = new Set(archivedList.map((s) => s.id));
     let changed = false;
     const next = new Set<string>();
     for (const id of selected) {
-      if (visibleIds.has(id)) next.add(id);
+      if (archiveIds.has(id)) next.add(id);
       else changed = true;
     }
     if (changed) selected = next;
   });
 
+  // Row badges use `?? true` (optimistic — show as on-disk until proven
+  // otherwise). Derived helpers below mirror that default so a missing map
+  // entry can't make the row claim "Restore" while bulk actions skip it.
+  function wtExistsFor(id: string): boolean {
+    return worktreeExists.get(id) ?? true;
+  }
+
+  // Select-all UI state is filter-aware: toggling "Select all" only operates
+  // on the visible (filtered) rows, and the indeterminate state reflects
+  // partial coverage of those rows.
   const allVisibleSelected = $derived(
     filteredList.length > 0 && filteredList.every((s) => selected.has(s.id)),
   );
   const someVisibleSelected = $derived(
     filteredList.some((s) => selected.has(s.id)) && !allVisibleSelected,
   );
+  // Bulk actions act on every selected row, including ones the filter is
+  // currently hiding — that matches the toolbar's "N selected" count.
   const selectedSessions = $derived(
-    filteredList.filter((s) => selected.has(s.id)),
+    archivedList.filter((s) => selected.has(s.id)),
   );
   const hasSelection = $derived(selected.size > 0);
   const selectableWorktreeEntries = $derived(
     selectedSessions
-      .filter((s) => s.isWorktree && (worktreeExists.get(s.id) ?? false))
+      .filter((s) => s.isWorktree && wtExistsFor(s.id))
       .map((s) => ({ id: s.id, repoRoot: s.repoRoot, worktreePath: s.worktreePath })),
   );
   const restorableSelected = $derived(
-    selectedSessions.filter((s) => worktreeExists.get(s.id) ?? false),
+    selectedSessions.filter((s) => wtExistsFor(s.id)),
   );
   const archivedWithWorktreeOnDisk = $derived(
-    archivedList.filter((s) => s.isWorktree && (worktreeExists.get(s.id) ?? false)),
+    archivedList.filter((s) => s.isWorktree && wtExistsFor(s.id)),
   );
 
   $effect(() => {
@@ -573,7 +587,7 @@
           </span>
         </label>
         {#each filteredList as s (s.id)}
-          {@const wtExists = worktreeExists.get(s.id) ?? true}
+          {@const wtExists = wtExistsFor(s.id)}
           {@const isSelected = selected.has(s.id)}
           <div
             class="group relative mb-1 border px-2 py-1.5 text-left text-sm transition-colors duration-150 {isSelected

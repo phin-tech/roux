@@ -244,6 +244,38 @@ describe("ArchivedSessionsList", () => {
     expect(screen.getByText("2 selected")).not.toBeNull();
   });
 
+  it("preserves selections of rows hidden by the filter and acts on them in bulk", async () => {
+    mockListArchivedSessions.mockResolvedValue([
+      makeArchived("feature-a"),
+      makeArchived("bugfix-b"),
+      makeArchived("feature-c"),
+    ]);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+    vi.mocked(deleteSessionPermanently).mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(ArchivedSessionsList, { collapsed: false });
+
+    await screen.findByText("feature-a");
+
+    // Select feature-a while broad.
+    const checkboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
+    await fireEvent.click(checkboxes[0]);
+    expect(screen.getByText("1 selected")).not.toBeNull();
+
+    // Narrow filter so feature-a is hidden — selection must persist.
+    const filterInput = screen.getByTestId("archived-filter-input") as HTMLInputElement;
+    await fireEvent.input(filterInput, { target: { value: "bugfix" } });
+    expect(screen.queryByText("feature-a")).toBeNull();
+    expect(screen.getByText("1 selected")).not.toBeNull();
+
+    // Bulk delete should still operate on the hidden selected row.
+    await fireEvent.click(screen.getByText("Delete"));
+    await waitFor(() => {
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-a");
+    });
+  });
+
   it("offers Clear all and Remove all worktrees from the header overflow", async () => {
     mockListArchivedSessions.mockResolvedValue([
       makeArchived("feature-a"),
