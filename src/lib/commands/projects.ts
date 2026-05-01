@@ -41,7 +41,16 @@ async function spawnBlueprint(project: Project, bp: SessionBlueprint): Promise<v
   // Defensive: backend should already have stamped project_id (we passed it
   // through CreateShellOpts), but the frontend store mirror may have an
   // older snapshot if it raced. Re-issuing set_session_project is idempotent.
-  await tauriSetSessionProject(newSession.id, project.id);
+  // Best-effort: don't let a failure here abort the rest of session init.
+  try {
+    await tauriSetSessionProject(newSession.id, project.id);
+  } catch (error) {
+    console.warn("Failed to defensively sync session project", {
+      sessionId: newSession.id,
+      projectId: project.id,
+      error,
+    });
+  }
 
   const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {
     nonoProfile,
@@ -114,7 +123,15 @@ export function registerProjectCommands(): void {
             id: `${p.id}::${bp.id}`,
             label: `${p.name} · ${bp.name}`,
             description: bp.branch ? `branch ${bp.branch}` : bp.repoRoot,
-            action: () => void spawnBlueprint(p, bp),
+            action: () => {
+              void spawnBlueprint(p, bp).catch((error) => {
+                console.error("Failed to spawn project blueprint session", {
+                  projectId: p.id,
+                  blueprintId: bp.id,
+                  error,
+                });
+              });
+            },
           })),
         ),
   });
