@@ -21,20 +21,30 @@ export function formatRepoShortLabel(path: string, depth: number = 2): string {
 
 /**
  * Build display options. Starts with 2-segment labels; any label that collides
- * gets bumped to 3 segments, and if that still doesn't disambiguate the full
- * path is shown so the picker never displays two visually identical rows.
+ * gets bumped to 3 segments, and any label that *still* collides at 3 segments
+ * (or where 3 segments equals the original path) falls back to the full path —
+ * the picker never displays two visually identical rows.
  */
 export function buildQuickPickOptions(paths: string[]): RepoQuickPickOption[] {
   const firstPass = paths.map((path) => ({ path, label: formatRepoShortLabel(path, 2) }));
-  const counts = new Map<string, number>();
+  const firstCounts = new Map<string, number>();
   for (const item of firstPass) {
-    counts.set(item.label, (counts.get(item.label) ?? 0) + 1);
+    firstCounts.set(item.label, (firstCounts.get(item.label) ?? 0) + 1);
   }
-  return firstPass.map((item) => {
-    if ((counts.get(item.label) ?? 0) === 1) return item;
-    const deeper = formatRepoShortLabel(item.path, 3);
-    return deeper === item.label ? { ...item, label: item.path } : { ...item, label: deeper };
+  const secondPass = firstPass.map((item) => {
+    if ((firstCounts.get(item.label) ?? 0) === 1) return item;
+    return { ...item, label: formatRepoShortLabel(item.path, 3) };
   });
+  // Recount after the bump: two paths may share the same 3-segment tail
+  // (`/a/x/y/repo` vs `/b/x/y/repo`), in which case we have to show the
+  // full path to honor the doc-comment promise.
+  const secondCounts = new Map<string, number>();
+  for (const item of secondPass) {
+    secondCounts.set(item.label, (secondCounts.get(item.label) ?? 0) + 1);
+  }
+  return secondPass.map((item) =>
+    (secondCounts.get(item.label) ?? 0) === 1 ? item : { ...item, label: item.path },
+  );
 }
 
 /**

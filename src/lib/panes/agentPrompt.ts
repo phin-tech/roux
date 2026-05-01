@@ -7,10 +7,11 @@
  *   - Claude: `--append-system-prompt '<text>'`
  *   - Codex:  `-c instructions='<text>'`
  *
- * Anything else (plain shells, third-party agents) returns `null`/the
- * original command — the caller can still surface the value via the
- * `ROUX_PROJECT_PROMPT` env var if they want to splice it manually from
- * a custom profile's `startupCommand`.
+ * Anything else (plain shells, third-party agents) leaves the startup
+ * command unchanged. Capability detection lives on `agentPromptFlag`,
+ * which returns `null` for unsupported providers — callers that care can
+ * still surface the value via the `ROUX_PROJECT_PROMPT` env var and
+ * splice it manually from a custom profile's `startupCommand`.
  *
  * Usage shapes (callers pick whichever composes best):
  *

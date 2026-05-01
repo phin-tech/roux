@@ -1656,8 +1656,21 @@ fn apply_notes_env(cmd: &mut CommandBuilder, n: &NotesEnvInputs) {
     // on Windows. Skipped entirely when empty so shells can default with
     // `${VAR:-}`.
     if !n.context_paths.is_empty() {
-        if let Ok(joined) = std::env::join_paths(n.context_paths.iter().map(std::path::Path::new)) {
-            cmd.env("ROUX_PROJECT_CONTEXT_PATHS", joined);
+        match std::env::join_paths(n.context_paths.iter().map(std::path::Path::new)) {
+            Ok(joined) => {
+                cmd.env("ROUX_PROJECT_CONTEXT_PATHS", joined);
+            }
+            Err(e) => {
+                // Only fails when a path contains the platform's path-list
+                // separator. Log it — silently dropping the env var would
+                // leave the user wondering why their context path didn't
+                // surface in the agent.
+                rlog!(
+                    "apply_notes_env: failed to encode ROUX_PROJECT_CONTEXT_PATHS ({} paths): {}",
+                    n.context_paths.len(),
+                    e
+                );
+            }
         }
     }
     if !n.project_prompt.is_empty() {
