@@ -49,6 +49,16 @@ function groupByProject(
     group.sessions.push(s);
     if (s.createdAt > group.latest) group.latest = s.createdAt;
   }
+  // Seed empty groups for projects that have blueprints but no live sessions
+  // yet — otherwise the sidebar's "spawn from sidebar" affordance and the
+  // edit handle on the group header are unreachable until the user creates
+  // a session some other way. `latest = 0` keeps these groups below any
+  // group that has activity, just above the Untagged tail.
+  for (const p of projects) {
+    if (map.has(p.id)) continue;
+    if (!p.sessionBlueprints || p.sessionBlueprints.length === 0) continue;
+    map.set(p.id, { name: p.name, key: p.id, sessions: [], latest: 0 });
+  }
   const groups = [...map.values()].sort((a, b) => b.latest - a.latest);
   const untaggedIdx = groups.findIndex((g) => g.key === UNTAGGED_KEY);
   if (untaggedIdx > 0) {

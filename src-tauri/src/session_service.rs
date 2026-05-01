@@ -306,6 +306,7 @@ mod tests {
             primary_pty_id: None,
             archived: false,
             ended_at: None,
+            blueprint_id: None,
         }
     }
 

@@ -1,6 +1,6 @@
 use crate::services::projects as svc;
 use crate::state::AppState;
-use roux_core::Project;
+use roux_core::{Project, ProjectUpdate};
 
 #[tauri::command]
 #[specta::specta]
@@ -16,7 +16,14 @@ pub(crate) async fn create_project(
     name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Project, String> {
-    let project = Project { id: uuid::Uuid::new_v4().to_string(), name };
+    let project = Project {
+        id: uuid::Uuid::new_v4().to_string(),
+        name,
+        repo_roots: Vec::new(),
+        context_paths: Vec::new(),
+        session_blueprints: Vec::new(),
+        project_prompt: String::new(),
+    };
     state.project_handle.add(project.clone()).await.map_err(|e| e.to_string())?;
     Ok(project)
 }
@@ -38,6 +45,21 @@ pub(crate) async fn rename_project(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     state.project_handle.rename(&id, &name).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn update_project(
+    id: String,
+    patch: ProjectUpdate,
+    state: tauri::State<'_, AppState>,
+) -> Result<Project, String> {
+    state
+        .project_handle
+        .update(&id, patch)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("project {} not found", id))
 }
 
 #[tauri::command]

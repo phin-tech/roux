@@ -7,6 +7,8 @@ export type {
   Session as BaseSession,
   SessionStatus,
   Project,
+  ProjectUpdate,
+  SessionBlueprint,
   CursorStyle,
   TabPosition,
   StatusBarPosition,

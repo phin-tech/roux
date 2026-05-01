@@ -7,6 +7,7 @@ import { sessionLayouts, collectLeafIds, type LayoutNode } from "$lib/panes/layo
 import { loadPaneState, stripCommandPanes, type PaneDescriptor, type PaneStatePayload } from "$lib/panes/persistence";
 import { resolveProfileRef, type SpawnProfile } from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
+import { getProjectPrompt } from "$lib/stores/projects";
 import { log } from "$lib/logging";
 
 const reconnecting = new Set<string>();
@@ -302,7 +303,9 @@ async function reconnectPrimaryPaneOnly(
       };
     }
     try {
-      await runProfileInPane(session.id, effectiveProfile);
+      await runProfileInPane(session.id, effectiveProfile, {
+        appendSystemPrompt: getProjectPrompt(session.projectId),
+      });
     } catch (e) {
       log(
         `reconnectPrimaryPaneOnly(${session.id}): profile "${profile.id}" replay failed — ${e}`,

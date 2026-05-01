@@ -4,6 +4,7 @@ import { registerTaskCommands } from "./tasks";
 import { registerWatchCommands } from "./watches";
 import { registerUiCommands } from "./ui";
 import { registerLibraryCommands } from "./library";
+import { registerProjectCommands } from "./projects";
 
 export function registerCommands() {
   registerPaneCommands();
@@ -12,6 +13,7 @@ export function registerCommands() {
   registerWatchCommands();
   registerUiCommands();
   registerLibraryCommands();
+  registerProjectCommands();
 }
 
 export { registry } from "./registry";

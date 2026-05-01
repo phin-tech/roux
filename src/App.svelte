@@ -50,6 +50,11 @@
     submitCustomProfile,
     closeCustomProfileEditor,
   } from "$lib/stores/customProfileModal";
+  import {
+    newProjectDialogState,
+    closeNewProjectDialog,
+  } from "$lib/stores/newProjectDialog";
+  import NewProjectDialog from "$lib/components/NewProjectDialog.svelte";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
   import { installSessionPrEffect } from "$lib/stores/sessionPrLookup";
@@ -58,6 +63,7 @@
   import { collectPaneTree } from "$lib/panes/query";
   import { profileRegistry } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
+  import { getProjectPrompt } from "$lib/stores/projects";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -563,7 +569,9 @@
             // including Claude (the legacy direct-spawn path is gone).
             const profile = get(profileRegistry).get(effectiveProfileId);
             if (profile) {
-              runProfileInPane(newSession.id, profile).catch((e) =>
+              runProfileInPane(newSession.id, profile, {
+                appendSystemPrompt: getProjectPrompt(newSession.projectId),
+              }).catch((e) =>
                 logError(`runProfileInPane failed for ${effectiveProfileId}`, e),
               );
             } else {
@@ -680,7 +688,9 @@
             if (profile) {
               // Fire-and-forget: startup commands are typed into the live PTY;
               // the CLI caller doesn't wait for them to finish running.
-              runProfileInPane(ptyId, profile).catch((e) =>
+              runProfileInPane(ptyId, profile, {
+                appendSystemPrompt: getProjectPrompt(session.projectId),
+              }).catch((e) =>
                 logError(`runProfileInPane failed for ${profile.id}`, e),
               );
             }
@@ -767,6 +777,14 @@
   visible={$customProfileModalState.visible}
   onclose={closeCustomProfileEditor}
   onsubmit={submitCustomProfile}
+/>
+
+<!-- Global new-project dialog host. Driven by `newProjectDialogState`,
+     flipped by the `project.new` / `project.edit` commands. -->
+<NewProjectDialog
+  visible={$newProjectDialogState.visible}
+  project={$newProjectDialogState.project}
+  onclose={closeNewProjectDialog}
 />
 
 <CommandPalette
