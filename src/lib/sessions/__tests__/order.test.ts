@@ -64,6 +64,61 @@ describe("getGroupedSessions (project)", () => {
     const groups = getGroupedSessions(sessions, [], "project");
     expect(groups[0].name).toBe("Untagged");
   });
+
+  it("includes projects that have blueprints but no live sessions", () => {
+    // Without this, a freshly-created project never renders in the sidebar
+    // (no group → no header → no dimmed blueprint rows), so the user can't
+    // spawn from it or edit it from the sidebar.
+    const projects: Project[] = [
+      {
+        id: "p-empty",
+        name: "Empty",
+        sessionBlueprints: [
+          {
+            id: "bp1",
+            name: "shell",
+            repoRoot: "/r",
+            spawnProfile: "claude",
+            nonoAllowDirs: [],
+          },
+        ],
+      },
+    ];
+    const groups = getGroupedSessions([], projects, "project");
+    expect(groups.map((g) => g.key)).toEqual(["p-empty"]);
+    expect(groups[0].sessions).toEqual([]);
+    expect(groups[0].name).toBe("Empty");
+  });
+
+  it("does not seed an empty group for a project with no blueprints", () => {
+    // Projects that exist but have neither sessions nor blueprints have
+    // nothing to render — keeping them out avoids empty noise in the sidebar.
+    const projects: Project[] = [{ id: "p-nothing", name: "Nothing" }];
+    const groups = getGroupedSessions([], projects, "project");
+    expect(groups).toEqual([]);
+  });
+
+  it("sorts a blueprint-only project below groups that have live sessions", () => {
+    const projects: Project[] = [
+      { id: "p-active", name: "Active" },
+      {
+        id: "p-empty",
+        name: "Empty",
+        sessionBlueprints: [
+          {
+            id: "bp1",
+            name: "shell",
+            repoRoot: "/r",
+            spawnProfile: "claude",
+            nonoAllowDirs: [],
+          },
+        ],
+      },
+    ];
+    const sessions = [makeSession({ id: "a", projectId: "p-active", createdAt: 50 })];
+    const groups = getGroupedSessions(sessions, projects, "project");
+    expect(groups.map((g) => g.key)).toEqual(["p-active", "p-empty"]);
+  });
 });
 
 describe("getVisualSessionOrder", () => {

@@ -1650,10 +1650,15 @@ fn apply_notes_env(cmd: &mut CommandBuilder, n: &NotesEnvInputs) {
     // When there's no project, the three project vars are deliberately NOT set
     // so shell idioms like `${ROUX_SESSION_PROJECT:-no-project}` work.
 
-    // Project context paths: same convention as PATH — colon-separated,
-    // skipped entirely when empty so shells can default with `${VAR:-}`.
+    // Project context paths: same convention as PATH — separated with the
+    // platform's path-list separator (`:` on Unix, `;` on Windows). Joining
+    // with a literal `:` would corrupt drive-letter paths like `C:\spec.md`
+    // on Windows. Skipped entirely when empty so shells can default with
+    // `${VAR:-}`.
     if !n.context_paths.is_empty() {
-        cmd.env("ROUX_PROJECT_CONTEXT_PATHS", n.context_paths.join(":"));
+        if let Ok(joined) = std::env::join_paths(n.context_paths.iter().map(std::path::Path::new)) {
+            cmd.env("ROUX_PROJECT_CONTEXT_PATHS", joined);
+        }
     }
     if !n.project_prompt.is_empty() {
         cmd.env("ROUX_PROJECT_PROMPT", &n.project_prompt);

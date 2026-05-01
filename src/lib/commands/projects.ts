@@ -49,7 +49,11 @@ async function spawnBlueprint(project: Project, bp: SessionBlueprint): Promise<v
   });
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(mainPaneId);
-  if (profile) await runProfileInPane(newSession.id, profile);
+  if (profile) {
+    await runProfileInPane(newSession.id, profile, {
+      appendSystemPrompt: project.projectPrompt ?? "",
+    });
+  }
 }
 
 export function registerProjectCommands(): void {
