@@ -1004,9 +1004,14 @@ async fn resolve_send_pty_id(
     }
 
     match session_handle.get(session_id).await {
-        Ok(Some(session)) => session
-            .primary_pty_id
-            .ok_or_else(|| format!("session {} has no primary PTY", session_id)),
+        // Primary pane's pty_id is the session id by convention (see
+        // services/sessions.rs::create_session_shell and reconnect_session_shell,
+        // both of which spawn with `pty_id = session.id`). `primary_pty_id` on
+        // the persisted record can lag — archive() clears it and reconnect
+        // doesn't re-set it — so prefer the convention and fall back to the
+        // recorded value only if it's set. This matches the pre-fix behavior
+        // where the handler wrote to `session_id` directly.
+        Ok(Some(session)) => Ok(session.primary_pty_id.unwrap_or_else(|| session_id.to_string())),
         Ok(None) => Err(format!("session not found: {}", session_id)),
         Err(e) => Err(format!("session lookup failed: {}", e)),
     }
@@ -1449,7 +1454,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_send_pty_id_session_without_primary_pty_errors() {
+    async fn resolve_send_pty_id_falls_back_to_session_id_when_primary_pty_unset() {
+        // Regression coverage for the restore/reconnect path: archive() clears
+        // primary_pty_id and reconnect_session_shell doesn't re-set it, but
+        // the live PTY is still registered under `pty_id == session.id` by
+        // convention. The resolver must use that convention when the
+        // persisted field is None, otherwise sends to restored sessions break.
         let (panes, _pjoin) = crate::pane_service::spawn();
         let dir = tempfile::tempdir().unwrap();
         let (sessions, _sjoin) = crate::session_service::spawn_with_path(
@@ -1457,8 +1467,8 @@ mod tests {
             dir.path().join("sessions.json"),
         );
 
-        let err = resolve_send_pty_id(&panes, &sessions, "sid-1", None).await.unwrap_err();
-        assert!(err.contains("no primary PTY"), "got: {}", err);
+        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", None).await.unwrap();
+        assert_eq!(pty_id, "sid-1");
     }
 
     // ── prepare_send (issue #127 regression coverage) ────────
