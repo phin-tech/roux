@@ -623,6 +623,7 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
     let session = match svc::create_session_shell(
         &state.pty_manager,
         &state.session_handle,
+        &state.project_handle,
         &settings,
         &path,
         &name,
@@ -631,6 +632,8 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
         None, // profile - CLI-initiated, frontend will set via profile runner
         // CLI-initiated sessions have no pane context yet.
         None,
+        None, // project_id - CLI sessions are unattached
+        None, // blueprint_id
         Some(&state.automation_hooks),
         app,
     )
@@ -753,6 +756,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     let session = match svc::create_session_shell(
         &state.pty_manager,
         &state.session_handle,
+        &state.project_handle,
         &settings,
         &repo_path,
         &name,
@@ -760,6 +764,8 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         nono_config.as_ref(),
         Some(&profile),
         None,
+        None, // project_id - CLI sessions are unattached
+        None, // blueprint_id
         Some(&state.automation_hooks),
         app,
     )
@@ -1499,6 +1505,7 @@ mod tests {
             primary_pty_id: None,
             archived: false,
             ended_at: None,
+            blueprint_id: None,
         }
     }
 

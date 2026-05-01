@@ -6,20 +6,25 @@ use crate::automation_hooks::{
     worktree_provider_hooks, AutomationHookManager, HookContext, HookEvent,
 };
 use crate::paths::default_notes_vault_root;
+use crate::project_service::ProjectHandle;
 use crate::pty::{NotesEnvInputs, PtyManager};
 use crate::services::notes::{self as notes_svc, NotesService};
 use crate::session::Session;
 use crate::session_service::SessionHandle;
 use crate::settings::RouxSettings;
+use roux_core::Project;
 
-/// Build the `NotesEnvInputs` for a brand-new session that hasn't been
-/// assigned a project yet. Project slug stays `None` until the user
-/// assigns one (at which point a reconnect refreshes the env).
+/// Build the `NotesEnvInputs` for a brand-new session. When `project` is
+/// supplied (the blueprint-spawn path), the project slug + context paths
+/// are baked in on the very first PTY spawn so the child shell sees the
+/// env vars immediately. Otherwise project_slug stays `None` until the
+/// user assigns one (at which point a reconnect refreshes the env).
 fn build_notes_env_for_new_session(
     settings: &RouxSettings,
     session_id: &str,
     branch: &str,
     repo_path: &str,
+    project: Option<&Project>,
 ) -> NotesEnvInputs {
     let vault_root_path = settings
         .notes_vault_root
@@ -30,11 +35,21 @@ fn build_notes_env_for_new_session(
     let mut svc = NotesService::new(vault_root_path.clone());
     let remote = git_origin_url(repo_path);
     let repo_slug = svc.freeze_repo_slug(repo_path, remote.as_deref());
+    let (project_slug, context_paths, project_prompt) = match project {
+        Some(p) => (
+            Some(svc.freeze_project_slug(&p.id, &p.name)),
+            p.context_paths.clone(),
+            p.project_prompt.clone(),
+        ),
+        None => (None, Vec::new(), String::new()),
+    };
     NotesEnvInputs {
         vault_root: vault_root_path.to_string_lossy().into_owned(),
         session_slug: notes_svc::session_slug(branch, session_id),
         repo_slug,
-        project_slug: None,
+        project_slug,
+        context_paths,
+        project_prompt,
     }
 }
 
@@ -56,15 +71,19 @@ async fn build_notes_env_for_existing_session(
     let remote = git_origin_url(&session.repo_root);
     let repo_slug = svc.freeze_repo_slug(&session.repo_root, remote.as_deref());
 
-    let project_slug = match session.project_id.as_deref() {
+    let (project_slug, context_paths, project_prompt) = match session.project_id.as_deref() {
         Some(pid) => match project_handle.list().await.ok() {
-            Some(projects) => projects
-                .into_iter()
-                .find(|p| p.id == pid)
-                .map(|p| svc.freeze_project_slug(pid, &p.name)),
-            None => None,
+            Some(projects) => match projects.into_iter().find(|p| p.id == pid) {
+                Some(p) => (
+                    Some(svc.freeze_project_slug(pid, &p.name)),
+                    p.context_paths,
+                    p.project_prompt,
+                ),
+                None => (None, Vec::new(), String::new()),
+            },
+            None => (None, Vec::new(), String::new()),
         },
-        None => None,
+        None => (None, Vec::new(), String::new()),
     };
 
     NotesEnvInputs {
@@ -72,6 +91,8 @@ async fn build_notes_env_for_existing_session(
         session_slug: notes_svc::session_slug(&session.branch, &session.id),
         repo_slug,
         project_slug,
+        context_paths,
+        project_prompt,
     }
 }
 
@@ -139,6 +160,7 @@ pub(crate) enum SessionTarget<'a> {
 pub(crate) async fn create_session_shell(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
+    project_handle: &ProjectHandle,
     settings: &RouxSettings,
     repo_path: &str,
     name: &str,
@@ -146,6 +168,8 @@ pub(crate) async fn create_session_shell(
     nono: Option<&crate::pty::NonoConfig>,
     profile: Option<&str>,
     initial_size: Option<(u16, u16)>,
+    project_id: Option<&str>,
+    blueprint_id: Option<&str>,
     hooks: Option<&AutomationHookManager>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
@@ -222,14 +246,26 @@ pub(crate) async fn create_session_shell(
     // tier-1 hook routing happy the moment the user starts an agent.
     let pane_id = format!("{}-main", session_id);
     let worktree_env = if is_wt { Some(work_dir.as_str()) } else { None };
-    let notes_env =
-        Some(build_notes_env_for_new_session(settings, &session_id, &actual_branch, repo_path));
+    // Resolve the project up-front so the very first PTY spawn carries the
+    // project notes + ROUX_PROJECT_CONTEXT_PATHS env vars when this session
+    // was launched from a blueprint or otherwise pre-tagged with a project.
+    let project_record = match project_id {
+        Some(pid) => project_handle.get(pid).await.ok().flatten(),
+        None => None,
+    };
+    let notes_env = Some(build_notes_env_for_new_session(
+        settings,
+        &session_id,
+        &actual_branch,
+        repo_path,
+        project_record.as_ref(),
+    ));
     let spawn_result = pty_manager.spawn_shell(
         &session_id,
         &work_dir,
         Some(&session_id),
         Some(&pane_id),
-        None,
+        project_id,
         worktree_env,
         notes_env.as_ref(),
         nono,
@@ -266,12 +302,13 @@ pub(crate) async fn create_session_shell(
         model: None,
         cost: None,
         created_at: now,
-        project_id: None,
+        project_id: project_id.map(|s| s.to_string()),
         is_git_repo: is_git_repo(repo_path),
         name_override: None,
         primary_pty_id: Some(session_id),
         archived: false,
         ended_at: None,
+        blueprint_id: blueprint_id.map(|s| s.to_string()),
     };
 
     if let Err(e) = session_handle.add(session.clone()).await {

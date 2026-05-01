@@ -132,6 +132,18 @@ export const commands = {
 	 *  `origin/*`-style bases that may be stale locally.
 	 */
 	fetchFirst?: boolean | null,
+	/**
+	 *  Project to attach the new session to. When set, the PTY env vars
+	 *  for the project notes + `ROUX_PROJECT_CONTEXT_PATHS` are populated
+	 *  on the very first spawn (no reconnect required).
+	 */
+	projectId?: string | null,
+	/**
+	 *  Project session-blueprint id this session was spawned from. Stamped
+	 *  onto the persisted Session so the sidebar can collapse the dimmed
+	 *  blueprint row when the live session is up.
+	 */
+	blueprintId?: string | null,
 } | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, opts })),
 	/**
 	 *  Respawns a plain shell in the session's primary PTY. The frontend
@@ -214,7 +226,15 @@ export const commands = {
 	lookupPr: (repoPath: string | null, url: string) => typedError<PrInfo, string>(__TAURI_INVOKE("lookup_pr", { repoPath, url })),
 	fetchPrBranch: (repoPath: string, number: number, headRef: string, isCrossRepository: boolean) => typedError<string, string>(__TAURI_INVOKE("fetch_pr_branch", { repoPath, number, headRef, isCrossRepository })),
 	cloneRepo: (owner: string, repo: string, targetDir: string) => typedError<string, string>(__TAURI_INVOKE("clone_repo", { owner, repo, targetDir })),
-	lookupPrForBranch: (repoPath: string, branch: string) => typedError<PrInfo | null, string>(__TAURI_INVOKE("lookup_pr_for_branch", { repoPath, branch })),
+	lookupPrForBranch: (repoPath: string, branch: string) => typedError<{
+	number: number,
+	title: string,
+	headRef: string,
+	headOwner: string,
+	isCrossRepository: boolean,
+	url: string,
+	repoSlug: string,
+} | null, string>(__TAURI_INVOKE("lookup_pr_for_branch", { repoPath, branch })),
 	cmdDiscoverTasks: (dir: string) => __TAURI_INVOKE<TaskGroup[]>("cmd_discover_tasks", { dir }),
 	cmdLoadTaskOverrides: () => __TAURI_INVOKE<{ [key in string]: { [key in string]: string } }>("cmd_load_task_overrides"),
 	cmdSaveTaskOverrides: (overrides: { [key in string]: { [key in string]: string } }) => typedError<null, string>(__TAURI_INVOKE("cmd_save_task_overrides", { overrides })),
@@ -222,6 +242,7 @@ export const commands = {
 	createProject: (name: string) => typedError<Project, string>(__TAURI_INVOKE("create_project", { name })),
 	removeProject: (id: string) => typedError<null, string>(__TAURI_INVOKE("remove_project", { id })),
 	renameProject: (id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("rename_project", { id, name })),
+	updateProject: (id: string, patch: ProjectUpdate) => typedError<Project, string>(__TAURI_INVOKE("update_project", { id, patch })),
 	setSessionProject: (sessionId: string, projectId: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_project", { sessionId, projectId })),
 	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
 	notesWrite: (target: NotesTarget, content: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_write", { target, content, tags })),
@@ -230,6 +251,14 @@ export const commands = {
 	notesSearch: (query: NotesSearchQuery) => typedError<string[], string>(__TAURI_INVOKE("notes_search", { query })),
 	notesVaultRoot: () => typedError<string, string>(__TAURI_INVOKE("notes_vault_root")),
 	cmdCreateWatch: (config: CreateWatchConfig) => typedError<Watch, string>(__TAURI_INVOKE("cmd_create_watch", { config })),
+	/**
+	 *  Idempotent variant of [`cmd_create_watch`] for `GithubPr` watches.
+	 *  Find-or-insert is performed atomically inside the watch-store actor,
+	 *  so concurrent callers (session activation + manual refresh + settings
+	 *  toggle) resolve to the same watch instead of creating duplicates.
+	 *  For non-`GithubPr` kinds the call falls through to `cmd_create_watch`
+	 *  since dedupe semantics for those aren't defined.
+	 */
 	cmdFindOrCreateWatch: (config: CreateWatchConfig) => typedError<Watch, string>(__TAURI_INVOKE("cmd_find_or_create_watch", { config })),
 	cmdRemoveWatch: (id: string) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_watch", { id })),
 	cmdListWatches: () => typedError<Watch[], string>(__TAURI_INVOKE("cmd_list_watches")),
@@ -321,6 +350,18 @@ export type CreateShellOpts = {
 	 *  `origin/*`-style bases that may be stale locally.
 	 */
 	fetchFirst?: boolean | null,
+	/**
+	 *  Project to attach the new session to. When set, the PTY env vars
+	 *  for the project notes + `ROUX_PROJECT_CONTEXT_PATHS` are populated
+	 *  on the very first spawn (no reconnect required).
+	 */
+	projectId?: string | null,
+	/**
+	 *  Project session-blueprint id this session was spawned from. Stamped
+	 *  onto the persisted Session so the sidebar can collapse the dimmed
+	 *  blueprint row when the live session is up.
+	 */
+	blueprintId?: string | null,
 };
 
 export type CreateWatchConfig = {
@@ -332,15 +373,6 @@ export type CreateWatchConfig = {
 };
 
 export type CursorStyle = "block" | "underline" | "bar";
-
-/**
- * xterm.js renderer selection. `Auto` (default) tries WebGL and silently
- * falls back to the built-in DOM renderer if construction fails or the
- * WebGL context is lost. `On` is identical to `Auto` today — kept as a
- * distinct option because users have a clear mental model from VSCode's
- * `terminal.integrated.gpuAcceleration`. `Off` skips WebGL entirely.
- */
-export type GpuAcceleration = "auto" | "on" | "off";
 
 export type DocFile = {
 	path: string,
@@ -372,6 +404,15 @@ export type GithubJob = {
 	conclusion: string | null,
 	failedStep: string | null,
 };
+
+/**
+ *  xterm.js renderer selection. `Auto` (default) tries WebGL and silently
+ *  falls back to the built-in DOM renderer if construction fails or the
+ *  WebGL context is lost. `On` is identical to `Auto` today — kept as a
+ *  distinct option because users have a clear mental model from VSCode's
+ *  `terminal.integrated.gpuAcceleration`. `Off` skips WebGL entirely.
+ */
+export type GpuAcceleration = "auto" | "on" | "off";
 
 export type GroupBy = "repo" | "project";
 
@@ -540,8 +581,8 @@ export type LibrarySource = {
 	url?: string | null,
 	branch?: string | null,
 	/**
-	 *  Per-source override for skill sync mode. `null`/absent means
-	 *  "inherit the global default" (`RouxSettings::library_skill_sync_default`).
+	 *  Per-source override for skill sync mode. `None` means "inherit
+	 *  the global default" (`RouxSettings::library_skill_sync_default`).
 	 */
 	skillSync?: SkillSyncMode | null,
 };
@@ -720,6 +761,27 @@ export type ProfileSource = "builtin" | "user" | "project" | "inline";
 export type Project = {
 	id: string,
 	name: string,
+	repoRoots?: string[],
+	contextPaths?: string[],
+	sessionBlueprints?: SessionBlueprint[],
+	/**
+	 *  Free-form text injected at agent spawn time. Surfaced as
+	 *  `--append-system-prompt` for Claude profiles and `-c instructions=…`
+	 *  for Codex profiles. Empty string = no prompt.
+	 */
+	projectPrompt?: string,
+};
+
+/**
+ *  Partial patch sent to `update_project`. Any field set to `Some` replaces
+ *  the corresponding field on the stored project; `None` leaves it untouched.
+ */
+export type ProjectUpdate = {
+	name?: string | null,
+	repoRoots?: string[] | null,
+	contextPaths?: string[] | null,
+	sessionBlueprints?: SessionBlueprint[] | null,
+	projectPrompt?: string | null,
 };
 
 /**
@@ -961,16 +1023,12 @@ export type RouxSettings = {
 	 *  default), session activation triggers a `gh pr list --head <branch>`
 	 *  call to populate the status-bar PR chip and feed the auto-watch
 	 *  flow. When false, no gh call is made, the chip falls back to
-	 *  worktrunk's `ciUrl` only, and `autoWatchSessionPr` becomes a no-op.
+	 *  worktrunk's `ciUrl` only, and `auto_watch_session_pr` becomes a
+	 *  no-op. Useful for users who don't use GitHub PRs or want to avoid
+	 *  the gh subprocess on every session switch.
 	 */
 	autoLookupSessionPr?: boolean,
 };
-
-/**
- *  Whether and how a Library source's skills are written into a
- *  Claude-readable `.claude/skills/<name>/SKILL.md` directory.
- */
-export type SkillSyncMode = "off" | "copy" | "symlink";
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
 
@@ -1004,6 +1062,31 @@ export type Session = {
 	 *  active sessions; set when `archived` flips to `true`.
 	 */
 	endedAt?: number | null,
+	/**
+	 *  Project session-blueprint id this session was spawned from. Lets the
+	 *  sidebar collapse the dimmed blueprint row while a live session is up
+	 *  and respawn it when the live session is killed.
+	 */
+	blueprintId?: string | null,
+};
+
+/**
+ *  A saved session template attached to a project. When the user spawns a
+ *  blueprint, the frontend calls `create_session_shell` with these values
+ *  and stamps the resulting `Session.blueprint_id` so the dimmed sidebar
+ *  row collapses behind the live session.
+ */
+export type SessionBlueprint = {
+	id: string,
+	name: string,
+	repoRoot: string,
+	branch?: string | null,
+	worktreePath?: string | null,
+	spawnProfile: string,
+	base?: string | null,
+	fetchFirst?: boolean,
+	nonoProfile?: string | null,
+	nonoAllowDirs?: string[],
 };
 
 export type SessionStatus = "idle" | "thinking" | "generating" | "error" | "disconnected" | "attention";
@@ -1012,6 +1095,20 @@ export type SetupStatus = {
 	cliInstalled: boolean,
 	ghAvailable: boolean,
 };
+
+/**
+ *  Whether and how a Library source's skills are written into a
+ *  Claude-readable `.claude/skills/<name>/SKILL.md` directory.
+ * 
+ *  - `Off`: Roux does not write skill files outside the Library.
+ *  - `Copy`: Roux writes a copy of each skill on sync; subsequent edits
+ *    to the synced file are detected via a content-hash manifest.
+ *  - `Symlink`: Roux symlinks each `.claude/skills/<name>/` entry back
+ *    to the source skill file. Edits in either place are the same edit.
+ *    On Windows, when symlinks are denied, Roux auto-degrades to `Copy`
+ *    for that sync run and emits a one-time toast event.
+ */
+export type SkillSyncMode = "off" | "copy" | "symlink";
 
 /**
  *  A named recipe for launching something inside a shell pane. Orthogonal to
@@ -1302,3 +1399,4 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
+

@@ -7,6 +7,7 @@
   import { closePane } from "$lib/panes/actions";
   import { resolveProfileRef } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
+  import { getProjectPrompt } from "$lib/stores/projects";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
   import {
     resizeSession,
@@ -121,7 +122,9 @@
     if (!instance || !activeProfile) return;
     log(`Re-running profile "${activeProfile.id}" in pane ${paneId}`);
     try {
-      await runProfileInPane(instance.ptyId, activeProfile);
+      await runProfileInPane(instance.ptyId, activeProfile, {
+        appendSystemPrompt: getProjectPrompt(session?.projectId),
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logError(`Re-run profile "${activeProfile.id}" failed`, e);

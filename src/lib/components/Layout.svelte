@@ -7,6 +7,7 @@
   import { sessionLayouts } from "$lib/panes/layout";
   import { settings } from "$lib/stores/settings";
   import { sidebarLayout } from "$lib/stores/sidebarLayout";
+  import { openNewProjectDialog } from "$lib/stores/newProjectDialog";
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -53,15 +54,24 @@
           </div>
           <div class="space-y-1">
             <p class="text-base font-semibold tracking-tight text-text-primary">No active sessions</p>
-            <p class="text-sm text-text-secondary">Start a new session to open a terminal workspace.</p>
+            <p class="text-sm text-text-secondary">Start a session, or set up a project to template several at once.</p>
           </div>
-          <button
-            type="button"
-            onclick={onNewSession}
-            class="rounded-lg border border-border-subtle bg-bg-surface/80 px-4 py-2 text-sm font-semibold text-text-primary shadow-[0_18px_40px_rgba(2,6,23,0.45)] transition-colors hover:border-accent hover:text-accent"
-          >
-            New Session
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick={onNewSession}
+              class="rounded-lg border border-border-subtle bg-bg-surface/80 px-4 py-2 text-sm font-semibold text-text-primary shadow-[0_18px_40px_rgba(2,6,23,0.45)] transition-colors hover:border-accent hover:text-accent"
+            >
+              New Session
+            </button>
+            <button
+              type="button"
+              onclick={openNewProjectDialog}
+              class="rounded-lg border border-border-subtle bg-bg-surface/80 px-4 py-2 text-sm font-semibold text-text-primary shadow-[0_18px_40px_rgba(2,6,23,0.45)] transition-colors hover:border-accent hover:text-accent"
+            >
+              New Project
+            </button>
+          </div>
         </div>
       {:else}
         {#each $sessionState.sessions as session (session.id)}

@@ -1565,6 +1565,16 @@ pub(crate) struct NotesEnvInputs {
     pub(crate) session_slug: String,
     pub(crate) repo_slug: String,
     pub(crate) project_slug: Option<String>,
+    /// External docs/specs paths attached to this session's project.
+    /// Surfaced to the PTY child as `ROUX_PROJECT_CONTEXT_PATHS` (colon-
+    /// separated like `PATH`), and only when the session is associated
+    /// with a project that has at least one path configured.
+    pub(crate) context_paths: Vec<String>,
+    /// Free-form text exposed as `ROUX_PROJECT_PROMPT`. The frontend
+    /// profile runner additionally splices this into the agent CLI's
+    /// startup command (`--append-system-prompt` for Claude,
+    /// `-c instructions=…` for Codex). Empty string = unset.
+    pub(crate) project_prompt: String,
 }
 
 fn apply_roux_env(
@@ -1639,6 +1649,15 @@ fn apply_notes_env(cmd: &mut CommandBuilder, n: &NotesEnvInputs) {
     }
     // When there's no project, the three project vars are deliberately NOT set
     // so shell idioms like `${ROUX_SESSION_PROJECT:-no-project}` work.
+
+    // Project context paths: same convention as PATH — colon-separated,
+    // skipped entirely when empty so shells can default with `${VAR:-}`.
+    if !n.context_paths.is_empty() {
+        cmd.env("ROUX_PROJECT_CONTEXT_PATHS", n.context_paths.join(":"));
+    }
+    if !n.project_prompt.is_empty() {
+        cmd.env("ROUX_PROJECT_PROMPT", &n.project_prompt);
+    }
 }
 
 /// Get the user's login shell PATH by invoking the same shell Roux would use
