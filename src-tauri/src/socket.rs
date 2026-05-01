@@ -996,21 +996,31 @@ async fn resolve_send_pty_id(
             .list_by_ids(vec![pane_id.to_string()])
             .await
             .map_err(|e| format!("pane lookup failed: {}", e))?;
-        return records
+        let record = records
             .into_iter()
             .next()
-            .map(|r| r.pty_id)
-            .ok_or_else(|| format!("pane not found: {}", pane_id));
+            .ok_or_else(|| format!("pane not found: {}", pane_id))?;
+
+        // Defensive: reject a pane that doesn't belong to the requested
+        // session. Pane IDs follow the `{session}-{suffix}` convention
+        // (see services/sessions.rs), so the prefix check is sufficient.
+        if !record.id.starts_with(&format!("{}-", session_id)) {
+            return Err(format!(
+                "pane {} does not belong to session {}",
+                pane_id, session_id
+            ));
+        }
+        return Ok(record.pty_id);
     }
 
     match session_handle.get(session_id).await {
-        // Primary pane's pty_id is the session id by convention (see
-        // services/sessions.rs::create_session_shell and reconnect_session_shell,
-        // both of which spawn with `pty_id = session.id`). `primary_pty_id` on
-        // the persisted record can lag — archive() clears it and reconnect
-        // doesn't re-set it — so prefer the convention and fall back to the
-        // recorded value only if it's set. This matches the pre-fix behavior
-        // where the handler wrote to `session_id` directly.
+        // The canonical PTY for a live session has `pty_id == session.id` by
+        // convention (see services/sessions.rs::create_session_shell and
+        // reconnect_session_shell). `primary_pty_id` on the persisted record
+        // can lag — archive() clears it and reconnect doesn't re-set it — so
+        // use the persisted value when set, falling back to session.id when
+        // it's None. This matches the pre-fix behavior where the handler
+        // wrote to `session_id` directly.
         Ok(Some(session)) => Ok(session.primary_pty_id.unwrap_or_else(|| session_id.to_string())),
         Ok(None) => Err(format!("session not found: {}", session_id)),
         Err(e) => Err(format!("session lookup failed: {}", e)),
@@ -1440,6 +1450,32 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.contains("pane not found"), "got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn resolve_send_pty_id_cross_session_pane_errors() {
+        // The pane exists but belongs to a different session. The resolver
+        // must reject it rather than silently routing to the wrong PTY.
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) = crate::session_service::spawn_with_path(
+            vec![
+                session_with_pty("sid-A", Some("sid-A")),
+                session_with_pty("sid-B", Some("sid-B")),
+            ],
+            dir.path().join("sessions.json"),
+        );
+        panes.upsert(pane_record("sid-A-main", "sid-A")).await.unwrap();
+        panes.upsert(pane_record("sid-B-main", "sid-B")).await.unwrap();
+
+        let err = resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main"))
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("does not belong to session"),
+            "got: {}",
+            err
+        );
     }
 
     #[tokio::test]
