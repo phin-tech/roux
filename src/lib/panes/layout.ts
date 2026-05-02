@@ -571,18 +571,33 @@ export function canToggleStack(sessionId: string): boolean {
 }
 
 /** Switch the active stack tab within a stacked split. */
-export function setActiveStackIndex(sessionId: string, index: number): void {
-  const focused = get(focusedPaneId);
-  if (!focused) return;
+export function setActiveStackIndex(
+  sessionId: string,
+  index: number,
+  stackPath?: readonly number[]
+): void {
+  const layouts = get(sessionLayouts);
+  const tree = layouts.get(sessionId);
+  if (!tree) return;
 
+  let nextTree: LayoutNode | null = null;
   let newFocusTarget: LayoutNode | null = null;
 
-  sessionLayouts.update((m) => {
-    const tree = m.get(sessionId);
-    if (!tree) return m;
+  if (stackPath !== undefined) {
+    const split = splitAtExactPath(tree, stackPath);
+    if (!split || !split.stacked) return;
+
+    const clamped = Math.max(0, Math.min(index, split.children.length - 1));
+    newFocusTarget = split.children[clamped];
+    if ((split.activeIndex ?? 0) !== clamped) {
+      nextTree = replaceSplitAtPath(tree, stackPath, { ...split, stacked: true, activeIndex: clamped });
+    }
+  } else {
+    const focused = get(focusedPaneId);
+    if (!focused) return;
 
     const path: number[] = [];
-    if (!buildSplitPath(tree, focused, path)) return m;
+    if (!buildSplitPath(tree, focused, path)) return;
 
     const splitDepths = ancestorSplitDepths(tree, path);
     let stackedDepth = -1;
@@ -593,18 +608,27 @@ export function setActiveStackIndex(sessionId: string, index: number): void {
         break;
       }
     }
-    if (stackedDepth === -1) return m;
+    if (stackedDepth === -1) return;
 
     const split = splitAtPath(tree, path, stackedDepth);
     const clamped = Math.max(0, Math.min(index, split.children.length - 1));
     newFocusTarget = split.children[clamped];
-    const next = new Map(m);
-    next.set(sessionId, setStackedAtDepth(tree, path, stackedDepth, 0, true, clamped));
-    return next;
-  });
+    if ((split.activeIndex ?? 0) !== clamped) {
+      nextTree = setStackedAtDepth(tree, path, stackedDepth, 0, true, clamped);
+    }
+  }
+
+  if (nextTree) {
+    const next = new Map(layouts);
+    next.set(sessionId, nextTree);
+    sessionLayouts.set(next);
+  }
 
   if (newFocusTarget) {
-    setLogicalFocus(firstLeafId(newFocusTarget));
+    const targetPaneId = firstLeafId(newFocusTarget);
+    if (targetPaneId !== get(focusedPaneId)) {
+      setLogicalFocus(targetPaneId);
+    }
   }
 }
 

@@ -215,11 +215,12 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 // Track which sessions have pending unsaved changes
 let dirtySessions: Set<string> = new Set();
 
-export function scheduleSave(layouts: Map<string, LayoutNode>): void {
-  // Mark all current sessions as dirty
-  for (const sessionId of layouts.keys()) {
+export function scheduleSave(sessionIds: Iterable<string>): void {
+  for (const sessionId of sessionIds) {
     dirtySessions.add(sessionId);
   }
+
+  if (dirtySessions.size === 0) return;
 
   if (saveTimer !== null) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -247,6 +248,19 @@ async function writeAllDirty(): Promise<void> {
       log(`auto-save failed for session ${sessionId}: ${e}`);
     }
   }
+}
+
+function changedLayoutSessionIds(
+  previous: Map<string, LayoutNode>,
+  current: Map<string, LayoutNode>,
+): string[] {
+  const changed: string[] = [];
+  for (const [sessionId, tree] of current) {
+    if (previous.get(sessionId) !== tree) {
+      changed.push(sessionId);
+    }
+  }
+  return changed;
 }
 
 /**
@@ -318,12 +332,16 @@ export function initPersistence(): void {
   // was already in the store (e.g. main-only leaves from session restore),
   // clobbering the persisted full layout on disk.
   let isFirstCallback = true;
+  let previousLayouts = new Map<string, LayoutNode>();
   unsubscribe = sessionLayouts.subscribe((layouts) => {
     if (isFirstCallback) {
       isFirstCallback = false;
+      previousLayouts = layouts;
       return;
     }
-    scheduleSave(layouts);
+    const changed = changedLayoutSessionIds(previousLayouts, layouts);
+    previousLayouts = layouts;
+    scheduleSave(changed);
   });
 }
 

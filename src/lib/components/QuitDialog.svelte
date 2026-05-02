@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
-  import { sessionState } from "$lib/stores/sessions";
+  import { sessionList } from "$lib/stores/sessions";
   import { updateSetting } from "$lib/stores/settings";
   import { quitApp } from "$lib/tauri";
   import { flushPaneState } from "$lib/panes/persistence";
@@ -28,7 +28,7 @@
   }
 
   let activeSessions = $derived(
-    $sessionState.sessions.filter((s) => s.status !== "disconnected"),
+    $sessionList.filter((s) => s.status !== "disconnected"),
   );
 
   let busySessions = $derived(

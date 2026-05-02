@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => {
     settingsStore: null as unknown as ReturnType<typeof writable<unknown>>,
     terminalLoadAddon: vi.fn(),
     terminalDispose: vi.fn(),
+    terminalOpen: vi.fn(),
+    fitAddonFit: vi.fn(),
+    fitAddonProposeDimensions: vi.fn(),
     webglConstructor: vi.fn(),
     webglDispose: vi.fn(),
     webglOnContextLoss: vi.fn(),
@@ -73,15 +76,15 @@ vi.mock("@xterm/xterm", () => ({
     this.write = vi.fn();
     this.clear = vi.fn();
     this.reset = vi.fn();
-    this.open = vi.fn();
+    this.open = mocks.terminalOpen;
     this.element = null;
   }),
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
-    this.fit = vi.fn();
-    this.proposeDimensions = vi.fn().mockReturnValue(null);
+    this.fit = mocks.fitAddonFit;
+    this.proposeDimensions = mocks.fitAddonProposeDimensions;
   }),
 }));
 
@@ -109,6 +112,9 @@ const { createXtermTerminalController } = await import("../xtermController");
 beforeEach(() => {
   mocks.terminalLoadAddon.mockClear();
   mocks.terminalDispose.mockClear();
+  mocks.terminalOpen.mockClear();
+  mocks.fitAddonFit.mockClear();
+  mocks.fitAddonProposeDimensions.mockReset().mockReturnValue(null);
   mocks.webglConstructor.mockClear();
   mocks.webglDispose.mockClear();
   mocks.webglOnContextLoss.mockClear();
@@ -126,6 +132,19 @@ describe("XtermTerminalController renderer setup", () => {
 
     expect(mocks.webglConstructor).toHaveBeenCalledTimes(1);
     expect(mocks.webglOnContextLoss).toHaveBeenCalledTimes(1);
+  });
+
+  it("attaches without scheduling its own fit", () => {
+    const raf = vi.fn();
+    vi.stubGlobal("requestAnimationFrame", raf);
+    const controller = createXtermTerminalController();
+    const container = document.createElement("div");
+
+    controller.attach(container);
+
+    expect(mocks.terminalOpen).toHaveBeenCalledWith(container);
+    expect(raf).not.toHaveBeenCalled();
+    expect(mocks.fitAddonFit).not.toHaveBeenCalled();
   });
 
   it("loads WebglAddon when gpuAcceleration is 'on'", () => {

@@ -15,6 +15,7 @@ import {
   getLayout,
   navigatePane,
   toggleStack,
+  setActiveStackIndex,
   getStackLabel,
   movePane,
   resizePane,
@@ -372,6 +373,78 @@ describe("toggleStack", () => {
     if (tree.kind === "split") {
       expect(tree.stacked).toBeFalsy();
     }
+  });
+
+  it("switches the explicit stack path even when focus is elsewhere", () => {
+    sessionLayouts.set(new Map([
+      ["s1", {
+        kind: "split",
+        direction: "h",
+        children: [
+          {
+            kind: "split",
+            direction: "h",
+            stacked: true,
+            activeIndex: 0,
+            children: [
+              { kind: "leaf", paneId: "left-a" },
+              { kind: "leaf", paneId: "left-b" },
+            ],
+          },
+          {
+            kind: "split",
+            direction: "h",
+            stacked: true,
+            activeIndex: 0,
+            children: [
+              { kind: "leaf", paneId: "right-a" },
+              { kind: "leaf", paneId: "right-b" },
+            ],
+          },
+        ],
+      }],
+    ]));
+    setLogicalFocus("right-a");
+
+    setActiveStackIndex("s1", 1, [0]);
+
+    const tree = getLayout("s1");
+    expect(tree.kind).toBe("split");
+    if (tree.kind === "split") {
+      const left = tree.children[0];
+      const right = tree.children[1];
+      expect(left.kind).toBe("split");
+      expect(right.kind).toBe("split");
+      if (left.kind === "split") expect(left.activeIndex).toBe(1);
+      if (right.kind === "split") expect(right.activeIndex).toBe(0);
+    }
+    expect(get(focusedPaneId)).toBe("left-b");
+  });
+
+  it("does not publish a layout change when selecting the already-active stack tab", () => {
+    sessionLayouts.set(new Map([
+      ["s1", {
+        kind: "split",
+        direction: "h",
+        stacked: true,
+        activeIndex: 0,
+        children: [
+          { kind: "leaf", paneId: "p1" },
+          { kind: "leaf", paneId: "p2" },
+        ],
+      }],
+    ]));
+    setLogicalFocus("p1");
+
+    let publishes = 0;
+    const unsubscribe = sessionLayouts.subscribe(() => {
+      publishes += 1;
+    });
+    setActiveStackIndex("s1", 0, []);
+    unsubscribe();
+
+    expect(publishes).toBe(1);
+    expect(get(focusedPaneId)).toBe("p1");
   });
 });
 
