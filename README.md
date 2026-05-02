@@ -20,7 +20,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Configurable keymap** -- Edit `~/.config/roux/keymap.kdl`, switch between `default` and `tmux`, and reload shortcuts without restarting
 - **Layout persistence** -- Pane layouts survive app restarts; shell panes respawn automatically
 - **Themes** -- Separate GUI and terminal themes, including imported user `.itermcolors` terminal themes
-- **Projects** -- Tag sessions with projects to organize related work across repos and worktrees
+- **Projects** -- Group sessions across repos, save session blueprints, and inject project context
 - **Multi-scoped notes vault** (experimental) -- Plain-text notes sidebar (`cmd+b`) with four scopes (global / project / repo / session), backed by an Obsidian-compatible markdown vault at `~/Documents/Roux`. Scriptable from `roux notes <scope> <verb>` and surfaced to agents via per-PTY `ROUX_*_NOTES_*` env vars.
 - **Command panes** -- Run shell commands in dedicated panes with rerun support
 - **Task runner** -- Run predefined commands from configuration files

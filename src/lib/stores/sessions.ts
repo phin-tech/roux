@@ -124,3 +124,12 @@ export function setSessionProject(id: string, projectId: string | null) {
     ),
   }));
 }
+
+export function clearSessionsProject(projectId: string) {
+  sessionState.update((state) => ({
+    ...state,
+    sessions: state.sessions.map((s) =>
+      s.projectId === projectId ? { ...s, projectId: null, blueprintId: null } : s
+    ),
+  }));
+}

@@ -13,6 +13,8 @@ A **session** is a running agent/shell workflow attached to a specific project d
 
 Sessions can be tagged with a **project**. Projects group related sessions across repos and worktrees so notes, documents, and defaults are shared between them.
 
+Project records can also store repo lists, reusable session blueprints, project prompts, and context paths for spawned PTYs. See [Projects](projects.md).
+
 ## Sidebar and grouping
 
 The session sidebar has a couple of useful modes:

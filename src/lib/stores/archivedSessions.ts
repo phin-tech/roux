@@ -230,3 +230,12 @@ export function addArchivedSessionFromEvent(
     worktreeExists: nextWorktreeExists,
   }));
 }
+
+export function clearArchivedSessionsProject(projectId: string): void {
+  archivedSessionsState.update((state) => ({
+    ...state,
+    sessions: state.sessions.map((s) =>
+      s.projectId === projectId ? { ...s, projectId: null, blueprintId: null } : s
+    ),
+  }));
+}

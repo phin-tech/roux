@@ -10,6 +10,7 @@ import {
   setSessionDisconnected,
   renameSession,
   updateSessionGitStatus,
+  clearSessionsProject,
 } from "../sessions";
 import type { Session } from "$lib/types";
 
@@ -177,5 +178,24 @@ describe("sessions store", () => {
 
     expect(get(sessionState).sessions.find((s) => s.id === s1.id)?.isGitRepo).toBe(true);
     expect(get(sessionState).sessions.find((s) => s.id === s2.id)?.isGitRepo).toBe(false);
+  });
+
+  it("clears project and blueprint refs for sessions attached to a deleted project", () => {
+    const s1 = makeSession({ projectId: "proj-1", blueprintId: "bp-1" });
+    const s2 = makeSession({ projectId: "proj-2", blueprintId: "bp-2" });
+    addSession(s1);
+    addSession(s2);
+
+    clearSessionsProject("proj-1");
+
+    const state = get(sessionState);
+    expect(state.sessions.find((s) => s.id === s1.id)).toMatchObject({
+      projectId: null,
+      blueprintId: null,
+    });
+    expect(state.sessions.find((s) => s.id === s2.id)).toMatchObject({
+      projectId: "proj-2",
+      blueprintId: "bp-2",
+    });
   });
 });
