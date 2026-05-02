@@ -44,6 +44,19 @@ describe("themes", () => {
     expect(getTerminalTheme("not-a-theme")).toEqual(getTerminalTheme("deep-blue"));
   });
 
+  it("recognizes the warm-burnout presets and surfaces their palettes", () => {
+    expect(normalizeTheme("warm-burnout-dark")).toBe("warm-burnout-dark");
+    expect(normalizeTheme("warm-burnout-light")).toBe("warm-burnout-light");
+
+    const dark = getTerminalTheme("warm-burnout-dark");
+    expect(dark.background).toBe("#1a1510");
+    expect(dark.foreground).toBe("#bfbdb6");
+
+    const light = getTerminalTheme("warm-burnout-light");
+    expect(light.background).toBe("#f5ede0");
+    expect(light.foreground).toBe("#3a3630");
+  });
+
   describe("resolveTerminalTheme", () => {
     it("'match-gui' follows the active GUI theme", () => {
       expect(resolveTerminalTheme("midnight-copper", "match-gui")).toEqual(
