@@ -909,6 +909,42 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mcp-host-says-roux-is-disabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP host says Roux is disabled
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-host-cannot-connect-to-roux" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP host cannot connect to Roux
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-host-config-preview-shows-an-error" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP host config preview shows an error
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roux_get_latest_output-has-no-text-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      roux_get_latest_output has no text field
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#reporting-a-bug" class="md-nav__link">
     <span class="md-ellipsis">
       Reporting a bug
@@ -970,6 +1006,42 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mcp-host-says-roux-is-disabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP host says Roux is disabled
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-host-cannot-connect-to-roux" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP host cannot connect to Roux
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-host-config-preview-shows-an-error" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP host config preview shows an error
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roux_get_latest_output-has-no-text-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      roux_get_latest_output has no text field
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#reporting-a-bug" class="md-nav__link">
     <span class="md-ellipsis">
       Reporting a bug
@@ -1011,6 +1083,16 @@
 <p>Roux shells out to the <code>claude</code> command. If new sessions fail to start, verify Claude Code is installed and on your <code>PATH</code> by running <code>claude --version</code> in a regular terminal.</p>
 <h2 id="a-pane-shows-nothing-after-restart">A pane shows nothing after restart<a class="headerlink" href="#a-pane-shows-nothing-after-restart" title="Permanent link">&para;</a></h2>
 <p>Shell panes are respawned automatically on launch, but Claude sessions are not restarted by default. Open the command palette (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span>) and start a new session in that pane.</p>
+<h2 id="mcp-host-says-roux-is-disabled">MCP host says Roux is disabled<a class="headerlink" href="#mcp-host-says-roux-is-disabled" title="Permanent link">&para;</a></h2>
+<p>Open <strong>Settings → Agent Integrations</strong> and turn on <strong>Enable Roux MCP</strong>. MCP hosts may still be able to launch <code>roux-cli mcp</code> when this is off, but the server will reject tool calls until Roux MCP is enabled.</p>
+<h2 id="mcp-host-cannot-connect-to-roux">MCP host cannot connect to Roux<a class="headerlink" href="#mcp-host-cannot-connect-to-roux" title="Permanent link">&para;</a></h2>
+<p><code>roux-cli mcp</code> talks to the running Roux app over the local socket bridge. Make sure the Roux desktop app is open, then retry the MCP host action.</p>
+<p>If the host was configured before a Roux update, open <strong>Settings → Agent Integrations</strong> and check the CLI status. If the CLI is missing or stale, update/reinstall the CLI from Roux's setup or Doctor controls, then run <strong>Configure</strong> for the host again.</p>
+<h2 id="mcp-host-config-preview-shows-an-error">MCP host config preview shows an error<a class="headerlink" href="#mcp-host-config-preview-shows-an-error" title="Permanent link">&para;</a></h2>
+<p>Roux reads the host's existing MCP config before writing. If the config is malformed JSON or has a non-object <code>mcpServers</code> field, Roux will show the error instead of overwriting the file.</p>
+<p>Fix the host config manually, then return to <strong>Settings → Agent Integrations</strong> and use <strong>Preview</strong> again. Roux only adds or updates its own <code>roux</code> server entry and preserves unrelated host config.</p>
+<h2 id="roux_get_latest_output-has-no-text-field"><code>roux_get_latest_output</code> has no <code>text</code> field<a class="headerlink" href="#roux_get_latest_output-has-no-text-field" title="Permanent link">&para;</a></h2>
+<p>Latest output is backed by raw PTY replay bytes. Roux always returns the exact bytes as <code>replay_bytes_base64</code>; it only includes <code>text</code> when those bytes are valid UTF-8. Decode <code>replay_bytes_base64</code> if your MCP client needs exact terminal output.</p>
 <h2 id="reporting-a-bug">Reporting a bug<a class="headerlink" href="#reporting-a-bug" title="Permanent link">&para;</a></h2>
 <p>Please file an issue at <a href="https://github.com/phin-tech/roux/issues">github.com/phin-tech/roux/issues</a> with:</p>
 <ul>

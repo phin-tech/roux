@@ -879,6 +879,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#roux-mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      roux mcp
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#roux-session" class="md-nav__link">
     <span class="md-ellipsis">
       roux session
@@ -1233,6 +1242,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#roux-mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      roux mcp
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#roux-session" class="md-nav__link">
     <span class="md-ellipsis">
       roux session
@@ -1402,6 +1420,7 @@
 <li>Open a plain shell (<code>roux shell</code>)</li>
 <li>Focus a pane by id (<code>roux focus</code>)</li>
 <li>Run a shell command in a new pane (<code>roux run</code>)</li>
+<li>Run the Roux MCP stdio server (<code>roux mcp</code>)</li>
 <li>Push notifications (<code>roux notify</code>)</li>
 <li>Emit hook status transitions and run automation hooks (<code>roux hook</code>)</li>
 <li>Read, append, write, or search the multi-scoped notes vault (<code>roux notes &lt;scope&gt; &lt;verb&gt;</code> — experimental; see <a href="../notes/">Notes</a>)</li>
@@ -1449,15 +1468,44 @@
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>roux<span class="w"> </span>run<span class="w"> </span><span class="s2">&quot;npm run test&quot;</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>roux<span class="w"> </span>run<span class="w"> </span><span class="s2">&quot;cargo test&quot;</span><span class="w"> </span>--working-dir<span class="w"> </span>~/src/my-repo
 </span></code></pre></div>
+<h3 id="roux-mcp"><code>roux mcp</code><a class="headerlink" href="#roux-mcp" title="Permanent link">&para;</a></h3>
+<p>Run Roux's MCP server over stdio.</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>roux<span class="w"> </span>mcp
+</span></code></pre></div>
+<p>Most people do not run this command by hand. Enable MCP in <strong>Settings → Agent Integrations</strong>, then use the host setup button for a supported MCP client. The host launches <code>roux-cli mcp</code> when it needs the server.</p>
+<p>The MCP server is a thin adapter over the same socket bridge as the CLI:</p>
+<ul>
+<li>the Roux desktop app must be running</li>
+<li><strong>Enable Roux MCP</strong> must be on in Settings</li>
+<li>the host config uses the installed/current <code>roux-cli</code> path</li>
+<li>session- and pane-targeted tools require explicit ids where mutation is possible, especially <code>roux_send_text</code></li>
+</ul>
+<p>The v1 MCP server exposes inspection and safe action tools:</p>
+<ul>
+<li><code>roux_list_sessions</code></li>
+<li><code>roux_get_session</code></li>
+<li><code>roux_list_panes</code></li>
+<li><code>roux_create_session</code></li>
+<li><code>roux_create_pane</code></li>
+<li><code>roux_send_text</code></li>
+<li><code>roux_get_latest_output</code></li>
+<li><code>roux_focus</code></li>
+<li><code>roux_read_notes</code></li>
+<li><code>roux_search_notes</code></li>
+<li><code>roux_append_notes</code></li>
+<li><code>roux_notes_vault_root</code></li>
+</ul>
+<p>The v1 server intentionally does not expose arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, or broad filesystem mutation.</p>
+<p><code>roux_get_latest_output</code> returns the exact PTY replay bytes as <code>replay_bytes_base64</code>. It also includes <code>text</code> when the replay bytes are valid UTF-8; clients that need byte-for-byte fidelity should decode <code>replay_bytes_base64</code>.</p>
 <h3 id="roux-session"><code>roux session</code><a class="headerlink" href="#roux-session" title="Permanent link">&para;</a></h3>
 <p>Session lifecycle and introspection commands.</p>
 <h4 id="roux-session-create"><code>roux session create</code><a class="headerlink" href="#roux-session-create" title="Permanent link">&para;</a></h4>
 <p>Create a new session.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>roux<span class="w"> </span>session<span class="w"> </span>create
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;review&quot;</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--working-dir<span class="w"> </span>~/src/my-repo
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--worktree-branch<span class="w"> </span>feat/review
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--profile<span class="w"> </span>codex
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>roux<span class="w"> </span>session<span class="w"> </span>create
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;review&quot;</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--working-dir<span class="w"> </span>~/src/my-repo
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--worktree-branch<span class="w"> </span>feat/review
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--profile<span class="w"> </span>codex
 </span></code></pre></div>
 <p>Useful flags:</p>
 <ul>
@@ -1470,29 +1518,29 @@
 </ul>
 <h4 id="roux-session-send"><code>roux session send</code><a class="headerlink" href="#roux-session-send" title="Permanent link">&para;</a></h4>
 <p>Send text to a session or pane PTY.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s2">&quot;continue&quot;</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s2">&quot;review this diff&quot;</span><span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s1">$&#39;\x03&#39;</span><span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--no-enter
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s2">&quot;continue&quot;</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s2">&quot;review this diff&quot;</span><span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s1">$&#39;\x03&#39;</span><span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--no-enter
 </span></code></pre></div>
 <p>By default, Roux appends Enter. Use <code>--no-enter</code> for raw bytes or partial input.</p>
 <h4 id="roux-session-poll"><code>roux session poll</code><a class="headerlink" href="#roux-session-poll" title="Permanent link">&para;</a></h4>
 <p>Get the current state of one session as JSON.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>roux<span class="w"> </span>session<span class="w"> </span>poll<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>roux<span class="w"> </span>session<span class="w"> </span>poll<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
 </span></code></pre></div>
 <h4 id="roux-session-list"><code>roux session list</code><a class="headerlink" href="#roux-session-list" title="Permanent link">&para;</a></h4>
 <p>List every session as JSON.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>roux<span class="w"> </span>session<span class="w"> </span>list
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>roux<span class="w"> </span>session<span class="w"> </span>list
 </span></code></pre></div>
 <h4 id="roux-session-panes-list"><code>roux session panes list</code><a class="headerlink" href="#roux-session-panes-list" title="Permanent link">&para;</a></h4>
 <p>List panes for a session as JSON.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>list<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>list<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
 </span></code></pre></div>
 <h4 id="roux-session-panes-create"><code>roux session panes create</code><a class="headerlink" href="#roux-session-panes-create" title="Permanent link">&para;</a></h4>
 <p>Create a new pane inside a session.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>plain-shell
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>codex<span class="w"> </span>--direction<span class="w"> </span>vertical
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--working-dir<span class="w"> </span>~/src/other-repo
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>plain-shell
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>codex<span class="w"> </span>--direction<span class="w"> </span>vertical
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--working-dir<span class="w"> </span>~/src/other-repo
 </span></code></pre></div>
 <p>Defaults:</p>
 <ul>
@@ -1502,11 +1550,11 @@
 </ul>
 <h3 id="roux-notify"><code>roux notify</code><a class="headerlink" href="#roux-notify" title="Permanent link">&para;</a></h3>
 <p>Push a notification into Roux's in-app notification service.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>roux<span class="w"> </span>notify<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;Build finished&quot;</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">&quot;All checks passed&quot;</span><span class="w"> </span>--level<span class="w"> </span>success
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>roux<span class="w"> </span>notify<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;Needs attention&quot;</span><span class="w"> </span>--level<span class="w"> </span>attention<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>roux<span class="w"> </span>notify<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;Build finished&quot;</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">&quot;All checks passed&quot;</span><span class="w"> </span>--level<span class="w"> </span>success
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>roux<span class="w"> </span>notify<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;Needs attention&quot;</span><span class="w"> </span>--level<span class="w"> </span>attention<span class="w"> </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
 </span></code></pre></div>
 <p>You can also send a full JSON payload via stdin:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>cat<span class="w"> </span>payload.json<span class="w"> </span><span class="p">|</span><span class="w"> </span>roux<span class="w"> </span>notify<span class="w"> </span>--json
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>cat<span class="w"> </span>payload.json<span class="w"> </span><span class="p">|</span><span class="w"> </span>roux<span class="w"> </span>notify<span class="w"> </span>--json
 </span></code></pre></div>
 <p>Session resolution order is:</p>
 <ol>
@@ -1518,33 +1566,33 @@
 <h3 id="roux-hook"><code>roux hook</code><a class="headerlink" href="#roux-hook" title="Permanent link">&para;</a></h3>
 <p>Handle Claude Code status hooks and Roux automation hooks.</p>
 <p>Claude status events are installed by Roux's setup flow:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>roux<span class="w"> </span>hook<span class="w"> </span>working
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>roux<span class="w"> </span>hook<span class="w"> </span>idle
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>roux<span class="w"> </span>hook<span class="w"> </span>attention
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>roux<span class="w"> </span>hook<span class="w"> </span>error
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>roux<span class="w"> </span>hook<span class="w"> </span>disconnected
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>roux<span class="w"> </span>hook<span class="w"> </span>working
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>roux<span class="w"> </span>hook<span class="w"> </span>idle
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>roux<span class="w"> </span>hook<span class="w"> </span>attention
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>roux<span class="w"> </span>hook<span class="w"> </span>error
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>roux<span class="w"> </span>hook<span class="w"> </span>disconnected
 </span></code></pre></div>
 <p>It reads a JSON payload from stdin and writes provider/session status state for Roux to consume.</p>
 <p>Automation hook commands talk to the running app over the socket:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>roux<span class="w"> </span>hook<span class="w"> </span>show
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>roux<span class="w"> </span>hook<span class="w"> </span>show<span class="w"> </span>--repo-path<span class="w"> </span>~/src/my-repo
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>roux<span class="w"> </span>hook<span class="w"> </span>run<span class="w"> </span>post-watch-success<span class="w"> </span>--repo-path<span class="w"> </span>~/src/my-repo
-</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>roux<span class="w"> </span>hook<span class="w"> </span>run<span class="w"> </span>post-worktree-create<span class="w"> </span>--repo-path<span class="w"> </span>~/src/my-repo<span class="w"> </span>--branch<span class="w"> </span>feat/x<span class="w"> </span>--provider<span class="w"> </span>worktrunk
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>roux<span class="w"> </span>hook<span class="w"> </span>show
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>roux<span class="w"> </span>hook<span class="w"> </span>show<span class="w"> </span>--repo-path<span class="w"> </span>~/src/my-repo
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>roux<span class="w"> </span>hook<span class="w"> </span>run<span class="w"> </span>post-watch-success<span class="w"> </span>--repo-path<span class="w"> </span>~/src/my-repo
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>roux<span class="w"> </span>hook<span class="w"> </span>run<span class="w"> </span>post-worktree-create<span class="w"> </span>--repo-path<span class="w"> </span>~/src/my-repo<span class="w"> </span>--branch<span class="w"> </span>feat/x<span class="w"> </span>--provider<span class="w"> </span>worktrunk
 </span></code></pre></div>
 <p>See <a href="../hooks/">Automation hooks</a> for config files, event names, conditions, templates, logs, and Worktrunk differences.</p>
 <h3 id="roux-status-and-roux-clear"><code>roux status</code> and <code>roux clear</code><a class="headerlink" href="#roux-status-and-roux-clear" title="Permanent link">&para;</a></h3>
 <p>Legacy status-file helpers for hook debugging:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>roux<span class="w"> </span>status
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>roux<span class="w"> </span>clear
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>roux<span class="w"> </span>status
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>roux<span class="w"> </span>clear
 </span></code></pre></div>
 <p><code>status</code> prints the known hook status files, and <code>clear</code> removes them.</p>
 <h3 id="roux-notes"><code>roux notes</code><a class="headerlink" href="#roux-notes" title="Permanent link">&para;</a></h3>
 <p>The notes commands are documented in more detail on <a href="../notes/">Notes</a>, but the CLI surface is:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>roux<span class="w"> </span>notes<span class="w"> </span>root
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>show
-</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>roux<span class="w"> </span>notes<span class="w"> </span>repo<span class="w"> </span>append<span class="w"> </span><span class="s2">&quot;remember to update the fixture&quot;</span>
-</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>roux<span class="w"> </span>notes<span class="w"> </span>project<span class="w"> </span>write<span class="w"> </span>--topic<span class="w"> </span>rollout-plan<span class="w"> </span>--content<span class="w"> </span><span class="s2">&quot;...&quot;</span>
-</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>roux<span class="w"> </span>notes<span class="w"> </span>search<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--scope<span class="w"> </span>repo
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>roux<span class="w"> </span>notes<span class="w"> </span>root
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>show
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>roux<span class="w"> </span>notes<span class="w"> </span>repo<span class="w"> </span>append<span class="w"> </span><span class="s2">&quot;remember to update the fixture&quot;</span>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>roux<span class="w"> </span>notes<span class="w"> </span>project<span class="w"> </span>write<span class="w"> </span>--topic<span class="w"> </span>rollout-plan<span class="w"> </span>--content<span class="w"> </span><span class="s2">&quot;...&quot;</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>roux<span class="w"> </span>notes<span class="w"> </span>search<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--scope<span class="w"> </span>repo
 </span></code></pre></div>
 <p>Supported scopes:</p>
 <ul>
@@ -1567,44 +1615,44 @@
 </ul>
 <h2 id="scripting-agent-to-agent-examples">Scripting &amp; agent-to-agent examples<a class="headerlink" href="#scripting-agent-to-agent-examples" title="Permanent link">&para;</a></h2>
 <p>Open (or focus) Roux at the current directory:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>roux<span class="w"> </span>app<span class="w"> </span>.
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>roux<span class="w"> </span>app<span class="w"> </span>.
 </span></code></pre></div>
 <p>Create a new session with a fresh worktree:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;review&quot;</span><span class="w"> </span>--worktree-branch<span class="w"> </span>feat/review
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;review&quot;</span><span class="w"> </span>--worktree-branch<span class="w"> </span>feat/review
 </span></code></pre></div>
 <p>Poll a session's status from another agent:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nv">status</span><span class="o">=</span><span class="k">$(</span>roux<span class="w"> </span>session<span class="w"> </span>poll<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$OTHER_SESSION_ID</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span>.status<span class="k">)</span>
-</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$status</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;idle&quot;</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
-</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">    </span>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s2">&quot;review this PR&quot;</span><span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$OTHER_SESSION_ID</span><span class="s2">&quot;</span>
-</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="k">fi</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nv">status</span><span class="o">=</span><span class="k">$(</span>roux<span class="w"> </span>session<span class="w"> </span>poll<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$OTHER_SESSION_ID</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span>.status<span class="k">)</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$status</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;idle&quot;</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">    </span>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s2">&quot;review this PR&quot;</span><span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$OTHER_SESSION_ID</span><span class="s2">&quot;</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="k">fi</span>
 </span></code></pre></div>
 <p>Log a timestamped entry to this session's notes from an agent:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;retried after clearing token cache, still 401&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">    </span><span class="p">|</span><span class="w"> </span>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>append<span class="w"> </span>--timestamp<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--tag<span class="w"> </span>tls
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;retried after clearing token cache, still 401&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">    </span><span class="p">|</span><span class="w"> </span>roux<span class="w"> </span>notes<span class="w"> </span>session<span class="w"> </span>append<span class="w"> </span>--timestamp<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--tag<span class="w"> </span>tls
 </span></code></pre></div>
 <p>Find every note in the current repo tagged <code>#api</code> (prefix-matches
 <code>#api/tls</code>, <code>#api/grpc</code>, etc.):</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>roux<span class="w"> </span>notes<span class="w"> </span>search<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--scope<span class="w"> </span>repo
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>roux<span class="w"> </span>notes<span class="w"> </span>search<span class="w"> </span>--tag<span class="w"> </span>api<span class="w"> </span>--scope<span class="w"> </span>repo
 </span></code></pre></div>
 <p>Send raw bytes without appending Enter:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s1">$&#39;\x03&#39;</span><span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--no-enter<span class="w">   </span><span class="c1"># ctrl-c</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>roux<span class="w"> </span>session<span class="w"> </span>send<span class="w"> </span><span class="s1">$&#39;\x03&#39;</span><span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--no-enter<span class="w">   </span><span class="c1"># ctrl-c</span>
 </span></code></pre></div>
 <p>List panes in a session (live snapshot from the UI):</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>list<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>list<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
 </span></code></pre></div>
 <p>Open a new shell pane alongside the main agent:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>plain-shell<span class="w"> </span>--direction<span class="w"> </span>vertical
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>roux<span class="w"> </span>session<span class="w"> </span>panes<span class="w"> </span>create<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span><span class="w"> </span>--profile<span class="w"> </span>plain-shell<span class="w"> </span>--direction<span class="w"> </span>vertical
 </span></code></pre></div>
 <p>Create a new Codex session from inside an existing Roux pane without repeating the working directory:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;codex pass&quot;</span><span class="w"> </span>--profile<span class="w"> </span>codex
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;codex pass&quot;</span><span class="w"> </span>--profile<span class="w"> </span>codex
 </span></code></pre></div>
 <p>Push a scoped in-app notification from a script:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>roux<span class="w"> </span>notify<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="w">  </span>--title<span class="w"> </span><span class="s2">&quot;Review finished&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="w">  </span>--subtitle<span class="w"> </span><span class="s2">&quot;docs PR&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="w">  </span>--body<span class="w"> </span><span class="s2">&quot;Ready for another pass&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="w">  </span>--level<span class="w"> </span>success<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-27-6"><a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="w">  </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>roux<span class="w"> </span>notify<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span>--title<span class="w"> </span><span class="s2">&quot;Review finished&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-28-3"><a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">  </span>--subtitle<span class="w"> </span><span class="s2">&quot;docs PR&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">  </span>--body<span class="w"> </span><span class="s2">&quot;Ready for another pass&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">  </span>--level<span class="w"> </span>success<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-28-6"><a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="w">  </span>--session<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$SID</span><span class="s2">&quot;</span>
 </span></code></pre></div>
 <p>Inside a Roux-managed PTY, <code>ROUX_*</code> variables are set (including <code>$ROUX_SESSION_ID</code> and <code>$ROUX_PANE_ID</code>), so most <code>-s</code> / <code>-p</code> flags are optional and scripting context is preserved.</p>
 <p>See <code>roux --help</code> and <code>roux &lt;subcommand&gt; --help</code> for the authoritative list of commands and flags.</p>

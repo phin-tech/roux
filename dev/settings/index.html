@@ -918,6 +918,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#agent-integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent Integrations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#doctor-panel" class="md-nav__link">
     <span class="md-ellipsis">
       Doctor panel
@@ -1035,6 +1044,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#agent-integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent Integrations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#doctor-panel" class="md-nav__link">
     <span class="md-ellipsis">
       Doctor panel
@@ -1086,6 +1104,7 @@
 <li><strong>Terminal</strong> — independent terminal theme selection, user-imported <code>.itermcolors</code> themes, font, scrollback, cursor, and GPU acceleration settings.</li>
 <li><strong>Claude</strong> — binary path override, default model, additional flags.</li>
 <li><strong>Integrations</strong> — GitHub CLI (<code>gh</code>) path override for PR/session integrations.</li>
+<li><strong>Agent Integrations</strong> — Roux MCP enablement and supported MCP host setup.</li>
 <li><strong>Notifications</strong> — OS notification master switch and test notification trigger.</li>
 <li><strong>Keyboard</strong> — toggles for Option-pane and Command-session hint overlays.</li>
 <li><strong>Notes</strong> — experimental multi-scoped vault settings. See below.</li>
@@ -1113,6 +1132,18 @@
 <li><strong>Include web anchors for entries</strong> (<code>notes.includeWebAnchors</code>, default on) — when enabled, <code>roux notes &lt;scope&gt; append --timestamp</code> adds an inline <code>&lt;a id="entry-..."&gt;</code> HTML anchor in front of each timestamped entry so the entry stays deep-linkable if the vault is later published through a static-site generator (Quartz, Hugo, Zola, MkDocs, …). Disable for cleaner raw markdown if you only ever read the vault in Obsidian.</li>
 </ul>
 <p>See <a href="../features/notes/">Notes</a> for the panel UX, CLI surface, and env vars.</p>
+<h2 id="agent-integrations">Agent Integrations<a class="headerlink" href="#agent-integrations" title="Permanent link">&para;</a></h2>
+<p>The <strong>Agent Integrations</strong> section configures Roux for MCP hosts such as Claude Desktop.</p>
+<ul>
+<li><strong>Enable Roux MCP</strong> (<code>mcpEnabled</code>) — allows MCP hosts to launch <code>roux-cli mcp</code> and use Roux through the running desktop app. Turning this off makes the MCP server return a disabled error even if a host can start the process.</li>
+<li><strong>CLI status</strong> — shows whether Roux's installed CLI is present and current, plus the path that host configs will use.</li>
+<li><strong>Host status</strong> — shows supported MCP hosts, whether their config file exists, whether Roux is configured, and any config parse/read error.</li>
+<li><strong>Preview</strong> — shows the Roux MCP server entry that would be written for the host before changing the host config.</li>
+<li><strong>Configure</strong> — adds or updates only Roux's MCP server entry for that host.</li>
+<li><strong>Last configured</strong> — records the last successful host setup metadata when possible.</li>
+</ul>
+<p>Roux reads an existing host config before writing. It preserves unrelated config and unknown fields on Roux's own server entry, skips writes when the entry is already current, and writes updates atomically.</p>
+<p>For v1, MCP exposes useful inspection and safe action tools by default. It does not expose arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, or broad filesystem mutation.</p>
 <h2 id="doctor-panel">Doctor panel<a class="headerlink" href="#doctor-panel" title="Permanent link">&para;</a></h2>
 <p>The <strong>Advanced</strong> section includes a <strong>Doctor</strong> panel that checks integration health for:</p>
 <ul>
