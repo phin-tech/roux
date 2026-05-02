@@ -433,6 +433,32 @@ fn get_pane_id() -> Option<String> {
     std::env::var("ROUX_PANE_ID").ok()
 }
 
+/// Pick the session_id and pane_id to send over the wire, given explicit CLI
+/// flags and the current env. The invariant is that `$ROUX_PANE_ID` is only
+/// meaningful inside its own `$ROUX_SESSION_ID`, so when the caller redirects
+/// to a different session we must NOT inherit the env pane — that pane belongs
+/// to the calling session and would route the write to the wrong PTY (or, more
+/// often, fail outright because pane ids and pty ids live in different
+/// namespaces in the backend).
+fn resolve_target(
+    session: Option<String>,
+    pane: Option<String>,
+    env_session: Option<String>,
+    env_pane: Option<String>,
+) -> (Option<String>, Option<String>) {
+    match (session, pane) {
+        (Some(s), Some(p)) => (Some(s), Some(p)),
+        (Some(s), None) => {
+            // Only inherit the env pane if it belongs to the same session the
+            // caller is targeting.
+            let pane = if env_session.as_deref() == Some(s.as_str()) { env_pane } else { None };
+            (Some(s), pane)
+        }
+        (None, Some(p)) => (env_session, Some(p)),
+        (None, None) => (env_session, env_pane),
+    }
+}
+
 fn text_from_content(content: &Value) -> Option<String> {
     match content {
         Value::String(s) => {
@@ -812,10 +838,12 @@ fn main() {
                 }));
             }
             SessionAction::Send { text, session, pane, no_enter } => {
+                let (session_id, pane_id) =
+                    resolve_target(session, pane, get_session_id(), get_pane_id());
                 run_socket_command(serde_json::json!({
                     "command": "send",
-                    "session_id": session.or_else(get_session_id),
-                    "pane_id": pane.or_else(get_pane_id),
+                    "session_id": session_id,
+                    "pane_id": pane_id,
                     "args": { "text": text, "enter": !no_enter },
                 }));
             }
@@ -869,10 +897,12 @@ fn main() {
         }
 
         Commands::Focus { pane, session } => {
+            let (session_id, pane_id) =
+                resolve_target(session, pane, get_session_id(), get_pane_id());
             run_socket_command(serde_json::json!({
                 "command": "focus",
-                "session_id": session.or_else(get_session_id),
-                "pane_id": pane.or_else(get_pane_id),
+                "session_id": session_id,
+                "pane_id": pane_id,
             }));
         }
 
@@ -1089,6 +1119,64 @@ mod tests {
         let got = resolve_path("/definitely/not/a/real/path/roux-test");
         assert!(std::path::Path::new(&got).is_absolute(), "got {}", got);
         assert!(got.contains("roux-test"));
+    }
+
+    // ── resolve_target ──────────────────────────────────────
+
+    fn s(v: &str) -> Option<String> {
+        Some(v.to_string())
+    }
+
+    #[test]
+    fn resolve_target_no_flags_uses_env() {
+        // The vanilla in-session case: caller has env vars, no flags.
+        let (sid, pid) = resolve_target(None, None, s("env-sid"), s("env-pid"));
+        assert_eq!(sid.as_deref(), Some("env-sid"));
+        assert_eq!(pid.as_deref(), Some("env-pid"));
+    }
+
+    #[test]
+    fn resolve_target_explicit_session_drops_env_pane_for_other_session() {
+        // Issue #127: caller in session A targets session B with --session B.
+        // The env pane belongs to A and must NOT leak into the request — that
+        // is exactly what was routing writes back to the calling session's
+        // (nonexistent) PTY.
+        let (sid, pid) = resolve_target(s("other-sid"), None, s("env-sid"), s("env-pid"));
+        assert_eq!(sid.as_deref(), Some("other-sid"));
+        assert!(pid.is_none(), "env pane must be dropped when --session targets a different session");
+    }
+
+    #[test]
+    fn resolve_target_explicit_session_matching_env_keeps_env_pane() {
+        // If the caller redundantly passes --session matching their own env,
+        // the env pane is still applicable and should pass through.
+        let (sid, pid) = resolve_target(s("env-sid"), None, s("env-sid"), s("env-pid"));
+        assert_eq!(sid.as_deref(), Some("env-sid"));
+        assert_eq!(pid.as_deref(), Some("env-pid"));
+    }
+
+    #[test]
+    fn resolve_target_explicit_session_and_pane_pass_through() {
+        let (sid, pid) =
+            resolve_target(s("flag-sid"), s("flag-pid"), s("env-sid"), s("env-pid"));
+        assert_eq!(sid.as_deref(), Some("flag-sid"));
+        assert_eq!(pid.as_deref(), Some("flag-pid"));
+    }
+
+    #[test]
+    fn resolve_target_explicit_pane_only_uses_env_session() {
+        // Backwards-compatible behavior: --pane alone keeps inheriting the
+        // env session.
+        let (sid, pid) = resolve_target(None, s("flag-pid"), s("env-sid"), s("env-pid"));
+        assert_eq!(sid.as_deref(), Some("env-sid"));
+        assert_eq!(pid.as_deref(), Some("flag-pid"));
+    }
+
+    #[test]
+    fn resolve_target_no_env_no_flags_yields_none() {
+        let (sid, pid) = resolve_target(None, None, None, None);
+        assert!(sid.is_none());
+        assert!(pid.is_none());
     }
 
     // ── Cli parsing ─────────────────────────────────────────

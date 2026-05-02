@@ -173,7 +173,7 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "shell" => handle_shell(req, app).await,
         "focus" => handle_focus(req, app),
         "run" => handle_run(req, app).await,
-        "send" => handle_send(req, app),
+        "send" => handle_send(req, app).await,
         "notify" => handle_notify(req, app).await,
         "notes-read" => handle_notes_read(req, app).await,
         "notes-write" => handle_notes_write(req, app).await,
@@ -978,29 +978,93 @@ fn format_send_data(text: &str, enter: bool) -> String {
     }
 }
 
-fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
-    let text = match req.args.get("text").and_then(|t| t.as_str()) {
-        Some(t) => t.to_string(),
-        None => return Response::err("text argument required"),
-    };
+/// Resolve which PTY to write to for `send`.
+///
+/// Frontend pane ids and pty ids live in different namespaces — the main
+/// pane has pane_id `{session}-main` while its pty_id is `{session}` — so
+/// when the caller passes a pane_id we have to look it up via the pane
+/// service rather than treating it as a pty_id directly. When no pane_id
+/// is given, fall back to the session's primary PTY.
+async fn resolve_send_pty_id(
+    pane_handle: &crate::pane_service::PaneHandle,
+    session_handle: &crate::session_service::SessionHandle,
+    session_id: &str,
+    pane_id: Option<&str>,
+) -> Result<String, String> {
+    if let Some(pane_id) = pane_id {
+        let records = pane_handle
+            .list_by_ids(vec![pane_id.to_string()])
+            .await
+            .map_err(|e| format!("pane lookup failed: {}", e))?;
+        let record = records
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("pane not found: {}", pane_id))?;
 
-    let state: tauri::State<AppState> = app.state();
-
-    // If a specific pane/session is given, use it. Otherwise emit to frontend
-    // to send to the active Claude pane.
-    if let Some(session_id) = &req.session_id {
-        // Write directly to the session's PTY (the main Claude pane uses session_id as pty_id)
-        let target_id = req.pane_id.as_deref().unwrap_or(session_id);
-        // Append \r to simulate Enter unless caller explicitly opts out.
-        let cr = req.args.get("enter").and_then(|v| v.as_bool()).unwrap_or(true);
-        let data = format_send_data(&text, cr);
-        if let Err(e) = state.pty_manager.write(target_id, data.as_bytes()) {
-            return Response::err(format!("Failed to write to session: {}", e));
+        // Defensive: reject a pane that doesn't belong to the requested
+        // session. Pane IDs follow the `{session}-{suffix}` convention
+        // (see services/sessions.rs), so the prefix check is sufficient.
+        if !record.id.starts_with(&format!("{}-", session_id)) {
+            return Err(format!(
+                "pane {} does not belong to session {}",
+                pane_id, session_id
+            ));
         }
-        Response::ok()
-    } else {
-        Response::err("session_id required")
+        return Ok(record.pty_id);
     }
+
+    match session_handle.get(session_id).await {
+        // The canonical PTY for a live session has `pty_id == session.id` by
+        // convention (see services/sessions.rs::create_session_shell and
+        // reconnect_session_shell). `primary_pty_id` on the persisted record
+        // can lag — archive() clears it and reconnect doesn't re-set it — so
+        // use the persisted value when set, falling back to session.id when
+        // it's None. This matches the pre-fix behavior where the handler
+        // wrote to `session_id` directly.
+        Ok(Some(session)) => Ok(session.primary_pty_id.unwrap_or_else(|| session_id.to_string())),
+        Ok(None) => Err(format!("session not found: {}", session_id)),
+        Err(e) => Err(format!("session lookup failed: {}", e)),
+    }
+}
+
+/// Pure routing+formatting half of `handle_send`. Resolves the request to a
+/// `(pty_id, bytes_to_write)` pair without touching the PtyManager, so it can
+/// be exercised in headless tests without a real Tauri app or a live PTY.
+async fn prepare_send(
+    pane_handle: &crate::pane_service::PaneHandle,
+    session_handle: &crate::session_service::SessionHandle,
+    req: &Request,
+) -> Result<(String, Vec<u8>), String> {
+    let text = req
+        .args
+        .get("text")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| "text argument required".to_string())?
+        .to_string();
+
+    let session_id =
+        req.session_id.as_deref().ok_or_else(|| "session_id required".to_string())?;
+
+    let pty_id =
+        resolve_send_pty_id(pane_handle, session_handle, session_id, req.pane_id.as_deref())
+            .await?;
+
+    let cr = req.args.get("enter").and_then(|v| v.as_bool()).unwrap_or(true);
+    let data = format_send_data(&text, cr).into_bytes();
+    Ok((pty_id, data))
+}
+
+async fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let (pty_id, bytes) =
+        match prepare_send(&state.pane_handle, &state.session_handle, &req).await {
+            Ok(pair) => pair,
+            Err(e) => return Response::err(e),
+        };
+    if let Err(e) = state.pty_manager.write(&pty_id, &bytes) {
+        return Response::err(format!("Failed to write to session: {}", e));
+    }
+    Response::ok()
 }
 
 async fn handle_notify(req: Request, app: &tauri::AppHandle) -> Response {
@@ -1292,6 +1356,301 @@ mod tests {
         assert_eq!(req.args["profile"], "claude");
         assert_eq!(req.args["flags"].as_array().unwrap().len(), 2);
         assert_eq!(req.args["nono_allow_dirs"].as_array().unwrap().len(), 2);
+    }
+
+    // ── resolve_send_pty_id ──────────────────────────────────
+
+    fn pane_record(id: &str, pty_id: &str) -> crate::pane_service::PaneRecord {
+        crate::pane_service::PaneRecord {
+            id: id.into(),
+            pane_type: "claude".into(),
+            pty_id: pty_id.into(),
+            name: None,
+            working_dir: None,
+            command: None,
+            doc_path: None,
+            spawn_profile_ref: None,
+            provider: None,
+            provider_session_id: None,
+            nono_profile: None,
+            nono_allow_dirs: None,
+            notes_scope: None,
+            notes_view_mode: None,
+        }
+    }
+
+    fn session_with_pty(id: &str, primary_pty_id: Option<&str>) -> crate::session::Session {
+        crate::session::Session {
+            id: id.into(),
+            name: format!("Session {}", id),
+            repo_root: "/tmp/repo".into(),
+            worktree_path: "/tmp/repo".into(),
+            branch: "main".into(),
+            is_worktree: false,
+            status: roux_core::SessionStatus::Idle,
+            model: None,
+            cost: None,
+            created_at: 0,
+            project_id: None,
+            is_git_repo: false,
+            name_override: None,
+            primary_pty_id: primary_pty_id.map(String::from),
+            archived: false,
+            ended_at: None,
+            blueprint_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_send_pty_id_pane_lookup_returns_pty_id() {
+        // The main pane's frontend id is `{session}-main` while its pty_id
+        // is the session id itself. The handler must translate, not pass the
+        // pane id straight to pty_manager.
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+        panes.upsert(pane_record("sid-1-main", "sid-1")).await.unwrap();
+
+        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", Some("sid-1-main"))
+            .await
+            .unwrap();
+        assert_eq!(pty_id, "sid-1");
+    }
+
+    #[tokio::test]
+    async fn resolve_send_pty_id_no_pane_uses_session_primary_pty() {
+        // The common path: caller passes only --session. The session's primary
+        // PTY is the canonical write target.
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) = crate::session_service::spawn_with_path(
+            vec![session_with_pty("sid-1", Some("sid-1"))],
+            dir.path().join("sessions.json"),
+        );
+
+        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", None).await.unwrap();
+        assert_eq!(pty_id, "sid-1");
+    }
+
+    #[tokio::test]
+    async fn resolve_send_pty_id_unknown_pane_errors() {
+        // Issue #127's failure mode pre-CLI-fix: a pane id from a different
+        // session leaks through. With the backend fix, unknown panes now
+        // surface a clean "pane not found" rather than misrouting to a
+        // nonexistent pty.
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) = crate::session_service::spawn_with_path(
+            vec![session_with_pty("sid-2", Some("sid-2"))],
+            dir.path().join("sessions.json"),
+        );
+
+        let err = resolve_send_pty_id(&panes, &sessions, "sid-2", Some("sid-1-main"))
+            .await
+            .unwrap_err();
+        assert!(err.contains("pane not found"), "got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn resolve_send_pty_id_cross_session_pane_errors() {
+        // The pane exists but belongs to a different session. The resolver
+        // must reject it rather than silently routing to the wrong PTY.
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) = crate::session_service::spawn_with_path(
+            vec![
+                session_with_pty("sid-A", Some("sid-A")),
+                session_with_pty("sid-B", Some("sid-B")),
+            ],
+            dir.path().join("sessions.json"),
+        );
+        panes.upsert(pane_record("sid-A-main", "sid-A")).await.unwrap();
+        panes.upsert(pane_record("sid-B-main", "sid-B")).await.unwrap();
+
+        let err = resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main"))
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("does not belong to session"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_send_pty_id_unknown_session_errors() {
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+
+        let err = resolve_send_pty_id(&panes, &sessions, "missing-sid", None).await.unwrap_err();
+        assert!(err.contains("session not found"), "got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn resolve_send_pty_id_falls_back_to_session_id_when_primary_pty_unset() {
+        // Regression coverage for the restore/reconnect path: archive() clears
+        // primary_pty_id and reconnect_session_shell doesn't re-set it, but
+        // the live PTY is still registered under `pty_id == session.id` by
+        // convention. The resolver must use that convention when the
+        // persisted field is None, otherwise sends to restored sessions break.
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) = crate::session_service::spawn_with_path(
+            vec![session_with_pty("sid-1", None)],
+            dir.path().join("sessions.json"),
+        );
+
+        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", None).await.unwrap();
+        assert_eq!(pty_id, "sid-1");
+    }
+
+    // ── prepare_send (issue #127 regression coverage) ────────
+
+    fn send_request(session_id: &str, pane_id: Option<&str>, text: &str, enter: bool) -> Request {
+        let mut args = serde_json::Map::new();
+        args.insert("text".into(), serde_json::Value::String(text.into()));
+        args.insert("enter".into(), serde_json::Value::Bool(enter));
+        Request {
+            command: "send".into(),
+            session_id: Some(session_id.into()),
+            pane_id: pane_id.map(String::from),
+            auth_token: None,
+            args: serde_json::Value::Object(args),
+        }
+    }
+
+    /// End-to-end exercise of the routing+formatting path on the bug-report
+    /// scenarios. These are the regression tests that would fail if either
+    /// half of the fix (CLI env handling, backend pane→pty translation) gets
+    /// reverted, without needing a running Tauri app or a live PTY.
+    #[tokio::test]
+    async fn prepare_send_main_pane_id_resolves_to_session_pty() {
+        // The main pane has frontend id `{session}-main` but its pty_id is
+        // `{session}`. Pre-fix, handle_send wrote to `{session}-main` and
+        // failed; now prepare_send must hand back `{session}` plus the
+        // formatted bytes.
+        let (panes, _pj) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sj) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+        panes.upsert(pane_record("sid-1-main", "sid-1")).await.unwrap();
+
+        let req = send_request("sid-1", Some("sid-1-main"), "hello", true);
+        let (pty_id, bytes) = prepare_send(&panes, &sessions, &req).await.unwrap();
+        assert_eq!(pty_id, "sid-1");
+        assert_eq!(bytes, b"hello\r");
+    }
+
+    #[tokio::test]
+    async fn prepare_send_no_pane_uses_session_primary_pty() {
+        // The common in-session case: caller has no --pane.
+        let (panes, _pj) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sj) = crate::session_service::spawn_with_path(
+            vec![session_with_pty("sid-1", Some("sid-1"))],
+            dir.path().join("sessions.json"),
+        );
+
+        let req = send_request("sid-1", None, "hi", true);
+        let (pty_id, bytes) = prepare_send(&panes, &sessions, &req).await.unwrap();
+        assert_eq!(pty_id, "sid-1");
+        assert_eq!(bytes, b"hi\r");
+    }
+
+    #[tokio::test]
+    async fn prepare_send_no_enter_omits_carriage_return() {
+        let (panes, _pj) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sj) = crate::session_service::spawn_with_path(
+            vec![session_with_pty("sid-1", Some("sid-1"))],
+            dir.path().join("sessions.json"),
+        );
+
+        let req = send_request("sid-1", None, "raw", false);
+        let (_pty_id, bytes) = prepare_send(&panes, &sessions, &req).await.unwrap();
+        assert_eq!(bytes, b"raw");
+    }
+
+    #[tokio::test]
+    async fn prepare_send_cross_session_pane_lookup_returns_target_pty() {
+        // The exact issue #127 path AFTER the CLI fix: caller in session A
+        // sends to session B with --session B. Both sessions exist; B's main
+        // pane is registered. The result must route to B's pty_id, not A's.
+        let (panes, _pj) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sj) = crate::session_service::spawn_with_path(
+            vec![
+                session_with_pty("sid-A", Some("sid-A")),
+                session_with_pty("sid-B", Some("sid-B")),
+            ],
+            dir.path().join("sessions.json"),
+        );
+        panes.upsert(pane_record("sid-A-main", "sid-A")).await.unwrap();
+        panes.upsert(pane_record("sid-B-main", "sid-B")).await.unwrap();
+
+        // Caller targets B explicitly. With the CLI fix in place the env
+        // pane is dropped, so pane_id is None — backend falls back to B's
+        // primary_pty_id.
+        let req = send_request("sid-B", None, "for B", true);
+        let (pty_id, _) = prepare_send(&panes, &sessions, &req).await.unwrap();
+        assert_eq!(pty_id, "sid-B");
+    }
+
+    #[tokio::test]
+    async fn prepare_send_stale_cross_session_pane_id_errors_cleanly() {
+        // The pre-CLI-fix failure mode: the caller's env pane (`sid-A-main`)
+        // leaks into a request targeting B. Backend must surface a clean
+        // "pane not found" rather than silently writing to A's pty (which
+        // is what the OLD bug did via the pane_id == pty_id assumption).
+        let (panes, _pj) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sj) = crate::session_service::spawn_with_path(
+            vec![session_with_pty("sid-B", Some("sid-B"))],
+            dir.path().join("sessions.json"),
+        );
+        // Only B's pane is registered. A doesn't exist on this Roux instance.
+        panes.upsert(pane_record("sid-B-main", "sid-B")).await.unwrap();
+
+        let req = send_request("sid-B", Some("sid-A-main"), "leaked", true);
+        let err = prepare_send(&panes, &sessions, &req).await.unwrap_err();
+        assert!(err.contains("pane not found"), "got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn prepare_send_missing_text_errors() {
+        let (panes, _pj) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sj) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+        let req = Request {
+            command: "send".into(),
+            session_id: Some("sid".into()),
+            pane_id: None,
+            auth_token: None,
+            args: serde_json::json!({}),
+        };
+        let err = prepare_send(&panes, &sessions, &req).await.unwrap_err();
+        assert_eq!(err, "text argument required");
+    }
+
+    #[tokio::test]
+    async fn prepare_send_missing_session_id_errors() {
+        let (panes, _pj) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sj) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+        let req = Request {
+            command: "send".into(),
+            session_id: None,
+            pane_id: None,
+            auth_token: None,
+            args: serde_json::json!({"text": "hi"}),
+        };
+        let err = prepare_send(&panes, &sessions, &req).await.unwrap_err();
+        assert_eq!(err, "session_id required");
     }
 
     // ── Pending-reply round-trip primitives ──────────────────
