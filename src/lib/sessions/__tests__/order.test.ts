@@ -90,12 +90,15 @@ describe("getGroupedSessions (project)", () => {
     expect(groups[0].name).toBe("Empty");
   });
 
-  it("does not seed an empty group for a project with no blueprints", () => {
-    // Projects that exist but have neither sessions nor blueprints have
-    // nothing to render — keeping them out avoids empty noise in the sidebar.
+  it("seeds an empty group for every project, even ones with no blueprints", () => {
+    // With auto-spawn-on-create, a project may have neither blueprints nor
+    // live sessions — sessions were spawned without "save as template" and
+    // then closed. Seeding the group keeps the project addressable in the
+    // sidebar; the consumer's auto-collapse-on-first-sight handles noise.
     const projects: Project[] = [{ id: "p-nothing", name: "Nothing" }];
     const groups = getGroupedSessions([], projects, "project");
-    expect(groups).toEqual([]);
+    expect(groups.map((g) => g.key)).toEqual(["p-nothing"]);
+    expect(groups[0].sessions).toEqual([]);
   });
 
   it("sorts a blueprint-only project below groups that have live sessions", () => {
@@ -118,6 +121,41 @@ describe("getGroupedSessions (project)", () => {
     const sessions = [makeSession({ id: "a", projectId: "p-active", createdAt: 50 })];
     const groups = getGroupedSessions(sessions, projects, "project");
     expect(groups.map((g) => g.key)).toEqual(["p-active", "p-empty"]);
+  });
+});
+
+describe("getGroupedSessions (session)", () => {
+  it("returns a single flat group sorted by createdAt desc", () => {
+    const sessions: Session[] = [
+      makeSession({ id: "a", projectId: "p1", createdAt: 10 }),
+      makeSession({ id: "b", projectId: null, createdAt: 30 }),
+      makeSession({ id: "c", projectId: "p2", createdAt: 20 }),
+    ];
+    const groups = getGroupedSessions(sessions, [], "session");
+    expect(groups).toHaveLength(1);
+    expect(groups[0].key).toBe("__all__");
+    expect(groups[0].name).toBe("Sessions");
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["b", "c", "a"]);
+  });
+
+  it("ignores projects entirely — even projects with blueprints add no groups", () => {
+    const projects: Project[] = [
+      {
+        id: "p-empty",
+        name: "Empty",
+        sessionBlueprints: [
+          {
+            id: "bp1",
+            name: "shell",
+            repoRoot: "/r",
+            spawnProfile: "claude",
+            nonoAllowDirs: [],
+          },
+        ],
+      },
+    ];
+    const groups = getGroupedSessions([], projects, "session");
+    expect(groups).toEqual([]);
   });
 });
 
