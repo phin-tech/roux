@@ -187,9 +187,16 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "session-poll" => handle_session_poll(req, app).await,
         "session-panes-list" => handle_session_panes_list(req, app).await,
         "session-panes-create" => handle_session_panes_create(req, app).await,
+        "mcp-enabled" => handle_mcp_enabled(app),
         "app-open" => handle_app_open(req, app).await,
         _ => Response::err(format!("unknown command: {}", req.command)),
     }
+}
+
+fn handle_mcp_enabled(app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let enabled = state.settings.lock().map(|settings| settings.mcp_enabled).unwrap_or(false);
+    Response::success(serde_json::json!({ "enabled": enabled }))
 }
 
 async fn handle_hook_show(req: Request, app: &tauri::AppHandle) -> Response {
