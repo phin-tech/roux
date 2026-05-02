@@ -40,10 +40,10 @@ describe("runProfileInPane", () => {
 
   it("types and auto-runs a startup command by default", async () => {
     await runProfileInPane("pty-1", profile({ startupCommand: "claude" }));
-    expect(writes()).toEqual(["claude", "\n"]);
+    expect(writes()).toEqual(["claude", "\r"]);
   });
 
-  it("types a startup command without a trailing newline when typeOnly", async () => {
+  it("types a startup command without pressing Enter when typeOnly", async () => {
     await runProfileInPane(
       "pty-1",
       profile({ startupCommand: "bun run dev", startupBehavior: "typeOnly" }),
@@ -51,7 +51,7 @@ describe("runProfileInPane", () => {
     expect(writes()).toEqual(["bun run dev"]);
   });
 
-  it("runs setup before startup, each with its own newline", async () => {
+  it("runs setup before startup, pressing Enter after each", async () => {
     await runProfileInPane(
       "pty-1",
       profile({
@@ -61,9 +61,9 @@ describe("runProfileInPane", () => {
     );
     expect(writes()).toEqual([
       "./scripts/start-mcp.sh",
-      "\n",
+      "\r",
       "claude --mcp-config ~/.mcp.json",
-      "\n",
+      "\r",
     ]);
   });
 
@@ -76,7 +76,7 @@ describe("runProfileInPane", () => {
         startupBehavior: "typeOnly",
       }),
     );
-    expect(writes()).toEqual(["export FOO=bar", "\n", "claude"]);
+    expect(writes()).toEqual(["export FOO=bar", "\r", "claude"]);
   });
 
   it("skips setup when it's only whitespace", async () => {
@@ -84,7 +84,7 @@ describe("runProfileInPane", () => {
       "pty-1",
       profile({ setupCommand: "   \n", startupCommand: "claude" }),
     );
-    expect(writes()).toEqual(["claude", "\n"]);
+    expect(writes()).toEqual(["claude", "\r"]);
   });
 
   it("propagates writeToSession errors so callers can surface them", async () => {
@@ -107,7 +107,7 @@ describe("runProfileInPane", () => {
           startupCommand: "claude",
         }),
       );
-      expect(writes()).toEqual(["cd '/tmp/workspace'", "\n", "claude", "\n"]);
+      expect(writes()).toEqual(["cd '/tmp/workspace'", "\r", "claude", "\r"]);
     });
 
     it("shell-escapes paths containing spaces and single quotes", async () => {
@@ -118,7 +118,7 @@ describe("runProfileInPane", () => {
         "pty-1",
         profile({ cwdOverride: "/tmp/it's my dir" }),
       );
-      expect(writes()).toEqual(["cd '/tmp/it'\\''s my dir'", "\n"]);
+      expect(writes()).toEqual(["cd '/tmp/it'\\''s my dir'", "\r"]);
     });
 
     it("skips cd for an empty or whitespace-only cwdOverride", async () => {
@@ -126,7 +126,7 @@ describe("runProfileInPane", () => {
         "pty-1",
         profile({ cwdOverride: "   ", startupCommand: "claude" }),
       );
-      expect(writes()).toEqual(["claude", "\n"]);
+      expect(writes()).toEqual(["claude", "\r"]);
     });
   });
 
@@ -147,7 +147,7 @@ describe("runProfileInPane", () => {
       const startupIdx = out.indexOf("claude");
       expect(startupIdx).toBeGreaterThan(-1);
       expect(out.slice(0, startupIdx)).toEqual(
-        expect.arrayContaining(["export FOO='bar'", "export BAZ='qux'", "\n"]),
+        expect.arrayContaining(["export FOO='bar'", "export BAZ='qux'", "\r"]),
       );
     });
 
@@ -158,7 +158,7 @@ describe("runProfileInPane", () => {
       );
       expect(writes()).toEqual([
         "export MSG='it'\\''s; $(whoami)'",
-        "\n",
+        "\r",
       ]);
     });
 
@@ -171,7 +171,7 @@ describe("runProfileInPane", () => {
           env: { "1BAD": "x", "WITH-DASH": "y", GOOD: "z" },
         }),
       );
-      expect(writes()).toEqual(["export GOOD='z'", "\n"]);
+      expect(writes()).toEqual(["export GOOD='z'", "\r"]);
     });
   });
 
@@ -187,13 +187,13 @@ describe("runProfileInPane", () => {
     );
     expect(writes()).toEqual([
       "cd '/work'",
-      "\n",
+      "\r",
       "export API='https://api'",
-      "\n",
+      "\r",
       "./seed.sh",
-      "\n",
+      "\r",
       "claude",
-      "\n",
+      "\r",
     ]);
   });
 });
