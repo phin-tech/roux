@@ -455,15 +455,50 @@ tasks:
         echo "Released v${NEW}"
 
   release:
-    desc: "Bump version + tag locally, then trigger the GitHub Actions release workflow. Usage: task release BUMP=patch|minor|major [PRE=alpha|beta|dev|rc]"
+    desc: "Cut a release. Stable: bump main locally + dispatch release.yml. Pre-release (PRE set): dispatch pre-build.yml (tag-only, no main commit). Usage: task release BUMP=patch|minor|major [PRE=pre|alpha|beta|dev|rc]"
+    requires:
+      vars: [BUMP]
+    cmds:
+      - task: '{{if .PRE}}prerelease:dispatch{{else}}release:stable{{end}}'
+        vars:
+          BUMP: "{{.BUMP}}"
+          PRE: "{{.PRE}}"
+
+  release:stable:
+    internal: true
     requires:
       vars: [BUMP]
     cmds:
       - task: version
         vars:
           BUMP: "{{.BUMP}}"
-          PRE: "{{.PRE}}"
+          PRE: ""
       - task: ci:trigger
+
+  prerelease:dispatch:
+    desc: "Dispatch the pre-build workflow (tag-only pre-release). Usage: task prerelease:dispatch BUMP=patch [PRE=pre]"
+    preconditions:
+      - sh: "command -v gh >/dev/null 2>&1"
+        msg: "GitHub CLI 'gh' is required"
+    vars:
+      BUMP_ARG: '{{default "patch" .BUMP}}'
+      PRE_ARG: '{{default "pre" .PRE}}'
+    cmds:
+      - |
+        set -euo pipefail
+        echo "Dispatching pre-build workflow (BUMP={{.BUMP_ARG}}, PRE={{.PRE_ARG}})..."
+        gh workflow run pre-build.yml \
+          --ref main \
+          -f bump="{{.BUMP_ARG}}" \
+          -f pre="{{.PRE_ARG}}"
+        sleep 2
+        RUN_ID=$(gh run list --workflow=pre-build.yml --event=workflow_dispatch --limit=1 --json databaseId --jq '.[0].databaseId')
+        if [ -z "${RUN_ID}" ]; then
+          echo "Dispatched, but could not resolve the run ID. Check https://github.com/phin-tech/roux/actions" >&2
+          exit 0
+        fi
+        echo "Watching run ${RUN_ID}..."
+        gh run watch "${RUN_ID}" --exit-status
 
   ci:sync-secrets:
     desc: "Push signing/notarization/updater secrets from 1Password into GitHub Actions secrets"
