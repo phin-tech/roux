@@ -578,9 +578,9 @@ fn normalize_repo_roots(roots: &[String]) -> Vec<String> {
 fn normalize_theme(theme: &str) -> String {
     match theme {
         "dark" | "deep-blue" => DEFAULT_THEME.to_string(),
-        "steel-amber" | "slate-emerald" | "graphite-rose" | "nordic-night" | "cyber-audit"
-        | "mocha-soft" | "paper-ink" | "github-day" | "warm-burnout-dark"
-        | "warm-burnout-light" => theme.to_string(),
+        "midnight-copper" | "steel-amber" | "slate-emerald" | "graphite-rose"
+        | "nordic-night" | "cyber-audit" | "mocha-soft" | "paper-ink" | "github-day"
+        | "warm-burnout-dark" | "warm-burnout-light" => theme.to_string(),
         _ => DEFAULT_THEME.to_string(),
     }
 }
