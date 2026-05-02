@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -11,6 +12,9 @@ use tokio::net::UnixListener;
 use crate::commands::notes::{self as notes_cmd, NotesSearchQuery, NotesTarget};
 use crate::platform;
 use crate::state::AppState;
+
+const DEFAULT_LATEST_OUTPUT_BYTES: usize = 8 * 1024;
+const MAX_LATEST_OUTPUT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Deserialize)]
 struct Request {
@@ -174,6 +178,7 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "focus" => handle_focus(req, app),
         "run" => handle_run(req, app).await,
         "send" => handle_send(req, app).await,
+        "latest-output" => handle_latest_output(req, app).await,
         "notify" => handle_notify(req, app).await,
         "notes-read" => handle_notes_read(req, app).await,
         "notes-write" => handle_notes_write(req, app).await,
@@ -187,9 +192,16 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "session-poll" => handle_session_poll(req, app).await,
         "session-panes-list" => handle_session_panes_list(req, app).await,
         "session-panes-create" => handle_session_panes_create(req, app).await,
+        "mcp-enabled" => handle_mcp_enabled(app),
         "app-open" => handle_app_open(req, app).await,
         _ => Response::err(format!("unknown command: {}", req.command)),
     }
+}
+
+fn handle_mcp_enabled(app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let enabled = state.settings.lock().map(|settings| settings.mcp_enabled).unwrap_or(false);
+    Response::success(serde_json::json!({ "enabled": enabled }))
 }
 
 async fn handle_hook_show(req: Request, app: &tauri::AppHandle) -> Response {
@@ -996,19 +1008,14 @@ async fn resolve_send_pty_id(
             .list_by_ids(vec![pane_id.to_string()])
             .await
             .map_err(|e| format!("pane lookup failed: {}", e))?;
-        let record = records
-            .into_iter()
-            .next()
-            .ok_or_else(|| format!("pane not found: {}", pane_id))?;
+        let record =
+            records.into_iter().next().ok_or_else(|| format!("pane not found: {}", pane_id))?;
 
         // Defensive: reject a pane that doesn't belong to the requested
         // session. Pane IDs follow the `{session}-{suffix}` convention
         // (see services/sessions.rs), so the prefix check is sufficient.
         if !record.id.starts_with(&format!("{}-", session_id)) {
-            return Err(format!(
-                "pane {} does not belong to session {}",
-                pane_id, session_id
-            ));
+            return Err(format!("pane {} does not belong to session {}", pane_id, session_id));
         }
         return Ok(record.pty_id);
     }
@@ -1027,6 +1034,99 @@ async fn resolve_send_pty_id(
     }
 }
 
+/// Resolve which PTY's recent output to read. Unlike `send`, a pane-only
+/// request is valid because reading is explicit and read-only.
+async fn resolve_latest_output_pty_id(
+    pane_handle: &crate::pane_service::PaneHandle,
+    session_handle: &crate::session_service::SessionHandle,
+    session_id: Option<&str>,
+    pane_id: Option<&str>,
+) -> Result<String, String> {
+    if let Some(pane_id) = pane_id {
+        let records = pane_handle
+            .list_by_ids(vec![pane_id.to_string()])
+            .await
+            .map_err(|e| format!("pane lookup failed: {}", e))?;
+        let record =
+            records.into_iter().next().ok_or_else(|| format!("pane not found: {}", pane_id))?;
+
+        if let Some(session_id) = session_id {
+            if !record.id.starts_with(&format!("{}-", session_id)) {
+                return Err(format!("pane {} does not belong to session {}", pane_id, session_id));
+            }
+        }
+
+        return Ok(record.pty_id);
+    }
+
+    if let Some(session_id) = session_id {
+        return resolve_send_pty_id(pane_handle, session_handle, session_id, None).await;
+    }
+
+    Err("session_id or pane_id required".to_string())
+}
+
+fn latest_output_max_bytes(args: &serde_json::Value) -> usize {
+    args.get("max_bytes")
+        .or_else(|| args.get("maxBytes"))
+        .and_then(|v| v.as_u64())
+        .map(|n| (n as usize).clamp(1, MAX_LATEST_OUTPUT_BYTES))
+        .unwrap_or(DEFAULT_LATEST_OUTPUT_BYTES)
+}
+
+async fn handle_latest_output(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let max_bytes = latest_output_max_bytes(&req.args);
+    let pty_id = match resolve_latest_output_pty_id(
+        &state.pane_handle,
+        &state.session_handle,
+        req.session_id.as_deref(),
+        req.pane_id.as_deref(),
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => return Response::err(e),
+    };
+
+    let Some(info) = state.pty_manager.get_info_direct(&pty_id) else {
+        return Response::err(format!("pty not found: {}", pty_id));
+    };
+    let pane_id = req.pane_id.clone().or_else(|| match &info.status {
+        crate::pty::PtyStatus::RunningAttached { pane_id } => Some(pane_id.clone()),
+        _ => None,
+    });
+    let bytes = state.pty_manager.get_replay(&pty_id, max_bytes);
+    Response::success(latest_output_payload(info.session_id, pane_id, pty_id, max_bytes, &bytes))
+}
+
+fn latest_output_payload(
+    session_id: Option<String>,
+    pane_id: Option<String>,
+    pty_id: String,
+    max_bytes: usize,
+    bytes: &[u8],
+) -> serde_json::Value {
+    let mut data = serde_json::Map::new();
+    data.insert("session_id".into(), optional_string_value(session_id));
+    data.insert("pane_id".into(), optional_string_value(pane_id));
+    data.insert("pty_id".into(), serde_json::Value::String(pty_id));
+    data.insert("max_bytes".into(), serde_json::Value::Number(max_bytes.into()));
+    data.insert("byte_count".into(), serde_json::Value::Number(bytes.len().into()));
+    data.insert(
+        "replay_bytes_base64".into(),
+        serde_json::Value::String(BASE64_STANDARD.encode(bytes)),
+    );
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        data.insert("text".into(), serde_json::Value::String(text.to_string()));
+    }
+    serde_json::Value::Object(data)
+}
+
+fn optional_string_value(value: Option<String>) -> serde_json::Value {
+    value.map_or(serde_json::Value::Null, serde_json::Value::String)
+}
+
 /// Pure routing+formatting half of `handle_send`. Resolves the request to a
 /// `(pty_id, bytes_to_write)` pair without touching the PtyManager, so it can
 /// be exercised in headless tests without a real Tauri app or a live PTY.
@@ -1042,8 +1142,7 @@ async fn prepare_send(
         .ok_or_else(|| "text argument required".to_string())?
         .to_string();
 
-    let session_id =
-        req.session_id.as_deref().ok_or_else(|| "session_id required".to_string())?;
+    let session_id = req.session_id.as_deref().ok_or_else(|| "session_id required".to_string())?;
 
     let pty_id =
         resolve_send_pty_id(pane_handle, session_handle, session_id, req.pane_id.as_deref())
@@ -1056,11 +1155,11 @@ async fn prepare_send(
 
 async fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
-    let (pty_id, bytes) =
-        match prepare_send(&state.pane_handle, &state.session_handle, &req).await {
-            Ok(pair) => pair,
-            Err(e) => return Response::err(e),
-        };
+    let (pty_id, bytes) = match prepare_send(&state.pane_handle, &state.session_handle, &req).await
+    {
+        Ok(pair) => pair,
+        Err(e) => return Response::err(e),
+    };
     if let Err(e) = state.pty_manager.write(&pty_id, &bytes) {
         return Response::err(format!("Failed to write to session: {}", e));
     }
@@ -1325,6 +1424,21 @@ mod tests {
     }
 
     #[test]
+    fn request_latest_output_deserializes() {
+        let json = r#"{
+            "command": "latest-output",
+            "session_id": "sid-1",
+            "pane_id": "sid-1-main",
+            "args": {"max_bytes": 4096}
+        }"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.command, "latest-output");
+        assert_eq!(req.session_id.as_deref(), Some("sid-1"));
+        assert_eq!(req.pane_id.as_deref(), Some("sid-1-main"));
+        assert_eq!(req.args["max_bytes"], 4096);
+    }
+
+    #[test]
     fn request_session_panes_create_with_profile_deserializes() {
         let json = r#"{
             "command": "session-panes-create",
@@ -1412,9 +1526,8 @@ mod tests {
             crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
         panes.upsert(pane_record("sid-1-main", "sid-1")).await.unwrap();
 
-        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", Some("sid-1-main"))
-            .await
-            .unwrap();
+        let pty_id =
+            resolve_send_pty_id(&panes, &sessions, "sid-1", Some("sid-1-main")).await.unwrap();
         assert_eq!(pty_id, "sid-1");
     }
 
@@ -1446,9 +1559,8 @@ mod tests {
             dir.path().join("sessions.json"),
         );
 
-        let err = resolve_send_pty_id(&panes, &sessions, "sid-2", Some("sid-1-main"))
-            .await
-            .unwrap_err();
+        let err =
+            resolve_send_pty_id(&panes, &sessions, "sid-2", Some("sid-1-main")).await.unwrap_err();
         assert!(err.contains("pane not found"), "got: {}", err);
     }
 
@@ -1468,14 +1580,9 @@ mod tests {
         panes.upsert(pane_record("sid-A-main", "sid-A")).await.unwrap();
         panes.upsert(pane_record("sid-B-main", "sid-B")).await.unwrap();
 
-        let err = resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main"))
-            .await
-            .unwrap_err();
-        assert!(
-            err.contains("does not belong to session"),
-            "got: {}",
-            err
-        );
+        let err =
+            resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main")).await.unwrap_err();
+        assert!(err.contains("does not belong to session"), "got: {}", err);
     }
 
     #[tokio::test]
@@ -1505,6 +1612,76 @@ mod tests {
 
         let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", None).await.unwrap();
         assert_eq!(pty_id, "sid-1");
+    }
+
+    #[tokio::test]
+    async fn resolve_latest_output_pty_id_accepts_pane_without_session() {
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+        panes.upsert(pane_record("sid-1-main", "sid-1")).await.unwrap();
+
+        let pty_id = resolve_latest_output_pty_id(&panes, &sessions, None, Some("sid-1-main"))
+            .await
+            .unwrap();
+        assert_eq!(pty_id, "sid-1");
+    }
+
+    #[tokio::test]
+    async fn resolve_latest_output_pty_id_accepts_session_without_pane() {
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) = crate::session_service::spawn_with_path(
+            vec![session_with_pty("sid-1", Some("sid-1"))],
+            dir.path().join("sessions.json"),
+        );
+
+        let pty_id =
+            resolve_latest_output_pty_id(&panes, &sessions, Some("sid-1"), None).await.unwrap();
+        assert_eq!(pty_id, "sid-1");
+    }
+
+    #[tokio::test]
+    async fn resolve_latest_output_pty_id_requires_pane_or_session() {
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+
+        let err = resolve_latest_output_pty_id(&panes, &sessions, None, None).await.unwrap_err();
+        assert_eq!(err, "session_id or pane_id required");
+    }
+
+    #[test]
+    fn latest_output_payload_includes_utf8_text_and_exact_bytes() {
+        let payload = latest_output_payload(
+            Some("sid-1".into()),
+            Some("sid-1-main".into()),
+            "pty-1".into(),
+            4096,
+            b"hello",
+        );
+
+        assert_eq!(payload["session_id"], "sid-1");
+        assert_eq!(payload["pane_id"], "sid-1-main");
+        assert_eq!(payload["pty_id"], "pty-1");
+        assert_eq!(payload["max_bytes"], 4096);
+        assert_eq!(payload["byte_count"], 5);
+        assert_eq!(payload["replay_bytes_base64"], BASE64_STANDARD.encode(b"hello"));
+        assert_eq!(payload["text"], "hello");
+    }
+
+    #[test]
+    fn latest_output_payload_omits_text_for_non_utf8_bytes() {
+        let bytes = [0xff, b'a', 0xfe];
+        let payload =
+            latest_output_payload(Some("sid-1".into()), None, "pty-1".into(), 4096, &bytes);
+
+        assert_eq!(payload["pane_id"], serde_json::Value::Null);
+        assert_eq!(payload["byte_count"], 3);
+        assert_eq!(payload["replay_bytes_base64"], BASE64_STANDARD.encode(bytes));
+        assert!(!payload.as_object().unwrap().contains_key("text"));
     }
 
     // ── prepare_send (issue #127 regression coverage) ────────
