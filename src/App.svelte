@@ -38,7 +38,7 @@
   import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
-  import { initSession, initSessionWithProfile, splitPane } from "$lib/panes/actions";
+  import { initSessionWithProfile, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { getTerminalController } from "$lib/panes/terminalRuntime";
@@ -50,13 +50,20 @@
     submitCustomProfile,
     closeCustomProfileEditor,
   } from "$lib/stores/customProfileModal";
+  import {
+    newProjectDialogState,
+    closeNewProjectDialog,
+  } from "$lib/stores/newProjectDialog";
+  import NewProjectDialog from "$lib/components/NewProjectDialog.svelte";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
+  import { installSessionPrEffect } from "$lib/stores/sessionPrLookup";
   import { clearPermissionInfo } from "$lib/panes/agentState";
   import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
   import { profileRegistry } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
+  import { getProjectPrompt } from "$lib/stores/projects";
   import type { RouxCommand } from "$lib/tauri";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -373,6 +380,7 @@
   });
 
   let unlistenDragDrop: (() => void) | null = null;
+  let unlistenSessionPrEffect: (() => void) | null = null;
 
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);
@@ -380,6 +388,8 @@
     window.removeEventListener("blur", handleWindowBlur);
     unlistenDragDrop?.();
     unlistenDragDrop = null;
+    unlistenSessionPrEffect?.();
+    unlistenSessionPrEffect = null;
     teardownAppMenu();
   });
 
@@ -445,6 +455,11 @@
     // and OS fan-out happen on the Rust side of notificationsPush.
     initAgentNotifications();
 
+    // Resolve the active session's branch to an open PR (when gh is
+    // available) so the status bar can render a PR chip and the optional
+    // auto-watch flow can create a session-scoped PR watch.
+    unlistenSessionPrEffect = installSessionPrEffect();
+
     // Kick off a silent background update check (5s debounce, respects user toggle)
     runStartupCheck();
 
@@ -492,9 +507,12 @@
         const primaryDescriptor = persisted?.descriptors.find(
           (d) => d.ptyId === s.id,
         );
-        const mainPaneId = primaryDescriptor?.spawnProfileRef
-          ? initSessionWithProfile(s.id, primaryDescriptor.spawnProfileRef)
-          : initSession(s.id);
+        const primaryProfileRef: SpawnProfileRef =
+          primaryDescriptor?.spawnProfileRef ?? { kind: "registered", id: "claude" };
+        const mainPaneId = initSessionWithProfile(s.id, primaryProfileRef, {
+          provider: primaryDescriptor?.provider,
+          providerSessionId: primaryDescriptor?.providerSessionId,
+        });
         initTerminal(mainPaneId);
         await attachPtyListeners(mainPaneId);
         // Full layout restore (shell PTY re-spawn etc.) happens on reconnect click.
@@ -551,7 +569,9 @@
             // including Claude (the legacy direct-spawn path is gone).
             const profile = get(profileRegistry).get(effectiveProfileId);
             if (profile) {
-              runProfileInPane(newSession.id, profile).catch((e) =>
+              runProfileInPane(newSession.id, profile, {
+                appendSystemPrompt: getProjectPrompt(newSession.projectId),
+              }).catch((e) =>
                 logError(`runProfileInPane failed for ${effectiveProfileId}`, e),
               );
             } else {
@@ -668,7 +688,9 @@
             if (profile) {
               // Fire-and-forget: startup commands are typed into the live PTY;
               // the CLI caller doesn't wait for them to finish running.
-              runProfileInPane(ptyId, profile).catch((e) =>
+              runProfileInPane(ptyId, profile, {
+                appendSystemPrompt: getProjectPrompt(session.projectId),
+              }).catch((e) =>
                 logError(`runProfileInPane failed for ${profile.id}`, e),
               );
             }
@@ -755,6 +777,14 @@
   visible={$customProfileModalState.visible}
   onclose={closeCustomProfileEditor}
   onsubmit={submitCustomProfile}
+/>
+
+<!-- Global new-project dialog host. Driven by `newProjectDialogState`,
+     flipped by the `project.new` / `project.edit` commands. -->
+<NewProjectDialog
+  visible={$newProjectDialogState.visible}
+  project={$newProjectDialogState.project}
+  onclose={closeNewProjectDialog}
 />
 
 <CommandPalette

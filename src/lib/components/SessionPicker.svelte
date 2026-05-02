@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { listClaudeSessions } from "$lib/tauri";
   import type { ClaudeSession } from "$lib/types";
+  import { openNewProjectDialog } from "$lib/stores/newProjectDialog";
 
   interface Props {
     cwd: string;
@@ -67,6 +68,13 @@
         onclick={onNew}
       >
         <span class="text-base">+</span> New Session
+      </button>
+
+      <button
+        class="flex w-full items-center justify-center gap-2 rounded-xl border border-border-subtle bg-bg-surface/70 py-2.5 text-sm text-text-primary cursor-pointer transition-all hover:border-border hover:bg-bg-surface focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+        onclick={openNewProjectDialog}
+      >
+        <span class="text-base">+</span> New Project
       </button>
 
       {#if sessions.length > 0}

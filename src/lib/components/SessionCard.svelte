@@ -13,6 +13,7 @@
   import { listSessionPtys } from "$lib/tauri";
   import CloseButton from "./CloseButton.svelte";
   import Pencil from "@lucide/svelte/icons/pencil";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
   import SessionWorktrunkChips from "./SessionWorktrunkChips.svelte";
 
   interface Props {
@@ -81,6 +82,29 @@
   });
 
   let displayName = $derived(sessionDisplayName(session));
+  let hasCustomName = $derived(Boolean(session.nameOverride?.trim()));
+  let primaryLabel = $derived(
+    session.isWorktree && session.branch && !hasCustomName
+      ? session.branch
+      : displayName,
+  );
+  let secondaryBranch = $derived(
+    session.isWorktree && session.branch && hasCustomName && session.branch !== displayName
+      ? session.branch
+      : null,
+  );
+  let branchParts = $derived.by(() => {
+    const shouldSplitBranchPrimary =
+      session.isWorktree && !hasCustomName && primaryLabel.includes("/");
+    if (!shouldSplitBranchPrimary) {
+      return { prefix: "", tail: primaryLabel };
+    }
+    const slash = primaryLabel.lastIndexOf("/");
+    return {
+      prefix: primaryLabel.slice(0, slash + 1),
+      tail: primaryLabel.slice(slash + 1),
+    };
+  });
 
   let editing = $state(false);
   let editName = $state("");
@@ -139,7 +163,7 @@
     session.isWorktree || showProjectTag || session.cost != null
   );
 
-  let tooltip = $derived(
+  let detailLabel = $derived(
     session.isGitRepo && session.branch
       ? `${session.branch} · ${session.worktreePath}`
       : session.worktreePath,
@@ -149,10 +173,10 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="group relative mb-1 flex w-full cursor-pointer overflow-hidden text-left transition-colors duration-150
+  class="group relative mb-1 flex w-full cursor-pointer overflow-hidden border-l-2 text-left transition-colors duration-150
     {active
-      ? 'bg-bg-active shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-      : 'bg-transparent hover:bg-bg-active/40'}
+      ? 'border-accent bg-bg-active shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+      : 'border-transparent bg-transparent hover:bg-bg-active/30'}
     {isFlashing ? 'watch-flash' : ''}"
   onclick={onselect}
   oncontextmenu={(e) => {
@@ -161,10 +185,9 @@
       oncontextmenu(e);
     }
   }}
-  title={tooltip}
 >
   <!-- Left gutter: persistent status dot -->
-  <div class="flex h-9 w-5 shrink-0 items-center justify-center self-start">
+  <div class="flex h-10 w-5 shrink-0 items-start justify-center pt-[13px]">
     <span class="relative inline-flex h-2 w-2 items-center justify-center">
       {#if effectiveStatus === "attention"}
         <span class="absolute inline-flex h-2 w-2 rounded-full {statusDotClasses[effectiveStatus]} animate-ping opacity-60"></span>
@@ -174,91 +197,114 @@
   </div>
 
   <!-- Body -->
-  <div class="min-w-0 flex-1 py-2 pr-2">
-    <div class="flex items-center gap-2">
-      {#if editing}
-        <input
-          class="h-5 min-w-0 flex-1 border border-accent-dim/30 bg-bg-deep px-1.5 py-0 text-[13px] font-semibold leading-none tracking-tight text-text-primary outline-none"
-          bind:value={editName}
-          onblur={commitRename}
-          onkeydown={(e) => {
-            if (e.key === "Enter") { e.stopPropagation(); commitRename(); }
-            if (e.key === "Escape") { e.stopPropagation(); editing = false; }
-          }}
-        />
-      {:else}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span
-          class="flex-1 truncate text-[13px] font-semibold tracking-tight {active ? 'text-text-primary' : 'text-text-secondary'}"
-          ondblclick={startEditing}
-        >
-          {displayName}
-        </span>
-        <button
-          type="button"
-          class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center border border-transparent bg-transparent p-0 text-text-muted opacity-0 transition-colors duration-150 hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 group-hover:opacity-100"
-          onclick={startEditing}
-          aria-label="Rename session"
-          title="Rename session"
-        >
-          <Pencil size={12} />
-        </button>
-      {/if}
+  <div class="min-w-0 flex-1 py-1.5 pr-2">
+    <div class="flex min-h-5 items-center gap-1.5">
+      <div class="min-w-0 flex-1">
+        {#if editing}
+          <input
+            class="h-5 w-full min-w-0 border border-accent-dim/30 bg-bg-deep px-1.5 py-0 text-[13px] font-semibold leading-none text-text-primary outline-none"
+            bind:value={editName}
+            onblur={commitRename}
+            onkeydown={(e) => {
+              if (e.key === "Enter") { e.stopPropagation(); commitRename(); }
+              if (e.key === "Escape") { e.stopPropagation(); editing = false; }
+            }}
+          />
+        {:else}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <span
+            data-testid="session-primary-label"
+            class="flex min-w-0 items-baseline text-[13px] font-semibold leading-5 {active ? 'text-text-primary' : 'text-text-secondary'}"
+            title={detailLabel}
+            ondblclick={startEditing}
+          >
+            {#if session.isWorktree && branchParts.prefix}
+              <span data-testid="session-primary-prefix" class="min-w-0 truncate text-text-muted">{branchParts.prefix}</span>
+              <span data-testid="session-primary-tail" class="min-w-0 truncate">{branchParts.tail}</span>
+            {:else}
+              <span class="min-w-0 truncate">{primaryLabel}</span>
+            {/if}
+          </span>
+        {/if}
+      </div>
 
-      {#if showPaneInventory}
-        <span
-          class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold tabular-nums bg-bg-surface text-text-muted"
-          title={activePaneTitle}
-        >{attachedCount}</span>
-      {/if}
-      {#if detachedCount > 0}
-        <span
-          class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold tabular-nums
-            {detachedHasUnread
-              ? 'bg-accent text-white'
-              : 'bg-bg-surface text-text-muted'}"
-          title={detachedPaneTitle}
-        >{detachedCount}</span>
-      {/if}
-      {#if unreadCount > 0}
-        <span
-          class="inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full bg-accent-dim/30 px-1 text-[9px] font-semibold text-accent"
-          title="{unreadCount} unread notification{unreadCount === 1 ? '' : 's'}"
-        >{unreadCount > 99 ? "99+" : unreadCount}</span>
-      {/if}
-      {#if session.status === "disconnected"}
-        <button
-          class="cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2 py-0.5 text-[11px] font-semibold text-accent hover:bg-accent-dim/24"
-          onclick={(e) => { e.stopPropagation(); onreconnect(); }}
-        >
-          reconnect
-        </button>
-      {/if}
-      <CloseButton
-        class="flex h-5 w-5 items-center justify-center p-0 opacity-70 duration-150 group-hover:opacity-100 hover:border-transparent hover:text-red"
-        onclick={(e) => { e.stopPropagation(); onclose(); }}
-        label="Close session"
-        title="Close session"
-        size={13}
-      />
+      <div class="flex shrink-0 items-center gap-1">
+        {#if showPaneInventory}
+          <span
+            class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-bg-surface px-1 text-[9px] font-semibold tabular-nums text-text-muted"
+            title={activePaneTitle}
+          >{attachedCount}</span>
+        {/if}
+        {#if detachedCount > 0}
+          <span
+            class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold tabular-nums
+              {detachedHasUnread
+                ? 'bg-accent text-white'
+                : 'bg-bg-surface text-text-muted'}"
+            title={detachedPaneTitle}
+          >{detachedCount}</span>
+        {/if}
+        {#if unreadCount > 0}
+          <span
+            class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-accent-dim/30 px-1 text-[9px] font-semibold tabular-nums text-accent"
+            title="{unreadCount} unread notification{unreadCount === 1 ? '' : 's'}"
+          >{unreadCount > 99 ? "99+" : unreadCount}</span>
+        {/if}
+        {#if session.status === "disconnected"}
+          <button
+            class="h-5 cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2 py-0 text-[10px] font-semibold text-accent hover:bg-accent-dim/24"
+            onclick={(e) => { e.stopPropagation(); onreconnect(); }}
+          >
+            continue
+          </button>
+        {/if}
+        {#if !editing}
+          <button
+            type="button"
+            class="pointer-events-none flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center border border-transparent bg-transparent p-0 text-text-muted opacity-0 transition-colors duration-150 hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 group-hover:pointer-events-auto group-hover:opacity-100"
+            onclick={startEditing}
+            aria-label="Rename session"
+            title="Rename session"
+          >
+            <Pencil size={12} />
+          </button>
+        {/if}
+        <CloseButton
+          class="pointer-events-none flex h-5 w-5 items-center justify-center p-0 opacity-0 duration-150 hover:border-transparent hover:text-red focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+          onclick={(e) => { e.stopPropagation(); onclose(); }}
+          label="Close session"
+          title="Close session"
+          size={13}
+        />
+      </div>
     </div>
 
     {#if showRow2}
-      <div class="mt-1 flex items-center gap-2 text-[10px] text-text-muted">
+      <div class="mt-0.5 flex min-h-4 items-center gap-1.5 overflow-hidden text-[10px] text-text-muted">
         {#if session.isWorktree}
-          <span class="flex items-center gap-1 text-text-secondary">
-            <span class="opacity-70">&#9095;</span>
+          <span
+            class="inline-flex h-4 shrink-0 items-center gap-1 rounded bg-bg-surface/70 px-1.5 font-medium text-text-secondary"
+            title={detailLabel}
+          >
+            <GitBranch size={10} />
             <span>worktree</span>
           </span>
         {/if}
+        {#if secondaryBranch}
+          <span class="min-w-0 truncate font-mono text-[10px] text-text-muted" title={secondaryBranch}>
+            {secondaryBranch}
+          </span>
+        {/if}
         {#if session.isWorktree}
-          <SessionWorktrunkChips worktreePath={session.worktreePath} />
+          <span class="inline-flex min-w-0 items-center gap-1">
+            <SessionWorktrunkChips worktreePath={session.worktreePath} />
+          </span>
         {/if}
         {#if showProjectTag}
-          <span class="bg-accent-dim/15 px-1.5 py-0.5 font-semibold text-accent">{projectName}</span>
+          <span class="inline-flex h-4 shrink-0 items-center rounded bg-accent-dim/15 px-1.5 font-semibold text-accent">{projectName}</span>
         {/if}
         {#if session.cost != null}
-          <span class="ml-auto font-semibold">${session.cost.toFixed(2)}</span>
+          <span class="ml-auto shrink-0 font-semibold tabular-nums">${session.cost.toFixed(2)}</span>
         {/if}
       </div>
     {/if}

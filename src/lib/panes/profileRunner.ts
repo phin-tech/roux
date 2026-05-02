@@ -1,6 +1,7 @@
 import { writeToSession } from "$lib/tauri";
 import { log } from "$lib/logging";
 import type { SpawnProfile } from "./profiles";
+import { appendAgentSystemPrompt } from "./agentPrompt";
 
 /**
  * Valid POSIX-ish shell identifier: must start with a letter or underscore
@@ -23,6 +24,14 @@ const VALID_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  */
 function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+export interface RunProfileOptions {
+  /** Free-form text to splice into the agent CLI's startup command via
+   *  the provider-appropriate flag — see `appendAgentSystemPrompt`. The
+   *  caller decides where this comes from (project, layout, ad-hoc),
+   *  so this option stays provider/source-agnostic. */
+  appendSystemPrompt?: string;
 }
 
 /**
@@ -48,14 +57,20 @@ function shellSingleQuote(value: string): string {
 export async function runProfileInPane(
   ptyId: string,
   profile: SpawnProfile,
+  opts: RunProfileOptions = {},
 ): Promise<void> {
   const cwdOverride = profile.cwdOverride?.trim() ?? "";
   const envEntries = Object.entries(profile.env ?? {}).filter(
     ([name]) => VALID_ENV_NAME.test(name),
   );
   const hasSetup = !!profile.setupCommand && profile.setupCommand.trim().length > 0;
-  const hasStartup =
-    !!profile.startupCommand && profile.startupCommand.trim().length > 0;
+  const baseStartup = profile.startupCommand ?? "";
+  const startupCommand = appendAgentSystemPrompt(
+    baseStartup,
+    profile.provider,
+    opts.appendSystemPrompt ?? "",
+  );
+  const hasStartup = startupCommand.trim().length > 0;
 
   if (!cwdOverride && envEntries.length === 0 && !hasSetup && !hasStartup) {
     return;
@@ -92,7 +107,7 @@ export async function runProfileInPane(
     log(
       `runProfileInPane(${ptyId}): typing startup command for profile "${profile.id}" (behavior=${profile.startupBehavior ?? "autoRun"})`,
     );
-    await writeToSession(ptyId, profile.startupCommand!);
+    await writeToSession(ptyId, startupCommand);
     if (suffix) await writeToSession(ptyId, suffix);
   }
 }

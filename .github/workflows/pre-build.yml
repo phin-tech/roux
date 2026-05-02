@@ -1,0 +1,154 @@
+name: Pre-build
+
+# Cuts a pre-release tag (e.g. v0.5.4-pre.3) from the current tip of main
+# and dispatches release.yml against it. Triggered by either:
+#   - merging a PR labeled `pre-build` into main (BUMP=patch, PRE=pre)
+#   - manual workflow_dispatch (any BUMP/PRE)
+#
+# Mirrors `task release BUMP=patch PRE=pre`'s version semantics, but is
+# tag-only: the version-bump commit is created on a detached HEAD and is
+# never pushed to main — only the tag is pushed. main therefore never
+# carries `pre-release: vX.Y.Z-pre.N` commits. This matches nightly.yml.
+#
+# Version logic (must stay aligned with Taskfile.yml::version):
+#   base   = last *stable* tag (matching ^v[0-9]+\.[0-9]+\.[0-9]+$), with
+#            the BUMP applied to its patch/minor/major component
+#   pre.N  = one above the highest existing vBASE-PRE.* tag
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump (patch/minor/major)"
+        required: false
+        type: string
+        default: "patch"
+      pre:
+        description: "Pre-release label (pre/alpha/beta/dev/rc)"
+        required: false
+        type: string
+        default: "pre"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: prebuild-main
+  cancel-in-progress: false
+
+jobs:
+  prebuild:
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.pull_request.merged == true
+          && github.event.pull_request.base.ref == 'main'
+          && contains(github.event.pull_request.labels.*.name, 'pre-build'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve BUMP and PRE for this run
+        id: inputs
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BUMP="${{ inputs.bump }}"
+            PRE="${{ inputs.pre }}"
+          else
+            BUMP="patch"
+            PRE="pre"
+          fi
+          case "$BUMP" in
+            patch|minor|major) ;;
+            *) echo "Invalid BUMP: $BUMP" >&2; exit 1 ;;
+          esac
+          if [[ -z "$PRE" ]]; then
+            echo "PRE must be non-empty for pre-build workflow" >&2
+            exit 1
+          fi
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+          echo "pre=$PRE" >> "$GITHUB_OUTPUT"
+
+      - name: Compute pre-release version
+        id: version
+        env:
+          BUMP: ${{ steps.inputs.outputs.bump }}
+          PRE: ${{ steps.inputs.outputs.pre }}
+        run: |
+          set -euo pipefail
+          LAST_STABLE=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          if [[ -z "$LAST_STABLE" ]]; then
+            CURRENT="0.1.0"
+          else
+            CURRENT="${LAST_STABLE#v}"
+          fi
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          BASE="${MAJOR}.${MINOR}.${PATCH}"
+          LAST_PRE_NUM=$(git tag -l "v${BASE}-${PRE}.*" | sed "s/v${BASE}-${PRE}\.//" | sort -n | tail -1 || true)
+          if [[ -n "$LAST_PRE_NUM" ]]; then
+            PRE_NUM=$((LAST_PRE_NUM + 1))
+          else
+            PRE_NUM=1
+          fi
+          NEW="${BASE}-${PRE}.${PRE_NUM}"
+          TAG="v${NEW}"
+          echo "Last stable: ${LAST_STABLE:-<none>}"
+          echo "New version: $TAG"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Write version into sources (detached commit, not pushed to main)
+        env:
+          NEW: ${{ steps.version.outputs.new }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # release.yml's `task sign` / `task publish` read the version from
+          # src-tauri/tauri.conf.json, so the tag's commit must already carry
+          # the bumped values. The commit is created here on a detached HEAD
+          # and is never pushed to a branch — only the tag is pushed, so
+          # main is unaffected.
+          sed -i "s/\"version\": \".*\"/\"version\": \"${NEW}\"/" package.json
+          python3 -c "
+          import json
+          with open('src-tauri/tauri.conf.json') as f:
+              d = json.load(f)
+          d['version'] = '${NEW}'
+          with open('src-tauri/tauri.conf.json', 'w') as f:
+              json.dump(d, f, indent=2)
+          "
+          sed -i "s/^version = \".*\"/version = \"${NEW}\"/" src-tauri/Cargo.toml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+          git commit -m "pre-release: ${TAG}"
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git tag -a "$TAG" -m "Pre-release: ${TAG}"
+          git push origin "$TAG"
+
+      - name: Dispatch Release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f version="$TAG"

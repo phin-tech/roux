@@ -25,7 +25,7 @@ pub use notification::{
     NotificationRequest, NotificationSource,
 };
 pub use profile::{ProfileSource, Provider, SpawnProfile, StartupBehavior};
-pub use project::Project;
+pub use project::{Project, ProjectUpdate, SessionBlueprint};
 pub use session::{Session, SessionStatus};
 pub use settings::{
     CursorStyle, GroupBy, LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode,

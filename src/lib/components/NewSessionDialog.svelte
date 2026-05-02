@@ -34,7 +34,9 @@
   import { log, logError } from "$lib/logging";
   import ProfileCustomEditor from "./ProfileCustomEditor.svelte";
   import WorktreeRowContent from "./WorktreeRowContent.svelte";
+  import RepoAutoComplete from "./RepoAutoComplete.svelte";
   import { commands } from "$lib/bindings";
+  import { buildQuickPickOptions, type RepoQuickPickOption } from "$lib/repos/quickPick";
 
   interface Props {
     visible: boolean;
@@ -74,7 +76,6 @@
   let rootRepoPaths = $state<string[]>([]);
   let rootReposLoading = $state(false);
   let rootReposError = $state("");
-  let repoPickerOpen = $state(true);
   let layoutPickOpen = $state(false);
   let profilePickInput = $state("");
   let profilePickOpen = $state(false);
@@ -95,25 +96,10 @@
     return !el.contains(related);
   }
 
-  let repoPickerCloseT: ReturnType<typeof setTimeout> | null = null;
   let worktreePickerCloseT: ReturnType<typeof setTimeout> | null = null;
   let layoutPickerCloseT: ReturnType<typeof setTimeout> | null = null;
   let profilePickerCloseT: ReturnType<typeof setTimeout> | null = null;
   let nonoPickerCloseT: ReturnType<typeof setTimeout> | null = null;
-
-  function cancelRepoPickerDeferredClose() {
-    if (repoPickerCloseT != null) {
-      clearTimeout(repoPickerCloseT);
-      repoPickerCloseT = null;
-    }
-  }
-  function armRepoPickerDeferredClose() {
-    cancelRepoPickerDeferredClose();
-    repoPickerCloseT = setTimeout(() => {
-      repoPickerCloseT = null;
-      repoPickerOpen = false;
-    }, 150);
-  }
 
   function cancelWorktreePickerDeferredClose() {
     if (worktreePickerCloseT != null) {
@@ -173,14 +159,13 @@
 
   $effect(() => {
     if (visible) return;
-    cancelRepoPickerDeferredClose();
     cancelWorktreePickerDeferredClose();
     cancelLayoutPickerDeferredClose();
     cancelProfilePickerDeferredClose();
     cancelNonoPickerDeferredClose();
   });
 
-  let quickPickOptions = $derived.by<{ label: string; path: string }[]>(() =>
+  let quickPickOptions = $derived.by<RepoQuickPickOption[]>(() =>
     buildQuickPickOptions(rootRepoPaths),
   );
   let filteredWorktrees = $derived.by<Worktree[]>(() => {
@@ -617,21 +602,6 @@
     }
   }
 
-  function findQuickPickMatch(queryRaw: string): { label: string; path: string } | null {
-    const query = queryRaw.trim();
-    if (!query) return null;
-    const lower = query.toLowerCase();
-    const exactPath = quickPickOptions.find((o) => o.path === query);
-    if (exactPath) return exactPath;
-    const exactLabel = quickPickOptions.find((o) => o.label.toLowerCase() === lower);
-    if (exactLabel) return exactLabel;
-    return (
-      quickPickOptions.find(
-        (o) => o.label.toLowerCase().includes(lower) || o.path.toLowerCase().includes(lower),
-      ) ?? null
-    );
-  }
-
   function focusDirectoryInput() {
     const inputEl = document.getElementById("new-session-repo-picker") as HTMLInputElement | null;
     inputEl?.focus();
@@ -641,8 +611,11 @@
   async function selectQuickPick(path: string, label?: string) {
     await pickRepoFromRoots(path);
     if (label) repoPath = path;
-    repoPickerOpen = false;
     focusDirectoryInput();
+  }
+
+  function onRepoPickerEnter(text: string) {
+    void detectGitRepo(text);
   }
 
   function findOptionMatch(
@@ -742,27 +715,6 @@
       default:
         return { base: null, fetchFirst: false };
     }
-  }
-
-  function formatRepoShortLabel(path: string, depth: number = 2): string {
-    const normalized = path.replaceAll("\\", "/");
-    const segments = normalized.split("/").filter(Boolean);
-    if (segments.length === 0) return path;
-    if (segments.length === 1) return segments[0];
-    return segments.slice(Math.max(segments.length - depth, 0)).join("/");
-  }
-
-  function buildQuickPickOptions(paths: string[]): { label: string; path: string }[] {
-    const firstPass = paths.map((path) => ({ path, label: formatRepoShortLabel(path, 2) }));
-    const counts = new Map<string, number>();
-    for (const item of firstPass) {
-      counts.set(item.label, (counts.get(item.label) ?? 0) + 1);
-    }
-    return firstPass.map((item) => {
-      if ((counts.get(item.label) ?? 0) === 1) return item;
-      const deeper = formatRepoShortLabel(item.path, 3);
-      return deeper === item.label ? { ...item, label: item.path } : { ...item, label: deeper };
-    });
   }
 
   async function handleCreate() {
@@ -965,7 +917,6 @@
     inlineProfile = null;
     showCustomEditor = false;
     rootReposError = "";
-    repoPickerOpen = true;
     prUrl = "";
     prLookup = "idle";
     prInfo = null;
@@ -1087,76 +1038,20 @@
           >
             Repository
           </label>
-          <div
-            class={pickerShellClass}
-            onfocusin={cancelRepoPickerDeferredClose}
-            onfocusout={(e) => {
-              const shell = e.currentTarget as HTMLElement;
-              if (!focusLeavingElement(shell, e.relatedTarget)) return;
-              armRepoPickerDeferredClose();
-            }}
-          >
-            <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
-              <div class={pickerInputRowClass}>
-                <Command.Input
-                  id="new-session-repo-picker"
-                  bind:value={repoPath}
-                  placeholder="Type path or search configured repo roots"
-                  class={pickerInputClass}
-                  onfocus={() => { repoPickerOpen = true; }}
-                  oninput={() => { repoPickerOpen = true; }}
-                  onkeydown={(e) => {
-                    if (e.key !== "Enter") return;
-                    const match = findQuickPickMatch(repoPath);
-                    e.preventDefault();
-                    if (match) {
-                      void selectQuickPick(match.path, match.label);
-                      return;
-                    }
-                    repoPickerOpen = false;
-                    void detectGitRepo(repoPath);
-                  }}
-                />
-                <button
-                  class="cursor-pointer rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                  onclick={loadRootRepoOptions}
-                  disabled={rootReposLoading}
-                >
-                  {rootReposLoading ? "..." : "Refresh"}
-                </button>
-                <button
-                  class="cursor-pointer rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                  onclick={pickRepo}
-                >
-                  Browse
-                </button>
-              </div>
-              {#if repoPickerOpen && compatSettings.repoRoots.length > 0}
-                <Command.List class={`${pickerListClass} max-h-36`}>
-                  <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
-                    No matching repositories
-                  </Command.Empty>
-                  <Command.Group>
-                    <Command.GroupItems>
-                      {#each quickPickOptions as opt (opt.path)}
-                        <Command.Item
-                          value={opt.label}
-                          keywords={[opt.path]}
-                          onSelect={() => {
-                            void selectQuickPick(opt.path, opt.label);
-                          }}
-                          class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
-                        >
-                          <span class="truncate text-[12px] text-text-primary">{opt.label}</span>
-                          <span class="ml-2 max-w-40 truncate font-mono text-[10px] text-text-muted">{opt.path}</span>
-                        </Command.Item>
-                      {/each}
-                    </Command.GroupItems>
-                  </Command.Group>
-                </Command.List>
-              {/if}
-            </Command.Root>
-          </div>
+          <RepoAutoComplete
+            id="new-session-repo-picker"
+            bind:value={repoPath}
+            options={quickPickOptions}
+            placeholder="Type path or search configured repo roots"
+            loading={rootReposLoading}
+            hasConfiguredRoots={compatSettings.repoRoots.length > 0}
+            showRefresh
+            showBrowse
+            onrefresh={loadRootRepoOptions}
+            onbrowse={pickRepo}
+            onselect={(path, label) => { void selectQuickPick(path, label); }}
+            onenter={onRepoPickerEnter}
+          />
           {#if rootReposError}
             <p class="text-[11px] text-red">{rootReposError}</p>
           {:else if compatSettings.repoRoots.length > 0 && !rootReposLoading && rootRepoPaths.length === 0}

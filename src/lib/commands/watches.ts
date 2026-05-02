@@ -2,6 +2,7 @@ import { registry } from "./registry";
 import { queries } from "$lib/queries";
 import { createWatch } from "$lib/tauri";
 import type { CreateWatchConfig, WatchKind } from "$lib/types";
+import { lookupPrForSession } from "$lib/stores/sessionPrLookup";
 
 export function registerWatchCommands() {
   registry.register({
@@ -169,6 +170,18 @@ export function registerWatchCommands() {
         notify: null,
       };
       await createWatch(config);
+    },
+  });
+
+  registry.register({
+    id: "session.refresh-pr",
+    label: "Refresh PR for active session",
+    category: "Watches",
+    available: () => queries.activeSession() != null,
+    execute: async () => {
+      const session = queries.activeSession();
+      if (!session) return;
+      await lookupPrForSession(session, { force: true });
     },
   });
 }

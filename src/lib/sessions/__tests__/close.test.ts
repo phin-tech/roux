@@ -12,6 +12,7 @@ vi.mock("$lib/tauri", () => ({
   listSessions: vi.fn().mockResolvedValue([]),
   restoreSession: vi.fn().mockResolvedValue(undefined),
   sessionWorktreeExists: vi.fn().mockResolvedValue(true),
+  saveLivePaneStateRaw: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { closeSession } from "../close";
@@ -26,6 +27,7 @@ import {
   killSession,
   removeWorktree,
   deleteSessionPermanently,
+  saveLivePaneStateRaw,
 } from "$lib/tauri";
 import type { Session } from "$lib/types";
 import { DEFAULT_SETTINGS } from "$lib/types";
@@ -59,6 +61,7 @@ describe("closeSession", () => {
     vi.mocked(killSession).mockReset().mockResolvedValue(undefined);
     vi.mocked(removeWorktree).mockReset().mockResolvedValue(undefined);
     vi.mocked(deleteSessionPermanently).mockReset().mockResolvedValue(undefined);
+    vi.mocked(saveLivePaneStateRaw).mockReset().mockResolvedValue(undefined);
     vi.restoreAllMocks();
   });
 
@@ -83,6 +86,56 @@ describe("closeSession", () => {
     expect(archived[0].id).toBe(session.id);
     expect(archived[0].archived).toBe(true);
     expect(archived[0].endedAt).toBeTypeOf("number");
+  });
+
+  it("flushes live pane state before removing panes", async () => {
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+
+    await closeSession(session);
+
+    expect(saveLivePaneStateRaw).toHaveBeenCalledWith(
+      session.id,
+      4,
+      { kind: "leaf", paneId: `${session.id}-main` },
+      [`${session.id}-main`],
+    );
+  });
+
+  it("flushes only the closing session's layout, not other sessions in memory", async () => {
+    // Regression: closing one session was force-flushing every session's
+    // live layout. On launch, restored sessions hold a transient primary-
+    // only layout until the user clicks Continue — that stub would
+    // overwrite the rich persisted layout for every other session.
+    const closingSession = makeSession({ id: "closing-sess" });
+    const otherSession = makeSession({ id: "other-sess" });
+    addSession(closingSession);
+    addSession(otherSession);
+    initSession(closingSession.id);
+    initSession(otherSession.id);
+
+    await closeSession(closingSession);
+
+    const calls = vi.mocked(saveLivePaneStateRaw).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(closingSession.id);
+    expect(
+      calls.some(([id]) => id === otherSession.id),
+    ).toBe(false);
+  });
+
+  it("still archives when pane-state flush fails", async () => {
+    const session = makeSession();
+    addSession(session);
+    initSession(session.id);
+    vi.mocked(saveLivePaneStateRaw).mockRejectedValueOnce(new Error("disk full"));
+
+    const result = await closeSession(session);
+
+    expect(result).toBe(true);
+    expect(killSession).toHaveBeenCalledWith(session.id);
+    expect(get(sessionState).sessions).toHaveLength(0);
   });
 
   it("prompts for confirmation when session is thinking and confirmOnClose is true", async () => {

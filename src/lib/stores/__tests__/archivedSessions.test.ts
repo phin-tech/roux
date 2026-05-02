@@ -20,6 +20,7 @@ import {
   bulkRestoreArchivedSessions,
   bulkRemoveArchivedWorktrees,
   bulkDeleteArchivedSessionsForever,
+  clearArchivedSessionsProject,
 } from "../archivedSessions";
 import { sessionState } from "$lib/stores/sessions";
 import {
@@ -290,5 +291,32 @@ describe("archivedSessions store", () => {
     const state = get(archivedSessionsState);
     expect(state.sessions.map((s) => s.id)).toEqual(["a"]);
     expect(state.worktreeExists.has("b")).toBe(false);
+  });
+
+  it("clears project and blueprint refs for loaded archived sessions", () => {
+    archivedSessionsState.set({
+      sessions: [
+        makeArchived("a", { projectId: "proj-1", blueprintId: "bp-1" }),
+        makeArchived("b", { projectId: "proj-2", blueprintId: "bp-2" }),
+      ],
+      loaded: true,
+      worktreeExists: new Map([
+        ["a", true],
+        ["b", true],
+      ]),
+    });
+
+    clearArchivedSessionsProject("proj-1");
+
+    const state = get(archivedSessionsState);
+    expect(state.sessions.find((s) => s.id === "a")).toMatchObject({
+      projectId: null,
+      blueprintId: null,
+    });
+    expect(state.sessions.find((s) => s.id === "b")).toMatchObject({
+      projectId: "proj-2",
+      blueprintId: "bp-2",
+    });
+    expect(state.worktreeExists.get("a")).toBe(true);
   });
 });

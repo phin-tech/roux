@@ -7,6 +7,8 @@ export type {
   Session as BaseSession,
   SessionStatus,
   Project,
+  ProjectUpdate,
+  SessionBlueprint,
   CursorStyle,
   TabPosition,
   StatusBarPosition,
@@ -58,7 +60,9 @@ export type ThemePreset =
   | "cyber-audit"
   | "mocha-soft"
   | "paper-ink"
-  | "github-day";
+  | "github-day"
+  | "warm-burnout-dark"
+  | "warm-burnout-light";
 
 // Session is exactly the Rust type; permission state now lives in the
 // notification service (Phase 3 retired the inline Allow/Deny flow).
@@ -112,6 +116,8 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   onPaneClose: "kill",
   librarySkillSyncDefault: "off",
   gpuAcceleration: "auto",
+  autoLookupSessionPr: true,
+  autoWatchSessionPr: false,
 };
 
 // Re-export frontend-only task types

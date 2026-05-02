@@ -80,6 +80,7 @@ nav:
       - Overview: features/index.md
       - Panes: features/panes.md
       - Sessions: features/sessions.md
+      - Projects: features/projects.md
       - Layouts: features/layouts.md
       - Worktrees: features/worktrees.md
       - Library: features/library.md

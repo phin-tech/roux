@@ -89,6 +89,24 @@ describe("pane instances", () => {
     expect(payload).not.toHaveProperty("commandStartedAt");
   });
 
+  it("syncs provider session metadata to the backend record store", async () => {
+    const id = createPane({
+      type: "shell",
+      ptyId: "pty-1",
+      provider: "claude",
+      providerSessionId: "claude-session-123",
+    });
+
+    await Promise.resolve();
+
+    const payload = vi.mocked(upsertPaneRecord).mock.calls.at(-1)?.[0];
+    expect(payload).toMatchObject({
+      id,
+      provider: "claude",
+      providerSessionId: "claude-session-123",
+    });
+  });
+
   it("does not upsert the backend record when only UI runtime fields change", async () => {
     const id = createPane({ type: "shell", ptyId: "pty-1", workingDir: "/tmp" });
     vi.mocked(upsertPaneRecord).mockClear();

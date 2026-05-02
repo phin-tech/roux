@@ -1,6 +1,7 @@
 <script lang="ts">
   import { activeSession } from "$lib/stores/sessions";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
+  import { prLookupFor } from "$lib/stores/sessionPrLookup";
   import { ciChipFor } from "$lib/ciIcon";
   import { safeHref } from "$lib/safeUrl";
   import type { StatusBarPosition } from "$lib/types";
@@ -28,7 +29,21 @@
   );
   let wtMeta = $derived(sessionMetadata ? $sessionMetadata : null);
   let ciChip = $derived(ciChipFor(wtMeta?.ciStatus ?? null));
-  let ciHref = $derived(safeHref(wtMeta?.ciUrl));
+  let wtCiHref = $derived(safeHref(wtMeta?.ciUrl));
+
+  // Fallback: when worktrunk hasn't supplied a ciUrl, use the gh-derived
+  // PR URL from `sessionPrLookup`. Worktrunk wins because it carries CI
+  // status (spinner / stale flag); gh only confirms the PR exists.
+  let prLookupStore = $derived(
+    prLookupFor($activeSession?.repoRoot, $activeSession?.branch),
+  );
+  let prInfo = $derived(prLookupStore ? $prLookupStore : null);
+  let ghPrHref = $derived(safeHref(prInfo?.url ?? null));
+
+  let ciHref = $derived(wtCiHref ?? ghPrHref);
+  // True when we're rendering only the gh fallback — used to skip the
+  // CI-status spinner / stale styling, which only worktrunk provides.
+  let ghOnly = $derived(!wtCiHref && !!ghPrHref);
 
   /** Extract a PR-style label from a GitHub/GitLab URL (e.g. "PR #42"). */
   function prLabel(url: string): string {
@@ -52,7 +67,7 @@
       <span class="text-text-secondary">&bull;</span>
       <span class="text-text-muted">&#9095; {$activeSession.branch}</span>
     {/if}
-    {#if ciHref && ciChip && wtMeta}
+    {#if ciHref && ciChip && wtMeta && !ghOnly}
       {@const Icon = ciChip.icon}
       {@const running = wtMeta.ciStatus === "running"}
       <span class="text-text-secondary">&bull;</span>
@@ -65,6 +80,18 @@
         title={`CI: ${ciChip.label}${wtMeta.ciStale ? " (stale — unpushed changes)" : ""}`}
       >
         <Icon size={12} class={running ? "animate-spin" : ""} />
+        <span>{prLabel(ciHref)}</span>
+      </a>
+    {:else if ciHref && ghOnly}
+      <span class="text-text-secondary">&bull;</span>
+      <a
+        data-testid="status-bar-pr-link"
+        href={ciHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center gap-1 underline text-text-muted hover:text-text-primary"
+        title={prInfo?.title ? `PR: ${prInfo.title}` : "Open PR for this branch"}
+      >
         <span>{prLabel(ciHref)}</span>
       </a>
     {:else if ciChip && wtMeta}

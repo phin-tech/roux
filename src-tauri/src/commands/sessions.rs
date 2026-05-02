@@ -27,6 +27,16 @@ pub(crate) struct CreateShellOpts {
     /// `origin/*`-style bases that may be stale locally.
     #[serde(default)]
     pub fetch_first: Option<bool>,
+    /// Project to attach the new session to. When set, the PTY env vars
+    /// for the project notes + `ROUX_PROJECT_CONTEXT_PATHS` are populated
+    /// on the very first spawn (no reconnect required).
+    #[serde(default)]
+    pub project_id: Option<String>,
+    /// Project session-blueprint id this session was spawned from. Stamped
+    /// onto the persisted Session so the sidebar can collapse the dimmed
+    /// blueprint row when the live session is up.
+    #[serde(default)]
+    pub blueprint_id: Option<String>,
 }
 
 #[tauri::command]
@@ -366,6 +376,7 @@ pub(crate) async fn create_session_shell(
     svc::create_session_shell(
         &state.pty_manager,
         &state.session_handle,
+        &state.project_handle,
         &settings,
         &repo_path,
         &name,
@@ -373,6 +384,8 @@ pub(crate) async fn create_session_shell(
         nono.as_ref(),
         opts.profile.as_deref(),
         initial_size,
+        opts.project_id.as_deref(),
+        opts.blueprint_id.as_deref(),
         Some(&state.automation_hooks),
         &app,
     )

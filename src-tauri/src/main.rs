@@ -29,12 +29,13 @@ mod skill;
 mod socket;
 mod state;
 mod tasks;
+mod tray;
 mod updater;
 mod watches;
 mod worktree;
 
 use std::sync::Mutex;
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Listener, Manager};
 #[cfg(debug_assertions)]
 use tauri_specta::{collect_commands, Builder};
 
@@ -68,11 +69,11 @@ fn main() {
     let persisted_watches = watches::load_persisted_watches();
     let (watch_store_handle, _watch_join) = watches::store::spawn(persisted_watches);
 
-    let persisted_sessions = session::load_persisted_sessions();
+    let persisted_projects = project_service::load_persisted();
+    let persisted_sessions = session::load_persisted_sessions(&persisted_projects);
     let (session_handle, _session_join) = session_service::spawn(persisted_sessions);
     let (pane_handle, _pane_join) = pane_service::spawn();
 
-    let persisted_projects = project_service::load_persisted();
     let (project_handle, _project_join) = project_service::spawn(persisted_projects);
 
     #[cfg(debug_assertions)]
@@ -144,6 +145,7 @@ fn main() {
         commands::pr::lookup_pr,
         commands::pr::fetch_pr_branch,
         commands::pr::clone_repo,
+        commands::pr::lookup_pr_for_branch,
         tasks::cmd_discover_tasks,
         tasks::cmd_load_task_overrides,
         tasks::cmd_save_task_overrides,
@@ -151,6 +153,7 @@ fn main() {
         commands::projects::create_project,
         commands::projects::remove_project,
         commands::projects::rename_project,
+        commands::projects::update_project,
         commands::projects::set_session_project,
         commands::notes::notes_read,
         commands::notes::notes_write,
@@ -159,6 +162,7 @@ fn main() {
         commands::notes::notes_search,
         commands::notes::notes_vault_root,
         watches::cmd_create_watch,
+        watches::cmd_find_or_create_watch,
         watches::cmd_remove_watch,
         watches::cmd_list_watches,
         watches::cmd_pause_watch,
@@ -297,6 +301,7 @@ fn main() {
             commands::pr::check_gh_installed,
             commands::pr::lookup_pr,
             commands::pr::fetch_pr_branch,
+            commands::pr::lookup_pr_for_branch,
             tasks::cmd_discover_tasks,
             tasks::cmd_load_task_overrides,
             tasks::cmd_save_task_overrides,
@@ -304,6 +309,7 @@ fn main() {
             commands::projects::create_project,
             commands::projects::remove_project,
             commands::projects::rename_project,
+            commands::projects::update_project,
             commands::projects::set_session_project,
             commands::notes::notes_read,
             commands::notes::notes_write,
@@ -312,6 +318,7 @@ fn main() {
             commands::notes::notes_search,
             commands::notes::notes_vault_root,
             watches::cmd_create_watch,
+            watches::cmd_find_or_create_watch,
             watches::cmd_remove_watch,
             watches::cmd_list_watches,
             watches::cmd_pause_watch,
@@ -399,6 +406,38 @@ fn main() {
                 eprintln!("Warning: failed to start file status source: {}", e);
             }
             socket::start_socket_server(app.handle().clone());
+
+            // System tray: shows active sessions + status, plus Show/Quit.
+            // Failure here is non-fatal (e.g. headless CI); log and continue.
+            if let Err(e) = tray::setup(app.handle()) {
+                eprintln!("Warning: failed to set up tray: {}", e);
+            }
+
+            // Refresh the tray menu when any session's status changes.
+            // `tray::refresh` is a cheap signal — the worker started in
+            // `tray::setup` does the actual work.
+            app.listen("roux-status-update", |_event| {
+                tray::refresh();
+            });
+
+            // Refresh the tray menu when notifications change (added,
+            // read, removed, cleared). Surfaces the unread count and
+            // the recent-unread submenu without polling.
+            app.listen(notifications::NOTIFICATION_EVENT, |_event| {
+                tray::refresh();
+            });
+
+            // Low-frequency poll catches session add/remove/archive
+            // (no dedicated event bus for those today). 3s is fine —
+            // the refresh worker coalesces overlapping signals.
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3));
+                ticker.tick().await; // skip the immediate first tick
+                loop {
+                    ticker.tick().await;
+                    tray::refresh();
+                }
+            });
 
             // Experimental notes vault: one-shot migration of legacy
             // project notes (`~/.config/roux/notes/<id>.txt`) into the

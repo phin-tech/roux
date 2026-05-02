@@ -39,6 +39,7 @@ enum SessionMsg {
     UpdateStatus { id: String, status: roux_core::SessionStatus, reply: oneshot::Sender<()> },
     SetGitRepo { id: String, is_git_repo: bool, reply: oneshot::Sender<()> },
     SetProject { id: String, project_id: Option<String>, reply: oneshot::Sender<()> },
+    ClearProjectRefs { project_id: String, reply: oneshot::Sender<()> },
     SetNameOverride { id: String, name_override: Option<String>, reply: oneshot::Sender<()> },
     Shutdown { reply: oneshot::Sender<()> },
 }
@@ -124,6 +125,15 @@ impl SessionHandle {
     ) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(SessionMsg::SetProject { id: id.to_string(), project_id, reply: reply_tx })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
+
+    pub async fn clear_project_refs(&self, project_id: &str) -> Result<(), ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionMsg::ClearProjectRefs {
+            project_id: project_id.to_string(),
+            reply: reply_tx,
+        })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
@@ -237,6 +247,18 @@ async fn service_loop(
                         dirty = true;
                         let _ = reply.send(());
                     }
+                    Some(SessionMsg::ClearProjectRefs { project_id, reply }) => {
+                        let mut changed = false;
+                        for s in sessions.iter_mut() {
+                            if s.project_id.as_deref() == Some(project_id.as_str()) {
+                                s.project_id = None;
+                                s.blueprint_id = None;
+                                changed = true;
+                            }
+                        }
+                        dirty = dirty || changed;
+                        let _ = reply.send(());
+                    }
                     Some(SessionMsg::SetNameOverride { id, name_override, reply }) => {
                         if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
                             s.name_override = name_override;
@@ -306,6 +328,7 @@ mod tests {
             primary_pty_id: None,
             archived: false,
             ended_at: None,
+            blueprint_id: None,
         }
     }
 
@@ -437,6 +460,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn clear_project_refs_untags_matching_sessions() {
+        let (_dir, path) = temp_persist_path();
+        let mut s1 = make_session("s1");
+        s1.project_id = Some("proj-1".to_string());
+        s1.blueprint_id = Some("bp-1".to_string());
+        let mut s2 = make_session("s2");
+        s2.project_id = Some("proj-2".to_string());
+        s2.blueprint_id = Some("bp-2".to_string());
+        let (handle, _join) = spawn_with_path(vec![s1, s2], path);
+
+        handle.clear_project_refs("proj-1").await.unwrap();
+
+        let sessions = handle.list().await.unwrap();
+        let cleared = sessions.iter().find(|s| s.id == "s1").unwrap();
+        assert!(cleared.project_id.is_none());
+        assert!(cleared.blueprint_id.is_none());
+        let untouched = sessions.iter().find(|s| s.id == "s2").unwrap();
+        assert_eq!(untouched.project_id.as_deref(), Some("proj-2"));
+        assert_eq!(untouched.blueprint_id.as_deref(), Some("bp-2"));
+    }
+
+    #[tokio::test]
     async fn shutdown_persists_dirty_state() {
         let (_dir, path) = temp_persist_path();
         let (handle, join) = spawn_with_path(vec![], path.clone());
@@ -496,5 +541,6 @@ mod tests {
         assert!(handle.update_status("s1", roux_core::SessionStatus::Idle).await.is_err());
         assert!(handle.set_git_repo("s1", true).await.is_err());
         assert!(handle.set_project("s1", None).await.is_err());
+        assert!(handle.clear_project_refs("proj-1").await.is_err());
     }
 }

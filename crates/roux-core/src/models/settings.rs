@@ -361,6 +361,22 @@ pub struct RouxSettings {
     /// keep their renderer until reopened.
     #[serde(default)]
     pub gpu_acceleration: GpuAcceleration,
+    /// When true, sessions whose worktree branch resolves to an open GitHub
+    /// PR get a session-scoped `GithubPr` watch created automatically. The
+    /// status-bar PR link is shown regardless of this setting; only the
+    /// background watch creation is gated. Defaults to `false` so users
+    /// don't get unexpected new watches on upgrade.
+    #[serde(default)]
+    pub auto_watch_session_pr: bool,
+    /// Master switch for the gh-backed session-PR lookup. When true (the
+    /// default), session activation triggers a `gh pr list --head <branch>`
+    /// call to populate the status-bar PR chip and feed the auto-watch
+    /// flow. When false, no gh call is made, the chip falls back to
+    /// worktrunk's `ciUrl` only, and `auto_watch_session_pr` becomes a
+    /// no-op. Useful for users who don't use GitHub PRs or want to avoid
+    /// the gh subprocess on every session switch.
+    #[serde(default = "default_true")]
+    pub auto_lookup_session_pr: bool,
 }
 
 impl Default for RouxSettings {
@@ -418,6 +434,8 @@ impl Default for RouxSettings {
             library_skill_format_v2_migrated: false,
             library_skill_sync_default: SkillSyncMode::Off,
             gpu_acceleration: GpuAcceleration::Auto,
+            auto_watch_session_pr: false,
+            auto_lookup_session_pr: true,
         }
     }
 }
@@ -560,8 +578,9 @@ fn normalize_repo_roots(roots: &[String]) -> Vec<String> {
 fn normalize_theme(theme: &str) -> String {
     match theme {
         "dark" | "deep-blue" => DEFAULT_THEME.to_string(),
-        "steel-amber" | "slate-emerald" | "graphite-rose" | "nordic-night" | "cyber-audit"
-        | "mocha-soft" | "paper-ink" | "github-day" => theme.to_string(),
+        "midnight-copper" | "steel-amber" | "slate-emerald" | "graphite-rose"
+        | "nordic-night" | "cyber-audit" | "mocha-soft" | "paper-ink" | "github-day"
+        | "warm-burnout-dark" | "warm-burnout-light" => theme.to_string(),
         _ => DEFAULT_THEME.to_string(),
     }
 }
@@ -583,7 +602,7 @@ fn normalize_terminal_theme(theme: &str) -> String {
         // GUI-matching palettes (one per GUI preset).
         | "deep-blue" | "midnight-copper" | "steel-amber" | "slate-emerald"
         | "graphite-rose" | "nordic-night" | "cyber-audit" | "mocha-soft"
-        | "paper-ink" | "github-day"
+        | "paper-ink" | "github-day" | "warm-burnout-dark" | "warm-burnout-light"
         // Editor-style palettes (iterm2colorschemes-inspired).
         | "dracula" | "solarized-dark" | "solarized-light" | "monokai"
         | "nord" | "gruvbox-dark" | "tokyo-night" | "one-dark"
@@ -613,6 +632,42 @@ mod terminal_theme_tests {
     #[test]
     fn unknown_falls_back_to_match_gui() {
         assert_eq!(normalize_terminal_theme("not-a-theme"), "match-gui");
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::{normalize_theme, DEFAULT_THEME};
+
+    #[test]
+    fn known_presets_round_trip() {
+        for preset in [
+            "midnight-copper",
+            "steel-amber",
+            "slate-emerald",
+            "graphite-rose",
+            "nordic-night",
+            "cyber-audit",
+            "mocha-soft",
+            "paper-ink",
+            "github-day",
+            "warm-burnout-dark",
+            "warm-burnout-light",
+        ] {
+            assert_eq!(normalize_theme(preset), preset, "preset {preset} should round-trip");
+        }
+    }
+
+    #[test]
+    fn legacy_dark_alias_normalizes_to_default() {
+        assert_eq!(normalize_theme("dark"), DEFAULT_THEME);
+        assert_eq!(normalize_theme("deep-blue"), DEFAULT_THEME);
+    }
+
+    #[test]
+    fn unknown_falls_back_to_default() {
+        assert_eq!(normalize_theme("not-a-theme"), DEFAULT_THEME);
+        assert_eq!(normalize_theme(""), DEFAULT_THEME);
     }
 }
 

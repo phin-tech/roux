@@ -34,3 +34,12 @@ pub(crate) fn clone_repo(
 ) -> Result<String, String> {
     pr::clone_repo(&owner, &repo, &target_dir).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn lookup_pr_for_branch(
+    repo_path: String,
+    branch: String,
+) -> Result<Option<pr::PrInfo>, String> {
+    pr::lookup_pr_for_branch(&repo_path, &branch).map_err(|e| e.to_string())
+}

@@ -5,8 +5,16 @@ import { sessionState } from "$lib/stores/sessions";
 import { createWatch } from "$lib/tauri";
 import type { CreateWatchConfig } from "$lib/types";
 
-const GH_ACTION_PATTERN = /https:\/\/github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)/g;
-const GH_PR_PATTERN = /https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/g;
+// Match GitHub Actions run URLs, including optional trailing path
+// (`/job/<n>`, `/jobs/<n>`, `/attempts/<n>`), query string, or fragment.
+// The trailing `(?:[/?#]\S*)?` lets the eye-icon decoration land at the
+// end of the visible URL even when the user pasted a deep link.
+const GH_ACTION_PATTERN =
+  /https?:\/\/(?:www\.)?github\.com\/([\w.-]+\/[\w.-]+)\/actions\/runs\/(\d+)(?:[/?#]\S*)?/g;
+// Match GitHub PR URLs, including optional `/files`, `/commits`,
+// `/checks`, query string, or fragment.
+const GH_PR_PATTERN =
+  /https?:\/\/(?:www\.)?github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)(?:[/?#]\S*)?/g;
 
 export type WatchTarget =
   | {
@@ -143,24 +151,62 @@ export function installXtermWatchDecorations(
     });
   };
 
+  // Window of visual rows to scan above the cursor. Wide enough to catch
+  // logical lines whose URL wraps across several visual rows at narrow
+  // widths (a 100-char URL at 40 cols wraps to 3 rows). Beyond this we
+  // accept rare misses; the decoration is a UX nicety, not load-bearing.
+  const SCAN_WINDOW = 16;
+
   terminal.onWriteParsed(() => {
     const buf = terminal.buffer.active;
-    for (let i = Math.max(0, buf.cursorY - 2); i <= buf.cursorY; i++) {
-      const absLine = buf.baseY + i;
-      const line = buf.getLine(absLine);
-      if (!line) continue;
+    const startVp = Math.max(0, buf.cursorY - SCAN_WINDOW);
+    const endVp = buf.cursorY;
 
-      const text = line.translateToString();
-      const yOffset = i - buf.cursorY;
+    for (let i = startVp; i <= endVp; i++) {
+      const startAbs = buf.baseY + i;
+      const startLine = buf.getLine(startAbs);
+      if (!startLine) continue;
+      // Only kick off processing from a logical-line start. Continuation
+      // rows (`isWrapped=true`) are folded into their parent's scan.
+      if (startLine.isWrapped) continue;
 
-      for (const target of findWatchTargetsInText(text)) {
+      // Build the logical line by concatenating consecutive `isWrapped`
+      // continuations. We keep per-segment lengths so we can project a
+      // logical-string offset back to (visual line, column) when placing
+      // the decoration anchor.
+      type Segment = { absLine: number; yOffset: number; length: number };
+      let logicalText = "";
+      const segments: Segment[] = [];
+      let j = 0;
+      while (true) {
+        const absLine = startAbs + j;
+        const line = buf.getLine(absLine);
+        if (!line) break;
+        if (j > 0 && !line.isWrapped) break;
+        // Pass `false` so trailing whitespace is preserved; offsets need
+        // to align with the actual cell positions on the visual row.
+        const text = line.translateToString(false);
+        segments.push({
+          absLine,
+          yOffset: i + j - buf.cursorY,
+          length: text.length,
+        });
+        logicalText += text;
+        j++;
+      }
+
+      for (const target of findWatchTargetsInText(logicalText)) {
+        const proj = projectOffset(segments, target.urlEnd);
+        if (!proj) continue;
+        const { absLine, yOffset, column } = proj;
+
         const targetKey = getWatchTargetKey(absLine, target);
         if (decoratedTargets.has(targetKey)) continue;
         decoratedTargets.add(targetKey);
 
         addWatchDecoration(
           yOffset,
-          target.urlEnd,
+          column,
           target.kind === "githubAction" ? "Watch this GitHub Action" : "Watch this PR",
           async () => {
             await createWatchFn(
@@ -171,6 +217,40 @@ export function installXtermWatchDecorations(
       }
     }
   });
+}
+
+interface ProjectedOffset {
+  absLine: number;
+  yOffset: number;
+  column: number;
+}
+
+/**
+ * Given the per-segment lengths of a logical line and an offset within
+ * the concatenated logical text, return the (absolute line, viewport
+ * y-offset, column) of that offset on its visual segment. When the
+ * offset is past the logical line's end (rare — would require a regex
+ * that overran the buffer), the trailing segment is used and the column
+ * is clamped.
+ */
+export function projectOffset(
+  segments: { absLine: number; yOffset: number; length: number }[],
+  offset: number,
+): ProjectedOffset | null {
+  if (segments.length === 0) return null;
+  let acc = 0;
+  for (const seg of segments) {
+    if (offset <= acc + seg.length) {
+      return {
+        absLine: seg.absLine,
+        yOffset: seg.yOffset,
+        column: offset - acc,
+      };
+    }
+    acc += seg.length;
+  }
+  const last = segments[segments.length - 1];
+  return { absLine: last.absLine, yOffset: last.yOffset, column: last.length };
 }
 
 function getWatchTargetKey(absLine: number, target: WatchTarget): string {

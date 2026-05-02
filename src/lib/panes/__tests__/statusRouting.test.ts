@@ -1,11 +1,18 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
+
+vi.mock("$lib/tauri", () => ({
+  upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
+  removePaneRecord: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   routeStatusUpdate,
   applyStatusRouting,
   type PaneSessionCheck,
 } from "../statusRouting";
 import { agentStates, resetAgentStates } from "../agentState";
+import { createPane, paneInstances, resetInstances } from "../instances";
 import type { StatusUpdate } from "$lib/tauri";
 
 function ev(partial: Partial<StatusUpdate> = {}): StatusUpdate {
@@ -35,6 +42,7 @@ const trustAll: PaneSessionCheck = () => true;
 describe("routeStatusUpdate", () => {
   beforeEach(() => {
     resetAgentStates();
+    resetInstances();
   });
 
   it("routes to the pane tier when rouxPaneId is present", () => {
@@ -174,6 +182,7 @@ describe("routeStatusUpdate", () => {
 describe("applyStatusRouting", () => {
   beforeEach(() => {
     resetAgentStates();
+    resetInstances();
   });
 
   it("writes a pane-tier decision into agentStates", () => {
@@ -183,6 +192,57 @@ describe("applyStatusRouting", () => {
     const entry = get(agentStates).get("pane-1");
     expect(entry?.provider).toBe("claude");
     expect(entry?.status).toBe("generating");
+  });
+
+  it("writes providerSessionId into pane instances", () => {
+    createPane({ id: "pane-1", type: "shell", ptyId: "pty-1" });
+
+    applyStatusRouting(
+      routeStatusUpdate(ev({ providerSessionId: "claude-session-123" }), trustAll),
+    );
+
+    const pane = get(paneInstances).get("pane-1");
+    expect(pane?.providerSessionId).toBe("claude-session-123");
+  });
+
+  it("does not overwrite an existing instance.provider with the inferred routing provider", () => {
+    // Regression: routeStatusUpdate infers `provider: "claude"` for legacy
+    // hooks that omit the field. If applyStatusRouting persisted that
+    // inferred value, a Codex pane whose hook didn't carry `provider`
+    // would get its instance.provider clobbered to "claude", and
+    // continueSession would then build `claude --resume <id>` instead of
+    // `codex resume <id>`. We persist providerSessionId only.
+    createPane({
+      id: "pane-1",
+      type: "shell",
+      ptyId: "pty-1",
+      provider: "codex",
+    });
+
+    applyStatusRouting(
+      routeStatusUpdate(
+        ev({ provider: "", providerSessionId: "codex-thread-7" }),
+        trustAll,
+      ),
+    );
+
+    const pane = get(paneInstances).get("pane-1");
+    expect(pane?.provider).toBe("codex");
+    expect(pane?.providerSessionId).toBe("codex-thread-7");
+  });
+
+  it("does not write instance.provider at all from routing events", () => {
+    // Even when the routing event has an explicit provider, we don't
+    // touch instance.provider — that field is owned by createPane / the
+    // persisted descriptor and runtime status events shouldn't fight it.
+    createPane({ id: "pane-1", type: "shell", ptyId: "pty-1" });
+
+    applyStatusRouting(
+      routeStatusUpdate(ev({ provider: "claude", providerSessionId: "x" }), trustAll),
+    );
+
+    const pane = get(paneInstances).get("pane-1");
+    expect(pane?.provider).toBeUndefined();
   });
 
   it("leaves agentStates untouched for legacy events", () => {

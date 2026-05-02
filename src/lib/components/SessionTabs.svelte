@@ -17,15 +17,19 @@
   } from "$lib/tauri";
   import type { SpawnProfileRef } from "$lib/panes/profiles";
   import { settings, updateSetting } from "$lib/stores/settings";
-  import { reconnectSession } from "$lib/sessions/reconnect";
+  import { continueSession } from "$lib/sessions/reconnect";
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
   import { projects, createProject } from "$lib/stores/projects";
   import { setSessionProject } from "$lib/stores/sessions";
   import { setSessionProject as tauriSetSessionProject } from "$lib/tauri";
   import { log, logError } from "$lib/logging";
-  import type { Session } from "$lib/types";
+  import type { Session, SessionBlueprint, Project } from "$lib/types";
   import { getGroupedSessions } from "$lib/sessions/order";
+  import {
+    openNewProjectDialog,
+    openEditProjectDialog,
+  } from "$lib/stores/newProjectDialog";
 
   import PinButton from "./PinButton.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
@@ -77,6 +81,78 @@
     if (next.has(key)) next.delete(key);
     else next.add(key);
     collapsedGroups = next;
+  }
+
+  // Project lookup keyed by id, used to resolve a sidebar group header to
+  // its full project record when the user clicks a blueprint row or the
+  // group's edit affordance.
+  let projectsById = $derived.by(() => {
+    const m = new Map<string, Project>();
+    for (const p of $projects) m.set(p.id, p);
+    return m;
+  });
+
+  // Set of blueprint ids that already have a live session attached (the
+  // session was spawned from this blueprint). Used to suppress dimmed
+  // blueprint rows whose live counterpart is already in the sidebar.
+  let liveBlueprintIds = $derived.by(() => {
+    const set = new Set<string>();
+    for (const s of $sessionState.sessions) {
+      if (s.blueprintId) set.add(s.blueprintId);
+    }
+    return set;
+  });
+
+  function projectBlueprintsForGroup(groupKey: string): SessionBlueprint[] {
+    if (($settings.groupBy ?? "repo") !== "project") return [];
+    const project = projectsById.get(groupKey);
+    if (!project) return [];
+    return (project.sessionBlueprints ?? []).filter((bp) => !liveBlueprintIds.has(bp.id));
+  }
+
+  async function spawnBlueprintFromSidebar(project: Project, bp: SessionBlueprint) {
+    try {
+      const { resolveProfileRef } = await import("$lib/panes/profiles");
+      const { runProfileInPane } = await import("$lib/panes/profileRunner");
+      const profileRef: SpawnProfileRef = { kind: "registered", id: bp.spawnProfile };
+      const profile = resolveProfileRef(profileRef);
+      const nonoProfile = bp.nonoProfile ?? profile?.nonoProfile ?? undefined;
+      const nonoAllowDirs =
+        bp.nonoAllowDirs && bp.nonoAllowDirs.length > 0
+          ? bp.nonoAllowDirs
+          : profile?.nonoAllowDirs ?? undefined;
+      const newSession = await createSessionShell(
+        bp.repoRoot,
+        bp.name,
+        bp.worktreePath ?? null,
+        bp.branch ?? null,
+        {
+          nonoProfile,
+          nonoAllowDirs,
+          profile: bp.spawnProfile,
+          base: bp.base ?? null,
+          fetchFirst: bp.fetchFirst ?? false,
+          projectId: project.id,
+          blueprintId: bp.id,
+        },
+      );
+      addSession(newSession);
+      // Defensive: backend already stamped project_id; keep frontend mirror in sync.
+      await tauriSetSessionProject(newSession.id, project.id);
+      const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {
+        nonoProfile,
+        nonoAllowDirs,
+      });
+      const { connectPaneTerminal } = await import("$lib/panes/terminals");
+      await connectPaneTerminal(mainPaneId);
+      if (profile) {
+        await runProfileInPane(newSession.id, profile, {
+          appendSystemPrompt: project.projectPrompt ?? "",
+        });
+      }
+    } catch (e) {
+      logError(`spawnBlueprintFromSidebar failed: ${e}`);
+    }
   }
 
   function toggleGroupBy() {
@@ -332,7 +408,7 @@
   async function handleReconnect(id: string) {
     const session = $sessionState.sessions.find((s) => s.id === id);
     if (!session) return;
-    await reconnectSession(session);
+    await continueSession(session);
   }
 
   function archivedMaxHeight(): number {
@@ -422,6 +498,14 @@
       <span class="text-text-muted/70">Group</span>
       <span class="text-text-primary">{$settings.groupBy === "project" ? "project" : "repo"}</span>
     </button>
+    <button
+      class="flex h-8 shrink-0 cursor-pointer items-center gap-1 border border-border-subtle bg-bg-surface px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent-dim/50"
+      onclick={openNewProjectDialog}
+      title="New project"
+    >
+      <span class="text-sm leading-none">+</span>
+      <span>Project</span>
+    </button>
   </div>
 
   <div class="app-scrollbar min-h-0 flex-1 overflow-y-auto px-2">
@@ -451,6 +535,33 @@
               oncontextmenu={(e) => handleContextMenu(e, session)}
             />
           {/each}
+          {#each projectBlueprintsForGroup(group.key) as bp (bp.id)}
+            {@const project = projectsById.get(group.key)}
+            {#if project}
+              <button
+                class="group/bp mt-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-border-subtle/60 bg-transparent px-2.5 py-1.5 text-left text-[11px] text-text-muted transition-colors hover:border-accent-dim/40 hover:bg-bg-hover hover:text-text-primary"
+                onclick={() => spawnBlueprintFromSidebar(project, bp)}
+                title="Spawn blueprint: {bp.name}"
+              >
+                <span class="text-[10px] leading-none">+</span>
+                <span class="flex-1 truncate font-mono">{bp.name}</span>
+                {#if bp.branch}
+                  <span class="shrink-0 text-[10px] opacity-70">{bp.branch}</span>
+                {/if}
+              </button>
+            {/if}
+          {/each}
+          {#if ($settings.groupBy ?? "repo") === "project" && projectsById.has(group.key)}
+            <button
+              class="mt-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2.5 py-1 text-left text-[10px] text-text-muted/70 hover:bg-bg-hover hover:text-text-primary"
+              onclick={() => {
+                const p = projectsById.get(group.key);
+                if (p) openEditProjectDialog(p);
+              }}
+            >
+              <span>edit project…</span>
+            </button>
+          {/if}
         </div>
       {/if}
     {/each}

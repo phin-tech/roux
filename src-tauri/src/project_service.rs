@@ -3,12 +3,13 @@ use tauri::async_runtime::JoinHandle;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{interval, Duration};
 
-use roux_core::Project;
+use roux_core::{Project, ProjectUpdate};
 
 enum ProjectMsg {
     Add { project: Project, reply: oneshot::Sender<()> },
     Remove { id: String, reply: oneshot::Sender<()> },
     Rename { id: String, name: String, reply: oneshot::Sender<()> },
+    Update { id: String, patch: ProjectUpdate, reply: oneshot::Sender<Option<Project>> },
     List { reply: oneshot::Sender<Vec<Project>> },
     Shutdown { reply: oneshot::Sender<()> },
 }
@@ -47,6 +48,21 @@ impl ProjectHandle {
             reply: reply_tx,
         })?;
         reply_rx.await.map_err(|_| ServiceError)
+    }
+
+    pub async fn update(
+        &self,
+        id: &str,
+        patch: ProjectUpdate,
+    ) -> Result<Option<Project>, ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(ProjectMsg::Update { id: id.to_string(), patch, reply: reply_tx })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
+
+    pub async fn get(&self, id: &str) -> Result<Option<Project>, ServiceError> {
+        let projects = self.list().await?;
+        Ok(projects.into_iter().find(|p| p.id == id))
     }
 
     pub async fn list(&self) -> Result<Vec<Project>, ServiceError> {
@@ -105,6 +121,30 @@ async fn service_loop(
                         dirty = true;
                         let _ = reply.send(());
                     }
+                    Some(ProjectMsg::Update { id, patch, reply }) => {
+                        let updated = if let Some(p) = projects.iter_mut().find(|p| p.id == id) {
+                            if let Some(name) = patch.name {
+                                p.name = name;
+                            }
+                            if let Some(roots) = patch.repo_roots {
+                                p.repo_roots = roots;
+                            }
+                            if let Some(paths) = patch.context_paths {
+                                p.context_paths = paths;
+                            }
+                            if let Some(bps) = patch.session_blueprints {
+                                p.session_blueprints = bps;
+                            }
+                            if let Some(prompt) = patch.project_prompt {
+                                p.project_prompt = prompt;
+                            }
+                            dirty = true;
+                            Some(p.clone())
+                        } else {
+                            None
+                        };
+                        let _ = reply.send(updated);
+                    }
                     Some(ProjectMsg::List { reply }) => {
                         let _ = reply.send(projects.clone());
                     }
@@ -160,7 +200,14 @@ mod tests {
     use super::*;
 
     fn make_project(id: &str) -> Project {
-        Project { id: id.to_string(), name: format!("Project {}", id) }
+        Project {
+            id: id.to_string(),
+            name: format!("Project {}", id),
+            repo_roots: Vec::new(),
+            context_paths: Vec::new(),
+            session_blueprints: Vec::new(),
+            project_prompt: String::new(),
+        }
     }
 
     fn temp_persist_path() -> (tempfile::TempDir, PathBuf) {

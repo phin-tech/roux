@@ -4,6 +4,7 @@ import type { SpawnProfileRef } from "$lib/panes/profiles";
 import type {
   Session,
   Project,
+  ProjectUpdate,
   RouxSettings,
   Worktree,
   SessionStatusPayload,
@@ -40,6 +41,17 @@ export interface CreateSessionShellOpts {
   base?: string | null;
   /** Run `git fetch origin` before resolving `base`. */
   fetchFirst?: boolean;
+  /**
+   * Project to attach the new session to. When set, the PTY env vars for
+   * project notes + ROUX_PROJECT_CONTEXT_PATHS land on the very first spawn.
+   */
+  projectId?: string | null;
+  /**
+   * Project session-blueprint id this session was spawned from. Stamped on
+   * the persisted Session so the sidebar can collapse the dimmed blueprint
+   * row when the live session is up.
+   */
+  blueprintId?: string | null;
 }
 
 /**
@@ -58,7 +70,16 @@ export async function createSessionShell(
   branch: string | null,
   opts: CreateSessionShellOpts = {},
 ): Promise<Session> {
-  const { nonoProfile, nonoAllowDirs, initialSize, profile, base, fetchFirst } = opts;
+  const {
+    nonoProfile,
+    nonoAllowDirs,
+    initialSize,
+    profile,
+    base,
+    fetchFirst,
+    projectId,
+    blueprintId,
+  } = opts;
   return invoke("create_session_shell", {
     repoPath,
     name,
@@ -71,6 +92,8 @@ export async function createSessionShell(
       initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
       base: base ?? null,
       fetchFirst: fetchFirst ?? null,
+      projectId: projectId ?? null,
+      blueprintId: blueprintId ?? null,
     },
   });
 }
@@ -558,6 +581,8 @@ export interface PrInfo {
   headRef: string;
   headOwner: string;
   isCrossRepository: boolean;
+  url: string;
+  repoSlug: string;
 }
 
 export async function checkGhInstalled(): Promise<boolean> {
@@ -566,6 +591,13 @@ export async function checkGhInstalled(): Promise<boolean> {
 
 export async function lookupPr(repoPath: string | null, url: string): Promise<PrInfo> {
   return invoke("lookup_pr", { repoPath, url });
+}
+
+export async function lookupPrForBranch(
+  repoPath: string,
+  branch: string,
+): Promise<PrInfo | null> {
+  return invoke("lookup_pr_for_branch", { repoPath, branch });
 }
 
 export async function cloneRepo(
@@ -600,6 +632,13 @@ export async function removeProject(id: string): Promise<void> {
 
 export async function renameProject(id: string, name: string): Promise<void> {
   return invoke("rename_project", { id, name });
+}
+
+export async function updateProject(
+  id: string,
+  patch: ProjectUpdate,
+): Promise<Project> {
+  return invoke("update_project", { id, patch });
 }
 
 export async function setSessionProject(
@@ -838,6 +877,10 @@ export async function createWatch(config: CreateWatchConfig): Promise<Watch> {
   return invoke("cmd_create_watch", { config });
 }
 
+export async function findOrCreateWatch(config: CreateWatchConfig): Promise<Watch> {
+  return invoke("cmd_find_or_create_watch", { config });
+}
+
 export async function removeWatch(id: string): Promise<void> {
   return invoke("cmd_remove_watch", { id });
 }
@@ -1007,6 +1050,8 @@ export interface PaneDescriptorPayload {
   command?: string;
   docPath?: string;
   spawnProfileRef?: SpawnProfileRef;
+  provider?: "claude" | "codex";
+  providerSessionId?: string;
   nonoProfile?: string;
   nonoAllowDirs?: string[];
   notesScope?: NotesScope;

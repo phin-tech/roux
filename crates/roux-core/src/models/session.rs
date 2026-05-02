@@ -57,4 +57,9 @@ pub struct Session {
     /// active sessions; set when `archived` flips to `true`.
     #[serde(default)]
     pub ended_at: Option<u64>,
+    /// Project session-blueprint id this session was spawned from. Lets the
+    /// sidebar collapse the dimmed blueprint row while a live session is up
+    /// and respawn it when the live session is killed.
+    #[serde(default)]
+    pub blueprint_id: Option<String>,
 }

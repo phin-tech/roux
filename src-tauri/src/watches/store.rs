@@ -3,12 +3,23 @@ use tauri::async_runtime::JoinHandle;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{interval, Duration};
 
-use roux_core::{RuntimeState, Watch, WatchScope};
+use roux_core::{RuntimeState, Watch, WatchKind, WatchScope};
 
 enum WatchMsg {
     Add {
         watch: Box<Watch>,
         reply: oneshot::Sender<()>,
+    },
+    /// Find an existing `GithubPr` watch matching `(scope, repo, pr_number)`,
+    /// or insert the supplied watch atomically. Replies with the resolved
+    /// watch and a flag indicating whether it was newly created. Used by
+    /// the auto-PR-watch flow where session activation, manual refresh,
+    /// and settings-toggle paths can race; serializing the check+insert
+    /// through the actor avoids the duplicate-watch hole that a
+    /// list-then-add sequence has.
+    FindOrAddGithubPr {
+        watch: Box<Watch>,
+        reply: oneshot::Sender<(Watch, bool)>,
     },
     Remove {
         id: String,
@@ -53,6 +64,21 @@ impl WatchStoreHandle {
     pub async fn add(&self, watch: Watch) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(WatchMsg::Add { watch: Box::new(watch), reply: reply_tx })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
+
+    /// Atomically find-or-insert a `GithubPr` watch keyed on
+    /// `(scope, repo, pr_number)`. Returns `(watch, was_new)`; callers
+    /// should only spawn the watch loop when `was_new` is true.
+    pub async fn find_or_add_github_pr(
+        &self,
+        watch: Watch,
+    ) -> Result<(Watch, bool), ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(WatchMsg::FindOrAddGithubPr {
+            watch: Box::new(watch),
+            reply: reply_tx,
+        })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
@@ -132,6 +158,31 @@ async fn service_loop(
                         dirty = true;
                         let _ = reply.send(());
                     }
+                    Some(WatchMsg::FindOrAddGithubPr { watch, reply }) => {
+                        let existing = if let WatchKind::GithubPr { repo, pr_number } = &watch.kind {
+                            watches.iter().find(|w| {
+                                scopes_equal(&w.scope, &watch.scope)
+                                    && matches!(
+                                        &w.kind,
+                                        WatchKind::GithubPr { repo: r, pr_number: n }
+                                            if r == repo && n == pr_number
+                                    )
+                            }).cloned()
+                        } else {
+                            None
+                        };
+                        match existing {
+                            Some(w) => {
+                                let _ = reply.send((w, false));
+                            }
+                            None => {
+                                let new_watch = *watch;
+                                watches.push(new_watch.clone());
+                                dirty = true;
+                                let _ = reply.send((new_watch, true));
+                            }
+                        }
+                    }
                     Some(WatchMsg::Remove { id, reply }) => {
                         watches.retain(|w| w.id != id);
                         dirty = true;
@@ -197,6 +248,21 @@ fn write_to_path(watches: &[Watch], path: &std::path::Path) {
     }
     if let Ok(json) = serde_json::to_string_pretty(watches) {
         let _ = std::fs::write(path, json);
+    }
+}
+
+fn scopes_equal(a: &WatchScope, b: &WatchScope) -> bool {
+    match (a, b) {
+        (WatchScope::Global, WatchScope::Global) => true,
+        (
+            WatchScope::Session { session_id: x },
+            WatchScope::Session { session_id: y },
+        ) => x == y,
+        (
+            WatchScope::Project { project_id: x },
+            WatchScope::Project { project_id: y },
+        ) => x == y,
+        _ => false,
     }
 }
 
@@ -285,6 +351,85 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         let persisted: Vec<Watch> = serde_json::from_str(&content).unwrap();
         assert_eq!(persisted.len(), 1);
+    }
+
+    fn make_pr_watch(id: &str, repo: &str, pr_number: u64, scope: WatchScope) -> Watch {
+        Watch {
+            id: id.to_string(),
+            name: format!("PR: {} #{}", repo, pr_number),
+            kind: WatchKind::GithubPr { repo: repo.to_string(), pr_number },
+            mode: WatchMode::Recurring { interval_secs: 30 },
+            scope,
+            runtime_state: RuntimeState::Pending,
+            last_result: None,
+            last_checked: None,
+            notify: NotifyConfig::default(),
+            created_at: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn find_or_add_inserts_new_pr_watch_and_reports_was_new() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) = spawn_with_path(vec![], path);
+        let scope = WatchScope::Session { session_id: "s1".into() };
+        let w = make_pr_watch("w1", "phin-tech/roux", 42, scope);
+        let (resolved, was_new) = handle.find_or_add_github_pr(w.clone()).await.unwrap();
+        assert!(was_new);
+        assert_eq!(resolved.id, "w1");
+        assert_eq!(handle.list().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn find_or_add_returns_existing_match_for_same_scope_repo_and_pr() {
+        let (_dir, path) = temp_persist_path();
+        let scope = WatchScope::Session { session_id: "s1".into() };
+        let existing = make_pr_watch("first", "phin-tech/roux", 42, scope.clone());
+        let (handle, _join) = spawn_with_path(vec![existing], path);
+
+        let attempt = make_pr_watch("would-be-duplicate", "phin-tech/roux", 42, scope);
+        let (resolved, was_new) = handle.find_or_add_github_pr(attempt).await.unwrap();
+        assert!(!was_new);
+        assert_eq!(resolved.id, "first");
+        assert_eq!(handle.list().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn find_or_add_treats_different_scopes_as_distinct() {
+        let (_dir, path) = temp_persist_path();
+        let s1 = WatchScope::Session { session_id: "s1".into() };
+        let s2 = WatchScope::Session { session_id: "s2".into() };
+        let existing = make_pr_watch("first", "phin-tech/roux", 42, s1);
+        let (handle, _join) = spawn_with_path(vec![existing], path);
+
+        let other = make_pr_watch("second", "phin-tech/roux", 42, s2);
+        let (resolved, was_new) = handle.find_or_add_github_pr(other).await.unwrap();
+        assert!(was_new);
+        assert_eq!(resolved.id, "second");
+        assert_eq!(handle.list().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn find_or_add_concurrent_calls_only_insert_once() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) = spawn_with_path(vec![], path);
+        let scope = WatchScope::Session { session_id: "s1".into() };
+
+        // Two racing callers with distinct watch IDs but identical
+        // (scope, repo, pr_number). Exactly one should report was_new=true
+        // and the store should end up with exactly one entry.
+        let a = make_pr_watch("a", "phin-tech/roux", 42, scope.clone());
+        let b = make_pr_watch("b", "phin-tech/roux", 42, scope);
+        let h1 = handle.clone();
+        let h2 = handle.clone();
+        let (r1, r2) = tokio::join!(
+            h1.find_or_add_github_pr(a),
+            h2.find_or_add_github_pr(b),
+        );
+        let (_, was_new_1) = r1.unwrap();
+        let (_, was_new_2) = r2.unwrap();
+        assert_eq!(was_new_1 as u8 + was_new_2 as u8, 1);
+        assert_eq!(handle.list().await.unwrap().len(), 1);
     }
 
     #[tokio::test]

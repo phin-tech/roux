@@ -17,6 +17,8 @@ pub(crate) struct PrInfo {
     pub head_ref: String,
     pub head_owner: String,
     pub is_cross_repository: bool,
+    pub url: String,
+    pub repo_slug: String,
 }
 
 /// Parse either a full GitHub PR URL or a shortform `owner/repo#NNN`.
@@ -97,7 +99,7 @@ pub(crate) fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> 
         "--repo",
         &repo_slug,
         "--json",
-        "number,title,headRefName,headRepositoryOwner,isCrossRepository",
+        "number,title,headRefName,headRepositoryOwner,isCrossRepository,url",
     ]);
     // cwd only matters for gh's repo auto-detection — irrelevant here since
     // we pass --repo explicitly. Still, prefer a real dir when available so
@@ -117,32 +119,133 @@ pub(crate) fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> 
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    #[derive(Deserialize)]
-    struct Raw {
-        number: u32,
-        title: String,
-        #[serde(rename = "headRefName")]
-        head_ref_name: String,
-        #[serde(rename = "headRepositoryOwner")]
-        head_repository_owner: RawOwner,
-        #[serde(rename = "isCrossRepository")]
-        is_cross_repository: bool,
-    }
-    #[derive(Deserialize)]
-    struct RawOwner {
-        login: String,
-    }
-
-    let raw: Raw = serde_json::from_str(&stdout)
+    let raw: RawPr = serde_json::from_str(&stdout)
         .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
 
-    Ok(PrInfo {
-        number: raw.number,
-        title: raw.title,
-        head_ref: raw.head_ref_name,
-        head_owner: raw.head_repository_owner.login,
-        is_cross_repository: raw.is_cross_repository,
-    })
+    Ok(raw.into_pr_info(&repo_slug))
+}
+
+#[derive(Deserialize)]
+struct RawPr {
+    number: u32,
+    title: String,
+    #[serde(rename = "headRefName")]
+    head_ref_name: String,
+    #[serde(rename = "headRepositoryOwner")]
+    head_repository_owner: RawOwner,
+    #[serde(rename = "isCrossRepository")]
+    is_cross_repository: bool,
+    #[serde(default)]
+    url: String,
+}
+
+#[derive(Deserialize)]
+struct RawOwner {
+    login: String,
+}
+
+impl RawPr {
+    fn into_pr_info(self, repo_slug: &str) -> PrInfo {
+        PrInfo {
+            number: self.number,
+            title: self.title,
+            head_ref: self.head_ref_name,
+            head_owner: self.head_repository_owner.login,
+            is_cross_repository: self.is_cross_repository,
+            url: self.url,
+            repo_slug: repo_slug.to_string(),
+        }
+    }
+}
+
+/// Look up the open PR whose head branch matches `branch` in the repo at
+/// `repo_path`. Returns `Ok(None)` when no such PR exists (the empty case
+/// is normal — not every branch has a PR yet). Cross-repo PRs whose local
+/// branch was renamed by `fetch_pr_branch` to `pr-<N>` are recognized via
+/// the `pr-<N>` shape and resolved through `lookup_pr` against the repo's
+/// own slug, since `gh pr list --head` does not accept `<owner>:<branch>`
+/// syntax (verified via `gh pr list --help`).
+pub(crate) fn lookup_pr_for_branch(
+    repo_path: &str,
+    branch: &str,
+) -> Result<Option<PrInfo>> {
+    let trimmed = branch.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let repo_slug = resolve_repo_slug(repo_path)?;
+
+    if let Some(num_str) = trimmed.strip_prefix("pr-") {
+        if let Ok(num) = num_str.parse::<u32>() {
+            // Cross-repo PR fetched via fetch_pr_branch — we know the repo
+            // slug from `gh repo view`, so resolve directly.
+            let shortform = format!("{}#{}", repo_slug, num);
+            return match lookup_pr(Some(repo_path), &shortform) {
+                Ok(info) => Ok(Some(info)),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("PR not found") {
+                        Ok(None)
+                    } else {
+                        Err(e)
+                    }
+                }
+            };
+        }
+    }
+
+    let mut cmd = Command::new(crate::services::setup::gh_command());
+    cmd.args([
+        "pr",
+        "list",
+        "--head",
+        trimmed,
+        "--state",
+        "open",
+        "--limit",
+        "1",
+        "--json",
+        "number,title,headRefName,headRepositoryOwner,isCrossRepository,url",
+    ]);
+    cmd.current_dir(repo_path);
+
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("Failed to run gh: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(classify_gh_error(&stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let raws: Vec<RawPr> = serde_json::from_str(&stdout)
+        .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
+    Ok(raws.into_iter().next().map(|r| r.into_pr_info(&repo_slug)))
+}
+
+/// Resolve `<owner>/<repo>` for the repo at `repo_path` using `gh repo view`.
+/// gh reads the repo from cwd's git remotes, so this is a per-path call.
+fn resolve_repo_slug(repo_path: &str) -> Result<String> {
+    let mut cmd = Command::new(crate::services::setup::gh_command());
+    cmd.args(["repo", "view", "--json", "nameWithOwner"]);
+    cmd.current_dir(repo_path);
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("Failed to run gh: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(classify_gh_error(&stderr));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    #[derive(Deserialize)]
+    struct Raw {
+        #[serde(rename = "nameWithOwner")]
+        name_with_owner: String,
+    }
+    let raw: Raw = serde_json::from_str(&stdout)
+        .map_err(|e| anyhow!("Failed to parse gh repo view output: {}", e))?;
+    Ok(raw.name_with_owner)
 }
 
 fn classify_gh_error(stderr: &str) -> anyhow::Error {

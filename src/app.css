@@ -112,13 +112,19 @@
   }
 
   :root[data-theme="paper-ink"] body,
-  :root[data-theme="github-day"] body {
+  :root[data-theme="github-day"] body,
+  :root[data-theme="warm-burnout-light"] body {
     background: var(--color-bg-deep);
   }
 
   :root[data-theme="paper-ink"] ::selection,
   :root[data-theme="github-day"] ::selection {
     background: rgba(37, 99, 235, 0.2);
+    color: var(--color-text-primary);
+  }
+
+  :root[data-theme="warm-burnout-light"] ::selection {
+    background: rgba(184, 82, 46, 0.22);
     color: var(--color-text-primary);
   }
 }
@@ -372,6 +378,72 @@
     --pane-inactive-opacity: 0.95;
   }
 
+  /* Warm Burnout — warm umber dark with burnt-sienna accents */
+  :root[data-theme="warm-burnout-dark"],
+  body[data-theme="warm-burnout-dark"] {
+    --app-bg-start: #1a1510;
+    --app-bg-end: #14120f;
+    --app-glow: rgba(184, 82, 46, 0.05);
+    --color-bg-deep: #14120f;
+    --color-bg-base: #1a1510;
+    --color-bg-surface: #1f1d17;
+    --color-bg-elevated: #2a2620;
+    --color-bg-hover: #332e26;
+    --color-bg-active: rgba(42, 38, 32, 0.72);
+    --color-border: rgba(255, 255, 255, 0.10);
+    --color-border-subtle: rgba(255, 255, 255, 0.05);
+    --color-text-primary: #bfbdb6;
+    --color-text-secondary: #ada69c;
+    --color-text-muted: #8a8178;
+    --color-accent: #b8522e;
+    --color-accent-dim: #a04828;
+    --color-green: #70bf56;
+    --color-green-dim: #2d4a1c;
+    --color-amber: #fdb04c;
+    --color-amber-dim: #8a5a18;
+    --color-red: #f06b73;
+    --color-red-dim: #7a2628;
+    --color-blue: #4fbfff;
+    --color-blue-dim: #1a5a80;
+    --color-gray: #8a8178;
+    --color-hairline: rgba(255, 255, 255, 0.18);
+  }
+
+  /* Warm Burnout Light — warm parchment with burnt-sienna accents */
+  :root[data-theme="warm-burnout-light"],
+  body[data-theme="warm-burnout-light"] {
+    color-scheme: light;
+    --app-bg-start: #ffffff;
+    --app-bg-end: #f5ede0;
+    --app-glow: rgba(184, 82, 46, 0.04);
+    --color-bg-deep: #f5ede0;
+    --color-bg-base: #f0e8dc;
+    --color-bg-surface: #ede6da;
+    --color-bg-elevated: #e6e0d4;
+    --color-bg-hover: #ddd6ca;
+    --color-bg-active: rgba(221, 214, 202, 0.55);
+    --color-border: #ddd6ca;
+    --color-border-subtle: rgba(58, 54, 48, 0.10);
+    --color-text-primary: #3a3630;
+    --color-text-secondary: #5c5750;
+    --color-text-muted: #8a8070;
+    --color-accent: #b8522e;
+    --color-accent-dim: #a04828;
+    --color-green: #2d6a14;
+    --color-green-dim: #d8e8c8;
+    --color-amber: #8a6000;
+    --color-amber-dim: #f3e6c0;
+    --color-red: #b82820;
+    --color-red-dim: #f5d8d4;
+    --color-blue: #2060a0;
+    --color-blue-dim: #d4e0ee;
+    --color-gray: #8a8070;
+    --color-hairline: rgba(58, 54, 48, 0.22);
+    --pane-active-brightness: 1.02;
+    --pane-inactive-brightness: 0.96;
+    --pane-inactive-opacity: 0.95;
+  }
+
   /* GitHub Day — light UI with dark terminal */
   :root[data-theme="github-day"],
   body[data-theme="github-day"] {
@@ -462,14 +534,16 @@
 
   /* Light theme overrides */
   :root[data-theme="paper-ink"] .ui-panel,
-  :root[data-theme="github-day"] .ui-panel {
+  :root[data-theme="github-day"] .ui-panel,
+  :root[data-theme="warm-burnout-light"] .ui-panel {
     background: var(--color-bg-surface);
     border: 1px solid var(--color-border-subtle);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   }
 
   :root[data-theme="paper-ink"] .ui-dialog,
-  :root[data-theme="github-day"] .ui-dialog {
+  :root[data-theme="github-day"] .ui-dialog,
+  :root[data-theme="warm-burnout-light"] .ui-dialog {
     background: var(--color-bg-deep);
     border: 1px solid var(--color-border);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--color-border-subtle);
@@ -479,7 +553,8 @@
      keep the framing (border + radius + inset shadow) but let the background
      come from the active terminal theme via --color-terminal-bg. */
   :root[data-theme="paper-ink"] .ui-terminal-frame,
-  :root[data-theme="github-day"] .ui-terminal-frame {
+  :root[data-theme="github-day"] .ui-terminal-frame,
+  :root[data-theme="warm-burnout-light"] .ui-terminal-frame {
     border: 1px solid var(--color-border-subtle);
     border-radius: 0.75rem;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
@@ -518,12 +593,14 @@
   }
 
   :root[data-theme="paper-ink"] .app-scrollbar:hover::-webkit-scrollbar-thumb,
-  :root[data-theme="github-day"] .app-scrollbar:hover::-webkit-scrollbar-thumb {
+  :root[data-theme="github-day"] .app-scrollbar:hover::-webkit-scrollbar-thumb,
+  :root[data-theme="warm-burnout-light"] .app-scrollbar:hover::-webkit-scrollbar-thumb {
     background: rgba(0, 0, 0, 0.15);
   }
 
   :root[data-theme="paper-ink"] .app-scrollbar::-webkit-scrollbar-thumb:hover,
-  :root[data-theme="github-day"] .app-scrollbar::-webkit-scrollbar-thumb:hover {
+  :root[data-theme="github-day"] .app-scrollbar::-webkit-scrollbar-thumb:hover,
+  :root[data-theme="warm-burnout-light"] .app-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 0, 0, 0.25);
   }
 }
