@@ -70,6 +70,22 @@ describe("restoreSessionPanes", () => {
     expect(attachPtyListeners).toHaveBeenCalledWith("s1-main");
   });
 
+  it("does not attach the fallback primary pane without live PTY evidence", async () => {
+    await restoreSessionPanes(session({ status: "disconnected" }), null, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: new Set(),
+    });
+
+    expect(get(sessionLayouts).get("s1")).toEqual({
+      kind: "leaf",
+      paneId: "s1-main",
+    });
+    expect(get(focusedPaneId)).toBe("s1-main");
+    expect(initTerminal).not.toHaveBeenCalled();
+    expect(attachPtyListeners).not.toHaveBeenCalled();
+  });
+
   it("restores persisted split panes and reattaches each live PTY", async () => {
     const payload: PaneStatePayload = {
       schemaVersion: 4,
@@ -99,7 +115,11 @@ describe("restoreSessionPanes", () => {
       ],
     };
 
-    await restoreSessionPanes(session(), payload, { initTerminal, attachPtyListeners });
+    await restoreSessionPanes(session(), payload, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: new Set(["s1", "pty-shell"]),
+    });
 
     expect(get(sessionLayouts).get("s1")).toEqual(payload.layout);
     expect(get(paneInstances).get("s1-main")?.spawnProfileRef).toEqual({
@@ -115,5 +135,47 @@ describe("restoreSessionPanes", () => {
     expect(initTerminal).toHaveBeenCalledWith("shell-pane");
     expect(attachPtyListeners).toHaveBeenCalledWith("s1-main");
     expect(attachPtyListeners).toHaveBeenCalledWith("shell-pane");
+  });
+
+  it("restores stale persisted shell panes as retryable instead of attaching dead PTYs", async () => {
+    const payload: PaneStatePayload = {
+      schemaVersion: 4,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "s1-main" },
+          { kind: "leaf", paneId: "shell-pane" },
+        ],
+      },
+      descriptors: [
+        {
+          id: "s1-main",
+          type: "shell",
+          ptyId: "s1",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+        },
+        {
+          id: "shell-pane",
+          type: "shell",
+          ptyId: "stale-pty",
+          workingDir: "/repo",
+          spawnProfileRef: { kind: "registered", id: "plain-shell" },
+        },
+      ],
+    };
+
+    await restoreSessionPanes(session({ status: "disconnected" }), payload, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: new Set(),
+    });
+
+    expect(get(sessionLayouts).get("s1")).toEqual(payload.layout);
+    expect(get(paneInstances).get("s1-main")?.restoreError).toBeUndefined();
+    expect(get(paneInstances).get("shell-pane")?.restoreError).toContain("PTY is no longer running");
+    expect(get(focusedPaneId)).toBe("s1-main");
+    expect(initTerminal).not.toHaveBeenCalled();
+    expect(attachPtyListeners).not.toHaveBeenCalled();
   });
 });

@@ -499,12 +499,21 @@
         "$lib/stores/worktreeMetadata"
       );
       void refreshWorktreeMetadataForRepos(sessions.map((s) => s.repoRoot));
-      const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+      const [{ initTerminal, attachPtyListeners }, { listAllPtys }] = await Promise.all([
+        import("$lib/panes/terminals"),
+        import("$lib/tauri"),
+      ]);
       const { restoreSessionPanes } = await import("$lib/panes/restore");
+      let livePtyIds = new Set<string>();
+      try {
+        livePtyIds = new Set((await listAllPtys()).map((pty) => pty.id));
+      } catch (e) {
+        log(`Unable to read live PTY inventory during restore: ${e}`);
+      }
       for (const s of sessions) {
         addSession(s);
         const persisted = await loadPaneState(s.id);
-        await restoreSessionPanes(s, persisted, { initTerminal, attachPtyListeners });
+        await restoreSessionPanes(s, persisted, { initTerminal, attachPtyListeners, livePtyIds });
       }
     }
 

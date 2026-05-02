@@ -10,6 +10,7 @@ import type { SpawnProfileRef } from "./profiles";
 export interface RestoreSessionPanesOptions {
   initTerminal: (paneId: string) => void;
   attachPtyListeners: (paneId: string) => Promise<void>;
+  livePtyIds?: ReadonlySet<string>;
 }
 
 /**
@@ -26,8 +27,10 @@ export async function restoreSessionPanes(
 ): Promise<void> {
   if (!persisted) {
     const mainPaneId = initPrimaryPane(session.id, undefined);
-    opts.initTerminal(mainPaneId);
-    await opts.attachPtyListeners(mainPaneId);
+    if (canAttachPty(session.id, opts.livePtyIds)) {
+      opts.initTerminal(mainPaneId);
+      await opts.attachPtyListeners(mainPaneId);
+    }
     return;
   }
 
@@ -59,12 +62,14 @@ export async function restoreSessionPanes(
         notesScope: d.notesScope,
         notesViewMode: d.notesViewMode,
       });
+      markMissingRuntimeIfNeeded(d, opts.livePtyIds);
     }
   }
 
   for (const d of persisted.descriptors) {
     if (d.type === "markdown" || d.type === "notes") continue;
     if (!d.ptyId) continue;
+    if (!canAttachPty(d.ptyId, opts.livePtyIds)) continue;
     try {
       opts.initTerminal(d.id);
       await opts.attachPtyListeners(d.id);
@@ -104,6 +109,24 @@ function initPrimaryPane(
     });
   }
   return paneId;
+}
+
+function canAttachPty(
+  ptyId: string,
+  livePtyIds: ReadonlySet<string> | undefined,
+): boolean {
+  return livePtyIds === undefined || livePtyIds.has(ptyId);
+}
+
+function markMissingRuntimeIfNeeded(
+  descriptor: PaneStatePayload["descriptors"][number],
+  livePtyIds: ReadonlySet<string> | undefined,
+): void {
+  if (descriptor.type !== "shell") return;
+  if (!descriptor.ptyId || canAttachPty(descriptor.ptyId, livePtyIds)) return;
+  updateInstance(descriptor.id, {
+    restoreError: "PTY is no longer running. Reconnect this pane to start a new shell.",
+  });
 }
 
 function createPrimaryPane(
