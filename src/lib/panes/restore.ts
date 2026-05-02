@@ -148,7 +148,7 @@ function canAttachPty(
   ptyId: string,
   livePtyIds: ReadonlySet<string> | null | undefined,
 ): boolean {
-  return livePtyIds == null || livePtyIds.has(ptyId);
+  return livePtyIds?.has(ptyId) === true;
 }
 
 function markMissingRuntimeIfNeeded(

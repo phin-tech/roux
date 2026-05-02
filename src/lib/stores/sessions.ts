@@ -37,7 +37,7 @@ export function addSession(session: Session) {
       sessions: exists
         ? state.sessions.map((s) => (s.id === session.id ? session : s))
         : [...state.sessions, session],
-      activeSessionId: session.id,
+      activeSessionId: exists ? state.activeSessionId : session.id,
     };
   });
 }

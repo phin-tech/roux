@@ -57,7 +57,11 @@ describe("restoreSessionPanes", () => {
   });
 
   it("falls back to a primary Claude pane when no persisted state exists", async () => {
-    await restoreSessionPanes(session(), null, { initTerminal, attachPtyListeners });
+    await restoreSessionPanes(session(), null, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: new Set(["s1"]),
+    });
 
     expect(get(sessionLayouts).get("s1")).toEqual({
       kind: "leaf",
@@ -183,7 +187,7 @@ describe("restoreSessionPanes", () => {
     expect(attachPtyListeners).not.toHaveBeenCalled();
   });
 
-  it("does not mark missing shell PTYs stale when live inventory is unknown", async () => {
+  it("restores panes but does not attach PTYs when live inventory is unknown", async () => {
     const payload: PaneStatePayload = {
       schemaVersion: 4,
       layout: {
@@ -217,10 +221,9 @@ describe("restoreSessionPanes", () => {
     });
 
     expect(get(paneInstances).get("shell-pane")?.restoreError).toBeUndefined();
-    expect(initTerminal).toHaveBeenCalledWith("s1-main");
-    expect(initTerminal).toHaveBeenCalledWith("shell-pane");
-    expect(attachPtyListeners).toHaveBeenCalledWith("s1-main");
-    expect(attachPtyListeners).toHaveBeenCalledWith("shell-pane");
+    expect(get(focusedPaneId)).toBe("s1-main");
+    expect(initTerminal).not.toHaveBeenCalled();
+    expect(attachPtyListeners).not.toHaveBeenCalled();
   });
 
   it("strips known-stale command panes from restored layouts", async () => {
