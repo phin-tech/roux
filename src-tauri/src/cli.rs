@@ -7,7 +7,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use roux_lib::paths;
 
+mod cli_socket;
+mod mcp;
 mod platform;
+
+use cli_socket::send_socket_command;
 
 #[derive(Parser)]
 #[command(name = "roux-cli", about = "Roux terminal manager CLI", version)]
@@ -106,6 +110,8 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Start the Roux MCP stdio server
+    Mcp,
 }
 
 #[derive(Subcommand)]
@@ -320,102 +326,6 @@ enum NotesScopeVerb {
 
 fn status_dir() -> PathBuf {
     platform::status_dir()
-}
-
-fn send_socket_command(request: Value) -> Result<Value, String> {
-    #[cfg(windows)]
-    {
-        use std::io::{Read, Write};
-        use std::net::TcpStream;
-        use std::time::Duration;
-
-        let mut request = request;
-        let auth_token = platform::load_socket_auth_token()
-            .ok_or_else(|| "Roux command channel token not found".to_string())?;
-        if let Some(request_obj) = request.as_object_mut() {
-            request_obj.insert("auth_token".to_string(), Value::String(auth_token));
-        }
-
-        let endpoint =
-            platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
-        let mut stream = TcpStream::connect(&endpoint).map_err(|e| {
-            if matches!(
-                e.kind(),
-                std::io::ErrorKind::NotFound
-                    | std::io::ErrorKind::ConnectionRefused
-                    | std::io::ErrorKind::AddrNotAvailable
-            ) {
-                "Roux is not running".to_string()
-            } else {
-                format!("Failed to connect to Roux: {}", e)
-            }
-        })?;
-
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .map_err(|e| format!("Failed to set timeout: {}", e))?;
-        stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
-            .map_err(|e| format!("Failed to set timeout: {}", e))?;
-
-        let json = serde_json::to_string(&request).unwrap();
-        stream.write_all(json.as_bytes()).map_err(|e| format!("Failed to send command: {}", e))?;
-        stream.write_all(b"\n").map_err(|e| format!("Failed to send command: {}", e))?;
-        stream
-            .shutdown(std::net::Shutdown::Write)
-            .map_err(|e| format!("Failed to shutdown write: {}", e))?;
-
-        let mut response = String::new();
-        let mut reader = std::io::BufReader::new(stream);
-        reader
-            .read_to_string(&mut response)
-            .map_err(|e| format!("Failed to read response: {}", e))?;
-
-        return serde_json::from_str(&response).map_err(|e| format!("Invalid response: {}", e));
-    }
-
-    #[cfg(not(windows))]
-    {
-        use std::io::Write;
-        use std::os::unix::net::UnixStream;
-        use std::time::Duration;
-
-        let path = platform::socket_path();
-        let stream = UnixStream::connect(&path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound
-                || e.kind() == std::io::ErrorKind::ConnectionRefused
-            {
-                "Roux is not running".to_string()
-            } else {
-                format!("Failed to connect to Roux: {}", e)
-            }
-        })?;
-
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .map_err(|e| format!("Failed to set timeout: {}", e))?;
-        stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
-            .map_err(|e| format!("Failed to set timeout: {}", e))?;
-
-        let json = serde_json::to_string(&request).unwrap();
-        let mut stream_ref = &stream;
-        stream_ref
-            .write_all(json.as_bytes())
-            .map_err(|e| format!("Failed to send command: {}", e))?;
-        stream_ref.write_all(b"\n").map_err(|e| format!("Failed to send command: {}", e))?;
-        stream
-            .shutdown(std::net::Shutdown::Write)
-            .map_err(|e| format!("Failed to shutdown write: {}", e))?;
-
-        let mut response = String::new();
-        let mut reader = std::io::BufReader::new(&stream);
-        reader
-            .read_to_string(&mut response)
-            .map_err(|e| format!("Failed to read response: {}", e))?;
-
-        serde_json::from_str(&response).map_err(|e| format!("Invalid response: {}", e))
-    }
 }
 
 fn resolve_path(path: &str) -> String {
@@ -765,6 +675,19 @@ fn main() {
         Commands::Hook { action } => handle_hook_action(action),
         Commands::Status => show_status(),
         Commands::Clear => clear_status(),
+        Commands::Mcp => {
+            let runtime = match tokio::runtime::Runtime::new() {
+                Ok(runtime) => runtime,
+                Err(e) => {
+                    eprintln!("Error: failed to start MCP runtime: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            if let Err(e) = runtime.block_on(mcp::run_stdio_server()) {
+                eprintln!("Error: MCP server exited: {}", e);
+                std::process::exit(1);
+            }
+        }
 
         Commands::App { path } => {
             let resolved = resolve_path(&path);
@@ -1143,7 +1066,10 @@ mod tests {
         // (nonexistent) PTY.
         let (sid, pid) = resolve_target(s("other-sid"), None, s("env-sid"), s("env-pid"));
         assert_eq!(sid.as_deref(), Some("other-sid"));
-        assert!(pid.is_none(), "env pane must be dropped when --session targets a different session");
+        assert!(
+            pid.is_none(),
+            "env pane must be dropped when --session targets a different session"
+        );
     }
 
     #[test]
@@ -1157,8 +1083,7 @@ mod tests {
 
     #[test]
     fn resolve_target_explicit_session_and_pane_pass_through() {
-        let (sid, pid) =
-            resolve_target(s("flag-sid"), s("flag-pid"), s("env-sid"), s("env-pid"));
+        let (sid, pid) = resolve_target(s("flag-sid"), s("flag-pid"), s("env-sid"), s("env-pid"));
         assert_eq!(sid.as_deref(), Some("flag-sid"));
         assert_eq!(pid.as_deref(), Some("flag-pid"));
     }
@@ -1487,6 +1412,15 @@ mod tests {
         match cli.command {
             Commands::Split { direction } => assert_eq!(direction, "vertical"),
             _ => panic!("expected Split"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_mcp_command() {
+        let cli = Cli::try_parse_from(["roux-cli", "mcp"]).unwrap();
+        match cli.command {
+            Commands::Mcp => {}
+            _ => panic!("expected Mcp"),
         }
     }
 }

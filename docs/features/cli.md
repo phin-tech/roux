@@ -37,6 +37,7 @@ If the Roux app is not running, socket-backed commands fail with a direct `Roux 
 - Open a plain shell (`roux shell`)
 - Focus a pane by id (`roux focus`)
 - Run a shell command in a new pane (`roux run`)
+- Run the Roux MCP stdio server (`roux mcp`)
 - Push notifications (`roux notify`)
 - Emit hook status transitions and run automation hooks (`roux hook`)
 - Read, append, write, or search the multi-scoped notes vault (`roux notes <scope> <verb>` — experimental; see [Notes](notes.md))
@@ -110,6 +111,42 @@ Run a shell command in a new command pane.
 roux run "npm run test"
 roux run "cargo test" --working-dir ~/src/my-repo
 ```
+
+### `roux mcp`
+
+Run Roux's MCP server over stdio.
+
+```sh
+roux mcp
+```
+
+Most people do not run this command by hand. Enable MCP in **Settings → Agent Integrations**, then use the host setup button for a supported MCP client. The host launches `roux-cli mcp` when it needs the server.
+
+The MCP server is a thin adapter over the same socket bridge as the CLI:
+
+- the Roux desktop app must be running
+- **Enable Roux MCP** must be on in Settings
+- the host config uses the installed/current `roux-cli` path
+- session- and pane-targeted tools require explicit ids where mutation is possible, especially `roux_send_text`
+
+The v1 MCP server exposes inspection and safe action tools:
+
+- `roux_list_sessions`
+- `roux_get_session`
+- `roux_list_panes`
+- `roux_create_session`
+- `roux_create_pane`
+- `roux_send_text`
+- `roux_get_latest_output`
+- `roux_focus`
+- `roux_read_notes`
+- `roux_search_notes`
+- `roux_append_notes`
+- `roux_notes_vault_root`
+
+The v1 server intentionally does not expose arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, or broad filesystem mutation.
+
+`roux_get_latest_output` returns the exact PTY replay bytes as `replay_bytes_base64`. It also includes `text` when the replay bytes are valid UTF-8; clients that need byte-for-byte fidelity should decode `replay_bytes_base64`.
 
 ### `roux session`
 
