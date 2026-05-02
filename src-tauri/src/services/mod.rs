@@ -1,6 +1,7 @@
 pub(crate) mod docs;
 pub(crate) mod library;
 pub(crate) mod library_sync;
+pub(crate) mod mcp_config;
 pub(crate) mod notes;
 pub(crate) mod projects;
 pub(crate) mod sessions;

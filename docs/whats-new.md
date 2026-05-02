@@ -89,3 +89,7 @@ This page tracks major shipped features across Roux's full history.
 ## May 1, 2026
 
 - **Project workspaces**: Projects now have a full editor for repo lists, generated session blueprints, project prompts, and context paths. Group the sidebar by project to spawn saved blueprint sessions, or use **Spawn Project Session** from the command palette. Supported agent profiles receive the project prompt at startup, and spawned PTYs expose `ROUX_PROJECT_PROMPT` plus `ROUX_PROJECT_CONTEXT_PATHS` for custom automation. See [Projects](features/projects.md).
+
+## May 2, 2026
+
+- **Roux MCP integration**: Roux now ships `roux-cli mcp`, a stdio MCP server that lets supported MCP hosts inspect and safely act on Roux sessions, panes, latest terminal output, and notes through the running desktop app. Settings gained an **Agent Integrations** section with **Enable Roux MCP**, CLI/current status, Claude Desktop host setup, dry-run preview, and scoped config writes that preserve unrelated host config. v1 intentionally excludes arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, and broad filesystem mutation. See [CLI bridge → `roux mcp`](features/cli.md#roux-mcp) and [Settings → Agent Integrations](settings.md#agent-integrations).

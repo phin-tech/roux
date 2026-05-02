@@ -51,9 +51,11 @@ tauri-plugin-opener = "2.5.3"
 thiserror = "2"
 toml = "0.8"
 minijinja = "2"
+rmcp = { version = "1.6.0", features = ["server", "transport-io", "schemars"] }
 roux-core = { path = "../crates/roux-core" }
 roux-git = { path = "../crates/roux-git" }
 roux-worktrunk = { path = "../crates/roux-worktrunk" }
+schemars = "1"
 specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }
 specta-typescript = "0.0.11"
 tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }

@@ -118,6 +118,9 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   gpuAcceleration: "auto",
   autoLookupSessionPr: true,
   autoWatchSessionPr: false,
+  mcpEnabled: false,
+  mcpLastConfiguredHost: null,
+  mcpLastConfiguredAtMs: null,
 };
 
 // Re-export frontend-only task types
