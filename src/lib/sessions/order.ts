@@ -68,14 +68,29 @@ function groupByProject(
   return groups;
 }
 
+const ALL_KEY = "__all__";
+
+function groupBySession(sessions: Session[]): SessionGroup[] {
+  if (sessions.length === 0) return [];
+  const sorted = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
+  const latest = sorted.reduce((m, s) => (s.createdAt > m ? s.createdAt : m), 0);
+  return [{ name: "Sessions", key: ALL_KEY, sessions: sorted, latest }];
+}
+
 export function getGroupedSessions(
   sessions: Session[],
   projects: Project[],
   groupBy: GroupBy,
 ): SessionGroup[] {
-  return groupBy === "project"
-    ? groupByProject(sessions, projects)
-    : groupByRepo(sessions);
+  switch (groupBy) {
+    case "project":
+      return groupByProject(sessions, projects);
+    case "session":
+      return groupBySession(sessions);
+    case "repo":
+    default:
+      return groupByRepo(sessions);
+  }
 }
 
 export function getVisualSessionOrder(

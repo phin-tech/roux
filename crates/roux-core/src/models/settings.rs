@@ -101,6 +101,7 @@ pub enum GroupBy {
     #[default]
     Repo,
     Project,
+    Session,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]

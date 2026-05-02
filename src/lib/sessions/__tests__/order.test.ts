@@ -121,6 +121,41 @@ describe("getGroupedSessions (project)", () => {
   });
 });
 
+describe("getGroupedSessions (session)", () => {
+  it("returns a single flat group sorted by createdAt desc", () => {
+    const sessions: Session[] = [
+      makeSession({ id: "a", projectId: "p1", createdAt: 10 }),
+      makeSession({ id: "b", projectId: null, createdAt: 30 }),
+      makeSession({ id: "c", projectId: "p2", createdAt: 20 }),
+    ];
+    const groups = getGroupedSessions(sessions, [], "session");
+    expect(groups).toHaveLength(1);
+    expect(groups[0].key).toBe("__all__");
+    expect(groups[0].name).toBe("Sessions");
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["b", "c", "a"]);
+  });
+
+  it("ignores projects entirely — even projects with blueprints add no groups", () => {
+    const projects: Project[] = [
+      {
+        id: "p-empty",
+        name: "Empty",
+        sessionBlueprints: [
+          {
+            id: "bp1",
+            name: "shell",
+            repoRoot: "/r",
+            spawnProfile: "claude",
+            nonoAllowDirs: [],
+          },
+        ],
+      },
+    ];
+    const groups = getGroupedSessions([], projects, "session");
+    expect(groups).toEqual([]);
+  });
+});
+
 describe("getVisualSessionOrder", () => {
   it("flattens groups in group order, sessions in in-group order", () => {
     const sessions: Session[] = [

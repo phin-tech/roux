@@ -414,7 +414,7 @@ export type GithubJob = {
  */
 export type GpuAcceleration = "auto" | "on" | "off";
 
-export type GroupBy = "repo" | "project";
+export type GroupBy = "repo" | "project" | "session";
 
 export type HookListItem = {
 	event: string,

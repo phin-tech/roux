@@ -5,7 +5,9 @@
   import {
     createProjectFull,
     updateProject,
+    removeProject,
   } from "$lib/stores/projects";
+  import { spawnBlueprintForProject } from "$lib/sessions/spawnBlueprint";
   import type { Project, SessionBlueprint } from "$lib/types";
   import { logError } from "$lib/logging";
   import { settings } from "$lib/stores/settings";
@@ -30,6 +32,31 @@
   let projectPrompt = $state("");
   let error = $state("");
   let saving = $state(false);
+  let confirmDelete = $state(false);
+
+  // Per-row create-mode flag. Creating a project always spawns the listed
+  // rows as live sessions — that's the dominant use case. `keepAsTemplate`
+  // is an opt-in for the (rare) "also persist this as a project blueprint
+  // so I can re-spawn it later" case.
+  let keepAsTemplate = $state(new Set<string>());
+
+  function isKeptAsTemplate(id: string): boolean {
+    return keepAsTemplate.has(id);
+  }
+
+  function setKeepAsTemplate(id: string, keep: boolean) {
+    const next = new Set(keepAsTemplate);
+    if (keep) next.add(id);
+    else next.delete(id);
+    keepAsTemplate = next;
+  }
+
+  function dropTemplateFlag(id: string) {
+    if (!keepAsTemplate.has(id)) return;
+    const next = new Set(keepAsTemplate);
+    next.delete(id);
+    keepAsTemplate = next;
+  }
 
   // Draft text bound to the repo autocomplete + the context-paths input.
   // The repo draft holds whatever the user is currently typing; on select
@@ -73,6 +100,10 @@
     defaultFetchFirst = false;
     defaultProfileChoice = "";
     nameTemplate = "{{repo}}";
+    confirmDelete = false;
+    // Reset the per-row template flag. In edit mode this is unused (the
+    // checkbox UI is hidden), so we just clear it.
+    keepAsTemplate = new Set();
     void loadDiscoveredRepos();
   });
 
@@ -194,8 +225,10 @@
   function removeRepoRoot(p: string) {
     repoRoots = repoRoots.filter((r) => r !== p);
     // Drop any blueprint that pointed at the removed repo so we don't ship
-    // a dangling reference to the backend.
+    // a dangling reference to the backend. Same goes for its template flag.
+    const dropped = blueprints.filter((bp) => bp.repoRoot === p);
     blueprints = blueprints.filter((bp) => bp.repoRoot !== p);
+    for (const bp of dropped) dropTemplateFlag(bp.id);
   }
 
   async function addContextPath() {
@@ -218,10 +251,11 @@
       error = "Add at least one repo root before configuring sessions";
       return;
     }
+    const id = genId();
     blueprints = [
       ...blueprints,
       {
-        id: genId(),
+        id,
         name: "",
         repoRoot: repoRoots[0],
         branch: null,
@@ -237,6 +271,7 @@
 
   function removeBlueprint(id: string) {
     blueprints = blueprints.filter((bp) => bp.id !== id);
+    dropTemplateFlag(id);
   }
 
   function updateBlueprint(id: string, patch: Partial<SessionBlueprint>) {
@@ -278,17 +313,51 @@
           projectPrompt: trimmedPrompt,
         });
       } else {
-        await createProjectFull(name.trim(), {
+        // Create-mode behavior: every row spawns as a live session. Rows
+        // with the "save as template" flag *also* persist on the project
+        // as a blueprint so they can be re-spawned later from the sidebar.
+        const keptBlueprints = cleanedBlueprints.filter((bp) =>
+          isKeptAsTemplate(bp.id),
+        );
+        const created = await createProjectFull(name.trim(), {
           repoRoots,
           contextPaths,
-          sessionBlueprints: cleanedBlueprints,
+          sessionBlueprints: keptBlueprints,
           projectPrompt: trimmedPrompt,
         });
+        // Spawn sequentially: parallel spawns starve the PTY backend and
+        // make a single failure look like a cascade. If any single spawn
+        // fails, log it and keep going so the rest of the set still lands.
+        for (const bp of cleanedBlueprints) {
+          try {
+            await spawnBlueprintForProject(created, bp, {
+              blueprintId: isKeptAsTemplate(bp.id) ? bp.id : null,
+            });
+          } catch (e) {
+            logError(`new-project: spawn "${bp.name}" failed — ${e}`);
+          }
+        }
       }
       onclose();
     } catch (e) {
       error = String(e);
       logError(`new-project: save failed — ${e}`);
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function handleDelete() {
+    if (!isEdit || !project) return;
+    saving = true;
+    error = "";
+    try {
+      await removeProject(project.id);
+      onclose();
+    } catch (e) {
+      error = String(e);
+      logError(`new-project: delete failed — ${e}`);
+      confirmDelete = false;
     } finally {
       saving = false;
     }
@@ -469,7 +538,9 @@
           <div class="flex flex-col gap-2">
             <div class="flex items-baseline justify-between">
               <span class={sectionLabel}>Sessions</span>
-              <span class="text-[10px] text-text-muted">{blueprints.length} configured · spawn from sidebar</span>
+              <span class="text-[10px] text-text-muted">
+                {blueprints.length} configured · {isEdit ? "edit templates" : "spawned on create"}
+              </span>
             </div>
             {#if blueprints.length > 0}
               <ul class="flex flex-col divide-y divide-hairline rounded-md border border-border-subtle bg-bg-deep/40">
@@ -538,6 +609,16 @@
                           <span>fetch first</span>
                         </label>
                       </div>
+                    {/if}
+                    {#if !isEdit}
+                      <label class="flex cursor-pointer items-center gap-1.5 pl-1 text-[10px] text-text-muted">
+                        <input
+                          type="checkbox"
+                          checked={isKeptAsTemplate(bp.id)}
+                          onchange={(e) => setKeepAsTemplate(bp.id, e.currentTarget.checked)}
+                        />
+                        <span>also save as template (re-spawn later from sidebar)</span>
+                      </label>
                     {/if}
                   </li>
                 {/each}
@@ -610,9 +691,38 @@
       </div>
 
       <div class="flex justify-end gap-2 border-t border-hairline px-6 py-4">
-        <div class="mr-auto self-center text-[11px] text-text-muted">
-          Esc to close • Cmd/Ctrl+Enter to save
-        </div>
+        {#if isEdit && confirmDelete}
+          <div class="mr-auto flex items-center gap-2">
+            <span class="text-[11px] text-text-muted">
+              Delete? Sessions stay (just untagged).
+            </span>
+            <button
+              class="cursor-pointer rounded-xl border border-red/30 bg-red/15 px-3 py-1.5 text-[12px] font-medium text-red hover:bg-red/24 disabled:opacity-50"
+              onclick={handleDelete}
+              disabled={saving}
+            >
+              {saving ? "Deleting…" : "Delete"}
+            </button>
+            <button
+              class="cursor-pointer rounded-xl border border-border-subtle bg-bg-surface px-3 py-1.5 text-[12px] text-text-secondary hover:bg-bg-hover"
+              onclick={() => (confirmDelete = false)}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          </div>
+        {:else if isEdit}
+          <button
+            class="mr-auto cursor-pointer self-center text-[12px] font-medium text-red/85 hover:text-red"
+            onclick={() => (confirmDelete = true)}
+          >
+            Delete project
+          </button>
+        {:else}
+          <div class="mr-auto self-center text-[11px] text-text-muted">
+            Esc to close • Cmd/Ctrl+Enter to save
+          </div>
+        {/if}
         <button
           class="cursor-pointer rounded-xl border border-border-subtle bg-bg-surface px-5 py-2 text-[13px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
           onclick={onclose}

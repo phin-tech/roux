@@ -1,69 +1,11 @@
 import { get } from "svelte/store";
 import { registry } from "./registry";
 import { projects, removeProject } from "$lib/stores/projects";
-import { addSession } from "$lib/stores/sessions";
-import { initSessionWithProfile } from "$lib/panes/actions";
-import { createSessionShell, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
-import type { Project, SessionBlueprint } from "$lib/types";
+import { spawnBlueprintForProject } from "$lib/sessions/spawnBlueprint";
 import {
   openNewProjectDialog,
   openEditProjectDialog,
 } from "$lib/stores/newProjectDialog";
-import type { SpawnProfileRef } from "$lib/panes/profiles";
-
-async function spawnBlueprint(project: Project, bp: SessionBlueprint): Promise<void> {
-  const { resolveProfileRef } = await import("$lib/panes/profiles");
-  const { runProfileInPane } = await import("$lib/panes/profileRunner");
-  const profileRef: SpawnProfileRef = { kind: "registered", id: bp.spawnProfile };
-  const profile = resolveProfileRef(profileRef);
-  const nonoProfile = bp.nonoProfile ?? profile?.nonoProfile ?? undefined;
-  const nonoAllowDirs =
-    bp.nonoAllowDirs && bp.nonoAllowDirs.length > 0
-      ? bp.nonoAllowDirs
-      : profile?.nonoAllowDirs ?? undefined;
-
-  const newSession = await createSessionShell(
-    bp.repoRoot,
-    bp.name,
-    bp.worktreePath ?? null,
-    bp.branch ?? null,
-    {
-      nonoProfile,
-      nonoAllowDirs,
-      profile: bp.spawnProfile,
-      base: bp.base ?? null,
-      fetchFirst: bp.fetchFirst ?? false,
-      projectId: project.id,
-      blueprintId: bp.id,
-    },
-  );
-  addSession(newSession);
-  // Defensive: backend should already have stamped project_id (we passed it
-  // through CreateShellOpts), but the frontend store mirror may have an
-  // older snapshot if it raced. Re-issuing set_session_project is idempotent.
-  // Best-effort: don't let a failure here abort the rest of session init.
-  try {
-    await tauriSetSessionProject(newSession.id, project.id);
-  } catch (error) {
-    console.warn("Failed to defensively sync session project", {
-      sessionId: newSession.id,
-      projectId: project.id,
-      error,
-    });
-  }
-
-  const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {
-    nonoProfile,
-    nonoAllowDirs,
-  });
-  const { connectPaneTerminal } = await import("$lib/panes/terminals");
-  await connectPaneTerminal(mainPaneId);
-  if (profile) {
-    await runProfileInPane(newSession.id, profile, {
-      appendSystemPrompt: project.projectPrompt ?? "",
-    });
-  }
-}
 
 export function registerProjectCommands(): void {
   // App.svelte intercepts this id and opens the dialog in create mode.
@@ -124,7 +66,7 @@ export function registerProjectCommands(): void {
             label: `${p.name} · ${bp.name}`,
             description: bp.branch ? `branch ${bp.branch}` : bp.repoRoot,
             action: () => {
-              void spawnBlueprint(p, bp).catch((error) => {
+              void spawnBlueprintForProject(p, bp).catch((error) => {
                 console.error("Failed to spawn project blueprint session", {
                   projectId: p.id,
                   blueprintId: bp.id,
