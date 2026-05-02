@@ -189,7 +189,7 @@ describe("setupAppMenu", () => {
     }
   });
 
-  it("exposes Group By as two CheckMenuItems under View", async () => {
+  it("exposes Group By as three CheckMenuItems under View", async () => {
     const menu = await buildForPlatform(true);
     const view = findSubmenu(menu, "View");
     expect(view).not.toBeNull();
@@ -198,8 +198,12 @@ describe("setupAppMenu", () => {
     const checks = (groupBy!.items ?? []).filter(
       (n) => n.__type === "CheckMenuItem",
     );
-    expect(checks.length).toBe(2);
-    expect(checks.map((c) => c.opts.text)).toEqual(["Repository", "Project"]);
+    expect(checks.length).toBe(3);
+    expect(checks.map((c) => c.opts.text)).toEqual([
+      "Repository",
+      "Project",
+      "Session (flat)",
+    ]);
   });
 
   it("registers commands whose ids resolve against the command registry", async () => {

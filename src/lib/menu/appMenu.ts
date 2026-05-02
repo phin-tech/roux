@@ -80,6 +80,7 @@ let disposers: Unsubscriber[] = [];
 let tracked: TrackedItem[] = [];
 let groupByRepoItem: CheckMenuItem | null = null;
 let groupByProjectItem: CheckMenuItem | null = null;
+let groupBySessionItem: CheckMenuItem | null = null;
 let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let currentDispatch: MenuDispatch | null = null;
@@ -136,6 +137,7 @@ export function teardownAppMenu(): void {
   tracked = [];
   groupByRepoItem = null;
   groupByProjectItem = null;
+  groupBySessionItem = null;
   currentDispatch = null;
 }
 
@@ -162,20 +164,26 @@ async function rebuildMenu(): Promise<void> {
     // Build into fresh buffers; only swap on success so a half-built menu
     // can't leave stale references in `tracked`.
     const nextTracked: TrackedItem[] = [];
-    const nextGroupBy = { repo: null as CheckMenuItem | null, project: null as CheckMenuItem | null };
+    const nextGroupBy = {
+      repo: null as CheckMenuItem | null,
+      project: null as CheckMenuItem | null,
+      session: null as CheckMenuItem | null,
+    };
     const menu = await buildMenu({
       dispatch,
       isMac: isMacPlatform(),
       track: (commandId, item, refreshText) =>
         nextTracked.push({ commandId, item, refreshText }),
-      trackGroupBy: (repo, project) => {
+      trackGroupBy: (repo, project, session) => {
         nextGroupBy.repo = repo;
         nextGroupBy.project = project;
+        nextGroupBy.session = session;
       },
     });
     tracked = nextTracked;
     groupByRepoItem = nextGroupBy.repo;
     groupByProjectItem = nextGroupBy.project;
+    groupBySessionItem = nextGroupBy.session;
     if (isMacPlatform()) {
       await menu.setAsAppMenu();
     } else {
@@ -213,7 +221,10 @@ function refreshEnabled(): void {
     void groupByRepoItem.setChecked(groupBy === "repo").catch(() => {});
   }
   if (groupByProjectItem) {
-    void groupByProjectItem.setChecked(groupBy !== "repo").catch(() => {});
+    void groupByProjectItem.setChecked(groupBy === "project").catch(() => {});
+  }
+  if (groupBySessionItem) {
+    void groupBySessionItem.setChecked(groupBy === "session").catch(() => {});
   }
 }
 
@@ -229,7 +240,11 @@ interface BuildContext {
     item: MenuItem | CheckMenuItem,
     refreshText?: () => string,
   ) => void;
-  trackGroupBy: (repo: CheckMenuItem, project: CheckMenuItem) => void;
+  trackGroupBy: (
+    repo: CheckMenuItem,
+    project: CheckMenuItem,
+    session: CheckMenuItem,
+  ) => void;
 }
 
 async function buildMenu(ctx: BuildContext): Promise<Menu> {
@@ -324,12 +339,20 @@ async function buildViewMenu(ctx: BuildContext): Promise<Submenu> {
   const projectItem = await CheckMenuItem.new({
     id: "menu:groupBy:project",
     text: "Project",
-    checked: groupBy !== "repo",
+    checked: groupBy === "project",
     action: () => {
       updateSetting("groupBy", "project");
     },
   });
-  ctx.trackGroupBy(repoItem, projectItem);
+  const sessionItem = await CheckMenuItem.new({
+    id: "menu:groupBy:session",
+    text: "Session (flat)",
+    checked: groupBy === "session",
+    action: () => {
+      updateSetting("groupBy", "session");
+    },
+  });
+  ctx.trackGroupBy(repoItem, projectItem, sessionItem);
 
   return Submenu.new({
     text: "View",
@@ -342,7 +365,7 @@ async function buildViewMenu(ctx: BuildContext): Promise<Submenu> {
       await sep(),
       await Submenu.new({
         text: "Group Sessions By",
-        items: [repoItem, projectItem],
+        items: [repoItem, projectItem, sessionItem],
       }),
       await sep(),
       await PredefinedMenuItem.new({ item: "Fullscreen" }),

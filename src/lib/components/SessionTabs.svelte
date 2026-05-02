@@ -141,6 +141,32 @@
     return set;
   });
 
+  // Prune persisted entries for projects that no longer exist. Without this,
+  // `seenProjects` and `collapsedGroups` accumulate stale ids forever as
+  // projects are deleted. Only project ids are pruned: repo-path keys (used
+  // in `repo` mode) and "__all__" (session mode) are left alone.
+  $effect(() => {
+    const validIds = new Set($projects.map((p) => p.id));
+    const staleSeen = [...seenProjects].filter((id) => !validIds.has(id));
+    if (staleSeen.length === 0) return;
+    const newSeen = new Set(seenProjects);
+    const newCollapsed = new Set(collapsedGroups);
+    let changedCollapsed = false;
+    for (const id of staleSeen) {
+      newSeen.delete(id);
+      if (newCollapsed.has(id)) {
+        newCollapsed.delete(id);
+        changedCollapsed = true;
+      }
+    }
+    seenProjects = newSeen;
+    saveStringSet(SEEN_PROJECTS_KEY, newSeen);
+    if (changedCollapsed) {
+      collapsedGroups = newCollapsed;
+      saveStringSet(COLLAPSED_GROUPS_KEY, newCollapsed);
+    }
+  });
+
   // First-sight of a project group: if it has no live sessions yet (a
   // template-only / blueprint-only project), collapse it so it doesn't
   // crowd the sidebar. If it already has live sessions, the user just
@@ -246,14 +272,28 @@
   let archivedDragging = $state(false);
   let archivedDragTeardown: (() => void) | null = null;
 
-  function handleContextMenu(e: MouseEvent, session: Session) {
-    contextMenu = { x: e.clientX, y: e.clientY, session };
+  // Reset every menu/popover state. Callers use this when opening a new
+  // menu so the previous one (session vs project header) doesn't linger
+  // and overlap. `closeContextMenu` (the global outside-click handler)
+  // also delegates here.
+  function resetMenus() {
+    contextMenu = null;
+    groupHeaderMenu = null;
+    groupHeaderConfirmDelete = false;
     worktreeInput = false;
     worktreeBase = null;
     worktreeBaseLabel = "";
     worktreeFetchFirst = false;
     branchName = "";
     worktreeError = "";
+    projectMenu = false;
+    newProjectInput = false;
+    newProjectName = "";
+  }
+
+  function handleContextMenu(e: MouseEvent, session: Session) {
+    resetMenus();
+    contextMenu = { x: e.clientX, y: e.clientY, session };
   }
 
   function handleGroupHeaderContextMenu(e: MouseEvent, key: string) {
@@ -261,8 +301,8 @@
     if (!p) return;
     e.preventDefault();
     e.stopPropagation();
+    resetMenus();
     groupHeaderMenu = { x: e.clientX, y: e.clientY, project: p };
-    groupHeaderConfirmDelete = false;
   }
 
   async function handleDeleteProject(project: Project) {
@@ -276,18 +316,7 @@
   }
 
   function closeContextMenu() {
-    contextMenu = null;
-    groupHeaderMenu = null;
-    groupHeaderConfirmDelete = false;
-    worktreeInput = false;
-    worktreeBase = null;
-    worktreeBaseLabel = "";
-    worktreeFetchFirst = false;
-    branchName = "";
-    worktreeError = "";
-    projectMenu = false;
-    newProjectInput = false;
-    newProjectName = "";
+    resetMenus();
   }
 
   function pickWorktreeBase(base: string | null, label: string, fetchFirst: boolean) {

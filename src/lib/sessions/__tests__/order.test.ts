@@ -90,12 +90,15 @@ describe("getGroupedSessions (project)", () => {
     expect(groups[0].name).toBe("Empty");
   });
 
-  it("does not seed an empty group for a project with no blueprints", () => {
-    // Projects that exist but have neither sessions nor blueprints have
-    // nothing to render — keeping them out avoids empty noise in the sidebar.
+  it("seeds an empty group for every project, even ones with no blueprints", () => {
+    // With auto-spawn-on-create, a project may have neither blueprints nor
+    // live sessions — sessions were spawned without "save as template" and
+    // then closed. Seeding the group keeps the project addressable in the
+    // sidebar; the consumer's auto-collapse-on-first-sight handles noise.
     const projects: Project[] = [{ id: "p-nothing", name: "Nothing" }];
     const groups = getGroupedSessions([], projects, "project");
-    expect(groups).toEqual([]);
+    expect(groups.map((g) => g.key)).toEqual(["p-nothing"]);
+    expect(groups[0].sessions).toEqual([]);
   });
 
   it("sorts a blueprint-only project below groups that have live sessions", () => {
