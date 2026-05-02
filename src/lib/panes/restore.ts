@@ -10,6 +10,7 @@ import type { SpawnProfileRef } from "./profiles";
 export interface RestoreSessionPanesOptions {
   initTerminal: (paneId: string) => void;
   attachPtyListeners: (paneId: string) => Promise<void>;
+  attachLivePtyToPane?: (paneId: string, ptyId: string) => Promise<void>;
   livePtyIds?: ReadonlySet<string> | null;
 }
 
@@ -83,7 +84,11 @@ export async function restoreSessionPanes(
     if (!canAttachPty(d.ptyId, opts.livePtyIds)) continue;
     try {
       opts.initTerminal(d.id);
-      await opts.attachPtyListeners(d.id);
+      if (opts.attachLivePtyToPane && opts.livePtyIds?.has(d.ptyId)) {
+        await opts.attachLivePtyToPane(d.id, d.ptyId);
+      } else {
+        await opts.attachPtyListeners(d.id);
+      }
     } catch (e) {
       log(`restoreSessionPanes(${session.id}): failed to attach pane ${d.id}: ${e}`);
     }
@@ -102,7 +107,11 @@ async function restorePrimaryOnly(
   const mainPaneId = initPrimaryPane(session.id, descriptor?.spawnProfileRef, descriptor);
   if (canAttachPty(session.id, opts.livePtyIds)) {
     opts.initTerminal(mainPaneId);
-    await opts.attachPtyListeners(mainPaneId);
+    if (opts.attachLivePtyToPane && opts.livePtyIds?.has(session.id)) {
+      await opts.attachLivePtyToPane(mainPaneId, session.id);
+    } else {
+      await opts.attachPtyListeners(mainPaneId);
+    }
   }
   return mainPaneId;
 }

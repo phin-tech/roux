@@ -45,6 +45,7 @@ function session(overrides: Partial<Session> = {}): Session {
 describe("restoreSessionPanes", () => {
   const initTerminal = vi.fn();
   const attachPtyListeners = vi.fn().mockResolvedValue(undefined);
+  const attachLivePtyToPane = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     resetInstances();
@@ -52,6 +53,7 @@ describe("restoreSessionPanes", () => {
     focusedPaneId.set(null);
     initTerminal.mockClear();
     attachPtyListeners.mockClear();
+    attachLivePtyToPane.mockClear();
   });
 
   it("falls back to a primary Claude pane when no persisted state exists", async () => {
@@ -118,6 +120,7 @@ describe("restoreSessionPanes", () => {
     await restoreSessionPanes(session(), payload, {
       initTerminal,
       attachPtyListeners,
+      attachLivePtyToPane,
       livePtyIds: new Set(["s1", "pty-shell"]),
     });
 
@@ -133,8 +136,9 @@ describe("restoreSessionPanes", () => {
     expect(get(focusedPaneId)).toBe("s1-main");
     expect(initTerminal).toHaveBeenCalledWith("s1-main");
     expect(initTerminal).toHaveBeenCalledWith("shell-pane");
-    expect(attachPtyListeners).toHaveBeenCalledWith("s1-main");
-    expect(attachPtyListeners).toHaveBeenCalledWith("shell-pane");
+    expect(attachLivePtyToPane).toHaveBeenCalledWith("s1-main", "s1");
+    expect(attachLivePtyToPane).toHaveBeenCalledWith("shell-pane", "pty-shell");
+    expect(attachPtyListeners).not.toHaveBeenCalled();
   });
 
   it("restores stale persisted shell panes as retryable instead of attaching dead PTYs", async () => {

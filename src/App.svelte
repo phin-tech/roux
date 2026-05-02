@@ -513,8 +513,9 @@
         "$lib/stores/worktreeMetadata"
       );
       void refreshWorktreeMetadataForRepos(sessions.map((s) => s.repoRoot));
-      const [{ initTerminal, attachPtyListeners }, { listAllPtys }] = await Promise.all([
+      const [{ initTerminal, attachPtyListeners }, { attachPtyToPane }, { listAllPtys }] = await Promise.all([
         import("$lib/panes/terminals"),
+        import("$lib/panes/attach"),
         import("$lib/tauri"),
       ]);
       const { restoreSessionPanes } = await import("$lib/panes/restore");
@@ -528,7 +529,12 @@
       for (const s of sessions) {
         addSession(s);
         const persisted = await loadPaneState(s.id);
-        await restoreSessionPanes(s, persisted, { initTerminal, attachPtyListeners, livePtyIds });
+        await restoreSessionPanes(s, persisted, {
+          initTerminal,
+          attachPtyListeners,
+          attachLivePtyToPane: attachPtyToPane,
+          livePtyIds,
+        });
       }
     }
 
