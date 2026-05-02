@@ -34,6 +34,7 @@ pub(crate) async fn remove_project(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    state.session_handle.clear_project_refs(&id).await.map_err(|e| e.to_string())?;
     state.project_handle.remove(&id).await.map_err(|e| e.to_string())
 }
 
@@ -73,4 +74,3 @@ pub(crate) async fn set_session_project(
         .await
         .map_err(|e| e.to_string())
 }
-
