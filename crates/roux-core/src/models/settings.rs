@@ -636,6 +636,42 @@ mod terminal_theme_tests {
 }
 
 #[cfg(test)]
+mod theme_tests {
+    use super::{normalize_theme, DEFAULT_THEME};
+
+    #[test]
+    fn known_presets_round_trip() {
+        for preset in [
+            "midnight-copper",
+            "steel-amber",
+            "slate-emerald",
+            "graphite-rose",
+            "nordic-night",
+            "cyber-audit",
+            "mocha-soft",
+            "paper-ink",
+            "github-day",
+            "warm-burnout-dark",
+            "warm-burnout-light",
+        ] {
+            assert_eq!(normalize_theme(preset), preset, "preset {preset} should round-trip");
+        }
+    }
+
+    #[test]
+    fn legacy_dark_alias_normalizes_to_default() {
+        assert_eq!(normalize_theme("dark"), DEFAULT_THEME);
+        assert_eq!(normalize_theme("deep-blue"), DEFAULT_THEME);
+    }
+
+    #[test]
+    fn unknown_falls_back_to_default() {
+        assert_eq!(normalize_theme("not-a-theme"), DEFAULT_THEME);
+        assert_eq!(normalize_theme(""), DEFAULT_THEME);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{
         stable_source_id, LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode,
