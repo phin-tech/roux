@@ -12,6 +12,9 @@ use crate::commands::notes::{self as notes_cmd, NotesSearchQuery, NotesTarget};
 use crate::platform;
 use crate::state::AppState;
 
+const DEFAULT_LATEST_OUTPUT_BYTES: usize = 8 * 1024;
+const MAX_LATEST_OUTPUT_BYTES: usize = 64 * 1024;
+
 #[derive(Debug, Deserialize)]
 struct Request {
     command: String,
@@ -174,6 +177,7 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "focus" => handle_focus(req, app),
         "run" => handle_run(req, app).await,
         "send" => handle_send(req, app).await,
+        "latest-output" => handle_latest_output(req, app).await,
         "notify" => handle_notify(req, app).await,
         "notes-read" => handle_notes_read(req, app).await,
         "notes-write" => handle_notes_write(req, app).await,
@@ -1034,6 +1038,86 @@ async fn resolve_send_pty_id(
     }
 }
 
+/// Resolve which PTY's recent output to read. Unlike `send`, a pane-only
+/// request is valid because reading is explicit and read-only.
+async fn resolve_latest_output_pty_id(
+    pane_handle: &crate::pane_service::PaneHandle,
+    session_handle: &crate::session_service::SessionHandle,
+    session_id: Option<&str>,
+    pane_id: Option<&str>,
+) -> Result<String, String> {
+    if let Some(pane_id) = pane_id {
+        let records = pane_handle
+            .list_by_ids(vec![pane_id.to_string()])
+            .await
+            .map_err(|e| format!("pane lookup failed: {}", e))?;
+        let record = records
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("pane not found: {}", pane_id))?;
+
+        if let Some(session_id) = session_id {
+            if !record.id.starts_with(&format!("{}-", session_id)) {
+                return Err(format!(
+                    "pane {} does not belong to session {}",
+                    pane_id, session_id
+                ));
+            }
+        }
+
+        return Ok(record.pty_id);
+    }
+
+    if let Some(session_id) = session_id {
+        return resolve_send_pty_id(pane_handle, session_handle, session_id, None).await;
+    }
+
+    Err("session_id or pane_id required".to_string())
+}
+
+fn latest_output_max_bytes(args: &serde_json::Value) -> usize {
+    args.get("max_bytes")
+        .or_else(|| args.get("maxBytes"))
+        .and_then(|v| v.as_u64())
+        .map(|n| (n as usize).clamp(1, MAX_LATEST_OUTPUT_BYTES))
+        .unwrap_or(DEFAULT_LATEST_OUTPUT_BYTES)
+}
+
+async fn handle_latest_output(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let max_bytes = latest_output_max_bytes(&req.args);
+    let pty_id = match resolve_latest_output_pty_id(
+        &state.pane_handle,
+        &state.session_handle,
+        req.session_id.as_deref(),
+        req.pane_id.as_deref(),
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => return Response::err(e),
+    };
+
+    let Some(info) = state.pty_manager.get_info_direct(&pty_id) else {
+        return Response::err(format!("pty not found: {}", pty_id));
+    };
+    let pane_id = req.pane_id.clone().or_else(|| match &info.status {
+        crate::pty::PtyStatus::RunningAttached { pane_id } => Some(pane_id.clone()),
+        _ => None,
+    });
+    let bytes = state.pty_manager.get_replay(&pty_id, max_bytes);
+    let text = String::from_utf8_lossy(&bytes).to_string();
+
+    Response::success(serde_json::json!({
+        "session_id": info.session_id,
+        "pane_id": pane_id,
+        "pty_id": pty_id,
+        "max_bytes": max_bytes,
+        "byte_count": bytes.len(),
+        "text": text,
+    }))
+}
+
 /// Pure routing+formatting half of `handle_send`. Resolves the request to a
 /// `(pty_id, bytes_to_write)` pair without touching the PtyManager, so it can
 /// be exercised in headless tests without a real Tauri app or a live PTY.
@@ -1332,6 +1416,21 @@ mod tests {
     }
 
     #[test]
+    fn request_latest_output_deserializes() {
+        let json = r#"{
+            "command": "latest-output",
+            "session_id": "sid-1",
+            "pane_id": "sid-1-main",
+            "args": {"max_bytes": 4096}
+        }"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.command, "latest-output");
+        assert_eq!(req.session_id.as_deref(), Some("sid-1"));
+        assert_eq!(req.pane_id.as_deref(), Some("sid-1-main"));
+        assert_eq!(req.args["max_bytes"], 4096);
+    }
+
+    #[test]
     fn request_session_panes_create_with_profile_deserializes() {
         let json = r#"{
             "command": "session-panes-create",
@@ -1512,6 +1611,46 @@ mod tests {
 
         let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", None).await.unwrap();
         assert_eq!(pty_id, "sid-1");
+    }
+
+    #[tokio::test]
+    async fn resolve_latest_output_pty_id_accepts_pane_without_session() {
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+        panes.upsert(pane_record("sid-1-main", "sid-1")).await.unwrap();
+
+        let pty_id = resolve_latest_output_pty_id(&panes, &sessions, None, Some("sid-1-main"))
+            .await
+            .unwrap();
+        assert_eq!(pty_id, "sid-1");
+    }
+
+    #[tokio::test]
+    async fn resolve_latest_output_pty_id_accepts_session_without_pane() {
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) = crate::session_service::spawn_with_path(
+            vec![session_with_pty("sid-1", Some("sid-1"))],
+            dir.path().join("sessions.json"),
+        );
+
+        let pty_id = resolve_latest_output_pty_id(&panes, &sessions, Some("sid-1"), None)
+            .await
+            .unwrap();
+        assert_eq!(pty_id, "sid-1");
+    }
+
+    #[tokio::test]
+    async fn resolve_latest_output_pty_id_requires_pane_or_session() {
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+
+        let err = resolve_latest_output_pty_id(&panes, &sessions, None, None).await.unwrap_err();
+        assert_eq!(err, "session_id or pane_id required");
     }
 
     // ── prepare_send (issue #127 regression coverage) ────────

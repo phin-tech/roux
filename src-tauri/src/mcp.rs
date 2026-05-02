@@ -8,13 +8,15 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-pub const MCP_TOOL_NAMES: &[&str] = &[
+#[cfg(test)]
+const MCP_TOOL_NAMES: &[&str] = &[
     "roux_list_sessions",
     "roux_get_session",
     "roux_list_panes",
     "roux_create_session",
     "roux_create_pane",
     "roux_send_text",
+    "roux_get_latest_output",
     "roux_focus",
     "roux_read_notes",
     "roux_search_notes",
@@ -63,6 +65,14 @@ pub struct SendTextParams {
     pub text: String,
     #[serde(default)]
     pub enter: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LatestOutputParams {
+    pub session_id: Option<String>,
+    pub pane_id: Option<String>,
+    pub max_bytes: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -160,6 +170,16 @@ impl RouxMcpServer {
         Parameters(params): Parameters<SendTextParams>,
     ) -> Result<Json<SocketToolOutput>, String> {
         call_socket(build_send_text_request(params)).await
+    }
+
+    #[tool(
+        description = "Get recent terminal output from a Roux pane or session. Provide paneId or sessionId; maxBytes defaults to 8192 and is capped by Roux."
+    )]
+    async fn roux_get_latest_output(
+        &self,
+        Parameters(params): Parameters<LatestOutputParams>,
+    ) -> Result<Json<SocketToolOutput>, String> {
+        call_socket(build_latest_output_request(params)).await
     }
 
     #[tool(description = "Focus a Roux session or pane.")]
@@ -329,6 +349,24 @@ fn build_send_text_request(params: SendTextParams) -> Value {
     })
 }
 
+fn build_latest_output_request(params: LatestOutputParams) -> Value {
+    let mut request = serde_json::Map::new();
+    request.insert("command".into(), Value::String("latest-output".into()));
+    if let Some(session_id) = params.session_id {
+        request.insert("session_id".into(), Value::String(session_id));
+    }
+    if let Some(pane_id) = params.pane_id {
+        request.insert("pane_id".into(), Value::String(pane_id));
+    }
+
+    let mut args = serde_json::Map::new();
+    if let Some(max_bytes) = params.max_bytes {
+        args.insert("max_bytes".into(), Value::Number(max_bytes.into()));
+    }
+    request.insert("args".into(), Value::Object(args));
+    Value::Object(request)
+}
+
 fn notes_target(scope: String, session_id: Option<String>, topic: Option<String>) -> Value {
     json!({
         "scope": scope,
@@ -345,10 +383,25 @@ mod tests {
     #[test]
     fn safe_tool_list_excludes_destructive_capabilities() {
         assert!(MCP_TOOL_NAMES.contains(&"roux_send_text"));
+        assert!(MCP_TOOL_NAMES.contains(&"roux_get_latest_output"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_run_command"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_kill_pty"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_remove_worktree"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_delete_session_permanently"));
+    }
+
+    #[test]
+    fn latest_output_builds_read_only_socket_command() {
+        let request = build_latest_output_request(LatestOutputParams {
+            session_id: Some("sid".into()),
+            pane_id: Some("pane".into()),
+            max_bytes: Some(4096),
+        });
+
+        assert_eq!(request["command"], "latest-output");
+        assert_eq!(request["session_id"], "sid");
+        assert_eq!(request["pane_id"], "pane");
+        assert_eq!(request["args"]["max_bytes"], 4096);
     }
 
     #[test]
