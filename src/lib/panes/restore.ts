@@ -3,6 +3,7 @@ import { createPane, updateInstance } from "./instances";
 import type { PaneStatePayload } from "./persistence";
 import { sessionLayouts } from "./layout";
 import { initSessionWithProfile } from "./actions";
+import { setLogicalFocus } from "./focus";
 import { log } from "$lib/logging";
 import type { SpawnProfileRef } from "./profiles";
 
@@ -36,9 +37,11 @@ export async function restoreSessionPanes(
     return next;
   });
 
+  let primaryPaneId: string | null = null;
+
   for (const d of persisted.descriptors) {
     if (d.id === `${session.id}-main` && d.ptyId === session.id) {
-      createPrimaryPane(session.id, d.spawnProfileRef, d);
+      primaryPaneId = createPrimaryPane(session.id, d.spawnProfileRef, d);
     } else {
       createPane({
         id: d.id,
@@ -68,6 +71,10 @@ export async function restoreSessionPanes(
     } catch (e) {
       log(`restoreSessionPanes(${session.id}): failed to attach pane ${d.id}: ${e}`);
     }
+  }
+
+  if (primaryPaneId) {
+    setLogicalFocus(primaryPaneId);
   }
 }
 
@@ -121,5 +128,6 @@ function createPrimaryPane(
     notesScope: descriptor.notesScope,
     notesViewMode: descriptor.notesViewMode,
   });
+  setLogicalFocus(paneId);
   return paneId;
 }

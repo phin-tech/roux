@@ -65,6 +65,7 @@ describe("restoreSessionPanes", () => {
       kind: "registered",
       id: "claude",
     });
+    expect(get(focusedPaneId)).toBe("s1-main");
     expect(initTerminal).toHaveBeenCalledWith("s1-main");
     expect(attachPtyListeners).toHaveBeenCalledWith("s1-main");
   });
@@ -109,6 +110,7 @@ describe("restoreSessionPanes", () => {
       kind: "registered",
       id: "plain-shell",
     });
+    expect(get(focusedPaneId)).toBe("s1-main");
     expect(initTerminal).toHaveBeenCalledWith("s1-main");
     expect(initTerminal).toHaveBeenCalledWith("shell-pane");
     expect(attachPtyListeners).toHaveBeenCalledWith("s1-main");
