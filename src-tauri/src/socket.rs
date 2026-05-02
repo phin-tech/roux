@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -1007,19 +1008,14 @@ async fn resolve_send_pty_id(
             .list_by_ids(vec![pane_id.to_string()])
             .await
             .map_err(|e| format!("pane lookup failed: {}", e))?;
-        let record = records
-            .into_iter()
-            .next()
-            .ok_or_else(|| format!("pane not found: {}", pane_id))?;
+        let record =
+            records.into_iter().next().ok_or_else(|| format!("pane not found: {}", pane_id))?;
 
         // Defensive: reject a pane that doesn't belong to the requested
         // session. Pane IDs follow the `{session}-{suffix}` convention
         // (see services/sessions.rs), so the prefix check is sufficient.
         if !record.id.starts_with(&format!("{}-", session_id)) {
-            return Err(format!(
-                "pane {} does not belong to session {}",
-                pane_id, session_id
-            ));
+            return Err(format!("pane {} does not belong to session {}", pane_id, session_id));
         }
         return Ok(record.pty_id);
     }
@@ -1051,17 +1047,12 @@ async fn resolve_latest_output_pty_id(
             .list_by_ids(vec![pane_id.to_string()])
             .await
             .map_err(|e| format!("pane lookup failed: {}", e))?;
-        let record = records
-            .into_iter()
-            .next()
-            .ok_or_else(|| format!("pane not found: {}", pane_id))?;
+        let record =
+            records.into_iter().next().ok_or_else(|| format!("pane not found: {}", pane_id))?;
 
         if let Some(session_id) = session_id {
             if !record.id.starts_with(&format!("{}-", session_id)) {
-                return Err(format!(
-                    "pane {} does not belong to session {}",
-                    pane_id, session_id
-                ));
+                return Err(format!("pane {} does not belong to session {}", pane_id, session_id));
             }
         }
 
@@ -1106,16 +1097,34 @@ async fn handle_latest_output(req: Request, app: &tauri::AppHandle) -> Response 
         _ => None,
     });
     let bytes = state.pty_manager.get_replay(&pty_id, max_bytes);
-    let text = String::from_utf8_lossy(&bytes).to_string();
+    Response::success(latest_output_payload(info.session_id, pane_id, pty_id, max_bytes, &bytes))
+}
 
-    Response::success(serde_json::json!({
-        "session_id": info.session_id,
-        "pane_id": pane_id,
-        "pty_id": pty_id,
-        "max_bytes": max_bytes,
-        "byte_count": bytes.len(),
-        "text": text,
-    }))
+fn latest_output_payload(
+    session_id: Option<String>,
+    pane_id: Option<String>,
+    pty_id: String,
+    max_bytes: usize,
+    bytes: &[u8],
+) -> serde_json::Value {
+    let mut data = serde_json::Map::new();
+    data.insert("session_id".into(), optional_string_value(session_id));
+    data.insert("pane_id".into(), optional_string_value(pane_id));
+    data.insert("pty_id".into(), serde_json::Value::String(pty_id));
+    data.insert("max_bytes".into(), serde_json::Value::Number(max_bytes.into()));
+    data.insert("byte_count".into(), serde_json::Value::Number(bytes.len().into()));
+    data.insert(
+        "replay_bytes_base64".into(),
+        serde_json::Value::String(BASE64_STANDARD.encode(bytes)),
+    );
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        data.insert("text".into(), serde_json::Value::String(text.to_string()));
+    }
+    serde_json::Value::Object(data)
+}
+
+fn optional_string_value(value: Option<String>) -> serde_json::Value {
+    value.map_or(serde_json::Value::Null, serde_json::Value::String)
 }
 
 /// Pure routing+formatting half of `handle_send`. Resolves the request to a
@@ -1133,8 +1142,7 @@ async fn prepare_send(
         .ok_or_else(|| "text argument required".to_string())?
         .to_string();
 
-    let session_id =
-        req.session_id.as_deref().ok_or_else(|| "session_id required".to_string())?;
+    let session_id = req.session_id.as_deref().ok_or_else(|| "session_id required".to_string())?;
 
     let pty_id =
         resolve_send_pty_id(pane_handle, session_handle, session_id, req.pane_id.as_deref())
@@ -1147,11 +1155,11 @@ async fn prepare_send(
 
 async fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
-    let (pty_id, bytes) =
-        match prepare_send(&state.pane_handle, &state.session_handle, &req).await {
-            Ok(pair) => pair,
-            Err(e) => return Response::err(e),
-        };
+    let (pty_id, bytes) = match prepare_send(&state.pane_handle, &state.session_handle, &req).await
+    {
+        Ok(pair) => pair,
+        Err(e) => return Response::err(e),
+    };
     if let Err(e) = state.pty_manager.write(&pty_id, &bytes) {
         return Response::err(format!("Failed to write to session: {}", e));
     }
@@ -1518,9 +1526,8 @@ mod tests {
             crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
         panes.upsert(pane_record("sid-1-main", "sid-1")).await.unwrap();
 
-        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", Some("sid-1-main"))
-            .await
-            .unwrap();
+        let pty_id =
+            resolve_send_pty_id(&panes, &sessions, "sid-1", Some("sid-1-main")).await.unwrap();
         assert_eq!(pty_id, "sid-1");
     }
 
@@ -1552,9 +1559,8 @@ mod tests {
             dir.path().join("sessions.json"),
         );
 
-        let err = resolve_send_pty_id(&panes, &sessions, "sid-2", Some("sid-1-main"))
-            .await
-            .unwrap_err();
+        let err =
+            resolve_send_pty_id(&panes, &sessions, "sid-2", Some("sid-1-main")).await.unwrap_err();
         assert!(err.contains("pane not found"), "got: {}", err);
     }
 
@@ -1574,14 +1580,9 @@ mod tests {
         panes.upsert(pane_record("sid-A-main", "sid-A")).await.unwrap();
         panes.upsert(pane_record("sid-B-main", "sid-B")).await.unwrap();
 
-        let err = resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main"))
-            .await
-            .unwrap_err();
-        assert!(
-            err.contains("does not belong to session"),
-            "got: {}",
-            err
-        );
+        let err =
+            resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main")).await.unwrap_err();
+        assert!(err.contains("does not belong to session"), "got: {}", err);
     }
 
     #[tokio::test]
@@ -1636,9 +1637,8 @@ mod tests {
             dir.path().join("sessions.json"),
         );
 
-        let pty_id = resolve_latest_output_pty_id(&panes, &sessions, Some("sid-1"), None)
-            .await
-            .unwrap();
+        let pty_id =
+            resolve_latest_output_pty_id(&panes, &sessions, Some("sid-1"), None).await.unwrap();
         assert_eq!(pty_id, "sid-1");
     }
 
@@ -1651,6 +1651,37 @@ mod tests {
 
         let err = resolve_latest_output_pty_id(&panes, &sessions, None, None).await.unwrap_err();
         assert_eq!(err, "session_id or pane_id required");
+    }
+
+    #[test]
+    fn latest_output_payload_includes_utf8_text_and_exact_bytes() {
+        let payload = latest_output_payload(
+            Some("sid-1".into()),
+            Some("sid-1-main".into()),
+            "pty-1".into(),
+            4096,
+            b"hello",
+        );
+
+        assert_eq!(payload["session_id"], "sid-1");
+        assert_eq!(payload["pane_id"], "sid-1-main");
+        assert_eq!(payload["pty_id"], "pty-1");
+        assert_eq!(payload["max_bytes"], 4096);
+        assert_eq!(payload["byte_count"], 5);
+        assert_eq!(payload["replay_bytes_base64"], BASE64_STANDARD.encode(b"hello"));
+        assert_eq!(payload["text"], "hello");
+    }
+
+    #[test]
+    fn latest_output_payload_omits_text_for_non_utf8_bytes() {
+        let bytes = [0xff, b'a', 0xfe];
+        let payload =
+            latest_output_payload(Some("sid-1".into()), None, "pty-1".into(), 4096, &bytes);
+
+        assert_eq!(payload["pane_id"], serde_json::Value::Null);
+        assert_eq!(payload["byte_count"], 3);
+        assert_eq!(payload["replay_bytes_base64"], BASE64_STANDARD.encode(bytes));
+        assert!(!payload.as_object().unwrap().contains_key("text"));
     }
 
     // ── prepare_send (issue #127 regression coverage) ────────
