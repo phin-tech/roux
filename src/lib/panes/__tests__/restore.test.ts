@@ -179,6 +179,90 @@ describe("restoreSessionPanes", () => {
     expect(attachPtyListeners).not.toHaveBeenCalled();
   });
 
+  it("does not mark missing shell PTYs stale when live inventory is unknown", async () => {
+    const payload: PaneStatePayload = {
+      schemaVersion: 4,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "s1-main" },
+          { kind: "leaf", paneId: "shell-pane" },
+        ],
+      },
+      descriptors: [
+        {
+          id: "s1-main",
+          type: "shell",
+          ptyId: "s1",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+        },
+        {
+          id: "shell-pane",
+          type: "shell",
+          ptyId: "maybe-live-pty",
+          spawnProfileRef: { kind: "registered", id: "plain-shell" },
+        },
+      ],
+    };
+
+    await restoreSessionPanes(session({ status: "disconnected" }), payload, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: null,
+    });
+
+    expect(get(paneInstances).get("shell-pane")?.restoreError).toBeUndefined();
+    expect(initTerminal).toHaveBeenCalledWith("s1-main");
+    expect(initTerminal).toHaveBeenCalledWith("shell-pane");
+    expect(attachPtyListeners).toHaveBeenCalledWith("s1-main");
+    expect(attachPtyListeners).toHaveBeenCalledWith("shell-pane");
+  });
+
+  it("strips known-stale command panes from restored layouts", async () => {
+    const payload: PaneStatePayload = {
+      schemaVersion: 4,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "s1-main" },
+          { kind: "leaf", paneId: "cmd-pane" },
+        ],
+      },
+      descriptors: [
+        {
+          id: "s1-main",
+          type: "shell",
+          ptyId: "s1",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+        },
+        {
+          id: "cmd-pane",
+          type: "command",
+          ptyId: "stale-command-pty",
+          command: "npm test",
+        },
+      ],
+    };
+
+    await restoreSessionPanes(session({ status: "disconnected" }), payload, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: new Set(["s1"]),
+    });
+
+    expect(get(sessionLayouts).get("s1")).toEqual({
+      kind: "leaf",
+      paneId: "s1-main",
+    });
+    expect(get(paneInstances).has("cmd-pane")).toBe(false);
+    expect(initTerminal).toHaveBeenCalledWith("s1-main");
+    expect(initTerminal).not.toHaveBeenCalledWith("cmd-pane");
+    expect(attachPtyListeners).toHaveBeenCalledWith("s1-main");
+    expect(attachPtyListeners).not.toHaveBeenCalledWith("cmd-pane");
+  });
+
   it("falls back to a primary pane when persisted state has no session primary descriptor", async () => {
     const payload: PaneStatePayload = {
       schemaVersion: 4,

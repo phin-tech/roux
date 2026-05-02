@@ -1,7 +1,7 @@
 import type { Session } from "$lib/bindings";
 import { createPane, updateInstance } from "./instances";
 import type { PaneStatePayload } from "./persistence";
-import { sessionLayouts } from "./layout";
+import { sessionLayouts, type LayoutNode } from "./layout";
 import { initSessionWithProfile } from "./actions";
 import { setLogicalFocus } from "./focus";
 import { log } from "$lib/logging";
@@ -10,7 +10,7 @@ import type { SpawnProfileRef } from "./profiles";
 export interface RestoreSessionPanesOptions {
   initTerminal: (paneId: string) => void;
   attachPtyListeners: (paneId: string) => Promise<void>;
-  livePtyIds?: ReadonlySet<string>;
+  livePtyIds?: ReadonlySet<string> | null;
 }
 
 /**
@@ -30,22 +30,30 @@ export async function restoreSessionPanes(
     return;
   }
 
-  const primaryDescriptor = persisted.descriptors.find((d) => d.ptyId === session.id);
+  const restored = stripKnownStaleCommandPanes(persisted, opts.livePtyIds);
+  if (!restored.layout) {
+    log(`restoreSessionPanes(${session.id}): persisted state has only stale command panes; falling back to primary-only restore`);
+    await restorePrimaryOnly(session, undefined, opts);
+    return;
+  }
+
+  const primaryDescriptor = restored.descriptors.find((d) => d.ptyId === session.id);
   if (!primaryDescriptor) {
     log(`restoreSessionPanes(${session.id}): persisted state has no primary pane; falling back to primary-only restore`);
     await restorePrimaryOnly(session, undefined, opts);
     return;
   }
 
+  const restoredLayout = restored.layout;
   sessionLayouts.update((m) => {
     const next = new Map(m);
-    next.set(session.id, persisted.layout);
+    next.set(session.id, restoredLayout);
     return next;
   });
 
   let primaryPaneId: string | null = null;
 
-  for (const d of persisted.descriptors) {
+  for (const d of restored.descriptors) {
     if (d.id === primaryDescriptor.id) {
       primaryPaneId = createPrimaryPane(session.id, d.spawnProfileRef, d);
     } else {
@@ -69,7 +77,7 @@ export async function restoreSessionPanes(
     }
   }
 
-  for (const d of persisted.descriptors) {
+  for (const d of restored.descriptors) {
     if (d.type === "markdown" || d.type === "notes") continue;
     if (!d.ptyId) continue;
     if (!canAttachPty(d.ptyId, opts.livePtyIds)) continue;
@@ -129,20 +137,58 @@ function initPrimaryPane(
 
 function canAttachPty(
   ptyId: string,
-  livePtyIds: ReadonlySet<string> | undefined,
+  livePtyIds: ReadonlySet<string> | null | undefined,
 ): boolean {
-  return livePtyIds === undefined || livePtyIds.has(ptyId);
+  return livePtyIds == null || livePtyIds.has(ptyId);
 }
 
 function markMissingRuntimeIfNeeded(
   descriptor: PaneStatePayload["descriptors"][number],
-  livePtyIds: ReadonlySet<string> | undefined,
+  livePtyIds: ReadonlySet<string> | null | undefined,
 ): void {
+  if (livePtyIds == null) return;
   if (descriptor.type !== "shell") return;
   if (!descriptor.ptyId || canAttachPty(descriptor.ptyId, livePtyIds)) return;
   updateInstance(descriptor.id, {
     restoreError: "PTY is no longer running. Reconnect this pane to start a new shell.",
   });
+}
+
+function stripKnownStaleCommandPanes(
+  persisted: PaneStatePayload,
+  livePtyIds: ReadonlySet<string> | null | undefined,
+): { layout: LayoutNode | null; descriptors: PaneStatePayload["descriptors"] } {
+  if (livePtyIds == null) {
+    return { layout: persisted.layout, descriptors: persisted.descriptors };
+  }
+
+  const staleCommandIds = new Set(
+    persisted.descriptors
+      .filter((d) => d.type === "command" && (!d.ptyId || !livePtyIds.has(d.ptyId)))
+      .map((d) => d.id),
+  );
+  if (staleCommandIds.size === 0) {
+    return { layout: persisted.layout, descriptors: persisted.descriptors };
+  }
+
+  return {
+    layout: stripLeaves(persisted.layout, staleCommandIds),
+    descriptors: persisted.descriptors.filter((d) => !staleCommandIds.has(d.id)),
+  };
+}
+
+function stripLeaves(node: LayoutNode, paneIds: Set<string>): LayoutNode | null {
+  if (node.kind === "leaf") {
+    return paneIds.has(node.paneId) ? null : node;
+  }
+
+  const children = node.children
+    .map((child) => stripLeaves(child, paneIds))
+    .filter((child): child is LayoutNode => child !== null);
+
+  if (children.length === 0) return null;
+  if (children.length === 1) return children[0];
+  return { ...node, children };
 }
 
 function createPrimaryPane(

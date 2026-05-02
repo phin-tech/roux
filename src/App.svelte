@@ -504,10 +504,11 @@
         import("$lib/tauri"),
       ]);
       const { restoreSessionPanes } = await import("$lib/panes/restore");
-      let livePtyIds = new Set<string>();
+      let livePtyIds: Set<string> | null = null;
       try {
         livePtyIds = new Set((await listAllPtys()).map((pty) => pty.id));
       } catch (e) {
+        livePtyIds = null;
         log(`Unable to read live PTY inventory during restore: ${e}`);
       }
       for (const s of sessions) {
