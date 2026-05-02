@@ -287,6 +287,60 @@ describe("persistence — Tauri-backed API", () => {
       );
     });
 
+    it("does not save when the layout map republishes unchanged tree references", async () => {
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
+      sessionLayouts.set(
+        new Map([["s1", { kind: "leaf", paneId: "s1-main" }]])
+      );
+
+      initPersistence();
+      sessionLayouts.update((m) => new Map(m));
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(saveLivePaneStateRaw).not.toHaveBeenCalled();
+    });
+
+    it("only marks sessions whose layout tree changed as dirty", async () => {
+      vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
+      sessionLayouts.set(new Map([
+        ["s1", { kind: "leaf", paneId: "s1-main" }],
+        ["s2", { kind: "leaf", paneId: "s2-main" }],
+      ]));
+
+      initPersistence();
+      sessionLayouts.update((m) => {
+        const next = new Map(m);
+        next.set("s1", {
+          kind: "split",
+          direction: "h",
+          children: [
+            { kind: "leaf", paneId: "s1-main" },
+            { kind: "leaf", paneId: "s1-shell" },
+          ],
+        });
+        return next;
+      });
+
+      await vi.advanceTimersByTimeAsync(1600);
+      await vi.runAllTimersAsync();
+
+      expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
+      expect(saveLivePaneStateRaw).toHaveBeenCalledWith(
+        "s1",
+        4,
+        {
+          kind: "split",
+          direction: "h",
+          children: [
+            { kind: "leaf", paneId: "s1-main" },
+            { kind: "leaf", paneId: "s1-shell" },
+          ],
+        },
+        ["s1-main", "s1-shell"],
+      );
+    });
+
     it("flushPaneState writes all current sessions even when nothing was marked dirty", async () => {
       // Regression: flush must still persist the current layout even when
       // nothing marked the session dirty locally.

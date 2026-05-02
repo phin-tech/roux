@@ -3,7 +3,7 @@
   import SidebarDock from "./SidebarDock.svelte";
   import SplitPane from "./SplitPane.svelte";
   import StatusBar from "./StatusBar.svelte";
-  import { sessionState } from "$lib/stores/sessions";
+  import { activeSessionId, sessionList } from "$lib/stores/sessions";
   import { sessionLayouts } from "$lib/panes/layout";
   import { settings } from "$lib/stores/settings";
   import { sidebarLayout } from "$lib/stores/sidebarLayout";
@@ -47,7 +47,7 @@
       {#if statusBarPosition === "top"}
         <StatusBar position="top" />
       {/if}
-      {#if $sessionState.sessions.length === 0}
+      {#if $sessionList.length === 0}
         <div class="flex flex-1 flex-col items-center justify-center gap-4 text-center text-text-secondary">
           <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_18px_40px_rgba(2,6,23,0.45)]">
             <span class="text-3xl">&#9095;</span>
@@ -74,17 +74,18 @@
           </div>
         </div>
       {:else}
-        {#each $sessionState.sessions as session (session.id)}
+        {#each $sessionList as session (session.id)}
           {@const tree = $sessionLayouts.get(session.id)}
           {#if tree}
             <div
               class="flex min-h-0 flex-1 bg-bg-deep"
-              class:hidden={session.id !== $sessionState.activeSessionId}
+              class:hidden={session.id !== $activeSessionId}
             >
               <SplitPane
                 node={tree}
                 sessionId={session.id}
-                visible={session.id === $sessionState.activeSessionId}
+                {session}
+                visible={session.id === $activeSessionId}
               />
             </div>
           {/if}

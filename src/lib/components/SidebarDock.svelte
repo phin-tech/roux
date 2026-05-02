@@ -18,7 +18,7 @@
     MIN_DOCK_WIDTH,
     MAX_DOCK_WIDTH,
   } from "$lib/stores/sidebarLayout";
-  import { sessionState } from "$lib/stores/sessions";
+  import { activeSession, sessionList } from "$lib/stores/sessions";
   import { archivedSessionsState } from "$lib/stores/archivedSessions";
   import { projects } from "$lib/stores/projects";
   import NotesPanel from "./NotesPanel.svelte";
@@ -193,12 +193,10 @@
   }
 
   // Contexts needed by panels
-  let activeSessionData = $derived(
-    $sessionState.sessions.find((s) => s.id === $sessionState.activeSessionId),
-  );
+  let activeSessionData = $derived($activeSession);
   let notesSessionData = $derived(
     $notesOverrideSessionId
-      ? ($sessionState.sessions.find((s) => s.id === $notesOverrideSessionId)
+      ? ($sessionList.find((s) => s.id === $notesOverrideSessionId)
         ?? $archivedSessionsState.sessions.find((s) => s.id === $notesOverrideSessionId))
       : activeSessionData,
   );
@@ -264,6 +262,7 @@
             />
           {:else if id === "tasks"}
             <TaskPanel
+              {visible}
               onCollapse={onCloseFor(id)}
               pinned={$pinnedSidebar === id}
               onTogglePin={onTogglePinFor(id)}

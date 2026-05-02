@@ -18,7 +18,7 @@ import { get, type Unsubscriber } from "svelte/store";
 import { isMacPlatform } from "$lib/platform";
 import { registry } from "$lib/commands";
 import { keymapState, shortcutFor } from "$lib/keymap/store";
-import { sessionState } from "$lib/stores/sessions";
+import { activeSession, sessionList } from "$lib/stores/sessions";
 import { paneInstances } from "$lib/panes/instances";
 import { focusedPaneId } from "$lib/panes/focus";
 import { paneSlotById } from "$lib/stores/ui";
@@ -116,7 +116,8 @@ export async function setupAppMenu(dispatch: MenuDispatch): Promise<void> {
   // bursty updates (e.g. session restore on startup) don't hammer Tauri
   // with per-item setEnabled calls.
   const refresh = () => scheduleRefresh();
-  disposers.push(sessionState.subscribe(refresh));
+  disposers.push(sessionList.subscribe(refresh));
+  disposers.push(activeSession.subscribe(refresh));
   disposers.push(paneInstances.subscribe(refresh));
   disposers.push(focusedPaneId.subscribe(refresh));
   disposers.push(settings.subscribe(refresh));

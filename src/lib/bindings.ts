@@ -290,6 +290,7 @@ export const commands = {
 	refreshSessionGitStatus: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("refresh_session_git_status", { id })),
 	quitApp: () => typedError<null, string>(__TAURI_INVOKE("quit_app")),
 	listSessionPtys: (sessionId: string) => typedError<PtyInfo[], string>(__TAURI_INVOKE("list_session_ptys", { sessionId })),
+	listAllPtys: () => typedError<PtyInfo[], string>(__TAURI_INVOKE("list_all_ptys")),
 	detachPty: (ptyId: string) => typedError<null, string>(__TAURI_INVOKE("detach_pty", { ptyId })),
 	attachPtyToPane: (ptyId: string, paneId: string, cols: number, rows: number) => typedError<AttachResult, string>(__TAURI_INVOKE("attach_pty_to_pane", { ptyId, paneId, cols, rows })),
 	markPtyRead: (ptyId: string) => typedError<null, string>(__TAURI_INVOKE("mark_pty_read", { ptyId })),
@@ -1399,4 +1400,3 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
-

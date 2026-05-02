@@ -5,7 +5,7 @@
     clearNotifications,
     removeNotification,
   } from "$lib/stores/notifications";
-  import { sessionState } from "$lib/stores/sessions";
+  import { sessionList } from "$lib/stores/sessions";
   import { dispatchNotificationAction } from "$lib/notifications/dispatchAction";
   import type { Notification, NotificationAction, NotificationLevel, NotificationSource } from "$lib/types";
 
@@ -30,6 +30,7 @@
   }
 
   let grouped = $derived.by((): Group[] => {
+    if (!visible) return [];
     const groups: Group[] = [];
     const globals = $notifications.filter((n) => n.sessionId == null);
     if (globals.length > 0) {
@@ -43,7 +44,7 @@
       sessionMap.set(n.sessionId, list);
     }
     for (const [sid, ns] of sessionMap) {
-      const session = $sessionState.sessions.find((s) => s.id === sid);
+      const session = $sessionList.find((s) => s.id === sid);
       const label = session ? session.name : `Session ${sid.slice(0, 8)}`;
       groups.push({ key: `s-${sid}`, label, notifications: ns });
     }

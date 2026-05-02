@@ -9,7 +9,7 @@
   import {
     activeSession,
     addSession,
-    sessionState,
+    sessionList,
     setActiveSession,
   } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
@@ -126,7 +126,7 @@
   let readerError = $state<string | null>(null);
   let readerLoading = $state(false);
 
-  let currentRepo = $derived($activeSession?.repoRoot ?? null);
+  let currentRepo = $derived(visible ? ($activeSession?.repoRoot ?? null) : null);
 
   /**
    * Shorten a repo path for header display. Looks for a known forge
@@ -162,7 +162,8 @@
   // AND to pick between Focus / New-session buttons.
   let sessionByWorktreePath = $derived.by(() => {
     const map = new Map<string, Session>();
-    for (const s of $sessionState.sessions) {
+    if (!visible) return map;
+    for (const s of $sessionList) {
       if (s.archived) continue;
       if (!map.has(s.worktreePath)) map.set(s.worktreePath, s);
     }
