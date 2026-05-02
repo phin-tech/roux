@@ -1,5 +1,6 @@
 import { writable, get } from "svelte/store";
 import type { Project, ProjectUpdate } from "../types";
+import { clearArchivedSessionsProject } from "./archivedSessions";
 import { clearSessionsProject } from "./sessions";
 import {
   listProjects as tauriListProjects,
@@ -55,6 +56,7 @@ export async function removeProject(id: string): Promise<void> {
   await tauriRemoveProject(id);
   projects.update((ps) => ps.filter((p) => p.id !== id));
   clearSessionsProject(id);
+  clearArchivedSessionsProject(id);
 }
 
 export async function renameProject(id: string, name: string): Promise<void> {
