@@ -69,11 +69,11 @@ fn main() {
     let persisted_watches = watches::load_persisted_watches();
     let (watch_store_handle, _watch_join) = watches::store::spawn(persisted_watches);
 
-    let persisted_sessions = session::load_persisted_sessions();
+    let persisted_projects = project_service::load_persisted();
+    let persisted_sessions = session::load_persisted_sessions(&persisted_projects);
     let (session_handle, _session_join) = session_service::spawn(persisted_sessions);
     let (pane_handle, _pane_join) = pane_service::spawn();
 
-    let persisted_projects = project_service::load_persisted();
     let (project_handle, _project_join) = project_service::spawn(persisted_projects);
 
     #[cfg(debug_assertions)]

@@ -28,7 +28,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Independent terminal themes** — keep the terminal palette separate from the app chrome, including user-imported `.itermcolors` themes
 - **Native menu bar** — File/Edit/View/Session/Pane/Tools/Window/Help menus on macOS, Windows, and Linux
 - **Doctor panel** — inspect and reinstall CLI/hooks/skill integrations from Settings
-- **Projects** — tag sessions with projects to organize related work across repos and worktrees
+- **Projects** — group sessions across repos, save session blueprints, and inject project context
 - **Multi-scoped notes vault** — plain-text notes sidebar (++cmd+b++) with four scopes (global / project / repo / session), backed by an Obsidian-compatible markdown vault. Scriptable from `roux notes <scope> <verb>` and exposed to agents through per-PTY env vars. Experimental.
 - **CLI bridge** — `roux-cli` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal
 
