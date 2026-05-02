@@ -25,7 +25,13 @@
   let { visible = true, onCollapse, pinned = false, onTogglePin }: Props = $props();
 
   let collapsedGroups = $state(new Set<string>());
-  let contextMenu = $state<{ x: number; y: number; task: TaskDefinition; repoRoot: string } | null>(null);
+  let contextMenu = $state<{
+    x: number;
+    y: number;
+    task: TaskDefinition;
+    repoRoot: string;
+    sessionId: string;
+  } | null>(null);
   let filter = $state("");
 
   const filteredGroups = $derived.by(() => {
@@ -71,8 +77,14 @@
 
   function handleContextMenu(e: MouseEvent, task: TaskDefinition) {
     e.preventDefault();
-    if (!currentSession) return;
-    contextMenu = { x: e.clientX, y: e.clientY, task, repoRoot: currentSession.repoRoot };
+    if (!currentSession || !currentSessionId) return;
+    contextMenu = {
+      x: e.clientX,
+      y: e.clientY,
+      task,
+      repoRoot: currentSession.repoRoot,
+      sessionId: currentSessionId,
+    };
   }
 
   async function handleWatchTask(task: TaskDefinition, repoRoot: string, sessionId: string) {
@@ -255,8 +267,8 @@
     <button
       class="flex w-full items-center gap-2 bg-transparent px-3 py-1.5 text-left text-sm text-text-primary hover:bg-bg-hover"
       onclick={() => {
-        if (!contextMenu || !currentSession) return;
-        handleWatchTask(contextMenu.task, contextMenu.repoRoot, currentSession.id);
+        if (!contextMenu) return;
+        handleWatchTask(contextMenu.task, contextMenu.repoRoot, contextMenu.sessionId);
       }}
     >
       Watch

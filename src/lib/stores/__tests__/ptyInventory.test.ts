@@ -67,7 +67,7 @@ describe("ptyInventory", () => {
     vi.useRealTimers();
   });
 
-  it("summarizes attached and detached PTYs by active session", () => {
+  it("summarizes attached and detached PTYs by known session", () => {
     const summary = summarizePtyInventory(
       [
         makePty({ id: "pty-1", session_id: "s1", status: { type: "RunningAttached", pane_id: "p1" } }),
@@ -142,6 +142,48 @@ describe("ptyInventory", () => {
     await Promise.resolve();
 
     expect(mockListAllPtys).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("queues a refresh when the session list changes while a poll is in flight", async () => {
+    let resolveFirst: (ptys: PtyInfo[]) => void = () => {};
+    const firstPoll = new Promise<PtyInfo[]>((resolve) => {
+      resolveFirst = resolve;
+    });
+    mockListAllPtys
+      .mockReturnValueOnce(firstPoll)
+      .mockResolvedValueOnce([
+        makePty({ id: "pty-2", session_id: "s2", status: { type: "RunningAttached", pane_id: "p2" } }),
+      ]);
+
+    const s1 = makeSession("s1");
+    const s2 = makeSession("s2");
+    sessionState.set({ sessions: [s1], activeSessionId: "s1" });
+
+    const stop = initPtyInventoryPolling();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockListAllPtys).toHaveBeenCalledTimes(1);
+
+    sessionState.set({ sessions: [s1, s2], activeSessionId: "s1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockListAllPtys).toHaveBeenCalledTimes(1);
+
+    resolveFirst([makePty({ id: "pty-1", session_id: "s1" })]);
+    await firstPoll;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockListAllPtys).toHaveBeenCalledTimes(2);
+
+    let snapshot = new Map();
+    const unsubscribe = ptyInventoryBySession.subscribe((value) => {
+      snapshot = value;
+    });
+    unsubscribe();
+
+    expect(snapshot.get("s2")?.attachedCount).toBe(1);
     stop();
   });
 });

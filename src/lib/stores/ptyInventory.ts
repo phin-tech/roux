@@ -15,6 +15,7 @@ export interface SessionPtyInventory {
 export const ptyInventoryBySession = writable<Map<string, SessionPtyInventory>>(new Map());
 
 let inFlight = false;
+let refreshQueued = false;
 let stopPolling: (() => void) | null = null;
 
 export function summarizePtyInventory(
@@ -45,7 +46,10 @@ export function summarizePtyInventory(
 }
 
 export async function refreshPtyInventory(): Promise<void> {
-  if (inFlight) return;
+  if (inFlight) {
+    refreshQueued = true;
+    return;
+  }
 
   const sessions = get(sessionList);
   if (sessions.length === 0) {
@@ -62,6 +66,10 @@ export async function refreshPtyInventory(): Promise<void> {
     // Keep the last known snapshot. The inventory badges are informational.
   } finally {
     inFlight = false;
+    if (refreshQueued) {
+      refreshQueued = false;
+      void refreshPtyInventory();
+    }
   }
 }
 
@@ -92,5 +100,6 @@ export function _resetPtyInventoryForTests(): void {
   stopPolling?.();
   stopPolling = null;
   inFlight = false;
+  refreshQueued = false;
   ptyInventoryBySession.set(new Map());
 }
