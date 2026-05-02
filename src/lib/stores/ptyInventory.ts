@@ -19,12 +19,12 @@ let stopPolling: (() => void) | null = null;
 
 export function summarizePtyInventory(
   ptys: PtyInfo[],
-  activeSessionIds: Set<string>,
+  knownSessionIds: Set<string>,
 ): Map<string, SessionPtyInventory> {
   const next = new Map<string, SessionPtyInventory>();
   for (const pty of ptys) {
     const sessionId = pty.session_id;
-    if (!sessionId || !activeSessionIds.has(sessionId)) continue;
+    if (!sessionId || !knownSessionIds.has(sessionId)) continue;
 
     const current = next.get(sessionId) ?? {
       attachedCount: 0,
@@ -56,8 +56,8 @@ export async function refreshPtyInventory(): Promise<void> {
   inFlight = true;
   try {
     const ptys = await listAllPtys();
-    const activeSessionIds = new Set(get(sessionList).map((session) => session.id));
-    ptyInventoryBySession.set(summarizePtyInventory(ptys, activeSessionIds));
+    const knownSessionIds = new Set(get(sessionList).map((session) => session.id));
+    ptyInventoryBySession.set(summarizePtyInventory(ptys, knownSessionIds));
   } catch {
     // Keep the last known snapshot. The inventory badges are informational.
   } finally {
