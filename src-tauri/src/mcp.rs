@@ -3,7 +3,7 @@ use rmcp::{
     schemars::JsonSchema,
     tool, tool_router,
     transport::stdio,
-    ServiceExt,
+    ErrorData, ServiceExt,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -28,6 +28,41 @@ const MCP_TOOL_NAMES: &[&str] = &[
 #[serde(rename_all = "camelCase")]
 pub struct SocketToolOutput {
     pub data: Value,
+}
+
+#[derive(Debug)]
+enum McpToolError {
+    Disabled,
+    InvalidParams(&'static str),
+    Socket(String),
+    TaskJoin(String),
+    SocketResponse(String),
+}
+
+impl std::fmt::Display for McpToolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McpToolError::Disabled => write!(f, "Roux MCP is disabled in Settings"),
+            McpToolError::InvalidParams(message) => write!(f, "{message}"),
+            McpToolError::Socket(message) => write!(f, "{message}"),
+            McpToolError::TaskJoin(message) => write!(f, "{message}"),
+            McpToolError::SocketResponse(message) => write!(f, "{message}"),
+        }
+    }
+}
+
+impl std::error::Error for McpToolError {}
+
+impl From<McpToolError> for ErrorData {
+    fn from(error: McpToolError) -> Self {
+        match error {
+            McpToolError::InvalidParams(message) => ErrorData::invalid_params(message, None),
+            McpToolError::Disabled => ErrorData::invalid_request(error.to_string(), None),
+            McpToolError::Socket(_)
+            | McpToolError::TaskJoin(_)
+            | McpToolError::SocketResponse(_) => ErrorData::internal_error(error.to_string(), None),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -118,7 +153,7 @@ pub struct RouxMcpServer;
 #[tool_router(server_handler)]
 impl RouxMcpServer {
     #[tool(description = "List active Roux sessions.")]
-    async fn roux_list_sessions(&self) -> Result<Json<SocketToolOutput>, String> {
+    async fn roux_list_sessions(&self) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(json!({ "command": "session-list" })).await
     }
 
@@ -126,7 +161,7 @@ impl RouxMcpServer {
     async fn roux_get_session(
         &self,
         Parameters(params): Parameters<SessionIdParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(json!({
             "command": "session-poll",
             "session_id": params.session_id,
@@ -138,7 +173,7 @@ impl RouxMcpServer {
     async fn roux_list_panes(
         &self,
         Parameters(params): Parameters<SessionIdParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(json!({
             "command": "session-panes-list",
             "session_id": params.session_id,
@@ -152,7 +187,7 @@ impl RouxMcpServer {
     async fn roux_create_session(
         &self,
         Parameters(params): Parameters<CreateSessionParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(build_create_session_request(params)).await
     }
 
@@ -160,7 +195,7 @@ impl RouxMcpServer {
     async fn roux_create_pane(
         &self,
         Parameters(params): Parameters<CreatePaneParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(build_create_pane_request(params)).await
     }
 
@@ -168,7 +203,7 @@ impl RouxMcpServer {
     async fn roux_send_text(
         &self,
         Parameters(params): Parameters<SendTextParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(build_send_text_request(params)).await
     }
 
@@ -178,7 +213,7 @@ impl RouxMcpServer {
     async fn roux_get_latest_output(
         &self,
         Parameters(params): Parameters<LatestOutputParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(build_latest_output_request(params)).await
     }
 
@@ -186,9 +221,9 @@ impl RouxMcpServer {
     async fn roux_focus(
         &self,
         Parameters(params): Parameters<FocusParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         if params.session_id.is_none() && params.pane_id.is_none() {
-            return Err("sessionId or paneId required".to_string());
+            return Err(McpToolError::InvalidParams("sessionId or paneId required").into());
         }
         call_socket(json!({
             "command": "focus",
@@ -202,7 +237,7 @@ impl RouxMcpServer {
     async fn roux_read_notes(
         &self,
         Parameters(params): Parameters<NotesTargetParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(json!({
             "command": "notes-read",
             "args": notes_target(params.scope, params.session_id, params.topic),
@@ -214,7 +249,7 @@ impl RouxMcpServer {
     async fn roux_search_notes(
         &self,
         Parameters(params): Parameters<NotesSearchParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(json!({
             "command": "notes-search",
             "args": {
@@ -230,7 +265,7 @@ impl RouxMcpServer {
     async fn roux_append_notes(
         &self,
         Parameters(params): Parameters<NotesAppendParams>,
-    ) -> Result<Json<SocketToolOutput>, String> {
+    ) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(json!({
             "command": "notes-append",
             "args": {
@@ -244,7 +279,7 @@ impl RouxMcpServer {
     }
 
     #[tool(description = "Get the Roux notes vault root path.")]
-    async fn roux_notes_vault_root(&self) -> Result<Json<SocketToolOutput>, String> {
+    async fn roux_notes_vault_root(&self) -> Result<Json<SocketToolOutput>, ErrorData> {
         call_socket(json!({ "command": "notes-vault-root", "args": {} })).await
     }
 }
@@ -255,41 +290,49 @@ pub async fn run_stdio_server() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn call_socket(request: Value) -> Result<Json<SocketToolOutput>, String> {
+async fn call_socket(request: Value) -> Result<Json<SocketToolOutput>, ErrorData> {
+    call_socket_typed(request).await.map_err(Into::into)
+}
+
+async fn call_socket_typed(request: Value) -> Result<Json<SocketToolOutput>, McpToolError> {
     ensure_mcp_enabled().await?;
     let response =
         tokio::task::spawn_blocking(move || crate::cli_socket::send_socket_command(request))
             .await
-            .map_err(|e| e.to_string())??;
+            .map_err(|e| McpToolError::TaskJoin(e.to_string()))?
+            .map_err(McpToolError::Socket)?;
     response_to_tool_output(response)
 }
 
-async fn ensure_mcp_enabled() -> Result<(), String> {
+async fn ensure_mcp_enabled() -> Result<(), McpToolError> {
     let response = tokio::task::spawn_blocking(|| {
         crate::cli_socket::send_socket_command(json!({ "command": "mcp-enabled" }))
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(|e| McpToolError::TaskJoin(e.to_string()))?
+    .map_err(McpToolError::Socket)?;
 
     let output = response_to_tool_output(response)?;
     let enabled = output.0.data.get("enabled").and_then(Value::as_bool).unwrap_or(false);
     if enabled {
         Ok(())
     } else {
-        Err("Roux MCP is disabled in Settings".to_string())
+        Err(McpToolError::Disabled)
     }
 }
 
-fn response_to_tool_output(response: Value) -> Result<Json<SocketToolOutput>, String> {
+fn response_to_tool_output(response: Value) -> Result<Json<SocketToolOutput>, McpToolError> {
     if response.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         let data = response.get("data").cloned().unwrap_or(Value::Null);
         Ok(Json(SocketToolOutput { data }))
     } else {
-        Err(response
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown Roux socket error")
-            .to_string())
+        Err(McpToolError::SocketResponse(
+            response
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown Roux socket error")
+                .to_string(),
+        ))
     }
 }
 
@@ -445,7 +488,7 @@ mod tests {
 
         match result {
             Ok(_) => panic!("expected tool error"),
-            Err(err) => assert_eq!(err, "Roux is not running"),
+            Err(err) => assert_eq!(err.to_string(), "Roux is not running"),
         }
     }
 }

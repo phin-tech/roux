@@ -99,7 +99,9 @@ pub(crate) fn cmd_configure_mcp_host(
         .ok_or_else(|| format!("{} config path is unavailable on this platform", host.label()))?;
     let cli_path = svc::roux_cli_command_path().to_string_lossy().to_string();
     let plan = svc::write_config_file(&path, &cli_path)?;
-    record_configured_host(host, state, app)?;
+    if let Err(error) = record_configured_host(host, state, app) {
+        eprintln!("roux: failed to record MCP host configuration metadata: {error}");
+    }
     Ok(preview_from_plan(host, path, plan))
 }
 
@@ -112,12 +114,16 @@ fn record_configured_host(
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_millis() as u64;
-    let mut settings = state.settings.lock().map_err(|e| e.to_string())?.clone();
-    settings.mcp_last_configured_host = Some(host.as_str().to_string());
-    settings.mcp_last_configured_at_ms = Some(configured_at);
-    let settings =
-        crate::services::settings::update_settings(settings).map_err(|e| e.to_string())?;
-    *state.settings.lock().map_err(|e| e.to_string())? = settings.clone();
+    let settings = crate::services::settings::update_mcp_config_metadata(
+        host.as_str().to_string(),
+        configured_at,
+    )
+    .map_err(|e| e.to_string())?;
+    let mut current_settings = state.settings.lock().map_err(|e| e.to_string())?;
+    current_settings.mcp_last_configured_host = settings.mcp_last_configured_host;
+    current_settings.mcp_last_configured_at_ms = settings.mcp_last_configured_at_ms;
+    let settings = current_settings.clone();
+    drop(current_settings);
     app.emit("settings-changed", &settings).map_err(|e| e.to_string())
 }
 
