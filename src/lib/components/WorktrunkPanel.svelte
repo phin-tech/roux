@@ -168,6 +168,10 @@
     loading = false;
     worktreesLoading = false;
     readerLoading = false;
+    menuOpenFor = null;
+    contextMenuFor = null;
+    contextBusy = false;
+    contextError = null;
   }
 
   // Map of worktree path → first active (non-archived) session that
@@ -298,8 +302,10 @@
       clearRepoScopedState();
       return;
     }
-    void loadDiagnostics(currentRepo);
-    void loadWorktrees(currentRepo);
+    const repo = currentRepo;
+    clearRepoScopedState();
+    void loadDiagnostics(repo);
+    void loadWorktrees(repo);
   });
 
   function isCurrentRepoRequest(repoPath: string): boolean {

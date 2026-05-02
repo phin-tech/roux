@@ -34,6 +34,10 @@
   } | null>(null);
   let filter = $state("");
 
+  $effect(() => {
+    if (!visible) contextMenu = null;
+  });
+
   const filteredGroups = $derived.by(() => {
     if (!visible) return [];
     const q = filter.trim().toLowerCase();
