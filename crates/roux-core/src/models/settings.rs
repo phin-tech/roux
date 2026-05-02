@@ -578,8 +578,9 @@ fn normalize_repo_roots(roots: &[String]) -> Vec<String> {
 fn normalize_theme(theme: &str) -> String {
     match theme {
         "dark" | "deep-blue" => DEFAULT_THEME.to_string(),
-        "steel-amber" | "slate-emerald" | "graphite-rose" | "nordic-night" | "cyber-audit"
-        | "mocha-soft" | "paper-ink" | "github-day" => theme.to_string(),
+        "midnight-copper" | "steel-amber" | "slate-emerald" | "graphite-rose"
+        | "nordic-night" | "cyber-audit" | "mocha-soft" | "paper-ink" | "github-day"
+        | "warm-burnout-dark" | "warm-burnout-light" => theme.to_string(),
         _ => DEFAULT_THEME.to_string(),
     }
 }
@@ -601,7 +602,7 @@ fn normalize_terminal_theme(theme: &str) -> String {
         // GUI-matching palettes (one per GUI preset).
         | "deep-blue" | "midnight-copper" | "steel-amber" | "slate-emerald"
         | "graphite-rose" | "nordic-night" | "cyber-audit" | "mocha-soft"
-        | "paper-ink" | "github-day"
+        | "paper-ink" | "github-day" | "warm-burnout-dark" | "warm-burnout-light"
         // Editor-style palettes (iterm2colorschemes-inspired).
         | "dracula" | "solarized-dark" | "solarized-light" | "monokai"
         | "nord" | "gruvbox-dark" | "tokyo-night" | "one-dark"
@@ -631,6 +632,42 @@ mod terminal_theme_tests {
     #[test]
     fn unknown_falls_back_to_match_gui() {
         assert_eq!(normalize_terminal_theme("not-a-theme"), "match-gui");
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::{normalize_theme, DEFAULT_THEME};
+
+    #[test]
+    fn known_presets_round_trip() {
+        for preset in [
+            "midnight-copper",
+            "steel-amber",
+            "slate-emerald",
+            "graphite-rose",
+            "nordic-night",
+            "cyber-audit",
+            "mocha-soft",
+            "paper-ink",
+            "github-day",
+            "warm-burnout-dark",
+            "warm-burnout-light",
+        ] {
+            assert_eq!(normalize_theme(preset), preset, "preset {preset} should round-trip");
+        }
+    }
+
+    #[test]
+    fn legacy_dark_alias_normalizes_to_default() {
+        assert_eq!(normalize_theme("dark"), DEFAULT_THEME);
+        assert_eq!(normalize_theme("deep-blue"), DEFAULT_THEME);
+    }
+
+    #[test]
+    fn unknown_falls_back_to_default() {
+        assert_eq!(normalize_theme("not-a-theme"), DEFAULT_THEME);
+        assert_eq!(normalize_theme(""), DEFAULT_THEME);
     }
 }
 
