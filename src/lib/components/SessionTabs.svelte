@@ -20,12 +20,13 @@
   import { continueSession } from "$lib/sessions/reconnect";
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
-  import { projects, createProject } from "$lib/stores/projects";
+  import { projects, createProject, removeProject } from "$lib/stores/projects";
   import { setSessionProject } from "$lib/stores/sessions";
   import { setSessionProject as tauriSetSessionProject } from "$lib/tauri";
   import { log, logError } from "$lib/logging";
-  import type { Session, SessionBlueprint, Project } from "$lib/types";
+  import type { GroupBy, Session, SessionBlueprint, Project } from "$lib/types";
   import { getGroupedSessions } from "$lib/sessions/order";
+  import { spawnBlueprintForProject } from "$lib/sessions/spawnBlueprint";
   import {
     openNewProjectDialog,
     openEditProjectDialog,
@@ -49,7 +50,38 @@
     onTogglePin,
   }: Props = $props();
 
-  let collapsedGroups = $state(new Set<string>());
+  // Sidebar collapse state is persisted so it survives reload. We also track
+  // which project ids have been seen at least once: any *newly* created
+  // project lands in the sidebar in collapsed form so it doesn't crowd the
+  // view. Once the user has manually toggled a project group, their choice
+  // wins.
+  const COLLAPSED_GROUPS_KEY = "roux.sidebar.collapsedGroups";
+  const SEEN_PROJECTS_KEY = "roux.sidebar.seenProjects";
+
+  function loadStringSet(key: string): Set<string> {
+    try {
+      if (typeof window === "undefined" || !window.localStorage) return new Set();
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? new Set(parsed.filter((v) => typeof v === "string")) : new Set();
+    } catch {
+      return new Set();
+    }
+  }
+
+  function saveStringSet(key: string, set: Set<string>): void {
+    try {
+      if (typeof window === "undefined" || !window.localStorage) return;
+      window.localStorage.setItem(key, JSON.stringify([...set]));
+    } catch {
+      // localStorage write failures are non-fatal — collapse state will just
+      // not survive the next reload.
+    }
+  }
+
+  let collapsedGroups = $state(loadStringSet(COLLAPSED_GROUPS_KEY));
+  let seenProjects = $state(loadStringSet(SEEN_PROJECTS_KEY));
 
   let grouped = $derived(
     getGroupedSessions(
@@ -58,7 +90,12 @@
       $settings.groupBy ?? "repo",
     ),
   );
-  let showGroupHeaders = $derived(grouped.length > 0);
+  // In "session" mode there is exactly one synthetic "Sessions" group — its
+  // header would just take up space, so we hide it. In repo/project modes a
+  // header is useful even with one group (it labels which repo/project).
+  let showGroupHeaders = $derived(
+    grouped.length > 0 && ($settings.groupBy ?? "repo") !== "session",
+  );
 
   // Map of session id -> slot number (1..10) in sidebar visual order.
   // Collapsed groups are intentionally counted so Cmd+N shortcuts do not
@@ -81,6 +118,7 @@
     if (next.has(key)) next.delete(key);
     else next.add(key);
     collapsedGroups = next;
+    saveStringSet(COLLAPSED_GROUPS_KEY, next);
   }
 
   // Project lookup keyed by id, used to resolve a sidebar group header to
@@ -103,6 +141,64 @@
     return set;
   });
 
+  // Prune persisted entries for projects that no longer exist. Without this,
+  // `seenProjects` and `collapsedGroups` accumulate stale ids forever as
+  // projects are deleted. Only project ids are pruned: repo-path keys (used
+  // in `repo` mode) and "__all__" (session mode) are left alone.
+  $effect(() => {
+    const validIds = new Set($projects.map((p) => p.id));
+    const staleSeen = [...seenProjects].filter((id) => !validIds.has(id));
+    if (staleSeen.length === 0) return;
+    const newSeen = new Set(seenProjects);
+    const newCollapsed = new Set(collapsedGroups);
+    let changedCollapsed = false;
+    for (const id of staleSeen) {
+      newSeen.delete(id);
+      if (newCollapsed.has(id)) {
+        newCollapsed.delete(id);
+        changedCollapsed = true;
+      }
+    }
+    seenProjects = newSeen;
+    saveStringSet(SEEN_PROJECTS_KEY, newSeen);
+    if (changedCollapsed) {
+      collapsedGroups = newCollapsed;
+      saveStringSet(COLLAPSED_GROUPS_KEY, newCollapsed);
+    }
+  });
+
+  // First-sight of a project group: if it has no live sessions yet (a
+  // template-only / blueprint-only project), collapse it so it doesn't
+  // crowd the sidebar. If it already has live sessions, the user just
+  // spawned them via NewProjectDialog and should see them — leave the
+  // group expanded. Either way, mark the project as seen so we don't
+  // override the user's manual toggle on subsequent renders.
+  $effect(() => {
+    if (($settings.groupBy ?? "repo") !== "project") return;
+    const newSeen = new Set(seenProjects);
+    const newCollapsed = new Set(collapsedGroups);
+    let changedSeen = false;
+    let changedCollapsed = false;
+    for (const group of grouped) {
+      if (!projectsById.has(group.key)) continue; // skip __untagged__
+      if (newSeen.has(group.key)) continue;
+      newSeen.add(group.key);
+      changedSeen = true;
+      if (group.sessions.length === 0 && !newCollapsed.has(group.key)) {
+        newCollapsed.add(group.key);
+        changedCollapsed = true;
+      }
+    }
+    if (changedSeen) {
+      seenProjects = newSeen;
+      saveStringSet(SEEN_PROJECTS_KEY, newSeen);
+    }
+    if (changedCollapsed) {
+      collapsedGroups = newCollapsed;
+      saveStringSet(COLLAPSED_GROUPS_KEY, newCollapsed);
+    }
+  });
+
   function projectBlueprintsForGroup(groupKey: string): SessionBlueprint[] {
     if (($settings.groupBy ?? "repo") !== "project") return [];
     const project = projectsById.get(groupKey);
@@ -110,56 +206,55 @@
     return (project.sessionBlueprints ?? []).filter((bp) => !liveBlueprintIds.has(bp.id));
   }
 
+  let spawningAll = $state(new Set<string>());
+
+  // Spawn every blueprint on a project that does not already have a live
+  // session attached. We await each spawn sequentially: each one creates a
+  // PTY plus runs profile init, and firing all in parallel both starves the
+  // backend and makes failures hard to attribute. Sequential keeps ordering
+  // deterministic and matches the per-blueprint click flow.
+  async function spawnAllBlueprintsForProject(project: Project) {
+    if (spawningAll.has(project.id)) return;
+    const blueprints = projectBlueprintsForGroup(project.id);
+    if (blueprints.length === 0) return;
+    const next = new Set(spawningAll);
+    next.add(project.id);
+    spawningAll = next;
+    try {
+      for (const bp of blueprints) {
+        await spawnBlueprintFromSidebar(project, bp);
+      }
+    } finally {
+      const done = new Set(spawningAll);
+      done.delete(project.id);
+      spawningAll = done;
+    }
+  }
+
   async function spawnBlueprintFromSidebar(project: Project, bp: SessionBlueprint) {
     try {
-      const { resolveProfileRef } = await import("$lib/panes/profiles");
-      const { runProfileInPane } = await import("$lib/panes/profileRunner");
-      const profileRef: SpawnProfileRef = { kind: "registered", id: bp.spawnProfile };
-      const profile = resolveProfileRef(profileRef);
-      const nonoProfile = bp.nonoProfile ?? profile?.nonoProfile ?? undefined;
-      const nonoAllowDirs =
-        bp.nonoAllowDirs && bp.nonoAllowDirs.length > 0
-          ? bp.nonoAllowDirs
-          : profile?.nonoAllowDirs ?? undefined;
-      const newSession = await createSessionShell(
-        bp.repoRoot,
-        bp.name,
-        bp.worktreePath ?? null,
-        bp.branch ?? null,
-        {
-          nonoProfile,
-          nonoAllowDirs,
-          profile: bp.spawnProfile,
-          base: bp.base ?? null,
-          fetchFirst: bp.fetchFirst ?? false,
-          projectId: project.id,
-          blueprintId: bp.id,
-        },
-      );
-      addSession(newSession);
-      // Defensive: backend already stamped project_id; keep frontend mirror in sync.
-      await tauriSetSessionProject(newSession.id, project.id);
-      const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {
-        nonoProfile,
-        nonoAllowDirs,
-      });
-      const { connectPaneTerminal } = await import("$lib/panes/terminals");
-      await connectPaneTerminal(mainPaneId);
-      if (profile) {
-        await runProfileInPane(newSession.id, profile, {
-          appendSystemPrompt: project.projectPrompt ?? "",
-        });
-      }
+      await spawnBlueprintForProject(project, bp);
     } catch (e) {
       logError(`spawnBlueprintFromSidebar failed: ${e}`);
     }
   }
 
+  // Cycle order: repo → project → session → repo. Keeps the default (repo)
+  // as the starting point and walks forward predictably on each click.
+  const GROUP_BY_CYCLE = ["repo", "project", "session"] as const;
+
+  function nextGroupBy(current: GroupBy): GroupBy {
+    const i = GROUP_BY_CYCLE.indexOf(current as (typeof GROUP_BY_CYCLE)[number]);
+    return GROUP_BY_CYCLE[(i + 1) % GROUP_BY_CYCLE.length];
+  }
+
   function toggleGroupBy() {
-    updateSetting("groupBy", $settings.groupBy === "project" ? "repo" : "project");
+    updateSetting("groupBy", nextGroupBy($settings.groupBy ?? "repo"));
   }
 
   let contextMenu = $state<{ x: number; y: number; session: Session } | null>(null);
+  let groupHeaderMenu = $state<{ x: number; y: number; project: Project } | null>(null);
+  let groupHeaderConfirmDelete = $state(false);
   let worktreeInput = $state(false);
   let worktreeBase = $state<string | null>(null);
   let worktreeBaseLabel = $state("");
@@ -177,18 +272,14 @@
   let archivedDragging = $state(false);
   let archivedDragTeardown: (() => void) | null = null;
 
-  function handleContextMenu(e: MouseEvent, session: Session) {
-    contextMenu = { x: e.clientX, y: e.clientY, session };
-    worktreeInput = false;
-    worktreeBase = null;
-    worktreeBaseLabel = "";
-    worktreeFetchFirst = false;
-    branchName = "";
-    worktreeError = "";
-  }
-
-  function closeContextMenu() {
+  // Reset every menu/popover state. Callers use this when opening a new
+  // menu so the previous one (session vs project header) doesn't linger
+  // and overlap. `closeContextMenu` (the global outside-click handler)
+  // also delegates here.
+  function resetMenus() {
     contextMenu = null;
+    groupHeaderMenu = null;
+    groupHeaderConfirmDelete = false;
     worktreeInput = false;
     worktreeBase = null;
     worktreeBaseLabel = "";
@@ -198,6 +289,34 @@
     projectMenu = false;
     newProjectInput = false;
     newProjectName = "";
+  }
+
+  function handleContextMenu(e: MouseEvent, session: Session) {
+    resetMenus();
+    contextMenu = { x: e.clientX, y: e.clientY, session };
+  }
+
+  function handleGroupHeaderContextMenu(e: MouseEvent, key: string) {
+    const p = projectsById.get(key);
+    if (!p) return;
+    e.preventDefault();
+    e.stopPropagation();
+    resetMenus();
+    groupHeaderMenu = { x: e.clientX, y: e.clientY, project: p };
+  }
+
+  async function handleDeleteProject(project: Project) {
+    try {
+      await removeProject(project.id);
+    } catch (e) {
+      logError(`removeProject failed: ${e}`);
+    } finally {
+      closeContextMenu();
+    }
+  }
+
+  function closeContextMenu() {
+    resetMenus();
   }
 
   function pickWorktreeBase(base: string | null, label: string, fetchFirst: boolean) {
@@ -493,10 +612,10 @@
     <button
       class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 border border-border-subtle bg-bg-surface px-3 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent-dim/50"
       onclick={toggleGroupBy}
-      title="Group by {$settings.groupBy === 'project' ? 'repo' : 'project'}"
+      title="Group by {nextGroupBy($settings.groupBy ?? 'repo')}"
     >
       <span class="text-text-muted/70">Group</span>
-      <span class="text-text-primary">{$settings.groupBy === "project" ? "project" : "repo"}</span>
+      <span class="text-text-primary">{$settings.groupBy ?? "repo"}</span>
     </button>
     <button
       class="flex h-8 shrink-0 cursor-pointer items-center gap-1 border border-border-subtle bg-bg-surface px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent-dim/50"
@@ -514,6 +633,7 @@
         <button
           class="group mt-1 flex w-full cursor-pointer items-center gap-1.5 bg-transparent px-1.5 py-2 text-left first:mt-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
           onclick={() => toggleGroup(group.key)}
+          oncontextmenu={(e) => handleGroupHeaderContextMenu(e, group.key)}
           title={group.key}
         >
           <span class="text-[10px] text-text-secondary transition-transform duration-150 {collapsedGroups.has(group.key) ? '' : 'rotate-90'}">&#9654;</span>
@@ -552,15 +672,22 @@
             {/if}
           {/each}
           {#if ($settings.groupBy ?? "repo") === "project" && projectsById.has(group.key)}
-            <button
-              class="mt-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-md border border-transparent bg-transparent px-2.5 py-1 text-left text-[10px] text-text-muted/70 hover:bg-bg-hover hover:text-text-primary"
-              onclick={() => {
-                const p = projectsById.get(group.key);
-                if (p) openEditProjectDialog(p);
-              }}
-            >
-              <span>edit project…</span>
-            </button>
+            {@const groupProject = projectsById.get(group.key)}
+            {#if groupProject && projectBlueprintsForGroup(group.key).length >= 2}
+              <button
+                class="mt-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-accent-dim/30 bg-transparent px-2.5 py-1.5 text-left text-[11px] font-medium text-accent transition-colors hover:border-accent-dim/60 hover:bg-accent-dim/10 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={spawningAll.has(groupProject.id)}
+                onclick={() => spawnAllBlueprintsForProject(groupProject)}
+                title="Spawn all unspawned blueprints in this project"
+              >
+                <span class="text-[10px] leading-none">»</span>
+                <span class="flex-1 truncate">
+                  {spawningAll.has(groupProject.id)
+                    ? "Spawning…"
+                    : `Spawn all (${projectBlueprintsForGroup(group.key).length})`}
+                </span>
+              </button>
+            {/if}
           {/if}
         </div>
       {/if}
@@ -737,6 +864,57 @@
         {#if worktreeError}
           <div class="mt-1 truncate text-[10px] text-red" title={worktreeError}>{worktreeError}</div>
         {/if}
+      </div>
+    {/if}
+  </div>
+{/if}
+
+{#if groupHeaderMenu}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div
+    class="ui-dialog fixed z-50 min-w-52 py-1"
+    style="left: {groupHeaderMenu.x}px; top: {groupHeaderMenu.y}px;"
+    onclick={(e) => e.stopPropagation()}
+  >
+    {#if !groupHeaderConfirmDelete}
+      <button
+        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
+        onclick={() => {
+          if (groupHeaderMenu) openEditProjectDialog(groupHeaderMenu.project);
+          closeContextMenu();
+        }}
+      >
+        <span class="text-[11px] text-text-secondary">&#9998;</span>
+        Edit project…
+      </button>
+      <button
+        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-red/85 hover:bg-red/10 hover:text-red focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red/40 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
+        onclick={() => (groupHeaderConfirmDelete = true)}
+      >
+        <span class="text-[11px]">&times;</span>
+        Delete project…
+      </button>
+    {:else}
+      <div class="px-3 py-2">
+        <div class="mb-1.5 text-[11px] text-text-muted">
+          Delete <span class="font-mono text-text-primary">{groupHeaderMenu.project.name}</span>?
+          <br />Sessions stay (just untagged).
+        </div>
+        <div class="flex gap-1.5">
+          <button
+            class="flex-1 cursor-pointer border border-red/30 bg-red/15 px-2.5 py-1.5 text-[11px] font-medium text-red hover:bg-red/24"
+            onclick={() => groupHeaderMenu && handleDeleteProject(groupHeaderMenu.project)}
+          >
+            Delete
+          </button>
+          <button
+            class="flex-1 cursor-pointer border border-border-subtle bg-bg-surface px-2.5 py-1.5 text-[11px] text-text-secondary hover:bg-bg-hover"
+            onclick={() => (groupHeaderConfirmDelete = false)}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     {/if}
   </div>
