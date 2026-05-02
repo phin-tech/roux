@@ -5,7 +5,7 @@
     setKeepOpenOverride,
     getEffectiveKeepOpen,
   } from "$lib/stores/tasks";
-  import { sessionState } from "$lib/stores/sessions";
+  import { activeSession, activeSessionId } from "$lib/stores/sessions";
   import { runTask, expandTask } from "$lib/tasks/runner";
   import type { TaskDefinition } from "$lib/types";
   import { createWatch } from "$lib/tauri";
@@ -16,18 +16,30 @@
   import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
 
   interface Props {
+    visible?: boolean;
     onCollapse?: () => void;
     pinned?: boolean;
     onTogglePin?: () => void;
   }
 
-  let { onCollapse, pinned = false, onTogglePin }: Props = $props();
+  let { visible = true, onCollapse, pinned = false, onTogglePin }: Props = $props();
 
   let collapsedGroups = $state(new Set<string>());
-  let contextMenu = $state<{ x: number; y: number; task: TaskDefinition; repoRoot: string } | null>(null);
+  let contextMenu = $state<{
+    x: number;
+    y: number;
+    task: TaskDefinition;
+    repoRoot: string;
+    sessionId: string;
+  } | null>(null);
   let filter = $state("");
 
+  $effect(() => {
+    if (!visible) contextMenu = null;
+  });
+
   const filteredGroups = $derived.by(() => {
+    if (!visible) return [];
     const q = filter.trim().toLowerCase();
     if (!q) return $taskGroups;
     return $taskGroups
@@ -43,9 +55,8 @@
       .filter((g) => g.tasks.length > 0);
   });
 
-  const activeSession = $derived(
-    $sessionState.sessions.find((s) => s.id === $sessionState.activeSessionId)
-  );
+  const currentSession = $derived(visible ? $activeSession : null);
+  const currentSessionId = $derived(visible ? $activeSessionId : null);
 
   function toggleGroup(runner: string) {
     collapsedGroups = new Set(collapsedGroups);
@@ -57,21 +68,27 @@
   }
 
   function handleRun(task: TaskDefinition) {
-    if (!activeSession || !$sessionState.activeSessionId) return;
-    void runTask($sessionState.activeSessionId, activeSession.worktreePath, task);
+    if (!currentSession || !currentSessionId) return;
+    void runTask(currentSessionId, currentSession.worktreePath, task);
   }
 
   function handleExpand(e: MouseEvent, ptyId: string) {
     e.stopPropagation();
     e.preventDefault();
-    if (!$sessionState.activeSessionId) return;
-    expandTask($sessionState.activeSessionId, ptyId);
+    if (!currentSessionId) return;
+    expandTask(currentSessionId, ptyId);
   }
 
   function handleContextMenu(e: MouseEvent, task: TaskDefinition) {
     e.preventDefault();
-    if (!activeSession) return;
-    contextMenu = { x: e.clientX, y: e.clientY, task, repoRoot: activeSession.repoRoot };
+    if (!currentSession || !currentSessionId) return;
+    contextMenu = {
+      x: e.clientX,
+      y: e.clientY,
+      task,
+      repoRoot: currentSession.repoRoot,
+      sessionId: currentSessionId,
+    };
   }
 
   async function handleWatchTask(task: TaskDefinition, repoRoot: string, sessionId: string) {
@@ -102,7 +119,7 @@
   }
 
   const activeRuns = $derived.by(() => {
-    const sessionId = $sessionState.activeSessionId;
+    const sessionId = currentSessionId;
     if (!sessionId) return new Map();
     const runs = $taskRuns.get(sessionId) ?? [];
     const map = new Map();
@@ -254,8 +271,8 @@
     <button
       class="flex w-full items-center gap-2 bg-transparent px-3 py-1.5 text-left text-sm text-text-primary hover:bg-bg-hover"
       onclick={() => {
-        if (!contextMenu || !activeSession) return;
-        handleWatchTask(contextMenu.task, contextMenu.repoRoot, activeSession.id);
+        if (!contextMenu) return;
+        handleWatchTask(contextMenu.task, contextMenu.repoRoot, contextMenu.sessionId);
       }}
     >
       Watch

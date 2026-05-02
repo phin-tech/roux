@@ -38,6 +38,7 @@
   import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
+  import { initPtyInventoryPolling } from "$lib/stores/ptyInventory";
   import { initSessionWithProfile, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
@@ -381,6 +382,7 @@
 
   let unlistenDragDrop: (() => void) | null = null;
   let unlistenSessionPrEffect: (() => void) | null = null;
+  let stopPtyInventoryPolling: (() => void) | null = null;
 
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);
@@ -390,6 +392,8 @@
     unlistenDragDrop = null;
     unlistenSessionPrEffect?.();
     unlistenSessionPrEffect = null;
+    stopPtyInventoryPolling?.();
+    stopPtyInventoryPolling = null;
     teardownAppMenu();
   });
 
@@ -503,6 +507,8 @@
         await restoreSessionPanes(s, persisted, { initTerminal, attachPtyListeners });
       }
     }
+
+    stopPtyInventoryPolling = initPtyInventoryPolling();
 
     // Start auto-saving layout changes to localStorage
     initPersistence();

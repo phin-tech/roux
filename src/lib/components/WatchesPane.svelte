@@ -1,6 +1,6 @@
 <script lang="ts">
   import { watchState, removeWatchFromStore } from "$lib/stores/watches";
-  import { sessionState } from "$lib/stores/sessions";
+  import { sessionList } from "$lib/stores/sessions";
   import { removeWatch, pauseWatch, resumeWatch } from "$lib/tauri";
   import type { Watch, WatchOutcome } from "$lib/types";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -20,6 +20,7 @@
   let expandedId = $state<string | null>(null);
 
   let grouped = $derived.by(() => {
+    if (!visible) return [];
     const groups: { label: string; key: string; watches: Watch[] }[] = [];
     const globalWatches = $watchState.filter((w) => w.scope.type === "global");
     if (globalWatches.length > 0) {
@@ -39,7 +40,7 @@
       }
     }
     for (const [id, watches] of sessionMap) {
-      const session = $sessionState.sessions.find((s) => s.id === id);
+      const session = $sessionList.find((s) => s.id === id);
       const label = session ? session.name : `Session: ${id.slice(0, 8)}`;
       groups.push({ label, key: `s-${id}`, watches });
     }

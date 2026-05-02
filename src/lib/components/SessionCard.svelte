@@ -1,16 +1,15 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
   import type { Session } from "$lib/types";
   import { renameSignal, sessionDisplayName } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
   import { flashingSessions } from "$lib/stores/watches";
   import { unreadBySession } from "$lib/stores/notifications";
   import { showSessionHints } from "$lib/stores/ui";
+  import { ptyInventoryBySession } from "$lib/stores/ptyInventory";
   import {
     sessionAgentStatus,
     computeEffectiveSessionStatus,
   } from "$lib/panes/agentState";
-  import { listSessionPtys } from "$lib/tauri";
   import CloseButton from "./CloseButton.svelte";
   import Pencil from "@lucide/svelte/icons/pencil";
   import GitBranch from "@lucide/svelte/icons/git-branch";
@@ -44,11 +43,12 @@
     slotNumber == null ? null : slotNumber === 10 ? "0" : String(slotNumber),
   );
 
-  // Poll PTY inventory so the sidebar can show how many panes are active and
-  // whether a session is carrying detached terminals in the background.
-  let attachedCount = $state(0);
-  let detachedCount = $state(0);
-  let detachedHasUnread = $state(false);
+  // Shared PTY inventory lets the sidebar show pane counts without one poller
+  // per rendered session row.
+  let ptyInventory = $derived($ptyInventoryBySession.get(session.id));
+  let attachedCount = $derived(ptyInventory?.attachedCount ?? 0);
+  let detachedCount = $derived(ptyInventory?.detachedCount ?? 0);
+  let detachedHasUnread = $derived(ptyInventory?.detachedHasUnread ?? false);
   let showPaneInventory = $derived(attachedCount > 1 || detachedCount > 0);
   let activePaneTitle = $derived(
     `${attachedCount} active pane${attachedCount === 1 ? "" : "s"}`
@@ -56,30 +56,6 @@
   let detachedPaneTitle = $derived(
     `${detachedCount} detached terminal${detachedCount === 1 ? "" : "s"}${detachedHasUnread ? " (unread output)" : ""}`
   );
-
-  async function refreshDetachedState() {
-    try {
-      const ptys = await listSessionPtys(session.id);
-      const attached = ptys.filter((p) => p.status.type === "RunningAttached");
-      const detached = ptys.filter((p) => p.status.type === "RunningDetached");
-      attachedCount = attached.length;
-      detachedCount = detached.length;
-      detachedHasUnread = detached.some((p) => p.unread_output);
-    } catch {
-      // Non-fatal; badge stays at last known value
-    }
-  }
-
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
-
-  onMount(() => {
-    void refreshDetachedState();
-    pollTimer = setInterval(() => void refreshDetachedState(), 5000);
-  });
-
-  onDestroy(() => {
-    if (pollTimer !== null) clearInterval(pollTimer);
-  });
 
   let displayName = $derived(sessionDisplayName(session));
   let hasCustomName = $derived(Boolean(session.nameOverride?.trim()));

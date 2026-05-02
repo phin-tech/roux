@@ -12,6 +12,14 @@ pub(crate) fn list_session_ptys(
 
 #[tauri::command]
 #[specta::specta]
+pub(crate) fn list_all_ptys(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<PtyInfo>, String> {
+    Ok(state.pty_manager.list_all())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub(crate) fn detach_pty(
     pty_id: String,
     state: tauri::State<'_, AppState>,

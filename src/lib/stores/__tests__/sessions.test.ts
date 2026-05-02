@@ -3,6 +3,8 @@ import { get } from "svelte/store";
 import {
   sessionState,
   activeSession,
+  activeSessionId,
+  sessionList,
   addSession,
   removeSession,
   setActiveSession,
@@ -97,6 +99,74 @@ describe("sessions store", () => {
 
     setActiveSession(s1.id);
     expect(get(sessionState).activeSessionId).toBe(s1.id);
+  });
+
+  it("does not notify when setting the already-active session", () => {
+    const s1 = makeSession();
+    addSession(s1);
+
+    let calls = 0;
+    const unsubscribe = sessionState.subscribe(() => {
+      calls += 1;
+    });
+    calls = 0;
+
+    setActiveSession(s1.id);
+
+    expect(calls).toBe(0);
+    unsubscribe();
+  });
+
+  it("does not notify session-list subscribers when only the active session changes", () => {
+    const s1 = makeSession();
+    const s2 = makeSession();
+    addSession(s1);
+    addSession(s2);
+
+    let calls = 0;
+    const unsubscribe = sessionList.subscribe(() => {
+      calls += 1;
+    });
+    calls = 0;
+
+    setActiveSession(s1.id);
+
+    expect(calls).toBe(0);
+    unsubscribe();
+  });
+
+  it("notifies active-session-id subscribers when the active session changes", () => {
+    const s1 = makeSession();
+    const s2 = makeSession();
+    addSession(s1);
+    addSession(s2);
+
+    const values: Array<string | null> = [];
+    const unsubscribe = activeSessionId.subscribe((id) => values.push(id));
+
+    setActiveSession(s1.id);
+
+    expect(values).toEqual([s2.id, s1.id]);
+    unsubscribe();
+  });
+
+  it("does not notify active-session subscribers for non-active session updates", () => {
+    const s1 = makeSession({ status: "idle" });
+    const s2 = makeSession({ status: "idle" });
+    addSession(s1);
+    addSession(s2);
+    setActiveSession(s1.id);
+
+    let calls = 0;
+    const unsubscribe = activeSession.subscribe(() => {
+      calls += 1;
+    });
+    calls = 0;
+
+    updateSessionStatus(s2.id, "generating");
+
+    expect(calls).toBe(0);
+    unsubscribe();
   });
 
   it("updates session status", () => {

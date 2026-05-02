@@ -1,6 +1,6 @@
 import { derived, get, writable, type Readable } from "svelte/store";
 import { sessionLayouts, collectVisibleLeafIds } from "$lib/panes/layout";
-import { sessionState } from "$lib/stores/sessions";
+import { activeSessionId } from "$lib/stores/sessions";
 import { showSidebar } from "$lib/stores/sidebarLayout";
 
 /**
@@ -223,10 +223,10 @@ export const hidePaneHints = paneHints.hide;
  * badges and the Alt+digit key handler, so they cannot drift.
  */
 export const paneSlotById = derived(
-  [sessionLayouts, sessionState],
-  ([$layouts, $state]) => {
+  [sessionLayouts, activeSessionId],
+  ([$layouts, $activeSessionId]) => {
     const map = new Map<string, number>();
-    const activeId = $state.activeSessionId;
+    const activeId = $activeSessionId;
     if (!activeId) return map;
     const tree = $layouts.get(activeId);
     if (!tree) return map;
