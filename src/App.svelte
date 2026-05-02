@@ -496,27 +496,11 @@
       );
       void refreshWorktreeMetadataForRepos(sessions.map((s) => s.repoRoot));
       const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+      const { restoreSessionPanes } = await import("$lib/panes/restore");
       for (const s of sessions) {
         addSession(s);
-        // Look up the persisted primary descriptor so the restored pane
-        // keeps its spawnProfileRef. Without this, every session would
-        // come back tagged as the Claude built-in profile regardless of
-        // what the user actually chose at creation time, and the re-run
-        // button + provider-specific UI would lie.
         const persisted = await loadPaneState(s.id);
-        const primaryDescriptor = persisted?.descriptors.find(
-          (d) => d.ptyId === s.id,
-        );
-        const primaryProfileRef: SpawnProfileRef =
-          primaryDescriptor?.spawnProfileRef ?? { kind: "registered", id: "claude" };
-        const mainPaneId = initSessionWithProfile(s.id, primaryProfileRef, {
-          provider: primaryDescriptor?.provider,
-          providerSessionId: primaryDescriptor?.providerSessionId,
-        });
-        initTerminal(mainPaneId);
-        await attachPtyListeners(mainPaneId);
-        // Full layout restore (shell PTY re-spawn etc.) happens on reconnect click.
-        // Startup only sets up the main pane in disconnected state.
+        await restoreSessionPanes(s, persisted, { initTerminal, attachPtyListeners });
       }
     }
 
