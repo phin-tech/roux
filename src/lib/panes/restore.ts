@@ -26,11 +26,14 @@ export async function restoreSessionPanes(
   opts: RestoreSessionPanesOptions,
 ): Promise<void> {
   if (!persisted) {
-    const mainPaneId = initPrimaryPane(session.id, undefined);
-    if (canAttachPty(session.id, opts.livePtyIds)) {
-      opts.initTerminal(mainPaneId);
-      await opts.attachPtyListeners(mainPaneId);
-    }
+    await restorePrimaryOnly(session, undefined, opts);
+    return;
+  }
+
+  const primaryDescriptor = persisted.descriptors.find((d) => d.ptyId === session.id);
+  if (!primaryDescriptor) {
+    log(`restoreSessionPanes(${session.id}): persisted state has no primary pane; falling back to primary-only restore`);
+    await restorePrimaryOnly(session, undefined, opts);
     return;
   }
 
@@ -43,7 +46,7 @@ export async function restoreSessionPanes(
   let primaryPaneId: string | null = null;
 
   for (const d of persisted.descriptors) {
-    if (d.id === `${session.id}-main` && d.ptyId === session.id) {
+    if (d.id === primaryDescriptor.id) {
       primaryPaneId = createPrimaryPane(session.id, d.spawnProfileRef, d);
     } else {
       createPane({
@@ -81,6 +84,19 @@ export async function restoreSessionPanes(
   if (primaryPaneId) {
     setLogicalFocus(primaryPaneId);
   }
+}
+
+async function restorePrimaryOnly(
+  session: Session,
+  descriptor: PaneStatePayload["descriptors"][number] | undefined,
+  opts: RestoreSessionPanesOptions,
+): Promise<string> {
+  const mainPaneId = initPrimaryPane(session.id, descriptor?.spawnProfileRef, descriptor);
+  if (canAttachPty(session.id, opts.livePtyIds)) {
+    opts.initTerminal(mainPaneId);
+    await opts.attachPtyListeners(mainPaneId);
+  }
+  return mainPaneId;
 }
 
 function initPrimaryPane(
@@ -134,7 +150,7 @@ function createPrimaryPane(
   spawnProfileRef: SpawnProfileRef | undefined,
   descriptor: PaneStatePayload["descriptors"][number],
 ): string {
-  const paneId = `${sessionId}-main`;
+  const paneId = descriptor.id || `${sessionId}-main`;
   createPane({
     id: paneId,
     type: descriptor.type,

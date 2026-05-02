@@ -178,4 +178,38 @@ describe("restoreSessionPanes", () => {
     expect(initTerminal).not.toHaveBeenCalled();
     expect(attachPtyListeners).not.toHaveBeenCalled();
   });
+
+  it("falls back to a primary pane when persisted state has no session primary descriptor", async () => {
+    const payload: PaneStatePayload = {
+      schemaVersion: 4,
+      layout: {
+        kind: "leaf",
+        paneId: "stale-shell",
+      },
+      descriptors: [
+        {
+          id: "stale-shell",
+          type: "shell",
+          ptyId: "stale-pty",
+          spawnProfileRef: { kind: "registered", id: "plain-shell" },
+        },
+      ],
+    };
+
+    await restoreSessionPanes(session({ status: "disconnected" }), payload, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: new Set(),
+    });
+
+    expect(get(sessionLayouts).get("s1")).toEqual({
+      kind: "leaf",
+      paneId: "s1-main",
+    });
+    expect(get(paneInstances).get("s1-main")?.ptyId).toBe("s1");
+    expect(get(paneInstances).has("stale-shell")).toBe(false);
+    expect(get(focusedPaneId)).toBe("s1-main");
+    expect(initTerminal).not.toHaveBeenCalled();
+    expect(attachPtyListeners).not.toHaveBeenCalled();
+  });
 });
