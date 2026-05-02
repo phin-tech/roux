@@ -2,6 +2,7 @@ pub(crate) mod docs;
 pub(crate) mod layouts;
 pub(crate) mod library;
 pub(crate) mod library_sync;
+pub(crate) mod mcp;
 pub(crate) mod misc;
 pub(crate) mod notes;
 pub(crate) mod pane_state;

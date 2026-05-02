@@ -13,6 +13,7 @@ Settings are grouped into categories in a sidebar modal. Changes are persisted a
 - **Terminal** — independent terminal theme selection, user-imported `.itermcolors` themes, font, scrollback, cursor, and GPU acceleration settings.
 - **Claude** — binary path override, default model, additional flags.
 - **Integrations** — GitHub CLI (`gh`) path override for PR/session integrations.
+- **Agent Integrations** — Roux MCP enablement and supported MCP host setup.
 - **Notifications** — OS notification master switch and test notification trigger.
 - **Keyboard** — toggles for Option-pane and Command-session hint overlays.
 - **Notes** — experimental multi-scoped vault settings. See below.
@@ -44,6 +45,21 @@ The ++cmd+b++ notes panel writes to an Obsidian-compatible vault on disk.
 - **Include web anchors for entries** (`notes.includeWebAnchors`, default on) — when enabled, `roux notes <scope> append --timestamp` adds an inline `<a id="entry-...">` HTML anchor in front of each timestamped entry so the entry stays deep-linkable if the vault is later published through a static-site generator (Quartz, Hugo, Zola, MkDocs, …). Disable for cleaner raw markdown if you only ever read the vault in Obsidian.
 
 See [Notes](features/notes.md) for the panel UX, CLI surface, and env vars.
+
+## Agent Integrations
+
+The **Agent Integrations** section configures Roux for MCP hosts such as Claude Desktop.
+
+- **Enable Roux MCP** (`mcpEnabled`) — allows MCP hosts to launch `roux-cli mcp` and use Roux through the running desktop app. Turning this off makes the MCP server return a disabled error even if a host can start the process.
+- **CLI status** — shows whether Roux's installed CLI is present and current, plus the path that host configs will use.
+- **Host status** — shows supported MCP hosts, whether their config file exists, whether Roux is configured, and any config parse/read error.
+- **Preview** — shows the Roux MCP server entry that would be written for the host before changing the host config.
+- **Configure** — adds or updates only Roux's MCP server entry for that host.
+- **Last configured** — records the last successful host setup metadata when possible.
+
+Roux reads an existing host config before writing. It preserves unrelated config and unknown fields on Roux's own server entry, skips writes when the entry is already current, and writes updates atomically.
+
+For v1, MCP exposes useful inspection and safe action tools by default. It does not expose arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, or broad filesystem mutation.
 
 ## Doctor panel
 

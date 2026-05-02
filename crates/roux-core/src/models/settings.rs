@@ -101,6 +101,7 @@ pub enum GroupBy {
     #[default]
     Repo,
     Project,
+    Session,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
@@ -377,6 +378,18 @@ pub struct RouxSettings {
     /// the gh subprocess on every session switch.
     #[serde(default = "default_true")]
     pub auto_lookup_session_pr: bool,
+    /// User-facing MCP integration switch. The MCP server is still launched
+    /// by MCP hosts via `roux-cli mcp`; this controls Roux's setup/status UX
+    /// and whether host configuration buttons are presented as enabled.
+    #[serde(default)]
+    pub mcp_enabled: bool,
+    /// Last MCP host that Roux successfully configured, if any. Stored for
+    /// Settings status only; host config files remain the source of truth.
+    #[serde(default)]
+    pub mcp_last_configured_host: Option<String>,
+    /// Unix epoch milliseconds for the last successful MCP host config write.
+    #[serde(default)]
+    pub mcp_last_configured_at_ms: Option<u64>,
 }
 
 impl Default for RouxSettings {
@@ -436,6 +449,9 @@ impl Default for RouxSettings {
             gpu_acceleration: GpuAcceleration::Auto,
             auto_watch_session_pr: false,
             auto_lookup_session_pr: true,
+            mcp_enabled: false,
+            mcp_last_configured_host: None,
+            mcp_last_configured_at_ms: None,
         }
     }
 }

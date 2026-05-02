@@ -67,6 +67,12 @@ export function registerUiCommands() {
           description: current === "project" ? "current" : undefined,
           action: () => updateSetting("groupBy", "project"),
         },
+        {
+          id: "session",
+          label: "Session (flat)",
+          description: current === "session" ? "current" : undefined,
+          action: () => updateSetting("groupBy", "session"),
+        },
       ];
     },
   });

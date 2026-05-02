@@ -8,6 +8,9 @@ export const commands = {
 	frontendLog: (message: string) => __TAURI_INVOKE<void>("frontend_log", { message }),
 	getSettings: () => __TAURI_INVOKE<RouxSettings>("get_settings"),
 	updateSettings: (settings: RouxSettings) => typedError<null, string>(__TAURI_INVOKE("update_settings", { settings })),
+	cmdMcpStatus: () => __TAURI_INVOKE<McpStatus>("cmd_mcp_status"),
+	cmdPreviewMcpHostConfig: (host: McpHostId) => typedError<McpHostConfigPreview, string>(__TAURI_INVOKE("cmd_preview_mcp_host_config", { host })),
+	cmdConfigureMcpHost: (host: McpHostId) => typedError<McpHostConfigPreview, string>(__TAURI_INVOKE("cmd_configure_mcp_host", { host })),
 	checkForUpdate: (channel: UpdateChannel) => typedError<{
 	version: string,
 	notes: string,
@@ -414,7 +417,7 @@ export type GithubJob = {
  */
 export type GpuAcceleration = "auto" | "on" | "off";
 
-export type GroupBy = "repo" | "project";
+export type GroupBy = "repo" | "project" | "session";
 
 export type HookListItem = {
 	event: string,
@@ -478,6 +481,38 @@ export type IntegrationDetection = {
 };
 
 export type KeepOpen = "always" | "on-error" | "never";
+
+export type McpHostConfigPreview = {
+	host: McpHostId,
+	label: string,
+	configPath: string,
+	configExists: boolean,
+	action: string,
+	configured: boolean,
+	currentEntryJson: string | null,
+	nextEntryJson: string,
+};
+
+export type McpHostId = "claudeDesktop";
+
+export type McpHostStatus = {
+	id: McpHostId,
+	label: string,
+	configPath: string | null,
+	configExists: boolean,
+	configured: boolean,
+	error: string | null,
+};
+
+export type McpStatus = {
+	enabled: boolean,
+	cliInstalled: boolean,
+	cliCurrent: boolean,
+	cliPath: string,
+	lastConfiguredHost: string | null,
+	lastConfiguredAtMs: number | null,
+	hosts: McpHostStatus[],
+};
 
 // How a bound key is matched against a `KeyboardEvent`.
 export type KeyRef = 
@@ -1028,6 +1063,21 @@ export type RouxSettings = {
 	 *  the gh subprocess on every session switch.
 	 */
 	autoLookupSessionPr?: boolean,
+	/**
+	 *  User-facing MCP integration switch. The MCP server is still launched
+	 *  by MCP hosts via `roux-cli mcp`; this controls Roux's setup/status UX
+	 *  and whether host configuration buttons are presented as enabled.
+	 */
+	mcpEnabled?: boolean,
+	/**
+	 *  Last MCP host that Roux successfully configured, if any. Stored for
+	 *  Settings status only; host config files remain the source of truth.
+	 */
+	mcpLastConfiguredHost?: string | null,
+	/**
+	 *  Unix epoch milliseconds for the last successful MCP host config write.
+	 */
+	mcpLastConfiguredAtMs?: number | null,
 };
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
@@ -1399,4 +1449,3 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
-

@@ -15,6 +15,8 @@
   import type {
     GpuAcceleration,
     IntegrationDetection,
+    McpHostConfigPreview,
+    McpStatus,
     OnPaneCloseMode,
     UpdateChannel,
     WorktreeCleanupMode,
@@ -149,9 +151,16 @@
   let ghDetection = $state<IntegrationDetection | null>(null);
   let gitDetection = $state<IntegrationDetection | null>(null);
   let worktrunkDetection = $state<WorktrunkDetection | null>(null);
+  let mcpStatus = $state<McpStatus | null>(null);
+  let mcpPreview = $state<McpHostConfigPreview | null>(null);
+  let mcpMessage = $state<string | null>(null);
+  let mcpError = $state<string | null>(null);
+  let mcpBusy = $state<"preview" | "configure" | null>(null);
+  const claudeMcpHost = $derived(mcpStatus?.hosts.find((host) => host.id === "claudeDesktop") ?? null);
   let ghDetectionRun = 0;
   let gitDetectionRun = 0;
   let worktrunkDetectionRun = 0;
+  let mcpStatusRun = 0;
 
   async function refreshGhDetection(run: number) {
     try {
@@ -179,6 +188,15 @@
       if (run === worktrunkDetectionRun) {
         worktrunkDetection = { binaryPath: null, version: null, hasConfig: false };
       }
+    }
+  }
+
+  async function refreshMcpStatus(run: number) {
+    try {
+      const result = await commands.cmdMcpStatus();
+      if (run === mcpStatusRun) mcpStatus = result;
+    } catch {
+      if (run === mcpStatusRun) mcpStatus = null;
     }
   }
 
@@ -217,6 +235,62 @@
     const timer = setTimeout(() => void refreshWorktrunkDetection(run), 250);
     return () => clearTimeout(timer);
   });
+
+  $effect(() => {
+    const enabled = $settings.mcpEnabled;
+    void enabled;
+    if (!visible || selected !== "integrations") {
+      mcpStatusRun += 1;
+      return;
+    }
+    const run = ++mcpStatusRun;
+    const timer = setTimeout(() => void refreshMcpStatus(run), 250);
+    return () => clearTimeout(timer);
+  });
+
+  async function previewMcpHostConfig() {
+    mcpBusy = "preview";
+    mcpError = null;
+    mcpMessage = null;
+    try {
+      const result = await commands.cmdPreviewMcpHostConfig("claudeDesktop");
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
+      mcpPreview = result.data;
+      mcpMessage = mcpPreview.configured ? "Claude Desktop is already configured." : "Preview ready.";
+    } catch (e) {
+      mcpPreview = null;
+      mcpError = e instanceof Error ? e.message : String(e);
+    } finally {
+      mcpBusy = null;
+    }
+  }
+
+  async function configureMcpHost() {
+    mcpBusy = "configure";
+    mcpError = null;
+    mcpMessage = null;
+    try {
+      const result = await commands.cmdConfigureMcpHost("claudeDesktop");
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
+      mcpPreview = result.data;
+      mcpMessage = mcpPreview.configured ? "Claude Desktop was already configured." : "Claude Desktop configuration updated.";
+      const run = ++mcpStatusRun;
+      await refreshMcpStatus(run);
+    } catch (e) {
+      mcpError = e instanceof Error ? e.message : String(e);
+    } finally {
+      mcpBusy = null;
+    }
+  }
+
+  function formatMcpConfiguredAt(ms: number | null | undefined): string {
+    if (!ms) return "Never";
+    return new Date(ms).toLocaleString();
+  }
 
   async function browseWorktreeBase() {
     const selected = await open({ directory: true, title: "Select Worktree Base Directory" });
@@ -357,7 +431,7 @@
 
         <div class="app-scrollbar flex-1 overflow-y-auto px-5 py-4">
           {#if selected === "general"}
-            <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <div class="text-[13px]">Theme</div>
@@ -786,6 +860,97 @@
               </button>
             </div>
           {:else if selected === "integrations"}
+            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-center justify-between">
+                <div class="text-[13px] font-semibold">Roux MCP</div>
+                {#if mcpStatus?.enabled}
+                  <span class="rounded bg-green/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green">enabled</span>
+                {:else}
+                  <span class="rounded bg-bg-active px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">off</span>
+                {/if}
+              </div>
+              <div class="mt-0.5 text-[11px] text-text-muted">
+                Lets MCP clients launch <code class="font-mono">roux-cli mcp</code> and use Roux sessions, panes, and notes through the running app.
+              </div>
+              <div class="mt-3 flex items-center justify-between py-1">
+                <div>
+                  <div class="text-[13px]">Enable Roux MCP</div>
+                  <div class="mt-0.5 text-[11px] text-text-muted">Safe action tools are available by default; destructive tools are not exposed.</div>
+                </div>
+                <button
+                  aria-label="Toggle Roux MCP"
+                  class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                    {($settings.mcpEnabled ?? false) ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                  onclick={() => updateSetting("mcpEnabled", !($settings.mcpEnabled ?? false))}
+                >
+                  <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                    {($settings.mcpEnabled ?? false) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+                </button>
+              </div>
+              {#if mcpStatus}
+                <div class="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+                  <div class="rounded border border-border-subtle bg-bg-deep/70 px-2 py-1">
+                    <div class="text-text-muted">CLI</div>
+                    <div class={mcpStatus.cliInstalled && mcpStatus.cliCurrent ? "text-green" : "text-red"}>
+                      {mcpStatus.cliInstalled ? (mcpStatus.cliCurrent ? "current" : "stale") : "missing"}
+                    </div>
+                  </div>
+                  <div class="rounded border border-border-subtle bg-bg-deep/70 px-2 py-1">
+                    <div class="text-text-muted">Server path</div>
+                    <div class="truncate font-mono text-text-secondary" title={mcpStatus.cliPath}>{mcpStatus.cliPath}</div>
+                  </div>
+                  <div class="col-span-2 rounded border border-border-subtle bg-bg-deep/70 px-2 py-1">
+                    <div class="text-text-muted">Last config update</div>
+                    <div class="text-text-secondary">
+                      {mcpStatus.lastConfiguredAtMs ? formatMcpConfiguredAt(mcpStatus.lastConfiguredAtMs) : "Never"}
+                      {mcpStatus.lastConfiguredHost ? ` · ${mcpStatus.lastConfiguredHost}` : ""}
+                    </div>
+                  </div>
+                </div>
+              {/if}
+              <div class="mt-3 rounded border border-border-subtle bg-bg-deep/60 p-2">
+                <div class="flex items-center justify-between gap-2">
+                  <div>
+                    <div class="text-[12px] font-medium">Claude Desktop</div>
+                    <div class="mt-0.5 max-w-[22rem] truncate font-mono text-[10px] text-text-muted" title={claudeMcpHost?.configPath ?? ""}>
+                      {claudeMcpHost?.configPath ?? "Config path unavailable"}
+                    </div>
+                  </div>
+                  {#if claudeMcpHost?.configured}
+                    <span class="rounded bg-green/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green">configured</span>
+                  {:else if claudeMcpHost?.error}
+                    <span class="rounded bg-red/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red">needs attention</span>
+                  {:else}
+                    <span class="rounded bg-bg-active px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">not configured</span>
+                  {/if}
+                </div>
+                <div class="mt-2 flex gap-1">
+                  <button
+                    class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={!($settings.mcpEnabled ?? false) || mcpBusy !== null}
+                    onclick={previewMcpHostConfig}
+                  >{mcpBusy === "preview" ? "Previewing" : "Preview"}</button>
+                  <button
+                    class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={!($settings.mcpEnabled ?? false) || mcpBusy !== null}
+                    onclick={configureMcpHost}
+                  >{mcpBusy === "configure" ? "Configuring" : "Configure"}</button>
+                </div>
+                {#if mcpMessage}
+                  <div class="mt-2 text-[11px] text-green">{mcpMessage}</div>
+                {/if}
+                {#if mcpError || claudeMcpHost?.error}
+                  <div class="mt-2 text-[11px] text-red">{mcpError ?? claudeMcpHost?.error}</div>
+                {/if}
+                {#if mcpPreview}
+                  <div class="mt-2 rounded border border-border-subtle bg-bg-deep/70 p-2">
+                    <div class="mb-1 text-[10px] uppercase tracking-wider text-text-muted">Roux entry</div>
+                    <pre class="app-scrollbar max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{mcpPreview.nextEntryJson}</pre>
+                  </div>
+                {/if}
+              </div>
+            </div>
+
             <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
               <div class="flex items-center justify-between">
                 <div class="text-[13px] font-semibold">Shell</div>
