@@ -1,8 +1,42 @@
 use serde_json::{json, Value};
 use std::io::Write;
 use std::path::PathBuf;
+use thiserror::Error;
 
 const ROUX_SERVER_ID: &str = "roux";
+const TEMP_FILE_ATTEMPTS: u32 = 100;
+
+type McpConfigResult<T> = std::result::Result<T, McpConfigError>;
+
+#[derive(Debug, Error)]
+pub(crate) enum McpConfigError {
+    #[error("invalid MCP host config JSON: {0}")]
+    InvalidJson(#[source] serde_json::Error),
+    #[error("MCP host config must be a JSON object")]
+    InvalidRootObject,
+    #[error("MCP host config field `mcpServers` must be a JSON object")]
+    InvalidMcpServersField,
+    #[error("failed to read MCP host config: {0}")]
+    ReadConfig(#[source] std::io::Error),
+    #[error("MCP host config path must include a parent directory")]
+    MissingParentDir,
+    #[error("failed to create MCP host config directory: {0}")]
+    CreateConfigDir(#[source] std::io::Error),
+    #[error("failed to serialize MCP host config: {0}")]
+    SerializeConfig(#[source] serde_json::Error),
+    #[error("MCP host config path must include a valid file name")]
+    InvalidFileName,
+    #[error("failed to create temporary MCP host config: {0}")]
+    CreateTemp(#[source] std::io::Error),
+    #[error("failed to create temporary MCP host config: exhausted temporary file name attempts")]
+    TempNameExhausted,
+    #[error("failed to write temporary MCP host config: {0}")]
+    WriteTemp(#[source] std::io::Error),
+    #[error("failed to sync temporary MCP host config: {0}")]
+    SyncTemp(#[source] std::io::Error),
+    #[error("failed to replace MCP host config: {0}")]
+    ReplaceConfig(#[source] std::io::Error),
+}
 
 pub(crate) fn roux_cli_command_path() -> PathBuf {
     crate::paths::roux_config_dir().join("bin").join(crate::platform::roux_cli_file_name())
@@ -63,22 +97,22 @@ pub(crate) struct ConfigPlan {
     pub(crate) next_config: Value,
 }
 
-pub(crate) fn plan_config(existing: Option<&str>, cli_path: &str) -> Result<ConfigPlan, String> {
+pub(crate) fn plan_config(existing: Option<&str>, cli_path: &str) -> McpConfigResult<ConfigPlan> {
     let mut root = match existing {
-        Some(content) if !content.trim().is_empty() => serde_json::from_str::<Value>(content)
-            .map_err(|e| format!("invalid MCP host config JSON: {e}"))?,
+        Some(content) if !content.trim().is_empty() => {
+            serde_json::from_str::<Value>(content).map_err(McpConfigError::InvalidJson)?
+        }
         _ => json!({}),
     };
 
-    let root_obj =
-        root.as_object_mut().ok_or_else(|| "MCP host config must be a JSON object".to_string())?;
+    let root_obj = root.as_object_mut().ok_or(McpConfigError::InvalidRootObject)?;
     if !root_obj.contains_key("mcpServers") {
         root_obj.insert("mcpServers".into(), json!({}));
     }
     let servers = root_obj
         .get_mut("mcpServers")
         .and_then(Value::as_object_mut)
-        .ok_or_else(|| "MCP host config field `mcpServers` must be a JSON object".to_string())?;
+        .ok_or(McpConfigError::InvalidMcpServersField)?;
 
     let current_entry = servers.get(ROUX_SERVER_ID).cloned();
     let next_entry = merge_roux_entry(current_entry.as_ref(), cli_path);
@@ -111,55 +145,59 @@ fn merge_roux_entry(current_entry: Option<&Value>, cli_path: &str) -> Value {
     Value::Object(merged)
 }
 
-pub(crate) fn plan_config_file(path: &PathBuf, cli_path: &str) -> Result<ConfigPlan, String> {
+pub(crate) fn plan_config_file(path: &PathBuf, cli_path: &str) -> McpConfigResult<ConfigPlan> {
     let content = match std::fs::read_to_string(path) {
         Ok(content) => Some(content),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(format!("failed to read MCP host config: {e}")),
+        Err(e) => return Err(McpConfigError::ReadConfig(e)),
     };
     plan_config(content.as_deref(), cli_path)
 }
 
-pub(crate) fn write_config_file(path: &PathBuf, cli_path: &str) -> Result<ConfigPlan, String> {
+pub(crate) fn write_config_file(path: &PathBuf, cli_path: &str) -> McpConfigResult<ConfigPlan> {
     let plan = plan_config_file(path, cli_path)?;
     if plan.action == ConfigAction::Unchanged {
         return Ok(plan);
     }
-    let parent = path
-        .parent()
-        .ok_or_else(|| "MCP host config path must include a parent directory".to_string())?;
-    std::fs::create_dir_all(parent)
-        .map_err(|e| format!("failed to create MCP host config directory: {e}"))?;
-    let json = serde_json::to_string_pretty(&plan.next_config)
-        .map_err(|e| format!("failed to serialize MCP host config: {e}"))?;
+    let parent = path.parent().ok_or(McpConfigError::MissingParentDir)?;
+    std::fs::create_dir_all(parent).map_err(McpConfigError::CreateConfigDir)?;
+    let json =
+        serde_json::to_string_pretty(&plan.next_config).map_err(McpConfigError::SerializeConfig)?;
     atomic_write(path, json.as_bytes())?;
     Ok(plan)
 }
 
-fn atomic_write(path: &PathBuf, bytes: &[u8]) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "MCP host config path must include a parent directory".to_string())?;
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "MCP host config path must include a valid file name".to_string())?;
-    let tmp_path = parent.join(format!(".{file_name}.tmp.{}", std::process::id()));
+fn atomic_write(path: &PathBuf, bytes: &[u8]) -> McpConfigResult<()> {
+    let parent = path.parent().ok_or(McpConfigError::MissingParentDir)?;
+    let file_name =
+        path.file_name().and_then(|name| name.to_str()).ok_or(McpConfigError::InvalidFileName)?;
+    let (tmp_path, mut file) = create_temp_config_file(parent, file_name)?;
 
     let write_result = (|| {
-        let mut file = std::fs::File::create(&tmp_path)
-            .map_err(|e| format!("failed to create temporary MCP host config: {e}"))?;
-        file.write_all(bytes)
-            .map_err(|e| format!("failed to write temporary MCP host config: {e}"))?;
-        file.sync_all().map_err(|e| format!("failed to sync temporary MCP host config: {e}"))?;
-        std::fs::rename(&tmp_path, path)
-            .map_err(|e| format!("failed to replace MCP host config: {e}"))
+        file.write_all(bytes).map_err(McpConfigError::WriteTemp)?;
+        file.sync_all().map_err(McpConfigError::SyncTemp)?;
+        std::fs::rename(&tmp_path, path).map_err(McpConfigError::ReplaceConfig)
     })();
 
     if write_result.is_err() {
         let _ = std::fs::remove_file(&tmp_path);
     }
     write_result
+}
+
+fn create_temp_config_file(
+    parent: &std::path::Path,
+    file_name: &str,
+) -> McpConfigResult<(PathBuf, std::fs::File)> {
+    for attempt in 0..TEMP_FILE_ATTEMPTS {
+        let tmp_path = parent.join(format!(".{file_name}.tmp.{}.{}", std::process::id(), attempt));
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp_path) {
+            Ok(file) => return Ok((tmp_path, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(McpConfigError::CreateTemp(e)),
+        }
+    }
+    Err(McpConfigError::TempNameExhausted)
 }
 
 #[cfg(test)]
@@ -252,8 +290,21 @@ mod tests {
     }
 
     #[test]
+    fn create_temp_config_file_skips_existing_candidate() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_name = "claude_desktop_config.json";
+        let existing = dir.path().join(format!(".{file_name}.tmp.{}.0", std::process::id()));
+        std::fs::write(&existing, "already here").unwrap();
+
+        let (tmp_path, _file) = create_temp_config_file(dir.path(), file_name).unwrap();
+
+        assert_ne!(tmp_path, existing);
+        assert!(tmp_path.ends_with(format!(".{file_name}.tmp.{}.1", std::process::id())));
+    }
+
+    #[test]
     fn plan_config_rejects_malformed_json() {
         let err = plan_config(Some("{ nope"), "/bin/roux-cli").unwrap_err();
-        assert!(err.contains("invalid MCP host config JSON"));
+        assert!(err.to_string().contains("invalid MCP host config JSON"));
     }
 }

@@ -98,7 +98,7 @@ pub(crate) fn cmd_configure_mcp_host(
         .config_path()
         .ok_or_else(|| format!("{} config path is unavailable on this platform", host.label()))?;
     let cli_path = svc::roux_cli_command_path().to_string_lossy().to_string();
-    let plan = svc::write_config_file(&path, &cli_path)?;
+    let plan = svc::write_config_file(&path, &cli_path).map_err(|e| e.to_string())?;
     if let Err(error) = record_configured_host(host, state, app) {
         eprintln!("roux: failed to record MCP host configuration metadata: {error}");
     }
@@ -155,7 +155,7 @@ fn host_status(host: McpHostId, cli_path: &str) -> McpHostStatus {
             config_path: Some(path.to_string_lossy().to_string()),
             config_exists,
             configured: false,
-            error: Some(error),
+            error: Some(error.to_string()),
         },
     }
 }
@@ -165,7 +165,7 @@ fn preview_host(host: McpHostId) -> Result<McpHostConfigPreview, String> {
         .config_path()
         .ok_or_else(|| format!("{} config path is unavailable on this platform", host.label()))?;
     let cli_path = svc::roux_cli_command_path().to_string_lossy().to_string();
-    let plan = svc::plan_config_file(&path, &cli_path)?;
+    let plan = svc::plan_config_file(&path, &cli_path).map_err(|e| e.to_string())?;
     Ok(preview_from_plan(host, path, plan))
 }
 
