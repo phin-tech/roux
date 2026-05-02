@@ -579,7 +579,8 @@ fn normalize_theme(theme: &str) -> String {
     match theme {
         "dark" | "deep-blue" => DEFAULT_THEME.to_string(),
         "steel-amber" | "slate-emerald" | "graphite-rose" | "nordic-night" | "cyber-audit"
-        | "mocha-soft" | "paper-ink" | "github-day" => theme.to_string(),
+        | "mocha-soft" | "paper-ink" | "github-day" | "warm-burnout-dark"
+        | "warm-burnout-light" => theme.to_string(),
         _ => DEFAULT_THEME.to_string(),
     }
 }
@@ -601,7 +602,7 @@ fn normalize_terminal_theme(theme: &str) -> String {
         // GUI-matching palettes (one per GUI preset).
         | "deep-blue" | "midnight-copper" | "steel-amber" | "slate-emerald"
         | "graphite-rose" | "nordic-night" | "cyber-audit" | "mocha-soft"
-        | "paper-ink" | "github-day"
+        | "paper-ink" | "github-day" | "warm-burnout-dark" | "warm-burnout-light"
         // Editor-style palettes (iterm2colorschemes-inspired).
         | "dracula" | "solarized-dark" | "solarized-light" | "monokai"
         | "nord" | "gruvbox-dark" | "tokyo-night" | "one-dark"

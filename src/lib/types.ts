@@ -60,7 +60,9 @@ export type ThemePreset =
   | "cyber-audit"
   | "mocha-soft"
   | "paper-ink"
-  | "github-day";
+  | "github-day"
+  | "warm-burnout-dark"
+  | "warm-burnout-light";
 
 // Session is exactly the Rust type; permission state now lives in the
 // notification service (Phase 3 retired the inline Allow/Deny flow).
