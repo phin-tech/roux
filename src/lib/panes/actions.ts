@@ -24,6 +24,7 @@ import { forgetLastStatus } from "./agentNotifications";
 import type { SpawnProfileRef } from "./profiles";
 import { killPty, detachPty } from "$lib/tauri";
 import { settings } from "$lib/stores/settings";
+import { multiLineEditor, closeMultiLineEditor } from "$lib/stores/multiLineEditor";
 
 // Register cleanup hooks on disposePane so every path that disposes a
 // pane (closePane, closeSessionPanes, splitPane rollback, anything
@@ -32,6 +33,13 @@ import { settings } from "$lib/stores/settings";
 // → instances).
 registerDisposeHook(disposeAgentState);
 registerDisposeHook(forgetLastStatus);
+// Without this, the global multiLineEditor store keeps `open: true` and
+// a paneId pointing at a disposed pane; App.svelte's editor gate then
+// swallows non-whitelisted keystrokes app-wide until the user toggles
+// the editor by hand.
+registerDisposeHook((paneId) => {
+  if (get(multiLineEditor).paneId === paneId) closeMultiLineEditor();
+});
 
 export function initSession(sessionId: string): string {
   return initSessionWithProfile(sessionId, { kind: "registered", id: "claude" });
