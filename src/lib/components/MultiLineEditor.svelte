@@ -232,21 +232,22 @@
   ): Promise<boolean> {
     const controller = getTerminalController(paneId);
     if (!controller) return false;
+    // Non-shell targets (Claude TUI) require explicit bracketed paste
+    // markers regardless of xterm's current bracketed-paste mode state.
+    // Fall through to the buildSubmitPayload + writeToSession path which
+    // emits those markers unconditionally.
+    if (target !== "shell") return false;
 
     controller.clearSelection();
     controller.scrollToBottom();
     controller.setInputEnabled(true);
 
-    if (target === "shell") {
-      const normalized = normalizeSubmitText(text);
-      controller.input("\x05\x15");
-      if (normalized.includes("\n")) {
-        controller.paste(normalized);
-      } else {
-        controller.input(normalized);
-      }
+    const normalized = normalizeSubmitText(text);
+    controller.input("\x05\x15");
+    if (normalized.includes("\n")) {
+      controller.paste(normalized);
     } else {
-      controller.paste(normalizeSubmitText(text));
+      controller.input(normalized);
     }
 
     await waitForTerminalInputTurn();
