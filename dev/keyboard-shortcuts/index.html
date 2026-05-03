@@ -519,6 +519,8 @@
       
         
       
+        
+      
     
     
       
@@ -574,6 +576,27 @@
   
   <span class="md-ellipsis">
     Panes
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/editor/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Multiline Editor
   </span>
   
 
@@ -862,6 +885,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiline-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      Multiline editor
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#leader-mode" class="md-nav__link">
     <span class="md-ellipsis">
       Leader mode
@@ -1023,6 +1055,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiline-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      Multiline editor
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#leader-mode" class="md-nav__link">
     <span class="md-ellipsis">
       Leader mode
@@ -1177,10 +1218,70 @@
 <td>Focus pane 10</td>
 <td><span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-0">0</kbd></span></td>
 </tr>
+<tr>
+<td>Toggle multiline editor</td>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span></td>
+</tr>
+<tr>
+<td>Toggle multiline editor from anywhere</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-e">E</kbd></span></td>
+</tr>
+<tr>
+<td>Open multiline editor with clipboard</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-v">V</kbd></span></td>
+</tr>
 </tbody>
 </table>
 <p>The pane-focus shortcuts target the Nth visible pane in the active session (depth-first, left-to-right). Hold <span class="keys"><kbd class="key-alt">Alt</kbd></span> on its own to see each pane's digit drawn centered over it.
 You can disable this overlay in <strong>Settings → Keyboard</strong> without disabling the shortcuts themselves.</p>
+<h2 id="multiline-editor">Multiline editor<a class="headerlink" href="#multiline-editor" title="Permanent link">&para;</a></h2>
+<p>The editor has its own local keybindings while focus is inside it. See <a href="../features/editor/">Multiline Editor</a> for behavior details.</p>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Shortcut</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Send text to the target terminal and keep editor open</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span></td>
+</tr>
+<tr>
+<td>Insert newline</td>
+<td><span class="keys"><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span>, <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span>, or <span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span></td>
+</tr>
+<tr>
+<td>Clear editor when nothing is selected</td>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-c">C</kbd></span></td>
+</tr>
+<tr>
+<td>Copy and clear current line</td>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-u">U</kbd></span></td>
+</tr>
+<tr>
+<td>Clear selected lines/current line</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-k">K</kbd></span></td>
+</tr>
+<tr>
+<td>Delete word left</td>
+<td><span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-backspace">Backspace</kbd></span> or <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-w">W</kbd></span></td>
+</tr>
+<tr>
+<td>Delete to line end</td>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-k">K</kbd></span> or <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-delete">Del</kbd></span></td>
+</tr>
+<tr>
+<td>Delete to line start</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-backspace">Backspace</kbd></span></td>
+</tr>
+<tr>
+<td>Close without sending</td>
+<td><span class="keys"><kbd class="key-escape">Esc</kbd></span> or <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span></td>
+</tr>
+</tbody>
+</table>
 <h2 id="leader-mode">Leader mode<a class="headerlink" href="#leader-mode" title="Permanent link">&para;</a></h2>
 <p>Roux also has a Vimish leader-mode surface for pane and session commands. The leader is just a regular tree in the keymap — the prefix, the children, and the HUD timing are all editable. See <a href="../features/keymap/#trees-prefixes-and-modes">Keymap → Trees, prefixes, and modes</a> for how to add your own modes.</p>
 <ul>

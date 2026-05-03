@@ -13,6 +13,10 @@
         <link rel="canonical" href="https://phin-tech.github.io/roux/dev/features/editor/">
       
       
+        <link rel="prev" href="../panes/">
+      
+      
+        <link rel="next" href="../sessions/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -20,7 +24,7 @@
     
     
       
-        <title>Multi-Line Prompt Editor - Roux</title>
+        <title>Multiline Editor - Roux</title>
       
     
     
@@ -72,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#multi-line-prompt-editor" class="md-skip">
+        <a href="#multiline-editor" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Multi-Line Prompt Editor
+              Multiline Editor
             
           </span>
         </div>
@@ -285,10 +289,12 @@
         
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
+      <li class="md-tabs__item md-tabs__item--active">
         <a href="../" class="md-tabs__link">
           
   
@@ -482,6 +488,8 @@
       
   
   
+    
+  
   
   
     
@@ -513,19 +521,24 @@
       
         
       
+        
+      
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           
@@ -541,13 +554,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Features
@@ -572,6 +585,139 @@
   
 
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Multiline Editor
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    Multiline Editor
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#open-and-close" class="md-nav__link">
+    <span class="md-ellipsis">
+      Open And Close
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#seed-text" class="md-nav__link">
+    <span class="md-ellipsis">
+      Seed Text
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#send-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      Send Behavior
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-chips" class="md-nav__link">
+    <span class="md-ellipsis">
+      Context Chips
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-corrections" class="md-nav__link">
+    <span class="md-ellipsis">
+      Command Corrections
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editor-keybindings" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editor Keybindings
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terminal-selection-and-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Terminal Selection And Copy
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#customizing-global-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Customizing Global Shortcuts
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -881,78 +1027,72 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#opening-the-editor" class="md-nav__link">
+  <a href="#open-and-close" class="md-nav__link">
     <span class="md-ellipsis">
-      Opening the editor
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Opening the editor">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#from-scratch" class="md-nav__link">
-    <span class="md-ellipsis">
-      From scratch
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#from-clipboard" class="md-nav__link">
-    <span class="md-ellipsis">
-      From clipboard
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#submitting-and-canceling" class="md-nav__link">
-    <span class="md-ellipsis">
-      Submitting and canceling
+      Open And Close
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#transform-toolbar" class="md-nav__link">
+  <a href="#seed-text" class="md-nav__link">
     <span class="md-ellipsis">
-      Transform toolbar
+      Seed Text
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#editor-position-and-dragging" class="md-nav__link">
+  <a href="#send-behavior" class="md-nav__link">
     <span class="md-ellipsis">
-      Editor position and dragging
+      Send Behavior
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#text-editing-features" class="md-nav__link">
+  <a href="#context-chips" class="md-nav__link">
     <span class="md-ellipsis">
-      Text editing features
+      Context Chips
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#keyboard-reference" class="md-nav__link">
+  <a href="#command-corrections" class="md-nav__link">
     <span class="md-ellipsis">
-      Keyboard reference
+      Command Corrections
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editor-keybindings" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editor Keybindings
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terminal-selection-and-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Terminal Selection And Copy
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#customizing-global-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Customizing Global Shortcuts
     </span>
   </a>
   
@@ -981,82 +1121,138 @@
   
 
 
-<h1 id="multi-line-prompt-editor">Multi-Line Prompt Editor<a class="headerlink" href="#multi-line-prompt-editor" title="Permanent link">&para;</a></h1>
-<p>The multi-line editor is a floating panel for preparing and cleaning up shell commands before inserting them into a terminal pane. It's especially useful for:</p>
+<h1 id="multiline-editor">Multiline Editor<a class="headerlink" href="#multiline-editor" title="Permanent link">&para;</a></h1>
+<p>The multiline editor is a compact prompt editor docked to the bottom of the active terminal pane. It is for preparing terminal input before sending it to a shell or agent TUI, without fighting the terminal's single-line prompt.</p>
+<p>Use it when you want to:</p>
 <ul>
-<li>pasting multi-line CLI commands from documentation or LLM output</li>
-<li>removing markdown code fence markers (<code></code>)</li>
-<li>collapsing wrapped continuation lines (backslash newlines)</li>
-<li>stripping prompt prefixes ($, ❯, #, &gt;) from copy-pasted snippets</li>
-<li>fixing smart quotes that snuck in from rich-text sources</li>
-<li>joining wrapped lines for compact one-liners</li>
+<li>paste or revise multi-line commands from docs, chat, or terminal output</li>
+<li>edit selected terminal text before running it again</li>
+<li>send a block of text to Claude Code without losing the editor</li>
+<li>review command corrections before applying them</li>
+<li>keep pane context visible while editing</li>
 </ul>
-<h2 id="opening-the-editor">Opening the editor<a class="headerlink" href="#opening-the-editor" title="Permanent link">&para;</a></h2>
-<h3 id="from-scratch">From scratch<a class="headerlink" href="#from-scratch" title="Permanent link">&para;</a></h3>
-<ul>
-<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-e">E</kbd></span> opens an empty editor seeded from the shell's current prompt (if available)</li>
-</ul>
-<h3 id="from-clipboard">From clipboard<a class="headerlink" href="#from-clipboard" title="Permanent link">&para;</a></h3>
-<ul>
-<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-v">V</kbd></span> opens the editor pre-populated with your clipboard contents</li>
-</ul>
-<p>The editor is only available in <strong>shell panes</strong> and <strong>command panes</strong> that have an attached terminal.</p>
-<h2 id="submitting-and-canceling">Submitting and canceling<a class="headerlink" href="#submitting-and-canceling" title="Permanent link">&para;</a></h2>
-<ul>
-<li><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span> inserts the edited text into the terminal <strong>without auto-executing</strong>. You'll see the command in the terminal, ready to review before you press Enter.</li>
-<li><span class="keys"><kbd class="key-escape">Esc</kbd></span> closes the editor without writing anything.</li>
-</ul>
-<h2 id="transform-toolbar">Transform toolbar<a class="headerlink" href="#transform-toolbar" title="Permanent link">&para;</a></h2>
-<p>The editor includes six one-shot text transforms. Click a button to apply; you can undo and apply multiple times within the same editing session.</p>
+<p>The editor is intentionally a plain textarea, not CodeMirror. That keeps focus, selection, clipboard, and terminal submission behavior predictable inside xterm panes.</p>
+<h2 id="open-and-close">Open And Close<a class="headerlink" href="#open-and-close" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Transform</th>
-<th>What it does</th>
+<th>Action</th>
+<th>Default shortcut</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Join lines</td>
-<td>Collapse newlines and surrounding whitespace into a single line</td>
+<td>Toggle editor for the focused terminal pane</td>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span></td>
 </tr>
 <tr>
-<td>Unwrap \</td>
-<td>Remove trailing backslash-newline continuations (\n becomes space)</td>
+<td>Toggle editor from anywhere in the app</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-e">E</kbd></span></td>
 </tr>
 <tr>
-<td>Strip $ / ❯</td>
-<td>Remove leading prompt markers: <code>$</code>, <code>❯</code>, <code>#</code>, <code>&gt;</code>, plus one trailing space</td>
+<td>Open editor with clipboard contents</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-v">V</kbd></span></td>
 </tr>
 <tr>
-<td>Strip ```</td>
-<td>Remove leading and trailing markdown code fence markers</td>
-</tr>
-<tr>
-<td>Smart → straight</td>
-<td>Replace curly/smart quotes (<code>"</code>, <code>'</code>) with straight ASCII quotes</td>
-</tr>
-<tr>
-<td>Trim</td>
-<td>Strip leading and trailing whitespace</td>
+<td>Close editor without sending</td>
+<td><span class="keys"><kbd class="key-escape">Esc</kbd></span> or <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span> while the editor has focus</td>
 </tr>
 </tbody>
 </table>
-<h2 id="editor-position-and-dragging">Editor position and dragging<a class="headerlink" href="#editor-position-and-dragging" title="Permanent link">&para;</a></h2>
-<p>The editor appears as a floating panel that doesn't block the rest of your layout.</p>
+<p>The editor is available for shell and command panes with an attached terminal. It is scoped to one pane at a time and docks inside that pane, above the status bar.</p>
+<p>Clicking the terminal area while the editor is open returns focus to the editor, unless you are selecting/copying terminal text.</p>
+<h2 id="seed-text">Seed Text<a class="headerlink" href="#seed-text" title="Permanent link">&para;</a></h2>
+<p>Roux can open the editor with useful starting text:</p>
 <ul>
-<li><strong>Smart positioning</strong>: For new shells (minimal output), the editor appears near the top. For active shells (scrolled content), it appears near the bottom so it doesn't hide what you're doing.</li>
-<li><strong>Dragging</strong>: Click and drag the header bar to move the panel. Position persists across app restarts.</li>
-<li><strong>Viewport safety</strong>: The panel is always kept partially visible so you can grab it back if it drifts off-screen during a resize.</li>
+<li><strong>Selected terminal text</strong>: select text in a terminal pane, then press <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span>. The editor opens with the selection loaded.</li>
+<li><strong>Clipboard text</strong>: press <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-v">V</kbd></span> to open with clipboard contents. Clipboard text takes priority over terminal selection.</li>
+<li><strong>Empty prompt</strong>: press <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span> with no selection to start from a blank editor.</li>
 </ul>
-<h2 id="text-editing-features">Text editing features<a class="headerlink" href="#text-editing-features" title="Permanent link">&para;</a></h2>
-<p>The editor uses <a href="https://codemirror.net/">CodeMirror</a> for syntax highlighting and editing:</p>
+<h2 id="send-behavior">Send Behavior<a class="headerlink" href="#send-behavior" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Default shortcut</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Send editor text to the terminal and keep the editor open</td>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span></td>
+</tr>
+<tr>
+<td>Insert a newline inside the editor</td>
+<td><span class="keys"><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span>, <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span>, or <span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span></td>
+</tr>
+</tbody>
+</table>
+<p>When you send:</p>
 <ul>
-<li><strong>Syntax highlighting</strong>: Shell syntax is highlighted for readability</li>
-<li><strong>Undo/redo</strong>: <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-z">Z</kbd></span> and <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-z">Z</kbd></span> (or <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-y">Y</kbd></span> for redo) work as expected</li>
-<li><strong>Standard keybindings</strong>: Cut, copy, paste, select-all, and other common text commands work normally</li>
+<li>the text is written to the focused pane's attached PTY</li>
+<li>Roux also sends Enter, so the shell or agent sees it as if you pressed Enter in the terminal</li>
+<li>the editor stays open for follow-up edits</li>
+<li>shell panes use xterm input for single-line commands so normal shells receive the text reliably</li>
+<li>multi-line shell input and agent input use paste-style insertion before Enter</li>
 </ul>
-<h2 id="keyboard-reference">Keyboard reference<a class="headerlink" href="#keyboard-reference" title="Permanent link">&para;</a></h2>
+<h2 id="context-chips">Context Chips<a class="headerlink" href="#context-chips" title="Permanent link">&para;</a></h2>
+<p>The compact header shows small chips for the context Roux knows about the target pane:</p>
+<ul>
+<li>input target: <code>shell</code> or <code>claude</code></li>
+<li>cwd: the pane working-directory basename, falling back to the session worktree</li>
+<li>git branch</li>
+<li>worktrunk state when available: <code>dirty</code>, ahead/behind counts, and <code>locked</code></li>
+<li>spawn profile name when the pane was created from a profile</li>
+</ul>
+<p>These chips are informational. Clickable actions stay limited to the close button, command correction pill, keyboard-shortcut hint, and Send button.</p>
+<h2 id="command-corrections">Command Corrections<a class="headerlink" href="#command-corrections" title="Permanent link">&para;</a></h2>
+<p>In shell mode, Roux checks the first command line for a small set of common mistakes and shows a subtle <strong>Fix</strong> pill when it has a suggestion. Corrections are click-to-apply; Roux does not rewrite your input silently.</p>
+<p>Current first-pass corrections include:</p>
+<table>
+<thead>
+<tr>
+<th>Input</th>
+<th>Suggested correction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gti status</code></td>
+<td><code>git status</code></td>
+</tr>
+<tr>
+<td><code>git statsu</code></td>
+<td><code>git status</code></td>
+</tr>
+<tr>
+<td><code>git comit</code></td>
+<td><code>git commit</code></td>
+</tr>
+<tr>
+<td><code>git chekout</code></td>
+<td><code>git checkout</code></td>
+</tr>
+<tr>
+<td><code>npm dev</code></td>
+<td><code>npm run dev</code></td>
+</tr>
+<tr>
+<td><code>npm build</code></td>
+<td><code>npm run build</code></td>
+</tr>
+<tr>
+<td><code>npm check</code></td>
+<td><code>npm run check</code></td>
+</tr>
+<tr>
+<td><code>npm lint</code></td>
+<td><code>npm run lint</code></td>
+</tr>
+</tbody>
+</table>
+<p>Valid npm lifecycle shortcuts such as <code>npm test</code> and <code>npm start</code> are left alone.</p>
+<h2 id="editor-keybindings">Editor Keybindings<a class="headerlink" href="#editor-keybindings" title="Permanent link">&para;</a></h2>
+<p>These shortcuts work while focus is inside the multiline editor:</p>
 <table>
 <thead>
 <tr>
@@ -1066,32 +1262,79 @@
 </thead>
 <tbody>
 <tr>
-<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-e">E</kbd></span></td>
-<td>Open empty editor</td>
-</tr>
-<tr>
-<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-v">V</kbd></span></td>
-<td>Open with clipboard</td>
-</tr>
-<tr>
 <td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span></td>
-<td>Insert into terminal</td>
+<td>Send text to the target terminal and keep editor open</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span></td>
+<td>Insert newline</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span></td>
+<td>Insert newline</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span></td>
+<td>Insert newline</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-c">C</kbd></span></td>
+<td>Clear the editor when there is no selected text</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-u">U</kbd></span></td>
+<td>Copy and clear the current line</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-k">K</kbd></span></td>
+<td>Clear selected lines, or the current line when no text is selected</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-alt">Alt</kbd><span>+</span><kbd class="key-backspace">Backspace</kbd></span></td>
+<td>Delete word left</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-w">W</kbd></span></td>
+<td>Delete word left</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-k">K</kbd></span></td>
+<td>Delete to line end</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-backspace">Backspace</kbd></span></td>
+<td>Delete to line start</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-delete">Del</kbd></span></td>
+<td>Delete to line end</td>
 </tr>
 <tr>
 <td><span class="keys"><kbd class="key-escape">Esc</kbd></span></td>
-<td>Cancel</td>
+<td>Close without sending</td>
 </tr>
 <tr>
-<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-z">Z</kbd></span></td>
-<td>Undo</td>
-</tr>
-<tr>
-<td><span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-z">Z</kbd></span></td>
-<td>Redo</td>
+<td><span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span></td>
+<td>Close without sending</td>
 </tr>
 </tbody>
 </table>
-<p>All these keybindings are customizable via <code>~/.config/roux/keymap.kdl</code>. See <a href="../keymap/">Keymap</a> for how to rebind them.</p>
+<p>Normal textarea behavior still applies for ordinary typing, paste, selection, undo/redo, copy, and select-all.</p>
+<h2 id="terminal-selection-and-copy">Terminal Selection And Copy<a class="headerlink" href="#terminal-selection-and-copy" title="Permanent link">&para;</a></h2>
+<p>Terminal selection still works while the editor is open:</p>
+<ul>
+<li>dragging in the terminal can select terminal output</li>
+<li>copying uses the selected terminal text</li>
+<li>clicking the terminal without a selection focuses the editor again</li>
+<li>pressing <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span> with selected terminal text reopens/seeds the editor from that selection</li>
+</ul>
+<h2 id="customizing-global-shortcuts">Customizing Global Shortcuts<a class="headerlink" href="#customizing-global-shortcuts" title="Permanent link">&para;</a></h2>
+<p>The global shortcuts that open the editor come from <code>~/.config/roux/keymap.kdl</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bind &quot;Ctrl+KeyG&quot;       &quot;pane.open-multiline-editor&quot;
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bind &quot;Cmd+Shift+KeyE&quot;  &quot;pane.open-multiline-editor&quot;
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>bind &quot;Cmd+Shift+KeyV&quot;  &quot;pane.open-multiline-editor-with-clipboard&quot;
+</span></code></pre></div>
+<p>Reload via <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span> -&gt; <strong>Reload Keymap</strong> after editing the file. See <a href="../keymap/">Keymap</a> for the full keymap schema.</p>
 
 
 

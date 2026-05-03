@@ -611,6 +611,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#may-3-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      May 3, 2026
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -694,6 +703,8 @@
       
         
       
+        
+      
     
     
       
@@ -749,6 +760,27 @@
   
   <span class="md-ellipsis">
     Panes
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/editor/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Multiline Editor
   </span>
   
 
@@ -1196,6 +1228,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#may-3-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      May 3, 2026
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1295,9 +1336,7 @@
 </ul>
 <h2 id="april-23-2026">April 23, 2026<a class="headerlink" href="#april-23-2026" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Multi-line prompt editor</strong>: <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-e">E</kbd></span> opens a dedicated editor for cleaning up pasted CLI commands before inserting them into the terminal. Six one-shot text transforms (join lines, unwrap continuations, strip prompt markers, strip code fences, smart-quote conversion, trim) plus CodeMirror syntax highlighting and undo history. Submit with <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span> to insert without auto-executing; <span class="keys"><kbd class="key-escape">Esc</kbd></span> to cancel.</li>
-<li><strong>Clipboard-seeded editor</strong>: <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-v">V</kbd></span> opens the multi-line editor pre-populated with clipboard contents.</li>
-<li><strong>Smart editor positioning</strong>: the floating editor panel positions intelligently—near the top for new shells (to avoid obscuring output) and near the bottom for active ones. Drag by the header; position persists across restarts.</li>
+<li><strong>Multiline prompt editor groundwork</strong>: Roux added a dedicated editor for preparing pasted CLI commands before sending them to a terminal, plus clipboard-seeded opening via <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-v">V</kbd></span>.</li>
 <li><strong>Draggable pane dividers</strong>: split pane dividers are now draggable for quick manual resize, in addition to the existing keybindings.</li>
 </ul>
 <h2 id="april-28-2026">April 28, 2026<a class="headerlink" href="#april-28-2026" title="Permanent link">&para;</a></h2>
@@ -1312,6 +1351,11 @@
 <h2 id="may-2-2026">May 2, 2026<a class="headerlink" href="#may-2-2026" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Roux MCP integration</strong>: Roux now ships <code>roux-cli mcp</code>, a stdio MCP server that lets supported MCP hosts inspect and safely act on Roux sessions, panes, latest terminal output, and notes through the running desktop app. Settings gained an <strong>Agent Integrations</strong> section with <strong>Enable Roux MCP</strong>, CLI/current status, Claude Desktop host setup, dry-run preview, and scoped config writes that preserve unrelated host config. v1 intentionally excludes arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, and broad filesystem mutation. See <a href="../features/cli/#roux-mcp">CLI bridge → <code>roux mcp</code></a> and <a href="../settings/#agent-integrations">Settings → Agent Integrations</a>.</li>
+</ul>
+<h2 id="may-3-2026">May 3, 2026<a class="headerlink" href="#may-3-2026" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Warp-style multiline editor refresh</strong>: the prompt editor is now a compact dock at the bottom of each terminal pane. <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span> toggles it for the focused pane, <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-e">E</kbd></span> toggles it from anywhere, and <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-shift">Shift</kbd><span>+</span><kbd class="key-v">V</kbd></span> opens with clipboard contents. Selecting terminal text and pressing <span class="keys"><kbd class="key-control">Ctrl</kbd><span>+</span><kbd class="key-g">G</kbd></span> seeds the editor from that selection. <span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-enter">Enter</kbd></span> sends input and keeps the editor open, including an Enter press for the target terminal.</li>
+<li><strong>Editor ergonomics</strong>: added shell-like local editing keys, command correction pills for common mistakes (<code>gti</code>, <code>git statsu</code>, missing <code>npm run</code>), and context chips for target, cwd, git branch/state, and spawn profile. See <a href="../features/editor/">Multiline Editor</a>.</li>
 </ul>
 
 
