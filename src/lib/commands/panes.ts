@@ -13,6 +13,8 @@ import {
   openMultiLineEditor,
   type MultiLineTarget,
 } from "$lib/stores/multiLineEditor";
+import { resolveMultiLineEditorSeed } from "$lib/panes/multiLineEditorSeed";
+import { getTerminalController } from "$lib/panes/terminalRuntime";
 import {
   profileList,
   type SpawnProfile,
@@ -206,14 +208,16 @@ async function openMultiLineEditorForFocusedPane(initialText: string | null): Pr
   const pane = getInstance(paneId);
   if (!pane) return;
   const target = resolveMultiLineTarget(pane);
-  const seedText = initialText ?? "";
-  const seeded = !!initialText;
+  const selectedText = initialText === null
+    ? getTerminalController(paneId)?.getSelection() ?? ""
+    : "";
+  const seed = resolveMultiLineEditorSeed(initialText, selectedText);
 
   openMultiLineEditor({
     paneId,
     paneLabel: paneLabel(pane),
-    initialText: seedText,
-    seeded,
+    initialText: seed.text,
+    seeded: seed.seeded,
     target,
   });
 }

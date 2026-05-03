@@ -45,18 +45,19 @@ On launch, restored sessions appear disconnected by design. Click **Reconnect** 
 
 ## Working with commands
 
-When working with shell terminals, you can use the multi-line editor to clean up pasted commands:
+When working with shell terminals or agent TUIs, use the multiline editor to prepare input before sending it:
 
-- ++cmd+shift+e++ opens an editor for preparing shell commands
-- ++cmd+shift+v++ opens the editor with clipboard contents
-- Use the transform toolbar to remove markdown code fences, join wrapped lines, strip prompt markers, or fix smart quotes
-- ++cmd+enter++ inserts the cleaned command without auto-executing
+- ++ctrl+g++ toggles the editor for the focused terminal pane.
+- Select terminal text, then press ++ctrl+g++ to reopen that text in the editor.
+- ++cmd+shift+e++ toggles the editor from anywhere in the app.
+- ++cmd+shift+v++ opens the editor with clipboard contents.
+- ++cmd+enter++ sends the editor text and keeps the editor open for follow-up edits.
 
-See [Editor](features/editor.md) for full details.
+See [Multiline Editor](features/editor.md) for full details, including local editing keys, command corrections, and context chips.
 
 ## Next steps
 
 - [Panes](features/panes.md) — splits, stacks, focus
 - [Sessions](features/sessions.md) — Claude and shell lifetimes
-- [Editor](features/editor.md) — multi-line prompt editor and text transforms
+- [Multiline Editor](features/editor.md) — docked terminal input editor
 - [Keyboard shortcuts](keyboard-shortcuts.md)

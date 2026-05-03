@@ -76,9 +76,7 @@ This page tracks major shipped features across Roux's full history.
 
 ## April 23, 2026
 
-- **Multi-line prompt editor**: ++cmd+shift+e++ opens a dedicated editor for cleaning up pasted CLI commands before inserting them into the terminal. Six one-shot text transforms (join lines, unwrap continuations, strip prompt markers, strip code fences, smart-quote conversion, trim) plus CodeMirror syntax highlighting and undo history. Submit with ++cmd+enter++ to insert without auto-executing; ++escape++ to cancel.
-- **Clipboard-seeded editor**: ++cmd+shift+v++ opens the multi-line editor pre-populated with clipboard contents.
-- **Smart editor positioning**: the floating editor panel positions intelligently—near the top for new shells (to avoid obscuring output) and near the bottom for active ones. Drag by the header; position persists across restarts.
+- **Multiline prompt editor groundwork**: Roux added a dedicated editor for preparing pasted CLI commands before sending them to a terminal, plus clipboard-seeded opening via ++cmd+shift+v++.
 - **Draggable pane dividers**: split pane dividers are now draggable for quick manual resize, in addition to the existing keybindings.
 
 ## April 28, 2026
@@ -93,3 +91,8 @@ This page tracks major shipped features across Roux's full history.
 ## May 2, 2026
 
 - **Roux MCP integration**: Roux now ships `roux-cli mcp`, a stdio MCP server that lets supported MCP hosts inspect and safely act on Roux sessions, panes, latest terminal output, and notes through the running desktop app. Settings gained an **Agent Integrations** section with **Enable Roux MCP**, CLI/current status, Claude Desktop host setup, dry-run preview, and scoped config writes that preserve unrelated host config. v1 intentionally excludes arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, and broad filesystem mutation. See [CLI bridge → `roux mcp`](features/cli.md#roux-mcp) and [Settings → Agent Integrations](settings.md#agent-integrations).
+
+## May 3, 2026
+
+- **Warp-style multiline editor refresh**: the prompt editor is now a compact dock at the bottom of each terminal pane. ++ctrl+g++ toggles it for the focused pane, ++cmd+shift+e++ toggles it from anywhere, and ++cmd+shift+v++ opens with clipboard contents. Selecting terminal text and pressing ++ctrl+g++ seeds the editor from that selection. ++cmd+enter++ sends input and keeps the editor open, including an Enter press for the target terminal.
+- **Editor ergonomics**: added shell-like local editing keys, command correction pills for common mistakes (`gti`, `git statsu`, missing `npm run`), and context chips for target, cwd, git branch/state, and spawn profile. See [Multiline Editor](features/editor.md).

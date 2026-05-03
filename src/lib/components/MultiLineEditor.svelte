@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { Tooltip } from "bits-ui";
   import Keyboard from "@lucide/svelte/icons/keyboard";
   import X from "@lucide/svelte/icons/x";
@@ -17,6 +17,22 @@
   import { getInstance, getAttachedPtyId } from "$lib/panes/instances";
   import { hasPrimaryModifier, formatShortcut } from "$lib/platform";
   import { settings } from "$lib/stores/settings";
+  import { activeSession } from "$lib/stores/sessions";
+  import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
+  import { paneInstances } from "$lib/panes/instances";
+  import { profileRegistry } from "$lib/panes/profiles";
+  import {
+    clearBuffer,
+    clearSelectedLines,
+    copyAndClearCurrentLine,
+    deleteToLineEnd,
+    deleteToLineStart,
+    deleteWordLeft,
+    insertAtSelection,
+    type TextEditState,
+  } from "$lib/panes/textEditing";
+  import { suggestCommandCorrection } from "$lib/panes/commandCorrections";
+  import { buildMultiLineEditorContextChips, type MultiLineContextChipTone } from "$lib/panes/multiLineEditorContext";
 
   interface Props {
     paneId: string;
@@ -29,11 +45,21 @@
     action: string;
   }
 
-  // Everything a user can trigger while the editor has focus — shown on
-  // hover of the keyboard hint in the header. Covers both our custom
-  // keybindings and the CodeMirror defaults that users commonly rely on.
+  // Everything a user can trigger while the editor has focus, shown on
+  // hover of the keyboard hint in the header.
   const modalShortcuts: ShortcutEntry[] = [
     { shortcut: "cmd+enter", action: "Send to terminal" },
+    { shortcut: "shift+enter", action: "Insert newline" },
+    { shortcut: "ctrl+enter", action: "Insert newline" },
+    { shortcut: "alt+enter", action: "Insert newline" },
+    { shortcut: "ctrl+c", action: "Clear editor when nothing is selected" },
+    { shortcut: "ctrl+u", action: "Copy and clear current line" },
+    { shortcut: "cmd+shift+k", action: "Clear selected lines" },
+    { shortcut: "alt+backspace", action: "Delete word left" },
+    { shortcut: "ctrl+w", action: "Delete word left" },
+    { shortcut: "ctrl+k", action: "Delete to line end" },
+    { shortcut: "cmd+backspace", action: "Delete to line start" },
+    { shortcut: "cmd+delete", action: "Delete to line end" },
     { shortcut: "escape", action: "Cancel without writing" },
     { shortcut: "ctrl+g", action: "Cancel without writing" },
   ];
@@ -46,6 +72,22 @@
   // even if the store state races with a pane change.
   let disabledPaneId: string | null = null;
   const isVisible = $derived($multiLineEditor.open && $multiLineEditor.paneId === hostPaneId);
+  const commandCorrection = $derived(
+    $multiLineEditor.target === "shell" ? suggestCommandCorrection(draftText) : null,
+  );
+  const editorPane = $derived($paneInstances.get(hostPaneId) ?? null);
+  const sessionMetadata = $derived(
+    $activeSession?.worktreePath ? worktreeMetadataFor($activeSession.worktreePath) : null,
+  );
+  const wtMeta = $derived(sessionMetadata ? $sessionMetadata : null);
+  const profileName = $derived(profileLabel(editorPane));
+  const contextChips = $derived(buildMultiLineEditorContextChips({
+    pane: editorPane,
+    session: $activeSession,
+    target: $multiLineEditor.target,
+    metadata: wtMeta,
+    profileName,
+  }));
 
   $effect(() => {
     const state = $multiLineEditor;
@@ -81,6 +123,24 @@
     requestAnimationFrame(() => textareaEl?.focus());
   }
 
+  function profileLabel(pane: typeof editorPane): string | null {
+    const ref = pane?.spawnProfileRef;
+    if (!ref) return null;
+    if (ref.kind === "inline") return ref.profile.name;
+    return $profileRegistry.get(ref.id)?.name ?? ref.id;
+  }
+
+  function chipClass(tone: MultiLineContextChipTone): string {
+    switch (tone) {
+      case "accent":
+        return "border-accent-dim/45 bg-accent-dim/12 text-text-primary";
+      case "warn":
+        return "border-yellow/35 bg-yellow/10 text-yellow";
+      default:
+        return "border-border-subtle/70 bg-bg-surface/35 text-text-muted";
+    }
+  }
+
   function disableTargetPaneInput(paneId: string | null): void {
     if (!paneId) return;
     // Keep xterm stdin enabled while the editor owns DOM focus. Disabling
@@ -110,6 +170,51 @@
 
   function currentText(): string {
     return draftText;
+  }
+
+  function currentEditorState(): TextEditState | null {
+    if (!textareaEl) return null;
+    return {
+      value: draftText,
+      selectionStart: textareaEl.selectionStart,
+      selectionEnd: textareaEl.selectionEnd,
+    };
+  }
+
+  async function applyTextEdit(next: TextEditState): Promise<void> {
+    draftText = next.value;
+    await tick();
+    textareaEl?.focus();
+    textareaEl?.setSelectionRange(next.selectionStart, next.selectionEnd);
+  }
+
+  function handleTextEdit(e: KeyboardEvent, next: TextEditState): void {
+    e.preventDefault();
+    e.stopPropagation();
+    void applyTextEdit(next);
+  }
+
+  async function copyCurrentLineAndClear(): Promise<void> {
+    const state = currentEditorState();
+    if (!state) return;
+    const next = copyAndClearCurrentLine(state);
+    try {
+      await navigator.clipboard.writeText(next.clipboardText);
+      await applyTextEdit(next);
+    } catch (err) {
+      console.error("MultiLineEditor: clipboard write failed", err);
+    }
+  }
+
+  async function applyCurrentCorrection(): Promise<void> {
+    const correction = commandCorrection;
+    if (!correction) return;
+    const cursor = correction.replacement.length;
+    await applyTextEdit({
+      value: correction.replacement,
+      selectionStart: cursor,
+      selectionEnd: cursor,
+    });
   }
 
   function normalizeSubmitText(text: string): string {
@@ -196,6 +301,58 @@
       void submitInsert();
       return;
     }
+
+    const state = currentEditorState();
+    if (!state) return;
+    const key = e.key.toLowerCase();
+    const hasSelection = state.selectionStart !== state.selectionEnd;
+
+    if (e.key === "Enter" && !hasPrimaryModifier(e) && (e.shiftKey || e.ctrlKey || e.altKey)) {
+      handleTextEdit(e, insertAtSelection(state, "\n"));
+      return;
+    }
+
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && key === "c" && !hasSelection) {
+      handleTextEdit(e, clearBuffer(state));
+      return;
+    }
+
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && key === "u") {
+      e.preventDefault();
+      e.stopPropagation();
+      void copyCurrentLineAndClear();
+      return;
+    }
+
+    if (hasPrimaryModifier(e) && e.shiftKey && !e.altKey && key === "k") {
+      handleTextEdit(e, clearSelectedLines(state));
+      return;
+    }
+
+    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.key === "Backspace") {
+      handleTextEdit(e, deleteWordLeft(state));
+      return;
+    }
+
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && key === "w") {
+      handleTextEdit(e, deleteWordLeft(state));
+      return;
+    }
+
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && key === "k") {
+      handleTextEdit(e, deleteToLineEnd(state));
+      return;
+    }
+
+    if (hasPrimaryModifier(e) && !e.shiftKey && !e.altKey && e.key === "Backspace") {
+      handleTextEdit(e, deleteToLineStart(state));
+      return;
+    }
+
+    if (hasPrimaryModifier(e) && !e.shiftKey && !e.altKey && e.key === "Delete") {
+      handleTextEdit(e, deleteToLineEnd(state));
+      return;
+    }
   }
 </script>
 
@@ -224,6 +381,29 @@
               <span class="text-text-muted/60"> seeded</span>
             {/if}
           </span>
+          <div class="flex min-w-0 items-center gap-1 overflow-hidden">
+            {#each contextChips as chip (chip.kind)}
+              <span
+                class={`inline-flex h-5 max-w-[160px] shrink min-w-0 items-center truncate rounded border px-1.5 text-[10px] leading-none ${chipClass(chip.tone)}`}
+                title={chip.title}
+                data-context-chip={chip.kind}
+              >
+                <span class="min-w-0 truncate">{chip.label}</span>
+              </span>
+            {/each}
+          </div>
+          {#if commandCorrection}
+            <button
+              type="button"
+              class="flex h-5 max-w-[220px] cursor-pointer items-center gap-1 overflow-hidden rounded border border-accent-dim/40 bg-accent-dim/10 px-1.5 text-[10px] text-text-secondary transition-colors hover:border-accent-dim hover:bg-accent-dim/20 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+              title={commandCorrection.description}
+              aria-label={commandCorrection.description}
+              onclick={() => void applyCurrentCorrection()}
+            >
+              <span class="shrink-0 text-text-muted">Fix</span>
+              <span class="min-w-0 truncate font-mono">{commandCorrection.label}</span>
+            </button>
+          {/if}
         </div>
         <div class="flex shrink-0 items-center gap-1">
           <Tooltip.Root>
