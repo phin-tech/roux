@@ -1,4 +1,4 @@
-import { writable, derived } from "svelte/store";
+import { writable, readable, get, type Readable } from "svelte/store";
 import type { Session } from "../types";
 
 interface SessionState {
@@ -11,8 +11,22 @@ export const sessionState = writable<SessionState>({
   activeSessionId: null,
 });
 
-export const activeSession = derived(sessionState, ($state) =>
-  $state.sessions.find((s) => s.id === $state.activeSessionId) ?? null
+function selectSessionState<T>(selector: (state: SessionState) => T): Readable<T> {
+  let current = selector(get(sessionState));
+  return readable(current, (set) =>
+    sessionState.subscribe((state) => {
+      const next = selector(state);
+      if (Object.is(next, current)) return;
+      current = next;
+      set(next);
+    }),
+  );
+}
+
+export const sessionList = selectSessionState((state) => state.sessions);
+export const activeSessionId = selectSessionState((state) => state.activeSessionId);
+export const activeSession = selectSessionState(
+  (state) => state.sessions.find((s) => s.id === state.activeSessionId) ?? null,
 );
 
 export function addSession(session: Session) {
@@ -35,7 +49,9 @@ export function removeSession(id: string) {
 }
 
 export function setActiveSession(id: string) {
-  sessionState.update((state) => ({ ...state, activeSessionId: id }));
+  const state = get(sessionState);
+  if (state.activeSessionId === id) return;
+  sessionState.set({ ...state, activeSessionId: id });
 }
 
 export function updateSessionStatus(

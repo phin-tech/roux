@@ -18,7 +18,6 @@
     killPty,
     notificationsPush,
   } from "$lib/tauri";
-  import { sessionState } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
   import {
@@ -41,15 +40,17 @@
   import CloseButton from "./CloseButton.svelte";
   import MultiLineEditor from "./MultiLineEditor.svelte";
   import { projects } from "$lib/stores/projects";
+  import type { Session } from "$lib/types";
 
   interface Props {
     paneId: string;
     sessionId: string;
+    session?: Session | null;
     visible?: boolean;
     suppressTitleAccent?: boolean;
   }
 
-  let { paneId, sessionId, visible = true, suppressTitleAccent = false }: Props = $props();
+  let { paneId, sessionId, session = null, visible = true, suppressTitleAccent = false }: Props = $props();
 
   let containerEl: HTMLDivElement | undefined = $state();
   let resizeObserver: ResizeObserver | null = null;
@@ -64,15 +65,15 @@
   const terminalState = $derived(instance?.terminalState);
   const isFocused = $derived($focusedPaneId === paneId);
   const hasMultipleVisiblePanes = $derived.by<boolean>(() => {
+    if (!visible) return false;
     const layout = $sessionLayouts.get(sessionId);
     if (!layout) return false;
     return collectVisibleLeafIds(layout).length > 1;
   });
-  const session = $derived($sessionState.sessions.find((s) => s.id === sessionId));
   const projectName = $derived(
-    session?.projectId ? ($projects.find((p) => p.id === session.projectId)?.name ?? null) : null
+    visible && session?.projectId ? ($projects.find((p) => p.id === session.projectId)?.name ?? null) : null
   );
-  const paneSlot = $derived($paneSlotById.get(paneId) ?? null);
+  const paneSlot = $derived.by(() => (visible ? ($paneSlotById.get(paneId) ?? null) : null));
   const paneSlotLabel = $derived(
     paneSlot == null ? null : paneSlot === 10 ? "0" : String(paneSlot),
   );

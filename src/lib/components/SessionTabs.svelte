@@ -3,11 +3,14 @@
   import SessionCard from "./SessionCard.svelte";
   import ArchivedSessionsList from "./ArchivedSessionsList.svelte";
   import {
-    sessionState,
+    activeSession,
+    activeSessionId,
+    sessionList,
     setActiveSession,
     renameSession,
     addSession,
     updateSessionGitStatus,
+    setSessionProject,
   } from "$lib/stores/sessions";
   import { initSessionWithProfile } from "$lib/panes/actions";
   import {
@@ -21,7 +24,6 @@
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
   import { projects, createProject, removeProject } from "$lib/stores/projects";
-  import { setSessionProject } from "$lib/stores/sessions";
   import { setSessionProject as tauriSetSessionProject } from "$lib/tauri";
   import { log, logError } from "$lib/logging";
   import type { GroupBy, Session, SessionBlueprint, Project } from "$lib/types";
@@ -85,7 +87,7 @@
 
   let grouped = $derived(
     getGroupedSessions(
-      $sessionState.sessions,
+      $sessionList,
       $projects,
       $settings.groupBy ?? "repo",
     ),
@@ -135,7 +137,7 @@
   // blueprint rows whose live counterpart is already in the sidebar.
   let liveBlueprintIds = $derived.by(() => {
     const set = new Set<string>();
-    for (const s of $sessionState.sessions) {
+    for (const s of $sessionList) {
       if (s.blueprintId) set.add(s.blueprintId);
     }
     return set;
@@ -488,8 +490,7 @@
   }
 
   $effect(() => {
-    const session = $sessionState.sessions.find((s) => s.id === $sessionState.activeSessionId);
-    const worktreePath = session?.worktreePath ?? null;
+    const worktreePath = $activeSession?.worktreePath ?? null;
     if (!worktreePath) {
       lastTaskWorktreePath = null;
       return;
@@ -506,8 +507,9 @@
 
   // Poll non-git sessions to detect when they become git repos (e.g. after `git init`)
   $effect(() => {
+    const sessions = $sessionList;
     const interval = setInterval(() => {
-      for (const s of $sessionState.sessions) {
+      for (const s of sessions) {
         if (!s.isGitRepo) {
           refreshSessionGitStatus(s.id).then((isGit) => {
             if (isGit) updateSessionGitStatus(s.id, true);
@@ -519,13 +521,13 @@
   });
 
   async function handleClose(id: string) {
-    const session = $sessionState.sessions.find((s) => s.id === id);
+    const session = $sessionList.find((s) => s.id === id);
     if (!session) return;
     await closeSession(session);
   }
 
   async function handleReconnect(id: string) {
-    const session = $sessionState.sessions.find((s) => s.id === id);
+    const session = $sessionList.find((s) => s.id === id);
     if (!session) return;
     await continueSession(session);
   }
@@ -645,7 +647,7 @@
           {#each group.sessions as session (session.id)}
             <SessionCard
               {session}
-              active={session.id === $sessionState.activeSessionId}
+              active={session.id === $activeSessionId}
               slotNumber={slotById.get(session.id)}
               hideProjectTag={($settings.groupBy ?? "repo") === "project"}
               onselect={() => setActiveSession(session.id)}

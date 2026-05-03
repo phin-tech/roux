@@ -1338,6 +1338,25 @@ impl PtyManager {
             .collect()
     }
 
+    /// List all PTY info snapshots in one pass.
+    pub fn list_all(&self) -> Vec<PtyInfo> {
+        let sessions = self.sessions.lock().unwrap();
+        sessions
+            .iter()
+            .map(|(id, s)| PtyInfo {
+                id: id.clone(),
+                session_id: s.session_id.clone(),
+                role: s.role.clone(),
+                status: s.status.clone(),
+                name: s.name.clone(),
+                working_dir: s.working_dir.clone(),
+                profile: s.profile.clone(),
+                unread_output: s.unread_output,
+                bell_pending: s.bell_pending,
+            })
+            .collect()
+    }
+
     /// Detach a PTY from its pane (PTY keeps running).
     pub fn detach(&self, pty_id: &str) {
         if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Detach {

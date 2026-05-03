@@ -9,7 +9,7 @@
   import {
     activeSession,
     addSession,
-    sessionState,
+    sessionList,
     setActiveSession,
   } from "$lib/stores/sessions";
   import { settings } from "$lib/stores/settings";
@@ -126,7 +126,7 @@
   let readerError = $state<string | null>(null);
   let readerLoading = $state(false);
 
-  let currentRepo = $derived($activeSession?.repoRoot ?? null);
+  let currentRepo = $derived(visible ? ($activeSession?.repoRoot ?? null) : null);
 
   /**
    * Shorten a repo path for header display. Looks for a known forge
@@ -157,12 +157,30 @@
 
   let currentRepoLabel = $derived(shortRepo(currentRepo));
 
+  function clearRepoScopedState(): void {
+    diagnostics = null;
+    worktrees = [];
+    error = null;
+    worktreesError = null;
+    readerPath = null;
+    readerContent = null;
+    readerError = null;
+    loading = false;
+    worktreesLoading = false;
+    readerLoading = false;
+    menuOpenFor = null;
+    contextMenuFor = null;
+    contextBusy = false;
+    contextError = null;
+  }
+
   // Map of worktree path → first active (non-archived) session that
   // owns it. Used both to disable remove on rows with a running session
   // AND to pick between Focus / New-session buttons.
   let sessionByWorktreePath = $derived.by(() => {
     const map = new Map<string, Session>();
-    for (const s of $sessionState.sessions) {
+    if (!visible) return map;
+    for (const s of $sessionList) {
       if (s.archived) continue;
       if (!map.has(s.worktreePath)) map.set(s.worktreePath, s);
     }
@@ -276,23 +294,30 @@
   $effect(() => {
     void visible;
     void currentRepo;
-    if (!visible) return;
-    if (!currentRepo) {
-      diagnostics = null;
-      worktrees = [];
-      error = null;
-      worktreesError = null;
+    if (!visible) {
+      clearRepoScopedState();
       return;
     }
-    void loadDiagnostics(currentRepo);
-    void loadWorktrees(currentRepo);
+    if (!currentRepo) {
+      clearRepoScopedState();
+      return;
+    }
+    const repo = currentRepo;
+    clearRepoScopedState();
+    void loadDiagnostics(repo);
+    void loadWorktrees(repo);
   });
+
+  function isCurrentRepoRequest(repoPath: string): boolean {
+    return visible && currentRepo === repoPath;
+  }
 
   async function loadDiagnostics(repoPath: string) {
     loading = true;
     error = null;
     try {
       const result = await commands.cmdWorktrunkDiagnostics(repoPath);
+      if (!isCurrentRepoRequest(repoPath)) return;
       if (result.status === "ok") {
         diagnostics = result.data;
       } else {
@@ -300,10 +325,11 @@
         error = result.error;
       }
     } catch (err) {
+      if (!isCurrentRepoRequest(repoPath)) return;
       diagnostics = null;
       error = typeof err === "string" ? err : String(err);
     } finally {
-      loading = false;
+      if (isCurrentRepoRequest(repoPath) || !visible) loading = false;
     }
   }
 
@@ -312,15 +338,17 @@
     worktreesError = null;
     try {
       const entries = await listWorktrees(repoPath);
+      if (!isCurrentRepoRequest(repoPath)) return;
       worktrees = entries;
       // Feed the shared store so chips on session cards pick up any
       // freshly-listed metadata too.
       upsertWorktreeMetadata(entries);
     } catch (err) {
+      if (!isCurrentRepoRequest(repoPath)) return;
       worktrees = [];
       worktreesError = typeof err === "string" ? err : String(err);
     } finally {
-      worktreesLoading = false;
+      if (isCurrentRepoRequest(repoPath) || !visible) worktreesLoading = false;
     }
   }
 

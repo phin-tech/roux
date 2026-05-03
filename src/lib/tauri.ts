@@ -1033,6 +1033,10 @@ export async function listSessionPtys(sessionId: string): Promise<import("./bind
   return invoke("list_session_ptys", { sessionId });
 }
 
+export async function listAllPtys(): Promise<import("./bindings").PtyInfo[]> {
+  return invoke("list_all_ptys");
+}
+
 export async function markPtyRead(ptyId: string): Promise<void> {
   return invoke("mark_pty_read", { ptyId });
 }

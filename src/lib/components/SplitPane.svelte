@@ -10,15 +10,17 @@
     setActiveStackIndex,
     type LayoutNode,
   } from "$lib/panes/layout";
+  import type { Session } from "$lib/types";
 
   interface Props {
     node: LayoutNode;
     sessionId: string;
+    session?: Session | null;
     visible?: boolean;
     path?: number[];
   }
 
-  let { node, sessionId, visible = true, path = [] }: Props = $props();
+  let { node, sessionId, session = null, visible = true, path = [] }: Props = $props();
 
   let splitEl: HTMLDivElement | null = $state(null);
   let activeDivider = $state<number | null>(null);
@@ -81,7 +83,7 @@
 </script>
 
 {#if node.kind === "leaf"}
-  <PaneShell paneId={node.paneId} {sessionId} {visible} />
+  <PaneShell paneId={node.paneId} {sessionId} {session} {visible} />
 {:else if node.stacked}
   <!-- Stacked view: Zellij-style with collapsed tabs and expanded active pane -->
   <!-- All children stay mounted (hidden via CSS) so terminals keep their state -->
@@ -91,7 +93,7 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
         class="flex items-center h-6 shrink-0 select-none border-b border-hairline px-2 gap-1.5 cursor-pointer transition-[background-color,box-shadow] duration-150 {i === (node.activeIndex ?? 0) ? 'bg-bg-deep shadow-[inset_0_2px_0_var(--color-accent-dim)]' : 'bg-transparent hover:bg-bg-surface/30'}"
-        onclick={() => setActiveStackIndex(sessionId, i)}
+        onclick={() => setActiveStackIndex(sessionId, i, path)}
       >
         <span class="text-[10px] text-text-muted/60 shrink-0">{i === (node.activeIndex ?? 0) ? '\u25BE' : '\u25B8'}</span>
         <span class="text-[11px] truncate {i === (node.activeIndex ?? 0) ? 'text-text-secondary' : 'text-text-muted'}">{getStackDisplayLabel(child)}</span>
@@ -101,6 +103,7 @@
           <PaneShell
             paneId={child.paneId}
             {sessionId}
+            {session}
             visible={visible && i === (node.activeIndex ?? 0)}
             suppressTitleAccent={i === (node.activeIndex ?? 0)}
           />
@@ -108,6 +111,7 @@
           <SplitPane
             node={child}
             {sessionId}
+            {session}
             visible={visible && i === (node.activeIndex ?? 0)}
             path={[...path, i]}
           />
@@ -135,6 +139,7 @@
         <SplitPane
           node={child}
           {sessionId}
+          {session}
           visible={visible && childVisible}
           path={[...path, i]}
         />
