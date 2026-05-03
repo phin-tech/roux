@@ -2,12 +2,19 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 static LOG_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 static ENABLED: AtomicBool = AtomicBool::new(false);
 /// Initialize logging. Call once at startup.
 pub fn init(enabled: bool) {
+    // Install the panic hook unconditionally so panic messages always land
+    // in roux.log, even when settings have logging disabled. Stderr from a
+    // launchd-spawned `.app` bundle goes to /dev/null, so without this hook
+    // a panic on the FFI boundary aborts the process with no recoverable
+    // diagnostic.
+    install_panic_hook();
+
     ENABLED.store(enabled, Ordering::Relaxed);
 
     if !enabled {
@@ -95,4 +102,45 @@ macro_rules! rlog {
 
 fn log_dir() -> PathBuf {
     crate::paths::roux_config_dir().join("logs")
+}
+
+/// Install a process-wide panic hook that writes panic info to roux.log
+/// regardless of the `ENABLED` flag. Idempotent.
+fn install_panic_hook() {
+    static INSTALLED: OnceLock<()> = OnceLock::new();
+    if INSTALLED.set(()).is_err() {
+        return;
+    }
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown>".into());
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "<non-string panic payload>".into());
+        let thread = std::thread::current()
+            .name()
+            .map(String::from)
+            .unwrap_or_else(|| format!("{:?}", std::thread::current().id()));
+        force_log_panic(&format!("PANIC thread={thread} at {location}: {payload}"));
+        prev(info);
+    }));
+}
+
+/// Append `msg` to roux.log without consulting the `ENABLED` flag. Used by
+/// the panic hook so panics always land in the log even when the user has
+/// logging turned off — panic capture is critical for triage.
+fn force_log_panic(msg: &str) {
+    let dir = log_dir();
+    let _ = fs::create_dir_all(&dir);
+    let path = dir.join("roux.log");
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "[{}] {}", chrono_now(), msg);
+    }
+    eprintln!("[roux] {}", msg);
 }

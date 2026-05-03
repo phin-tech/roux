@@ -364,25 +364,61 @@ fn level_glyph(level: NotificationLevel) -> &'static str {
     }
 }
 
+/// Tray menu callbacks fire on the macOS main thread, inside tao's
+/// `extern "C" fn send_event`. A panic anywhere downstream of this fn
+/// can't unwind across the Cocoa FFI boundary — Rust force-aborts. So
+/// we keep this fn as a thin classifier: own the id as a `String`,
+/// hand the actual work to a tokio task, and wrap the dispatcher body
+/// in `catch_unwind` so even classification errors can't crash us.
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
-    let id = event.id().as_ref();
+    let app = app.clone();
+    let id = event.id().as_ref().to_string();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        dispatch_menu_event(app, id);
+    }));
+    if let Err(e) = result {
+        let msg = e
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| e.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "<non-string panic payload>".into());
+        rlog!("tray: handle_menu_event panicked: {msg}");
+    }
+}
+
+fn dispatch_menu_event(app: AppHandle, id: String) {
     if id == MENU_ID_SHOW {
-        show_main_window(app);
+        tauri::async_runtime::spawn(async move {
+            show_main_window(&app);
+        });
     } else if id == MENU_ID_QUIT {
         // Match the existing quit path: emit `quit-requested` and let the
         // frontend confirm + call back into the app to actually exit.
-        let _ = app.emit("quit-requested", ());
+        tauri::async_runtime::spawn(async move {
+            let _ = app.emit("quit-requested", ());
+        });
     } else if id == MENU_ID_MARK_ALL_READ {
-        let state = app.state::<AppState>();
-        state.notification_manager.mark_all_read(None, Some(app));
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            state.notification_manager.mark_all_read(None, Some(&app));
+        });
     } else if id == MENU_ID_CLEAR_ALL {
-        let state = app.state::<AppState>();
-        state.notification_manager.clear(None, Some(app));
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            state.notification_manager.clear(None, Some(&app));
+        });
     } else if let Some(notif_id) = id.strip_prefix(NOTIF_PREFIX) {
-        handle_notification_click(app, notif_id);
+        let notif_id = notif_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            handle_notification_click(&app, &notif_id);
+        });
     } else if let Some(session_id) = id.strip_prefix(SESSION_PREFIX) {
-        show_main_window(app);
-        let _ = app.emit("tray-focus-session", session_id.to_string());
+        let session_id = session_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            show_main_window(&app);
+            let _ = app.emit("tray-focus-session", session_id);
+        });
     }
 }
 
