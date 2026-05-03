@@ -58,6 +58,12 @@ export function initTerminal(paneId: string): void {
         resolution.action.kind === "command" &&
         resolution.action.id === "pane.open-multiline-editor"
       ) {
+        // Returning false from xterm's allowKeyboardEvent stops xterm from
+        // processing the key but does not preventDefault on the underlying
+        // DOM event. Stop it here so the keypress can't reach a later
+        // bubble-phase handler or the browser default action.
+        event.preventDefault();
+        event.stopPropagation();
         const cmd = commandRegistry.get(resolution.action.id);
         focusedPaneId.set(paneId);
         if (cmd?.execute) void cmd.execute();

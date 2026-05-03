@@ -15,7 +15,7 @@
   import { writeToSession } from "$lib/tauri";
   import { setLogicalFocus } from "$lib/panes/focus";
   import { getInstance, getAttachedPtyId } from "$lib/panes/instances";
-  import { hasPrimaryModifier, formatShortcut } from "$lib/platform";
+  import { hasPrimaryModifier, formatShortcut, isMacPlatform } from "$lib/platform";
   import { settings } from "$lib/stores/settings";
   import { activeSession } from "$lib/stores/sessions";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
@@ -46,11 +46,15 @@
   }
 
   // Everything a user can trigger while the editor has focus, shown on
-  // hover of the keyboard hint in the header.
+  // hover of the keyboard hint in the header. ctrl+enter is mac-only:
+  // on Windows/Linux ctrl IS the primary modifier, so cmd+enter renders
+  // as "Ctrl+Enter" and listing ctrl+enter separately would conflict.
   const modalShortcuts: ShortcutEntry[] = [
     { shortcut: "cmd+enter", action: "Send to terminal" },
     { shortcut: "shift+enter", action: "Insert newline" },
-    { shortcut: "ctrl+enter", action: "Insert newline" },
+    ...(isMacPlatform()
+      ? [{ shortcut: "ctrl+enter", action: "Insert newline" }]
+      : []),
     { shortcut: "alt+enter", action: "Insert newline" },
     { shortcut: "ctrl+c", action: "Clear editor when nothing is selected" },
     { shortcut: "ctrl+u", action: "Copy and clear current line" },
@@ -375,7 +379,10 @@
           >
             <X class="h-3 w-3" />
           </button>
-          <span class="min-w-0 truncate text-[10px] font-medium uppercase tracking-wider text-text-muted">
+          <span
+            id={`mle-title-${hostPaneId}`}
+            class="min-w-0 truncate text-[10px] font-medium uppercase tracking-wider text-text-muted"
+          >
             {$multiLineEditor.paneLabel ?? "pane"}
             {#if $multiLineEditor.seeded}
               <span class="text-text-muted/60"> seeded</span>
@@ -436,6 +443,7 @@
       <textarea
         bind:this={textareaEl}
         bind:value={draftText}
+        aria-labelledby={`mle-title-${hostPaneId}`}
         class="min-h-0 flex-1 resize-none border-0 bg-transparent px-2.5 py-1.5 text-text-primary outline-none placeholder:text-text-muted/60"
         style="font-size: {$settings.fontSize}px; font-family: {$settings.fontFamily};"
         spellcheck="false"
