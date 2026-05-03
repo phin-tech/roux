@@ -26,6 +26,9 @@ const mocks = vi.hoisted(() => {
     setPaneOutputChannel: vi.fn(),
     attachPtyOutput: vi.fn().mockResolvedValue(undefined),
     createPtyOutputChannel: vi.fn(() => ({ id: "channel" })),
+    // Mutable so individual tests can simulate an armed leader tree
+    // without re-mocking the whole module.
+    keymapValue: { treePath: [] as string[] },
   };
 });
 
@@ -51,7 +54,7 @@ vi.mock("$lib/tauri", () => ({
 vi.mock("$lib/keymap/store", () => ({
   keymapState: {
     subscribe: (run: (value: unknown) => void) => {
-      run({});
+      run(mocks.keymapValue);
       return () => {};
     },
   },
@@ -84,10 +87,16 @@ vi.mock("$lib/logging", () => ({
 }));
 
 import { connectPaneTerminal } from "../terminals";
+import { registry as commandRegistry } from "$lib/commands";
 
 describe("terminals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The mocked registry Map is module-scoped, so set() entries from
+    // earlier tests leak into later ones. clearAllMocks doesn't touch
+    // Map contents — clear it explicitly to keep tests order-independent.
+    (commandRegistry as unknown as Map<string, unknown>).clear();
+    mocks.keymapValue.treePath = [];
     mocks.controller.onInput.mockReset().mockReturnValue(() => {});
     mocks.controller.setInputEnabled.mockReset();
     mocks.ensureTerminalController.mockReset().mockReturnValue(mocks.controller);
@@ -187,16 +196,11 @@ describe("terminals", () => {
 
     it("fires the editor-toggle chord exactly once when App.svelte did not handle it first", async () => {
       const { resolveKey } = await import("$lib/keymap/resolve");
-      const { registry } = await import("$lib/commands");
       const execute = vi.fn();
-      (registry as unknown as Map<string, { execute: () => Promise<void> }>).set(
+      (commandRegistry as unknown as Map<string, { execute: () => void }>).set(
         "pane.open-multiline-editor",
-        { execute: vi.fn().mockResolvedValue(undefined) },
+        { execute },
       );
-      const cmd = (registry as unknown as Map<string, { execute: () => void }>).get(
-        "pane.open-multiline-editor",
-      )!;
-      cmd.execute = execute;
       vi.mocked(resolveKey).mockReturnValueOnce({
         kind: "chord",
         action: { kind: "command", id: "pane.open-multiline-editor" },
@@ -210,6 +214,18 @@ describe("terminals", () => {
       expect(preventDefault).toHaveBeenCalledTimes(1);
       expect(stopPropagation).toHaveBeenCalledTimes(1);
       expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    it("blocks unbound keys while a leader tree is armed (App.svelte preventDefault'd them)", async () => {
+      // Regression: a `defaultPrevented`-only-on-chord guard let
+      // resolve.ts §1e's `none` resolutions through, leaking unbound
+      // characters to the PTY mid-chord while the tree stayed armed.
+      const { resolveKey } = await import("$lib/keymap/resolve");
+      mocks.keymapValue.treePath = ["leader"];
+      vi.mocked(resolveKey).mockReturnValueOnce({ kind: "none" } as never);
+      const allow = await captureAllowKeyboardEvent();
+      const event = makeKeyEvent({ key: "z", defaultPrevented: true });
+      expect(allow(event)).toBe(false);
     });
   });
 });

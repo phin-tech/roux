@@ -52,12 +52,23 @@ export function initTerminal(paneId: string): void {
         }
         return !!cmd && (!cmd.available || cmd.available());
       });
-      // App.svelte handles the same chord at window-capture; if it
-      // already preventDefault'd we must not run cmd.execute() a second
-      // time. A blanket defaultPrevented short-circuit here would also
-      // swallow Escape (App.svelte preventDefaults it for the WebKit
-      // focus-blur fix), starving xterm of the ESC byte.
-      if (resolution.kind === "chord" && event.defaultPrevented) return false;
+      // App.svelte's window-capture handler preventDefaults for two
+      // very different reasons:
+      //   (a) Escape focus-blur fix when there's a focused terminal —
+      //       we still want xterm to forward Escape to the PTY.
+      //   (b) Anything its keymap dispatch path swallowed: chord /
+      //       enterTree / drillInto / exit, or `none` while a tree is
+      //       armed (resolve.ts §1e). xterm must not also process or
+      //       double-fire those.
+      // A blanket `defaultPrevented → false` swallows (a); a guard that
+      // only checks `chord` leaks (b)'s tree-armed `none` keys to the
+      // PTY mid-chord. Distinguish by resolution: only `passthrough` and
+      // `none` with no armed tree are App-untouched and may proceed.
+      const treeArmed = km.treePath.length > 0;
+      const appUntouched =
+        resolution.kind === "passthrough" ||
+        (resolution.kind === "none" && !treeArmed);
+      if (event.defaultPrevented && !appUntouched) return false;
       if (
         resolution.kind === "chord" &&
         resolution.action.kind === "command" &&

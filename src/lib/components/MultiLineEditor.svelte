@@ -13,7 +13,8 @@
   } from "$lib/stores/multiLineEditor";
   import { getTerminalController } from "$lib/panes/terminalRuntime";
   import { writeToSession } from "$lib/tauri";
-  import { setLogicalFocus } from "$lib/panes/focus";
+  import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
+  import { get } from "svelte/store";
   import { getInstance, getAttachedPtyId } from "$lib/panes/instances";
   import { hasPrimaryModifier, formatShortcut, isMacPlatform } from "$lib/platform";
   import { settings } from "$lib/stores/settings";
@@ -160,13 +161,18 @@
     // onDestroy runs second when the host pane is closed) becomes a
     // no-op instead of redoing the work.
     disabledPaneId = null;
-    // closePane already chose the next focus before disposing this
-    // pane (actions.ts:153-161). If the pane is gone, calling
-    // setLogicalFocus on its dead id would clobber that choice and —
-    // because setLogicalFocus iterates panes and disables stdin on
-    // every id !== the dead one — leave every surviving pane's input
-    // disabled.
+    // closePane disposes the pane synchronously and then sets the next
+    // focus (actions.ts:141-160). When this effect runs in a later
+    // microtask, the pane is already gone — calling setLogicalFocus on
+    // its dead id would clobber that chosen focus and, because
+    // setLogicalFocus iterates panes and disables stdin on every
+    // id !== the dead one, leave every surviving pane's input disabled.
     if (!getInstance(paneId)) return;
+    // If the user closed the editor from another pane (e.g.
+    // Cmd+Shift+E pressed while focused in pane B), don't yank focus
+    // back to the editor's old host pane.
+    const currentFocus = get(focusedPaneId);
+    if (currentFocus !== null && currentFocus !== paneId) return;
     const controller = getTerminalController(paneId);
     setLogicalFocus(paneId);
     controller?.setInputEnabled(true);
