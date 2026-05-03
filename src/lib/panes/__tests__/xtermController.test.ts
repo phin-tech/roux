@@ -70,9 +70,13 @@ vi.mock("@xterm/xterm", () => ({
     this.onData = vi.fn().mockReturnValue({ dispose: vi.fn() });
     this.attachCustomKeyEventHandler = vi.fn();
     this.focus = vi.fn();
+    this.input = vi.fn();
+    this.paste = vi.fn();
     this.write = vi.fn();
     this.clear = vi.fn();
     this.reset = vi.fn();
+    this.clearSelection = vi.fn();
+    this.scrollToBottom = vi.fn();
     this.open = vi.fn();
     this.element = null;
   }),
@@ -231,5 +235,35 @@ describe("XtermTerminalController renderer setup", () => {
     mocks.lastWebglContextLossHandler?.();
 
     expect(mocks.webglDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards viewport preparation calls to xterm", async () => {
+    const { Terminal } = await import("@xterm/xterm");
+    const controller = createXtermTerminalController();
+    const terminal = vi.mocked(Terminal).mock.results.at(-1)?.value as {
+      clearSelection: ReturnType<typeof vi.fn>;
+      scrollToBottom: ReturnType<typeof vi.fn>;
+    };
+
+    controller.clearSelection();
+    controller.scrollToBottom();
+
+    expect(terminal.clearSelection).toHaveBeenCalledTimes(1);
+    expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards input and paste calls through xterm", async () => {
+    const { Terminal } = await import("@xterm/xterm");
+    const controller = createXtermTerminalController();
+    const terminal = vi.mocked(Terminal).mock.results.at(-1)?.value as {
+      input: ReturnType<typeof vi.fn>;
+      paste: ReturnType<typeof vi.fn>;
+    };
+
+    controller.input("\r");
+    controller.paste("echo hi");
+
+    expect(terminal.input).toHaveBeenCalledWith("\r", undefined);
+    expect(terminal.paste).toHaveBeenCalledWith("echo hi");
   });
 });

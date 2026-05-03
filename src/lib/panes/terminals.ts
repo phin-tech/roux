@@ -17,7 +17,7 @@ import { keymapState } from "$lib/keymap/store";
 import { resolveKey } from "$lib/keymap/resolve";
 import { registry as commandRegistry } from "$lib/commands";
 import { focusedPaneId } from "./focus";
-import { getInstance } from "./instances";
+import { getAttachedPtyId, getInstance } from "./instances";
 import { emitPtyOutput } from "./ptyOutputBus";
 import {
   ensureTerminalController,
@@ -43,11 +43,26 @@ export function initTerminal(paneId: string): void {
   const controller = ensureTerminalController(paneId, {
     allowKeyboardEvent: (event) => {
       if (event.type !== "keydown") return true;
+      if (event.defaultPrevented) return false;
       const km = get(keymapState);
       const resolution = resolveKey(event, km, (id) => {
         const cmd = commandRegistry.get(id);
+        if (id === "pane.open-multiline-editor") {
+          const pane = getInstance(paneId);
+          return !!cmd && !!pane && (pane.type === "shell" || pane.type === "command") && !!getAttachedPtyId(pane);
+        }
         return !!cmd && (!cmd.available || cmd.available());
       });
+      if (
+        resolution.kind === "chord" &&
+        resolution.action.kind === "command" &&
+        resolution.action.id === "pane.open-multiline-editor"
+      ) {
+        const cmd = commandRegistry.get(resolution.action.id);
+        focusedPaneId.set(paneId);
+        if (cmd?.execute) void cmd.execute();
+        return false;
+      }
       return resolution.kind === "none" || resolution.kind === "passthrough";
     },
   });

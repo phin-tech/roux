@@ -7,7 +7,6 @@
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
-  import MultiLineEditor from "$lib/components/MultiLineEditor.svelte";
   import LibraryWindow from "$lib/components/LibraryWindow.svelte";
   import LibraryVariablePrompt from "$lib/components/LibraryVariablePrompt.svelte";
   import { multiLineEditor } from "$lib/stores/multiLineEditor";
@@ -213,6 +212,11 @@
     return !cmd.available || cmd.available();
   }
 
+  function commandAllowedWhileMultiLineEditorOpen(commandId: string): boolean {
+    if (commandId === "pane.open-multiline-editor") return true;
+    return registry.get(commandId)?.category === "App";
+  }
+
   function getLeaderPromptInitialValue(commandId: string): string {
     if (commandId === "pane.rename") {
       return queries.focusedPane()?.name ?? "";
@@ -270,9 +274,21 @@
       // Palette handles its own keys; stay out of the way.
       return;
     }
-    // MultiLineEditor modal owns all keys while open — otherwise global
-    // chords like Cmd+D (split pane) would fire while the user is editing.
+    // MultiLineEditor owns editing-sensitive keys while open. Global app
+    // commands like Quit/Settings still work, and Cmd+Shift+E toggles the
+    // docked editor itself.
     if (get(multiLineEditor).open) {
+      const km = get(keymapState);
+      const resolution = resolveKey(e, km, isCommandAvailable);
+      if (
+        resolution.kind === "chord" &&
+        resolution.action.kind === "command" &&
+        commandAllowedWhileMultiLineEditorOpen(resolution.action.id)
+      ) {
+        e.preventDefault();
+        dispatchKeymapAction(resolution.action);
+        if (!resolution.keepTreeOpen) keymapExitTree();
+      }
       return;
     }
     if (get(libraryWindow).open) {
@@ -795,8 +811,6 @@
   onCheckForUpdates={() => { openSidebar("settings"); void runManualCheck(); }}
   initialCommandId={$commandSurface.initialCommandId}
 />
-
-<MultiLineEditor />
 
 <LibraryWindow />
 

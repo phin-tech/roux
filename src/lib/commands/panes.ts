@@ -7,7 +7,12 @@ import { toggleFullscreen, setLogicalFocus, focusedPaneId } from "$lib/panes/foc
 import { paneSlotById } from "$lib/stores/ui";
 import { paneInstances, updateInstance, getAttachedPtyId, getInstance, type PaneInstance } from "$lib/panes/instances";
 import { splitPane, closeFocusedPane } from "$lib/panes/actions";
-import { openMultiLineEditor, type MultiLineTarget } from "$lib/stores/multiLineEditor";
+import {
+  closeMultiLineEditor,
+  isMultiLineEditorOpen,
+  openMultiLineEditor,
+  type MultiLineTarget,
+} from "$lib/stores/multiLineEditor";
 import {
   profileList,
   type SpawnProfile,
@@ -184,6 +189,7 @@ function paneLabel(pane: PaneInstance): string {
 }
 
 function canOpenMultiLineEditor(): boolean {
+  if (isMultiLineEditorOpen()) return true;
   const paneId = queries.focusedPaneId();
   if (!paneId) return false;
   const pane = getInstance(paneId);
@@ -527,10 +533,14 @@ export function registerPaneCommands() {
 
   registry.register({
     id: "pane.open-multiline-editor",
-    label: "Open Multi-Line Prompt Editor",
+    label: "Toggle Multi-Line Prompt Editor",
     category: "Panes",
     available: canOpenMultiLineEditor,
     execute: async () => {
+      if (isMultiLineEditorOpen()) {
+        closeMultiLineEditor();
+        return;
+      }
       await openMultiLineEditorForFocusedPane(null);
     },
   });
