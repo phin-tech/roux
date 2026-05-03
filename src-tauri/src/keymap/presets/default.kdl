@@ -36,6 +36,7 @@ bind "Cmd+KeyW"        "pane.close"
 bind "Cmd+Shift+KeyS"  "pane.toggle-stack"
 bind "Cmd+Shift+KeyF"  "pane.toggle-fullscreen"
 bind "Cmd+Shift+KeyB"  "pane.open-doc"
+bind "Ctrl+KeyG"       "pane.open-multiline-editor"
 bind "Cmd+Shift+KeyE"  "pane.open-multiline-editor"
 bind "Cmd+Shift+KeyV"  "pane.open-multiline-editor-with-clipboard"
 

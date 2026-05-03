@@ -7,7 +7,14 @@ import { toggleFullscreen, setLogicalFocus, focusedPaneId } from "$lib/panes/foc
 import { paneSlotById } from "$lib/stores/ui";
 import { paneInstances, updateInstance, getAttachedPtyId, getInstance, type PaneInstance } from "$lib/panes/instances";
 import { splitPane, closeFocusedPane } from "$lib/panes/actions";
-import { openMultiLineEditor, type MultiLineTarget } from "$lib/stores/multiLineEditor";
+import {
+  closeMultiLineEditor,
+  isMultiLineEditorOpen,
+  openMultiLineEditor,
+  type MultiLineTarget,
+} from "$lib/stores/multiLineEditor";
+import { resolveMultiLineEditorSeed } from "$lib/panes/multiLineEditorSeed";
+import { getTerminalController } from "$lib/panes/terminalRuntime";
 import {
   profileList,
   type SpawnProfile,
@@ -184,6 +191,7 @@ function paneLabel(pane: PaneInstance): string {
 }
 
 function canOpenMultiLineEditor(): boolean {
+  if (isMultiLineEditorOpen()) return true;
   const paneId = queries.focusedPaneId();
   if (!paneId) return false;
   const pane = getInstance(paneId);
@@ -200,14 +208,16 @@ async function openMultiLineEditorForFocusedPane(initialText: string | null): Pr
   const pane = getInstance(paneId);
   if (!pane) return;
   const target = resolveMultiLineTarget(pane);
-  const seedText = initialText ?? "";
-  const seeded = !!initialText;
+  const selectedText = initialText === null
+    ? getTerminalController(paneId)?.getSelection() ?? ""
+    : "";
+  const seed = resolveMultiLineEditorSeed(initialText, selectedText);
 
   openMultiLineEditor({
     paneId,
     paneLabel: paneLabel(pane),
-    initialText: seedText,
-    seeded,
+    initialText: seed.text,
+    seeded: seed.seeded,
     target,
   });
 }
@@ -527,10 +537,14 @@ export function registerPaneCommands() {
 
   registry.register({
     id: "pane.open-multiline-editor",
-    label: "Open Multi-Line Prompt Editor",
+    label: "Toggle Multi-Line Prompt Editor",
     category: "Panes",
     available: canOpenMultiLineEditor,
     execute: async () => {
+      if (isMultiLineEditorOpen()) {
+        closeMultiLineEditor();
+        return;
+      }
       await openMultiLineEditorForFocusedPane(null);
     },
   });

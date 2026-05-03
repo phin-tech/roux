@@ -22,6 +22,12 @@ const INITIAL_STATE: MultiLineEditorState = {
 
 export const multiLineEditor = writable<MultiLineEditorState>(INITIAL_STATE);
 
+export const MULTI_LINE_EDITOR_FOCUS_EVENT = "roux:focus-multiline-editor";
+
+export interface MultiLineEditorFocusDetail {
+  paneId: string;
+}
+
 export interface OpenMultiLineEditorOpts {
   paneId: string;
   paneLabel: string | null;
@@ -49,19 +55,29 @@ export function isMultiLineEditorOpen(): boolean {
   return get(multiLineEditor).open;
 }
 
+export function requestMultiLineEditorFocus(paneId: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<MultiLineEditorFocusDetail>(MULTI_LINE_EDITOR_FOCUS_EVENT, {
+      detail: { paneId },
+    }),
+  );
+}
+
 /**
- * Build the exact byte sequence written to the PTY on submit.
+ * Build the paste byte sequence written to the PTY on submit.
  *
- *   - Shell panes: `Ctrl+E` + `Ctrl+U` clears the current readline buffer
- *     regardless of cursor position (Ctrl+U alone only kills cursor→BOL,
- *     leaving trailing chars when the cursor is mid-line).
- *   - All panes: content wrapped in bracketed-paste markers keeps multi-line
- *     text atomic — the shell treats it as one paste instead of a sequence
- *     of Enter-terminated lines.
- *   - Enter is **never** appended: the user reviews in the real terminal
- *     and submits themself.
+ *   - Shell panes first send Ctrl+E + Ctrl+U to clear the active line editor
+ *     buffer, then bracketed paste. Ctrl+U alone only clears from cursor to
+ *     BOL, so Ctrl+E makes the clear independent of cursor position.
+ *   - Claude panes use bracketed paste without shell line-clear bytes that
+ *     would be interpreted by the TUI prompt itself.
+ *
+ * The submit Enter is intentionally written as a separate PTY write by the
+ * component so shells handle it like a real keypress after paste completes.
  */
 export function buildSubmitPayload(text: string, target: MultiLineTarget): string {
   const clear = target === "shell" ? "\x05\x15" : "";
-  return `${clear}\x1b[200~${text}\x1b[201~`;
+  const normalizedText = text.replace(/[\r\n]+$/g, "");
+  return `${clear}\x1b[200~${normalizedText}\x1b[201~`;
 }

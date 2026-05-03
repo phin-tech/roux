@@ -21,8 +21,14 @@ export interface TerminalController {
   fit(): TerminalDimensions | null;
   setInputEnabled(enabled: boolean): void;
   onInput(handler: (data: string) => void): () => void;
+  input(data: string, wasUserInput?: boolean): void;
+  paste(data: string): void;
   write(bytes: Uint8Array): void;
   focus(): void;
+  hasSelection(): boolean;
+  getSelection(): string;
+  clearSelection(): void;
+  scrollToBottom(): void;
   setTheme(theme: TerminalTheme): void;
   setCustomKeyHandler(handler: ((event: KeyboardEvent) => boolean) | null): void;
   /** Read the current logical prompt line from the xterm buffer. */

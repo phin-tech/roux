@@ -79,6 +79,7 @@ nav:
   - Features:
       - Overview: features/index.md
       - Panes: features/panes.md
+      - Multiline Editor: features/editor.md
       - Sessions: features/sessions.md
       - Projects: features/projects.md
       - Layouts: features/layouts.md
