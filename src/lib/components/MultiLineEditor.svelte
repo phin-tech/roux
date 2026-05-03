@@ -156,16 +156,27 @@
   function restoreTargetPaneInput(): void {
     if (!disabledPaneId) return;
     const paneId = disabledPaneId;
+    // Clear up-front so the second caller (whichever of $effect /
+    // onDestroy runs second when the host pane is closed) becomes a
+    // no-op instead of redoing the work.
+    disabledPaneId = null;
+    // closePane already chose the next focus before disposing this
+    // pane (actions.ts:153-161). If the pane is gone, calling
+    // setLogicalFocus on its dead id would clobber that choice and —
+    // because setLogicalFocus iterates panes and disables stdin on
+    // every id !== the dead one — leave every surviving pane's input
+    // disabled.
+    if (!getInstance(paneId)) return;
     const controller = getTerminalController(paneId);
     setLogicalFocus(paneId);
     controller?.setInputEnabled(true);
     controller?.focus();
     requestAnimationFrame(() => {
+      if (!getInstance(paneId)) return;
       const nextController = getTerminalController(paneId);
       nextController?.setInputEnabled(true);
       nextController?.focus();
     });
-    disabledPaneId = null;
   }
 
   function waitForTerminalInputTurn(): Promise<void> {

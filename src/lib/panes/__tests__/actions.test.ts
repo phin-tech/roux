@@ -25,6 +25,11 @@ import { paneInstances, resetInstances, getInstance } from "../instances";
 import { sessionLayouts, resetLayouts, collectLeafIds } from "../layout";
 import { focusedPaneId, fullscreenPaneId, resetFocus, setLogicalFocus, toggleFullscreen } from "../focus";
 import { killPty, killSession, detachPty } from "$lib/tauri";
+import {
+  multiLineEditor,
+  openMultiLineEditor,
+  closeMultiLineEditor,
+} from "$lib/stores/multiLineEditor";
 
 describe("pane actions", () => {
   beforeEach(() => {
@@ -275,6 +280,65 @@ describe("pane actions", () => {
       initSession("s1");
       closeSessionPanes("s1");
       expect(get(focusedPaneId)).toBeNull();
+    });
+  });
+
+  describe("multiLineEditor dispose hook", () => {
+    // The editor's `open`/`paneId` live in a global store, so without a
+    // dispose hook the gate at App.svelte:281 would keep firing against a
+    // disposed pane and swallow every non-whitelisted keystroke.
+    beforeEach(() => closeMultiLineEditor());
+
+    it("resets the editor store when its host pane is closed", () => {
+      initSession("s1");
+      const shellId = splitPane("s1", "h", { type: "shell", ptyId: "pty-1" })!;
+      openMultiLineEditor({
+        paneId: shellId,
+        paneLabel: "shell",
+        initialText: "draft",
+        seeded: false,
+        target: "shell",
+      });
+      expect(get(multiLineEditor).open).toBe(true);
+
+      closePane("s1", shellId);
+
+      expect(get(multiLineEditor).open).toBe(false);
+      expect(get(multiLineEditor).paneId).toBeNull();
+    });
+
+    it("leaves the editor open when a different pane is closed", () => {
+      initSession("s1");
+      const editorPane = splitPane("s1", "h", { type: "shell", ptyId: "pty-editor" })!;
+      const otherPane = splitPane("s1", "h", { type: "shell", ptyId: "pty-other" })!;
+      openMultiLineEditor({
+        paneId: editorPane,
+        paneLabel: "editor",
+        initialText: "",
+        seeded: false,
+        target: "shell",
+      });
+
+      closePane("s1", otherPane);
+
+      expect(get(multiLineEditor).open).toBe(true);
+      expect(get(multiLineEditor).paneId).toBe(editorPane);
+    });
+
+    it("resets the editor when closeSessionPanes disposes its host", () => {
+      initSession("s1");
+      openMultiLineEditor({
+        paneId: "s1-main",
+        paneLabel: "main",
+        initialText: "",
+        seeded: false,
+        target: "shell",
+      });
+
+      closeSessionPanes("s1");
+
+      expect(get(multiLineEditor).open).toBe(false);
+      expect(get(multiLineEditor).paneId).toBeNull();
     });
   });
 });

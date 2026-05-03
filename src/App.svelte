@@ -218,6 +218,15 @@
     return registry.get(commandId)?.category === "App";
   }
 
+  // The editor's gate at line ~281 should only fire when focus is
+  // actually inside the editor. Without this check, opening the editor
+  // in pane A and clicking into xterm pane B would still route every
+  // non-whitelisted chord (Cmd+W, Cmd+1, etc.) through the gate's
+  // early-return, silently dropping them in pane B.
+  function focusIsInMultiLineEditor(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest("[data-multiline-editor-root]") !== null;
+  }
+
   function getLeaderPromptInitialValue(commandId: string): string {
     if (commandId === "pane.rename") {
       return queries.focusedPane()?.name ?? "";
@@ -275,10 +284,11 @@
       // Palette handles its own keys; stay out of the way.
       return;
     }
-    // MultiLineEditor owns editing-sensitive keys while open. Global app
-    // commands like Quit/Settings still work, and Cmd+Shift+E toggles the
-    // docked editor itself.
-    if (get(multiLineEditor).open) {
+    // MultiLineEditor owns editing-sensitive keys while it has focus.
+    // When the editor is open but focus is in another pane (xterm,
+    // sidebar, etc.) we fall through to normal keymap dispatch so
+    // pane-category chords still work in the focused pane.
+    if (get(multiLineEditor).open && focusIsInMultiLineEditor(e.target)) {
       const km = get(keymapState);
       const resolution = resolveKey(e, km, isCommandAvailable);
       if (

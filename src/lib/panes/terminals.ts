@@ -43,7 +43,6 @@ export function initTerminal(paneId: string): void {
   const controller = ensureTerminalController(paneId, {
     allowKeyboardEvent: (event) => {
       if (event.type !== "keydown") return true;
-      if (event.defaultPrevented) return false;
       const km = get(keymapState);
       const resolution = resolveKey(event, km, (id) => {
         const cmd = commandRegistry.get(id);
@@ -53,6 +52,12 @@ export function initTerminal(paneId: string): void {
         }
         return !!cmd && (!cmd.available || cmd.available());
       });
+      // App.svelte handles the same chord at window-capture; if it
+      // already preventDefault'd we must not run cmd.execute() a second
+      // time. A blanket defaultPrevented short-circuit here would also
+      // swallow Escape (App.svelte preventDefaults it for the WebKit
+      // focus-blur fix), starving xterm of the ESC byte.
+      if (resolution.kind === "chord" && event.defaultPrevented) return false;
       if (
         resolution.kind === "chord" &&
         resolution.action.kind === "command" &&
