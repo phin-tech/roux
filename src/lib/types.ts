@@ -1,5 +1,14 @@
 // Import generated types from specta bindings
-import type { RouxSettings } from "./bindings";
+import type { ExperimentsConfig, RouxSettings } from "./bindings";
+
+// Typed defaults for every experiment flag. Adding a new optional field to
+// `ExperimentsConfig` will fail to compile here until a default is supplied,
+// keeping `RequiredExperiments` consumers (e.g. the SettingsPanel fallback,
+// `readExperiments()`) honest about what they can read.
+export const EXPERIMENT_DEFAULTS: Required<ExperimentsConfig> = {
+  exampleFlag: false,
+  exampleVariant: "a",
+};
 
 // Re-export generated types
 export type { RouxSettings };
@@ -121,6 +130,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   mcpEnabled: false,
   mcpLastConfiguredHost: null,
   mcpLastConfiguredAtMs: null,
+  experiments: EXPERIMENT_DEFAULTS,
 };
 
 // Re-export frontend-only task types

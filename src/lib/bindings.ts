@@ -402,6 +402,23 @@ export type DoctorStatus = {
 	items: DoctorItem[],
 };
 
+/**
+ *  No-op variant used to verify the enum-experiment pipeline end to end.
+ *  Replace or remove once a real enum experiment lands.
+ */
+export type ExampleVariant = "a" | "b" | "c";
+
+/**
+ *  Runtime feature flags surfaced under Settings → Experiments. Each field is
+ *  either a `bool` (toggle) or a small enum (multi-choice). Adding a field
+ *  here also requires adding a registry entry in `src/lib/experiments.ts` so
+ *  the UI knows how to render it.
+ */
+export type ExperimentsConfig = {
+	exampleFlag?: boolean,
+	exampleVariant?: ExampleVariant,
+};
+
 export type GithubJob = {
 	name: string,
 	status: string,
@@ -482,38 +499,6 @@ export type IntegrationDetection = {
 };
 
 export type KeepOpen = "always" | "on-error" | "never";
-
-export type McpHostConfigPreview = {
-	host: McpHostId,
-	label: string,
-	configPath: string,
-	configExists: boolean,
-	action: string,
-	configured: boolean,
-	currentEntryJson: string | null,
-	nextEntryJson: string,
-};
-
-export type McpHostId = "claudeDesktop";
-
-export type McpHostStatus = {
-	id: McpHostId,
-	label: string,
-	configPath: string | null,
-	configExists: boolean,
-	configured: boolean,
-	error: string | null,
-};
-
-export type McpStatus = {
-	enabled: boolean,
-	cliInstalled: boolean,
-	cliCurrent: boolean,
-	cliPath: string,
-	lastConfiguredHost: string | null,
-	lastConfiguredAtMs: number | null,
-	hosts: McpHostStatus[],
-};
 
 // How a bound key is matched against a `KeyboardEvent`.
 export type KeyRef = 
@@ -624,6 +609,38 @@ export type LibrarySource = {
 };
 
 export type LibrarySourceKind = "localRepo" | "gitRepo";
+
+export type McpHostConfigPreview = {
+	host: McpHostId,
+	label: string,
+	configPath: string,
+	configExists: boolean,
+	action: string,
+	configured: boolean,
+	currentEntryJson: string | null,
+	nextEntryJson: string,
+};
+
+export type McpHostId = "claudeDesktop";
+
+export type McpHostStatus = {
+	id: McpHostId,
+	label: string,
+	configPath: string | null,
+	configExists: boolean,
+	configured: boolean,
+	error: string | null,
+};
+
+export type McpStatus = {
+	enabled: boolean,
+	cliInstalled: boolean,
+	cliCurrent: boolean,
+	cliPath: string,
+	lastConfiguredHost: string | null,
+	lastConfiguredAtMs: number | null,
+	hosts: McpHostStatus[],
+};
 
 /**
  *  A modifier key. `Cmd` is platform-dispatched: on macOS it matches Meta,
@@ -1075,10 +1092,10 @@ export type RouxSettings = {
 	 *  Settings status only; host config files remain the source of truth.
 	 */
 	mcpLastConfiguredHost?: string | null,
-	/**
-	 *  Unix epoch milliseconds for the last successful MCP host config write.
-	 */
+	// Unix epoch milliseconds for the last successful MCP host config write.
 	mcpLastConfiguredAtMs?: number | null,
+	// Runtime feature flags. See `ExperimentsConfig`.
+	experiments?: ExperimentsConfig,
 };
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
@@ -1450,3 +1467,4 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
+
