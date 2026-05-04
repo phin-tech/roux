@@ -195,12 +195,29 @@ pub(crate) fn lookup_pr_for_branch(
         }
     }
 
+    if let Some(info) = gh_pr_list_by_head(repo_path, trimmed, &repo_slug)? {
+        return Ok(Some(info));
+    }
+
+    // Fork fallback: `gh pr list --head <branch>` only matches PRs whose
+    // head branch lives in this repo. A PR opened from a fork with the
+    // same branch name is invisible to that query, so fall back to GitHub
+    // Search syntax. `head:<branch> repo:<slug>` finds the fork PR by
+    // matching the head ref name across forks.
+    gh_pr_search_by_head(repo_path, trimmed, &repo_slug)
+}
+
+fn gh_pr_list_by_head(
+    repo_path: &str,
+    branch: &str,
+    repo_slug: &str,
+) -> Result<Option<PrInfo>> {
     let mut cmd = Command::new(crate::services::setup::gh_command());
     cmd.args([
         "pr",
         "list",
         "--head",
-        trimmed,
+        branch,
         "--state",
         "open",
         "--limit",
@@ -221,7 +238,50 @@ pub(crate) fn lookup_pr_for_branch(
     let stdout = String::from_utf8_lossy(&output.stdout);
     let raws: Vec<RawPr> = serde_json::from_str(&stdout)
         .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
-    Ok(raws.into_iter().next().map(|r| r.into_pr_info(&repo_slug)))
+    Ok(raws.into_iter().next().map(|r| r.into_pr_info(repo_slug)))
+}
+
+fn gh_pr_search_by_head(
+    repo_path: &str,
+    branch: &str,
+    repo_slug: &str,
+) -> Result<Option<PrInfo>> {
+    // GitHub's search index is eventually consistent — freshly-opened PRs
+    // can take a few seconds to show up here. That's fine for our use:
+    // by the time the user is back in the app, the index has caught up.
+    let query = format!("head:{} repo:{} is:pr is:open", branch, repo_slug);
+    let mut cmd = Command::new(crate::services::setup::gh_command());
+    cmd.args([
+        "pr",
+        "list",
+        "--search",
+        &query,
+        "--limit",
+        "1",
+        "--json",
+        "number,title,headRefName,headRepositoryOwner,isCrossRepository,url",
+    ]);
+    cmd.current_dir(repo_path);
+
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("Failed to run gh: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Search failures are *not* fatal — we already returned `None`
+        // from the primary query. Falling through to `Ok(None)` keeps the
+        // status bar quiet for users without search access.
+        let s = stderr.to_lowercase();
+        if s.contains("authentication") || s.contains("not logged in") {
+            return Err(classify_gh_error(&stderr));
+        }
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let raws: Vec<RawPr> = serde_json::from_str(&stdout)
+        .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
+    Ok(raws.into_iter().next().map(|r| r.into_pr_info(repo_slug)))
 }
 
 /// Resolve `<owner>/<repo>` for the repo at `repo_path` using `gh repo view`.

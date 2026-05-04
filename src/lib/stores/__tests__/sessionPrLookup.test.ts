@@ -4,6 +4,7 @@ import { get } from "svelte/store";
 import type { PrInfo } from "$lib/tauri";
 
 const lookupCalls: Array<[string, string]> = [];
+const pinnedLookupCalls: Array<[string | null, string]> = [];
 let nextLookupResult: PrInfo | null = null;
 let nextLookupReject: Error | null = null;
 let resolveLookupNow = true;
@@ -21,6 +22,12 @@ vi.mock("$lib/tauri", () => ({
     if (nextLookupReject) throw nextLookupReject;
     return nextLookupResult;
   }),
+  lookupPr: vi.fn(async (repoPath: string | null, url: string) => {
+    pinnedLookupCalls.push([repoPath, url]);
+    if (nextLookupReject) throw nextLookupReject;
+    if (!nextLookupResult) throw new Error("PR not found");
+    return nextLookupResult;
+  }),
   findOrCreateWatch: vi.fn(async (config: unknown) => {
     findOrCreateCalls.push(config);
     return { id: "stub", config };
@@ -33,6 +40,10 @@ import {
   installSessionPrEffect,
   lookupPrForSession,
   prLookupFor,
+  prLookupErrorFor,
+  prLookupForSession,
+  projectPrRowsFor,
+  refreshActiveSessionPr,
 } from "../sessionPrLookup";
 import { sessionState } from "../sessions";
 import { settings } from "../settings";
@@ -60,6 +71,7 @@ const session = {
 describe("sessionPrLookup", () => {
   beforeEach(() => {
     lookupCalls.length = 0;
+    pinnedLookupCalls.length = 0;
     findOrCreateCalls.length = 0;
     nextLookupResult = null;
     nextLookupReject = null;
@@ -243,6 +255,111 @@ describe("sessionPrLookup", () => {
       ["/tmp/repo", "feature/y"],
     ]);
     dispose();
+  });
+
+  it("pinnedPrUrl uses lookupPr and skips branch-based lookup", async () => {
+    nextLookupResult = makePr({ number: 7, url: "https://github.com/o/r/pull/7" });
+    const pinnedSession = {
+      ...session,
+      pinnedPrUrl: "https://github.com/o/r/pull/7",
+    };
+
+    const result = await lookupPrForSession(pinnedSession);
+    expect(result?.number).toBe(7);
+    expect(pinnedLookupCalls).toEqual([["/tmp/repo", "https://github.com/o/r/pull/7"]]);
+    expect(lookupCalls).toEqual([]);
+  });
+
+  it("prLookupForSession returns the pinned PR ahead of branch-based lookup", async () => {
+    nextLookupResult = makePr({ number: 7 });
+    const pinnedSession = {
+      repoRoot: "/tmp/repo",
+      branch: "feature/x",
+      pinnedPrUrl: "https://github.com/o/r/pull/7",
+    };
+    const reactive = prLookupForSession(pinnedSession);
+    expect(get(reactive)).toBeUndefined();
+
+    await lookupPrForSession({ ...pinnedSession, isGitRepo: true });
+    expect(get(reactive)?.number).toBe(7);
+  });
+
+  it("populates lastError on failure and clears it on a subsequent success", async () => {
+    nextLookupReject = new Error("gh: not authenticated");
+    await lookupPrForSession(session);
+
+    const errStore = prLookupErrorFor(session);
+    expect(get(errStore)).toContain("gh: not authenticated");
+
+    nextLookupReject = null;
+    nextLookupResult = makePr();
+    await lookupPrForSession(session, { force: true });
+    expect(get(errStore)).toBeNull();
+  });
+
+  it("refreshActiveSessionPr force-refreshes the active session's PR", async () => {
+    nextLookupResult = makePr({ number: 1 });
+    sessionState.set({
+      sessions: [
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {
+          id: "s1",
+          repoRoot: session.repoRoot,
+          branch: session.branch,
+          isGitRepo: true,
+        } as any,
+      ],
+      activeSessionId: "s1",
+    });
+    await lookupPrForSession(session);
+    expect(lookupCalls).toHaveLength(1);
+
+    nextLookupResult = makePr({ number: 2 });
+    const refreshed = await refreshActiveSessionPr();
+    expect(refreshed?.number).toBe(2);
+    expect(lookupCalls).toHaveLength(2);
+  });
+
+  it("projectPrRowsFor lists open PRs for sessions in a project", async () => {
+    nextLookupResult = makePr({ number: 11 });
+    await lookupPrForSession({
+      repoRoot: "/tmp/repo",
+      branch: "feature/x",
+      isGitRepo: true,
+      pinnedPrUrl: null,
+    });
+
+    sessionState.set({
+      sessions: [
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {
+          id: "s-in",
+          repoRoot: "/tmp/repo",
+          branch: "feature/x",
+          isGitRepo: true,
+          projectId: "proj-1",
+          archived: false,
+        } as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {
+          id: "s-out",
+          repoRoot: "/tmp/repo",
+          branch: "feature/y",
+          isGitRepo: true,
+          projectId: "proj-2",
+          archived: false,
+        } as any,
+      ],
+      activeSessionId: "s-in",
+    });
+
+    const rows = get(projectPrRowsFor("proj-1"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].session.id).toBe("s-in");
+    expect(rows[0].prInfo.number).toBe(11);
+    expect(rows[0].pinned).toBe(false);
+
+    expect(get(projectPrRowsFor("proj-2"))).toHaveLength(0);
   });
 
   it("auto-watch is deduped per (sessionId, repo, prNumber) within a run", async () => {

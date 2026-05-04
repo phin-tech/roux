@@ -62,4 +62,10 @@ pub struct Session {
     /// and respawn it when the live session is killed.
     #[serde(default)]
     pub blueprint_id: Option<String>,
+    /// User-pinned PR URL or shortform for this session. When set, the
+    /// status bar uses it directly instead of running the branch-based
+    /// `gh pr list --head` discovery — useful for cross-repo PRs and for
+    /// cases where the local branch was renamed after the PR was opened.
+    #[serde(default)]
+    pub pinned_pr_url: Option<String>,
 }

@@ -1,8 +1,9 @@
 import { registry } from "./registry";
 import { queries } from "$lib/queries";
-import { createWatch } from "$lib/tauri";
+import { createWatch, setSessionPinnedPrUrl } from "$lib/tauri";
 import type { CreateWatchConfig, WatchKind } from "$lib/types";
 import { lookupPrForSession } from "$lib/stores/sessionPrLookup";
+import { sessionState } from "$lib/stores/sessions";
 
 export function registerWatchCommands() {
   registry.register({
@@ -182,6 +183,64 @@ export function registerWatchCommands() {
       const session = queries.activeSession();
       if (!session) return;
       await lookupPrForSession(session, { force: true });
+    },
+  });
+
+  registry.register({
+    id: "session.pin-pr",
+    label: "Pin PR to active session…",
+    category: "Watches",
+    inputPlaceholder:
+      "Enter PR URL (e.g. https://github.com/owner/repo/pull/123) or owner/repo#123…",
+    available: () => queries.activeSession() != null,
+    getItems: () => [],
+    onInput: async (input: string) => {
+      const session = queries.activeSession();
+      if (!session) return;
+      const trimmed = input.trim();
+      if (!trimmed) return;
+      // Loose front-end validation — backend `lookup_pr` rejects garbage
+      // explicitly. We only block obviously-empty input here.
+      await setSessionPinnedPrUrl(session.id, trimmed);
+      sessionState.update((state) => ({
+        ...state,
+        sessions: state.sessions.map((s) =>
+          s.id === session.id ? { ...s, pinnedPrUrl: trimmed } : s,
+        ),
+      }));
+      // Force-refresh so the pinned PR resolves now instead of waiting
+      // for the next focus / branch-poll tick.
+      await lookupPrForSession(
+        { ...session, pinnedPrUrl: trimmed },
+        { force: true },
+      );
+    },
+  });
+
+  registry.register({
+    id: "session.unpin-pr",
+    label: "Unpin PR from active session",
+    category: "Watches",
+    available: () => {
+      const s = queries.activeSession();
+      return !!s && !!s.pinnedPrUrl;
+    },
+    execute: async () => {
+      const session = queries.activeSession();
+      if (!session) return;
+      await setSessionPinnedPrUrl(session.id, null);
+      sessionState.update((state) => ({
+        ...state,
+        sessions: state.sessions.map((s) =>
+          s.id === session.id ? { ...s, pinnedPrUrl: null } : s,
+        ),
+      }));
+      // Re-run the branch-based lookup right away so the chip swaps
+      // back to whatever `gh pr list --head` returns.
+      await lookupPrForSession(
+        { ...session, pinnedPrUrl: null },
+        { force: true },
+      );
     },
   });
 }

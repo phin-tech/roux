@@ -41,6 +41,11 @@ enum SessionMsg {
     SetProject { id: String, project_id: Option<String>, reply: oneshot::Sender<()> },
     ClearProjectRefs { project_id: String, reply: oneshot::Sender<()> },
     SetNameOverride { id: String, name_override: Option<String>, reply: oneshot::Sender<()> },
+    /// Update the session's tracked branch. Returns `true` when the branch
+    /// actually changed (caller can use this to skip downstream work like
+    /// emitting events or kicking PR re-lookup).
+    SetBranch { id: String, branch: String, reply: oneshot::Sender<bool> },
+    SetPinnedPrUrl { id: String, url: Option<String>, reply: oneshot::Sender<()> },
     Shutdown { reply: oneshot::Sender<()> },
 }
 
@@ -148,6 +153,25 @@ impl SessionHandle {
             name_override,
             reply: reply_tx,
         })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
+
+    /// Update `branch` on a session. Returns `true` when the value changed
+    /// (no-ops on missing sessions or unchanged values to keep the
+    /// branch-poll caller cheap).
+    pub async fn set_branch(&self, id: &str, branch: String) -> Result<bool, ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionMsg::SetBranch { id: id.to_string(), branch, reply: reply_tx })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
+
+    pub async fn set_pinned_pr_url(
+        &self,
+        id: &str,
+        url: Option<String>,
+    ) -> Result<(), ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionMsg::SetPinnedPrUrl { id: id.to_string(), url, reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
@@ -266,6 +290,29 @@ async fn service_loop(
                         dirty = true;
                         let _ = reply.send(());
                     }
+                    Some(SessionMsg::SetBranch { id, branch, reply }) => {
+                        // Only flip `dirty` when the value actually changes —
+                        // the branch poller calls this on every tick.
+                        let changed = if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+                            if s.branch != branch {
+                                s.branch = branch;
+                                dirty = true;
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        let _ = reply.send(changed);
+                    }
+                    Some(SessionMsg::SetPinnedPrUrl { id, url, reply }) => {
+                        if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+                            s.pinned_pr_url = url;
+                            dirty = true;
+                        }
+                        let _ = reply.send(());
+                    }
                     Some(SessionMsg::Shutdown { reply }) => {
                         if dirty {
                             persist_to_disk(&sessions, &persist_path);
@@ -329,6 +376,7 @@ mod tests {
             archived: false,
             ended_at: None,
             blueprint_id: None,
+            pinned_pr_url: None,
         }
     }
 
@@ -542,5 +590,51 @@ mod tests {
         assert!(handle.set_git_repo("s1", true).await.is_err());
         assert!(handle.set_project("s1", None).await.is_err());
         assert!(handle.clear_project_refs("proj-1").await.is_err());
+        assert!(handle.set_branch("s1", "main".to_string()).await.is_err());
+        assert!(handle.set_pinned_pr_url("s1", None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn set_branch_reports_change_only_when_value_differs() {
+        let (_dir, path) = temp_persist_path();
+        let mut seed = make_session("s1");
+        seed.branch = "main".to_string();
+        let (handle, _join) = spawn_with_path(vec![seed], path);
+
+        assert!(
+            !handle.set_branch("s1", "main".to_string()).await.unwrap(),
+            "no-op when branch matches",
+        );
+        assert!(
+            handle.set_branch("s1", "feature/x".to_string()).await.unwrap(),
+            "reports change when branch differs",
+        );
+        assert!(
+            !handle.set_branch("missing", "any".to_string()).await.unwrap(),
+            "missing session is treated as a no-op",
+        );
+
+        let session = handle.get("s1").await.unwrap().unwrap();
+        assert_eq!(session.branch, "feature/x");
+    }
+
+    #[tokio::test]
+    async fn set_pinned_pr_url_round_trip() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) = spawn_with_path(vec![make_session("s1")], path);
+
+        handle
+            .set_pinned_pr_url("s1", Some("https://github.com/o/r/pull/1".to_string()))
+            .await
+            .unwrap();
+        let session = handle.get("s1").await.unwrap().unwrap();
+        assert_eq!(
+            session.pinned_pr_url.as_deref(),
+            Some("https://github.com/o/r/pull/1"),
+        );
+
+        handle.set_pinned_pr_url("s1", None).await.unwrap();
+        let cleared = handle.get("s1").await.unwrap().unwrap();
+        assert!(cleared.pinned_pr_url.is_none());
     }
 }

@@ -57,7 +57,11 @@
   import NewProjectDialog from "$lib/components/NewProjectDialog.svelte";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
-  import { installSessionPrEffect } from "$lib/stores/sessionPrLookup";
+  import {
+    installSessionPrEffect,
+    refreshActiveSessionPr,
+  } from "$lib/stores/sessionPrLookup";
+  import { installSessionBranchPoller } from "$lib/stores/sessionBranchPoller";
   import { clearPermissionInfo } from "$lib/panes/agentState";
   import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
@@ -409,17 +413,32 @@
   let unlistenDragDrop: (() => void) | null = null;
   let unlistenSessionPrEffect: (() => void) | null = null;
   let stopPtyInventoryPolling: (() => void) | null = null;
+  let stopSessionBranchPoller: (() => void) | null = null;
+  let unlistenWindowFocus: (() => void) | null = null;
+
+  function handleWindowFocusForPr(): void {
+    // Force-refresh the active session's PR on every focus so a freshly
+    // pushed PR / merged PR / closed PR shows up without waiting for
+    // the negative cache TTL. Cheap (one gh call) and gated by the
+    // existing in-flight guard against thundering herd.
+    void refreshActiveSessionPr();
+  }
 
   onDestroy(() => {
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
     window.removeEventListener("blur", handleWindowBlur);
+    window.removeEventListener("focus", handleWindowFocusForPr);
     unlistenDragDrop?.();
     unlistenDragDrop = null;
     unlistenSessionPrEffect?.();
     unlistenSessionPrEffect = null;
     stopPtyInventoryPolling?.();
     stopPtyInventoryPolling = null;
+    stopSessionBranchPoller?.();
+    stopSessionBranchPoller = null;
+    unlistenWindowFocus?.();
+    unlistenWindowFocus = null;
     teardownAppMenu();
   });
 
@@ -489,6 +508,16 @@
     // available) so the status bar can render a PR chip and the optional
     // auto-watch flow can create a session-scoped PR watch.
     unlistenSessionPrEffect = installSessionPrEffect();
+
+    // Re-read each session's git branch on a low-frequency tick so a
+    // `git checkout` inside the pane updates `Session.branch` and the
+    // PR-lookup effect re-fires for the new branch.
+    stopSessionBranchPoller = installSessionBranchPoller();
+
+    // Force-refresh the active session's PR on window focus. Catches the
+    // common "user opens a PR in a browser tab and comes back" case
+    // without waiting for the negative cache TTL.
+    window.addEventListener("focus", handleWindowFocusForPr);
 
     // Kick off a silent background update check (5s debounce, respects user toggle)
     runStartupCheck();

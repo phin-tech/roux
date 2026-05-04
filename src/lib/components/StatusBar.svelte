@@ -1,7 +1,12 @@
 <script lang="ts">
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+
   import { activeSession } from "$lib/stores/sessions";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
-  import { prLookupFor } from "$lib/stores/sessionPrLookup";
+  import {
+    prLookupErrorFor,
+    prLookupForSession,
+  } from "$lib/stores/sessionPrLookup";
   import { ciChipFor } from "$lib/ciIcon";
   import { safeHref } from "$lib/safeUrl";
   import type { StatusBarPosition } from "$lib/types";
@@ -32,13 +37,15 @@
   let wtCiHref = $derived(safeHref(wtMeta?.ciUrl));
 
   // Fallback: when worktrunk hasn't supplied a ciUrl, use the gh-derived
-  // PR URL from `sessionPrLookup`. Worktrunk wins because it carries CI
-  // status (spinner / stale flag); gh only confirms the PR exists.
-  let prLookupStore = $derived(
-    prLookupFor($activeSession?.repoRoot, $activeSession?.branch),
-  );
+  // PR URL. Honors `pinnedPrUrl` first, then branch-based discovery.
+  // Worktrunk wins overall because it carries CI status (spinner / stale
+  // flag); gh only confirms the PR exists.
+  let prLookupStore = $derived(prLookupForSession($activeSession ?? null));
   let prInfo = $derived(prLookupStore ? $prLookupStore : null);
   let ghPrHref = $derived(safeHref(prInfo?.url ?? null));
+
+  let prErrorStore = $derived(prLookupErrorFor($activeSession ?? null));
+  let prError = $derived(prErrorStore ? $prErrorStore : null);
 
   let ciHref = $derived(wtCiHref ?? ghPrHref);
   // True when we're rendering only the gh fallback — used to skip the
@@ -105,6 +112,16 @@
       >
         <Icon size={12} class={running ? "animate-spin" : ""} />
         <span>ci</span>
+      </span>
+    {:else if prError && !ciHref}
+      <span class="text-text-secondary">&bull;</span>
+      <span
+        data-testid="status-bar-pr-error"
+        class="inline-flex items-center gap-1 text-amber"
+        title={`PR lookup failed: ${prError}`}
+      >
+        <TriangleAlert size={12} />
+        <span>PR?</span>
       </span>
     {/if}
     <span class="text-text-secondary">&bull;</span>

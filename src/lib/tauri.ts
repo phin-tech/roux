@@ -655,6 +655,19 @@ export async function setSessionNameOverride(
   return invoke("set_session_name_override", { sessionId, nameOverride });
 }
 
+export async function setSessionPinnedPrUrl(
+  sessionId: string,
+  url: string | null,
+): Promise<void> {
+  return invoke("set_session_pinned_pr_url", { sessionId, url });
+}
+
+export async function refreshSessionBranch(
+  sessionId: string,
+): Promise<string | null> {
+  return invoke("refresh_session_branch", { sessionId });
+}
+
 // Multi-scoped notes (experimental — see docs/features/notes.md). The four
 // scopes are `"global" | "project" | "repo" | "session"`. Every command
 // routes through NotesService on the backend; scope resolution (repo slug,
