@@ -414,7 +414,6 @@
   let unlistenSessionPrEffect: (() => void) | null = null;
   let stopPtyInventoryPolling: (() => void) | null = null;
   let stopSessionBranchPoller: (() => void) | null = null;
-  let unlistenWindowFocus: (() => void) | null = null;
 
   function handleWindowFocusForPr(): void {
     // Force-refresh the active session's PR on every focus so a freshly
@@ -437,8 +436,6 @@
     stopPtyInventoryPolling = null;
     stopSessionBranchPoller?.();
     stopSessionBranchPoller = null;
-    unlistenWindowFocus?.();
-    unlistenWindowFocus = null;
     teardownAppMenu();
   });
 

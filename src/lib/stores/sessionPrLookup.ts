@@ -319,7 +319,9 @@ export function installSessionPrEffect(): () => void {
 /**
  * Force-refresh the active session's PR lookup. Called from the
  * window-focus listener so freshly-pushed PRs surface without waiting
- * for the negative cache TTL.
+ * for the negative cache TTL. Also propagates `autoWatchSessionPr` —
+ * a PR discovered here (with no preceding session mutation) still
+ * needs to create its session-scoped watch.
  */
 export function refreshActiveSessionPr(): Promise<PrInfo | null> {
   const session = get(activeSession);
@@ -331,7 +333,13 @@ export function refreshActiveSessionPr(): Promise<PrInfo | null> {
   ) {
     return Promise.resolve(null);
   }
-  return lookupPrForSession(session, { force: true });
+  const sessionId = session.id;
+  return lookupPrForSession(session, { force: true }).then((prInfo) => {
+    if (prInfo && get(settings).autoWatchSessionPr) {
+      void maybeAutoWatch(sessionId, prInfo);
+    }
+    return prInfo;
+  });
 }
 
 /**
