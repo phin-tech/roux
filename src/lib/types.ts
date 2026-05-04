@@ -121,6 +121,10 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   mcpEnabled: false,
   mcpLastConfiguredHost: null,
   mcpLastConfiguredAtMs: null,
+  experiments: {
+    exampleFlag: false,
+    exampleVariant: "a",
+  },
 };
 
 // Re-export frontend-only task types

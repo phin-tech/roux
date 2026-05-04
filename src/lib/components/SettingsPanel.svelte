@@ -37,10 +37,12 @@
   import Wrench from "@lucide/svelte/icons/wrench";
   import Plug from "@lucide/svelte/icons/plug";
   import NotebookPen from "@lucide/svelte/icons/notebook-pen";
+  import FlaskConical from "@lucide/svelte/icons/flask-conical";
   import X from "@lucide/svelte/icons/x";
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
+  import { EXPERIMENTS } from "$lib/experiments";
 
-  type CategoryId = "general" | "sessions" | "terminal" | "claude" | "notes" | "integrations" | "notifications" | "keyboard" | "advanced";
+  type CategoryId = "general" | "sessions" | "terminal" | "claude" | "notes" | "integrations" | "notifications" | "keyboard" | "experiments" | "advanced";
 
   const CATEGORIES: { id: CategoryId; label: string; icon: typeof Settings }[] = [
     { id: "general", label: "General", icon: Settings },
@@ -51,6 +53,7 @@
     { id: "integrations", label: "Integrations", icon: Plug },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "keyboard", label: "Keyboard", icon: Keyboard },
+    { id: "experiments", label: "Experiments", icon: FlaskConical },
     { id: "advanced", label: "Advanced", icon: Wrench },
   ];
 
@@ -1263,6 +1266,51 @@
                   {$settings.showSessionHintsOnCommand !== false ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
               </button>
             </div>
+          {:else if selected === "experiments"}
+            <p class="text-[11px] text-text-muted mb-3">
+              Toggle in-progress features. Experiments default to off and may change behavior, persistence, or performance. Disable if you hit issues.
+            </p>
+            {#each EXPERIMENTS as exp (exp.id)}
+              <div class="flex items-start justify-between gap-3 py-2">
+                <div>
+                  <div class="text-[13px]">{exp.label}</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">{exp.description}</div>
+                </div>
+                {#if exp.kind === "boolean"}
+                  {@const current = ($settings.experiments?.[exp.id] ?? false) as boolean}
+                  <button
+                    aria-label="Toggle {exp.label}"
+                    class="w-9 h-5 rounded-full relative cursor-pointer transition-all border shrink-0
+                      {current ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                    onclick={() =>
+                      updateSetting("experiments", {
+                        ...$settings.experiments,
+                        [exp.id]: !current,
+                      })}
+                  >
+                    <div
+                      class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                        {current ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"
+                    ></div>
+                  </button>
+                {:else}
+                  {@const current = ($settings.experiments?.[exp.id] ?? exp.options[0].value) as string}
+                  <select
+                    class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6 shrink-0"
+                    value={current}
+                    onchange={(e) =>
+                      updateSetting("experiments", {
+                        ...$settings.experiments,
+                        [exp.id]: e.currentTarget.value as (typeof exp.options)[number]["value"],
+                      })}
+                  >
+                    {#each exp.options as opt}
+                      <option value={opt.value}>{opt.label}</option>
+                    {/each}
+                  </select>
+                {/if}
+              </div>
+            {/each}
           {:else if selected === "advanced"}
             <div class="flex items-center justify-between py-2">
               <div>
