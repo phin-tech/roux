@@ -801,7 +801,22 @@ export type PrInfo = {
 	isCrossRepository: boolean,
 	url: string,
 	repoSlug: string,
+	/** Aggregate check status — feeds the status-bar checks icon. */
+	checks: PrChecksSummary | null,
+	/** GitHub's `reviewDecision`: `"APPROVED"` | `"CHANGES_REQUESTED"` |
+	 *  `"REVIEW_REQUIRED"`, or `null` when there's no decision yet. */
+	reviewDecision: string | null,
 };
+
+export type PrChecksSummary = {
+	state: PrChecksState,
+	passing: number,
+	failing: number,
+	pending: number,
+	total: number,
+};
+
+export type PrChecksState = "passing" | "failing" | "pending" | "none";
 
 export type PrReview = {
 	reviewer: string,

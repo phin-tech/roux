@@ -8,6 +8,7 @@
     prLookupForSession,
   } from "$lib/stores/sessionPrLookup";
   import { ciChipFor } from "$lib/ciIcon";
+  import { checksChipFor, reviewChipFor } from "$lib/prChips";
   import { safeHref } from "$lib/safeUrl";
   import type { StatusBarPosition } from "$lib/types";
 
@@ -52,6 +53,12 @@
   // CI-status spinner / stale styling, which only worktrunk provides.
   let ghOnly = $derived(!wtCiHref && !!ghPrHref);
 
+  // Tiny chips next to the PR link: aggregate check status + review
+  // decision. Both come from the gh-derived `PrInfo`, independent of
+  // worktrunk, so they render in both the worktrunk and gh-only paths.
+  let checksChip = $derived(checksChipFor(prInfo?.checks));
+  let reviewChip = $derived(reviewChipFor(prInfo?.reviewDecision));
+
   /** Extract a PR-style label from a GitHub/GitLab URL (e.g. "PR #42"). */
   function prLabel(url: string): string {
     const m = url.match(/\/(?:pull|pulls|merge_requests)\/(\d+)/);
@@ -89,6 +96,26 @@
         <Icon size={12} class={running ? "animate-spin" : ""} />
         <span>{prLabel(ciHref)}</span>
       </a>
+      {#if checksChip}
+        {@const Icon = checksChip.icon}
+        <span
+          data-testid="status-bar-pr-checks"
+          class={`inline-flex items-center ${checksChip.color}`}
+          title={checksChip.label}
+        >
+          <Icon size={12} class={checksChip.spin ? "animate-spin" : ""} />
+        </span>
+      {/if}
+      {#if reviewChip}
+        {@const Icon = reviewChip.icon}
+        <span
+          data-testid="status-bar-pr-review"
+          class={`inline-flex items-center ${reviewChip.color}`}
+          title={reviewChip.label}
+        >
+          <Icon size={12} />
+        </span>
+      {/if}
     {:else if ciHref && ghOnly}
       <span class="text-text-secondary">&bull;</span>
       <a
@@ -101,6 +128,26 @@
       >
         <span>{prLabel(ciHref)}</span>
       </a>
+      {#if checksChip}
+        {@const Icon = checksChip.icon}
+        <span
+          data-testid="status-bar-pr-checks"
+          class={`inline-flex items-center ${checksChip.color}`}
+          title={checksChip.label}
+        >
+          <Icon size={12} class={checksChip.spin ? "animate-spin" : ""} />
+        </span>
+      {/if}
+      {#if reviewChip}
+        {@const Icon = reviewChip.icon}
+        <span
+          data-testid="status-bar-pr-review"
+          class={`inline-flex items-center ${reviewChip.color}`}
+          title={reviewChip.label}
+        >
+          <Icon size={12} />
+        </span>
+      {/if}
     {:else if ciChip && wtMeta}
       {@const Icon = ciChip.icon}
       {@const running = wtMeta.ciStatus === "running"}

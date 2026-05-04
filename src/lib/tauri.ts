@@ -575,6 +575,16 @@ export async function listNonoProfiles(): Promise<string[]> {
 }
 
 // GitHub PR integration
+export type PrChecksState = "passing" | "failing" | "pending" | "none";
+
+export interface PrChecksSummary {
+  state: PrChecksState;
+  passing: number;
+  failing: number;
+  pending: number;
+  total: number;
+}
+
 export interface PrInfo {
   number: number;
   title: string;
@@ -583,6 +593,10 @@ export interface PrInfo {
   isCrossRepository: boolean;
   url: string;
   repoSlug: string;
+  checks: PrChecksSummary | null;
+  /** GitHub's `reviewDecision`: "APPROVED" | "CHANGES_REQUESTED" |
+   *  "REVIEW_REQUIRED", or null when there's no decision yet. */
+  reviewDecision: string | null;
 }
 
 export async function checkGhInstalled(): Promise<boolean> {

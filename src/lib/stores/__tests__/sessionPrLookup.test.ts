@@ -58,6 +58,8 @@ function makePr(overrides: Partial<PrInfo> = {}): PrInfo {
     isCrossRepository: false,
     url: "https://github.com/phin-tech/roux/pull/42",
     repoSlug: "phin-tech/roux",
+    checks: null,
+    reviewDecision: null,
     ...overrides,
   };
 }
