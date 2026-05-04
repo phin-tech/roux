@@ -1,4 +1,4 @@
-import { get } from "svelte/store";
+import { derived, get, type Readable } from "svelte/store";
 import { settings } from "$lib/stores/settings";
 import { EXPERIMENT_DEFAULTS } from "$lib/types";
 import type { ExperimentsConfig } from "$lib/bindings";
@@ -49,6 +49,13 @@ const EXPERIMENT_DEFS: { [K in keyof RequiredExperiments]: ExperimentDefFor<K> }
       { value: "c", label: "Variant C" },
     ],
   },
+  simplifiedSessionTabs: {
+    kind: "boolean",
+    id: "simplifiedSessionTabs",
+    label: "Simplified session tabs",
+    description:
+      "Replace the session sidebar's per-tab metadata chips with a single contextual line (worktree or repo name, depending on the current grouping).",
+  },
 };
 
 export const EXPERIMENTS: ReadonlyArray<ExperimentDef> = Object.values(
@@ -60,6 +67,15 @@ export { EXPERIMENT_DEFAULTS };
 function readExperiments(): RequiredExperiments {
   return { ...EXPERIMENT_DEFAULTS, ...(get(settings).experiments ?? {}) };
 }
+
+// Reactive view of the resolved experiment values. Use this from Svelte
+// components when the UI should respond live to flag toggles in Settings →
+// Experiments. Non-reactive callers (event handlers, one-shot reads) should
+// keep using `isExperimentEnabled` / `getExperimentValue`.
+export const experimentValues: Readable<RequiredExperiments> = derived(
+  settings,
+  ($s) => ({ ...EXPERIMENT_DEFAULTS, ...($s.experiments ?? {}) }),
+);
 
 export function isExperimentEnabled(id: BoolExperimentId): boolean {
   return readExperiments()[id];

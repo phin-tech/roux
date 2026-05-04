@@ -85,12 +85,9 @@
   let collapsedGroups = $state(loadStringSet(COLLAPSED_GROUPS_KEY));
   let seenProjects = $state(loadStringSet(SEEN_PROJECTS_KEY));
 
+  let groupByMode = $derived($settings.groupBy ?? "repo");
   let grouped = $derived(
-    getGroupedSessions(
-      $sessionList,
-      $projects,
-      $settings.groupBy ?? "repo",
-    ),
+    getGroupedSessions($sessionList, $projects, groupByMode),
   );
   // In "session" mode there is exactly one synthetic "Sessions" group — its
   // header would just take up space, so we hide it. In repo/project modes a
@@ -648,8 +645,8 @@
             <SessionCard
               {session}
               active={session.id === $activeSessionId}
+              groupBy={groupByMode}
               slotNumber={slotById.get(session.id)}
-              hideProjectTag={($settings.groupBy ?? "repo") === "project"}
               onselect={() => setActiveSession(session.id)}
               onclose={() => handleClose(session.id)}
               onrename={(newName) => renameSession(session.id, newName)}

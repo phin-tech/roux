@@ -8,6 +8,7 @@ import type { ExperimentsConfig, RouxSettings } from "./bindings";
 export const EXPERIMENT_DEFAULTS: Required<ExperimentsConfig> = {
   exampleFlag: false,
   exampleVariant: "a",
+  simplifiedSessionTabs: false,
 };
 
 // Re-export generated types
