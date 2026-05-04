@@ -189,10 +189,31 @@ describe("sessionBranchPoller", () => {
   });
 
   it("installSessionBranchPoller returns a stop fn that cancels the timer", async () => {
+    // Seed an eligible session so the poller actually exercises
+    // `refreshSessionBranch` — otherwise the post-stop assertion
+    // passes trivially (0 === 0) even if cancellation is broken.
+    sessionState.set({
+      sessions: [
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {
+          id: "s1",
+          repoRoot: "/repo",
+          branch: "main",
+          isGitRepo: true,
+          archived: false,
+        } as any,
+      ],
+      activeSessionId: "s1",
+    });
+    nextBranchByCall = ["feature/x", "feature/y", "feature/z"];
+
     const stop = installSessionBranchPoller(50);
     // First tick fires immediately; wait long enough that a second would
     // fire if we didn't stop.
     await new Promise((r) => setTimeout(r, 25));
+    // Sanity check: poller actually ran at least once before stop, so
+    // the post-stop comparison below is meaningful.
+    expect(refreshCalls.length).toBeGreaterThan(0);
     stop();
     const callsAtStop = refreshCalls.length;
     await new Promise((r) => setTimeout(r, 120));
