@@ -1296,6 +1296,7 @@
                 {:else}
                   {@const current = ($settings.experiments?.[exp.id] ?? EXPERIMENT_DEFAULTS[exp.id]) as string}
                   <select
+                    aria-label="Select {exp.label}"
                     class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6 shrink-0"
                     value={current}
                     onchange={(e) =>

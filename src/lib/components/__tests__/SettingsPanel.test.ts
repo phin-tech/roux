@@ -111,12 +111,10 @@ describe("SettingsPanel Experiments tab", () => {
     const toggle = await screen.findByRole("button", { name: "Toggle Example flag" });
     expect(toggle).toBeDefined();
 
-    expect(await screen.findByText("Example variant")).toBeDefined();
-    const select = document.querySelector(
-      "select",
-    ) as HTMLSelectElement | null;
-    expect(select).not.toBeNull();
-    expect(select!.value).toBe("a");
+    const select = (await screen.findByRole("combobox", {
+      name: "Select Example variant",
+    })) as HTMLSelectElement;
+    expect(select.value).toBe("a");
   });
 
   it("toggling a boolean experiment persists the new value", async () => {
@@ -140,9 +138,9 @@ describe("SettingsPanel Experiments tab", () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.click(screen.getByRole("button", { name: "Experiments" }));
-    const select = (await screen.findByText("Example variant"))
-      .closest("div.flex")!
-      .querySelector("select") as HTMLSelectElement;
+    const select = (await screen.findByRole("combobox", {
+      name: "Select Example variant",
+    })) as HTMLSelectElement;
 
     await fireEvent.change(select, { target: { value: "c" } });
 
