@@ -40,7 +40,7 @@
   import FlaskConical from "@lucide/svelte/icons/flask-conical";
   import X from "@lucide/svelte/icons/x";
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
-  import { EXPERIMENTS } from "$lib/experiments";
+  import { EXPERIMENTS, EXPERIMENT_DEFAULTS } from "$lib/experiments";
 
   type CategoryId = "general" | "sessions" | "terminal" | "claude" | "notes" | "integrations" | "notifications" | "keyboard" | "experiments" | "advanced";
 
@@ -1277,7 +1277,7 @@
                   <div class="text-[11px] text-text-muted mt-0.5">{exp.description}</div>
                 </div>
                 {#if exp.kind === "boolean"}
-                  {@const current = ($settings.experiments?.[exp.id] ?? false) as boolean}
+                  {@const current = ($settings.experiments?.[exp.id] ?? EXPERIMENT_DEFAULTS[exp.id]) as boolean}
                   <button
                     aria-label="Toggle {exp.label}"
                     class="w-9 h-5 rounded-full relative cursor-pointer transition-all border shrink-0
@@ -1294,7 +1294,7 @@
                     ></div>
                   </button>
                 {:else}
-                  {@const current = ($settings.experiments?.[exp.id] ?? exp.options[0].value) as string}
+                  {@const current = ($settings.experiments?.[exp.id] ?? EXPERIMENT_DEFAULTS[exp.id]) as string}
                   <select
                     class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6 shrink-0"
                     value={current}

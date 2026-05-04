@@ -1,11 +1,9 @@
 import { get } from "svelte/store";
 import { settings } from "$lib/stores/settings";
-import { DEFAULT_SETTINGS } from "$lib/types";
+import { EXPERIMENT_DEFAULTS } from "$lib/types";
 import type { ExperimentsConfig } from "$lib/bindings";
 
 type RequiredExperiments = Required<ExperimentsConfig>;
-
-const DEFAULTS = DEFAULT_SETTINGS.experiments as RequiredExperiments;
 
 type BoolExperimentId = {
   [K in keyof RequiredExperiments]: RequiredExperiments[K] extends boolean ? K : never;
@@ -13,34 +11,33 @@ type BoolExperimentId = {
 
 type EnumExperimentId = Exclude<keyof RequiredExperiments, BoolExperimentId>;
 
-type BoolExperimentDef = {
-  kind: "boolean";
-  id: BoolExperimentId;
-  label: string;
-  description: string;
-};
+type ExperimentDefFor<K extends keyof RequiredExperiments> =
+  RequiredExperiments[K] extends boolean
+    ? { kind: "boolean"; id: K; label: string; description: string }
+    : {
+        kind: "enum";
+        id: K;
+        label: string;
+        description: string;
+        options: ReadonlyArray<{ value: RequiredExperiments[K]; label: string }>;
+      };
 
-type EnumExperimentDef = {
-  [K in EnumExperimentId]: {
-    kind: "enum";
-    id: K;
-    label: string;
-    description: string;
-    options: ReadonlyArray<{ value: RequiredExperiments[K]; label: string }>;
-  };
-}[EnumExperimentId];
+export type ExperimentDef =
+  | ExperimentDefFor<BoolExperimentId>
+  | ExperimentDefFor<EnumExperimentId>;
 
-export type ExperimentDef = BoolExperimentDef | EnumExperimentDef;
-
-export const EXPERIMENTS: ReadonlyArray<ExperimentDef> = [
-  {
+// Indexed by id so adding a new flag to `ExperimentsConfig` (Rust side) without
+// adding a registry entry here is a TypeScript error — the UI can't silently
+// miss a flag.
+const EXPERIMENT_DEFS: { [K in keyof RequiredExperiments]: ExperimentDefFor<K> } = {
+  exampleFlag: {
     kind: "boolean",
     id: "exampleFlag",
     label: "Example flag",
     description:
       "No-op flag for verifying the boolean experiments pipeline. Safe to remove once a real experiment lands.",
   },
-  {
+  exampleVariant: {
     kind: "enum",
     id: "exampleVariant",
     label: "Example variant",
@@ -52,10 +49,16 @@ export const EXPERIMENTS: ReadonlyArray<ExperimentDef> = [
       { value: "c", label: "Variant C" },
     ],
   },
-];
+};
+
+export const EXPERIMENTS: ReadonlyArray<ExperimentDef> = Object.values(
+  EXPERIMENT_DEFS,
+) as ExperimentDef[];
+
+export { EXPERIMENT_DEFAULTS };
 
 function readExperiments(): RequiredExperiments {
-  return { ...DEFAULTS, ...(get(settings).experiments ?? {}) };
+  return { ...EXPERIMENT_DEFAULTS, ...(get(settings).experiments ?? {}) };
 }
 
 export function isExperimentEnabled(id: BoolExperimentId): boolean {

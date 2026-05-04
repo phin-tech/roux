@@ -71,6 +71,7 @@ vi.mock("$lib/stores/updater", () => ({
 import { commands } from "$lib/bindings";
 import SettingsPanel from "../SettingsPanel.svelte";
 import { settings } from "$lib/stores/settings";
+import { updateSettings } from "$lib/tauri";
 
 describe("SettingsPanel MCP integration", () => {
   beforeEach(() => {
@@ -93,5 +94,63 @@ describe("SettingsPanel MCP integration", () => {
       expect(commands.cmdPreviewMcpHostConfig).toHaveBeenCalledWith("claudeDesktop");
     });
     expect(await screen.findByText("Preview ready.")).toBeDefined();
+  });
+});
+
+describe("SettingsPanel Experiments tab", () => {
+  beforeEach(() => {
+    settings.set({ ...DEFAULT_SETTINGS });
+    vi.mocked(updateSettings).mockClear();
+  });
+
+  it("renders boolean and enum experiments at their declared defaults", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Experiments" }));
+
+    const toggle = await screen.findByRole("button", { name: "Toggle Example flag" });
+    expect(toggle).toBeDefined();
+
+    expect(await screen.findByText("Example variant")).toBeDefined();
+    const select = document.querySelector(
+      "select",
+    ) as HTMLSelectElement | null;
+    expect(select).not.toBeNull();
+    expect(select!.value).toBe("a");
+  });
+
+  it("toggling a boolean experiment persists the new value", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Experiments" }));
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "Toggle Example flag" }),
+    );
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalled();
+    });
+    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
+    expect(lastCall[0].experiments?.exampleFlag).toBe(true);
+    // Sibling enum value must be preserved through the spread.
+    expect(lastCall[0].experiments?.exampleVariant).toBe("a");
+  });
+
+  it("changing an enum experiment persists the new variant", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Experiments" }));
+    const select = (await screen.findByText("Example variant"))
+      .closest("div.flex")!
+      .querySelector("select") as HTMLSelectElement;
+
+    await fireEvent.change(select, { target: { value: "c" } });
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalled();
+    });
+    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
+    expect(lastCall[0].experiments?.exampleVariant).toBe("c");
+    expect(lastCall[0].experiments?.exampleFlag).toBe(false);
   });
 });
