@@ -383,7 +383,13 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             .map(|s| (*s).to_string())
             .or_else(|| e.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "<non-string panic payload>".into());
-        rlog!("tray: handle_menu_event panicked: {msg}");
+        // Log unconditionally: the panic hook captures the underlying panic
+        // location regardless of `ENABLED`, but this contextual line is
+        // worth preserving too — `rlog!` would silently drop it when the
+        // user has logging disabled, defeating the diagnostic goal.
+        crate::logging::log_unconditional(&format!(
+            "tray: handle_menu_event panicked: {msg}"
+        ));
     }
 }
 

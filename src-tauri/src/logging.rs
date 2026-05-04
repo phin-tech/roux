@@ -21,11 +21,33 @@ pub fn init(enabled: bool) {
         return;
     }
 
+    rotate_existing_logs();
+    initialize_log_file();
+}
+
+/// Enable or disable logging at runtime (e.g. when settings change).
+pub fn set_enabled(enabled: bool) {
+    let was_enabled = ENABLED.swap(enabled, Ordering::Relaxed);
+    if enabled && !was_enabled {
+        // Turning on — initialize the log file if not already done.
+        // Don't go through `init(true)` here because that would rotate
+        // any existing `roux.log` to `roux.1.log`, hiding panic data
+        // captured by the panic hook while logging was disabled. Rotation
+        // is reserved for actual process startup.
+        let guard = LOG_FILE.lock().unwrap();
+        if guard.is_none() {
+            drop(guard);
+            initialize_log_file();
+        }
+    }
+}
+
+/// Rotate existing log files. Called once at process startup.
+fn rotate_existing_logs() {
     let dir = log_dir();
     let _ = fs::create_dir_all(&dir);
-
-    // Keep last 5 log files, rotate on startup
     let path = dir.join("roux.log");
+    // Keep last 5 log files
     for i in (1..5).rev() {
         let old = dir.join(format!("roux.{}.log", i));
         let new = dir.join(format!("roux.{}.log", i + 1));
@@ -34,25 +56,20 @@ pub fn init(enabled: bool) {
     if path.exists() {
         let _ = fs::rename(&path, dir.join("roux.1.log"));
     }
+}
 
+/// Set up the in-memory `LOG_FILE` pointer and write the session-start
+/// header lines. Does not rotate — safe to call from `set_enabled` when
+/// logging is toggled on at runtime.
+fn initialize_log_file() {
+    let dir = log_dir();
+    let _ = fs::create_dir_all(&dir);
+    let path = dir.join("roux.log");
     *LOG_FILE.lock().unwrap() = Some(path.clone());
     log(&format!("=== Roux started at {} ===", chrono_now()));
     log(&format!("Log file: {}", path.display()));
     log(&format!("OS: {} {}", std::env::consts::OS, std::env::consts::ARCH));
     log(&format!("SHELL: {}", std::env::var("SHELL").unwrap_or_else(|_| "(unset)".into())));
-}
-
-/// Enable or disable logging at runtime (e.g. when settings change).
-pub fn set_enabled(enabled: bool) {
-    let was_enabled = ENABLED.swap(enabled, Ordering::Relaxed);
-    if enabled && !was_enabled {
-        // Turning on — initialize the log file if not already done
-        let guard = LOG_FILE.lock().unwrap();
-        if guard.is_none() {
-            drop(guard);
-            init(true);
-        }
-    }
 }
 
 fn chrono_now() -> String {
@@ -127,20 +144,27 @@ fn install_panic_hook() {
             .name()
             .map(String::from)
             .unwrap_or_else(|| format!("{:?}", std::thread::current().id()));
-        force_log_panic(&format!("PANIC thread={thread} at {location}: {payload}"));
+        log_unconditional(&format!("PANIC thread={thread} at {location}: {payload}"));
+        // The previous (default) hook handles stderr output for dev/CLI runs.
         prev(info);
     }));
 }
 
-/// Append `msg` to roux.log without consulting the `ENABLED` flag. Used by
-/// the panic hook so panics always land in the log even when the user has
-/// logging turned off — panic capture is critical for triage.
-fn force_log_panic(msg: &str) {
+/// Append `msg` to roux.log regardless of the `ENABLED` flag.
+///
+/// Used by the panic hook so panics always land in the log even when the
+/// user has logging turned off, and exposed for callers like
+/// `tray::handle_menu_event`'s `catch_unwind` recovery path that need to
+/// record diagnostics whose loss would defeat the purpose of catching.
+///
+/// Does not write to stderr — the default panic hook (chained from
+/// `install_panic_hook`) already prints to stderr in dev/CLI runs, and
+/// production `.app` bundles route stderr to /dev/null.
+pub fn log_unconditional(msg: &str) {
     let dir = log_dir();
     let _ = fs::create_dir_all(&dir);
     let path = dir.join("roux.log");
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = writeln!(f, "[{}] {}", chrono_now(), msg);
     }
-    eprintln!("[roux] {}", msg);
 }
