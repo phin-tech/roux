@@ -49,18 +49,6 @@ function groupByProject(
     group.sessions.push(s);
     if (s.createdAt > group.latest) group.latest = s.createdAt;
   }
-  // Seed an empty group for every known project, regardless of whether it
-  // has blueprints or live sessions. Projects with auto-spawned-but-closed
-  // sessions and no templates would otherwise vanish from the sidebar once
-  // their last session ends, leaving no way to rediscover or edit them
-  // outside the command palette. `latest = 0` keeps these below any group
-  // with real activity, just above the Untagged tail. The sidebar's
-  // auto-collapse-on-first-sight keeps quiet projects from crowding the
-  // view.
-  for (const p of projects) {
-    if (map.has(p.id)) continue;
-    map.set(p.id, { name: p.name, key: p.id, sessions: [], latest: 0 });
-  }
   const groups = [...map.values()].sort((a, b) => b.latest - a.latest);
   const untaggedIdx = groups.findIndex((g) => g.key === UNTAGGED_KEY);
   if (untaggedIdx > 0) {

@@ -65,10 +65,10 @@ describe("getGroupedSessions (project)", () => {
     expect(groups[0].name).toBe("Untagged");
   });
 
-  it("includes projects that have blueprints but no live sessions", () => {
-    // Without this, a freshly-created project never renders in the sidebar
-    // (no group → no header → no dimmed blueprint rows), so the user can't
-    // spawn from it or edit it from the sidebar.
+  it("hides projects with no live sessions, even when they have blueprints", () => {
+    // Empty project groups crowd the sidebar without an obvious way to
+    // dismiss them. Blueprint-only projects remain addressable via the
+    // command palette and project header menu.
     const projects: Project[] = [
       {
         id: "p-empty",
@@ -85,23 +85,16 @@ describe("getGroupedSessions (project)", () => {
       },
     ];
     const groups = getGroupedSessions([], projects, "project");
-    expect(groups.map((g) => g.key)).toEqual(["p-empty"]);
-    expect(groups[0].sessions).toEqual([]);
-    expect(groups[0].name).toBe("Empty");
+    expect(groups).toEqual([]);
   });
 
-  it("seeds an empty group for every project, even ones with no blueprints", () => {
-    // With auto-spawn-on-create, a project may have neither blueprints nor
-    // live sessions — sessions were spawned without "save as template" and
-    // then closed. Seeding the group keeps the project addressable in the
-    // sidebar; the consumer's auto-collapse-on-first-sight handles noise.
+  it("hides projects that have neither blueprints nor live sessions", () => {
     const projects: Project[] = [{ id: "p-nothing", name: "Nothing" }];
     const groups = getGroupedSessions([], projects, "project");
-    expect(groups.map((g) => g.key)).toEqual(["p-nothing"]);
-    expect(groups[0].sessions).toEqual([]);
+    expect(groups).toEqual([]);
   });
 
-  it("sorts a blueprint-only project below groups that have live sessions", () => {
+  it("only renders project groups that have live sessions", () => {
     const projects: Project[] = [
       { id: "p-active", name: "Active" },
       {
@@ -120,7 +113,7 @@ describe("getGroupedSessions (project)", () => {
     ];
     const sessions = [makeSession({ id: "a", projectId: "p-active", createdAt: 50 })];
     const groups = getGroupedSessions(sessions, projects, "project");
-    expect(groups.map((g) => g.key)).toEqual(["p-active", "p-empty"]);
+    expect(groups.map((g) => g.key)).toEqual(["p-active"]);
   });
 });
 
