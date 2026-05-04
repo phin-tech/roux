@@ -211,6 +211,8 @@ pub struct ExperimentsConfig {
     pub example_flag: bool,
     #[serde(default)]
     pub example_variant: ExampleVariant,
+    #[serde(default)]
+    pub simplified_session_tabs: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -902,6 +904,17 @@ mod tests {
         let exp: ExperimentsConfig = serde_json::from_str(json).unwrap();
         assert!(!exp.example_flag);
         assert_eq!(exp.example_variant, ExampleVariant::C);
+        assert!(!exp.simplified_session_tabs);
+    }
+
+    #[test]
+    fn experiments_default_simplified_session_tabs_off() {
+        // Legacy settings written before `simplifiedSessionTabs` existed must
+        // deserialize cleanly with the flag defaulting to `false`.
+        let json = r#"{ "exampleFlag": true }"#;
+        let exp: ExperimentsConfig = serde_json::from_str(json).unwrap();
+        assert!(exp.example_flag);
+        assert!(!exp.simplified_session_tabs);
     }
 
     #[test]

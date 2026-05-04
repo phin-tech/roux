@@ -417,6 +417,7 @@ export type ExampleVariant = "a" | "b" | "c";
 export type ExperimentsConfig = {
 	exampleFlag?: boolean,
 	exampleVariant?: ExampleVariant,
+	simplifiedSessionTabs?: boolean,
 };
 
 export type GithubJob = {
