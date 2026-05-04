@@ -1,8 +1,14 @@
 <script lang="ts">
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+
   import { activeSession } from "$lib/stores/sessions";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
-  import { prLookupFor } from "$lib/stores/sessionPrLookup";
+  import {
+    prLookupErrorFor,
+    prLookupForSession,
+  } from "$lib/stores/sessionPrLookup";
   import { ciChipFor } from "$lib/ciIcon";
+  import { checksChipFor, reviewChipFor } from "$lib/prChips";
   import { safeHref } from "$lib/safeUrl";
   import type { StatusBarPosition } from "$lib/types";
 
@@ -32,18 +38,26 @@
   let wtCiHref = $derived(safeHref(wtMeta?.ciUrl));
 
   // Fallback: when worktrunk hasn't supplied a ciUrl, use the gh-derived
-  // PR URL from `sessionPrLookup`. Worktrunk wins because it carries CI
-  // status (spinner / stale flag); gh only confirms the PR exists.
-  let prLookupStore = $derived(
-    prLookupFor($activeSession?.repoRoot, $activeSession?.branch),
-  );
+  // PR URL. Honors `pinnedPrUrl` first, then branch-based discovery.
+  // Worktrunk wins overall because it carries CI status (spinner / stale
+  // flag); gh only confirms the PR exists.
+  let prLookupStore = $derived(prLookupForSession($activeSession ?? null));
   let prInfo = $derived(prLookupStore ? $prLookupStore : null);
   let ghPrHref = $derived(safeHref(prInfo?.url ?? null));
+
+  let prErrorStore = $derived(prLookupErrorFor($activeSession ?? null));
+  let prError = $derived(prErrorStore ? $prErrorStore : null);
 
   let ciHref = $derived(wtCiHref ?? ghPrHref);
   // True when we're rendering only the gh fallback — used to skip the
   // CI-status spinner / stale styling, which only worktrunk provides.
   let ghOnly = $derived(!wtCiHref && !!ghPrHref);
+
+  // Tiny chips next to the PR link: aggregate check status + review
+  // decision. Both come from the gh-derived `PrInfo`, independent of
+  // worktrunk, so they render in both the worktrunk and gh-only paths.
+  let checksChip = $derived(checksChipFor(prInfo?.checks));
+  let reviewChip = $derived(reviewChipFor(prInfo?.reviewDecision));
 
   /** Extract a PR-style label from a GitHub/GitLab URL (e.g. "PR #42"). */
   function prLabel(url: string): string {
@@ -82,6 +96,26 @@
         <Icon size={12} class={running ? "animate-spin" : ""} />
         <span>{prLabel(ciHref)}</span>
       </a>
+      {#if checksChip}
+        {@const Icon = checksChip.icon}
+        <span
+          data-testid="status-bar-pr-checks"
+          class={`inline-flex items-center ${checksChip.color}`}
+          title={checksChip.label}
+        >
+          <Icon size={12} class={checksChip.spin ? "animate-spin" : ""} />
+        </span>
+      {/if}
+      {#if reviewChip}
+        {@const Icon = reviewChip.icon}
+        <span
+          data-testid="status-bar-pr-review"
+          class={`inline-flex items-center ${reviewChip.color}`}
+          title={reviewChip.label}
+        >
+          <Icon size={12} />
+        </span>
+      {/if}
     {:else if ciHref && ghOnly}
       <span class="text-text-secondary">&bull;</span>
       <a
@@ -94,6 +128,26 @@
       >
         <span>{prLabel(ciHref)}</span>
       </a>
+      {#if checksChip}
+        {@const Icon = checksChip.icon}
+        <span
+          data-testid="status-bar-pr-checks"
+          class={`inline-flex items-center ${checksChip.color}`}
+          title={checksChip.label}
+        >
+          <Icon size={12} class={checksChip.spin ? "animate-spin" : ""} />
+        </span>
+      {/if}
+      {#if reviewChip}
+        {@const Icon = reviewChip.icon}
+        <span
+          data-testid="status-bar-pr-review"
+          class={`inline-flex items-center ${reviewChip.color}`}
+          title={reviewChip.label}
+        >
+          <Icon size={12} />
+        </span>
+      {/if}
     {:else if ciChip && wtMeta}
       {@const Icon = ciChip.icon}
       {@const running = wtMeta.ciStatus === "running"}
@@ -105,6 +159,16 @@
       >
         <Icon size={12} class={running ? "animate-spin" : ""} />
         <span>ci</span>
+      </span>
+    {:else if prError && !ciHref}
+      <span class="text-text-secondary">&bull;</span>
+      <span
+        data-testid="status-bar-pr-error"
+        class="inline-flex items-center gap-1 text-amber"
+        title={`PR lookup failed: ${prError}`}
+      >
+        <TriangleAlert size={12} />
+        <span>PR?</span>
       </span>
     {/if}
     <span class="text-text-secondary">&bull;</span>

@@ -101,6 +101,17 @@ export const commands = {
 	 */
 	killPty: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_pty", { id })),
 	setSessionNameOverride: (sessionId: string, nameOverride: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_name_override", { sessionId, nameOverride })),
+	/**
+	 *  Pin (or clear) a PR for a session. The status bar uses this when set
+	 *  instead of the branch-based discovery, so cross-repo PRs and renamed
+	 *  branches still surface in the chip.
+	 */
+	setSessionPinnedPrUrl: (sessionId: string, url: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_pinned_pr_url", { sessionId, url })),
+	/**
+	 *  Re-read the session's worktree branch via `git rev-parse` and update
+	 *  the stored value if it changed. Returns the current branch.
+	 */
+	refreshSessionBranch: (sessionId: string) => typedError<string | null, string>(__TAURI_INVOKE("refresh_session_branch", { sessionId })),
 	getPtyGeneration: (id: string) => __TAURI_INVOKE<number | null>("get_pty_generation", { id }),
 	/**
 	 *  Live cwd of a PTY-backed process, resolved from the OS (no shell hooks).
@@ -790,7 +801,22 @@ export type PrInfo = {
 	isCrossRepository: boolean,
 	url: string,
 	repoSlug: string,
+	/** Aggregate check status — feeds the status-bar checks icon. */
+	checks: PrChecksSummary | null,
+	/** GitHub's `reviewDecision`: `"APPROVED"` | `"CHANGES_REQUESTED"` |
+	 *  `"REVIEW_REQUIRED"`, or `null` when there's no decision yet. */
+	reviewDecision: string | null,
 };
+
+export type PrChecksSummary = {
+	state: PrChecksState,
+	passing: number,
+	failing: number,
+	pending: number,
+	total: number,
+};
+
+export type PrChecksState = "passing" | "failing" | "pending" | "none";
 
 export type PrReview = {
 	reviewer: string,
@@ -1137,6 +1163,13 @@ export type Session = {
 	 *  and respawn it when the live session is killed.
 	 */
 	blueprintId?: string | null,
+	/**
+	 *  User-pinned PR URL or shortform for this session. When set, the
+	 *  status bar uses it directly instead of running the branch-based
+	 *  `gh pr list --head` discovery — useful for cross-repo PRs and for
+	 *  cases where the local branch was renamed after the PR was opened.
+	 */
+	pinnedPrUrl?: string | null,
 };
 
 /**

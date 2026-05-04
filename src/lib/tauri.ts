@@ -575,6 +575,16 @@ export async function listNonoProfiles(): Promise<string[]> {
 }
 
 // GitHub PR integration
+export type PrChecksState = "passing" | "failing" | "pending" | "none";
+
+export interface PrChecksSummary {
+  state: PrChecksState;
+  passing: number;
+  failing: number;
+  pending: number;
+  total: number;
+}
+
 export interface PrInfo {
   number: number;
   title: string;
@@ -583,6 +593,10 @@ export interface PrInfo {
   isCrossRepository: boolean;
   url: string;
   repoSlug: string;
+  checks: PrChecksSummary | null;
+  /** GitHub's `reviewDecision`: "APPROVED" | "CHANGES_REQUESTED" |
+   *  "REVIEW_REQUIRED", or null when there's no decision yet. */
+  reviewDecision: string | null;
 }
 
 export async function checkGhInstalled(): Promise<boolean> {
@@ -653,6 +667,19 @@ export async function setSessionNameOverride(
   nameOverride: string | null,
 ): Promise<void> {
   return invoke("set_session_name_override", { sessionId, nameOverride });
+}
+
+export async function setSessionPinnedPrUrl(
+  sessionId: string,
+  url: string | null,
+): Promise<void> {
+  return invoke("set_session_pinned_pr_url", { sessionId, url });
+}
+
+export async function refreshSessionBranch(
+  sessionId: string,
+): Promise<string | null> {
+  return invoke("refresh_session_branch", { sessionId });
 }
 
 // Multi-scoped notes (experimental — see docs/features/notes.md). The four

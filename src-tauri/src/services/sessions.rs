@@ -309,6 +309,7 @@ pub(crate) async fn create_session_shell(
         archived: false,
         ended_at: None,
         blueprint_id: blueprint_id.map(|s| s.to_string()),
+        pinned_pr_url: None,
     };
 
     if let Err(e) = session_handle.add(session.clone()).await {

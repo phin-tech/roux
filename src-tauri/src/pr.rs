@@ -19,6 +19,37 @@ pub(crate) struct PrInfo {
     pub is_cross_repository: bool,
     pub url: String,
     pub repo_slug: String,
+    /// Aggregate check status — feeds the status-bar checks icon.
+    /// `None` when the lookup didn't (or couldn't) include the rollup.
+    pub checks: Option<PrChecksSummary>,
+    /// GitHub's `reviewDecision` enum — `"APPROVED"` |
+    /// `"CHANGES_REQUESTED"` | `"REVIEW_REQUIRED"`. Mapped 1:1 from gh.
+    pub review_decision: Option<String>,
+}
+
+/// Aggregate of a PR's check runs, derived from gh's
+/// `statusCheckRollup`. We collapse to a single "worst-of" state plus
+/// counts so the status bar can render a tiny icon without re-deriving
+/// the rollup on every render.
+#[derive(Debug, Clone, Copy, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrChecksSummary {
+    /// `"passing"` | `"failing"` | `"pending"` | `"none"`.
+    /// `"none"` means there are no check runs at all (empty rollup).
+    pub state: PrChecksState,
+    pub passing: u32,
+    pub failing: u32,
+    pub pending: u32,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum PrChecksState {
+    Passing,
+    Failing,
+    Pending,
+    None,
 }
 
 /// Parse either a full GitHub PR URL or a shortform `owner/repo#NNN`.
@@ -99,7 +130,7 @@ pub(crate) fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> 
         "--repo",
         &repo_slug,
         "--json",
-        "number,title,headRefName,headRepositoryOwner,isCrossRepository,url",
+        PR_JSON_FIELDS,
     ]);
     // cwd only matters for gh's repo auto-detection — irrelevant here since
     // we pass --repo explicitly. Still, prefer a real dir when available so
@@ -125,6 +156,13 @@ pub(crate) fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> 
     Ok(raw.into_pr_info(&repo_slug))
 }
 
+/// JSON fields requested from `gh pr view` / `gh pr list`. Centralized so
+/// the two call sites stay in sync. `statusCheckRollup` and
+/// `reviewDecision` are the new additions; both are absent on older gh
+/// versions, but `serde(default)` on `RawPr` keeps the parse alive in
+/// that case (the chip just won't render the new icons).
+const PR_JSON_FIELDS: &str = "number,title,headRefName,headRepositoryOwner,isCrossRepository,url,statusCheckRollup,reviewDecision";
+
 #[derive(Deserialize)]
 struct RawPr {
     number: u32,
@@ -137,6 +175,10 @@ struct RawPr {
     is_cross_repository: bool,
     #[serde(default)]
     url: String,
+    #[serde(default, rename = "statusCheckRollup")]
+    status_check_rollup: Option<Vec<RawCheckRun>>,
+    #[serde(default, rename = "reviewDecision")]
+    review_decision: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -144,8 +186,32 @@ struct RawOwner {
     login: String,
 }
 
+/// Subset of gh's check-rollup row we care about. gh emits two shapes
+/// here — workflow check-runs (with `status` + `conclusion`) and
+/// status-context rows (with `state`). Both fields are optional so the
+/// summary computation can fall back gracefully.
+#[derive(Deserialize)]
+struct RawCheckRun {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    conclusion: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+}
+
 impl RawPr {
     fn into_pr_info(self, repo_slug: &str) -> PrInfo {
+        let checks = self
+            .status_check_rollup
+            .as_deref()
+            .map(summarize_checks);
+        // gh returns "" when there's no decision; normalize to `None`
+        // so the frontend doesn't have to special-case empty strings.
+        let review_decision = self.review_decision.and_then(|s| {
+            let t = s.trim();
+            if t.is_empty() { None } else { Some(t.to_string()) }
+        });
         PrInfo {
             number: self.number,
             title: self.title,
@@ -154,7 +220,91 @@ impl RawPr {
             is_cross_repository: self.is_cross_repository,
             url: self.url,
             repo_slug: repo_slug.to_string(),
+            checks,
+            review_decision,
         }
+    }
+}
+
+/// Collapse gh's `statusCheckRollup` into a single summary chip.
+///
+/// Order of precedence (worst-of):
+///   - failing (any FAILURE / TIMED_OUT / CANCELLED / ERROR)
+///   - pending (any QUEUED / IN_PROGRESS / WAITING / PENDING)
+///   - passing (every check is SUCCESS / NEUTRAL / SKIPPED)
+///   - none (empty rollup)
+///
+/// gh classifies each row using either `status`+`conclusion` (workflow
+/// runs) or `state` (commit-status contexts). We treat unknown values
+/// as pending — better to under-promise success than to flash green
+/// while a check is still running.
+fn summarize_checks(rollup: &[RawCheckRun]) -> PrChecksSummary {
+    if rollup.is_empty() {
+        return PrChecksSummary {
+            state: PrChecksState::None,
+            passing: 0,
+            failing: 0,
+            pending: 0,
+            total: 0,
+        };
+    }
+    let mut passing = 0u32;
+    let mut failing = 0u32;
+    let mut pending = 0u32;
+    for row in rollup {
+        match classify_check(row) {
+            CheckClass::Pass => passing += 1,
+            CheckClass::Fail => failing += 1,
+            CheckClass::Pending => pending += 1,
+        }
+    }
+    let total = passing + failing + pending;
+    let state = if failing > 0 {
+        PrChecksState::Failing
+    } else if pending > 0 {
+        PrChecksState::Pending
+    } else if passing > 0 {
+        PrChecksState::Passing
+    } else {
+        PrChecksState::None
+    };
+    PrChecksSummary { state, passing, failing, pending, total }
+}
+
+enum CheckClass {
+    Pass,
+    Fail,
+    Pending,
+}
+
+fn classify_check(row: &RawCheckRun) -> CheckClass {
+    // Workflow runs use status + conclusion. A row is settled only when
+    // status == COMPLETED; while pending the conclusion is empty.
+    if let Some(status) = row.status.as_deref() {
+        match status.to_ascii_uppercase().as_str() {
+            "COMPLETED" => match row
+                .conclusion
+                .as_deref()
+                .map(|s| s.to_ascii_uppercase())
+                .as_deref()
+            {
+                Some("SUCCESS") | Some("NEUTRAL") | Some("SKIPPED") => CheckClass::Pass,
+                Some("FAILURE") | Some("TIMED_OUT") | Some("CANCELLED") | Some("ACTION_REQUIRED")
+                | Some("STARTUP_FAILURE") => CheckClass::Fail,
+                _ => CheckClass::Pending,
+            },
+            // QUEUED / IN_PROGRESS / WAITING / PENDING / REQUESTED, etc.
+            _ => CheckClass::Pending,
+        }
+    } else if let Some(state) = row.state.as_deref() {
+        // Commit-status contexts: state is the conclusion directly.
+        match state.to_ascii_uppercase().as_str() {
+            "SUCCESS" => CheckClass::Pass,
+            "FAILURE" | "ERROR" => CheckClass::Fail,
+            _ => CheckClass::Pending,
+        }
+    } else {
+        CheckClass::Pending
     }
 }
 
@@ -195,18 +345,35 @@ pub(crate) fn lookup_pr_for_branch(
         }
     }
 
+    if let Some(info) = gh_pr_list_by_head(repo_path, trimmed, &repo_slug)? {
+        return Ok(Some(info));
+    }
+
+    // Fork fallback: `gh pr list --head <branch>` only matches PRs whose
+    // head branch lives in this repo. A PR opened from a fork with the
+    // same branch name is invisible to that query, so fall back to GitHub
+    // Search syntax. `head:<branch> repo:<slug>` finds the fork PR by
+    // matching the head ref name across forks.
+    gh_pr_search_by_head(repo_path, trimmed, &repo_slug)
+}
+
+fn gh_pr_list_by_head(
+    repo_path: &str,
+    branch: &str,
+    repo_slug: &str,
+) -> Result<Option<PrInfo>> {
     let mut cmd = Command::new(crate::services::setup::gh_command());
     cmd.args([
         "pr",
         "list",
         "--head",
-        trimmed,
+        branch,
         "--state",
         "open",
         "--limit",
         "1",
         "--json",
-        "number,title,headRefName,headRepositoryOwner,isCrossRepository,url",
+        PR_JSON_FIELDS,
     ]);
     cmd.current_dir(repo_path);
 
@@ -221,7 +388,50 @@ pub(crate) fn lookup_pr_for_branch(
     let stdout = String::from_utf8_lossy(&output.stdout);
     let raws: Vec<RawPr> = serde_json::from_str(&stdout)
         .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
-    Ok(raws.into_iter().next().map(|r| r.into_pr_info(&repo_slug)))
+    Ok(raws.into_iter().next().map(|r| r.into_pr_info(repo_slug)))
+}
+
+fn gh_pr_search_by_head(
+    repo_path: &str,
+    branch: &str,
+    repo_slug: &str,
+) -> Result<Option<PrInfo>> {
+    // GitHub's search index is eventually consistent — freshly-opened PRs
+    // can take a few seconds to show up here. That's fine for our use:
+    // by the time the user is back in the app, the index has caught up.
+    let query = format!("head:{} repo:{} is:pr is:open", branch, repo_slug);
+    let mut cmd = Command::new(crate::services::setup::gh_command());
+    cmd.args([
+        "pr",
+        "list",
+        "--search",
+        &query,
+        "--limit",
+        "1",
+        "--json",
+        PR_JSON_FIELDS,
+    ]);
+    cmd.current_dir(repo_path);
+
+    let output = cmd
+        .output()
+        .map_err(|e| anyhow!("Failed to run gh: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Search failures are *not* fatal — we already returned `None`
+        // from the primary query. Falling through to `Ok(None)` keeps the
+        // status bar quiet for users without search access.
+        let s = stderr.to_lowercase();
+        if s.contains("authentication") || s.contains("not logged in") {
+            return Err(classify_gh_error(&stderr));
+        }
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let raws: Vec<RawPr> = serde_json::from_str(&stdout)
+        .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
+    Ok(raws.into_iter().next().map(|r| r.into_pr_info(repo_slug)))
 }
 
 /// Resolve `<owner>/<repo>` for the repo at `repo_path` using `gh repo view`.
@@ -401,5 +611,63 @@ mod tests {
         assert!(parse_pr_ref("").is_none());
         assert!(parse_pr_ref("not a url").is_none());
         assert!(parse_pr_ref("foo#1").is_none());
+    }
+
+    fn workflow_run(conclusion: &str) -> RawCheckRun {
+        RawCheckRun {
+            status: Some("COMPLETED".into()),
+            conclusion: Some(conclusion.into()),
+            state: None,
+        }
+    }
+
+    fn workflow_pending() -> RawCheckRun {
+        RawCheckRun { status: Some("IN_PROGRESS".into()), conclusion: None, state: None }
+    }
+
+    fn status_context(state: &str) -> RawCheckRun {
+        RawCheckRun { status: None, conclusion: None, state: Some(state.into()) }
+    }
+
+    #[test]
+    fn summarize_checks_empty_is_none() {
+        let s = summarize_checks(&[]);
+        assert!(matches!(s.state, PrChecksState::None));
+        assert_eq!(s.total, 0);
+    }
+
+    #[test]
+    fn summarize_checks_failing_wins_over_pending_and_passing() {
+        let s = summarize_checks(&[
+            workflow_run("SUCCESS"),
+            workflow_pending(),
+            workflow_run("FAILURE"),
+        ]);
+        assert!(matches!(s.state, PrChecksState::Failing));
+        assert_eq!(s.passing, 1);
+        assert_eq!(s.failing, 1);
+        assert_eq!(s.pending, 1);
+        assert_eq!(s.total, 3);
+    }
+
+    #[test]
+    fn summarize_checks_pending_wins_over_passing() {
+        let s = summarize_checks(&[workflow_run("SUCCESS"), workflow_pending()]);
+        assert!(matches!(s.state, PrChecksState::Pending));
+    }
+
+    #[test]
+    fn summarize_checks_neutral_and_skipped_count_as_passing() {
+        let s = summarize_checks(&[workflow_run("NEUTRAL"), workflow_run("SKIPPED")]);
+        assert!(matches!(s.state, PrChecksState::Passing));
+        assert_eq!(s.passing, 2);
+    }
+
+    #[test]
+    fn summarize_checks_supports_status_context_state_field() {
+        let s = summarize_checks(&[status_context("SUCCESS"), status_context("FAILURE")]);
+        assert!(matches!(s.state, PrChecksState::Failing));
+        assert_eq!(s.passing, 1);
+        assert_eq!(s.failing, 1);
     }
 }
