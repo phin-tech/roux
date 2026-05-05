@@ -163,41 +163,45 @@
 </script>
 
 {#snippet prStatusLink(href: string, stale: boolean = false, title: string = "Open PR for this branch")}
-  {#if prStatusChip}
-    {@const StatusIcon = prStatusChip.icon}
-    <a
-      data-testid="status-bar-pr-link"
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      class={`group relative inline-flex items-center gap-1 underline ${prLinkColor} ${stale ? "opacity-60" : ""}`}
-      title={hasPrPopover ? undefined : title}
-    >
-      <StatusIcon size={12} class={prStatusChip.spin ? "animate-spin" : ""} />
-      <span>{prLabel(href)}</span>
-      {@render prPopover()}
-    </a>
-  {:else}
-    <a
-      data-testid="status-bar-pr-link"
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      class={`group relative inline-flex items-center gap-1 underline ${prLinkColor} ${stale ? "opacity-60" : ""}`}
-      title={hasPrPopover ? undefined : title}
-    >
-      <span>{prLabel(href)}</span>
-      {@render prPopover()}
-    </a>
-  {/if}
+  <span class="group relative inline-flex items-center">
+    {#if prStatusChip}
+      {@const StatusIcon = prStatusChip.icon}
+      <a
+        data-testid="status-bar-pr-link"
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-describedby={hasPrPopover ? "status-bar-pr-popover" : undefined}
+        class={`inline-flex items-center gap-1 underline ${prLinkColor} ${stale ? "opacity-60" : ""}`}
+        title={hasPrPopover ? undefined : title}
+      >
+        <StatusIcon size={12} class={prStatusChip.spin ? "animate-spin" : ""} />
+        <span>{prLabel(href)}</span>
+      </a>
+    {:else}
+      <a
+        data-testid="status-bar-pr-link"
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-describedby={hasPrPopover ? "status-bar-pr-popover" : undefined}
+        class={`inline-flex items-center gap-1 underline ${prLinkColor} ${stale ? "opacity-60" : ""}`}
+        title={hasPrPopover ? undefined : title}
+      >
+        <span>{prLabel(href)}</span>
+      </a>
+    {/if}
+    {@render prPopover()}
+  </span>
 {/snippet}
 
 {#snippet prPopover()}
   {#if hasPrPopover}
     <div
+      id="status-bar-pr-popover"
       data-testid="status-bar-pr-popover"
       role="tooltip"
-      class={`pointer-events-none absolute left-1/2 z-50 max-h-80 min-w-72 max-w-96 -translate-x-1/2 overflow-y-auto rounded border border-border bg-bg-elevated p-2 text-[11px] text-text-primary shadow-lg ${$prStatusDetailsOpen ? "block" : "hidden group-hover:block"} ${position === "top" ? "top-full mt-2" : "bottom-full mb-2"}`}
+      class={`absolute left-1/2 z-50 max-h-80 min-w-72 max-w-96 -translate-x-1/2 overflow-y-auto rounded border border-border bg-bg-elevated p-2 text-[11px] text-text-primary shadow-lg ${$prStatusDetailsOpen ? "block" : "hidden group-hover:block group-focus-within:block"} ${position === "top" ? "top-full mt-2" : "bottom-full mb-2"}`}
     >
       {#if checkRows.length > 0}
         <div class="mb-1 text-[10px] font-semibold uppercase text-text-muted">Checks</div>

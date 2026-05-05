@@ -257,8 +257,11 @@ describe("StatusBar worktrunk integration", () => {
     const popover = getByTestId("status-bar-pr-popover");
 
     expect(link.className).toContain("text-red");
+    expect(link.getAttribute("aria-describedby")).toBe("status-bar-pr-popover");
     expect(link.querySelectorAll("svg")).toHaveLength(1);
     expect(queryByTestId("status-bar-pr-checks")).toBeNull();
+    expect(popover.className).not.toContain("pointer-events-none");
+    expect(popover.className).toContain("group-focus-within:block");
     expect(popover.textContent).toContain("cargo test");
     expect(popover.textContent).toContain("passing");
     expect(popover.textContent).toContain("npm check");
