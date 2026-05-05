@@ -5,9 +5,10 @@
 
   interface Props {
     wt: Worktree;
+    showPath?: boolean;
   }
 
-  let { wt }: Props = $props();
+  let { wt, showPath = true }: Props = $props();
 
   let metadata = $derived(wt.worktrunk);
   let ciChip = $derived(ciChipFor(metadata?.ciStatus ?? null));
@@ -119,9 +120,11 @@
   {/if}
 {/if}
 
-<span class="ml-auto max-w-40 truncate font-mono text-[10px] text-text-muted"
-  >{wt.path}</span
->
+{#if showPath}
+  <span class="ml-auto max-w-40 truncate font-mono text-[10px] text-text-muted"
+    >{wt.path}</span
+  >
+{/if}
 
 {#if devServerHref}
   <a
