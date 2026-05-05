@@ -1287,7 +1287,7 @@
                     data-testid="worktrunk-row-checkbox"
                   />
                   <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                    <WorktreeRowContent {wt} showPath={false} />
+                    <WorktreeRowContent {wt} showPath={false} repoRoot={currentRepo} />
                   </div>
                   <div class="flex shrink-0 items-center gap-1">
                     {#if hasSession}

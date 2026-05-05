@@ -2,18 +2,50 @@
   import type { Worktree } from "$lib/types";
   import { ciChipFor } from "$lib/ciIcon";
   import { safeHref } from "$lib/safeUrl";
+  import {
+    prLookupFor,
+    lookupPrForRepoBranch,
+  } from "$lib/stores/sessionPrLookup";
+  import PrStatusPopover from "./PrStatusPopover.svelte";
 
   interface Props {
     wt: Worktree;
     showPath?: boolean;
+    /**
+     * Repo root for the worktree's parent repository. When supplied
+     * (and the worktree carries a branch), the row triggers a PR
+     * lookup on first hover and shows the same Checks/Reviews popover
+     * the bottom status bar uses.
+     */
+    repoRoot?: string | null;
   }
 
-  let { wt, showPath = true }: Props = $props();
+  let { wt, showPath = true, repoRoot = null }: Props = $props();
 
   let metadata = $derived(wt.worktrunk);
   let ciChip = $derived(ciChipFor(metadata?.ciStatus ?? null));
   let ciHref = $derived(safeHref(metadata?.ciUrl));
   let devServerHref = $derived(safeHref(metadata?.devServerUrl));
+
+  let prStore = $derived(prLookupFor(repoRoot, wt.branch));
+  let prInfo = $derived($prStore ?? null);
+  let checkRuns = $derived(prInfo?.checkRuns ?? []);
+  let reviewDetails = $derived(prInfo?.reviewDetails ?? []);
+  let hasPopover = $derived(checkRuns.length > 0 || reviewDetails.length > 0);
+
+  // Lazy lookup: first hover on the chip triggers a PR fetch if the
+  // (repoRoot, branch) hasn't been resolved yet. Cached hits short-
+  // circuit at the lookup layer, so re-hovers are free.
+  let lookupAttempted = $state(false);
+  function maybeLookup() {
+    if (lookupAttempted) return;
+    if (!repoRoot || !wt.branch || wt.isMain) return;
+    lookupAttempted = true;
+    void lookupPrForRepoBranch(repoRoot, wt.branch).catch(() => {
+      // Errors are surfaced via prLookupErrorFor elsewhere; the popover
+      // simply stays empty.
+    });
+  }
 </script>
 
 {#if wt.isMain}
@@ -95,29 +127,46 @@
   {@const stale = metadata.ciStale}
   {@const Icon = ciChip.icon}
   {@const running = metadata.ciStatus === "running"}
-  {#if ciHref}
-    <a
-      data-testid="wt-ci"
-      href={ciHref}
-      target="_blank"
-      rel="noopener noreferrer"
-      class={`inline-flex items-center gap-0.5 text-[10px] ${ciChip.color} ${stale ? "opacity-60" : ""}`}
-      onclick={(e) => e.stopPropagation()}
-      title={`CI: ${ciChip.label}${stale ? " (stale — unpushed changes)" : ""}`}
-    >
-      <Icon size={11} class={running ? "animate-spin" : ""} />
-      <span>ci</span>
-    </a>
-  {:else}
-    <span
-      data-testid="wt-ci"
-      class={`inline-flex items-center gap-0.5 text-[10px] ${ciChip.color} ${stale ? "opacity-60" : ""}`}
-      title={`CI: ${ciChip.label}${stale ? " (stale — unpushed changes)" : ""}`}
-    >
-      <Icon size={11} class={running ? "animate-spin" : ""} />
-      <span>ci</span>
-    </span>
-  {/if}
+  <span
+    class="group relative inline-flex items-center"
+    onmouseenter={maybeLookup}
+    onfocusin={maybeLookup}
+    role="presentation"
+  >
+    {#if ciHref}
+      <a
+        data-testid="wt-ci"
+        href={ciHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        class={`inline-flex items-center gap-0.5 text-[10px] ${ciChip.color} ${stale ? "opacity-60" : ""}`}
+        onclick={(e) => e.stopPropagation()}
+        title={hasPopover
+          ? undefined
+          : `CI: ${ciChip.label}${stale ? " (stale — unpushed changes)" : ""}`}
+      >
+        <Icon size={11} class={running ? "animate-spin" : ""} />
+        <span>ci</span>
+      </a>
+    {:else}
+      <span
+        data-testid="wt-ci"
+        class={`inline-flex items-center gap-0.5 text-[10px] ${ciChip.color} ${stale ? "opacity-60" : ""}`}
+        title={hasPopover
+          ? undefined
+          : `CI: ${ciChip.label}${stale ? " (stale — unpushed changes)" : ""}`}
+      >
+        <Icon size={11} class={running ? "animate-spin" : ""} />
+        <span>ci</span>
+      </span>
+    {/if}
+    <PrStatusPopover
+      data-testid="wt-ci-popover"
+      {checkRuns}
+      {reviewDetails}
+      position="bottom"
+    />
+  </span>
 {/if}
 
 {#if showPath}
