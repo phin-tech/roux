@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/svelte";
+import { tick } from "svelte";
 import type { Session, Worktree, WorktrunkMetadata } from "$lib/types";
 import type { PrInfo } from "$lib/tauri";
 
@@ -24,6 +25,10 @@ import {
   _resetWorktreeMetadataForTests,
   upsertWorktreeMetadata,
 } from "$lib/stores/worktreeMetadata";
+import {
+  closePrStatusDetails,
+  togglePrStatusDetails,
+} from "$lib/stores/prStatusDetails";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -100,6 +105,7 @@ describe("StatusBar worktrunk integration", () => {
     _resetWorktreeMetadataForTests();
     _resetSessionPrLookupForTests();
     tauriMock.nextPrLookupResult = null;
+    closePrStatusDetails();
   });
 
   afterEach(() => {
@@ -107,6 +113,7 @@ describe("StatusBar worktrunk integration", () => {
     _resetWorktreeMetadataForTests();
     _resetSessionPrLookupForTests();
     tauriMock.nextPrLookupResult = null;
+    closePrStatusDetails();
   });
 
   it("renders no PR link when no session is active", () => {
@@ -293,5 +300,42 @@ describe("StatusBar worktrunk integration", () => {
     expect(popover.textContent).toContain("approved");
     expect(popover.textContent).toContain("bob");
     expect(popover.textContent).toContain("changes requested");
+  });
+
+  it("can force the PR details popover open without hover", async () => {
+    const s = makeSession({
+      repoRoot: "/repo",
+      worktreePath: "/wt/feat-toggle",
+      branch: "feature/x",
+    });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    seed(
+      "/wt/feat-toggle",
+      makeMeta({
+        ciStatus: "running",
+        ciUrl: "https://github.com/phin-tech/roux/pull/42",
+      }),
+    );
+    tauriMock.nextPrLookupResult = makePr({
+      checks: {
+        state: "pending",
+        passing: 0,
+        failing: 0,
+        pending: 1,
+        total: 1,
+      },
+      checkRuns: [{ name: "npm check", status: "pending", url: null }],
+    });
+    await lookupPrForSession(s, { force: true });
+
+    const { getByTestId } = render(StatusBar);
+    const popover = getByTestId("status-bar-pr-popover");
+    expect(popover.className).toContain("hidden");
+
+    togglePrStatusDetails();
+    await tick();
+
+    expect(popover.className).toContain("block");
+    expect(popover.className).not.toContain("hidden");
   });
 });

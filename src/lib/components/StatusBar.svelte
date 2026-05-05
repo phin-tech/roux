@@ -10,6 +10,7 @@
   import { ciChipFor } from "$lib/ciIcon";
   import { checksChipFor, reviewChipFor } from "$lib/prChips";
   import { safeHref } from "$lib/safeUrl";
+  import { closePrStatusDetails, prStatusDetailsOpen } from "$lib/stores/prStatusDetails";
   import type { PrCheckStatus, PrReviewDetails } from "$lib/tauri";
   import type { StatusBarPosition } from "$lib/types";
 
@@ -77,6 +78,12 @@
   let approvalCount = $derived(
     reviewRows.filter((review) => normalizedReviewState(review.state) === "approved").length,
   );
+
+  $effect(() => {
+    if ((!$activeSession || !hasPrPopover) && $prStatusDetailsOpen) {
+      closePrStatusDetails();
+    }
+  });
 
   /** Extract a PR-style label from a GitHub/GitLab URL (e.g. "PR #42"). */
   function prLabel(url: string): string {
@@ -190,7 +197,7 @@
     <div
       data-testid="status-bar-pr-popover"
       role="tooltip"
-      class={`pointer-events-none absolute left-1/2 z-50 hidden max-h-80 min-w-72 max-w-96 -translate-x-1/2 overflow-y-auto rounded border border-border bg-bg-elevated p-2 text-[11px] text-text-primary shadow-lg group-hover:block ${position === "top" ? "top-full mt-2" : "bottom-full mb-2"}`}
+      class={`pointer-events-none absolute left-1/2 z-50 max-h-80 min-w-72 max-w-96 -translate-x-1/2 overflow-y-auto rounded border border-border bg-bg-elevated p-2 text-[11px] text-text-primary shadow-lg ${$prStatusDetailsOpen ? "block" : "hidden group-hover:block"} ${position === "top" ? "top-full mt-2" : "bottom-full mb-2"}`}
     >
       {#if checkRows.length > 0}
         <div class="mb-1 text-[10px] font-semibold uppercase text-text-muted">Checks</div>
