@@ -283,7 +283,7 @@ pub(crate) async fn create_session_shell(
             // hook or a lock error here would leave the user with a
             // stranded worktree + no session. Cleanup-always-succeeds
             // trumps hooks-always-fire for error paths.
-            let _ = crate::worktree::remove_worktree(&work_dir);
+            let _ = crate::worktree::remove_worktree(repo_path, &work_dir);
         }
         return Err(anyhow!("{}", e));
     }
@@ -317,7 +317,7 @@ pub(crate) async fn create_session_shell(
         if is_wt {
             // Same rollback policy as the spawn-failure path above:
             // emergency cleanup stays native.
-            let _ = crate::worktree::remove_worktree(&session.worktree_path);
+            let _ = crate::worktree::remove_worktree(&session.repo_root, &session.worktree_path);
         }
         return Err(e.into());
     }

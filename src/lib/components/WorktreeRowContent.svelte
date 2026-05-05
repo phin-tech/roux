@@ -57,7 +57,19 @@
   // Lazy lookup: first hover on the chip triggers a PR fetch if the
   // backing cache entry hasn't been resolved yet. Cached hits short-
   // circuit at the lookup layer, so re-hovers are free.
+  // The latch resets when the lookup target changes — without that, a
+  // row reused for a different (session, repoRoot, branch) tuple
+  // would never re-fetch.
+  let lookupKey = $derived(
+    session
+      ? `session:${session.id}|${session.pinnedPrUrl ?? ""}`
+      : `branch:${repoRoot ?? ""}::${wt.branch ?? ""}`,
+  );
   let lookupAttempted = $state(false);
+  $effect(() => {
+    void lookupKey;
+    lookupAttempted = false;
+  });
   function maybeLookup() {
     if (lookupAttempted) return;
     if (wt.isMain) return;

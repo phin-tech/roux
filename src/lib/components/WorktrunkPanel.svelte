@@ -55,6 +55,10 @@
   let headerMenuOpen = $state(false);
   let bulkMenuOpen = $state(false);
   let bulkCopiedFlash = $state(false);
+  // Pending timer handle for the "Copied" flash. We clear and replace
+  // it on each copy so a slow second click doesn't hide the new flash
+  // because an earlier timer is still racing to fire.
+  let bulkCopiedFlashTimer: ReturnType<typeof setTimeout> | null = null;
   let filterText = $state("");
   let selected = $state(new Set<string>());
   let selectAllCheckbox = $state<HTMLInputElement | null>(null);
@@ -216,6 +220,10 @@
     headerMenuOpen = false;
     bulkMenuOpen = false;
     bulkCopiedFlash = false;
+    if (bulkCopiedFlashTimer != null) {
+      clearTimeout(bulkCopiedFlashTimer);
+      bulkCopiedFlashTimer = null;
+    }
     filterText = "";
     selected = new Set();
     bulkPending = false;
@@ -285,6 +293,18 @@
   $effect(() => {
     if (selectAllCheckbox) {
       selectAllCheckbox.indeterminate = someVisibleSelected;
+    }
+  });
+
+  // The bulk toolbar (and its More menu) only render while
+  // `hasSelection` is true. If the user clears the selection while the
+  // menu is open, the toolbar unmounts but `bulkMenuOpen` stays true —
+  // the next time a selection appears, the dropdown would render
+  // already-open. Reset the menu/flash state alongside the selection.
+  $effect(() => {
+    if (selected.size === 0) {
+      bulkMenuOpen = false;
+      bulkCopiedFlash = false;
     }
   });
 
@@ -535,6 +555,14 @@
     const repo = currentRepo;
     const targets = [...removableSelectedWorktrees];
     const count = targets.length;
+    // Close transient menus BEFORE the confirm so the dropdown isn't
+    // left dangling behind the modal prompt (or after the user
+    // cancels). The dropdown is non-interactive while the native
+    // confirm is up, but visually it's still rendered and gets
+    // dismissed only on next pointerdown — feels janky.
+    menuOpenFor = null;
+    headerMenuOpen = false;
+    bulkMenuOpen = false;
     const confirmed = window.confirm(
       alsoBranch
         ? `Delete ${count} worktree${count === 1 ? "" : "s"} AND ${count} local branch${count === 1 ? "" : "es"}?\n\nBoth the on-disk worktrees and local branches will be deleted.`
@@ -543,9 +571,6 @@
     if (!confirmed) return;
     bulkError = null;
     worktreesError = null;
-    menuOpenFor = null;
-    headerMenuOpen = false;
-    bulkMenuOpen = false;
     bulkPending = true;
     const succeeded: string[] = [];
     const dirty: Worktree[] = [];
@@ -646,8 +671,10 @@
       await navigator.clipboard.writeText(text);
       bulkMenuOpen = false;
       bulkCopiedFlash = true;
-      setTimeout(() => {
+      if (bulkCopiedFlashTimer != null) clearTimeout(bulkCopiedFlashTimer);
+      bulkCopiedFlashTimer = setTimeout(() => {
         bulkCopiedFlash = false;
+        bulkCopiedFlashTimer = null;
       }, 1500);
     } catch (err) {
       const msg = typeof err === "string" ? err : String(err);
@@ -657,6 +684,8 @@
 
   async function handleBulkRevealInFinder() {
     if (selectedWorktrees.length === 0 || bulkPending) return;
+    const repo = currentRepo;
+    if (!repo) return;
     const targets = [...selectedWorktrees];
     const count = targets.length;
     if (count > BULK_WINDOW_CONFIRM_THRESHOLD) {
@@ -682,6 +711,7 @@
           });
         }
       }
+      if (!isCurrentRepoRequest(repo)) return;
       bulkError = describeBulkResult("reveal", succeeded, failures);
     } finally {
       bulkPending = false;
@@ -690,6 +720,8 @@
 
   async function handleBulkOpenTerminal() {
     if (selectedWorktrees.length === 0 || bulkPending) return;
+    const repo = currentRepo;
+    if (!repo) return;
     const targets = [...selectedWorktrees];
     const count = targets.length;
     if (count > BULK_WINDOW_CONFIRM_THRESHOLD) {
@@ -719,6 +751,7 @@
           });
         }
       }
+      if (!isCurrentRepoRequest(repo)) return;
       bulkError = describeBulkResult("open in terminal", succeeded, failures);
     } finally {
       bulkPending = false;
@@ -763,16 +796,19 @@
           `"${wt.branch}" has uncommitted changes.\n\nForce-delete and DISCARD local changes?`,
         );
         if (!force) {
+          if (!isCurrentRepoRequest(repo)) return;
           worktreesError = `Skipped ${wt.branch}: uncommitted changes`;
           return;
         }
         await removeWorktree(repo, wt.path, alsoBranch, true);
       }
+      if (!isCurrentRepoRequest(repo)) return;
       const next = new Set(selected);
       next.delete(wt.path);
       selected = next;
       await loadWorktrees(repo);
     } catch (err) {
+      if (!isCurrentRepoRequest(repo)) return;
       const msg = typeof err === "string" ? err : String(err);
       worktreesError = `Failed to remove ${wt.branch}: ${msg}`;
     } finally {

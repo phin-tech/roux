@@ -333,6 +333,10 @@ describe("WorktrunkPanel", () => {
 
 describe("WorktrunkPanel Worktrees tab", () => {
   let confirmSpy: ReturnType<typeof vi.spyOn>;
+  // Snapshot the real `navigator.clipboard` so the bulk-copy test
+  // (which swaps in a vi.fn for `writeText`) doesn't leak the stub
+  // into later tests.
+  let originalClipboard: typeof navigator.clipboard | undefined;
 
   beforeEach(() => {
     vi.mocked(commands.cmdWorktrunkDiagnostics).mockReset();
@@ -349,12 +353,16 @@ describe("WorktrunkPanel Worktrees tab", () => {
       probed: true,
     });
     confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    originalClipboard = navigator.clipboard;
   });
 
   afterEach(() => {
     confirmSpy.mockRestore();
     sessionState.set({ sessions: [], activeSessionId: null });
     _resetWorktreeMetadataForTests();
+    if (originalClipboard !== undefined) {
+      Object.assign(navigator, { clipboard: originalClipboard });
+    }
   });
 
   it("fetches and renders the worktree list for the session's repo", async () => {

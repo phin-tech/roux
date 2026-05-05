@@ -345,7 +345,7 @@ pub fn remove_worktree_with_provider(
     // against.
     let branch = if also_branch { resolve_worktree_branch(worktree_path) } else { None };
 
-    git_worktree_remove(worktree_path, force)?;
+    git_worktree_remove(repo_path, worktree_path, force)?;
 
     if let Some(branch) = branch {
         // Best-effort: if wt's fallback path already deleted the branch,
@@ -379,14 +379,14 @@ fn resolve_worktree_branch(worktree_path: &str) -> Option<String> {
     }
 }
 
-pub fn remove_worktree(worktree_path: &str) -> Result<(), WorktreeError> {
+pub fn remove_worktree(repo_path: &str, worktree_path: &str) -> Result<(), WorktreeError> {
     // Existing in-tree callers (session cleanup, archived-session
     // sweeps) want force semantics: the worktree was created by Roux
     // and must go away even if `git` thinks it still has work in it.
     // GUI removal goes through `remove_worktree_with_provider` with an
     // explicit `force` parameter and uses `git_worktree_remove`
     // directly.
-    git_worktree_remove(worktree_path, true)
+    git_worktree_remove(repo_path, worktree_path, true)
 }
 
 /// Run `git worktree remove [--force]` and translate the failure modes
@@ -394,9 +394,18 @@ pub fn remove_worktree(worktree_path: &str) -> Result<(), WorktreeError> {
 /// force; without it, the dirty-tree refusal becomes
 /// [`WorktreeError::UncommittedChanges`] so the GUI can offer a
 /// follow-up confirm.
-fn git_worktree_remove(worktree_path: &str, force: bool) -> Result<(), WorktreeError> {
+///
+/// `repo_path` is set as the spawned `git`'s `current_dir` so the
+/// invocation isn't sensitive to where Roux happens to be running
+/// from — the rest of this file's git calls do the same.
+fn git_worktree_remove(
+    repo_path: &str,
+    worktree_path: &str,
+    force: bool,
+) -> Result<(), WorktreeError> {
     let mut cmd = Command::new("git");
     cmd.args(["worktree", "remove", worktree_path]);
+    cmd.current_dir(repo_path);
     if force {
         cmd.arg("--force");
     }
