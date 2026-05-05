@@ -116,10 +116,12 @@ pub(crate) async fn cmd_remove_worktree(
     repo_path: String,
     worktree_path: String,
     also_branch: Option<bool>,
+    force: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let provider = state.settings.lock().unwrap().worktree_provider;
     let also_branch = also_branch.unwrap_or(false);
+    let force = force.unwrap_or(false);
     let wt = crate::services::setup::resolve_wt_binary();
     let wt_available = wt.is_some();
     let pre_context = HookContext {
@@ -141,6 +143,7 @@ pub(crate) async fn cmd_remove_worktree(
             &repo_path,
             &worktree_path,
             also_branch,
+            force,
             provider,
             wt.as_ref(),
         )

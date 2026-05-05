@@ -512,6 +512,22 @@
     return `${verb}: ${succeeded} succeeded, ${failures.length} failed (e.g. ${sample.branch}: ${sample.error})`;
   }
 
+  // Backend reports dirty worktrees as `WorktreeError::UncommittedChanges`,
+  // whose Display impl starts with "worktree has uncommitted changes".
+  // We match the substring so a wt-vs-git phrasing drift doesn't silently
+  // re-enable the data-loss footgun (fall through to git --force).
+  function isDirtyError(err: unknown): boolean {
+    const msg = typeof err === "string" ? err : String(err);
+    return /uncommitted changes/i.test(msg);
+  }
+
+  function formatDirtyBranchList(dirty: Worktree[]): string {
+    const preview = dirty.slice(0, 5).map((wt) => `  • ${wt.branch}`);
+    const more =
+      dirty.length > 5 ? `\n  …and ${dirty.length - 5} more` : "";
+    return `${preview.join("\n")}${more}`;
+  }
+
   async function handleBulkRemove(alsoBranch: boolean) {
     if (!currentRepo || bulkPending || removableSelectedWorktrees.length === 0) {
       return;
@@ -521,41 +537,101 @@
     const count = targets.length;
     const confirmed = window.confirm(
       alsoBranch
-        ? `Remove ${count} worktree${count === 1 ? "" : "s"} AND delete ${count} local branch${count === 1 ? "" : "es"}?\n\nBoth the on-disk worktrees and local branches will be deleted.`
-        : `Remove ${count} worktree${count === 1 ? "" : "s"} on disk?\n\nThe branches stay in the repo.`,
+        ? `Delete ${count} worktree${count === 1 ? "" : "s"} AND ${count} local branch${count === 1 ? "" : "es"}?\n\nBoth the on-disk worktrees and local branches will be deleted.`
+        : `Delete ${count} worktree${count === 1 ? "" : "s"} on disk?\n\nThe branches stay in the repo.`,
     );
     if (!confirmed) return;
     bulkError = null;
     worktreesError = null;
     menuOpenFor = null;
     headerMenuOpen = false;
+    bulkMenuOpen = false;
     bulkPending = true;
     const succeeded: string[] = [];
+    const dirty: Worktree[] = [];
     const failures: { branch: string; error: string }[] = [];
     try {
       for (const wt of targets) {
         try {
-          await removeWorktree(repo, wt.path, alsoBranch);
+          await removeWorktree(repo, wt.path, alsoBranch, false);
           succeeded.push(wt.path);
         } catch (err) {
-          failures.push({
-            branch: wt.branch,
-            error: typeof err === "string" ? err : String(err),
-          });
+          if (isDirtyError(err)) {
+            dirty.push(wt);
+          } else {
+            failures.push({
+              branch: wt.branch,
+              error: typeof err === "string" ? err : String(err),
+            });
+          }
         }
       }
       if (succeeded.length > 0 && isCurrentRepoRequest(repo)) {
         await loadWorktrees(repo);
       }
-      if (isCurrentRepoRequest(repo)) {
+      if (!isCurrentRepoRequest(repo)) return;
+
+      // Trim selection to what's left undeleted so the toolbar still
+      // makes sense if the user dismisses the dirty prompt.
+      {
         const remaining = new Set(selected);
         for (const path of succeeded) remaining.delete(path);
         selected = remaining;
-        bulkError = describeBulkResult(
-          alsoBranch ? "remove worktrees + branches" : "remove worktrees",
-          succeeded.length,
-          failures,
-        );
+      }
+      bulkError = describeBulkResult(
+        alsoBranch ? "remove worktrees + branches" : "remove worktrees",
+        succeeded.length,
+        failures,
+      );
+
+      if (dirty.length === 0) return;
+
+      // Phase 2: review dirty worktrees and ask whether to force-delete.
+      const forceConfirmed = window.confirm(
+        `${dirty.length} worktree${dirty.length === 1 ? "" : "s"} ${dirty.length === 1 ? "has" : "have"} uncommitted changes:\n\n${formatDirtyBranchList(dirty)}\n\nForce-delete and DISCARD local changes?`,
+      );
+      if (!forceConfirmed) {
+        const branches = dirty.map((wt) => wt.branch).join(", ");
+        const skippedMsg = `${dirty.length} skipped (uncommitted changes): ${branches}`;
+        bulkError = bulkError ? `${bulkError}. ${skippedMsg}` : skippedMsg;
+        return;
+      }
+
+      const forceSucceeded: string[] = [];
+      const forceFailures: { branch: string; error: string }[] = [];
+      for (const wt of dirty) {
+        try {
+          await removeWorktree(repo, wt.path, alsoBranch, true);
+          forceSucceeded.push(wt.path);
+        } catch (err) {
+          forceFailures.push({
+            branch: wt.branch,
+            error: typeof err === "string" ? err : String(err),
+          });
+        }
+      }
+      if (forceSucceeded.length > 0 && isCurrentRepoRequest(repo)) {
+        await loadWorktrees(repo);
+      }
+      if (!isCurrentRepoRequest(repo)) return;
+      {
+        const remaining = new Set(selected);
+        for (const path of forceSucceeded) remaining.delete(path);
+        selected = remaining;
+      }
+      const forceBanner = describeBulkResult(
+        "force-delete",
+        forceSucceeded.length,
+        forceFailures,
+      );
+      // Combine the two phases' banners so the user sees both outcomes.
+      if (bulkError && forceBanner) {
+        bulkError = `${bulkError}. ${forceBanner}`;
+      } else if (forceBanner) {
+        bulkError = forceBanner;
+      } else if (failures.length === 0) {
+        // Everything ultimately succeeded — clear the banner.
+        bulkError = null;
       }
     } finally {
       bulkPending = false;
@@ -676,13 +752,26 @@
           : "The worktree is removed from disk; the branch stays in the repo."),
     );
     if (!confirmed) return;
+    const repo = currentRepo;
     removing = wt.path;
     try {
-      await removeWorktree(currentRepo, wt.path, alsoBranch);
+      try {
+        await removeWorktree(repo, wt.path, alsoBranch, false);
+      } catch (err) {
+        if (!isDirtyError(err)) throw err;
+        const force = window.confirm(
+          `"${wt.branch}" has uncommitted changes.\n\nForce-delete and DISCARD local changes?`,
+        );
+        if (!force) {
+          worktreesError = `Skipped ${wt.branch}: uncommitted changes`;
+          return;
+        }
+        await removeWorktree(repo, wt.path, alsoBranch, true);
+      }
       const next = new Set(selected);
       next.delete(wt.path);
       selected = next;
-      await loadWorktrees(currentRepo);
+      await loadWorktrees(repo);
     } catch (err) {
       const msg = typeof err === "string" ? err : String(err);
       worktreesError = `Failed to remove ${wt.branch}: ${msg}`;

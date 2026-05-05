@@ -660,11 +660,13 @@ describe("WorktrunkPanel Worktrees tab", () => {
       "/project",
       "/project-feat-a",
       false,
+      false,
     );
     expect(removeWorktree).toHaveBeenNthCalledWith(
       2,
       "/project",
       "/project-feat-b",
+      false,
       false,
     );
   });
@@ -696,6 +698,7 @@ describe("WorktrunkPanel Worktrees tab", () => {
       "/project",
       "/project-feat-a",
       true,
+      false,
     );
   });
 
@@ -767,6 +770,183 @@ describe("WorktrunkPanel Worktrees tab", () => {
     expect(err.textContent).toContain("1 succeeded, 1 failed");
     expect(err.textContent).toContain("feat-b");
     expect(err.textContent).toContain("locked");
+  });
+
+  it("offers to force-delete dirty worktrees after bulk remove leaves them behind", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees)
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+        makeWorktree({
+          path: "/project-clean",
+          branch: "clean",
+          isMain: false,
+        }),
+        makeWorktree({
+          path: "/project-dirty",
+          branch: "dirty",
+          isMain: false,
+        }),
+      ])
+      // After phase 1: only the dirty one remains.
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+        makeWorktree({
+          path: "/project-dirty",
+          branch: "dirty",
+          isMain: false,
+        }),
+      ])
+      // After phase 2 force: dirty also gone.
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      ]);
+    vi.mocked(removeWorktree).mockImplementation(
+      async (_repo, path, _alsoBranch, force) => {
+        if (path === "/project-dirty" && !force) {
+          throw new Error(
+            "worktree has uncommitted changes: ✗ Cannot remove worktree: dirty has uncommitted changes",
+          );
+        }
+      },
+    );
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-remove"));
+
+    await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(3));
+    // Phase 1: both targets attempted with force=false.
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      1,
+      "/project",
+      "/project-clean",
+      false,
+      false,
+    );
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      2,
+      "/project",
+      "/project-dirty",
+      false,
+      false,
+    );
+    // Phase 2: dirty re-attempted with force=true after the second confirm.
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      3,
+      "/project",
+      "/project-dirty",
+      false,
+      true,
+    );
+    // Two confirms: initial bulk delete + force-delete prompt.
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(confirmSpy.mock.calls[1]?.[0]).toContain("uncommitted changes");
+    expect(confirmSpy.mock.calls[1]?.[0]).toContain("dirty");
+  });
+
+  it("skips force-delete when the user declines the dirty prompt", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-dirty",
+        branch: "dirty",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(removeWorktree).mockImplementation(async () => {
+      throw new Error("worktree has uncommitted changes: dirty");
+    });
+    // First confirm = initial bulk delete (allow); second = force prompt (deny).
+    confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-remove"));
+
+    await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(1));
+    expect(removeWorktree).toHaveBeenCalledWith(
+      "/project",
+      "/project-dirty",
+      false,
+      false,
+    );
+    const err = await findByTestId("worktrunk-bulk-error");
+    expect(err.textContent).toContain("skipped (uncommitted changes)");
+    expect(err.textContent).toContain("dirty");
+  });
+
+  it("offers to force-delete a single worktree from the kebab menu when it's dirty", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValue([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-dirty",
+        branch: "dirty",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(removeWorktree).mockImplementation(
+      async (_repo, _path, _alsoBranch, force) => {
+        if (!force) {
+          throw new Error("worktree has uncommitted changes: dirty");
+        }
+      },
+    );
+
+    const { findAllByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    const rows = await findAllByTestId("worktrunk-worktree-row");
+    const featRow = rows[1];
+    await fireEvent.click(
+      featRow.querySelector(
+        '[data-testid="worktrunk-worktree-menu"]',
+      ) as HTMLButtonElement,
+    );
+    await fireEvent.click(
+      featRow.querySelector(
+        '[data-testid="worktrunk-worktree-remove"]',
+      ) as HTMLButtonElement,
+    );
+
+    await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(2));
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      1,
+      "/project",
+      "/project-dirty",
+      false,
+      false,
+    );
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      2,
+      "/project",
+      "/project-dirty",
+      false,
+      true,
+    );
+    // Initial confirm + force-delete confirm.
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(confirmSpy.mock.calls[1]?.[0]).toContain("uncommitted changes");
   });
 
   it("does not refresh the stale repo after bulk remove if the active repo changes", async () => {
@@ -1116,6 +1296,7 @@ describe("WorktrunkPanel Worktrees tab", () => {
       "/project",
       "/project-feat-a",
       false,
+      false,
     );
   });
 
@@ -1197,6 +1378,7 @@ describe("WorktrunkPanel Worktrees tab", () => {
       "/project",
       "/project-feat-a",
       true,
+      false,
     );
   });
 

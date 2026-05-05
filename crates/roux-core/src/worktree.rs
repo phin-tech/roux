@@ -25,6 +25,12 @@ pub enum WorktreeError {
     /// to the user so they can unlock deliberately — see issue #101.
     #[error("worktree is locked (wt): {reason}")]
     WorktrunkLocked { reason: String },
+    /// Removal was refused because the worktree contains uncommitted or
+    /// untracked changes and the caller did not pass `force = true`.
+    /// Carries the underlying tool's stderr so the GUI can show the
+    /// user why and offer a force-delete follow-up.
+    #[error("worktree has uncommitted changes: {reason}")]
+    UncommittedChanges { reason: String },
 }
 
 fn sanitize_branch_for_path(branch: &str) -> String {
@@ -269,20 +275,29 @@ pub fn create_worktree(
 
 /// Remove a worktree using the requested provider.
 ///
-/// - `provider = Git` (or `Auto` + `wt = None`) → native `git worktree remove --force`.
+/// - `provider = Git` (or `Auto` + `wt = None`) → native `git worktree remove`,
+///   passing `--force` only when the caller asked for it.
 /// - `provider = Worktrunk` (or `Auto` + `wt = Some`) → `wt remove` via
-///   [`roux_worktrunk::remove_worktree`], which honors lock semantics:
-///   a locked worktree raises `WorktrunkLocked` instead of being silently forced.
+///   [`roux_worktrunk::remove_worktree`], which honors lock and dirty
+///   semantics: a locked or dirty worktree raises a typed error instead
+///   of being silently forced.
 ///
-/// Fallback: on non-lock wt failures, falls through to native git so
-/// removal doesn't get stuck when `wt` has a transient issue. Lock
-/// errors DO propagate — the caller is meant to surface them to the
-/// user per issue #101's "GUI cleanup defaults must be more
-/// conservative than terminal cleanup" principle.
+/// `force = false` is the conservative GUI default. When the underlying
+/// tool refuses because the worktree is locked or contains uncommitted
+/// changes, we surface that as `WorktrunkLocked` / `UncommittedChanges`
+/// so the caller can prompt the user. Other wt failures still fall
+/// through to native git (without `--force`) so transient `wt` glitches
+/// don't strand removal.
+///
+/// `force = true` is the explicit "I know what I'm doing" path used by
+/// callers that have already confirmed with the user. wt is invoked
+/// with `--force`; if it still fails we fall back to `git worktree
+/// remove --force`.
 pub fn remove_worktree_with_provider(
     repo_path: &str,
     worktree_path: &str,
     also_branch: bool,
+    force: bool,
     provider: WorktreeProvider,
     wt: Option<&roux_worktrunk::WtBinary>,
 ) -> Result<(), WorktreeError> {
@@ -295,7 +310,7 @@ pub fn remove_worktree_with_provider(
         if let Some(wt) = wt {
             let opts = roux_worktrunk::RemoveOpts {
                 also_branch,
-                force: false,
+                force,
                 env: Vec::new(),
             };
             match roux_worktrunk::remove_worktree(
@@ -308,6 +323,12 @@ pub fn remove_worktree_with_provider(
                 Err(roux_worktrunk::WtError::Locked { reason }) => {
                     // Locks are user-visible: do NOT silently fall back.
                     return Err(WorktreeError::WorktrunkLocked { reason });
+                }
+                Err(roux_worktrunk::WtError::Dirty { reason }) => {
+                    // Same reasoning — user has to opt into force-delete
+                    // explicitly. Falling back to git would silently
+                    // discard their uncommitted work.
+                    return Err(WorktreeError::UncommittedChanges { reason });
                 }
                 Err(err) => {
                     eprintln!(
@@ -324,7 +345,7 @@ pub fn remove_worktree_with_provider(
     // against.
     let branch = if also_branch { resolve_worktree_branch(worktree_path) } else { None };
 
-    remove_worktree(worktree_path)?;
+    git_worktree_remove(worktree_path, force)?;
 
     if let Some(branch) = branch {
         // Best-effort: if wt's fallback path already deleted the branch,
@@ -359,14 +380,40 @@ fn resolve_worktree_branch(worktree_path: &str) -> Option<String> {
 }
 
 pub fn remove_worktree(worktree_path: &str) -> Result<(), WorktreeError> {
-    let output = Command::new("git")
-        .args(["worktree", "remove", worktree_path, "--force"])
-        .output()
-        .map_err(|source| WorktreeError::RunGit { source })?;
+    // Existing in-tree callers (session cleanup, archived-session
+    // sweeps) want force semantics: the worktree was created by Roux
+    // and must go away even if `git` thinks it still has work in it.
+    // GUI removal goes through `remove_worktree_with_provider` with an
+    // explicit `force` parameter and uses `git_worktree_remove`
+    // directly.
+    git_worktree_remove(worktree_path, true)
+}
+
+/// Run `git worktree remove [--force]` and translate the failure modes
+/// the GUI cares about into typed errors. Caller decides whether to
+/// force; without it, the dirty-tree refusal becomes
+/// [`WorktreeError::UncommittedChanges`] so the GUI can offer a
+/// follow-up confirm.
+fn git_worktree_remove(worktree_path: &str, force: bool) -> Result<(), WorktreeError> {
+    let mut cmd = Command::new("git");
+    cmd.args(["worktree", "remove", worktree_path]);
+    if force {
+        cmd.arg("--force");
+    }
+    let output = cmd.output().map_err(|source| WorktreeError::RunGit { source })?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(WorktreeError::RemoveFailed { stderr: stderr.to_string() });
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        // git's stderr for a dirty worktree is e.g.
+        //   "fatal: '<path>' contains modified or untracked files,
+        //    use --force to delete it"
+        // and for a populated worktree:
+        //   "fatal: '<path>' is not empty, use --force to delete it"
+        let lower = stderr.to_lowercase();
+        if !force && (lower.contains("modified or untracked") || lower.contains("not empty")) {
+            return Err(WorktreeError::UncommittedChanges { reason: stderr });
+        }
+        return Err(WorktreeError::RemoveFailed { stderr });
     }
 
     Ok(())
