@@ -94,10 +94,18 @@ impl GhCli {
     /// `gh repo clone <slug> <target>`. The caller is responsible for
     /// ensuring `target_dir`'s parent exists and `target_dir` itself does
     /// not already exist.
+    ///
+    /// `target_dir` is forwarded as `OsStr` so non-UTF-8 paths (legal on
+    /// Unix) reach `gh` byte-for-byte instead of being lossily replaced
+    /// with U+FFFD.
     pub async fn repo_clone(&self, slug: &str, target_dir: &Path) -> Result<(), GhError> {
-        let target_str = target_dir.to_string_lossy().into_owned();
-        let args = ["repo", "clone", slug, &target_str];
-        self.run(None, &args).await.map(|_| ())
+        let args: [&OsStr; 4] = [
+            OsStr::new("repo"),
+            OsStr::new("clone"),
+            OsStr::new(slug),
+            target_dir.as_os_str(),
+        ];
+        self.run(None, args).await.map(|_| ())
     }
 
     /// Probe `gh --version`. Returns `(binary_path, version_string)` on
