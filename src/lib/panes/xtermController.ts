@@ -10,7 +10,10 @@ import { userTerminalThemes } from "$lib/stores/userTerminalThemes";
 import { resolveTerminalTheme, type TerminalTheme } from "$lib/themes";
 import type { GpuAcceleration } from "$lib/bindings";
 
-import { installXtermWatchDecorations } from "./xtermWatchDecorations";
+import {
+  installXtermWatchDecorations,
+  type XtermWatchDecorationsHandle,
+} from "./xtermWatchDecorations";
 import { readPromptSnapshot, type PromptSnapshot } from "./promptSnapshot";
 import type { TerminalController, TerminalDimensions } from "./terminalRuntime";
 
@@ -23,6 +26,7 @@ class XtermTerminalController implements TerminalController {
   private readonly fitAddon: FitAddon;
   private webglAddon: WebglAddon | null = null;
   private webglContextLossSub: { dispose(): void } | null = null;
+  private watchDecorations: XtermWatchDecorationsHandle | null = null;
 
   constructor(options?: CreateTerminalControllerOptions) {
     const s = get(settings);
@@ -50,7 +54,7 @@ class XtermTerminalController implements TerminalController {
       openUrl(uri);
     }));
 
-    installXtermWatchDecorations(this.terminal);
+    this.watchDecorations = installXtermWatchDecorations(this.terminal);
   }
 
   private setupRenderer(mode: GpuAcceleration): void {
@@ -99,6 +103,8 @@ class XtermTerminalController implements TerminalController {
   }
 
   dispose(): void {
+    this.watchDecorations?.dispose();
+    this.watchDecorations = null;
     this.webglContextLossSub?.dispose();
     this.webglContextLossSub = null;
     this.webglAddon?.dispose();

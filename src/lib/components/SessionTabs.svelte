@@ -502,11 +502,13 @@
     void initTaskOverrides();
   });
 
-  // Poll non-git sessions to detect when they become git repos (e.g. after `git init`)
+  // Poll non-git sessions to detect when they become git repos (e.g. after
+  // `git init`). Read $sessionList inside the timer so we don't keep
+  // refreshing sessions that have since been removed (the prior
+  // implementation closed over a stale snapshot).
   $effect(() => {
-    const sessions = $sessionList;
     const interval = setInterval(() => {
-      for (const s of sessions) {
+      for (const s of $sessionList) {
         if (!s.isGitRepo) {
           refreshSessionGitStatus(s.id).then((isGit) => {
             if (isGit) updateSessionGitStatus(s.id, true);

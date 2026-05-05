@@ -124,10 +124,37 @@ function syncPaneRecord(instance: PaneInstance): void {
   void upsertPaneRecord(toPaneRecord(instance)).catch(() => {});
 }
 
+function stringArraysEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+// Field-level diff against PaneInstance — replaces a prior double
+// JSON.stringify, which was O(record-size) on every pane mutation
+// (terminal output, status changes) and showed up as a beach-ball under
+// fast PTY traffic.
 function paneRecordChanged(before: PaneInstance, after: PaneInstance): boolean {
-  const beforeRecord = toPaneRecord(before);
-  const afterRecord = toPaneRecord(after);
-  return JSON.stringify(beforeRecord) !== JSON.stringify(afterRecord);
+  return (
+    before.id !== after.id ||
+    before.type !== after.type ||
+    before.ptyId !== after.ptyId ||
+    before.name !== after.name ||
+    before.workingDir !== after.workingDir ||
+    before.command !== after.command ||
+    before.docPath !== after.docPath ||
+    before.spawnProfileRef !== after.spawnProfileRef ||
+    before.provider !== after.provider ||
+    before.providerSessionId !== after.providerSessionId ||
+    before.nonoProfile !== after.nonoProfile ||
+    before.notesScope !== after.notesScope ||
+    before.notesViewMode !== after.notesViewMode ||
+    !stringArraysEqual(before.nonoAllowDirs, after.nonoAllowDirs)
+  );
 }
 
 /**

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Emitter, Manager};
@@ -20,6 +21,10 @@ use crate::state::AppState;
 pub struct WatchHandle {
     pub cancel: CancellationToken,
     pub join: tokio::task::JoinHandle<()>,
+    /// Monotonic id assigned at spawn time. The poll task carries the
+    /// same id so its self-cleanup can distinguish "I'm still the live
+    /// entry" from "a newer spawn has replaced me".
+    pub generation: u64,
 }
 
 #[derive(Clone)]
@@ -27,6 +32,10 @@ pub struct WatchManager {
     store: WatchStoreHandle,
     handles: Arc<Mutex<HashMap<String, WatchHandle>>>,
     flap_trackers: Arc<Mutex<HashMap<String, FlapTracker>>>,
+    /// Counter for [`WatchHandle::generation`]. Process-wide; ids are
+    /// only ever compared per-watch_id, so wrap-around in a 64-bit
+    /// counter is not a concern.
+    next_generation: Arc<AtomicU64>,
 }
 
 impl WatchManager {
@@ -35,6 +44,7 @@ impl WatchManager {
             store,
             handles: Arc::new(Mutex::new(HashMap::new())),
             flap_trackers: Arc::new(Mutex::new(HashMap::new())),
+            next_generation: Arc::new(AtomicU64::new(1)),
         }
     }
 
@@ -92,6 +102,23 @@ impl WatchManager {
         let _ = self.store.remove(id).await;
     }
 
+    /// Remove every watch scoped to the given session. Called when a
+    /// session is deleted so its recurring pollers (e.g. `gh pr view`
+    /// every 30s) don't outlive the session and keep firing forever.
+    pub async fn remove_watches_for_session(&self, session_id: &str) {
+        let watches = match self.store.list().await {
+            Ok(list) => list,
+            Err(_) => return,
+        };
+        for watch in watches {
+            if let WatchScope::Session { session_id: scoped } = &watch.scope {
+                if scoped == session_id {
+                    self.remove_watch(&watch.id).await;
+                }
+            }
+        }
+    }
+
     pub async fn pause_watch(&self, id: &str, app: &tauri::AppHandle) {
         self.cancel_watch(id);
         let _ = self
@@ -144,6 +171,12 @@ impl WatchManager {
         let watch_id_for_handles = watch_id.clone();
         let watch_id_for_cleanup = watch_id.clone();
         let handles_for_cleanup = Arc::clone(&self.handles);
+        // Generation tag so the cleanup at task end can tell "I'm still
+        // the live entry" from "a later spawn_watch replaced me". Without
+        // this, an old cancelled task that races past `cancel_watch` and
+        // the new `insert` will delete the new task's handle, leaving a
+        // live poll loop with no way to pause/remove it.
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
 
         let join = tokio::spawn(async move {
             if let Some(delay) = initial_delay {
@@ -171,13 +204,18 @@ impl WatchManager {
                     crate::automation_hooks::HookEvent::PreWatchRun,
                     &watch,
                 );
-                let pre_hook_result = state
-                    .automation_hooks
-                    .run_blocking(
+                // Race the hook against cancellation. If the watch is
+                // cancelled (session deleted, watch removed) while a
+                // user-defined pre-watch-run hook is wedged, dropping
+                // the future cancels the hook child (kill_on_drop on
+                // the spawned process).
+                let pre_hook_result = tokio::select! {
+                    res = state.automation_hooks.run_blocking(
                         crate::automation_hooks::HookEvent::PreWatchRun,
                         hook_context.clone(),
-                    )
-                    .await;
+                    ) => res,
+                    _ = cancel_clone.cancelled() => break,
+                };
 
                 let result = match pre_hook_result {
                     Ok(_) => {
@@ -444,11 +482,20 @@ impl WatchManager {
             }
 
             let mut handles_guard = handles_for_cleanup.lock().unwrap();
-            handles_guard.remove(&watch_id_for_cleanup);
+            // Only remove the entry if it's still ours. A later spawn
+            // for the same watch_id may have replaced us, in which case
+            // its handle must stay in the map.
+            if handles_guard
+                .get(&watch_id_for_cleanup)
+                .map(|h| h.generation)
+                == Some(generation)
+            {
+                handles_guard.remove(&watch_id_for_cleanup);
+            }
         });
 
         let mut handles_guard = handles.lock().unwrap();
-        handles_guard.insert(watch_id_for_handles, WatchHandle { cancel, join });
+        handles_guard.insert(watch_id_for_handles, WatchHandle { cancel, join, generation });
     }
 }
 

@@ -4,7 +4,7 @@
 //! clone/fetch/pull honor the user's SSH config, credential helpers, and
 //! corporate Git setup.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -176,6 +176,86 @@ impl GitCli {
     fn run(&self, cwd: Option<&Path>, args: &[String]) -> Result<String, GitError> {
         run_git(&self.git_bin, cwd, args)
     }
+
+    /// View this `GitCli` as an async-capable wrapper. Cheap (clones the
+    /// `PathBuf`).
+    pub fn into_async(self) -> GitCliAsync {
+        GitCliAsync { git_bin: self.git_bin }
+    }
+}
+
+/// Async-native wrapper around the user's `git` CLI, mirroring [`GitCli`].
+///
+/// All methods return futures and use `tokio::process::Command` so they
+/// integrate with the tokio runtime without parking a worker thread.
+#[derive(Debug, Clone)]
+pub struct GitCliAsync {
+    git_bin: PathBuf,
+}
+
+impl Default for GitCliAsync {
+    fn default() -> Self {
+        Self::new(resolve_git_bin())
+    }
+}
+
+impl GitCliAsync {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { git_bin: path.into() }
+    }
+
+    pub fn git_bin(&self) -> &Path {
+        &self.git_bin
+    }
+
+    /// Run `git fetch origin <refspec>` in `repo` and return stdout. Used by
+    /// PR-fetch flows that materialize a `refs/pull/<n>/head` ref into a
+    /// local branch without moving HEAD.
+    pub async fn fetch_refspec(&self, repo: &Path, refspec: &str) -> Result<String, GitError> {
+        self.run(
+            Some(repo),
+            &[OsString::from("fetch"), OsString::from("origin"), OsString::from(refspec)],
+        )
+        .await
+    }
+
+    /// Run an arbitrary `git` invocation. Prefer typed methods where
+    /// available; this is the escape hatch for one-off commands.
+    ///
+    /// Args are kept as `OsString` end-to-end so non-UTF-8 paths (legal on
+    /// Unix) reach `git` byte-for-byte instead of being lossily replaced
+    /// with U+FFFD.
+    pub async fn run_args<I, S>(&self, cwd: Option<&Path>, args: I) -> Result<String, GitError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let owned: Vec<OsString> = args.into_iter().map(|a| a.as_ref().to_os_string()).collect();
+        self.run(cwd, &owned).await
+    }
+
+    async fn run(&self, cwd: Option<&Path>, args: &[OsString]) -> Result<String, GitError> {
+        let mut cmd = tokio::process::Command::new(&self.git_bin);
+        cmd.args(args);
+        if let Some(cwd) = cwd {
+            cmd.current_dir(cwd);
+        }
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        // Kill the git child if the future is dropped (cancelled invoke,
+        // timeout). Without this a long `git fetch` can outlive its caller.
+        cmd.kill_on_drop(true);
+        let output = cmd.output().await.map_err(|source| GitError::Spawn { source })?;
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(GitError::NonZeroExit {
+            status: output.status.code().unwrap_or(-1),
+            stderr: truncate(stderr.trim(), 240),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,28 +338,75 @@ fn run_git(git_bin: &Path, cwd: Option<&Path>, args: &[String]) -> Result<String
 }
 
 fn resolve_git_bin() -> PathBuf {
+    resolve_bin(None, None)
+}
+
+/// Resolve the path to the user's `git` binary.
+///
+/// Resolution precedence:
+///   1. `override_path` (e.g. a settings value), if non-empty.
+///   2. `ROUX_GIT` environment variable, if non-empty.
+///   3. First match in `extra_path` (e.g. a login-shell `PATH` for GUI
+///      launches that don't inherit the user's shell PATH).
+///   4. First match in the process `PATH`.
+///   5. Common platform-specific candidates (`/opt/homebrew/bin/git` etc.).
+///   6. Bare `"git"` — `Command::new` then errors naturally.
+///
+/// Pass `extra_path` as the colon-separated PATH string from a login shell
+/// (Roux uses `pty::get_user_path()` for this) when the GUI environment is
+/// known to be PATH-poor.
+pub fn resolve_bin(override_path: Option<&str>, extra_path: Option<&OsStr>) -> PathBuf {
+    if let Some(path) = override_path.map(str::trim).filter(|s| !s.is_empty()) {
+        return PathBuf::from(path);
+    }
     if let Some(path) = std::env::var_os("ROUX_GIT").filter(|path| !path.is_empty()) {
         return PathBuf::from(path);
     }
-    resolve_git_bin_with_path(std::env::var_os("PATH").as_deref(), &common_git_candidates())
-}
-
-fn resolve_git_bin_with_path(path_env: Option<&OsStr>, candidates: &[PathBuf]) -> PathBuf {
     let executable = git_executable_name();
-    if let Some(path_env) = path_env {
-        for dir in std::env::split_paths(path_env) {
-            let candidate = dir.join(executable);
-            if candidate.is_file() {
-                return candidate;
-            }
+    if let Some(path_env) = extra_path {
+        if let Some(found) = find_in_path_env(path_env, executable) {
+            return found;
         }
     }
-    for candidate in candidates {
+    if let Some(path_env) = std::env::var_os("PATH") {
+        if let Some(found) = find_in_path_env(&path_env, executable) {
+            return found;
+        }
+    }
+    for candidate in common_git_candidates() {
         if candidate.is_file() {
-            return candidate.clone();
+            return candidate;
         }
     }
     PathBuf::from(executable)
+}
+
+fn find_in_path_env(path_env: &OsStr, executable: &str) -> Option<PathBuf> {
+    for dir in std::env::split_paths(path_env) {
+        let candidate = dir.join(executable);
+        if is_executable_file(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Treat a candidate path as runnable iff it's a regular file *and*
+/// (on Unix) has at least one execute bit set. Without the bit check
+/// a stray 0-byte `git` placeholder earlier in `$PATH` would shadow a
+/// real `git` and turn every shell-out into a spawn failure.
+fn is_executable_file(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .map(|m| m.is_file() && (m.permissions().mode() & 0o111) != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::metadata(path).map(|m| m.is_file()).unwrap_or(false)
+    }
 }
 
 fn common_git_candidates() -> Vec<PathBuf> {
@@ -352,12 +479,46 @@ mod tests {
     }
 
     #[test]
-    fn resolves_git_from_candidates_when_path_is_missing() {
+    fn resolve_bin_honors_non_empty_override() {
+        let path = resolve_bin(Some(" /opt/example/bin/git "), None);
+        assert_eq!(path, PathBuf::from("/opt/example/bin/git"));
+    }
+
+    #[test]
+    fn resolve_bin_finds_executable_in_extra_path() {
         let tmp = tempfile::tempdir().unwrap();
         let candidate = tmp.path().join(git_executable_name());
         std::fs::write(&candidate, "").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let extra = std::env::join_paths([tmp.path()]).unwrap();
+        assert_eq!(resolve_bin(None, Some(extra.as_os_str())), candidate);
+    }
 
-        assert_eq!(resolve_git_bin_with_path(None, std::slice::from_ref(&candidate)), candidate);
+    /// A 0-byte placeholder `git` earlier in `$PATH` (e.g. our
+    /// `binaries/` sidecar shim during dev) must not shadow the real
+    /// executable that lives later in the search order.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_bin_skips_non_executable_match_in_extra_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let placeholder_dir = tempfile::tempdir().unwrap();
+        let placeholder = placeholder_dir.path().join(git_executable_name());
+        std::fs::write(&placeholder, "").unwrap();
+        std::fs::set_permissions(&placeholder, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let real_dir = tempfile::tempdir().unwrap();
+        let real = real_dir.path().join(git_executable_name());
+        std::fs::write(&real, "").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let extra =
+            std::env::join_paths([placeholder_dir.path(), real_dir.path()]).unwrap();
+        assert_eq!(resolve_bin(None, Some(extra.as_os_str())), real);
     }
 
     #[test]

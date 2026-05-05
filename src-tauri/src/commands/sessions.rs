@@ -246,6 +246,9 @@ pub(crate) async fn kill_session(
     svc::kill_session(&state.pty_manager, &state.session_handle, &id)
         .await
         .map_err(|e| e.to_string())?;
+    // Stop session-scoped recurring watches (e.g. PR pollers) so they
+    // don't outlive the archived session and keep firing forever.
+    state.watch_manager.remove_watches_for_session(&id).await;
     if let Some(session) = session {
         let context = crate::automation_hooks::HookContext {
             repo_path: Some(session.repo_root.clone()),
@@ -287,7 +290,12 @@ pub(crate) async fn delete_session_permanently(
 ) -> Result<(), String> {
     svc::delete_session_permanently(&state.pty_manager, &state.session_handle, &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // Tear down any session-scoped watches that may still be polling
+    // (no-op if the session was already archived and watches were
+    // cleaned up at archive time).
+    state.watch_manager.remove_watches_for_session(&id).await;
+    Ok(())
 }
 
 /// Check whether an archived session's worktree path still exists on disk.

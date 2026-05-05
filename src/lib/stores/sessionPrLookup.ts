@@ -269,6 +269,28 @@ function autoWatchKey(
   return `${sessionId}::${repo}::${prNumber}`;
 }
 
+/**
+ * Drop auto-watch dedupe entries for sessions no longer in the live
+ * list. Archiving (or permanently deleting) a session causes the
+ * backend to remove its session-scoped PR watch via
+ * `WatchManager::remove_watches_for_session`; if we keep the dedupe
+ * key, a later restore-then-PR-lookup would short-circuit
+ * `maybeAutoWatch` and never recreate the watch.
+ *
+ * `lookupStore` is intentionally NOT pruned here: it's keyed by
+ * `(repoRoot, branch)` / `pin::<url>` rather than session id, so
+ * multiple sessions can share a cache entry. TTL eviction handles
+ * staleness without us guessing at session ownership.
+ */
+function pruneRemovedSessionKeys(liveSessionIds: Set<string>): void {
+  for (const key of autoWatchedKeys) {
+    const sessionId = key.split("::", 1)[0];
+    if (!liveSessionIds.has(sessionId)) {
+      autoWatchedKeys.delete(key);
+    }
+  }
+}
+
 async function maybeAutoWatch(
   sessionId: string,
   prInfo: PrInfo,
@@ -308,7 +330,7 @@ async function maybeAutoWatch(
  */
 export function installSessionPrEffect(): () => void {
   let lastKey: string | null = null;
-  return activeSession.subscribe((session) => {
+  const unsubscribeActive = activeSession.subscribe((session) => {
     if (!session) {
       lastKey = null;
       return;
@@ -333,6 +355,19 @@ export function installSessionPrEffect(): () => void {
       }
     });
   });
+
+  // Prune dedupe + cached lookup state for sessions that drop out of
+  // the live list (archive or permanent delete). Without this, the
+  // auto-watch short-circuit treats restored sessions as already-watched
+  // even though the backend tore their watch down at archive time.
+  const unsubscribeList = sessionList.subscribe((sessions) => {
+    pruneRemovedSessionKeys(new Set(sessions.map((s) => s.id)));
+  });
+
+  return () => {
+    unsubscribeActive();
+    unsubscribeList();
+  };
 }
 
 /**
