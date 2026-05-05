@@ -60,6 +60,9 @@
 
   let pickerOpen = $state(true);
   let closeT: ReturnType<typeof setTimeout> | null = null;
+  // One-shot guard: swallows the next focus event after a selection so a
+  // programmatic refocus by the caller doesn't immediately re-pop the dropdown.
+  let suppressNextFocusOpen = $state(false);
 
   function cancelDeferredClose() {
     if (closeT != null) {
@@ -78,6 +81,7 @@
   function handleSelect(path: string, label: string) {
     onselect(path, label);
     pickerOpen = false;
+    suppressNextFocusOpen = true;
   }
 
   function handleEnter() {
@@ -87,6 +91,7 @@
       return;
     }
     pickerOpen = false;
+    suppressNextFocusOpen = true;
     onenter?.(value);
   }
 
@@ -119,8 +124,17 @@
         bind:value
         {placeholder}
         class={pickerInputClass}
-        onfocus={() => { pickerOpen = true; }}
-        oninput={() => { pickerOpen = true; }}
+        onfocus={() => {
+          if (suppressNextFocusOpen) {
+            suppressNextFocusOpen = false;
+            return;
+          }
+          pickerOpen = true;
+        }}
+        oninput={() => {
+          suppressNextFocusOpen = false;
+          pickerOpen = true;
+        }}
         onkeydown={(e) => {
           if (e.key !== "Enter") return;
           e.preventDefault();
