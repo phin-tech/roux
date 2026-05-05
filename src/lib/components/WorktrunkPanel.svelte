@@ -522,7 +522,7 @@
           });
         }
       }
-      if (succeeded.length > 0) {
+      if (succeeded.length > 0 && isCurrentRepoRequest(repo)) {
         await loadWorktrees(repo);
       }
       if (isCurrentRepoRequest(repo)) {
@@ -986,9 +986,9 @@
               />
               <span>
                 {#if filterText}
-                  Select {filteredWorktrees.length} match{filteredWorktrees.length === 1 ? "" : "es"}
+                  Select {visibleRemovableWorktrees.length} removable match{visibleRemovableWorktrees.length === 1 ? "" : "es"}
                 {:else}
-                  Select all
+                  Select removable
                 {/if}
               </span>
             </label>
