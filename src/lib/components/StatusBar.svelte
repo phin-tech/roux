@@ -10,6 +10,7 @@
   import { ciChipFor } from "$lib/ciIcon";
   import { checksChipFor, reviewChipFor } from "$lib/prChips";
   import { safeHref } from "$lib/safeUrl";
+  import type { PrCheckStatus } from "$lib/tauri";
   import type { StatusBarPosition } from "$lib/types";
 
   interface Props {
@@ -57,6 +58,7 @@
   // decision. Both come from the gh-derived `PrInfo`, independent of
   // worktrunk, so they render in both the worktrunk and gh-only paths.
   let checksChip = $derived(checksChipFor(prInfo?.checks));
+  let checkRows = $derived(prInfo?.checkRuns ?? []);
   let reviewChip = $derived(reviewChipFor(prInfo?.reviewDecision));
 
   /** Extract a PR-style label from a GitHub/GitLab URL (e.g. "PR #42"). */
@@ -64,7 +66,77 @@
     const m = url.match(/\/(?:pull|pulls|merge_requests)\/(\d+)/);
     return m ? `PR #${m[1]}` : "PR";
   }
+
+  function checkStatusLabel(status: PrCheckStatus): string {
+    switch (status) {
+      case "passing":
+        return "passing";
+      case "failing":
+        return "failing";
+      case "pending":
+        return "pending";
+    }
+  }
+
+  function checkStatusDotClass(status: PrCheckStatus): string {
+    switch (status) {
+      case "passing":
+        return "bg-green";
+      case "failing":
+        return "bg-red";
+      case "pending":
+        return "bg-yellow";
+    }
+  }
+
+  function checkStatusTextClass(status: PrCheckStatus): string {
+    switch (status) {
+      case "passing":
+        return "text-green";
+      case "failing":
+        return "text-red";
+      case "pending":
+        return "text-yellow";
+    }
+  }
 </script>
+
+{#snippet prChecksChip()}
+  {#if checksChip}
+    {@const Icon = checksChip.icon}
+    <span class="group relative inline-flex items-center">
+      <span
+        data-testid="status-bar-pr-checks"
+        class={`inline-flex items-center ${checksChip.color}`}
+        aria-label={checksChip.label}
+        role="img"
+        title={checkRows.length > 0 ? undefined : checksChip.label}
+      >
+        <Icon size={12} class={checksChip.spin ? "animate-spin" : ""} />
+      </span>
+      {#if checkRows.length > 0}
+        <div
+          data-testid="status-bar-pr-checks-popover"
+          role="tooltip"
+          class={`pointer-events-none absolute left-1/2 z-50 hidden max-h-72 min-w-64 max-w-80 -translate-x-1/2 overflow-y-auto rounded border border-border bg-bg-elevated p-2 text-[11px] text-text-primary shadow-lg group-hover:block ${position === "top" ? "top-full mt-2" : "bottom-full mb-2"}`}
+        >
+          <div class="mb-1 text-[10px] font-semibold uppercase text-text-muted">Checks</div>
+          <div class="space-y-1">
+            {#each checkRows as check}
+              <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+                <span class="truncate" title={check.name}>{check.name}</span>
+                <span class={`inline-flex items-center gap-1 ${checkStatusTextClass(check.status)}`}>
+                  <span class={`h-1.5 w-1.5 rounded-full ${checkStatusDotClass(check.status)}`}></span>
+                  <span>{checkStatusLabel(check.status)}</span>
+                </span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </span>
+  {/if}
+{/snippet}
 
 <div
   class="flex h-8 items-center gap-3 bg-bg-base px-3 text-[12px] text-text-muted"
@@ -96,16 +168,7 @@
         <Icon size={12} class={running ? "animate-spin" : ""} />
         <span>{prLabel(ciHref)}</span>
       </a>
-      {#if checksChip}
-        {@const Icon = checksChip.icon}
-        <span
-          data-testid="status-bar-pr-checks"
-          class={`inline-flex items-center ${checksChip.color}`}
-          title={checksChip.label}
-        >
-          <Icon size={12} class={checksChip.spin ? "animate-spin" : ""} />
-        </span>
-      {/if}
+      {@render prChecksChip()}
       {#if reviewChip}
         {@const Icon = reviewChip.icon}
         <span
@@ -128,16 +191,7 @@
       >
         <span>{prLabel(ciHref)}</span>
       </a>
-      {#if checksChip}
-        {@const Icon = checksChip.icon}
-        <span
-          data-testid="status-bar-pr-checks"
-          class={`inline-flex items-center ${checksChip.color}`}
-          title={checksChip.label}
-        >
-          <Icon size={12} class={checksChip.spin ? "animate-spin" : ""} />
-        </span>
-      {/if}
+      {@render prChecksChip()}
       {#if reviewChip}
         {@const Icon = reviewChip.icon}
         <span

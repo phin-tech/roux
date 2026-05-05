@@ -22,6 +22,9 @@ pub(crate) struct PrInfo {
     /// Aggregate check status — feeds the status-bar checks icon.
     /// `None` when the lookup didn't (or couldn't) include the rollup.
     pub checks: Option<PrChecksSummary>,
+    /// Individual checks from GitHub's `statusCheckRollup` for the
+    /// status-bar hover popover.
+    pub check_runs: Vec<PrCheckDetails>,
     /// GitHub's `reviewDecision` enum — `"APPROVED"` |
     /// `"CHANGES_REQUESTED"` | `"REVIEW_REQUIRED"`. Mapped 1:1 from gh.
     pub review_decision: Option<String>,
@@ -50,6 +53,22 @@ pub(crate) enum PrChecksState {
     Failing,
     Pending,
     None,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrCheckDetails {
+    pub name: String,
+    pub status: PrCheckStatus,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum PrCheckStatus {
+    Passing,
+    Failing,
+    Pending,
 }
 
 /// Parse either a full GitHub PR URL or a shortform `owner/repo#NNN`.
@@ -160,7 +179,7 @@ pub(crate) fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> 
 /// the two call sites stay in sync. `statusCheckRollup` and
 /// `reviewDecision` are the new additions; both are absent on older gh
 /// versions, but `serde(default)` on `RawPr` keeps the parse alive in
-/// that case (the chip just won't render the new icons).
+/// that case (the chip just won't render the new icons/details).
 const PR_JSON_FIELDS: &str = "number,title,headRefName,headRepositoryOwner,isCrossRepository,url,statusCheckRollup,reviewDecision";
 
 #[derive(Deserialize)]
@@ -187,17 +206,27 @@ struct RawOwner {
 }
 
 /// Subset of gh's check-rollup row we care about. gh emits two shapes
-/// here — workflow check-runs (with `status` + `conclusion`) and
-/// status-context rows (with `state`). Both fields are optional so the
-/// summary computation can fall back gracefully.
-#[derive(Deserialize)]
+/// here — workflow check-runs (with `name`, `status` + `conclusion`)
+/// and status-context rows (with `context` + `state`). All fields are
+/// optional so summary/detail computation can fall back gracefully.
+#[derive(Deserialize, Default)]
 struct RawCheckRun {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default, rename = "workflowName")]
+    workflow_name: Option<String>,
+    #[serde(default)]
+    context: Option<String>,
     #[serde(default)]
     status: Option<String>,
     #[serde(default)]
     conclusion: Option<String>,
     #[serde(default)]
     state: Option<String>,
+    #[serde(default, rename = "detailsUrl")]
+    details_url: Option<String>,
+    #[serde(default, rename = "targetUrl")]
+    target_url: Option<String>,
 }
 
 impl RawPr {
@@ -206,6 +235,11 @@ impl RawPr {
             .status_check_rollup
             .as_deref()
             .map(summarize_checks);
+        let check_runs = self
+            .status_check_rollup
+            .as_deref()
+            .map(check_details)
+            .unwrap_or_default();
         // gh returns "" when there's no decision; normalize to `None`
         // so the frontend doesn't have to special-case empty strings.
         let review_decision = self.review_decision.and_then(|s| {
@@ -221,6 +255,7 @@ impl RawPr {
             url: self.url,
             repo_slug: repo_slug.to_string(),
             checks,
+            check_runs,
             review_decision,
         }
     }
@@ -271,6 +306,46 @@ fn summarize_checks(rollup: &[RawCheckRun]) -> PrChecksSummary {
     PrChecksSummary { state, passing, failing, pending, total }
 }
 
+fn check_details(rollup: &[RawCheckRun]) -> Vec<PrCheckDetails> {
+    rollup
+        .iter()
+        .map(|row| PrCheckDetails {
+            name: check_name(row),
+            status: check_status(row),
+            url: check_url(row),
+        })
+        .collect()
+}
+
+fn check_name(row: &RawCheckRun) -> String {
+    row.name
+        .as_deref()
+        .or(row.context.as_deref())
+        .or(row.workflow_name.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Unnamed check")
+        .to_string()
+}
+
+fn check_url(row: &RawCheckRun) -> Option<String> {
+    row.details_url
+        .as_deref()
+        .or(row.target_url.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn check_status(row: &RawCheckRun) -> PrCheckStatus {
+    match classify_check(row) {
+        CheckClass::Pass => PrCheckStatus::Passing,
+        CheckClass::Fail => PrCheckStatus::Failing,
+        CheckClass::Pending => PrCheckStatus::Pending,
+    }
+}
+
+#[derive(Clone, Copy)]
 enum CheckClass {
     Pass,
     Fail,
@@ -615,18 +690,27 @@ mod tests {
 
     fn workflow_run(conclusion: &str) -> RawCheckRun {
         RawCheckRun {
+            name: Some("workflow".into()),
             status: Some("COMPLETED".into()),
             conclusion: Some(conclusion.into()),
-            state: None,
+            ..Default::default()
         }
     }
 
     fn workflow_pending() -> RawCheckRun {
-        RawCheckRun { status: Some("IN_PROGRESS".into()), conclusion: None, state: None }
+        RawCheckRun {
+            name: Some("workflow".into()),
+            status: Some("IN_PROGRESS".into()),
+            ..Default::default()
+        }
     }
 
     fn status_context(state: &str) -> RawCheckRun {
-        RawCheckRun { status: None, conclusion: None, state: Some(state.into()) }
+        RawCheckRun {
+            context: Some("context".into()),
+            state: Some(state.into()),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -669,5 +753,41 @@ mod tests {
         assert!(matches!(s.state, PrChecksState::Failing));
         assert_eq!(s.passing, 1);
         assert_eq!(s.failing, 1);
+    }
+
+    #[test]
+    fn check_details_normalizes_names_statuses_and_urls() {
+        let rows = [
+            RawCheckRun {
+                name: Some("cargo test".into()),
+                status: Some("COMPLETED".into()),
+                conclusion: Some("SUCCESS".into()),
+                details_url: Some("https://example.test/checks/1".into()),
+                ..Default::default()
+            },
+            RawCheckRun {
+                context: Some("lint".into()),
+                state: Some("FAILURE".into()),
+                target_url: Some("https://example.test/checks/2".into()),
+                ..Default::default()
+            },
+            RawCheckRun {
+                workflow_name: Some("preview".into()),
+                status: Some("IN_PROGRESS".into()),
+                ..Default::default()
+            },
+        ];
+
+        let details = check_details(&rows);
+
+        assert_eq!(details[0].name, "cargo test");
+        assert!(matches!(details[0].status, PrCheckStatus::Passing));
+        assert_eq!(details[0].url.as_deref(), Some("https://example.test/checks/1"));
+        assert_eq!(details[1].name, "lint");
+        assert!(matches!(details[1].status, PrCheckStatus::Failing));
+        assert_eq!(details[1].url.as_deref(), Some("https://example.test/checks/2"));
+        assert_eq!(details[2].name, "preview");
+        assert!(matches!(details[2].status, PrCheckStatus::Pending));
+        assert!(details[2].url.is_none());
     }
 }
