@@ -384,11 +384,29 @@ pub fn resolve_bin(override_path: Option<&str>, extra_path: Option<&OsStr>) -> P
 fn find_in_path_env(path_env: &OsStr, executable: &str) -> Option<PathBuf> {
     for dir in std::env::split_paths(path_env) {
         let candidate = dir.join(executable);
-        if candidate.is_file() {
+        if is_executable_file(&candidate) {
             return Some(candidate);
         }
     }
     None
+}
+
+/// Treat a candidate path as runnable iff it's a regular file *and*
+/// (on Unix) has at least one execute bit set. Without the bit check
+/// a stray 0-byte `git` placeholder earlier in `$PATH` would shadow a
+/// real `git` and turn every shell-out into a spawn failure.
+fn is_executable_file(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .map(|m| m.is_file() && (m.permissions().mode() & 0o111) != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::metadata(path).map(|m| m.is_file()).unwrap_or(false)
+    }
 }
 
 fn common_git_candidates() -> Vec<PathBuf> {
@@ -478,6 +496,29 @@ mod tests {
         }
         let extra = std::env::join_paths([tmp.path()]).unwrap();
         assert_eq!(resolve_bin(None, Some(extra.as_os_str())), candidate);
+    }
+
+    /// A 0-byte placeholder `git` earlier in `$PATH` (e.g. our
+    /// `binaries/` sidecar shim during dev) must not shadow the real
+    /// executable that lives later in the search order.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_bin_skips_non_executable_match_in_extra_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let placeholder_dir = tempfile::tempdir().unwrap();
+        let placeholder = placeholder_dir.path().join(git_executable_name());
+        std::fs::write(&placeholder, "").unwrap();
+        std::fs::set_permissions(&placeholder, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let real_dir = tempfile::tempdir().unwrap();
+        let real = real_dir.path().join(git_executable_name());
+        std::fs::write(&real, "").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let extra =
+            std::env::join_paths([placeholder_dir.path(), real_dir.path()]).unwrap();
+        assert_eq!(resolve_bin(None, Some(extra.as_os_str())), real);
     }
 
     #[test]

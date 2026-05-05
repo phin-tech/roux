@@ -191,11 +191,29 @@ pub fn resolve_bin(override_path: Option<&str>, extra_path: Option<&OsStr>) -> P
 fn find_in_path_env(path_env: &OsStr, executable: &str) -> Option<PathBuf> {
     for dir in std::env::split_paths(path_env) {
         let candidate = dir.join(executable);
-        if candidate.is_file() {
+        if is_executable_file(&candidate) {
             return Some(candidate);
         }
     }
     None
+}
+
+/// Treat a candidate path as runnable iff it's a regular file *and*
+/// (on Unix) has at least one execute bit set. Mirrors the same check
+/// in `roux_git` — a 0-byte placeholder earlier in `$PATH` must not
+/// shadow a real `gh` later in the search order.
+fn is_executable_file(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .map(|m| m.is_file() && (m.permissions().mode() & 0o111) != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::metadata(path).map(|m| m.is_file()).unwrap_or(false)
+    }
 }
 
 fn gh_executable_name() -> &'static str {
@@ -210,7 +228,7 @@ fn gh_executable_name() -> &'static str {
 /// override + extra-path hints. Cheap (no subprocess spawn).
 pub fn is_available(override_path: Option<&str>, extra_path: Option<&OsStr>) -> bool {
     if let Some(path) = override_path.map(str::trim).filter(|s| !s.is_empty()) {
-        return Path::new(path).is_file();
+        return is_executable_file(Path::new(path));
     }
     let executable = gh_executable_name();
     if let Some(path_env) = extra_path {

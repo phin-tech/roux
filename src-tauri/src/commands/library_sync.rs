@@ -119,9 +119,19 @@ fn managed_sources_root() -> PathBuf {
     crate::paths::roux_config_dir().join("library-sources")
 }
 
-async fn active_repo_for_session(state: &AppState, session_id: Option<&str>) -> Option<String> {
-    let id = session_id?;
-    state.session_handle.get(id).await.ok().flatten().map(|session| session.repo_root)
+async fn active_repo_for_session(
+    state: &AppState,
+    session_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(id) = session_id else {
+        return Ok(None);
+    };
+    let session = state
+        .session_handle
+        .get(id)
+        .await
+        .map_err(|e| format!("load session {id}: {e}"))?;
+    Ok(session.map(|session| session.repo_root))
 }
 
 fn outcome_to_dto(outcome: &sync::SkillSyncOutcome) -> (SkillSyncOutcomeKind, Option<SkillSyncSkipReasonDto>, Option<String>) {
@@ -150,7 +160,7 @@ pub(crate) async fn library_skill_sync_run(
     session_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<SkillSyncRunReportDto, String> {
-    let active_repo = active_repo_for_session(&state, session_id.as_deref()).await;
+    let active_repo = active_repo_for_session(&state, session_id.as_deref()).await?;
     let settings =
         state.settings.lock().map_err(|_| "settings lock poisoned".to_string())?.clone();
     let global_root = settings

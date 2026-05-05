@@ -9,9 +9,19 @@ fn join_err(e: tauri::Error) -> String {
     format!("task join: {e}")
 }
 
-async fn active_repo_for_session(state: &AppState, session_id: Option<&str>) -> Option<String> {
-    let id = session_id?;
-    state.session_handle.get(id).await.ok().flatten().map(|session| session.repo_root)
+async fn active_repo_for_session(
+    state: &AppState,
+    session_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(id) = session_id else {
+        return Ok(None);
+    };
+    let session = state
+        .session_handle
+        .get(id)
+        .await
+        .map_err(|e| format!("load session {id}: {e}"))?;
+    Ok(session.map(|session| session.repo_root))
 }
 
 fn settings_snapshot(
@@ -82,7 +92,7 @@ pub(crate) async fn list_library_items(
     session_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<svc::LibraryItem>, String> {
-    let active_repo = active_repo_for_session(&state, session_id.as_deref()).await;
+    let active_repo = active_repo_for_session(&state, session_id.as_deref()).await?;
     let settings = settings_snapshot(&state)?;
     let layers = library_layers_for(&settings, active_repo);
     tauri::async_runtime::spawn_blocking(move || svc::list_items(&layers))
@@ -97,7 +107,7 @@ pub(crate) async fn read_library_item(
     session_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<svc::LibraryRead, String> {
-    let active_repo = active_repo_for_session(&state, session_id.as_deref()).await;
+    let active_repo = active_repo_for_session(&state, session_id.as_deref()).await?;
     let settings = settings_snapshot(&state)?;
     let layers = library_layers_for(&settings, active_repo);
     tauri::async_runtime::spawn_blocking(move || svc::read_item(&layers, &item_id))
@@ -111,7 +121,7 @@ pub(crate) async fn render_library_prompt(
     request: svc::RenderLibraryPromptRequest,
     state: tauri::State<'_, AppState>,
 ) -> Result<svc::RenderedLibraryPrompt, String> {
-    let active_repo = active_repo_for_session(&state, request.session_id.as_deref()).await;
+    let active_repo = active_repo_for_session(&state, request.session_id.as_deref()).await?;
     let settings = settings_snapshot(&state)?;
     let layers = library_layers_for(&settings, active_repo);
     tauri::async_runtime::spawn_blocking(move || svc::render_prompt(&layers, request))
@@ -126,7 +136,7 @@ pub(crate) async fn save_library_item(
     session_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<svc::SavedLibraryItem, String> {
-    let active_repo = active_repo_for_session(&state, session_id.as_deref()).await;
+    let active_repo = active_repo_for_session(&state, session_id.as_deref()).await?;
     let settings = settings_snapshot(&state)?;
     let global_root = global_root_from(&settings);
     let library_sources = settings.library_sources.clone();
