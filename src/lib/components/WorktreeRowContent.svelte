@@ -70,6 +70,20 @@
     lookupAttempted = true;
     void lookupPrForRepoBranch(repoRoot, wt.branch).catch(() => {});
   }
+
+  // Hover/focus state drives the popover open/close. We can't rely on
+  // CSS `group-hover:` here because the popover is portaled to
+  // document.body to escape the worktrunk panel's `overflow-y-auto`
+  // clip.
+  let chipAnchor = $state<HTMLElement | null>(null);
+  let popoverOpen = $state(false);
+  function onChipEnter() {
+    maybeLookup();
+    popoverOpen = true;
+  }
+  function onChipLeave() {
+    popoverOpen = false;
+  }
 </script>
 
 {#if wt.isMain}
@@ -152,9 +166,12 @@
   {@const Icon = ciChip.icon}
   {@const running = metadata.ciStatus === "running"}
   <span
-    class="group relative inline-flex items-center"
-    onmouseenter={maybeLookup}
-    onfocusin={maybeLookup}
+    bind:this={chipAnchor}
+    class="relative inline-flex items-center"
+    onmouseenter={onChipEnter}
+    onmouseleave={onChipLeave}
+    onfocusin={onChipEnter}
+    onfocusout={onChipLeave}
     role="presentation"
   >
     {#if ciHref}
@@ -184,13 +201,15 @@
         <span>ci</span>
       </span>
     {/if}
-    <PrStatusPopover
-      data-testid="wt-ci-popover"
-      {checkRuns}
-      {reviewDetails}
-      position="bottom"
-    />
   </span>
+  <PrStatusPopover
+    data-testid="wt-ci-popover"
+    {checkRuns}
+    {reviewDetails}
+    portaled
+    anchor={chipAnchor}
+    open={popoverOpen}
+  />
 {/if}
 
 {#if showPath}
