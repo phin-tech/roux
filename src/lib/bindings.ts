@@ -108,8 +108,10 @@ export const commands = {
 	 */
 	setSessionPinnedPrUrl: (sessionId: string, url: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_pinned_pr_url", { sessionId, url })),
 	/**
-	 *  Re-read the session's worktree branch via `git rev-parse` and update
-	 *  the stored value if it changed. Returns the current branch.
+	 *  Re-read the session's worktree branch via `git rev-parse` and update the
+	 *  stored value if it changed. Returns the current branch (whether or not it
+	 *  changed). The frontend calls this on a low-frequency tick so PR discovery
+	 *  re-runs after the user `git checkout`s inside a Roux pane.
 	 */
 	refreshSessionBranch: (sessionId: string) => typedError<string | null, string>(__TAURI_INVOKE("refresh_session_branch", { sessionId })),
 	getPtyGeneration: (id: string) => __TAURI_INVOKE<number | null>("get_pty_generation", { id }),
@@ -248,6 +250,26 @@ export const commands = {
 	isCrossRepository: boolean,
 	url: string,
 	repoSlug: string,
+	/**
+	 *  Aggregate check status — feeds the status-bar checks icon.
+	 *  `None` when the lookup didn't (or couldn't) include the rollup.
+	 */
+	checks: PrChecksSummary | null,
+	/**
+	 *  Individual checks from GitHub's `statusCheckRollup` for the
+	 *  status-bar hover popover.
+	 */
+	checkRuns: PrCheckDetails[],
+	/**
+	 *  GitHub's `reviewDecision` enum — `"APPROVED"` |
+	 *  `"CHANGES_REQUESTED"` | `"REVIEW_REQUIRED"`. Mapped 1:1 from gh.
+	 */
+	reviewDecision: string | null,
+	/**
+	 *  Latest review per reviewer from GitHub's `latestReviews`; feeds the
+	 *  status-bar review hover popover.
+	 */
+	reviewDetails: PrReviewDetails[],
 } | null, string>(__TAURI_INVOKE("lookup_pr_for_branch", { repoPath, branch })),
 	cmdDiscoverTasks: (dir: string) => __TAURI_INVOKE<TaskGroup[]>("cmd_discover_tasks", { dir }),
 	cmdLoadTaskOverrides: () => __TAURI_INVOKE<{ [key in string]: { [key in string]: string } }>("cmd_load_task_overrides"),
@@ -787,10 +809,38 @@ export type ParsedKeymap = {
 	warnings: KeymapWarning[],
 };
 
+export type PrCheckDetails = {
+	name: string,
+	status: PrCheckStatus,
+	url: string | null,
+};
+
 export type PrCheckRun = {
 	name: string,
 	conclusion: string | null,
 	url: string | null,
+};
+
+export type PrCheckStatus = "passing" | "failing" | "pending";
+
+export type PrChecksState = "passing" | "failing" | "pending" | "none";
+
+/**
+ *  Aggregate of a PR's check runs, derived from gh's
+ *  `statusCheckRollup`. We collapse to a single "worst-of" state plus
+ *  counts so the status bar can render a tiny icon without re-deriving
+ *  the rollup on every render.
+ */
+export type PrChecksSummary = {
+	/**
+	 *  `"passing"` | `"failing"` | `"pending"` | `"none"`.
+	 *  `"none"` means there are no check runs at all (empty rollup).
+	 */
+	state: PrChecksState,
+	passing: number,
+	failing: number,
+	pending: number,
+	total: number,
 };
 
 export type PrInfo = {
@@ -801,24 +851,35 @@ export type PrInfo = {
 	isCrossRepository: boolean,
 	url: string,
 	repoSlug: string,
-	/** Aggregate check status — feeds the status-bar checks icon. */
+	/**
+	 *  Aggregate check status — feeds the status-bar checks icon.
+	 *  `None` when the lookup didn't (or couldn't) include the rollup.
+	 */
 	checks: PrChecksSummary | null,
-	/** GitHub's `reviewDecision`: `"APPROVED"` | `"CHANGES_REQUESTED"` |
-	 *  `"REVIEW_REQUIRED"`, or `null` when there's no decision yet. */
+	/**
+	 *  Individual checks from GitHub's `statusCheckRollup` for the
+	 *  status-bar hover popover.
+	 */
+	checkRuns: PrCheckDetails[],
+	/**
+	 *  GitHub's `reviewDecision` enum — `"APPROVED"` |
+	 *  `"CHANGES_REQUESTED"` | `"REVIEW_REQUIRED"`. Mapped 1:1 from gh.
+	 */
 	reviewDecision: string | null,
+	/**
+	 *  Latest review per reviewer from GitHub's `latestReviews`; feeds the
+	 *  status-bar review hover popover.
+	 */
+	reviewDetails: PrReviewDetails[],
 };
-
-export type PrChecksSummary = {
-	state: PrChecksState,
-	passing: number,
-	failing: number,
-	pending: number,
-	total: number,
-};
-
-export type PrChecksState = "passing" | "failing" | "pending" | "none";
 
 export type PrReview = {
+	reviewer: string,
+	state: string,
+	url: string | null,
+};
+
+export type PrReviewDetails = {
 	reviewer: string,
 	state: string,
 	url: string | null,

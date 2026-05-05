@@ -37,6 +37,7 @@ import {
   notesViewMode,
   type NotesScope,
 } from "$lib/stores/notesUi";
+import { togglePrStatusDetails } from "$lib/stores/prStatusDetails";
 
 const ISSUES_URL = "https://github.com/phin-tech/roux/issues";
 
@@ -134,6 +135,14 @@ export function registerUiCommands() {
     category: "App",
     available: () => !!queries.activeSession(),
     execute: () => toggleSidebar("notes"),
+  });
+
+  registry.register({
+    id: "ui.toggle-pr-status-details",
+    label: "Toggle PR Status Details",
+    category: "Watches",
+    available: () => !!queries.activeSession(),
+    execute: () => togglePrStatusDetails(),
   });
 
   registry.register({

@@ -1,17 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/svelte";
+import { tick } from "svelte";
 import type { Session, Worktree, WorktrunkMetadata } from "$lib/types";
+import type { PrInfo } from "$lib/tauri";
+
+const tauriMock = vi.hoisted(() => ({
+  nextPrLookupResult: null as unknown,
+}));
 
 vi.mock("$lib/tauri", () => ({
   listWorktrees: vi.fn(),
+  lookupPr: vi.fn(async () => tauriMock.nextPrLookupResult),
+  lookupPrForBranch: vi.fn(async () => tauriMock.nextPrLookupResult),
+  findOrCreateWatch: vi.fn(),
 }));
 
 import StatusBar from "../StatusBar.svelte";
 import { sessionState } from "$lib/stores/sessions";
 import {
+  _resetSessionPrLookupForTests,
+  lookupPrForSession,
+} from "$lib/stores/sessionPrLookup";
+import {
   _resetWorktreeMetadataForTests,
   upsertWorktreeMetadata,
 } from "$lib/stores/worktreeMetadata";
+import {
+  closePrStatusDetails,
+  togglePrStatusDetails,
+} from "$lib/stores/prStatusDetails";
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -55,6 +72,23 @@ function makeMeta(overrides: Partial<WorktrunkMetadata> = {}): WorktrunkMetadata
   };
 }
 
+function makePr(overrides: Partial<PrInfo> = {}): PrInfo {
+  return {
+    number: 42,
+    title: "Test PR",
+    headRef: "feature/x",
+    headOwner: "phin-tech",
+    isCrossRepository: false,
+    url: "https://github.com/phin-tech/roux/pull/42",
+    repoSlug: "phin-tech/roux",
+    checks: null,
+    checkRuns: [],
+    reviewDetails: [],
+    reviewDecision: null,
+    ...overrides,
+  };
+}
+
 function seed(path: string, meta: WorktrunkMetadata | null) {
   const wt: Worktree = {
     path,
@@ -69,11 +103,17 @@ describe("StatusBar worktrunk integration", () => {
   beforeEach(() => {
     sessionState.set({ sessions: [], activeSessionId: null });
     _resetWorktreeMetadataForTests();
+    _resetSessionPrLookupForTests();
+    tauriMock.nextPrLookupResult = null;
+    closePrStatusDetails();
   });
 
   afterEach(() => {
     sessionState.set({ sessions: [], activeSessionId: null });
     _resetWorktreeMetadataForTests();
+    _resetSessionPrLookupForTests();
+    tauriMock.nextPrLookupResult = null;
+    closePrStatusDetails();
   });
 
   it("renders no PR link when no session is active", () => {
@@ -180,5 +220,125 @@ describe("StatusBar worktrunk integration", () => {
     const { queryByTestId } = render(StatusBar);
     expect(queryByTestId("status-bar-pr-link")).toBeNull();
     expect(queryByTestId("status-bar-ci-chip")).toBeNull();
+  });
+
+  it("renders a hover popover with individual PR check statuses", async () => {
+    const s = makeSession({
+      repoRoot: "/repo",
+      worktreePath: "/wt/feat-checks",
+      branch: "feature/x",
+    });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    seed(
+      "/wt/feat-checks",
+      makeMeta({
+        ciStatus: "running",
+        ciUrl: "https://github.com/phin-tech/roux/pull/42",
+      }),
+    );
+    tauriMock.nextPrLookupResult = makePr({
+      checks: {
+        state: "failing",
+        passing: 1,
+        failing: 1,
+        pending: 1,
+        total: 3,
+      },
+      checkRuns: [
+        { name: "cargo test", status: "passing", url: null },
+        { name: "npm check", status: "failing", url: null },
+        { name: "publish preview", status: "pending", url: null },
+      ],
+    });
+    await lookupPrForSession(s, { force: true });
+
+    const { getByTestId, queryByTestId } = render(StatusBar);
+    const link = getByTestId("status-bar-pr-link");
+    const popover = getByTestId("status-bar-pr-popover");
+
+    expect(link.className).toContain("text-red");
+    expect(link.getAttribute("aria-describedby")).toBe("status-bar-pr-popover");
+    expect(link.querySelectorAll("svg")).toHaveLength(1);
+    expect(queryByTestId("status-bar-pr-checks")).toBeNull();
+    expect(popover.className).not.toContain("pointer-events-none");
+    expect(popover.className).toContain("group-focus-within:block");
+    expect(popover.textContent).toContain("cargo test");
+    expect(popover.textContent).toContain("passing");
+    expect(popover.textContent).toContain("npm check");
+    expect(popover.textContent).toContain("failing");
+    expect(popover.textContent).toContain("publish preview");
+    expect(popover.textContent).toContain("pending");
+  });
+
+  it("renders a hover popover with individual PR review statuses", async () => {
+    const s = makeSession({
+      repoRoot: "/repo",
+      worktreePath: "/wt/feat-reviews",
+      branch: "feature/x",
+    });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    seed(
+      "/wt/feat-reviews",
+      makeMeta({
+        ciStatus: "passed",
+        ciUrl: "https://github.com/phin-tech/roux/pull/42",
+      }),
+    );
+    tauriMock.nextPrLookupResult = makePr({
+      reviewDecision: "CHANGES_REQUESTED",
+      reviewDetails: [
+        { reviewer: "alice", state: "APPROVED", url: null },
+        { reviewer: "bob", state: "CHANGES_REQUESTED", url: null },
+      ],
+    });
+    await lookupPrForSession(s, { force: true });
+
+    const { getByTestId, queryByTestId } = render(StatusBar);
+    const popover = getByTestId("status-bar-pr-popover");
+
+    expect(queryByTestId("status-bar-pr-review")).toBeNull();
+    expect(popover.textContent).toContain("Approvals");
+    expect(popover.textContent).toContain("1/2");
+    expect(popover.textContent).toContain("alice");
+    expect(popover.textContent).toContain("approved");
+    expect(popover.textContent).toContain("bob");
+    expect(popover.textContent).toContain("changes requested");
+  });
+
+  it("can force the PR details popover open without hover", async () => {
+    const s = makeSession({
+      repoRoot: "/repo",
+      worktreePath: "/wt/feat-toggle",
+      branch: "feature/x",
+    });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    seed(
+      "/wt/feat-toggle",
+      makeMeta({
+        ciStatus: "running",
+        ciUrl: "https://github.com/phin-tech/roux/pull/42",
+      }),
+    );
+    tauriMock.nextPrLookupResult = makePr({
+      checks: {
+        state: "pending",
+        passing: 0,
+        failing: 0,
+        pending: 1,
+        total: 1,
+      },
+      checkRuns: [{ name: "npm check", status: "pending", url: null }],
+    });
+    await lookupPrForSession(s, { force: true });
+
+    const { getByTestId } = render(StatusBar);
+    const popover = getByTestId("status-bar-pr-popover");
+    expect(popover.className).toContain("hidden");
+
+    togglePrStatusDetails();
+    await tick();
+
+    expect(popover.className).toContain("block");
+    expect(popover.className).not.toContain("hidden");
   });
 });
