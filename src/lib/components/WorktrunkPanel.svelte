@@ -53,11 +53,18 @@
   let removing = $state<string | null>(null); // path currently being removed
   let menuOpenFor = $state<string | null>(null); // kebab menu target
   let headerMenuOpen = $state(false);
+  let bulkMenuOpen = $state(false);
+  let bulkCopiedFlash = $state(false);
   let filterText = $state("");
   let selected = $state(new Set<string>());
   let selectAllCheckbox = $state<HTMLInputElement | null>(null);
   let bulkPending = $state(false);
   let bulkError = $state<string | null>(null);
+
+  // Above this many selected items, "Reveal in Finder" / "Open in
+  // terminal" prompt for confirmation — they spawn one external window
+  // per worktree, and a stray select-all could carpet the desktop.
+  const BULK_WINDOW_CONFIRM_THRESHOLD = 5;
 
   // Close the kebab menu on any click that isn't inside the currently
   // open row. `pointerdown` fires before `onclick`, so toggling the
@@ -85,6 +92,19 @@
       if (!(target instanceof Element)) return;
       if (!target.closest("[data-worktrunk-header-menu]")) {
         headerMenuOpen = false;
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  });
+
+  $effect(() => {
+    if (!bulkMenuOpen) return;
+    const onPointerDown = (ev: PointerEvent) => {
+      const target = ev.target;
+      if (!(target instanceof Element)) return;
+      if (!target.closest("[data-worktrunk-bulk-menu]")) {
+        bulkMenuOpen = false;
       }
     };
     window.addEventListener("pointerdown", onPointerDown, true);
@@ -194,6 +214,8 @@
     readerLoading = false;
     menuOpenFor = null;
     headerMenuOpen = false;
+    bulkMenuOpen = false;
+    bulkCopiedFlash = false;
     filterText = "";
     selected = new Set();
     bulkPending = false;
@@ -540,6 +562,93 @@
     }
   }
 
+  async function handleBulkCopyPaths() {
+    if (selectedWorktrees.length === 0 || bulkPending) return;
+    const text = selectedWorktrees.map((wt) => wt.path).join("\n");
+    bulkError = null;
+    try {
+      await navigator.clipboard.writeText(text);
+      bulkMenuOpen = false;
+      bulkCopiedFlash = true;
+      setTimeout(() => {
+        bulkCopiedFlash = false;
+      }, 1500);
+    } catch (err) {
+      const msg = typeof err === "string" ? err : String(err);
+      bulkError = `Copy failed: ${msg}`;
+    }
+  }
+
+  async function handleBulkRevealInFinder() {
+    if (selectedWorktrees.length === 0 || bulkPending) return;
+    const targets = [...selectedWorktrees];
+    const count = targets.length;
+    if (count > BULK_WINDOW_CONFIRM_THRESHOLD) {
+      const confirmed = window.confirm(
+        `Reveal ${count} worktrees in Finder?\n\nEach one opens a separate Finder window.`,
+      );
+      if (!confirmed) return;
+    }
+    bulkError = null;
+    bulkMenuOpen = false;
+    bulkPending = true;
+    const failures: { branch: string; error: string }[] = [];
+    let succeeded = 0;
+    try {
+      for (const wt of targets) {
+        try {
+          await revealItemInDir(wt.path);
+          succeeded += 1;
+        } catch (err) {
+          failures.push({
+            branch: wt.branch,
+            error: typeof err === "string" ? err : String(err),
+          });
+        }
+      }
+      bulkError = describeBulkResult("reveal", succeeded, failures);
+    } finally {
+      bulkPending = false;
+    }
+  }
+
+  async function handleBulkOpenTerminal() {
+    if (selectedWorktrees.length === 0 || bulkPending) return;
+    const targets = [...selectedWorktrees];
+    const count = targets.length;
+    if (count > BULK_WINDOW_CONFIRM_THRESHOLD) {
+      const confirmed = window.confirm(
+        `Open ${count} worktrees in terminal?\n\nEach one opens a separate terminal window.`,
+      );
+      if (!confirmed) return;
+    }
+    bulkError = null;
+    bulkMenuOpen = false;
+    bulkPending = true;
+    const failures: { branch: string; error: string }[] = [];
+    let succeeded = 0;
+    try {
+      for (const wt of targets) {
+        try {
+          const res = await commands.cmdOpenTerminalAt(wt.path);
+          if (res.status === "error") {
+            failures.push({ branch: wt.branch, error: res.error });
+          } else {
+            succeeded += 1;
+          }
+        } catch (err) {
+          failures.push({
+            branch: wt.branch,
+            error: typeof err === "string" ? err : String(err),
+          });
+        }
+      }
+      bulkError = describeBulkResult("open in terminal", succeeded, failures);
+    } finally {
+      bulkPending = false;
+    }
+  }
+
   async function handleRemove(wt: Worktree, alsoBranch: boolean) {
     if (!currentRepo) return;
     // Belt-and-suspenders: the Remove buttons set `disabled` when these
@@ -880,14 +989,79 @@
 
         {#if hasSelection}
           <div
-            class="mx-2 mb-1 flex flex-wrap items-center gap-1 rounded border border-accent-dim/40 bg-accent-dim/10 px-2 py-1 text-[10px] text-text-secondary"
+            class="relative mx-2 mb-1 flex flex-wrap items-center gap-1 rounded border border-accent-dim/40 bg-accent-dim/10 px-2 py-1 text-[10px] text-text-secondary"
             data-testid="worktrunk-bulk-toolbar"
+            data-worktrunk-bulk-menu
           >
             <span class="text-text-primary">{selected.size} selected</span>
+            {#if bulkCopiedFlash}
+              <span
+                class="text-accent"
+                data-testid="worktrunk-bulk-copied-flash"
+                aria-live="polite"
+              >Copied</span>
+            {/if}
+            <button
+              type="button"
+              data-testid="worktrunk-bulk-more"
+              class="ml-auto inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded text-text-secondary transition-colors duration-150 hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+              title="More bulk actions"
+              aria-label="More bulk actions"
+              disabled={bulkPending}
+              onclick={() => (bulkMenuOpen = !bulkMenuOpen)}
+            >
+              <MoreHorizontal size={11} />
+            </button>
+            {#if bulkMenuOpen}
+              <div
+                class="absolute right-2 top-7 z-20 flex min-w-44 flex-col rounded border border-border bg-bg-elevated p-1 shadow-lg"
+                data-testid="worktrunk-bulk-menu-content"
+              >
+                <button
+                  type="button"
+                  data-testid="worktrunk-bulk-copy-paths"
+                  class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
+                  disabled={bulkPending}
+                  onclick={handleBulkCopyPaths}
+                  title={`Copy ${selected.size} path${selected.size === 1 ? "" : "s"} to clipboard`}
+                >
+                  <span>Copy paths</span>
+                  <span class="ml-auto text-[10px] text-text-muted"
+                    >{selected.size}</span
+                  >
+                </button>
+                <button
+                  type="button"
+                  data-testid="worktrunk-bulk-reveal"
+                  class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
+                  disabled={bulkPending}
+                  onclick={handleBulkRevealInFinder}
+                  title={`Reveal ${selected.size} worktree${selected.size === 1 ? "" : "s"} in Finder`}
+                >
+                  <span>Reveal in Finder</span>
+                  <span class="ml-auto text-[10px] text-text-muted"
+                    >{selected.size}</span
+                  >
+                </button>
+                <button
+                  type="button"
+                  data-testid="worktrunk-bulk-open-terminal"
+                  class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
+                  disabled={bulkPending}
+                  onclick={handleBulkOpenTerminal}
+                  title={`Open ${selected.size} worktree${selected.size === 1 ? "" : "s"} in terminal`}
+                >
+                  <span>Open in terminal</span>
+                  <span class="ml-auto text-[10px] text-text-muted"
+                    >{selected.size}</span
+                  >
+                </button>
+              </div>
+            {/if}
             <button
               type="button"
               data-testid="worktrunk-bulk-remove"
-              class="ml-auto inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-1.5 text-[10px] text-text-secondary transition-colors duration-150 hover:bg-amber/20 hover:text-amber disabled:cursor-not-allowed disabled:opacity-40"
+              class="inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-1.5 text-[10px] text-text-secondary transition-colors duration-150 hover:bg-amber/20 hover:text-amber disabled:cursor-not-allowed disabled:opacity-40"
               disabled={removableSelectedWorktrees.length === 0 || bulkPending}
               title={removableSelectedWorktrees.length === 0
                 ? "No selected worktrees can be removed"

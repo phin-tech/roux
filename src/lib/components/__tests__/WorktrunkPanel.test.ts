@@ -337,8 +337,10 @@ describe("WorktrunkPanel Worktrees tab", () => {
   beforeEach(() => {
     vi.mocked(commands.cmdWorktrunkDiagnostics).mockReset();
     vi.mocked(commands.cmdWorktrunkReadLog).mockReset();
+    vi.mocked(commands.cmdOpenTerminalAt).mockReset();
     vi.mocked(listWorktrees).mockReset();
     vi.mocked(removeWorktree).mockReset();
+    vi.mocked(revealItemInDir).mockReset();
     sessionState.set({ sessions: [], activeSessionId: null });
     _resetWorktreeMetadataForTests();
     _setWorktrunkDetectionForTests({
@@ -815,6 +817,196 @@ describe("WorktrunkPanel Worktrees tab", () => {
         .mock.calls.filter(([repo]) => repo === "/project");
       expect(projectCalls.length).toBe(1);
     });
+  });
+
+  it("bulk-copies selected worktree paths newline-separated to the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-feat-b",
+        branch: "feat-b",
+        isMain: false,
+      }),
+    ]);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-copy-paths"));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText).toHaveBeenCalledWith("/project-feat-a\n/project-feat-b");
+    expect(await findByTestId("worktrunk-bulk-copied-flash")).toBeDefined();
+  });
+
+  it("bulk-reveals selected worktrees in Finder without confirm under the threshold", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-feat-b",
+        branch: "feat-b",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(revealItemInDir).mockResolvedValue(undefined);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-reveal"));
+
+    await waitFor(() => expect(revealItemInDir).toHaveBeenCalledTimes(2));
+    expect(revealItemInDir).toHaveBeenNthCalledWith(1, "/project-feat-a");
+    expect(revealItemInDir).toHaveBeenNthCalledWith(2, "/project-feat-b");
+    // Threshold is 5, so two items must not have prompted.
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it("prompts before bulk-revealing more than the threshold of worktrees", async () => {
+    confirmSpy.mockReturnValueOnce(false);
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      ...Array.from({ length: 6 }, (_, i) =>
+        makeWorktree({
+          path: `/project-feat-${i}`,
+          branch: `feat-${i}`,
+          isMain: false,
+        }),
+      ),
+    ]);
+    vi.mocked(revealItemInDir).mockResolvedValue(undefined);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-reveal"));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy.mock.calls[0]?.[0]).toContain("Reveal 6 worktrees");
+    expect(revealItemInDir).not.toHaveBeenCalled();
+  });
+
+  it("bulk-opens selected worktrees in terminal under the threshold", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-feat-b",
+        branch: "feat-b",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(commands.cmdOpenTerminalAt).mockResolvedValue({
+      status: "ok",
+      data: null,
+    });
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-open-terminal"));
+
+    await waitFor(() =>
+      expect(commands.cmdOpenTerminalAt).toHaveBeenCalledTimes(2),
+    );
+    expect(commands.cmdOpenTerminalAt).toHaveBeenNthCalledWith(
+      1,
+      "/project-feat-a",
+    );
+    expect(commands.cmdOpenTerminalAt).toHaveBeenNthCalledWith(
+      2,
+      "/project-feat-b",
+    );
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it("surfaces partial failures from bulk open-in-terminal", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-feat-b",
+        branch: "feat-b",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(commands.cmdOpenTerminalAt).mockImplementation(async (path) => {
+      if (path === "/project-feat-b") {
+        return { status: "error", error: "no terminal" };
+      }
+      return { status: "ok", data: null };
+    });
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-open-terminal"));
+
+    const err = await findByTestId("worktrunk-bulk-error");
+    expect(err.textContent).toContain("1 succeeded, 1 failed");
+    expect(err.textContent).toContain("feat-b");
+    expect(err.textContent).toContain("no terminal");
   });
 
   it("disables Remove for the main worktree (inside the kebab menu)", async () => {
