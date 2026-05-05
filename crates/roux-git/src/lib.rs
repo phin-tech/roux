@@ -4,7 +4,7 @@
 //! clone/fetch/pull honor the user's SSH config, credential helpers, and
 //! corporate Git setup.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -212,24 +212,29 @@ impl GitCliAsync {
     /// PR-fetch flows that materialize a `refs/pull/<n>/head` ref into a
     /// local branch without moving HEAD.
     pub async fn fetch_refspec(&self, repo: &Path, refspec: &str) -> Result<String, GitError> {
-        self.run(Some(repo), &["fetch".into(), "origin".into(), refspec.into()]).await
+        self.run(
+            Some(repo),
+            &[OsString::from("fetch"), OsString::from("origin"), OsString::from(refspec)],
+        )
+        .await
     }
 
     /// Run an arbitrary `git` invocation. Prefer typed methods where
     /// available; this is the escape hatch for one-off commands.
+    ///
+    /// Args are kept as `OsString` end-to-end so non-UTF-8 paths (legal on
+    /// Unix) reach `git` byte-for-byte instead of being lossily replaced
+    /// with U+FFFD.
     pub async fn run_args<I, S>(&self, cwd: Option<&Path>, args: I) -> Result<String, GitError>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut owned: Vec<String> = Vec::new();
-        for arg in args {
-            owned.push(arg.as_ref().to_string_lossy().into_owned());
-        }
+        let owned: Vec<OsString> = args.into_iter().map(|a| a.as_ref().to_os_string()).collect();
         self.run(cwd, &owned).await
     }
 
-    async fn run(&self, cwd: Option<&Path>, args: &[String]) -> Result<String, GitError> {
+    async fn run(&self, cwd: Option<&Path>, args: &[OsString]) -> Result<String, GitError> {
         let mut cmd = tokio::process::Command::new(&self.git_bin);
         cmd.args(args);
         if let Some(cwd) = cwd {

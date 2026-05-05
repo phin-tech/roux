@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use roux_core::SkillSyncMode;
@@ -12,6 +13,20 @@ use crate::state::AppState;
 
 fn join_err(e: tauri::Error) -> String {
     format!("task join: {e}")
+}
+
+/// Process-global lock around the skill-sync manifest's read-modify-write
+/// cycle. Both `library_skill_sync_run` and `library_skill_sync_unsync`
+/// load → mutate → save the same manifest file; without this, two
+/// overlapping invocations can each load stale state and the later save
+/// silently drops the earlier command's updates (or resurrects entries
+/// that were just unsynced). Held only on the blocking thread; never
+/// across an `.await`.
+fn manifest_guard() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Tag identifying the variant of `SkillSyncOutcome` for the frontend.
@@ -163,6 +178,11 @@ pub(crate) async fn library_skill_sync_run(
             .filter_map(|s| s.skill_sync.map(|mode| (s.id.clone(), mode)))
             .collect();
 
+        // Hold the manifest lock across the load → mutate → save cycle so
+        // an overlapping `library_skill_sync_unsync` (or another sync_run)
+        // can't read stale state and overwrite us.
+        let _manifest_guard = manifest_guard();
+
         let mut manifest =
             sync::load_manifest(&global_root).map_err(|e| format!("load manifest: {e}"))?;
 
@@ -228,6 +248,11 @@ pub(crate) async fn library_skill_sync_unsync(
         .unwrap_or_else(default_notes_vault_root);
 
     tauri::async_runtime::spawn_blocking(move || {
+        // Same lock as `library_skill_sync_run` — load → mutate → save
+        // must serialize against any concurrent sync to avoid resurrecting
+        // unsynced entries or dropping freshly-synced ones.
+        let _manifest_guard = manifest_guard();
+
         let mut manifest =
             sync::load_manifest(&global_root).map_err(|e| format!("load manifest: {e}"))?;
 
