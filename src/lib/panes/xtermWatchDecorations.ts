@@ -175,9 +175,28 @@ export function installXtermWatchDecorations(
   // viewport between rAFs, we track the highest absolute line scanned
   // so far and walk forward from there to the current cursor row each
   // time, instead of only looking at a fixed window above the cursor.
+  // When a single frame's catch-up would exceed MAX_CATCHUP_LINES, the
+  // unscanned remainder is recorded as `pendingBacklog` and drained on
+  // subsequent rAFs — without this, lines in the gap would be skipped
+  // permanently if output goes quiet right after a burst.
   let scanScheduled = false;
   let disposed = false;
   let lastScannedAbs: number | null = null;
+  let pendingBacklog: { start: number; end: number } | null = null;
+
+  const scheduleScan = () => {
+    if (scanScheduled || disposed) return;
+    scanScheduled = true;
+    // typeof check: keeps node-only Vitest happy where rAF is undefined.
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(runScan);
+    } else {
+      // Fallback for environments without rAF — still defer so a burst of
+      // writes coalesces.
+      setTimeout(runScan, 16);
+    }
+  };
+
   const runScan = () => {
     scanScheduled = false;
     if (disposed) return;
@@ -187,20 +206,38 @@ export function installXtermWatchDecorations(
     // preserves the original behavior on the first scan and in steady
     // state.
     const windowFloor = Math.max(0, bottomAbs - SCAN_WINDOW);
-    // If we've scanned before, extend the floor backward to cover any
-    // lines that arrived while the rAF was pending — but no further
-    // back than MAX_CATCHUP_LINES, so a paused-then-resumed terminal
-    // doesn't traverse all of scrollback.
-    const topAbs =
-      lastScannedAbs === null
-        ? windowFloor
-        : Math.min(
-            windowFloor,
-            Math.max(lastScannedAbs + 1, bottomAbs - MAX_CATCHUP_LINES),
-          );
-    lastScannedAbs = bottomAbs;
+    // Determine the natural catch-up start: pending backlog from a prior
+    // frame takes priority, otherwise extend back to lastScannedAbs+1.
+    let top: number;
+    if (pendingBacklog !== null) {
+      top = pendingBacklog.start;
+    } else if (lastScannedAbs === null) {
+      top = windowFloor;
+    } else {
+      top = Math.min(windowFloor, lastScannedAbs + 1);
+    }
 
-    for (let absStart = topAbs; absStart <= bottomAbs; absStart++) {
+    // Cap the per-frame work at MAX_CATCHUP_LINES. If the range exceeds
+    // it, scan the OLDEST chunk first and record the rest as backlog —
+    // newer chunks can still scroll into scrollback later, but xterm's
+    // buffer keeps absolute lines reachable until they're evicted.
+    const totalRange = bottomAbs - top + 1;
+    let scanEnd: number;
+    if (totalRange > MAX_CATCHUP_LINES) {
+      scanEnd = top + MAX_CATCHUP_LINES - 1;
+      pendingBacklog = { start: scanEnd + 1, end: bottomAbs };
+    } else {
+      scanEnd = bottomAbs;
+      pendingBacklog = null;
+    }
+    // lastScannedAbs tracks the latest line we've actually scanned, not
+    // the latest cursor position — so a backlog drain in the next rAF
+    // doesn't skip rows we haven't yet processed.
+    if (lastScannedAbs === null || scanEnd > lastScannedAbs) {
+      lastScannedAbs = scanEnd;
+    }
+
+    for (let absStart = top; absStart <= scanEnd; absStart++) {
       const startLine = buf.getLine(absStart);
       if (!startLine) continue;
       // Only kick off processing from a logical-line start. Continuation
@@ -255,19 +292,18 @@ export function installXtermWatchDecorations(
         );
       }
     }
+
+    // Drain remaining backlog on a follow-up frame. Each pass scans
+    // MAX_CATCHUP_LINES, so the worst-case lag for a deep backlog is
+    // ceil(backlog / MAX_CATCHUP_LINES) frames — orders of magnitude
+    // better than losing the lines outright.
+    if (pendingBacklog !== null) {
+      scheduleScan();
+    }
   };
 
   const writeParsedSub = terminal.onWriteParsed(() => {
-    if (scanScheduled || disposed) return;
-    scanScheduled = true;
-    // typeof check: keeps node-only Vitest happy where rAF is undefined.
-    if (typeof requestAnimationFrame === "function") {
-      requestAnimationFrame(runScan);
-    } else {
-      // Fallback for environments without rAF — still defer so a burst of
-      // writes coalesces.
-      setTimeout(runScan, 16);
-    }
+    scheduleScan();
   });
 
   return {

@@ -270,13 +270,17 @@ function autoWatchKey(
 }
 
 /**
- * Drop dedupe entries for sessions no longer in the live list. Archiving
- * (or permanently deleting) a session causes the backend to remove its
- * session-scoped PR watch via `WatchManager::remove_watches_for_session`;
- * if we keep the dedupe key, a later restore-then-PR-lookup would
- * short-circuit `maybeAutoWatch` and never recreate the watch. The
- * lookupStore is pruned the same way so a restored session does a fresh
- * lookup instead of seeing stale cached PR info.
+ * Drop auto-watch dedupe entries for sessions no longer in the live
+ * list. Archiving (or permanently deleting) a session causes the
+ * backend to remove its session-scoped PR watch via
+ * `WatchManager::remove_watches_for_session`; if we keep the dedupe
+ * key, a later restore-then-PR-lookup would short-circuit
+ * `maybeAutoWatch` and never recreate the watch.
+ *
+ * `lookupStore` is intentionally NOT pruned here: it's keyed by
+ * `(repoRoot, branch)` / `pin::<url>` rather than session id, so
+ * multiple sessions can share a cache entry. TTL eviction handles
+ * staleness without us guessing at session ownership.
  */
 function pruneRemovedSessionKeys(liveSessionIds: Set<string>): void {
   for (const key of autoWatchedKeys) {
@@ -285,17 +289,6 @@ function pruneRemovedSessionKeys(liveSessionIds: Set<string>): void {
       autoWatchedKeys.delete(key);
     }
   }
-  lookupStore.update((map) => {
-    let mutated = false;
-    const next = new Map(map);
-    for (const sessionId of next.keys()) {
-      if (!liveSessionIds.has(sessionId)) {
-        next.delete(sessionId);
-        mutated = true;
-      }
-    }
-    return mutated ? next : map;
-  });
 }
 
 async function maybeAutoWatch(
