@@ -1,10 +1,12 @@
 <script lang="ts">
-  import type { Worktree } from "$lib/types";
+  import type { Session, Worktree } from "$lib/types";
   import { ciChipFor } from "$lib/ciIcon";
   import { safeHref } from "$lib/safeUrl";
   import {
     prLookupFor,
+    prLookupForSession,
     lookupPrForRepoBranch,
+    lookupPrForSession,
   } from "$lib/stores/sessionPrLookup";
   import PrStatusPopover from "./PrStatusPopover.svelte";
 
@@ -18,33 +20,55 @@
      * the bottom status bar uses.
      */
     repoRoot?: string | null;
+    /**
+     * Active session that owns this worktree, if any. When present we
+     * resolve PR data through `prLookupForSession` so a pinned PR URL
+     * resolves to the same cache entry the bottom status bar uses —
+     * otherwise the row would do a fresh branch-keyed lookup and miss
+     * the pinning.
+     */
+    session?: Session | null;
   }
 
-  let { wt, showPath = true, repoRoot = null }: Props = $props();
+  let {
+    wt,
+    showPath = true,
+    repoRoot = null,
+    session = null,
+  }: Props = $props();
 
   let metadata = $derived(wt.worktrunk);
   let ciChip = $derived(ciChipFor(metadata?.ciStatus ?? null));
   let ciHref = $derived(safeHref(metadata?.ciUrl));
   let devServerHref = $derived(safeHref(metadata?.devServerUrl));
 
-  let prStore = $derived(prLookupFor(repoRoot, wt.branch));
+  // Prefer the session-keyed lookup when this worktree owns one — that
+  // honors `pinnedPrUrl` and lines up exactly with what StatusBar shows
+  // for the active session. Fall back to the branch-keyed lookup for
+  // session-less worktrees so the popover still works.
+  let prStore = $derived(
+    session ? prLookupForSession(session) : prLookupFor(repoRoot, wt.branch),
+  );
   let prInfo = $derived($prStore ?? null);
   let checkRuns = $derived(prInfo?.checkRuns ?? []);
   let reviewDetails = $derived(prInfo?.reviewDetails ?? []);
   let hasPopover = $derived(checkRuns.length > 0 || reviewDetails.length > 0);
 
   // Lazy lookup: first hover on the chip triggers a PR fetch if the
-  // (repoRoot, branch) hasn't been resolved yet. Cached hits short-
+  // backing cache entry hasn't been resolved yet. Cached hits short-
   // circuit at the lookup layer, so re-hovers are free.
   let lookupAttempted = $state(false);
   function maybeLookup() {
     if (lookupAttempted) return;
-    if (!repoRoot || !wt.branch || wt.isMain) return;
+    if (wt.isMain) return;
+    if (session) {
+      lookupAttempted = true;
+      void lookupPrForSession(session).catch(() => {});
+      return;
+    }
+    if (!repoRoot || !wt.branch) return;
     lookupAttempted = true;
-    void lookupPrForRepoBranch(repoRoot, wt.branch).catch(() => {
-      // Errors are surfaced via prLookupErrorFor elsewhere; the popover
-      // simply stays empty.
-    });
+    void lookupPrForRepoBranch(repoRoot, wt.branch).catch(() => {});
   }
 </script>
 

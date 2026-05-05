@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import WorktreeRowContent from "../WorktreeRowContent.svelte";
-import type { Worktree, WorktrunkMetadata } from "$lib/types";
+import type { Session, Worktree, WorktrunkMetadata } from "$lib/types";
 
 vi.mock("$lib/tauri", async () => {
   const actual =
@@ -9,11 +9,34 @@ vi.mock("$lib/tauri", async () => {
   return {
     ...actual,
     lookupPrForBranch: vi.fn(),
+    lookupPr: vi.fn(),
   };
 });
 
-import { lookupPrForBranch } from "$lib/tauri";
+import { lookupPr, lookupPrForBranch } from "$lib/tauri";
 import { _resetSessionPrLookupForTests } from "$lib/stores/sessionPrLookup";
+
+function makeSession(overrides: Partial<Session> = {}): Session {
+  return {
+    id: "s1",
+    name: "sess",
+    repoRoot: "/repo",
+    worktreePath: "/repo",
+    branch: "main",
+    isWorktree: false,
+    status: "idle",
+    model: null,
+    cost: null,
+    createdAt: Date.now() / 1000,
+    projectId: null,
+    isGitRepo: true,
+    nameOverride: null,
+    primaryPtyId: "s1",
+    archived: false,
+    endedAt: null,
+    ...overrides,
+  };
+}
 
 function makeMetadata(overrides: Partial<WorktrunkMetadata> = {}): WorktrunkMetadata {
   return {
@@ -48,6 +71,7 @@ function makeWorktree(overrides: Partial<Worktree> = {}): Worktree {
 describe("WorktreeRowContent", () => {
   beforeEach(() => {
     vi.mocked(lookupPrForBranch).mockReset();
+    vi.mocked(lookupPr).mockReset();
     _resetSessionPrLookupForTests();
   });
   afterEach(() => {
@@ -309,6 +333,57 @@ describe("WorktreeRowContent", () => {
     expect(popover.textContent).toContain("passing");
     expect(popover.textContent).toContain("alice");
     expect(popover.textContent).toContain("approved");
+  });
+
+  it("routes through the session lookup when a session is supplied (so pinned PRs match the status bar)", async () => {
+    vi.mocked(lookupPr).mockResolvedValue({
+      number: 7,
+      title: "Pinned",
+      headRef: "feat-x",
+      headOwner: "user",
+      isCrossRepository: false,
+      url: "https://example.com/pr/7",
+      repoSlug: "user/repo",
+      checks: null,
+      checkRuns: [{ name: "lint", status: "passing", url: null }],
+      reviewDecision: null,
+      reviewDetails: [],
+    });
+
+    const session = makeSession({
+      id: "s2",
+      repoRoot: "/repo",
+      branch: "feat-x",
+      worktreePath: "/repo-feat-x",
+      pinnedPrUrl: "https://example.com/pr/7",
+    });
+
+    const { getByTestId, findByTestId } = render(WorktreeRowContent, {
+      props: {
+        wt: makeWorktree({
+          path: "/repo-feat-x",
+          branch: "feat-x",
+          worktrunk: makeMetadata({
+            ciStatus: "passed",
+            ciUrl: "https://example.com",
+          }),
+        }),
+        repoRoot: "/repo",
+        session,
+      },
+    });
+    const chipWrap = getByTestId("wt-ci").parentElement as HTMLElement;
+    await fireEvent.mouseEnter(chipWrap);
+    // Session-aware path uses lookupPr (pin URL), not lookupPrForBranch.
+    await waitFor(() =>
+      expect(lookupPr).toHaveBeenCalledWith(
+        "/repo",
+        "https://example.com/pr/7",
+      ),
+    );
+    expect(lookupPrForBranch).not.toHaveBeenCalled();
+    const popover = await findByTestId("wt-ci-popover");
+    expect(popover.textContent).toContain("lint");
   });
 
   it("renders dev-server link when devServerUrl is set", () => {
