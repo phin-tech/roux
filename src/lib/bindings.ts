@@ -265,6 +265,11 @@ export const commands = {
 	 *  `"CHANGES_REQUESTED"` | `"REVIEW_REQUIRED"`. Mapped 1:1 from gh.
 	 */
 	reviewDecision: string | null,
+	/**
+	 *  Latest review per reviewer from GitHub's `latestReviews`; feeds the
+	 *  status-bar review hover popover.
+	 */
+	reviewDetails: PrReviewDetails[],
 } | null, string>(__TAURI_INVOKE("lookup_pr_for_branch", { repoPath, branch })),
 	cmdDiscoverTasks: (dir: string) => __TAURI_INVOKE<TaskGroup[]>("cmd_discover_tasks", { dir }),
 	cmdLoadTaskOverrides: () => __TAURI_INVOKE<{ [key in string]: { [key in string]: string } }>("cmd_load_task_overrides"),
@@ -861,9 +866,20 @@ export type PrInfo = {
 	 *  `"CHANGES_REQUESTED"` | `"REVIEW_REQUIRED"`. Mapped 1:1 from gh.
 	 */
 	reviewDecision: string | null,
+	/**
+	 *  Latest review per reviewer from GitHub's `latestReviews`; feeds the
+	 *  status-bar review hover popover.
+	 */
+	reviewDetails: PrReviewDetails[],
 };
 
 export type PrReview = {
+	reviewer: string,
+	state: string,
+	url: string | null,
+};
+
+export type PrReviewDetails = {
 	reviewer: string,
 	state: string,
 	url: string | null,

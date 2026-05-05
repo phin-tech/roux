@@ -28,6 +28,9 @@ pub(crate) struct PrInfo {
     /// GitHub's `reviewDecision` enum — `"APPROVED"` |
     /// `"CHANGES_REQUESTED"` | `"REVIEW_REQUIRED"`. Mapped 1:1 from gh.
     pub review_decision: Option<String>,
+    /// Latest review per reviewer from GitHub's `latestReviews`; feeds the
+    /// status-bar review hover popover.
+    pub review_details: Vec<PrReviewDetails>,
 }
 
 /// Aggregate of a PR's check runs, derived from gh's
@@ -69,6 +72,14 @@ pub(crate) enum PrCheckStatus {
     Passing,
     Failing,
     Pending,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrReviewDetails {
+    pub reviewer: String,
+    pub state: String,
+    pub url: Option<String>,
 }
 
 /// Parse either a full GitHub PR URL or a shortform `owner/repo#NNN`.
@@ -177,10 +188,10 @@ pub(crate) fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> 
 
 /// JSON fields requested from `gh pr view` / `gh pr list`. Centralized so
 /// the two call sites stay in sync. `statusCheckRollup` and
-/// `reviewDecision` are the new additions; both are absent on older gh
+/// `reviewDecision`/`latestReviews` are the new additions; all are absent on older gh
 /// versions, but `serde(default)` on `RawPr` keeps the parse alive in
 /// that case (the chip just won't render the new icons/details).
-const PR_JSON_FIELDS: &str = "number,title,headRefName,headRepositoryOwner,isCrossRepository,url,statusCheckRollup,reviewDecision";
+const PR_JSON_FIELDS: &str = "number,title,headRefName,headRepositoryOwner,isCrossRepository,url,statusCheckRollup,reviewDecision,latestReviews";
 
 #[derive(Deserialize)]
 struct RawPr {
@@ -198,11 +209,23 @@ struct RawPr {
     status_check_rollup: Option<Vec<RawCheckRun>>,
     #[serde(default, rename = "reviewDecision")]
     review_decision: Option<String>,
+    #[serde(default, rename = "latestReviews")]
+    latest_reviews: Option<Vec<RawReview>>,
 }
 
 #[derive(Deserialize)]
 struct RawOwner {
     login: String,
+}
+
+#[derive(Deserialize, Default)]
+struct RawReview {
+    #[serde(default)]
+    author: Option<RawOwner>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
 }
 
 /// Subset of gh's check-rollup row we care about. gh emits two shapes
@@ -240,6 +263,11 @@ impl RawPr {
             .as_deref()
             .map(check_details)
             .unwrap_or_default();
+        let review_details = self
+            .latest_reviews
+            .as_deref()
+            .map(review_details)
+            .unwrap_or_default();
         // gh returns "" when there's no decision; normalize to `None`
         // so the frontend doesn't have to special-case empty strings.
         let review_decision = self.review_decision.and_then(|s| {
@@ -257,6 +285,7 @@ impl RawPr {
             checks,
             check_runs,
             review_decision,
+            review_details,
         }
     }
 }
@@ -343,6 +372,34 @@ fn check_status(row: &RawCheckRun) -> PrCheckStatus {
         CheckClass::Fail => PrCheckStatus::Failing,
         CheckClass::Pending => PrCheckStatus::Pending,
     }
+}
+
+fn review_details(reviews: &[RawReview]) -> Vec<PrReviewDetails> {
+    reviews
+        .iter()
+        .filter_map(|review| {
+            let state = review.state.as_deref().map(str::trim).unwrap_or("");
+            if state.is_empty() {
+                return None;
+            }
+            Some(PrReviewDetails {
+                reviewer: review
+                    .author
+                    .as_ref()
+                    .map(|a| a.login.trim())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("unknown")
+                    .to_string(),
+                state: state.to_string(),
+                url: review
+                    .url
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned),
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy)]
@@ -789,5 +846,36 @@ mod tests {
         assert_eq!(details[2].name, "preview");
         assert!(matches!(details[2].status, PrCheckStatus::Pending));
         assert!(details[2].url.is_none());
+    }
+
+    #[test]
+    fn review_details_normalizes_latest_reviews() {
+        let rows = [
+            RawReview {
+                author: Some(RawOwner { login: "alice".into() }),
+                state: Some("APPROVED".into()),
+                url: Some("https://example.test/reviews/1".into()),
+            },
+            RawReview {
+                author: Some(RawOwner { login: " ".into() }),
+                state: Some("CHANGES_REQUESTED".into()),
+                url: Some(" ".into()),
+            },
+            RawReview {
+                author: Some(RawOwner { login: "ignored".into() }),
+                state: Some(" ".into()),
+                url: None,
+            },
+        ];
+
+        let details = review_details(&rows);
+
+        assert_eq!(details.len(), 2);
+        assert_eq!(details[0].reviewer, "alice");
+        assert_eq!(details[0].state, "APPROVED");
+        assert_eq!(details[0].url.as_deref(), Some("https://example.test/reviews/1"));
+        assert_eq!(details[1].reviewer, "unknown");
+        assert_eq!(details[1].state, "CHANGES_REQUESTED");
+        assert!(details[1].url.is_none());
     }
 }

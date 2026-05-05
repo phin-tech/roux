@@ -61,6 +61,7 @@ function makePr(overrides: Partial<PrInfo> = {}): PrInfo {
     checks: null,
     checkRuns: [],
     reviewDecision: null,
+    reviewDetails: [],
     ...overrides,
   };
 }

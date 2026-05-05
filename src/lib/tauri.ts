@@ -592,6 +592,12 @@ export interface PrCheckDetails {
   url: string | null;
 }
 
+export interface PrReviewDetails {
+  reviewer: string;
+  state: string;
+  url: string | null;
+}
+
 export interface PrInfo {
   number: number;
   title: string;
@@ -605,6 +611,7 @@ export interface PrInfo {
   /** GitHub's `reviewDecision`: "APPROVED" | "CHANGES_REQUESTED" |
    *  "REVIEW_REQUIRED", or null when there's no decision yet. */
   reviewDecision: string | null;
+  reviewDetails: PrReviewDetails[];
 }
 
 export async function checkGhInstalled(): Promise<boolean> {

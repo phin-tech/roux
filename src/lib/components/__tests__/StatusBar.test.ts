@@ -78,6 +78,7 @@ function makePr(overrides: Partial<PrInfo> = {}): PrInfo {
     repoSlug: "phin-tech/roux",
     checks: null,
     checkRuns: [],
+    reviewDetails: [],
     reviewDecision: null,
     ...overrides,
   };
@@ -244,14 +245,53 @@ describe("StatusBar worktrunk integration", () => {
     });
     await lookupPrForSession(s, { force: true });
 
-    const { getByTestId } = render(StatusBar);
-    const popover = getByTestId("status-bar-pr-checks-popover");
+    const { getByTestId, queryByTestId } = render(StatusBar);
+    const link = getByTestId("status-bar-pr-link");
+    const popover = getByTestId("status-bar-pr-popover");
 
+    expect(link.className).toContain("text-red");
+    expect(link.querySelectorAll("svg")).toHaveLength(1);
+    expect(queryByTestId("status-bar-pr-checks")).toBeNull();
     expect(popover.textContent).toContain("cargo test");
     expect(popover.textContent).toContain("passing");
     expect(popover.textContent).toContain("npm check");
     expect(popover.textContent).toContain("failing");
     expect(popover.textContent).toContain("publish preview");
     expect(popover.textContent).toContain("pending");
+  });
+
+  it("renders a hover popover with individual PR review statuses", async () => {
+    const s = makeSession({
+      repoRoot: "/repo",
+      worktreePath: "/wt/feat-reviews",
+      branch: "feature/x",
+    });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    seed(
+      "/wt/feat-reviews",
+      makeMeta({
+        ciStatus: "passed",
+        ciUrl: "https://github.com/phin-tech/roux/pull/42",
+      }),
+    );
+    tauriMock.nextPrLookupResult = makePr({
+      reviewDecision: "CHANGES_REQUESTED",
+      reviewDetails: [
+        { reviewer: "alice", state: "APPROVED", url: null },
+        { reviewer: "bob", state: "CHANGES_REQUESTED", url: null },
+      ],
+    });
+    await lookupPrForSession(s, { force: true });
+
+    const { getByTestId, queryByTestId } = render(StatusBar);
+    const popover = getByTestId("status-bar-pr-popover");
+
+    expect(queryByTestId("status-bar-pr-review")).toBeNull();
+    expect(popover.textContent).toContain("Approvals");
+    expect(popover.textContent).toContain("1/2");
+    expect(popover.textContent).toContain("alice");
+    expect(popover.textContent).toContain("approved");
+    expect(popover.textContent).toContain("bob");
+    expect(popover.textContent).toContain("changes requested");
   });
 });
