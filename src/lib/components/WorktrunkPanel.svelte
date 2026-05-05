@@ -24,6 +24,11 @@
   import { upsertWorktreeMetadata } from "$lib/stores/worktreeMetadata";
   import WorktreeRowContent from "./WorktreeRowContent.svelte";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
+  import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
+  import Search from "@lucide/svelte/icons/search";
+  import Trash from "@lucide/svelte/icons/trash";
+  import X from "@lucide/svelte/icons/x";
 
   interface Props {
     visible: boolean;
@@ -47,6 +52,12 @@
   let worktreesLoading = $state(false);
   let removing = $state<string | null>(null); // path currently being removed
   let menuOpenFor = $state<string | null>(null); // kebab menu target
+  let headerMenuOpen = $state(false);
+  let filterText = $state("");
+  let selected = $state(new Set<string>());
+  let selectAllCheckbox = $state<HTMLInputElement | null>(null);
+  let bulkPending = $state(false);
+  let bulkError = $state<string | null>(null);
 
   // Close the kebab menu on any click that isn't inside the currently
   // open row. `pointerdown` fires before `onclick`, so toggling the
@@ -61,6 +72,19 @@
       const row = target.closest<HTMLElement>("[data-worktrunk-menu-root]");
       if (!row || row.dataset.worktrunkMenuRoot !== openPath) {
         menuOpenFor = null;
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  });
+
+  $effect(() => {
+    if (!headerMenuOpen) return;
+    const onPointerDown = (ev: PointerEvent) => {
+      const target = ev.target;
+      if (!(target instanceof Element)) return;
+      if (!target.closest("[data-worktrunk-header-menu]")) {
+        headerMenuOpen = false;
       }
     };
     window.addEventListener("pointerdown", onPointerDown, true);
@@ -169,6 +193,11 @@
     worktreesLoading = false;
     readerLoading = false;
     menuOpenFor = null;
+    headerMenuOpen = false;
+    filterText = "";
+    selected = new Set();
+    bulkPending = false;
+    bulkError = null;
     contextMenuFor = null;
     contextBusy = false;
     contextError = null;
@@ -189,6 +218,69 @@
   let worktreePathsWithSession = $derived(
     new Set(sessionByWorktreePath.keys()),
   );
+
+  function isRemovableWorktree(wt: Worktree): boolean {
+    return !wt.isMain && !worktreePathsWithSession.has(wt.path);
+  }
+
+  let filteredWorktrees = $derived.by(() => {
+    const q = filterText.trim().toLowerCase();
+    if (!q) return worktrees;
+    return worktrees.filter((wt) => {
+      return (
+        wt.branch.toLowerCase().includes(q) ||
+        wt.path.toLowerCase().includes(q)
+      );
+    });
+  });
+  let visibleRemovableWorktrees = $derived(
+    filteredWorktrees.filter((wt) => isRemovableWorktree(wt)),
+  );
+  let allVisibleSelected = $derived(
+    visibleRemovableWorktrees.length > 0 &&
+      visibleRemovableWorktrees.every((wt) => selected.has(wt.path)),
+  );
+  let someVisibleSelected = $derived(
+    visibleRemovableWorktrees.some((wt) => selected.has(wt.path)) &&
+      !allVisibleSelected,
+  );
+  let selectedWorktrees = $derived(
+    worktrees.filter((wt) => selected.has(wt.path)),
+  );
+  let removableSelectedWorktrees = $derived(
+    selectedWorktrees.filter((wt) => isRemovableWorktree(wt)),
+  );
+  let hasSelection = $derived(selected.size > 0);
+  let visibleMergedWorktrees = $derived(
+    visibleRemovableWorktrees.filter(
+      (wt) => wt.worktrunk?.mainState === "integrated",
+    ),
+  );
+  let visiblePrunableWorktrees = $derived(
+    visibleRemovableWorktrees.filter((wt) => wt.worktrunk?.prunable === true),
+  );
+
+  $effect(() => {
+    if (selectAllCheckbox) {
+      selectAllCheckbox.indeterminate = someVisibleSelected;
+    }
+  });
+
+  $effect(() => {
+    const removablePaths = new Set(
+      worktrees.filter((wt) => isRemovableWorktree(wt)).map((wt) => wt.path),
+    );
+    let changed = false;
+    const next = new Set<string>();
+    for (const path of selected) {
+      if (removablePaths.has(path)) {
+        next.add(path);
+      } else {
+        changed = true;
+      }
+    }
+    if (changed) selected = next;
+  });
 
   // Right-click context menu state. `contextMenuFor` is the worktree
   // whose menu is open; `contextMenuPos` is the on-screen origin.
@@ -352,6 +444,102 @@
     }
   }
 
+  function toggleSelection(wt: Worktree) {
+    if (!isRemovableWorktree(wt) || bulkPending) return;
+    const next = new Set(selected);
+    if (next.has(wt.path)) next.delete(wt.path);
+    else next.add(wt.path);
+    selected = next;
+  }
+
+  function clearSelection() {
+    selected = new Set();
+  }
+
+  function toggleAllVisible() {
+    if (bulkPending || visibleRemovableWorktrees.length === 0) return;
+    const next = new Set(selected);
+    if (allVisibleSelected) {
+      for (const wt of visibleRemovableWorktrees) next.delete(wt.path);
+    } else {
+      for (const wt of visibleRemovableWorktrees) next.add(wt.path);
+    }
+    selected = next;
+  }
+
+  function addSelection(entries: Worktree[]) {
+    if (bulkPending || entries.length === 0) return;
+    const next = new Set(selected);
+    for (const wt of entries) {
+      if (isRemovableWorktree(wt)) next.add(wt.path);
+    }
+    selected = next;
+    headerMenuOpen = false;
+  }
+
+  function describeBulkResult(
+    verb: string,
+    succeeded: number,
+    failures: { branch: string; error: string }[],
+  ): string | null {
+    if (failures.length === 0) return null;
+    const sample = failures[0];
+    if (failures.length === 1 && succeeded === 0) {
+      return `Failed to ${verb} ${sample.branch}: ${sample.error}`;
+    }
+    return `${verb}: ${succeeded} succeeded, ${failures.length} failed (e.g. ${sample.branch}: ${sample.error})`;
+  }
+
+  async function handleBulkRemove(alsoBranch: boolean) {
+    if (!currentRepo || bulkPending || removableSelectedWorktrees.length === 0) {
+      return;
+    }
+    const repo = currentRepo;
+    const targets = [...removableSelectedWorktrees];
+    const count = targets.length;
+    const confirmed = window.confirm(
+      alsoBranch
+        ? `Remove ${count} worktree${count === 1 ? "" : "s"} AND delete ${count} local branch${count === 1 ? "" : "es"}?\n\nBoth the on-disk worktrees and local branches will be deleted.`
+        : `Remove ${count} worktree${count === 1 ? "" : "s"} on disk?\n\nThe branches stay in the repo.`,
+    );
+    if (!confirmed) return;
+    bulkError = null;
+    worktreesError = null;
+    menuOpenFor = null;
+    headerMenuOpen = false;
+    bulkPending = true;
+    const succeeded: string[] = [];
+    const failures: { branch: string; error: string }[] = [];
+    try {
+      for (const wt of targets) {
+        try {
+          await removeWorktree(repo, wt.path, alsoBranch);
+          succeeded.push(wt.path);
+        } catch (err) {
+          failures.push({
+            branch: wt.branch,
+            error: typeof err === "string" ? err : String(err),
+          });
+        }
+      }
+      if (succeeded.length > 0 && isCurrentRepoRequest(repo)) {
+        await loadWorktrees(repo);
+      }
+      if (isCurrentRepoRequest(repo)) {
+        const remaining = new Set(selected);
+        for (const path of succeeded) remaining.delete(path);
+        selected = remaining;
+        bulkError = describeBulkResult(
+          alsoBranch ? "remove worktrees + branches" : "remove worktrees",
+          succeeded.length,
+          failures,
+        );
+      }
+    } finally {
+      bulkPending = false;
+    }
+  }
+
   async function handleRemove(wt: Worktree, alsoBranch: boolean) {
     if (!currentRepo) return;
     // Belt-and-suspenders: the Remove buttons set `disabled` when these
@@ -367,6 +555,7 @@
       return;
     }
     menuOpenFor = null;
+    bulkError = null;
     const label = alsoBranch
       ? `Remove worktree AND delete branch "${wt.branch}"?`
       : `Remove worktree "${wt.branch}"?`;
@@ -381,6 +570,9 @@
     removing = wt.path;
     try {
       await removeWorktree(currentRepo, wt.path, alsoBranch);
+      const next = new Set(selected);
+      next.delete(wt.path);
+      selected = next;
       await loadWorktrees(currentRepo);
     } catch (err) {
       const msg = typeof err === "string" ? err : String(err);
@@ -527,23 +719,115 @@
     </div>
 
     {#if activeTab === "worktrees"}
-      <div class="flex flex-1 min-h-0 flex-col overflow-auto p-3">
-        <div class="mb-2 flex items-center justify-between">
+      <div class="flex flex-1 min-h-0 flex-col overflow-hidden">
+        <div
+          class="relative flex shrink-0 items-center gap-2 px-2 py-1.5"
+          data-worktrunk-header-menu
+        >
           <span class="text-[10px] uppercase tracking-wider text-text-muted"
-            >{worktrees.length}
+            >{#if filterText.trim()}{filteredWorktrees.length} of {/if}{worktrees.length}
             {worktrees.length === 1 ? "worktree" : "worktrees"}</span
           >
-          <button
-            data-testid="worktrunk-new-worktree-open"
-            class="cursor-pointer rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-primary hover:border-accent hover:text-accent"
-            onclick={() => (newFormOpen = !newFormOpen)}
-          >{newFormOpen ? "Cancel" : "+ New worktree"}</button>
+          <div class="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              class="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-text-secondary transition-colors duration-150 hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="More worktree selection actions"
+              aria-label="More worktree selection actions"
+              data-testid="worktrunk-worktrees-header-menu"
+              disabled={worktrees.length === 0 || bulkPending}
+              onclick={() => {
+                menuOpenFor = null;
+                headerMenuOpen = !headerMenuOpen;
+              }}
+            >
+              <MoreHorizontal size={13} />
+            </button>
+            {#if headerMenuOpen}
+              <div
+                class="absolute right-28 top-8 z-20 flex min-w-44 flex-col rounded border border-border bg-bg-elevated p-1 shadow-lg"
+                data-testid="worktrunk-worktrees-header-menu-content"
+              >
+                <button
+                  type="button"
+                  data-testid="worktrunk-select-merged"
+                  class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
+                  disabled={visibleMergedWorktrees.length === 0 || bulkPending}
+                  title={visibleMergedWorktrees.length === 0
+                    ? "No visible merged worktrees can be selected"
+                    : `Select ${visibleMergedWorktrees.length} visible merged worktree${visibleMergedWorktrees.length === 1 ? "" : "s"}`}
+                  onclick={() => addSelection(visibleMergedWorktrees)}
+                >
+                  <GitBranch size={12} />
+                  <span>Select merged</span>
+                  {#if visibleMergedWorktrees.length > 0}
+                    <span class="ml-auto text-[10px] text-text-muted"
+                      >{visibleMergedWorktrees.length}</span
+                    >
+                  {/if}
+                </button>
+                <button
+                  type="button"
+                  data-testid="worktrunk-select-prunable"
+                  class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
+                  disabled={visiblePrunableWorktrees.length === 0 || bulkPending}
+                  title={visiblePrunableWorktrees.length === 0
+                    ? "No visible prunable worktrees can be selected"
+                    : `Select ${visiblePrunableWorktrees.length} visible prunable worktree${visiblePrunableWorktrees.length === 1 ? "" : "s"}`}
+                  onclick={() => addSelection(visiblePrunableWorktrees)}
+                >
+                  <Trash size={12} />
+                  <span>Select prunable</span>
+                  {#if visiblePrunableWorktrees.length > 0}
+                    <span class="ml-auto text-[10px] text-text-muted"
+                      >{visiblePrunableWorktrees.length}</span
+                    >
+                  {/if}
+                </button>
+              </div>
+            {/if}
+            <button
+              type="button"
+              data-testid="worktrunk-new-worktree-open"
+              class="inline-flex h-6 cursor-pointer items-center rounded border border-border-subtle bg-bg-elevated px-2 text-[10px] text-text-primary transition-colors duration-150 hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={bulkPending}
+              onclick={() => (newFormOpen = !newFormOpen)}
+            >{newFormOpen ? "Cancel" : "+ New worktree"}</button>
+          </div>
+        </div>
+
+        <div class="px-2 pb-1">
+          <div class="relative">
+            <Search
+              size={11}
+              class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted"
+            />
+            <input
+              type="text"
+              class="w-full rounded border border-border bg-bg-deep py-1 pl-6 pr-6 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent-dim"
+              placeholder="Filter worktrees…"
+              bind:value={filterText}
+              data-testid="worktrunk-filter-input"
+            />
+            {#if filterText}
+              <button
+                type="button"
+                class="absolute right-1 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-text-muted hover:bg-bg-hover hover:text-text-primary"
+                aria-label="Clear filter"
+                title="Clear filter"
+                data-testid="worktrunk-filter-clear"
+                onclick={() => (filterText = "")}
+              >
+                <X size={11} />
+              </button>
+            {/if}
+          </div>
         </div>
 
         {#if newFormOpen}
           <div
             data-testid="worktrunk-new-worktree-form"
-            class="mb-3 rounded border border-accent-dim/40 bg-bg-surface/40 p-2"
+            class="mx-2 mb-2 rounded border border-accent-dim/40 bg-bg-surface/40 p-2"
           >
             <label
               class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-text-muted"
@@ -594,79 +878,208 @@
           </div>
         {/if}
 
-        {#if worktreesLoading && worktrees.length === 0}
-          <div class="text-sm text-text-muted">Loading…</div>
-        {:else if worktreesError}
+        {#if hasSelection}
           <div
-            data-testid="worktrunk-worktrees-error"
-            class="mb-2 rounded border border-red/30 bg-red/10 p-2 text-xs text-red"
+            class="mx-2 mb-1 flex flex-wrap items-center gap-1 rounded border border-accent-dim/40 bg-accent-dim/10 px-2 py-1 text-[10px] text-text-secondary"
+            data-testid="worktrunk-bulk-toolbar"
           >
-            {worktreesError}
+            <span class="text-text-primary">{selected.size} selected</span>
+            <button
+              type="button"
+              data-testid="worktrunk-bulk-remove"
+              class="ml-auto inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-1.5 text-[10px] text-text-secondary transition-colors duration-150 hover:bg-amber/20 hover:text-amber disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={removableSelectedWorktrees.length === 0 || bulkPending}
+              title={removableSelectedWorktrees.length === 0
+                ? "No selected worktrees can be removed"
+                : `Remove ${removableSelectedWorktrees.length} selected worktree${removableSelectedWorktrees.length === 1 ? "" : "s"} on disk`}
+              onclick={() => handleBulkRemove(false)}
+            >
+              <Trash size={10} />
+              <span>Worktrees</span>
+            </button>
+            <button
+              type="button"
+              data-testid="worktrunk-bulk-remove-and-branch"
+              class="inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-1.5 text-[10px] text-text-secondary transition-colors duration-150 hover:bg-red/20 hover:text-red disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={removableSelectedWorktrees.length === 0 || bulkPending}
+              title={removableSelectedWorktrees.length === 0
+                ? "No selected worktrees can be removed"
+                : `Remove ${removableSelectedWorktrees.length} selected worktree${removableSelectedWorktrees.length === 1 ? "" : "s"} and local branch${removableSelectedWorktrees.length === 1 ? "" : "es"}`}
+              onclick={() => handleBulkRemove(true)}
+            >
+              <GitBranch size={10} />
+              <span>Worktree + branch</span>
+            </button>
+            <button
+              type="button"
+              data-testid="worktrunk-bulk-clear"
+              class="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded text-text-muted hover:bg-bg-hover hover:text-text-primary"
+              title="Clear selection"
+              aria-label="Clear selection"
+              onclick={clearSelection}
+            >
+              <X size={11} />
+            </button>
           </div>
         {/if}
-        {#if worktrees.length === 0 && !worktreesLoading}
-          <div
-            class="rounded border border-border-subtle bg-bg-surface/30 p-3 text-sm text-text-muted"
-          >
-            No worktrees.
-          </div>
-        {:else}
-          <ul class="flex flex-col gap-2">
-            {#each worktrees as wt (wt.path)}
+
+        <div class="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+          {#if worktreesLoading && worktrees.length === 0}
+            <div class="px-2 py-1 text-[11px] text-text-muted">Loading…</div>
+          {:else if worktreesError}
+            <div
+              data-testid="worktrunk-worktrees-error"
+              class="mb-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[11px] text-red"
+            >
+              <span class="min-w-0 flex-1 truncate">{worktreesError}</span>
+              <button
+                type="button"
+                class="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center text-red/80 hover:text-red focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red/50"
+                aria-label="Dismiss worktree error"
+                title="Dismiss"
+                onclick={() => (worktreesError = null)}
+              >
+                <X size={11} />
+              </button>
+            </div>
+          {/if}
+          {#if bulkError}
+            <div class="mb-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[11px] text-red">
+              <span
+                class="min-w-0 flex-1 truncate"
+                data-testid="worktrunk-bulk-error">{bulkError}</span
+              >
+              <button
+                type="button"
+                class="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center text-red/80 hover:text-red focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red/50"
+                aria-label="Dismiss bulk action error"
+                title="Dismiss"
+                onclick={() => (bulkError = null)}
+              >
+                <X size={11} />
+              </button>
+            </div>
+          {/if}
+          {#if worktrees.length === 0 && !worktreesLoading}
+            <div class="px-2 py-1 text-[11px] text-text-muted">
+              No worktrees.
+            </div>
+          {:else if filteredWorktrees.length === 0}
+            <div
+              class="px-2 py-1 text-[11px] text-text-muted"
+              data-testid="worktrunk-filter-empty"
+            >
+              No worktrees match "{filterText}".
+            </div>
+          {:else}
+            <label
+              class="mb-1 flex cursor-pointer items-center gap-2 px-2 py-1 text-[10px] text-text-muted hover:text-text-secondary has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
+            >
+              <input
+                type="checkbox"
+                class="h-3 w-3 cursor-pointer rounded border border-border bg-bg-deep accent-accent disabled:cursor-not-allowed"
+                bind:this={selectAllCheckbox}
+                checked={allVisibleSelected}
+                disabled={visibleRemovableWorktrees.length === 0 || bulkPending}
+                onchange={toggleAllVisible}
+                data-testid="worktrunk-select-all"
+              />
+              <span>
+                {#if filterText}
+                  Select {visibleRemovableWorktrees.length} removable match{visibleRemovableWorktrees.length === 1 ? "" : "es"}
+                {:else}
+                  Select removable
+                {/if}
+              </span>
+            </label>
+            {#each filteredWorktrees as wt (wt.path)}
               {@const session = sessionByWorktreePath.get(wt.path)}
               {@const hasSession = session !== undefined}
               {@const cannotRemove = wt.isMain || hasSession}
               {@const isRemoving = removing === wt.path}
               {@const isSpawning = spawning === wt.path}
-              <li
+              {@const isSelected = selected.has(wt.path)}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div
                 data-testid="worktrunk-worktree-row"
                 data-worktrunk-menu-root={wt.path}
-                class="relative rounded border border-border-subtle bg-bg-surface/30 p-2"
+                class="group relative mb-1 border px-2 py-1.5 text-left text-sm transition-colors duration-150 {isSelected
+                  ? 'border-accent-dim/60 bg-accent-dim/10'
+                  : 'border-transparent hover:border-border-subtle hover:bg-bg-active/40 focus-within:border-border-subtle focus-within:bg-bg-active/40'}"
                 oncontextmenu={(e) => openContextMenu(e, wt)}
               >
-                <div class="flex items-center gap-2">
-                  <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                    <WorktreeRowContent {wt} />
+                <div class="flex min-h-6 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    class="h-3 w-3 shrink-0 cursor-pointer rounded border border-border bg-bg-deep accent-accent disabled:cursor-not-allowed disabled:opacity-40"
+                    checked={isSelected}
+                    disabled={cannotRemove || bulkPending}
+                    onchange={() => toggleSelection(wt)}
+                    aria-label={`Select ${wt.branch}`}
+                    title={wt.isMain
+                      ? "Cannot remove the main worktree"
+                      : hasSession
+                        ? "A Roux session is active — close it first"
+                        : `Select ${wt.branch}`}
+                    data-testid="worktrunk-row-checkbox"
+                  />
+                  <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                    <WorktreeRowContent {wt} showPath={false} />
                   </div>
                   <div class="flex shrink-0 items-center gap-1">
                     {#if hasSession}
                       <button
+                        type="button"
                         data-testid="worktrunk-worktree-focus"
-                        class="cursor-pointer rounded border border-accent-dim/40 bg-accent-dim/20 px-2 py-0.5 text-[10px] text-accent hover:bg-accent-dim/40"
+                        class="inline-flex h-6 cursor-pointer items-center rounded border border-accent-dim/40 bg-accent-dim/20 px-2 text-[10px] text-accent hover:bg-accent-dim/40"
                         onclick={() => handleFocus(session!)}
                         title={`Focus the "${session!.name}" session`}
                       >Focus</button>
                     {:else}
                       <button
+                        type="button"
                         data-testid="worktrunk-worktree-new-session"
-                        class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary
+                        class="inline-flex h-6 items-center rounded border border-border-subtle bg-bg-elevated px-2 text-[10px] text-text-secondary
                           enabled:cursor-pointer enabled:hover:border-accent enabled:hover:text-accent
                           disabled:opacity-40"
-                        disabled={isSpawning}
+                        disabled={isSpawning || bulkPending}
                         onclick={() => handleNewSessionHere(wt)}
                         title="Start a new Claude session in this worktree"
                       >{isSpawning ? "Starting…" : "New session"}</button>
                     {/if}
                     <button
+                      type="button"
                       data-testid="worktrunk-worktree-menu"
-                      class="rounded border border-border-subtle bg-bg-elevated px-1.5 py-0.5 text-[10px] text-text-secondary
+                      class="inline-flex h-6 w-6 items-center justify-center rounded border border-border-subtle bg-bg-elevated text-text-secondary
                         enabled:cursor-pointer enabled:hover:bg-bg-hover
                         disabled:opacity-40"
-                      disabled={isRemoving || isSpawning}
+                      disabled={isRemoving || isSpawning || bulkPending}
                       onclick={() =>
                         (menuOpenFor = menuOpenFor === wt.path ? null : wt.path)}
                       aria-label="More actions"
-                    >⋮</button>
+                    >
+                      <MoreHorizontal size={13} />
+                    </button>
                   </div>
+                </div>
+                <div class="ml-5 mt-0.5 flex min-h-5 items-center gap-1.5 overflow-hidden text-[10px] text-text-muted">
+                  <span class="min-w-0 truncate" title={wt.path}>{wt.path}</span>
+                  {#if hasSession}
+                    <span
+                      class="shrink-0 rounded bg-accent-dim/15 px-1 py-0.5 text-accent"
+                      title={`Roux session "${session!.name}" is active in this worktree`}
+                    >active session</span>
+                  {/if}
                 </div>
                 {#if menuOpenFor === wt.path}
                   <div
                     data-testid="worktrunk-worktree-menu-content"
-                    class="absolute right-2 top-9 z-10 flex flex-col rounded border border-border bg-bg-elevated p-1 shadow-lg"
+                    class="absolute right-2 top-8 z-10 flex min-w-40 flex-col rounded border border-border bg-bg-elevated p-1 shadow-lg"
                   >
                     <button
+                      type="button"
                       data-testid="worktrunk-worktree-remove"
-                      class="rounded px-2 py-1 text-left text-[11px] text-text-primary
+                      class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary
                         enabled:cursor-pointer enabled:hover:bg-red/20
                         disabled:opacity-40"
                       disabled={cannotRemove}
@@ -676,21 +1089,28 @@
                         : hasSession
                           ? "A Roux session is active — close it first"
                           : "Remove the worktree on disk (keep the branch)"}
-                    >Remove worktree</button>
+                    >
+                      <Trash size={12} />
+                      <span>Remove worktree</span>
+                    </button>
                     <button
+                      type="button"
                       data-testid="worktrunk-worktree-remove-and-branch"
-                      class="rounded px-2 py-1 text-left text-[11px] text-text-primary
+                      class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary
                         enabled:cursor-pointer enabled:hover:bg-red/20
                         disabled:opacity-40"
                       disabled={cannotRemove}
                       onclick={() => handleRemove(wt, true)}
-                    >Remove worktree + branch</button>
+                    >
+                      <GitBranch size={12} />
+                      <span>Remove worktree + branch</span>
+                    </button>
                   </div>
                 {/if}
-              </li>
+              </div>
             {/each}
-          </ul>
-        {/if}
+          {/if}
+        </div>
       </div>
     {:else if loading && !diagnostics}
       <div class="flex flex-1 items-center justify-center text-sm text-text-muted">
