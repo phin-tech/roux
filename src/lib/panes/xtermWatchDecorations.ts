@@ -100,13 +100,18 @@ export function buildWatchConfigForTarget(
   };
 }
 
+export interface XtermWatchDecorationsHandle {
+  dispose(): void;
+}
+
 export function installXtermWatchDecorations(
   terminal: Terminal,
   options?: InstallXtermWatchDecorationOptions,
-): void {
+): XtermWatchDecorationsHandle {
   const decoratedTargets = new Set<string>();
   const createWatchFn = options?.createWatch ?? createWatch;
-  const getActiveSessionId = options?.getActiveSessionId ?? (() => get(sessionState).activeSessionId);
+  const getActiveSessionId =
+    options?.getActiveSessionId ?? (() => get(sessionState).activeSessionId);
 
   const addWatchDecoration = (
     yOffset: number,
@@ -157,7 +162,15 @@ export function installXtermWatchDecorations(
   // accept rare misses; the decoration is a UX nicety, not load-bearing.
   const SCAN_WINDOW = 16;
 
-  terminal.onWriteParsed(() => {
+  // Coalesce scans into a single rAF callback. Under fast PTY traffic
+  // (`watch`, `ls -R`, build output) `onWriteParsed` fires hundreds of
+  // times per second; without this the buffer + regex scan ran on each
+  // write and pinned the render thread.
+  let scanScheduled = false;
+  let disposed = false;
+  const runScan = () => {
+    scanScheduled = false;
+    if (disposed) return;
     const buf = terminal.buffer.active;
     const startVp = Math.max(0, buf.cursorY - SCAN_WINDOW);
     const endVp = buf.cursorY;
@@ -216,7 +229,27 @@ export function installXtermWatchDecorations(
         );
       }
     }
+  };
+
+  const writeParsedSub = terminal.onWriteParsed(() => {
+    if (scanScheduled || disposed) return;
+    scanScheduled = true;
+    // typeof check: keeps node-only Vitest happy where rAF is undefined.
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(runScan);
+    } else {
+      // Fallback for environments without rAF — still defer so a burst of
+      // writes coalesces.
+      setTimeout(runScan, 16);
+    }
   });
+
+  return {
+    dispose() {
+      disposed = true;
+      writeParsedSub.dispose();
+    },
+  };
 }
 
 interface ProjectedOffset {

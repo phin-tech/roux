@@ -643,7 +643,28 @@ fn scan_kind(
     }
 }
 
+/// Maximum directory recursion depth when scanning a library layer.
+/// Library trees are flat in practice (`<root>/<kind>/<name>.md`); a
+/// generous cap prevents pathological layouts (deep monorepo workspaces,
+/// symlink loops that beat the symlink check, etc.) from pinning the
+/// thread.
+const LIBRARY_SCAN_MAX_DEPTH: usize = 16;
+
+/// Hard cap on the number of `.md` files we'll surface from a single
+/// scan. Keeps a misconfigured library source from balooning UI state.
+const LIBRARY_SCAN_MAX_FILES: usize = 5000;
+
 fn collect_markdown_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    collect_markdown_files_inner(dir, out, 0);
+}
+
+fn collect_markdown_files_inner(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
+    if out.len() >= LIBRARY_SCAN_MAX_FILES {
+        return;
+    }
+    if depth > LIBRARY_SCAN_MAX_DEPTH {
+        return;
+    }
     if std::fs::symlink_metadata(dir)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false)
@@ -655,6 +676,9 @@ fn collect_markdown_files(dir: &Path, out: &mut Vec<PathBuf>) {
         Err(_) => return,
     };
     for entry in entries.flatten() {
+        if out.len() >= LIBRARY_SCAN_MAX_FILES {
+            return;
+        }
         let path = entry.path();
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
@@ -666,7 +690,7 @@ fn collect_markdown_files(dir: &Path, out: &mut Vec<PathBuf>) {
         if file_type.is_dir() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if !matches!(name, ".git" | "node_modules" | "target" | "dist" | ".svelte-kit") {
-                collect_markdown_files(&path, out);
+                collect_markdown_files_inner(&path, out, depth + 1);
             }
         } else if file_type.is_file()
             && path

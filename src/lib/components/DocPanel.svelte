@@ -18,6 +18,10 @@
   let renderedHtml = $state("");
   let loading = $state(false);
   let pollInterval: ReturnType<typeof setInterval> | null = null;
+  // Monotonic counter so an in-flight listDocs() result is dropped if the
+  // user switches sessions before it returns. Bumped on every call;
+  // results are committed only when the captured token still matches.
+  let refreshGeneration = 0;
 
   async function refreshDocs() {
     const session = $activeSession;
@@ -25,11 +29,20 @@
       docs = [];
       return;
     }
+    const myGeneration = ++refreshGeneration;
+    const sessionId = session.id;
+    let next: DocFile[];
     try {
-      docs = await listDocs(session.worktreePath);
+      next = await listDocs(session.worktreePath);
     } catch {
-      docs = [];
+      next = [];
     }
+    // Drop the result if (a) a newer refresh has already started or
+    // (b) the active session changed while we were waiting. Either case
+    // means our `next` is stale for the panel that's now visible.
+    if (myGeneration !== refreshGeneration) return;
+    if ($activeSession?.id !== sessionId) return;
+    docs = next;
   }
 
   async function selectDoc(doc: DocFile) {

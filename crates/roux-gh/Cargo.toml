@@ -1,17 +1,12 @@
 [package]
-name = "roux-git"
+name = "roux-gh"
 version = "0.1.0"
 edition = "2021"
-description = "Shell-out wrapper around native git for Roux"
+description = "Async wrapper around the gh CLI for Roux"
 
 [lints]
 workspace = true
 
 [dependencies]
-duct = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["process", "io-util", "rt", "macros"] }
-
-[dev-dependencies]
-tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt"] }

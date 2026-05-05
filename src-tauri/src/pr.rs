@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
+use roux_gh::{GhCli, GhError};
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PrRef {
@@ -143,46 +144,28 @@ fn parse_shortform(input: &str) -> Option<PrRef> {
     })
 }
 
+fn gh_cli() -> GhCli {
+    GhCli::new(crate::services::setup::gh_command())
+}
+
+fn nonempty_path(repo_path: Option<&str>) -> Option<&Path> {
+    repo_path.filter(|p| !p.is_empty()).map(Path::new)
+}
+
 /// Call `gh pr view --json ...` for the given PR and parse the result.
 /// Runs in `repo_path` so gh's auth/config context matches the user's
 /// normal workflow (gh reads `~/.config/gh/hosts.yml` globally, but some
 /// env-based configs are cwd-sensitive).
-pub(crate) fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> {
+pub(crate) async fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> {
     let pr_ref = parse_pr_ref(input)
         .ok_or_else(|| anyhow!("Not a valid GitHub PR URL or shortform"))?;
-
     let repo_slug = format!("{}/{}", pr_ref.owner, pr_ref.repo);
-    let mut cmd = Command::new(crate::services::setup::gh_command());
-    cmd.args([
-        "pr",
-        "view",
-        &pr_ref.number.to_string(),
-        "--repo",
-        &repo_slug,
-        "--json",
-        PR_JSON_FIELDS,
-    ]);
-    // cwd only matters for gh's repo auto-detection — irrelevant here since
-    // we pass --repo explicitly. Still, prefer a real dir when available so
-    // gh doesn't barf on a dangling cwd.
-    if let Some(path) = repo_path {
-        if !path.is_empty() {
-            cmd.current_dir(path);
-        }
-    }
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("Failed to run gh: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(classify_gh_error(&stderr));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = gh_cli()
+        .pr_view(&repo_slug, pr_ref.number, PR_JSON_FIELDS, nonempty_path(repo_path))
+        .await
+        .map_err(gh_to_anyhow_pr)?;
     let raw: RawPr = serde_json::from_str(&stdout)
         .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
-
     Ok(raw.into_pr_info(&repo_slug))
 }
 
@@ -447,7 +430,7 @@ fn classify_check(row: &RawCheckRun) -> CheckClass {
 /// the `pr-<N>` shape and resolved through `lookup_pr` against the repo's
 /// own slug, since `gh pr list --head` does not accept `<owner>:<branch>`
 /// syntax (verified via `gh pr list --help`).
-pub(crate) fn lookup_pr_for_branch(
+pub(crate) async fn lookup_pr_for_branch(
     repo_path: &str,
     branch: &str,
 ) -> Result<Option<PrInfo>> {
@@ -456,18 +439,18 @@ pub(crate) fn lookup_pr_for_branch(
         return Ok(None);
     }
 
-    let repo_slug = resolve_repo_slug(repo_path)?;
+    let repo_slug = resolve_repo_slug(repo_path).await?;
 
     if let Some(num_str) = trimmed.strip_prefix("pr-") {
         if let Ok(num) = num_str.parse::<u32>() {
             // Cross-repo PR fetched via fetch_pr_branch — we know the repo
             // slug from `gh repo view`, so resolve directly.
             let shortform = format!("{}#{}", repo_slug, num);
-            return match lookup_pr(Some(repo_path), &shortform) {
+            return match lookup_pr(Some(repo_path), &shortform).await {
                 Ok(info) => Ok(Some(info)),
                 Err(e) => {
                     let msg = e.to_string();
-                    if msg.contains("PR not found") {
+                    if msg.contains("PR not found") || msg.contains("not found") {
                         Ok(None)
                     } else {
                         Err(e)
@@ -477,7 +460,7 @@ pub(crate) fn lookup_pr_for_branch(
         }
     }
 
-    if let Some(info) = gh_pr_list_by_head(repo_path, trimmed, &repo_slug)? {
+    if let Some(info) = gh_pr_list_by_head(repo_path, trimmed, &repo_slug).await? {
         return Ok(Some(info));
     }
 
@@ -486,44 +469,24 @@ pub(crate) fn lookup_pr_for_branch(
     // same branch name is invisible to that query, so fall back to GitHub
     // Search syntax. `head:<branch> repo:<slug>` finds the fork PR by
     // matching the head ref name across forks.
-    gh_pr_search_by_head(repo_path, trimmed, &repo_slug)
+    gh_pr_search_by_head(repo_path, trimmed, &repo_slug).await
 }
 
-fn gh_pr_list_by_head(
+async fn gh_pr_list_by_head(
     repo_path: &str,
     branch: &str,
     repo_slug: &str,
 ) -> Result<Option<PrInfo>> {
-    let mut cmd = Command::new(crate::services::setup::gh_command());
-    cmd.args([
-        "pr",
-        "list",
-        "--head",
-        branch,
-        "--state",
-        "open",
-        "--limit",
-        "1",
-        "--json",
-        PR_JSON_FIELDS,
-    ]);
-    cmd.current_dir(repo_path);
-
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("Failed to run gh: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(classify_gh_error(&stderr));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = gh_cli()
+        .pr_list_by_head(branch, PR_JSON_FIELDS, Path::new(repo_path))
+        .await
+        .map_err(gh_to_anyhow_pr)?;
     let raws: Vec<RawPr> = serde_json::from_str(&stdout)
         .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
     Ok(raws.into_iter().next().map(|r| r.into_pr_info(repo_slug)))
 }
 
-fn gh_pr_search_by_head(
+async fn gh_pr_search_by_head(
     repo_path: &str,
     branch: &str,
     repo_slug: &str,
@@ -531,55 +494,30 @@ fn gh_pr_search_by_head(
     // GitHub's search index is eventually consistent — freshly-opened PRs
     // can take a few seconds to show up here. That's fine for our use:
     // by the time the user is back in the app, the index has caught up.
-    let query = format!("head:{} repo:{} is:pr is:open", branch, repo_slug);
-    let mut cmd = Command::new(crate::services::setup::gh_command());
-    cmd.args([
-        "pr",
-        "list",
-        "--search",
-        &query,
-        "--limit",
-        "1",
-        "--json",
-        PR_JSON_FIELDS,
-    ]);
-    cmd.current_dir(repo_path);
-
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("Failed to run gh: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        // Search failures are *not* fatal — we already returned `None`
-        // from the primary query. Falling through to `Ok(None)` keeps the
-        // status bar quiet for users without search access.
-        let s = stderr.to_lowercase();
-        if s.contains("authentication") || s.contains("not logged in") {
-            return Err(classify_gh_error(&stderr));
+    match gh_cli()
+        .pr_search_by_head(branch, repo_slug, PR_JSON_FIELDS, Path::new(repo_path))
+        .await
+    {
+        Ok(stdout) => {
+            let raws: Vec<RawPr> = serde_json::from_str(&stdout)
+                .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
+            Ok(raws.into_iter().next().map(|r| r.into_pr_info(repo_slug)))
         }
-        return Ok(None);
+        // Auth failures should bubble up — the user needs to know they're
+        // logged out. Anything else is non-fatal: we already returned None
+        // from the primary query, so let the status bar stay quiet.
+        Err(e @ GhError::NotAuthenticated) => Err(gh_to_anyhow(e)),
+        Err(_) => Ok(None),
     }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let raws: Vec<RawPr> = serde_json::from_str(&stdout)
-        .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
-    Ok(raws.into_iter().next().map(|r| r.into_pr_info(repo_slug)))
 }
 
 /// Resolve `<owner>/<repo>` for the repo at `repo_path` using `gh repo view`.
 /// gh reads the repo from cwd's git remotes, so this is a per-path call.
-fn resolve_repo_slug(repo_path: &str) -> Result<String> {
-    let mut cmd = Command::new(crate::services::setup::gh_command());
-    cmd.args(["repo", "view", "--json", "nameWithOwner"]);
-    cmd.current_dir(repo_path);
-    let output = cmd
-        .output()
-        .map_err(|e| anyhow!("Failed to run gh: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(classify_gh_error(&stderr));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
+async fn resolve_repo_slug(repo_path: &str) -> Result<String> {
+    let stdout = gh_cli()
+        .repo_view_name_with_owner(Path::new(repo_path))
+        .await
+        .map_err(gh_to_anyhow)?;
     #[derive(Deserialize)]
     struct Raw {
         #[serde(rename = "nameWithOwner")]
@@ -590,17 +528,21 @@ fn resolve_repo_slug(repo_path: &str) -> Result<String> {
     Ok(raw.name_with_owner)
 }
 
-fn classify_gh_error(stderr: &str) -> anyhow::Error {
-    let s = stderr.to_lowercase();
-    if s.contains("authentication") || s.contains("gh auth") || s.contains("not logged in") {
-        anyhow!("gh is not authenticated — run 'gh auth login' and retry")
-    } else if s.contains("could not resolve") || s.contains("not found") || s.contains("404") {
-        anyhow!("PR not found")
-    } else {
-        let trimmed = stderr.trim();
-        let snippet: String = trimmed.chars().take(200).collect();
-        anyhow!("Failed to fetch PR: {}", snippet)
+/// Map a `GhError` into an anyhow error, rewording the generic
+/// `NotFound` to `"PR not found"` so the existing string-matching in
+/// `lookup_pr_for_branch` (which downgrades that case to `Ok(None)`)
+/// still works.
+fn gh_to_anyhow_pr(err: GhError) -> anyhow::Error {
+    match err {
+        GhError::NotFound => anyhow!("PR not found"),
+        other => anyhow!(other),
     }
+}
+
+/// Map a `GhError` from a non-PR operation. Reports the underlying gh
+/// error verbatim — no PR-specific wording.
+fn gh_to_anyhow(err: GhError) -> anyhow::Error {
+    anyhow!(err)
 }
 
 /// Fetch the PR's head commit into a local branch in `repo_path`, without
@@ -611,29 +553,19 @@ fn classify_gh_error(stderr: &str) -> anyhow::Error {
 /// existing worktree detection finds the branch naturally. For cross-repo
 /// PRs the target is `pr-<N>` — the fork's branch name isn't guaranteed to
 /// be a valid or meaningful local ref.
-pub(crate) fn fetch_pr_branch(
+pub(crate) async fn fetch_pr_branch(
     repo_path: &str,
     number: u32,
     head_ref: &str,
     is_cross_repository: bool,
 ) -> Result<String> {
-    let local_branch = if is_cross_repository {
-        format!("pr-{}", number)
-    } else {
-        head_ref.to_string()
-    };
+    let local_branch =
+        if is_cross_repository { format!("pr-{}", number) } else { head_ref.to_string() };
     let refspec = format!("+refs/pull/{}/head:refs/heads/{}", number, local_branch);
-    let output = Command::new("git")
-        .args(["fetch", "origin", &refspec])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| anyhow!("Failed to run git: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let trimmed = stderr.trim();
-        let snippet: String = trimmed.chars().take(200).collect();
-        return Err(anyhow!("Failed to fetch PR branch: {}", snippet));
-    }
+    let git = crate::services::setup::git_cli().into_async();
+    git.fetch_refspec(Path::new(repo_path), &refspec)
+        .await
+        .map_err(|e| anyhow!("Failed to fetch PR branch: {}", e))?;
     Ok(local_branch)
 }
 
@@ -642,25 +574,23 @@ pub(crate) fn fetch_pr_branch(
 /// `target_dir` itself does not already exist. Returns `target_dir` on
 /// success (the caller already knows the path, but returning it keeps the
 /// command symmetrical with fetch_pr_branch).
-pub(crate) fn clone_repo(owner: &str, repo: &str, target_dir: &str) -> Result<String> {
-    if std::path::Path::new(target_dir).exists() {
+pub(crate) async fn clone_repo(owner: &str, repo: &str, target_dir: &str) -> Result<String> {
+    let target = std::path::PathBuf::from(target_dir);
+    if target.exists() {
         return Err(anyhow!("Target path already exists: {}", target_dir));
     }
-    if let Some(parent) = std::path::Path::new(target_dir).parent() {
+    if let Some(parent) = target.parent() {
         if !parent.exists() {
-            std::fs::create_dir_all(parent)
+            tokio::fs::create_dir_all(parent)
+                .await
                 .map_err(|e| anyhow!("Failed to create parent dir: {}", e))?;
         }
     }
     let slug = format!("{}/{}", owner, repo);
-    let output = Command::new(crate::services::setup::gh_command())
-        .args(["repo", "clone", &slug, target_dir])
-        .output()
-        .map_err(|e| anyhow!("Failed to run gh: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(classify_gh_error(&stderr));
-    }
+    gh_cli().repo_clone(&slug, &target).await.map_err(|e| match e {
+        GhError::NotFound => anyhow!("Repository not found: {slug}"),
+        other => anyhow!(other),
+    })?;
     Ok(target_dir.to_string())
 }
 

@@ -4013,6 +4013,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rmcp",
  "roux-core",
+ "roux-gh",
  "roux-git",
  "roux-worktrunk",
  "schemars 1.2.1",
@@ -4057,12 +4058,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "roux-gh"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "roux-git"
 version = "0.1.0"
 dependencies = [
  "duct",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
