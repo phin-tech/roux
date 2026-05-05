@@ -156,28 +156,52 @@ export function installXtermWatchDecorations(
     });
   };
 
-  // Window of visual rows to scan above the cursor. Wide enough to catch
-  // logical lines whose URL wraps across several visual rows at narrow
-  // widths (a 100-char URL at 40 cols wraps to 3 rows). Beyond this we
-  // accept rare misses; the decoration is a UX nicety, not load-bearing.
+  // Default lookback above the cursor. Wide enough to catch logical
+  // lines whose URL wraps across several visual rows at narrow widths
+  // (a 100-char URL at 40 cols wraps to 3 rows).
   const SCAN_WINDOW = 16;
+  // Hard cap on how far back we'll catch up in a single scan. Bursty
+  // PTY output (`git log -p`, `cargo build`) can write hundreds of rows
+  // between rAF callbacks; without a cap we'd traverse the entire
+  // scrollback on the first frame after a burst.
+  const MAX_CATCHUP_LINES = 2048;
 
   // Coalesce scans into a single rAF callback. Under fast PTY traffic
   // (`watch`, `ls -R`, build output) `onWriteParsed` fires hundreds of
   // times per second; without this the buffer + regex scan ran on each
   // write and pinned the render thread.
+  //
+  // To avoid losing decorations on bursts that scroll URLs out of the
+  // viewport between rAFs, we track the highest absolute line scanned
+  // so far and walk forward from there to the current cursor row each
+  // time, instead of only looking at a fixed window above the cursor.
   let scanScheduled = false;
   let disposed = false;
+  let lastScannedAbs: number | null = null;
   const runScan = () => {
     scanScheduled = false;
     if (disposed) return;
     const buf = terminal.buffer.active;
-    const startVp = Math.max(0, buf.cursorY - SCAN_WINDOW);
-    const endVp = buf.cursorY;
+    const bottomAbs = buf.baseY + buf.cursorY;
+    // Floor: at minimum, scan SCAN_WINDOW rows above the cursor. This
+    // preserves the original behavior on the first scan and in steady
+    // state.
+    const windowFloor = Math.max(0, bottomAbs - SCAN_WINDOW);
+    // If we've scanned before, extend the floor backward to cover any
+    // lines that arrived while the rAF was pending — but no further
+    // back than MAX_CATCHUP_LINES, so a paused-then-resumed terminal
+    // doesn't traverse all of scrollback.
+    const topAbs =
+      lastScannedAbs === null
+        ? windowFloor
+        : Math.min(
+            windowFloor,
+            Math.max(lastScannedAbs + 1, bottomAbs - MAX_CATCHUP_LINES),
+          );
+    lastScannedAbs = bottomAbs;
 
-    for (let i = startVp; i <= endVp; i++) {
-      const startAbs = buf.baseY + i;
-      const startLine = buf.getLine(startAbs);
+    for (let absStart = topAbs; absStart <= bottomAbs; absStart++) {
+      const startLine = buf.getLine(absStart);
       if (!startLine) continue;
       // Only kick off processing from a logical-line start. Continuation
       // rows (`isWrapped=true`) are folded into their parent's scan.
@@ -192,7 +216,7 @@ export function installXtermWatchDecorations(
       const segments: Segment[] = [];
       let j = 0;
       while (true) {
-        const absLine = startAbs + j;
+        const absLine = absStart + j;
         const line = buf.getLine(absLine);
         if (!line) break;
         if (j > 0 && !line.isWrapped) break;
@@ -201,7 +225,9 @@ export function installXtermWatchDecorations(
         const text = line.translateToString(false);
         segments.push({
           absLine,
-          yOffset: i + j - buf.cursorY,
+          // yOffset is relative to the cursor; xterm markers accept
+          // negative values, which place the marker in scrollback.
+          yOffset: absLine - bottomAbs,
           length: text.length,
         });
         logicalText += text;

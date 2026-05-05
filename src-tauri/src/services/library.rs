@@ -647,21 +647,18 @@ fn scan_kind(
 /// Library trees are flat in practice (`<root>/<kind>/<name>.md`); a
 /// generous cap prevents pathological layouts (deep monorepo workspaces,
 /// symlink loops that beat the symlink check, etc.) from pinning the
-/// thread.
+/// thread. We deliberately do *not* cap the file count: a count cap
+/// would silently truncate large but legitimate libraries to a
+/// non-deterministic subset (entries arrive in `read_dir` order, before
+/// `files.sort()` runs in the caller) and would silently skip files
+/// during the one-shot `migrate_global_skills` startup migration.
 const LIBRARY_SCAN_MAX_DEPTH: usize = 16;
-
-/// Hard cap on the number of `.md` files we'll surface from a single
-/// scan. Keeps a misconfigured library source from balooning UI state.
-const LIBRARY_SCAN_MAX_FILES: usize = 5000;
 
 fn collect_markdown_files(dir: &Path, out: &mut Vec<PathBuf>) {
     collect_markdown_files_inner(dir, out, 0);
 }
 
 fn collect_markdown_files_inner(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
-    if out.len() >= LIBRARY_SCAN_MAX_FILES {
-        return;
-    }
     if depth > LIBRARY_SCAN_MAX_DEPTH {
         return;
     }
@@ -676,9 +673,6 @@ fn collect_markdown_files_inner(dir: &Path, out: &mut Vec<PathBuf>, depth: usize
         Err(_) => return,
     };
     for entry in entries.flatten() {
-        if out.len() >= LIBRARY_SCAN_MAX_FILES {
-            return;
-        }
         let path = entry.path();
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
