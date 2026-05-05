@@ -1069,7 +1069,7 @@
               onclick={() => handleBulkRemove(false)}
             >
               <Trash size={10} />
-              <span>Worktrees</span>
+              <span>Delete</span>
             </button>
             <button
               type="button"
@@ -1082,7 +1082,7 @@
               onclick={() => handleBulkRemove(true)}
             >
               <GitBranch size={10} />
-              <span>Worktree + branch</span>
+              <span>Delete + branch</span>
             </button>
             <button
               type="button"
