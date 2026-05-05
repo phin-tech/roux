@@ -53,11 +53,22 @@
   let removing = $state<string | null>(null); // path currently being removed
   let menuOpenFor = $state<string | null>(null); // kebab menu target
   let headerMenuOpen = $state(false);
+  let bulkMenuOpen = $state(false);
+  let bulkCopiedFlash = $state(false);
+  // Pending timer handle for the "Copied" flash. We clear and replace
+  // it on each copy so a slow second click doesn't hide the new flash
+  // because an earlier timer is still racing to fire.
+  let bulkCopiedFlashTimer: ReturnType<typeof setTimeout> | null = null;
   let filterText = $state("");
   let selected = $state(new Set<string>());
   let selectAllCheckbox = $state<HTMLInputElement | null>(null);
   let bulkPending = $state(false);
   let bulkError = $state<string | null>(null);
+
+  // Above this many selected items, "Reveal in Finder" / "Open in
+  // terminal" prompt for confirmation — they spawn one external window
+  // per worktree, and a stray select-all could carpet the desktop.
+  const BULK_WINDOW_CONFIRM_THRESHOLD = 5;
 
   // Close the kebab menu on any click that isn't inside the currently
   // open row. `pointerdown` fires before `onclick`, so toggling the
@@ -85,6 +96,19 @@
       if (!(target instanceof Element)) return;
       if (!target.closest("[data-worktrunk-header-menu]")) {
         headerMenuOpen = false;
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  });
+
+  $effect(() => {
+    if (!bulkMenuOpen) return;
+    const onPointerDown = (ev: PointerEvent) => {
+      const target = ev.target;
+      if (!(target instanceof Element)) return;
+      if (!target.closest("[data-worktrunk-bulk-menu]")) {
+        bulkMenuOpen = false;
       }
     };
     window.addEventListener("pointerdown", onPointerDown, true);
@@ -194,6 +218,12 @@
     readerLoading = false;
     menuOpenFor = null;
     headerMenuOpen = false;
+    bulkMenuOpen = false;
+    bulkCopiedFlash = false;
+    if (bulkCopiedFlashTimer != null) {
+      clearTimeout(bulkCopiedFlashTimer);
+      bulkCopiedFlashTimer = null;
+    }
     filterText = "";
     selected = new Set();
     bulkPending = false;
@@ -263,6 +293,18 @@
   $effect(() => {
     if (selectAllCheckbox) {
       selectAllCheckbox.indeterminate = someVisibleSelected;
+    }
+  });
+
+  // The bulk toolbar (and its More menu) only render while
+  // `hasSelection` is true. If the user clears the selection while the
+  // menu is open, the toolbar unmounts but `bulkMenuOpen` stays true —
+  // the next time a selection appears, the dropdown would render
+  // already-open. Reset the menu/flash state alongside the selection.
+  $effect(() => {
+    if (selected.size === 0) {
+      bulkMenuOpen = false;
+      bulkCopiedFlash = false;
     }
   });
 
@@ -490,6 +532,22 @@
     return `${verb}: ${succeeded} succeeded, ${failures.length} failed (e.g. ${sample.branch}: ${sample.error})`;
   }
 
+  // Backend reports dirty worktrees as `WorktreeError::UncommittedChanges`,
+  // whose Display impl starts with "worktree has uncommitted changes".
+  // We match the substring so a wt-vs-git phrasing drift doesn't silently
+  // re-enable the data-loss footgun (fall through to git --force).
+  function isDirtyError(err: unknown): boolean {
+    const msg = typeof err === "string" ? err : String(err);
+    return /uncommitted changes/i.test(msg);
+  }
+
+  function formatDirtyBranchList(dirty: Worktree[]): string {
+    const preview = dirty.slice(0, 5).map((wt) => `  • ${wt.branch}`);
+    const more =
+      dirty.length > 5 ? `\n  …and ${dirty.length - 5} more` : "";
+    return `${preview.join("\n")}${more}`;
+  }
+
   async function handleBulkRemove(alsoBranch: boolean) {
     if (!currentRepo || bulkPending || removableSelectedWorktrees.length === 0) {
       return;
@@ -497,24 +555,155 @@
     const repo = currentRepo;
     const targets = [...removableSelectedWorktrees];
     const count = targets.length;
+    // Close transient menus BEFORE the confirm so the dropdown isn't
+    // left dangling behind the modal prompt (or after the user
+    // cancels). The dropdown is non-interactive while the native
+    // confirm is up, but visually it's still rendered and gets
+    // dismissed only on next pointerdown — feels janky.
+    menuOpenFor = null;
+    headerMenuOpen = false;
+    bulkMenuOpen = false;
     const confirmed = window.confirm(
       alsoBranch
-        ? `Remove ${count} worktree${count === 1 ? "" : "s"} AND delete ${count} local branch${count === 1 ? "" : "es"}?\n\nBoth the on-disk worktrees and local branches will be deleted.`
-        : `Remove ${count} worktree${count === 1 ? "" : "s"} on disk?\n\nThe branches stay in the repo.`,
+        ? `Delete ${count} worktree${count === 1 ? "" : "s"} AND ${count} local branch${count === 1 ? "" : "es"}?\n\nBoth the on-disk worktrees and local branches will be deleted.`
+        : `Delete ${count} worktree${count === 1 ? "" : "s"} on disk?\n\nThe branches stay in the repo.`,
     );
     if (!confirmed) return;
     bulkError = null;
     worktreesError = null;
-    menuOpenFor = null;
-    headerMenuOpen = false;
     bulkPending = true;
     const succeeded: string[] = [];
+    const dirty: Worktree[] = [];
     const failures: { branch: string; error: string }[] = [];
     try {
       for (const wt of targets) {
         try {
-          await removeWorktree(repo, wt.path, alsoBranch);
+          await removeWorktree(repo, wt.path, alsoBranch, false);
           succeeded.push(wt.path);
+        } catch (err) {
+          if (isDirtyError(err)) {
+            dirty.push(wt);
+          } else {
+            failures.push({
+              branch: wt.branch,
+              error: typeof err === "string" ? err : String(err),
+            });
+          }
+        }
+      }
+      if (succeeded.length > 0 && isCurrentRepoRequest(repo)) {
+        await loadWorktrees(repo);
+      }
+      if (!isCurrentRepoRequest(repo)) return;
+
+      // Trim selection to what's left undeleted so the toolbar still
+      // makes sense if the user dismisses the dirty prompt.
+      {
+        const remaining = new Set(selected);
+        for (const path of succeeded) remaining.delete(path);
+        selected = remaining;
+      }
+      bulkError = describeBulkResult(
+        alsoBranch ? "remove worktrees + branches" : "remove worktrees",
+        succeeded.length,
+        failures,
+      );
+
+      if (dirty.length === 0) return;
+
+      // Phase 2: review dirty worktrees and ask whether to force-delete.
+      const forceConfirmed = window.confirm(
+        `${dirty.length} worktree${dirty.length === 1 ? "" : "s"} ${dirty.length === 1 ? "has" : "have"} uncommitted changes:\n\n${formatDirtyBranchList(dirty)}\n\nForce-delete and DISCARD local changes?`,
+      );
+      if (!forceConfirmed) {
+        const branches = dirty.map((wt) => wt.branch).join(", ");
+        const skippedMsg = `${dirty.length} skipped (uncommitted changes): ${branches}`;
+        bulkError = bulkError ? `${bulkError}. ${skippedMsg}` : skippedMsg;
+        return;
+      }
+
+      const forceSucceeded: string[] = [];
+      const forceFailures: { branch: string; error: string }[] = [];
+      for (const wt of dirty) {
+        try {
+          await removeWorktree(repo, wt.path, alsoBranch, true);
+          forceSucceeded.push(wt.path);
+        } catch (err) {
+          forceFailures.push({
+            branch: wt.branch,
+            error: typeof err === "string" ? err : String(err),
+          });
+        }
+      }
+      if (forceSucceeded.length > 0 && isCurrentRepoRequest(repo)) {
+        await loadWorktrees(repo);
+      }
+      if (!isCurrentRepoRequest(repo)) return;
+      {
+        const remaining = new Set(selected);
+        for (const path of forceSucceeded) remaining.delete(path);
+        selected = remaining;
+      }
+      const forceBanner = describeBulkResult(
+        "force-delete",
+        forceSucceeded.length,
+        forceFailures,
+      );
+      // Combine the two phases' banners so the user sees both outcomes.
+      if (bulkError && forceBanner) {
+        bulkError = `${bulkError}. ${forceBanner}`;
+      } else if (forceBanner) {
+        bulkError = forceBanner;
+      } else if (failures.length === 0) {
+        // Everything ultimately succeeded — clear the banner.
+        bulkError = null;
+      }
+    } finally {
+      bulkPending = false;
+    }
+  }
+
+  async function handleBulkCopyPaths() {
+    if (selectedWorktrees.length === 0 || bulkPending) return;
+    const text = selectedWorktrees.map((wt) => wt.path).join("\n");
+    bulkError = null;
+    try {
+      await navigator.clipboard.writeText(text);
+      bulkMenuOpen = false;
+      bulkCopiedFlash = true;
+      if (bulkCopiedFlashTimer != null) clearTimeout(bulkCopiedFlashTimer);
+      bulkCopiedFlashTimer = setTimeout(() => {
+        bulkCopiedFlash = false;
+        bulkCopiedFlashTimer = null;
+      }, 1500);
+    } catch (err) {
+      const msg = typeof err === "string" ? err : String(err);
+      bulkError = `Copy failed: ${msg}`;
+    }
+  }
+
+  async function handleBulkRevealInFinder() {
+    if (selectedWorktrees.length === 0 || bulkPending) return;
+    const repo = currentRepo;
+    if (!repo) return;
+    const targets = [...selectedWorktrees];
+    const count = targets.length;
+    if (count > BULK_WINDOW_CONFIRM_THRESHOLD) {
+      const confirmed = window.confirm(
+        `Reveal ${count} worktrees in Finder?\n\nEach one opens a separate Finder window.`,
+      );
+      if (!confirmed) return;
+    }
+    bulkError = null;
+    bulkMenuOpen = false;
+    bulkPending = true;
+    const failures: { branch: string; error: string }[] = [];
+    let succeeded = 0;
+    try {
+      for (const wt of targets) {
+        try {
+          await revealItemInDir(wt.path);
+          succeeded += 1;
         } catch (err) {
           failures.push({
             branch: wt.branch,
@@ -522,19 +711,48 @@
           });
         }
       }
-      if (succeeded.length > 0 && isCurrentRepoRequest(repo)) {
-        await loadWorktrees(repo);
+      if (!isCurrentRepoRequest(repo)) return;
+      bulkError = describeBulkResult("reveal", succeeded, failures);
+    } finally {
+      bulkPending = false;
+    }
+  }
+
+  async function handleBulkOpenTerminal() {
+    if (selectedWorktrees.length === 0 || bulkPending) return;
+    const repo = currentRepo;
+    if (!repo) return;
+    const targets = [...selectedWorktrees];
+    const count = targets.length;
+    if (count > BULK_WINDOW_CONFIRM_THRESHOLD) {
+      const confirmed = window.confirm(
+        `Open ${count} worktrees in terminal?\n\nEach one opens a separate terminal window.`,
+      );
+      if (!confirmed) return;
+    }
+    bulkError = null;
+    bulkMenuOpen = false;
+    bulkPending = true;
+    const failures: { branch: string; error: string }[] = [];
+    let succeeded = 0;
+    try {
+      for (const wt of targets) {
+        try {
+          const res = await commands.cmdOpenTerminalAt(wt.path);
+          if (res.status === "error") {
+            failures.push({ branch: wt.branch, error: res.error });
+          } else {
+            succeeded += 1;
+          }
+        } catch (err) {
+          failures.push({
+            branch: wt.branch,
+            error: typeof err === "string" ? err : String(err),
+          });
+        }
       }
-      if (isCurrentRepoRequest(repo)) {
-        const remaining = new Set(selected);
-        for (const path of succeeded) remaining.delete(path);
-        selected = remaining;
-        bulkError = describeBulkResult(
-          alsoBranch ? "remove worktrees + branches" : "remove worktrees",
-          succeeded.length,
-          failures,
-        );
-      }
+      if (!isCurrentRepoRequest(repo)) return;
+      bulkError = describeBulkResult("open in terminal", succeeded, failures);
     } finally {
       bulkPending = false;
     }
@@ -567,14 +785,30 @@
           : "The worktree is removed from disk; the branch stays in the repo."),
     );
     if (!confirmed) return;
+    const repo = currentRepo;
     removing = wt.path;
     try {
-      await removeWorktree(currentRepo, wt.path, alsoBranch);
+      try {
+        await removeWorktree(repo, wt.path, alsoBranch, false);
+      } catch (err) {
+        if (!isDirtyError(err)) throw err;
+        const force = window.confirm(
+          `"${wt.branch}" has uncommitted changes.\n\nForce-delete and DISCARD local changes?`,
+        );
+        if (!force) {
+          if (!isCurrentRepoRequest(repo)) return;
+          worktreesError = `Skipped ${wt.branch}: uncommitted changes`;
+          return;
+        }
+        await removeWorktree(repo, wt.path, alsoBranch, true);
+      }
+      if (!isCurrentRepoRequest(repo)) return;
       const next = new Set(selected);
       next.delete(wt.path);
       selected = next;
-      await loadWorktrees(currentRepo);
+      await loadWorktrees(repo);
     } catch (err) {
+      if (!isCurrentRepoRequest(repo)) return;
       const msg = typeof err === "string" ? err : String(err);
       worktreesError = `Failed to remove ${wt.branch}: ${msg}`;
     } finally {
@@ -880,14 +1114,79 @@
 
         {#if hasSelection}
           <div
-            class="mx-2 mb-1 flex flex-wrap items-center gap-1 rounded border border-accent-dim/40 bg-accent-dim/10 px-2 py-1 text-[10px] text-text-secondary"
+            class="relative mx-2 mb-1 flex flex-wrap items-center gap-1 rounded border border-accent-dim/40 bg-accent-dim/10 px-2 py-1 text-[10px] text-text-secondary"
             data-testid="worktrunk-bulk-toolbar"
+            data-worktrunk-bulk-menu
           >
             <span class="text-text-primary">{selected.size} selected</span>
+            {#if bulkCopiedFlash}
+              <span
+                class="text-accent"
+                data-testid="worktrunk-bulk-copied-flash"
+                aria-live="polite"
+              >Copied</span>
+            {/if}
+            <button
+              type="button"
+              data-testid="worktrunk-bulk-more"
+              class="ml-auto inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded text-text-secondary transition-colors duration-150 hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+              title="More bulk actions"
+              aria-label="More bulk actions"
+              disabled={bulkPending}
+              onclick={() => (bulkMenuOpen = !bulkMenuOpen)}
+            >
+              <MoreHorizontal size={11} />
+            </button>
+            {#if bulkMenuOpen}
+              <div
+                class="absolute right-2 top-7 z-20 flex min-w-44 flex-col rounded border border-border bg-bg-elevated p-1 shadow-lg"
+                data-testid="worktrunk-bulk-menu-content"
+              >
+                <button
+                  type="button"
+                  data-testid="worktrunk-bulk-copy-paths"
+                  class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
+                  disabled={bulkPending}
+                  onclick={handleBulkCopyPaths}
+                  title={`Copy ${selected.size} path${selected.size === 1 ? "" : "s"} to clipboard`}
+                >
+                  <span>Copy paths</span>
+                  <span class="ml-auto text-[10px] text-text-muted"
+                    >{selected.size}</span
+                  >
+                </button>
+                <button
+                  type="button"
+                  data-testid="worktrunk-bulk-reveal"
+                  class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
+                  disabled={bulkPending}
+                  onclick={handleBulkRevealInFinder}
+                  title={`Reveal ${selected.size} worktree${selected.size === 1 ? "" : "s"} in Finder`}
+                >
+                  <span>Reveal in Finder</span>
+                  <span class="ml-auto text-[10px] text-text-muted"
+                    >{selected.size}</span
+                  >
+                </button>
+                <button
+                  type="button"
+                  data-testid="worktrunk-bulk-open-terminal"
+                  class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
+                  disabled={bulkPending}
+                  onclick={handleBulkOpenTerminal}
+                  title={`Open ${selected.size} worktree${selected.size === 1 ? "" : "s"} in terminal`}
+                >
+                  <span>Open in terminal</span>
+                  <span class="ml-auto text-[10px] text-text-muted"
+                    >{selected.size}</span
+                  >
+                </button>
+              </div>
+            {/if}
             <button
               type="button"
               data-testid="worktrunk-bulk-remove"
-              class="ml-auto inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-1.5 text-[10px] text-text-secondary transition-colors duration-150 hover:bg-amber/20 hover:text-amber disabled:cursor-not-allowed disabled:opacity-40"
+              class="inline-flex h-5 cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-1.5 text-[10px] text-text-secondary transition-colors duration-150 hover:bg-amber/20 hover:text-amber disabled:cursor-not-allowed disabled:opacity-40"
               disabled={removableSelectedWorktrees.length === 0 || bulkPending}
               title={removableSelectedWorktrees.length === 0
                 ? "No selected worktrees can be removed"
@@ -895,7 +1194,7 @@
               onclick={() => handleBulkRemove(false)}
             >
               <Trash size={10} />
-              <span>Worktrees</span>
+              <span>Delete</span>
             </button>
             <button
               type="button"
@@ -908,7 +1207,7 @@
               onclick={() => handleBulkRemove(true)}
             >
               <GitBranch size={10} />
-              <span>Worktree + branch</span>
+              <span>Delete + branch</span>
             </button>
             <button
               type="button"
@@ -1024,7 +1323,12 @@
                     data-testid="worktrunk-row-checkbox"
                   />
                   <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                    <WorktreeRowContent {wt} showPath={false} />
+                    <WorktreeRowContent
+                      {wt}
+                      showPath={false}
+                      repoRoot={currentRepo}
+                      session={session ?? null}
+                    />
                   </div>
                   <div class="flex shrink-0 items-center gap-1">
                     {#if hasSession}

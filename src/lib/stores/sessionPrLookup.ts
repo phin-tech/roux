@@ -150,6 +150,25 @@ export function getPrLookupSnapshot(
  * manual `Refresh PR for active session` command and by the
  * window-focus refresh path).
  */
+/**
+ * Trigger a PR lookup for an arbitrary `(repoRoot, branch)` pair —
+ * used by surfaces (worktrunk panel rows, project PR overview) that
+ * aren't tied to a specific `Session` and just need the branch's PR
+ * info. Shares the cache, TTL, and in-flight dedupe with
+ * `lookupPrForSession`.
+ */
+export async function lookupPrForRepoBranch(
+  repoRoot: string,
+  branch: string,
+  opts: { force?: boolean } = {},
+): Promise<PrInfo | null> {
+  return lookupForKey(
+    keyFor(repoRoot, branch),
+    () => lookupPrForBranch(repoRoot, branch),
+    opts,
+  );
+}
+
 export async function lookupPrForSession(
   session: Pick<Session, "repoRoot" | "branch" | "isGitRepo" | "pinnedPrUrl">,
   opts: { force?: boolean } = {},

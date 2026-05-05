@@ -17,7 +17,7 @@ export const commands = {
 } | null, UpdaterError>(__TAURI_INVOKE("check_for_update", { channel })),
 	installUpdate: (channel: UpdateChannel) => typedError<null, UpdaterError>(__TAURI_INVOKE("install_update", { channel })),
 	cmdCreateWorktree: (repoPath: string, branch: string, startPoint: string | null, fetchFirst: boolean | null) => typedError<string, string>(__TAURI_INVOKE("cmd_create_worktree", { repoPath, branch, startPoint, fetchFirst })),
-	cmdRemoveWorktree: (repoPath: string, worktreePath: string, alsoBranch: boolean | null) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { repoPath, worktreePath, alsoBranch })),
+	cmdRemoveWorktree: (repoPath: string, worktreePath: string, alsoBranch: boolean | null, force: boolean | null) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { repoPath, worktreePath, alsoBranch, force })),
 	cmdListWorktrees: (repoPath: string) => typedError<Worktree[], string>(__TAURI_INVOKE("cmd_list_worktrees", { repoPath })),
 	/**
 	 *  Resolve a worktree-base-path template (`{project_dir}`, `{git_root}`,

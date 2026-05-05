@@ -252,12 +252,14 @@ export async function createWorktree(
 export async function removeWorktree(
   repoPath: string,
   worktreePath: string,
-  alsoBranch: boolean = false
+  alsoBranch: boolean = false,
+  force: boolean = false
 ): Promise<void> {
   return invoke("cmd_remove_worktree", {
     repoPath,
     worktreePath,
     alsoBranch,
+    force,
   });
 }
 

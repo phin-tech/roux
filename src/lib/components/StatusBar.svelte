@@ -11,7 +11,7 @@
   import { checksChipFor, reviewChipFor } from "$lib/prChips";
   import { safeHref } from "$lib/safeUrl";
   import { closePrStatusDetails, prStatusDetailsOpen } from "$lib/stores/prStatusDetails";
-  import type { PrCheckStatus, PrReviewDetails } from "$lib/tauri";
+  import PrStatusPopover from "./PrStatusPopover.svelte";
   import type { StatusBarPosition } from "$lib/types";
 
   interface Props {
@@ -75,9 +75,6 @@
   );
   let prLinkColor = $derived(prStatusChip?.color ?? "text-text-muted hover:text-text-primary");
   let hasPrPopover = $derived(checkRows.length > 0 || reviewRows.length > 0);
-  let approvalCount = $derived(
-    reviewRows.filter((review) => normalizedReviewState(review.state) === "approved").length,
-  );
 
   $effect(() => {
     if ((!$activeSession || !hasPrPopover) && $prStatusDetailsOpen) {
@@ -89,76 +86,6 @@
   function prLabel(url: string): string {
     const m = url.match(/\/(?:pull|pulls|merge_requests)\/(\d+)/);
     return m ? `PR #${m[1]}` : "PR";
-  }
-
-  function checkStatusLabel(status: PrCheckStatus): string {
-    switch (status) {
-      case "passing":
-        return "passing";
-      case "failing":
-        return "failing";
-      case "pending":
-        return "pending";
-    }
-  }
-
-  function checkStatusDotClass(status: PrCheckStatus): string {
-    switch (status) {
-      case "passing":
-        return "bg-green";
-      case "failing":
-        return "bg-red";
-      case "pending":
-        return "bg-yellow";
-    }
-  }
-
-  function checkStatusTextClass(status: PrCheckStatus): string {
-    switch (status) {
-      case "passing":
-        return "text-green";
-      case "failing":
-        return "text-red";
-      case "pending":
-        return "text-yellow";
-    }
-  }
-
-  function normalizedReviewState(state: string): string {
-    return state.trim().toLowerCase().replace(/_/g, " ");
-  }
-
-  function reviewStatusLabel(review: PrReviewDetails): string {
-    const normalized = normalizedReviewState(review.state);
-    return normalized || "unknown";
-  }
-
-  function reviewStatusTextClass(review: PrReviewDetails): string {
-    switch (normalizedReviewState(review.state)) {
-      case "approved":
-        return "text-green";
-      case "changes requested":
-        return "text-red";
-      case "review requested":
-      case "pending":
-        return "text-yellow";
-      default:
-        return "text-text-muted";
-    }
-  }
-
-  function reviewStatusDotClass(review: PrReviewDetails): string {
-    switch (normalizedReviewState(review.state)) {
-      case "approved":
-        return "bg-green";
-      case "changes requested":
-        return "bg-red";
-      case "review requested":
-      case "pending":
-        return "bg-yellow";
-      default:
-        return "bg-text-muted";
-    }
   }
 </script>
 
@@ -191,53 +118,15 @@
         <span>{prLabel(href)}</span>
       </a>
     {/if}
-    {@render prPopover()}
-  </span>
-{/snippet}
-
-{#snippet prPopover()}
-  {#if hasPrPopover}
-    <div
+    <PrStatusPopover
       id="status-bar-pr-popover"
       data-testid="status-bar-pr-popover"
-      role="tooltip"
-      class={`absolute left-1/2 z-50 max-h-80 min-w-72 max-w-96 -translate-x-1/2 overflow-y-auto rounded border border-border bg-bg-elevated p-2 text-[11px] text-text-primary shadow-lg ${$prStatusDetailsOpen ? "block" : "hidden group-hover:block group-focus-within:block"} ${position === "top" ? "top-full mt-2" : "bottom-full mb-2"}`}
-    >
-      {#if checkRows.length > 0}
-        <div class="mb-1 text-[10px] font-semibold uppercase text-text-muted">Checks</div>
-        <div class="space-y-1">
-          {#each checkRows as check}
-            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-              <span class="truncate" title={check.name}>{check.name}</span>
-              <span class={`inline-flex items-center gap-1 ${checkStatusTextClass(check.status)}`}>
-                <span class={`h-1.5 w-1.5 rounded-full ${checkStatusDotClass(check.status)}`}></span>
-                <span>{checkStatusLabel(check.status)}</span>
-              </span>
-            </div>
-          {/each}
-        </div>
-      {/if}
-      {#if reviewRows.length > 0}
-        <div class={checkRows.length > 0 ? "mt-3" : ""}>
-          <div class="mb-1 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase text-text-muted">
-            <span>Reviews</span>
-            <span>Approvals {approvalCount}/{reviewRows.length}</span>
-          </div>
-          <div class="space-y-1">
-            {#each reviewRows as review}
-              <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-                <span class="truncate" title={review.reviewer}>{review.reviewer}</span>
-                <span class={`inline-flex items-center gap-1 ${reviewStatusTextClass(review)}`}>
-                  <span class={`h-1.5 w-1.5 rounded-full ${reviewStatusDotClass(review)}`}></span>
-                  <span>{reviewStatusLabel(review)}</span>
-                </span>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-    </div>
-  {/if}
+      checkRuns={checkRows}
+      reviewDetails={reviewRows}
+      position={position === "top" ? "top" : "bottom"}
+      forceOpen={$prStatusDetailsOpen}
+    />
+  </span>
 {/snippet}
 
 <div
