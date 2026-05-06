@@ -104,14 +104,17 @@ describe("notification auto-read", () => {
   it("uses the active session even when focus still points at a previous pane", async () => {
     const activeSession = makeNotification({ id: "active-session", sessionId: "s2" });
     const previousSession = makeNotification({ id: "previous-session", sessionId: "s1" });
+    const previousPane = makeNotification({
+      id: "previous-pane",
+      actions: [focusPaneAction("pane-a")],
+    });
 
     sessionLayouts.set(new Map([["s1", { kind: "leaf", paneId: "pane-a" }]]));
     focusedPaneId.set("pane-a");
-    notifications.set([activeSession, previousSession]);
+    notifications.set([activeSession, previousSession, previousPane]);
+    sessionState.set({ sessions: [], activeSessionId: "s2" });
 
     initNotificationAutoRead();
-    vi.mocked(notificationsMarkRead).mockClear();
-    sessionState.set({ sessions: [], activeSessionId: "s2" });
     await waitTick();
 
     expect(vi.mocked(notificationsMarkRead).mock.calls.map(([id]) => id)).toEqual([

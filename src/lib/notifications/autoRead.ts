@@ -70,7 +70,16 @@ function matchesNavigationTarget(
   paneId: string | null,
 ): boolean {
   if (activeSession && notification.sessionId === activeSession) return true;
-  if (focusedPaneSession && notification.sessionId === focusedPaneSession) return true;
+  const focusedPaneMatchesActiveSession =
+    !activeSession || focusedPaneSession === activeSession;
+  if (
+    focusedPaneMatchesActiveSession &&
+    focusedPaneSession &&
+    notification.sessionId === focusedPaneSession
+  ) {
+    return true;
+  }
+  if (!focusedPaneMatchesActiveSession) return false;
   if (!paneId) return false;
   return notification.actions.some((action) => {
     const kind = action.kind;
