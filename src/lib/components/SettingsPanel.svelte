@@ -1381,7 +1381,7 @@
                   <div class="mt-2 flex gap-1">
                     <button
                       class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={agentNotificationBusy !== null || claudeNotificationProvider?.installable === false}
+                      disabled={agentNotificationBusy !== null || !claudeNotificationProvider || claudeNotificationProvider.installable === false}
                       onclick={configureClaudeNotifications}
                     >{agentNotificationBusy === "claude" ? "Configuring" : (claudeNotificationProvider?.status === "installed" ? "Reinstall" : "Configure")}</button>
                   </div>
@@ -1407,12 +1407,12 @@
                   <div class="mt-2 flex gap-1">
                     <button
                       class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={agentNotificationBusy !== null || codexNotificationProvider?.installable === false}
+                      disabled={agentNotificationBusy !== null || !codexNotificationProvider || codexNotificationProvider.installable === false}
                       onclick={previewCodexNotifications}
                     >{agentNotificationBusy === "codex-preview" ? "Previewing" : "Preview"}</button>
                     <button
                       class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={agentNotificationBusy !== null || codexNotificationProvider?.installable === false}
+                      disabled={agentNotificationBusy !== null || !codexNotificationProvider || codexNotificationProvider.installable === false}
                       onclick={configureCodexNotifications}
                     >{agentNotificationBusy === "codex-configure" ? "Configuring" : "Configure"}</button>
                   </div>

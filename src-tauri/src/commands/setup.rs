@@ -102,7 +102,7 @@ pub(crate) fn cmd_agent_notification_setup_status() -> AgentNotificationSetupSta
                 provider: "codex".to_string(),
                 label: "Codex".to_string(),
                 status: "error".to_string(),
-                detail: Some(e),
+                detail: Some(e.to_string()),
                 config_path: Some(path.display().to_string()),
                 installable: true,
             },
@@ -137,7 +137,8 @@ pub(crate) fn cmd_agent_notification_setup_status() -> AgentNotificationSetupSta
 pub(crate) fn cmd_preview_codex_notification_config() -> Result<CodexNotificationConfigPreview, String> {
     let path = agent_notifs::codex_config_path()
         .ok_or_else(|| "Could not determine Codex config path".to_string())?;
-    let preview = agent_notifs::preview_codex_notification_config_at(&path)?;
+    let preview = agent_notifs::preview_codex_notification_config_at(&path)
+        .map_err(|e| e.to_string())?;
     Ok(CodexNotificationConfigPreview {
         config_path: preview.config_path.display().to_string(),
         configured: preview.configured,
@@ -151,7 +152,7 @@ pub(crate) fn cmd_preview_codex_notification_config() -> Result<CodexNotificatio
 pub(crate) fn cmd_configure_codex_notification_config() -> Result<(), String> {
     let path = agent_notifs::codex_config_path()
         .ok_or_else(|| "Could not determine Codex config path".to_string())?;
-    agent_notifs::configure_codex_notification_config_at(&path)
+    agent_notifs::configure_codex_notification_config_at(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

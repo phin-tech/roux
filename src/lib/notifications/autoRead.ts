@@ -14,6 +14,8 @@ let unsubscribeFocusedPane: (() => void) | null = null;
 let unsubscribeNotifications: (() => void) | null = null;
 let unsubscribeLayouts: (() => void) | null = null;
 const pendingReadIds = new Set<string>();
+const MAX_AUTO_READ_CONCURRENCY = 8;
+let inFlightAutoReads = 0;
 
 export function initNotificationAutoRead(): void {
   if (unsubscribeActiveSession) return;
@@ -38,6 +40,7 @@ export function stopNotificationAutoRead(): void {
   unsubscribeNotifications = null;
   unsubscribeLayouts = null;
   pendingReadIds.clear();
+  inFlightAutoReads = 0;
 }
 
 function markRelevantNotificationsRead(): void {
@@ -55,11 +58,22 @@ function markRelevantNotificationsRead(): void {
     if (!matchesNavigationTarget(notification, activeSession, focusedPaneSession, focusedPane)) {
       continue;
     }
+    if (inFlightAutoReads >= MAX_AUTO_READ_CONCURRENCY) break;
     pendingReadIds.add(notification.id);
-    void markNotificationRead(notification.id).catch((e) => {
-      pendingReadIds.delete(notification.id);
-      logError("notification auto-read failed", e);
-    });
+    inFlightAutoReads += 1;
+    let failed = false;
+    void markNotificationRead(notification.id)
+      .catch((e) => {
+        failed = true;
+        pendingReadIds.delete(notification.id);
+        logError("notification auto-read failed", e);
+      })
+      .finally(() => {
+        inFlightAutoReads = Math.max(0, inFlightAutoReads - 1);
+        if (!failed && unsubscribeActiveSession) {
+          queueMicrotask(markRelevantNotificationsRead);
+        }
+      });
   }
 }
 

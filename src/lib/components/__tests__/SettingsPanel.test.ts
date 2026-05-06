@@ -166,6 +166,20 @@ describe("SettingsPanel agent notification setup", () => {
     });
     expect(await screen.findByText("Codex notifications configured.")).toBeDefined();
   });
+
+  it("keeps provider actions disabled while agent notification status is loading", async () => {
+    vi.mocked(commands.cmdAgentNotificationSetupStatus).mockReturnValue(new Promise(() => {}));
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+
+    expect(await screen.findByText("Agent notifications")).toBeDefined();
+    expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    for (const button of screen.getAllByRole("button", { name: "Configure" })) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
 });
 
 describe("SettingsPanel Experiments tab", () => {

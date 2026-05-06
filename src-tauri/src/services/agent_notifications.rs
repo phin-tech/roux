@@ -1,4 +1,5 @@
 use std::fs;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,17 +10,50 @@ pub(crate) struct CodexNotificationPreview {
     pub next_content: String,
 }
 
+#[derive(Debug)]
+pub(crate) enum AgentNotificationConfigError {
+    Read(std::io::Error),
+    CreateDir(std::io::Error),
+    Write(std::io::Error),
+}
+
+impl fmt::Display for AgentNotificationConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AgentNotificationConfigError::Read(e) => {
+                write!(f, "failed to read Codex config: {e}")
+            }
+            AgentNotificationConfigError::CreateDir(e) => {
+                write!(f, "failed to create Codex config directory: {e}")
+            }
+            AgentNotificationConfigError::Write(e) => {
+                write!(f, "failed to write Codex config: {e}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for AgentNotificationConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            AgentNotificationConfigError::Read(e)
+            | AgentNotificationConfigError::CreateDir(e)
+            | AgentNotificationConfigError::Write(e) => Some(e),
+        }
+    }
+}
+
 pub(crate) fn codex_config_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".codex").join("config.toml"))
 }
 
 pub(crate) fn preview_codex_notification_config_at(
     config_path: &Path,
-) -> Result<CodexNotificationPreview, String> {
+) -> Result<CodexNotificationPreview, AgentNotificationConfigError> {
     let existing = match fs::read_to_string(config_path) {
         Ok(content) => content,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("failed to read Codex config: {e}")),
+        Err(e) => return Err(AgentNotificationConfigError::Read(e)),
     };
     let current_value = codex_notification_condition(&existing);
     let configured = current_value.as_deref() == Some("always");
@@ -32,17 +66,17 @@ pub(crate) fn preview_codex_notification_config_at(
     })
 }
 
-pub(crate) fn configure_codex_notification_config_at(config_path: &Path) -> Result<(), String> {
+pub(crate) fn configure_codex_notification_config_at(
+    config_path: &Path,
+) -> Result<(), AgentNotificationConfigError> {
     let preview = preview_codex_notification_config_at(config_path)?;
     if preview.configured {
         return Ok(());
     }
     if let Some(parent) = config_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create Codex config directory: {e}"))?;
+        fs::create_dir_all(parent).map_err(AgentNotificationConfigError::CreateDir)?;
     }
-    fs::write(config_path, preview.next_content)
-        .map_err(|e| format!("failed to write Codex config: {e}"))
+    fs::write(config_path, preview.next_content).map_err(AgentNotificationConfigError::Write)
 }
 
 fn codex_notification_condition(content: &str) -> Option<String> {

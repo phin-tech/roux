@@ -24,6 +24,14 @@ function waitTick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 function makeNotification(overrides: Partial<Notification> = {}): Notification {
   return {
     id: crypto.randomUUID(),
@@ -57,7 +65,8 @@ describe("notification auto-read", () => {
     resetFocus();
     resetLayouts();
     sessionState.set({ sessions: [], activeSessionId: null });
-    vi.mocked(notificationsMarkRead).mockClear();
+    vi.mocked(notificationsMarkRead).mockReset();
+    vi.mocked(notificationsMarkRead).mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -135,5 +144,33 @@ describe("notification auto-read", () => {
     await waitTick();
 
     expect(notificationsMarkRead).not.toHaveBeenCalled();
+  });
+
+  it("limits concurrent auto-read requests and drains remaining matches", async () => {
+    const blockers: Array<ReturnType<typeof deferred<boolean>>> = [];
+    vi.mocked(notificationsMarkRead).mockImplementation(() => {
+      const blocker = deferred<boolean>();
+      blockers.push(blocker);
+      return blocker.promise;
+    });
+    notifications.set(
+      Array.from({ length: 10 }, (_, index) =>
+        makeNotification({ id: `notification-${index}`, sessionId: "s1" }),
+      ),
+    );
+
+    initNotificationAutoRead();
+    sessionState.set({ sessions: [], activeSessionId: "s1" });
+    await waitTick();
+
+    expect(notificationsMarkRead).toHaveBeenCalledTimes(8);
+
+    for (const blocker of blockers.slice(0, 8)) {
+      blocker.resolve(true);
+    }
+    await waitTick();
+    await waitTick();
+
+    expect(notificationsMarkRead).toHaveBeenCalledTimes(10);
   });
 });
