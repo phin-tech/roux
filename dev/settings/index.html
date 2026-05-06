@@ -521,6 +521,8 @@
       
         
       
+        
+      
     
     
       
@@ -702,6 +704,27 @@
   
   <span class="md-ellipsis">
     Library
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/notifications/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Notifications
   </span>
   
 
@@ -950,6 +973,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      Notifications
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#doctor-panel" class="md-nav__link">
     <span class="md-ellipsis">
       Doctor panel
@@ -1076,6 +1108,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      Notifications
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#doctor-panel" class="md-nav__link">
     <span class="md-ellipsis">
       Doctor panel
@@ -1128,7 +1169,7 @@
 <li><strong>Claude</strong> — binary path override, default model, additional flags.</li>
 <li><strong>Integrations</strong> — GitHub CLI (<code>gh</code>) path override for PR/session integrations.</li>
 <li><strong>Agent Integrations</strong> — Roux MCP enablement and supported MCP host setup.</li>
-<li><strong>Notifications</strong> — OS notification master switch and test notification trigger.</li>
+<li><strong>Notifications</strong> — OS notification master switch, test notification trigger, and Claude/Codex agent notification setup.</li>
 <li><strong>Keyboard</strong> — toggles for Option-pane and Command-session hint overlays.</li>
 <li><strong>Notes</strong> — experimental multi-scoped vault settings. See below.</li>
 <li><strong>Advanced</strong> — app version, updater controls, update channel, logging, and the Doctor panel.</li>
@@ -1167,6 +1208,16 @@
 </ul>
 <p>Roux reads an existing host config before writing. It preserves unrelated config and unknown fields on Roux's own server entry, skips writes when the entry is already current, and writes updates atomically.</p>
 <p>For v1, MCP exposes useful inspection and safe action tools by default. It does not expose arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, or broad filesystem mutation.</p>
+<h2 id="notifications">Notifications<a class="headerlink" href="#notifications" title="Permanent link">&para;</a></h2>
+<p>The <strong>Notifications</strong> section controls both desktop notification fan-out and agent notification setup.</p>
+<ul>
+<li><strong>Enable OS notifications</strong> (<code>notificationsEnabled</code>) — controls whether Roux forwards qualifying events to the operating system. The in-app notifications pane, unread badges, and session indicators still work when this is off.</li>
+<li><strong>Agent notifications</strong> — checks whether supported agent CLIs are configured to report back to Roux.</li>
+<li><strong>Claude Code</strong> — uses Roux's hook installer. <strong>Configure</strong> installs missing hooks and the Roux CLI if needed; <strong>Reinstall</strong> refreshes an already-configured hook setup.</li>
+<li><strong>Codex</strong> — reads <code>~/.codex/config.toml</code> and checks <code>[tui].notification_condition</code>. <strong>Preview</strong> shows the full TOML content Roux would write. <strong>Configure</strong> creates or updates the file so Codex uses <code>notification_condition = "always"</code>, while preserving unrelated config where possible.</li>
+<li><strong>Test notification</strong> — sends a sample notification through Roux's notification service so you can confirm OS permissions.</li>
+</ul>
+<p>Codex config writes are intentionally previewable because <code>~/.codex/config.toml</code> may contain unrelated model, approval, sandbox, or provider settings. Roux only targets the <code>notification_condition</code> entry under <code>[tui]</code>.</p>
 <h2 id="doctor-panel">Doctor panel<a class="headerlink" href="#doctor-panel" title="Permanent link">&para;</a></h2>
 <p>The <strong>Advanced</strong> section includes a <strong>Doctor</strong> panel that checks integration health for:</p>
 <ul>

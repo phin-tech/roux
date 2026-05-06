@@ -571,6 +571,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#agent-notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent notifications
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#reconnect-and-restore" class="md-nav__link">
     <span class="md-ellipsis">
       Reconnect and restore
@@ -616,6 +625,8 @@
       
         
           
+        
+      
         
       
         
@@ -823,6 +834,27 @@
   
   <span class="md-ellipsis">
     Library
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/notifications/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Notifications
   </span>
   
 
@@ -1085,6 +1117,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#agent-notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent notifications
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#reconnect-and-restore" class="md-nav__link">
     <span class="md-ellipsis">
       Reconnect and restore
@@ -1167,6 +1208,13 @@
 </ul>
 <h2 id="opening-a-shell">Opening a shell<a class="headerlink" href="#opening-a-shell" title="Permanent link">&para;</a></h2>
 <p>From the command palette (<span class="keys"><kbd class="key-command">Cmd</kbd><span>+</span><kbd class="key-k">K</kbd></span>), run <strong>New shell pane</strong> to open a regular shell alongside Claude. Shell panes persist across restarts and respawn automatically.</p>
+<h2 id="agent-notifications">Agent notifications<a class="headerlink" href="#agent-notifications" title="Permanent link">&para;</a></h2>
+<p>Open <strong>Settings -&gt; Notifications</strong> to check whether agent notifications are wired up.</p>
+<ul>
+<li><strong>Claude Code</strong> uses Roux's existing hook installer. Choose <strong>Configure</strong> or <strong>Reinstall</strong> if the hooks are missing or stale.</li>
+<li><strong>Codex</strong> uses <code>~/.codex/config.toml</code>. Choose <strong>Preview</strong> to inspect the TOML Roux will write, then <strong>Configure</strong> to set <code>[tui].notification_condition = "always"</code>.</li>
+</ul>
+<p>The global OS notification toggle only controls macOS/desktop fan-out. Roux still keeps in-app notifications and unread badges available.</p>
 <h2 id="reconnect-and-restore">Reconnect and restore<a class="headerlink" href="#reconnect-and-restore" title="Permanent link">&para;</a></h2>
 <p>On launch, restored sessions appear disconnected by design. Click <strong>Reconnect</strong> on a session card to restore its saved pane layout (including shell splits) and reconnect the main agent pane.</p>
 <h2 id="working-with-commands">Working with commands<a class="headerlink" href="#working-with-commands" title="Permanent link">&para;</a></h2>
@@ -1183,6 +1231,7 @@
 <ul>
 <li><a href="../features/panes/">Panes</a> — splits, stacks, focus</li>
 <li><a href="../features/sessions/">Sessions</a> — Claude and shell lifetimes</li>
+<li><a href="../features/notifications/">Notifications</a> — in-app inbox, OS notifications, and agent setup</li>
 <li><a href="../features/editor/">Multiline Editor</a> — docked terminal input editor</li>
 <li><a href="../keyboard-shortcuts/">Keyboard shortcuts</a></li>
 </ul>
