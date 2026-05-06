@@ -88,6 +88,52 @@ describe("agentNotifications", () => {
     expect(request.actions[0].kind).toEqual({ type: "focusPane", paneId: "pane-1" });
   });
 
+  it("does not fire completion for blocked → idle", async () => {
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "blocked",
+      permissionInfo: { toolName: "Edit" },
+      source: "hook",
+    });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "idle",
+      source: "hook",
+    });
+    await waitTick();
+
+    expect(notificationsPush).not.toHaveBeenCalled();
+  });
+
+  it("fires a deduped error notification when an agent enters error", async () => {
+    createPane({ id: "pane-1", type: "shell", ptyId: "pty-1", name: "Work pane" });
+
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "generating",
+      source: "hook",
+    });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "error",
+      source: "hook",
+    });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "error",
+      source: "hook",
+    });
+    await waitTick();
+
+    expect(notificationsPush).toHaveBeenCalledTimes(1);
+    const request = vi.mocked(notificationsPush).mock.calls[0][0];
+    expect(request.level).toBe("error");
+    expect(request.source).toEqual({ type: "hook", provider: "claude" });
+    expect(request.title).toContain("Work pane");
+    expect(request.actions[0].kind).toEqual({ type: "focusPane", paneId: "pane-1" });
+    expect(request.dedupKey).toBe("error:pane:pane-1");
+  });
+
   it("includes Claude Stop transcript summaries when present", async () => {
     updateAgentState("pane-1", {
       provider: "claude",

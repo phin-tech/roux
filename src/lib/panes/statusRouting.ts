@@ -98,9 +98,8 @@ export function routeStatusUpdate(
 
   const routed = mapStatus(update.status);
   if (!routed) {
-    // Non-routable statuses ("error", "disconnected") still fan out to
-    // notifications via the legacy path; they don't move the pane's
-    // agentState dot.
+    // Disconnected is backend/session liveness, not pane agent activity,
+    // so it does not move the pane's agentState dot.
     return { kind: "dropped", reason: `non-routable status "${update.status}"` };
   }
 
@@ -162,14 +161,18 @@ function inferProvider(update: StatusUpdate): Provider | null {
   return null;
 }
 
-function mapStatus(raw: string): "idle" | "generating" | null {
+function mapStatus(raw: string): AgentStateEvent["status"] | null {
   switch (raw) {
     case "generating":
     case "thinking":
-    case "attention":
+    case "working":
       return "generating";
+    case "attention":
+      return "blocked";
     case "idle":
       return "idle";
+    case "error":
+      return "error";
     default:
       return null;
   }

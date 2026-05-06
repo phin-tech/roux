@@ -57,6 +57,7 @@
   import NewProjectDialog from "$lib/components/NewProjectDialog.svelte";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
+  import { initNotificationAutoRead } from "$lib/notifications/autoRead";
   import {
     installSessionPrEffect,
     refreshActiveSessionPr,
@@ -765,6 +766,7 @@
     await onNotificationEvent((payload) => {
       applyNotificationEvent(payload);
     });
+    initNotificationAutoRead();
 
     // Listen for global status updates from hooks. Tier-1 routing (with a
     // `rouxPaneId` in the payload) updates the pane's runtime agentState so
