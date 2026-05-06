@@ -13,6 +13,43 @@ vi.mock("$lib/bindings", () => ({
       hasConfig: false,
     }),
     cmdPreviewWorktreeBase: vi.fn().mockResolvedValue(""),
+    cmdAgentNotificationSetupStatus: vi.fn().mockResolvedValue({
+      providers: [
+        {
+          provider: "claude",
+          label: "Claude Code",
+          status: "installed",
+          detail: "Claude Code hooks are installed.",
+          configPath: null,
+          installable: true,
+        },
+        {
+          provider: "codex",
+          label: "Codex",
+          status: "missing",
+          detail: "notification_condition is not set.",
+          configPath: "/tmp/codex/config.toml",
+          installable: true,
+        },
+      ],
+    }),
+    cmdPreviewCodexNotificationConfig: vi.fn().mockResolvedValue({
+      status: "ok",
+      data: {
+        configPath: "/tmp/codex/config.toml",
+        configured: false,
+        currentValue: null,
+        nextContent: '[tui]\nnotification_condition = "always"\n',
+      },
+    }),
+    cmdConfigureCodexNotificationConfig: vi.fn().mockResolvedValue({
+      status: "ok",
+      data: null,
+    }),
+    reinstallHooks: vi.fn().mockResolvedValue({
+      status: "ok",
+      data: null,
+    }),
     cmdMcpStatus: vi.fn().mockResolvedValue({
       enabled: true,
       cliInstalled: true,
@@ -94,6 +131,54 @@ describe("SettingsPanel MCP integration", () => {
       expect(commands.cmdPreviewMcpHostConfig).toHaveBeenCalledWith("claudeDesktop");
     });
     expect(await screen.findByText("Preview ready.")).toBeDefined();
+  });
+});
+
+describe("SettingsPanel agent notification setup", () => {
+  beforeEach(() => {
+    settings.set({ ...DEFAULT_SETTINGS });
+    vi.mocked(commands.cmdAgentNotificationSetupStatus).mockClear();
+    vi.mocked(commands.cmdPreviewCodexNotificationConfig).mockClear();
+    vi.mocked(commands.cmdConfigureCodexNotificationConfig).mockClear();
+  });
+
+  it("renders agent provider status and configures Codex notifications", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+
+    expect(await screen.findByText("Agent notifications")).toBeDefined();
+    expect(await screen.findByText("notification_condition is not set.")).toBeDefined();
+    expect(await screen.findByText("/tmp/codex/config.toml")).toBeDefined();
+
+    await fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+    await waitFor(() => {
+      expect(commands.cmdPreviewCodexNotificationConfig).toHaveBeenCalled();
+    });
+    expect(await screen.findByText("Codex config preview ready.")).toBeDefined();
+    expect(await screen.findByText(/notification_condition = "always"/)).toBeDefined();
+
+    await fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+
+    await waitFor(() => {
+      expect(commands.cmdConfigureCodexNotificationConfig).toHaveBeenCalled();
+    });
+    expect(await screen.findByText("Codex notifications configured.")).toBeDefined();
+  });
+
+  it("keeps provider actions disabled while agent notification status is loading", async () => {
+    vi.mocked(commands.cmdAgentNotificationSetupStatus).mockReturnValue(new Promise(() => {}));
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+
+    expect(await screen.findByText("Agent notifications")).toBeDefined();
+    expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    for (const button of screen.getAllByRole("button", { name: "Configure" })) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
   });
 });
 

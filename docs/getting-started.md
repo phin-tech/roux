@@ -39,6 +39,15 @@ Roux automatically flattens consecutive splits in the same direction, so your la
 
 From the command palette (++cmd+k++), run **New shell pane** to open a regular shell alongside Claude. Shell panes persist across restarts and respawn automatically.
 
+## Agent notifications
+
+Open **Settings -> Notifications** to check whether agent notifications are wired up.
+
+- **Claude Code** uses Roux's existing hook installer. Choose **Configure** or **Reinstall** if the hooks are missing or stale.
+- **Codex** uses `~/.codex/config.toml`. Choose **Preview** to inspect the TOML Roux will write, then **Configure** to set `[tui].notification_condition = "always"`.
+
+The global OS notification toggle only controls macOS/desktop fan-out. Roux still keeps in-app notifications and unread badges available.
+
 ## Reconnect and restore
 
 On launch, restored sessions appear disconnected by design. Click **Reconnect** on a session card to restore its saved pane layout (including shell splits) and reconnect the main agent pane.
@@ -59,5 +68,6 @@ See [Multiline Editor](features/editor.md) for full details, including local edi
 
 - [Panes](features/panes.md) — splits, stacks, focus
 - [Sessions](features/sessions.md) — Claude and shell lifetimes
+- [Notifications](features/notifications.md) — in-app inbox, OS notifications, and agent setup
 - [Multiline Editor](features/editor.md) — docked terminal input editor
 - [Keyboard shortcuts](keyboard-shortcuts.md)

@@ -1,3 +1,4 @@
+pub(crate) mod agent_notifications;
 pub(crate) mod docs;
 pub(crate) mod library;
 pub(crate) mod library_sync;

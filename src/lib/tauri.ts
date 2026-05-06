@@ -528,8 +528,16 @@ export async function listBranches(repoPath: string): Promise<string[]> {
 }
 
 // Setup / CLI install
-import type { SetupStatus } from "$lib/bindings";
-export type { SetupStatus };
+import type {
+  AgentNotificationSetupStatus,
+  CodexNotificationConfigPreview,
+  SetupStatus,
+} from "$lib/bindings";
+export type {
+  AgentNotificationSetupStatus,
+  CodexNotificationConfigPreview,
+  SetupStatus,
+};
 
 export async function checkSetupNeeded(): Promise<boolean> {
   return invoke("check_setup_needed");
@@ -537,6 +545,18 @@ export async function checkSetupNeeded(): Promise<boolean> {
 
 export async function checkSetupStatus(): Promise<SetupStatus> {
   return invoke("check_setup_status");
+}
+
+export async function agentNotificationSetupStatus(): Promise<AgentNotificationSetupStatus> {
+  return invoke("cmd_agent_notification_setup_status");
+}
+
+export async function previewCodexNotificationConfig(): Promise<CodexNotificationConfigPreview> {
+  return invoke("cmd_preview_codex_notification_config");
+}
+
+export async function configureCodexNotificationConfig(): Promise<void> {
+  return invoke("cmd_configure_codex_notification_config");
 }
 
 export async function runSetup(): Promise<void> {

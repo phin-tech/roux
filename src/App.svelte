@@ -57,7 +57,10 @@
   import NewProjectDialog from "$lib/components/NewProjectDialog.svelte";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
-  import { initNotificationAutoRead } from "$lib/notifications/autoRead";
+  import {
+    initNotificationAutoRead,
+    stopNotificationAutoRead,
+  } from "$lib/notifications/autoRead";
   import {
     installSessionPrEffect,
     refreshActiveSessionPr,
@@ -425,6 +428,7 @@
   }
 
   onDestroy(() => {
+    stopNotificationAutoRead();
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
     window.removeEventListener("blur", handleWindowBlur);
