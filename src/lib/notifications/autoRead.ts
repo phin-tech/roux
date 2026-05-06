@@ -79,8 +79,9 @@ function matchesNavigationTarget(
   ) {
     return true;
   }
-  if (!focusedPaneMatchesActiveSession) return false;
-  if (!paneId) return false;
+  if (!focusedPaneMatchesActiveSession || !focusedPaneSession || !paneId) {
+    return false;
+  }
   return notification.actions.some((action) => {
     const kind = action.kind;
     return kind.type === "focusPane" && kind.paneId === paneId;

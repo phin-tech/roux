@@ -121,4 +121,19 @@ describe("notification auto-read", () => {
       "active-session",
     ]);
   });
+
+  it("does not mark pane-targeted notifications read before pane layouts hydrate", async () => {
+    const paneTargeted = makeNotification({
+      id: "pane-targeted",
+      actions: [focusPaneAction("pane-a")],
+    });
+
+    focusedPaneId.set("pane-a");
+    notifications.set([paneTargeted]);
+
+    initNotificationAutoRead();
+    await waitTick();
+
+    expect(notificationsMarkRead).not.toHaveBeenCalled();
+  });
 });
