@@ -216,6 +216,21 @@ describe("agentState store", () => {
       expect(getSessionAgentStatus("sess-1")).toBe("generating");
     });
 
+    it("prefers blocked over generating", () => {
+      setSplitLayout("sess-1", ["pane-a", "pane-b"]);
+      updateAgentState("pane-a", { provider: "claude", status: "generating", source: "hook" });
+      updateAgentState("pane-b", { provider: "claude", status: "blocked", source: "hook" });
+      expect(getSessionAgentStatus("sess-1")).toBe("blocked");
+    });
+
+    it("prefers error over blocked and generating", () => {
+      setSplitLayout("sess-1", ["pane-a", "pane-b", "pane-c"]);
+      updateAgentState("pane-a", { provider: "claude", status: "generating", source: "hook" });
+      updateAgentState("pane-b", { provider: "claude", status: "blocked", source: "hook" });
+      updateAgentState("pane-c", { provider: "claude", status: "error", source: "hook" });
+      expect(getSessionAgentStatus("sess-1")).toBe("error");
+    });
+
     it("is idle when at least one pane is idle and none are generating", () => {
       setSplitLayout("sess-1", ["pane-a", "pane-b"]);
       updateAgentState("pane-a", { provider: "claude", status: "idle", source: "hook" });
@@ -267,6 +282,8 @@ describe("agentState store", () => {
         "generating",
       );
       expect(computeEffectiveSessionStatus("generating", "idle")).toBe("idle");
+      expect(computeEffectiveSessionStatus("idle", "blocked")).toBe("attention");
+      expect(computeEffectiveSessionStatus("idle", "error")).toBe("error");
     });
 
     it("legacy field passes through when no agent aggregate is present", () => {
