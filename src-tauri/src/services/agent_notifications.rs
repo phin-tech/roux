@@ -88,9 +88,13 @@ fn ensure_codex_notification_condition(content: &str) -> String {
         }
 
         if in_tui {
-            if let Some((key, _value)) = parse_key_value(line) {
+            if let Some((key, value)) = parse_key_value(line) {
                 if key == "notification_condition" {
-                    out.push(rewrite_notification_condition_line(line));
+                    if unquote_toml_string(value) == "always" {
+                        out.push(line.to_string());
+                    } else {
+                        out.push(rewrite_notification_condition_line(line));
+                    }
                     wrote_condition = true;
                     continue;
                 }
@@ -122,7 +126,8 @@ fn rewrite_notification_condition_line(line: &str) -> String {
 }
 
 fn parse_table_header(line: &str) -> Option<&str> {
-    let trimmed = line.trim();
+    let (before_comment, _) = split_value_comment(line);
+    let trimmed = before_comment.trim();
     if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
         return None;
     }
@@ -144,25 +149,36 @@ fn parse_key_value(line: &str) -> Option<(&str, &str)> {
 }
 
 fn split_value_comment(line: &str) -> (&str, Option<&str>) {
-    let mut in_string = false;
+    let mut quote = None;
     let mut escaped = false;
     for (idx, c) in line.char_indices() {
         if escaped {
             escaped = false;
             continue;
         }
-        match c {
-            '\\' if in_string => escaped = true,
-            '"' => in_string = !in_string,
-            '#' if !in_string => return (line[..idx].trim_end(), Some(line[idx..].trim())),
-            _ => {}
+        if let Some(current_quote) = quote {
+            match c {
+                '\\' if current_quote == '"' => escaped = true,
+                _ if c == current_quote => quote = None,
+                _ => {}
+            }
+        } else {
+            match c {
+                '"' | '\'' => quote = Some(c),
+                '#' => return (line[..idx].trim_end(), Some(line[idx..].trim())),
+                _ => {}
+            }
         }
     }
     (line.trim_end(), None)
 }
 
 fn unquote_toml_string(value: &str) -> &str {
-    value.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(value)
+    value
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| value.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(value)
 }
 
 #[cfg(test)]
@@ -210,6 +226,21 @@ mod tests {
     }
 
     #[test]
+    fn preview_handles_tui_header_with_inline_comment() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        fs::write(&path, "[tui] # interface settings\ntheme = \"dark\"\n[model]\nname = \"gpt-5\"\n")
+            .unwrap();
+
+        let preview = preview_codex_notification_config_at(&path).unwrap();
+
+        assert_eq!(
+            preview.next_content,
+            "[tui] # interface settings\ntheme = \"dark\"\nnotification_condition = \"always\"\n[model]\nname = \"gpt-5\"\n",
+        );
+    }
+
+    #[test]
     fn preview_replaces_existing_condition_and_preserves_comment() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("config.toml");
@@ -219,6 +250,36 @@ mod tests {
 
         assert!(!preview.configured);
         assert_eq!(preview.current_value.as_deref(), Some("never"));
+        assert_eq!(preview.next_content, "[tui]\nnotification_condition = \"always\" # old\n",);
+    }
+
+    #[test]
+    fn preview_recognizes_single_quoted_always_as_configured() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        fs::write(&path, "[tui]\nnotification_condition = 'always' # literal\n").unwrap();
+
+        let preview = preview_codex_notification_config_at(&path).unwrap();
+
+        assert!(preview.configured);
+        assert_eq!(preview.current_value.as_deref(), Some("always"));
+        assert_eq!(
+            preview.next_content,
+            "[tui]\nnotification_condition = 'always' # literal\n",
+        );
+    }
+
+    #[test]
+    fn preview_keeps_hash_inside_single_quoted_value() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        fs::write(&path, "[tui]\nnotification_condition = 'never # not a comment' # old\n")
+            .unwrap();
+
+        let preview = preview_codex_notification_config_at(&path).unwrap();
+
+        assert!(!preview.configured);
+        assert_eq!(preview.current_value.as_deref(), Some("never # not a comment"));
         assert_eq!(preview.next_content, "[tui]\nnotification_condition = \"always\" # old\n",);
     }
 
