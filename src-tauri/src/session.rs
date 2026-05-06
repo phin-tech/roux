@@ -92,6 +92,7 @@ mod tests {
             ended_at: None,
             blueprint_id: project_id.map(|_| "bp-1".to_string()),
             pinned_pr_url: None,
+            smol_machine_name: None,
         }
     }
 

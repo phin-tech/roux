@@ -646,6 +646,7 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
         None,
         None, // project_id - CLI sessions are unattached
         None, // blueprint_id
+        None, // smol_machine_name - CLI sessions don't bind at create time
         Some(&state.automation_hooks),
         app,
     )
@@ -778,6 +779,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         None,
         None, // project_id - CLI sessions are unattached
         None, // blueprint_id
+        None, // smol_machine_name - CLI sessions don't bind at create time
         Some(&state.automation_hooks),
         app,
     )
@@ -833,6 +835,28 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     let pane_id = crypto_random_uuid();
     let pty_id = crypto_random_uuid();
 
+    // Inherit the session's smol-machine binding (if any) so CLI-spawned
+    // shells land inside the same VM as the primary pane. A bound
+    // session whose smolvm has been uninstalled fails loud rather than
+    // silently running on the host.
+    let smolvm = match session_record.as_ref().and_then(|s| s.smol_machine_name.as_deref()) {
+        Some(name) if !name.trim().is_empty() => {
+            match crate::services::smolvm::resolve_smolvm_binary() {
+                Some(install) => Some(crate::pty::SmolvmExec {
+                    binary: install.path,
+                    machine_name: name.trim().to_string(),
+                    guest_shell: "/bin/sh".to_string(),
+                }),
+                None => {
+                    return Response::err(format!(
+                        "session is bound to smol machine '{name}', but smolvm is not installed"
+                    ));
+                }
+            }
+        }
+        _ => None,
+    };
+
     if let Err(e) = state.pty_manager.spawn_shell(
         &pty_id,
         &working_dir,
@@ -842,6 +866,7 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         worktree_env.as_deref(),
         None, // notes env snapshot — wired only from session creation path
         None,
+        smolvm.as_ref(),
         None,
         crate::pty::PtyRole::Secondary,
         None, // profile — CLI-spawned, unknown
@@ -1513,6 +1538,7 @@ mod tests {
             ended_at: None,
             blueprint_id: None,
             pinned_pr_url: None,
+            smol_machine_name: None,
         }
     }
 
@@ -2044,6 +2070,7 @@ mod tests {
             ended_at: None,
             blueprint_id: None,
             pinned_pr_url: None,
+            smol_machine_name: None,
         }
     }
 

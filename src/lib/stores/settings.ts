@@ -9,6 +9,7 @@ import {
   onSettingsChanged,
 } from "../tauri";
 import { refreshWorktrunkDetection } from "$lib/stores/worktrunkDetection";
+import { refreshSmolvmDetection } from "$lib/stores/smolvmDetection";
 
 export const settings = writable<RouxSettings>(DEFAULT_SETTINGS);
 
@@ -17,6 +18,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 // actually changes — otherwise every unrelated setting tweak would
 // force a subprocess spawn.
 let lastWorktrunkBinaryPath: string | null | undefined = undefined;
+let lastSmolvmBinaryPath: string | null | undefined = undefined;
 
 export async function initSettings(): Promise<RouxSettings> {
   const raw = await getSettings();
@@ -24,6 +26,7 @@ export async function initSettings(): Promise<RouxSettings> {
   settings.set(loaded);
   setUserProfiles(loaded.spawnProfiles);
   lastWorktrunkBinaryPath = loaded.worktrunkBinaryPath;
+  lastSmolvmBinaryPath = loaded.smolvmBinaryPath;
 
   // Listen for changes from backend
   await onSettingsChanged((updated) => {
@@ -33,6 +36,10 @@ export async function initSettings(): Promise<RouxSettings> {
     if (next.worktrunkBinaryPath !== lastWorktrunkBinaryPath) {
       lastWorktrunkBinaryPath = next.worktrunkBinaryPath;
       void refreshWorktrunkDetection();
+    }
+    if (next.smolvmBinaryPath !== lastSmolvmBinaryPath) {
+      lastSmolvmBinaryPath = next.smolvmBinaryPath;
+      void refreshSmolvmDetection();
     }
   });
 
@@ -57,6 +64,10 @@ export function updateSetting<K extends keyof RouxSettings>(
         if (updated.worktrunkBinaryPath !== lastWorktrunkBinaryPath) {
           lastWorktrunkBinaryPath = updated.worktrunkBinaryPath;
           void refreshWorktrunkDetection();
+        }
+        if (updated.smolvmBinaryPath !== lastSmolvmBinaryPath) {
+          lastSmolvmBinaryPath = updated.smolvmBinaryPath;
+          void refreshSmolvmDetection();
         }
       });
     }, 500);

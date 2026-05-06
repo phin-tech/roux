@@ -4015,6 +4015,7 @@ dependencies = [
  "roux-core",
  "roux-gh",
  "roux-git",
+ "roux-smolvm",
  "roux-worktrunk",
  "schemars 1.2.1",
  "serde",
@@ -4048,6 +4049,7 @@ dependencies = [
  "dirs",
  "kdl",
  "plist",
+ "roux-smolvm",
  "roux-worktrunk",
  "semver",
  "serde",
@@ -4073,6 +4075,16 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "roux-smolvm"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "which",
 ]
 
 [[package]]

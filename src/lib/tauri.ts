@@ -13,6 +13,8 @@ import type {
   Watch,
   CreateWatchConfig,
   WatchUpdateEvent,
+  SmolMachine,
+  SmolMachineCreateRequest,
 } from "./types";
 import { ptyOutputPayloadToBytes, type PtyOutputPayload } from "./ptyOutput";
 export type { PtyOutputPayload } from "./ptyOutput";
@@ -52,6 +54,12 @@ export interface CreateSessionShellOpts {
    * row when the live session is up.
    */
   blueprintId?: string | null;
+  /**
+   * Smol-machine binding. When set (and non-empty), the session's primary
+   * PTY and every subsequent shell pane runs inside the named VM via
+   * `smolvm machine exec`. Empty/null leaves the session running on host.
+   */
+  smolMachineName?: string | null;
 }
 
 /**
@@ -79,6 +87,7 @@ export async function createSessionShell(
     fetchFirst,
     projectId,
     blueprintId,
+    smolMachineName,
   } = opts;
   return invoke("create_session_shell", {
     repoPath,
@@ -94,6 +103,7 @@ export async function createSessionShell(
       fetchFirst: fetchFirst ?? null,
       projectId: projectId ?? null,
       blueprintId: blueprintId ?? null,
+      smolMachineName: smolMachineName ?? null,
     },
   });
 }
@@ -271,6 +281,31 @@ export async function listWorktrees(
   repoPath: string
 ): Promise<Worktree[]> {
   return invoke("cmd_list_worktrees", { repoPath });
+}
+
+// Smol machines: thin wrappers around the typed-error commands so panel
+// code can `await` and `try/catch` instead of branching on the
+// discriminated `{ status: "ok" } | { status: "error" }` shape.
+export async function listSmolMachines(): Promise<SmolMachine[]> {
+  return invoke("cmd_list_smol_machines");
+}
+
+export async function startSmolMachine(name: string): Promise<void> {
+  return invoke("cmd_start_smol_machine", { name });
+}
+
+export async function stopSmolMachine(name: string): Promise<void> {
+  return invoke("cmd_stop_smol_machine", { name });
+}
+
+export async function deleteSmolMachine(name: string): Promise<void> {
+  return invoke("cmd_delete_smol_machine", { name });
+}
+
+export async function createSmolMachine(
+  request: SmolMachineCreateRequest,
+): Promise<void> {
+  return invoke("cmd_create_smol_machine", { request });
 }
 
 export type LibraryItemType = "prompt" | "skill";
@@ -711,6 +746,13 @@ export async function setSessionPinnedPrUrl(
   url: string | null,
 ): Promise<void> {
   return invoke("set_session_pinned_pr_url", { sessionId, url });
+}
+
+export async function setSessionSmolMachine(
+  sessionId: string,
+  machineName: string | null,
+): Promise<void> {
+  return invoke("set_session_smol_machine", { sessionId, machineName });
 }
 
 export async function refreshSessionBranch(

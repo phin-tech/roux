@@ -1,6 +1,7 @@
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -658,6 +659,26 @@ pub struct NonoConfig {
     pub allow_dirs: Vec<String>,
 }
 
+/// Smolvm exec configuration for a shell PTY. When present, the shell is
+/// spawned inside `smolvm machine exec --name <machine_name> -it -- <guest_shell>`
+/// instead of directly on the host. Mutually exclusive with `NonoConfig`
+/// — nono is host-side and doesn't exist inside a guest VM unless the
+/// image installs it; the spawn path silently skips nono when smolvm is
+/// set.
+#[derive(Debug, Clone)]
+pub struct SmolvmExec {
+    /// Resolved `smolvm` binary path, from
+    /// [`crate::services::smolvm::resolve_smolvm_binary`]. Owning this
+    /// (rather than re-resolving in the spawn path) means a smolvm
+    /// uninstall after the session was bound surfaces as a clean failure
+    /// at the caller, not a confusing "command not found" mid-spawn.
+    pub binary: PathBuf,
+    pub machine_name: String,
+    /// Guest shell path. v1 hardcodes `/bin/sh` at the call site;
+    /// future Smolfile-derived override will plug in here.
+    pub guest_shell: String,
+}
+
 impl NonoConfig {
     /// Resolve `~` to the user's home directory and relative paths
     /// against `working_dir`. Nono receives arguments via CommandBuilder
@@ -894,11 +915,27 @@ impl PtyManager {
         worktree_path: Option<&str>,
         notes: Option<&NotesEnvInputs>,
         nono: Option<&NonoConfig>,
+        smolvm: Option<&SmolvmExec>,
         initial_size: Option<(u16, u16)>,
         role: PtyRole,
         profile: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
+        // When the session is bound to a smol machine, ensure it's
+        // running before opening any PTY. Failing here surfaces as a
+        // clean PtyError that the caller can render in the dead-pane
+        // view rather than a blank pane that silently never connects.
+        if let Some(smol) = smolvm {
+            ensure_machine_running(&smol.binary, &smol.machine_name)
+                .map_err(|err| PtyError::SpawnShell {
+                    source: anyhow::anyhow!(
+                        "smol machine '{}' could not be made ready: {}",
+                        smol.machine_name,
+                        err
+                    ),
+                })?;
+        }
+
         let pty_system = native_pty_system();
 
         let pair = pty_system
@@ -908,19 +945,53 @@ impl PtyManager {
         let shell = resolve_default_shell();
         let user_path = get_user_path();
         let nono_label = nono.map(|n| format!(" (nono profile={})", n.profile)).unwrap_or_default();
+        let smol_label = smolvm.map(|s| format!(" (smol machine={})", s.machine_name)).unwrap_or_default();
         let pane_label = pane_id.map(|p| format!(", pane '{}'", p)).unwrap_or_default();
         let session_label = session_id.map(|s| format!(", session '{}'", s)).unwrap_or_default();
         rlog!(
-            "Spawning shell '{}' for PTY '{}'{}{} in '{}'{}",
+            "Spawning shell '{}' for PTY '{}'{}{} in '{}'{}{}",
             shell,
             id,
             pane_label,
             session_label,
             working_dir,
-            nono_label
+            nono_label,
+            smol_label
         );
 
-        let mut cmd = if let Some(nono) = nono {
+        // Wrap precedence: smolvm wins over nono. nono is host-side and
+        // doesn't exist inside a guest VM unless the image installs it.
+        // Treat them as mutually exclusive in v1 and silently skip nono
+        // in the smolvm branch (the caller has already logged a warning
+        // if both were configured).
+        let mut cmd = if let Some(smol) = smolvm {
+            let mut c = CommandBuilder::new(smol.binary.as_os_str());
+            c.arg("machine");
+            c.arg("exec");
+            c.arg("--name");
+            c.arg(&smol.machine_name);
+            c.arg("-i");
+            c.arg("-t");
+            // Forward the subset of ROUX_* env that's meaningful in the
+            // guest. Host paths (PATH, ROUX_SOCKET, ROUX_CLI, notes paths)
+            // are filtered out — see `is_guest_safe_env_key`.
+            for (k, v) in roux_env_pairs(
+                &user_path,
+                session_id,
+                pane_id,
+                project_id,
+                worktree_path,
+                notes,
+            ) {
+                if is_guest_safe_env_key(&k) {
+                    c.arg("-e");
+                    c.arg(format!("{}={}", k, v));
+                }
+            }
+            c.arg("--");
+            c.arg(&smol.guest_shell);
+            c
+        } else if let Some(nono) = nono {
             let mut c = CommandBuilder::new("nono");
             c.arg("run");
             c.arg("--profile");
@@ -936,7 +1007,15 @@ impl PtyManager {
         } else {
             CommandBuilder::new(&shell)
         };
+        // apply_shell_command_flags is a no-op outside Windows. On
+        // Windows + smolvm doesn't combine (smolvm is Linux/macOS-only),
+        // so we keep this unconditional — it's a safe no-op for the
+        // smolvm branch on the platforms smolvm runs on.
         apply_shell_command_flags(&mut cmd, &shell);
+        // apply_roux_env populates the *outer* CommandBuilder's env.
+        // For the smolvm branch this decorates the host-side smolvm CLI
+        // process (useful for its own logging) but doesn't reach the
+        // guest — the `-e` flags above handle that.
         apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path, notes);
         cmd.cwd(working_dir);
 
@@ -1605,87 +1684,147 @@ fn apply_roux_env(
     worktree_path: Option<&str>,
     notes: Option<&NotesEnvInputs>,
 ) {
-    cmd.env("PATH", build_pty_path(user_path));
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
-    cmd.env("ROUX_SESSION", "1");
-    cmd.env("ROUX_SOCKET", socket_path_str());
-    if let Some((_, cli_path)) = roux_cli_shim() {
-        cmd.env("ROUX_CLI", cli_path);
-    }
-    if let Some(sid) = session_id {
-        cmd.env("ROUX_SESSION_ID", sid);
-    }
-    if let Some(pid) = pane_id {
-        cmd.env("ROUX_PANE_ID", pid);
-    }
-    if let Some(pid) = project_id {
-        cmd.env("ROUX_PROJECT_ID", pid);
-    }
-    if let Some(wt) = worktree_path {
-        cmd.env("ROUX_WORKTREE_PATH", wt);
-    }
-    if let Some(n) = notes {
-        apply_notes_env(cmd, n);
+    for (k, v) in
+        roux_env_pairs(user_path, session_id, pane_id, project_id, worktree_path, notes)
+    {
+        cmd.env(k, v);
     }
 }
 
-fn apply_notes_env(cmd: &mut CommandBuilder, n: &NotesEnvInputs) {
+/// Pure pair-emitting variant of [`apply_roux_env`]. Used by both the
+/// host-side `CommandBuilder` path and the smolvm-wrap branch (which
+/// folds a filtered subset into `-e KEY=VAL` flags).
+fn roux_env_pairs(
+    user_path: &str,
+    session_id: Option<&str>,
+    pane_id: Option<&str>,
+    project_id: Option<&str>,
+    worktree_path: Option<&str>,
+    notes: Option<&NotesEnvInputs>,
+) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    pairs.push(("PATH".to_string(), build_pty_path(user_path)));
+    pairs.push(("TERM".to_string(), "xterm-256color".to_string()));
+    pairs.push(("COLORTERM".to_string(), "truecolor".to_string()));
+    pairs.push(("ROUX_SESSION".to_string(), "1".to_string()));
+    pairs.push(("ROUX_SOCKET".to_string(), socket_path_str()));
+    if let Some((_, cli_path)) = roux_cli_shim() {
+        pairs.push(("ROUX_CLI".to_string(), cli_path));
+    }
+    if let Some(sid) = session_id {
+        pairs.push(("ROUX_SESSION_ID".to_string(), sid.to_string()));
+    }
+    if let Some(pid) = pane_id {
+        pairs.push(("ROUX_PANE_ID".to_string(), pid.to_string()));
+    }
+    if let Some(pid) = project_id {
+        pairs.push(("ROUX_PROJECT_ID".to_string(), pid.to_string()));
+    }
+    if let Some(wt) = worktree_path {
+        pairs.push(("ROUX_WORKTREE_PATH".to_string(), wt.to_string()));
+    }
+    if let Some(n) = notes {
+        notes_env_pairs(n, &mut pairs);
+    }
+    pairs
+}
+
+/// True for env keys that are meaningful inside a smolvm guest. Host
+/// paths (PATH, ROUX_SOCKET, ROUX_CLI, ROUX_NOTES_*) are excluded — the
+/// guest has its own filesystem and they'd point at non-existent
+/// locations. Forwarding them would mislead shell-rc scripts that test
+/// for them.
+fn is_guest_safe_env_key(key: &str) -> bool {
+    matches!(
+        key,
+        "TERM"
+            | "COLORTERM"
+            | "ROUX_SESSION"
+            | "ROUX_SESSION_ID"
+            | "ROUX_PANE_ID"
+            | "ROUX_PROJECT_ID"
+    )
+}
+
+/// Make sure a smol machine is running before we exec into it.
+///
+/// Lists machines, finds the named entry, and runs `smolvm machine
+/// start --name <n>` when its state isn't already running/starting.
+/// `start` is idempotent — running it on a live machine is a no-op —
+/// so the only failure cases are "machine doesn't exist" or the
+/// underlying CLI itself failing. Both surface as a typed error so the
+/// caller can render a clean dead-pane message instead of opening a
+/// blank PTY that quietly disconnects.
+fn ensure_machine_running(binary: &std::path::Path, name: &str) -> Result<(), String> {
+    let machines = roux_smolvm::list_machines(binary).map_err(|e| e.to_string())?;
+    let m = machines
+        .iter()
+        .find(|m| m.name == name)
+        .ok_or_else(|| format!("smol machine '{name}' not found (was it deleted?)"))?;
+    let state = m.state.to_lowercase();
+    if state.contains("running") || state.contains("starting") {
+        return Ok(());
+    }
+    rlog!("smol machine '{}' is '{}', auto-starting before exec", name, m.state);
+    roux_smolvm::start_machine(binary, name).map_err(|e| e.to_string())
+}
+
+/// Collect notes-related env pairs for forwarding into a child process.
+/// Used by `roux_env_pairs` (host-side `cmd.env`) and the smolvm wrap
+/// (`-e KEY=VAL` flags). Project-context vars are deliberately omitted
+/// when their inputs are empty so shell idioms like
+/// `${ROUX_SESSION_PROJECT:-no-project}` keep working.
+fn notes_env_pairs(n: &NotesEnvInputs, pairs: &mut Vec<(String, String)>) {
     use std::path::Path;
     let root = Path::new(&n.vault_root);
     let global_dir = root.join("global");
     let repo_dir = root.join("repos").join(&n.repo_slug);
     let session_dir = root.join("sessions").join(&n.session_slug);
 
-    cmd.env("ROUX_NOTES_ROOT", root.to_string_lossy().to_string());
-    cmd.env("ROUX_GLOBAL_NOTES_DIR", global_dir.to_string_lossy().to_string());
-    cmd.env(
-        "ROUX_GLOBAL_NOTES_FILE",
+    pairs.push(("ROUX_NOTES_ROOT".to_string(), root.to_string_lossy().to_string()));
+    pairs.push((
+        "ROUX_GLOBAL_NOTES_DIR".to_string(),
+        global_dir.to_string_lossy().to_string(),
+    ));
+    pairs.push((
+        "ROUX_GLOBAL_NOTES_FILE".to_string(),
         global_dir.join("notes.md").to_string_lossy().to_string(),
-    );
-    cmd.env("ROUX_REPO_SLUG", &n.repo_slug);
-    cmd.env("ROUX_REPO_NOTES_DIR", repo_dir.to_string_lossy().to_string());
-    cmd.env(
-        "ROUX_REPO_NOTES_FILE",
+    ));
+    pairs.push(("ROUX_REPO_SLUG".to_string(), n.repo_slug.clone()));
+    pairs.push(("ROUX_REPO_NOTES_DIR".to_string(), repo_dir.to_string_lossy().to_string()));
+    pairs.push((
+        "ROUX_REPO_NOTES_FILE".to_string(),
         repo_dir.join("notes.md").to_string_lossy().to_string(),
-    );
-    cmd.env("ROUX_SESSION_DIR", session_dir.to_string_lossy().to_string());
-    cmd.env(
-        "ROUX_SESSION_NOTES_FILE",
+    ));
+    pairs.push(("ROUX_SESSION_DIR".to_string(), session_dir.to_string_lossy().to_string()));
+    pairs.push((
+        "ROUX_SESSION_NOTES_FILE".to_string(),
         session_dir.join("notes.md").to_string_lossy().to_string(),
-    );
+    ));
     if let Some(project_slug) = n.project_slug.as_deref() {
         let project_dir = root.join("projects").join(project_slug);
-        cmd.env("ROUX_SESSION_PROJECT", project_slug);
-        cmd.env(
-            "ROUX_SESSION_PROJECT_NOTES_DIR",
+        pairs.push(("ROUX_SESSION_PROJECT".to_string(), project_slug.to_string()));
+        pairs.push((
+            "ROUX_SESSION_PROJECT_NOTES_DIR".to_string(),
             project_dir.to_string_lossy().to_string(),
-        );
-        cmd.env(
-            "ROUX_SESSION_PROJECT_NOTES_FILE",
+        ));
+        pairs.push((
+            "ROUX_SESSION_PROJECT_NOTES_FILE".to_string(),
             project_dir.join("notes.md").to_string_lossy().to_string(),
-        );
+        ));
     }
-    // When there's no project, the three project vars are deliberately NOT set
-    // so shell idioms like `${ROUX_SESSION_PROJECT:-no-project}` work.
 
-    // Project context paths: same convention as PATH — separated with the
-    // platform's path-list separator (`:` on Unix, `;` on Windows). Joining
-    // with a literal `:` would corrupt drive-letter paths like `C:\spec.md`
-    // on Windows. Skipped entirely when empty so shells can default with
-    // `${VAR:-}`.
     if !n.context_paths.is_empty() {
         match std::env::join_paths(n.context_paths.iter().map(std::path::Path::new)) {
             Ok(joined) => {
-                cmd.env("ROUX_PROJECT_CONTEXT_PATHS", joined);
+                pairs.push((
+                    "ROUX_PROJECT_CONTEXT_PATHS".to_string(),
+                    joined.to_string_lossy().to_string(),
+                ));
             }
             Err(e) => {
-                // Only fails when a path contains the platform's path-list
-                // separator. Log it — silently dropping the env var would
-                // leave the user wondering why their context path didn't
-                // surface in the agent.
                 rlog!(
-                    "apply_notes_env: failed to encode ROUX_PROJECT_CONTEXT_PATHS ({} paths): {}",
+                    "notes_env_pairs: failed to encode ROUX_PROJECT_CONTEXT_PATHS ({} paths): {}",
                     n.context_paths.len(),
                     e
                 );
@@ -1693,7 +1832,7 @@ fn apply_notes_env(cmd: &mut CommandBuilder, n: &NotesEnvInputs) {
         }
     }
     if !n.project_prompt.is_empty() {
-        cmd.env("ROUX_PROJECT_PROMPT", &n.project_prompt);
+        pairs.push(("ROUX_PROJECT_PROMPT".to_string(), n.project_prompt.clone()));
     }
 }
 

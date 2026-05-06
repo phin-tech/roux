@@ -6,6 +6,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import {
     createSessionShell,
+    listSmolMachines,
     listWorktrees,
     checkNonoInstalled,
     listNonoProfiles,
@@ -18,6 +19,8 @@
     cloneRepo,
     type PrInfo,
   } from "$lib/tauri";
+  import type { SmolMachine } from "$lib/types";
+  import { smolvmDetection } from "$lib/stores/smolvmDetection";
   import { addSession, removeSession } from "$lib/stores/sessions";
   import { layoutList, type LayoutSpec } from "$lib/panes/layouts";
   import { applyLayoutToSession, resolveFirstLeafNono, type LayoutApplyError } from "$lib/panes/layoutRunner";
@@ -249,6 +252,12 @@
   let nonoProfiles = $state<string[]>([]);
   let selectedNonoProfile = $state<string | null>(null);
 
+  // Smol machines integration. List populates only when the dialog
+  // opens and only when smolvm is installed; the picker hides
+  // entirely otherwise so users without smolvm see no extra row.
+  let smolMachines = $state<SmolMachine[]>([]);
+  let selectedSmolMachineName = $state<string | null>(null);
+
   // PR URL integration (gh CLI). The input is hidden unless gh is present.
   let ghInstalled = $state(false);
   let prUrl = $state("");
@@ -298,6 +307,21 @@
           });
         }
       });
+      // Smolvm machines: load only when smolvm is detected. The
+      // picker UI is gated on the same store so a fresh dialog with
+      // smolvm uninstalled never tries to talk to a missing binary.
+      if ($smolvmDetection.binaryPath) {
+        listSmolMachines()
+          .then((list) => {
+            smolMachines = list;
+          })
+          .catch(() => {
+            // Listing failures shouldn't block dialog usage; fall
+            // back to "no machines" so the picker degrades to a
+            // disabled state with the empty option only.
+            smolMachines = [];
+          });
+      }
       checkGhInstalled().then((installed) => {
         ghInstalled = installed;
       });
@@ -770,6 +794,7 @@
             profile: firstLeafInfo.profileId ?? undefined,
             base: defaultBase.base,
             fetchFirst: defaultBase.fetchFirst,
+            smolMachineName: selectedSmolMachineName ?? undefined,
           },
         );
         log(`Session created via layout: ${session.id}`);
@@ -818,6 +843,7 @@
           profile: profile.id,
           base: defaultBase.base,
           fetchFirst: defaultBase.fetchFirst,
+          smolMachineName: selectedSmolMachineName ?? undefined,
         },
       );
 
@@ -912,6 +938,7 @@
     isGitRepo = false;
     error = "";
     selectedNonoProfile = null;
+    selectedSmolMachineName = null;
     selectedLayoutId = "";
     selectedProfileId = "claude";
     inlineProfile = null;
@@ -1360,6 +1387,41 @@
                   {/if}
                 </Command.Root>
               </div>
+            </div>
+          {/if}
+
+          <!-- Smol machine binding -->
+          {#if $smolvmDetection.binaryPath}
+            <div class="flex flex-col gap-1.5">
+              <label
+                for="new-session-smol-machine"
+                class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+              >
+                Smol Machine
+                <span class="font-normal normal-case tracking-normal">(run inside VM)</span>
+              </label>
+              <select
+                id="new-session-smol-machine"
+                bind:value={selectedSmolMachineName}
+                class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim"
+              >
+                <option value={null}>Run on host (default)</option>
+                {#each smolMachines as machine (machine.name)}
+                  <option value={machine.name}>
+                    {machine.name}{machine.image ? ` — ${machine.image}` : ""}
+                  </option>
+                {/each}
+              </select>
+              {#if smolMachines.length === 0}
+                <p class="text-[10px] text-text-muted">
+                  No smol machines yet. Create one from the Smol Machines panel.
+                </p>
+              {:else if selectedSmolMachineName}
+                <p class="text-[10px] text-text-muted">
+                  The session's primary shell and Claude will run inside <code class="rounded bg-bg-surface px-1 text-text-primary">{selectedSmolMachineName}</code>.
+                  Make sure the worktree is mounted in the Smolfile.
+                </p>
+              {/if}
             </div>
           {/if}
 

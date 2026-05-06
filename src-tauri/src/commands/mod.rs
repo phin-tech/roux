@@ -13,6 +13,7 @@ pub(crate) mod pty;
 pub(crate) mod sessions;
 pub(crate) mod settings;
 pub(crate) mod setup;
+pub(crate) mod smol_machines;
 pub(crate) mod updater;
 pub(crate) mod user_themes;
 pub(crate) mod worktrees;

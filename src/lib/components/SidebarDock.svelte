@@ -22,6 +22,7 @@
   import { archivedSessionsState } from "$lib/stores/archivedSessions";
   import { projects } from "$lib/stores/projects";
   import NotesPanel from "./NotesPanel.svelte";
+  import SmolMachinesPanel from "./SmolMachinesPanel.svelte";
   import WorktrunkPanel from "./WorktrunkPanel.svelte";
   import WatchesPane from "./WatchesPane.svelte";
   import NotificationsPane from "./NotificationsPane.svelte";
@@ -124,6 +125,7 @@
     "tasks",
     "notifications",
     "docs",
+    "smolMachines",
     "worktrunk",
   ];
   const DOCK_SET = new Set<SidebarId>(DOCK_PANEL_IDS);
@@ -276,6 +278,13 @@
             />
           {:else if id === "docs"}
             <DocPanel {visible} onclose={onCloseFor(id)} />
+          {:else if id === "smolMachines"}
+            <SmolMachinesPanel
+              {visible}
+              onclose={onCloseFor(id)}
+              pinned={$pinnedSidebar === id}
+              onTogglePin={onTogglePinFor(id)}
+            />
           {:else if id === "worktrunk"}
             <WorktrunkPanel
               {visible}

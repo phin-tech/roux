@@ -14,7 +14,9 @@
   import CloseButton from "./CloseButton.svelte";
   import Pencil from "@lucide/svelte/icons/pencil";
   import GitBranch from "@lucide/svelte/icons/git-branch";
+  import Container from "@lucide/svelte/icons/container";
   import SessionWorktrunkChips from "./SessionWorktrunkChips.svelte";
+  import { smolvmDetection } from "$lib/stores/smolvmDetection";
 
   interface Props {
     session: Session;
@@ -221,6 +223,19 @@
       </div>
 
       <div class="flex shrink-0 items-center gap-1">
+        {#if session.smolMachineName}
+          <span
+            class="inline-flex h-4 shrink-0 items-center gap-1 rounded px-1.5 text-[10px] font-medium {$smolvmDetection.binaryPath
+              ? 'bg-accent-dim/20 text-accent'
+              : 'bg-red/15 text-red/80'}"
+            title={$smolvmDetection.binaryPath
+              ? `Runs inside smol machine '${session.smolMachineName}'`
+              : `Bound to smol machine '${session.smolMachineName}', but smolvm is not installed`}
+          >
+            <Container size={10} />
+            <span class="max-w-[8ch] truncate font-mono">{session.smolMachineName}</span>
+          </span>
+        {/if}
         {#if !simplified && showPaneInventory}
           <span
             class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-bg-surface px-1 text-[9px] font-semibold tabular-nums text-text-muted"

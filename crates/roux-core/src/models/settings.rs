@@ -278,6 +278,12 @@ pub struct RouxSettings {
     /// when nothing is found.
     #[serde(default)]
     pub worktrunk_binary_path: Option<String>,
+    /// Absolute path to the `smolvm` (smol machines) binary. Same motivation
+    /// as `worktrunk_binary_path` — GUI apps inherit a minimal PATH on macOS.
+    /// When unset, Roux resolves via PATH and falls back to "smolvm not
+    /// installed" (the activity rail icon and integration UI hide entirely).
+    #[serde(default)]
+    pub smolvm_binary_path: Option<String>,
     /// Absolute path to the shell binary for terminal panes and login-shell
     /// PATH discovery. When set and non-empty, overrides automatic resolution
     /// from the OS login shell, then $SHELL.
@@ -449,6 +455,7 @@ impl Default for RouxSettings {
             gh_binary_path: None,
             git_binary_path: None,
             worktrunk_binary_path: None,
+            smolvm_binary_path: None,
             shell_binary_path: None,
             worktree_provider: WorktreeProvider::default(),
             additional_flags: Vec::new(),

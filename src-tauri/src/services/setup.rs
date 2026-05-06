@@ -4,7 +4,7 @@ pub(crate) fn is_command_available(command: &str) -> bool {
     crate::platform::find_executable_on_path(command).is_some()
 }
 
-fn nonempty_path(value: Option<&str>) -> Option<String> {
+pub(crate) fn nonempty_path(value: Option<&str>) -> Option<String> {
     value.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
@@ -21,7 +21,7 @@ fn login_shell_path() -> Option<&'static str> {
     (!path.is_empty()).then_some(path.as_str())
 }
 
-fn login_shell_path_os() -> Option<OsString> {
+pub(crate) fn login_shell_path_os() -> Option<OsString> {
     login_shell_path().map(OsString::from)
 }
 
@@ -42,7 +42,7 @@ fn resolve_binary_path(binary: &str, override_path: Option<String>) -> Option<St
     find_binary_on_process_path(binary)
 }
 
-fn find_in_path_env(path_env: &OsStr, binary: &str) -> Option<String> {
+pub(crate) fn find_in_path_env(path_env: &OsStr, binary: &str) -> Option<String> {
     for dir in std::env::split_paths(path_env) {
         let candidate = dir.join(binary);
         if candidate.is_file() {

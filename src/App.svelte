@@ -546,6 +546,13 @@
     );
     void refreshWorktrunkDetection();
 
+    // Same pattern for smolvm: probe once so the rail can hide its icon
+    // when the user doesn't have smol machines installed.
+    const { refreshSmolvmDetection } = await import(
+      "$lib/stores/smolvmDetection"
+    );
+    void refreshSmolvmDetection();
+
     if (loadedSettings.restoreSessionsOnLaunch) {
       const sessions = await listSessions();
       log(`Restoring ${sessions.length} session(s)`);

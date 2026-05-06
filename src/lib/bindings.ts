@@ -55,6 +55,12 @@ export const commands = {
 	 */
 	cmdOpenTerminalAt: (path: string) => typedError<null, string>(__TAURI_INVOKE("cmd_open_terminal_at", { path })),
 	cmdOpenPathInFinder: (path: string) => typedError<null, string>(__TAURI_INVOKE("cmd_open_path_in_finder", { path })),
+	cmdDetectSmolvm: () => __TAURI_INVOKE<SmolvmDetection>("cmd_detect_smolvm"),
+	cmdListSmolMachines: () => typedError<SmolMachine[], string>(__TAURI_INVOKE("cmd_list_smol_machines")),
+	cmdStartSmolMachine: (name: string) => typedError<null, string>(__TAURI_INVOKE("cmd_start_smol_machine", { name })),
+	cmdStopSmolMachine: (name: string) => typedError<null, string>(__TAURI_INVOKE("cmd_stop_smol_machine", { name })),
+	cmdDeleteSmolMachine: (name: string) => typedError<null, string>(__TAURI_INVOKE("cmd_delete_smol_machine", { name })),
+	cmdCreateSmolMachine: (request: SmolMachineCreateRequest) => typedError<null, string>(__TAURI_INVOKE("cmd_create_smol_machine", { request })),
 	cmdListAutomationHooks: (repoPath: string | null) => typedError<HookListItem[], string>(__TAURI_INVOKE("cmd_list_automation_hooks", { repoPath })),
 	cmdPreviewAutomationHooks: (request: HookRunRequest) => typedError<HookPreviewItem[], string>(__TAURI_INVOKE("cmd_preview_automation_hooks", { request })),
 	cmdRunAutomationHook: (request: HookRunRequest) => typedError<HookRunSummary, string>(__TAURI_INVOKE("cmd_run_automation_hook", { request })),
@@ -108,6 +114,15 @@ export const commands = {
 	 */
 	setSessionPinnedPrUrl: (sessionId: string, url: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_pinned_pr_url", { sessionId, url })),
 	/**
+	 *  Bind (or clear) a smol machine for a session. When set, every PTY
+	 *  spawned for this session runs via `smolvm machine exec --name <n> ...`
+	 *  inside the named VM instead of on the host. Pass `None` (or empty) to
+	 *  unbind. The empty-string normalization happens in
+	 *  `SessionHandle::set_smol_machine_name`'s service handler so the wire
+	 *  shape stays simple.
+	 */
+	setSessionSmolMachine: (sessionId: string, machineName: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_smol_machine", { sessionId, machineName })),
+	/**
 	 *  Re-read the session's worktree branch via `git rev-parse` and update the
 	 *  stored value if it changed. Returns the current branch (whether or not it
 	 *  changed). The frontend calls this on a low-frequency tick so PR discovery
@@ -160,6 +175,13 @@ export const commands = {
 	 *  blueprint row when the live session is up.
 	 */
 	blueprintId?: string | null,
+	/**
+	 *  Smol-machine binding for this session. When set, the session's
+	 *  primary PTY (and every subsequent shell pane) runs inside the
+	 *  named VM via `smolvm machine exec`. Empty/missing means the
+	 *  session runs on the host as usual.
+	 */
+	smolMachineName?: string | null,
 } | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, opts })),
 	/**
 	 *  Respawns a plain shell in the session's primary PTY. The frontend
@@ -422,6 +444,13 @@ export type CreateShellOpts = {
 	 *  blueprint row when the live session is up.
 	 */
 	blueprintId?: string | null,
+	/**
+	 *  Smol-machine binding for this session. When set, the session's
+	 *  primary PTY (and every subsequent shell pane) runs inside the
+	 *  named VM via `smolvm machine exec`. Empty/missing means the
+	 *  session runs on the host as usual.
+	 */
+	smolMachineName?: string | null,
 };
 
 export type CreateWatchConfig = {
@@ -1051,6 +1080,13 @@ export type RouxSettings = {
 	 */
 	worktrunkBinaryPath?: string | null,
 	/**
+	 *  Absolute path to the `smolvm` (smol machines) binary. Same motivation
+	 *  as `worktrunk_binary_path` — GUI apps inherit a minimal PATH on macOS.
+	 *  When unset, Roux resolves via PATH and falls back to "smolvm not
+	 *  installed" (the activity rail icon and integration UI hide entirely).
+	 */
+	smolvmBinaryPath?: string | null,
+	/**
 	 *  Absolute path to the shell binary for terminal panes and login-shell
 	 *  PATH discovery. When set and non-empty, overrides automatic resolution
 	 *  from the OS login shell, then $SHELL.
@@ -1254,6 +1290,15 @@ export type Session = {
 	 *  cases where the local branch was renamed after the PR was opened.
 	 */
 	pinnedPrUrl?: string | null,
+	/**
+	 *  When set, every PTY spawned for this session runs via
+	 *  `smolvm machine exec --name <smol_machine_name> ...` inside the
+	 *  named smol VM instead of on the host. Cleared by sending
+	 *  `cmd_set_session_smol_machine(id, None)`. Field outlives a smolvm
+	 *  uninstall — spawn-time defense in `pty.rs` falls back to a clear
+	 *  "smolvm not installed" error rather than silently running on host.
+	 */
+	smolMachineName?: string | null,
 };
 
 /**
@@ -1295,6 +1340,43 @@ export type SetupStatus = {
  *    for that sync run and emits a one-time toast event.
  */
 export type SkillSyncMode = "off" | "copy" | "symlink";
+
+/**
+ *  Wire-shape of one smol machine. Mirrors `roux_smolvm::SmolMachine` but
+ *  derives `specta::Type` so it appears in the generated TS bindings.
+ */
+export type SmolMachine = {
+	name: string,
+	state: string,
+	image: string | null,
+	cpus: number | null,
+	memoryMib: number | null,
+	createdAt: string | null,
+	ephemeral: boolean,
+	network: boolean,
+};
+
+/**
+ *  Wire-shape of a create-machine request. Mirrors `roux_smolvm::CreateOpts`
+ *  but holds owned values so it can travel across the IPC boundary as a
+ *  single specta-typed Tauri argument.
+ */
+export type SmolMachineCreateRequest = {
+	name: string,
+	smolfilePath: string | null,
+	image: string | null,
+	network: boolean,
+};
+
+/**
+ *  Return-shape for the activity-rail detection probe. Mirrors
+ *  `IntegrationDetection` in `commands::setup` but lives here so the
+ *  smol-machines bindings stay self-contained.
+ */
+export type SmolvmDetection = {
+	binaryPath: string | null,
+	version: string | null,
+};
 
 /**
  *  A named recipe for launching something inside a shell pane. Orthogonal to

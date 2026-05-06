@@ -7,12 +7,41 @@ use crate::automation_hooks::{
 };
 use crate::paths::default_notes_vault_root;
 use crate::project_service::ProjectHandle;
-use crate::pty::{NotesEnvInputs, PtyManager};
+use crate::pty::{NotesEnvInputs, PtyManager, SmolvmExec};
 use crate::services::notes::{self as notes_svc, NotesService};
 use crate::session::Session;
 use crate::session_service::SessionHandle;
 use crate::settings::RouxSettings;
 use roux_core::Project;
+
+/// Build a [`SmolvmExec`] for a session that's bound to a smol machine.
+/// Returns `Ok(None)` for unbound sessions — the common case.
+///
+/// When the session field is set but `smolvm` isn't installed (or the
+/// configured override path no longer resolves), this returns an error
+/// instead of silently falling back to a host shell. The session was
+/// explicitly bound; running it outside the VM would surprise the user.
+/// To unbind, call `cmd_set_session_smol_machine(id, None)`.
+fn build_smolvm_exec_for_session(
+    smol_machine_name: Option<&str>,
+) -> anyhow::Result<Option<SmolvmExec>> {
+    let Some(name) = smol_machine_name else {
+        return Ok(None);
+    };
+    let install = crate::services::smolvm::resolve_smolvm_binary().ok_or_else(|| {
+        anyhow!(
+            "session is bound to smol machine '{name}', but smolvm is not installed; \
+             unbind via the panel or install smolvm to continue"
+        )
+    })?;
+    Ok(Some(SmolvmExec {
+        binary: install.path,
+        machine_name: name.to_string(),
+        // v1 hardcodes /bin/sh — POSIX-guaranteed in any reasonable
+        // Linux guest. Stretch tier may add a per-session override.
+        guest_shell: "/bin/sh".to_string(),
+    }))
+}
 
 /// Build the `NotesEnvInputs` for a brand-new session. When `project` is
 /// supplied (the blueprint-spawn path), the project slug + context paths
@@ -170,6 +199,7 @@ pub(crate) async fn create_session_shell(
     initial_size: Option<(u16, u16)>,
     project_id: Option<&str>,
     blueprint_id: Option<&str>,
+    smol_machine_name: Option<&str>,
     hooks: Option<&AutomationHookManager>,
     app: &tauri::AppHandle,
 ) -> anyhow::Result<Session> {
@@ -260,6 +290,12 @@ pub(crate) async fn create_session_shell(
         repo_path,
         project_record.as_ref(),
     ));
+    // When the dialog (or socket bridge) provided a `smol_machine_name`,
+    // build the SmolvmExec up-front so the very first PTY spawn lands
+    // inside the VM. If smolvm got uninstalled between the dialog
+    // populating its picker and now, surface that as a clean error
+    // before we've created any worktree/session state.
+    let smolvm = build_smolvm_exec_for_session(smol_machine_name)?;
     let spawn_result = pty_manager.spawn_shell(
         &session_id,
         &work_dir,
@@ -269,6 +305,7 @@ pub(crate) async fn create_session_shell(
         worktree_env,
         notes_env.as_ref(),
         nono,
+        smolvm.as_ref(),
         initial_size,
         crate::pty::PtyRole::SessionPrimary,
         profile,
@@ -310,6 +347,7 @@ pub(crate) async fn create_session_shell(
         ended_at: None,
         blueprint_id: blueprint_id.map(|s| s.to_string()),
         pinned_pr_url: None,
+        smol_machine_name: smol_machine_name.map(|s| s.to_string()),
     };
 
     if let Err(e) = session_handle.add(session.clone()).await {
@@ -373,6 +411,12 @@ pub(crate) async fn reconnect_session_shell(
         if session.is_worktree { Some(session.worktree_path.as_str()) } else { None };
     let notes_env =
         Some(build_notes_env_for_existing_session(settings, project_handle, &session).await);
+
+    // If this session is bound to a smol machine, build the SmolvmExec
+    // here so the primary respawn lands inside the VM. A bound session
+    // whose smolvm has been uninstalled fails clean rather than silently
+    // running on host — see ground-truth note in `pty.rs`.
+    let smolvm = build_smolvm_exec_for_session(session.smol_machine_name.as_deref())?;
     pty_manager
         .spawn_shell(
             id,
@@ -383,6 +427,7 @@ pub(crate) async fn reconnect_session_shell(
             worktree_env,
             notes_env.as_ref(),
             nono,
+            smolvm.as_ref(),
             initial_size,
             crate::pty::PtyRole::SessionPrimary,
             profile,
