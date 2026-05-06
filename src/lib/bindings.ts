@@ -228,6 +228,9 @@ export const commands = {
 	cmdListBranches: (repoPath: string) => typedError<string[], string>(__TAURI_INVOKE("cmd_list_branches", { repoPath })),
 	checkSetupNeeded: () => __TAURI_INVOKE<boolean>("check_setup_needed"),
 	checkSetupStatus: () => __TAURI_INVOKE<SetupStatus>("check_setup_status"),
+	cmdAgentNotificationSetupStatus: () => __TAURI_INVOKE<AgentNotificationSetupStatus>("cmd_agent_notification_setup_status"),
+	cmdPreviewCodexNotificationConfig: () => typedError<CodexNotificationConfigPreview, string>(__TAURI_INVOKE("cmd_preview_codex_notification_config")),
+	cmdConfigureCodexNotificationConfig: () => typedError<null, string>(__TAURI_INVOKE("cmd_configure_codex_notification_config")),
 	runSetup: () => typedError<null, string>(__TAURI_INVOKE("run_setup")),
 	checkNonoInstalled: () => __TAURI_INVOKE<boolean>("check_nono_installed"),
 	listNonoProfiles: () => __TAURI_INVOKE<string[]>("list_nono_profiles"),
@@ -348,6 +351,19 @@ export const commands = {
 /* Types */
 export type ActionKind = { type: "focusSession"; sessionId: string } | { type: "focusPane"; paneId: string } | { type: "openUrl"; url: string } | { type: "openPath"; path: string } | { type: "runCommand"; commandId: string } | { type: "retryWatch"; watchId: string } | { type: "dismiss" } | { type: "dismissSource" } | { type: "markRead" };
 
+export type AgentNotificationProviderStatus = {
+	provider: string,
+	label: string,
+	status: string,
+	detail: string | null,
+	configPath: string | null,
+	installable: boolean,
+};
+
+export type AgentNotificationSetupStatus = {
+	providers: AgentNotificationProviderStatus[],
+};
+
 export type AttachResult = {
 	replay_bytes: number[],
 };
@@ -361,6 +377,13 @@ export type ClaudeSession = {
 	sessionId: string,
 	summary: string,
 	modifiedAt: number,
+};
+
+export type CodexNotificationConfigPreview = {
+	configPath: string,
+	configured: boolean,
+	currentValue: string | null,
+	nextContent: string,
 };
 
 /**
