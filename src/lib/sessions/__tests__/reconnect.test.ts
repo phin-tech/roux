@@ -154,7 +154,7 @@ describe("reconnectSession — existing behavior preserved", () => {
     await continueSession(session);
 
     expect(writeToSession).toHaveBeenCalledWith(session.id, "claude --continue");
-    expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "\r");
   });
 
   it("continues a Claude primary profile by exact provider session id when available", async () => {
@@ -173,7 +173,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       session.id,
       "claude --resume claude-session-123",
     );
-    expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "\r");
   });
 
   it("falls back to Claude continue when provider session id contains shell metacharacters", async () => {
@@ -230,7 +230,7 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     // Only the original attempt is made. We don't auto-fall-back to
     // `--continue` because runProfileInPane writes the command and the
-    // newline as separate PTY writes — a partial failure could leave a
+    // Enter as separate PTY writes — a partial failure could leave a
     // half-typed line, and a retry would compound the mess.
     expect(vi.mocked(writeToSession).mock.calls.map(([, data]) => data)).toEqual([
       "claude --resume claude-session-123",
@@ -256,7 +256,7 @@ describe("reconnectSession — existing behavior preserved", () => {
     await continueSession(session);
 
     expect(writeToSession).toHaveBeenCalledWith(session.id, "codex resume --last");
-    expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "\r");
   });
 
   it("continues a Codex primary profile by exact provider session id when available", async () => {
@@ -283,7 +283,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       session.id,
       "codex resume codex-session-123",
     );
-    expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "\r");
   });
 
   it("falls back to Codex resume --last when provider session id has spaces", async () => {

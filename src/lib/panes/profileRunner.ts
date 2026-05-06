@@ -10,6 +10,9 @@ import { appendAgentSystemPrompt } from "./agentPrompt";
  * their use is almost always a typo in the profile editor.
  */
 const VALID_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// PTY Enter is carriage return. LF can render a new line without submitting
+// the readline buffer in shells that expect terminal-style input.
+const TERMINAL_ENTER = "\r";
 
 /**
  * Wrap a value in single quotes for safe inclusion in a shell command.
@@ -88,22 +91,23 @@ export async function runProfileInPane(
       `runProfileInPane(${ptyId}): cd to override for profile "${profile.id}"`,
     );
     await writeToSession(ptyId, `cd ${shellSingleQuote(cwdOverride)}`);
-    await writeToSession(ptyId, "\n");
+    await writeToSession(ptyId, TERMINAL_ENTER);
   }
 
   for (const [name, value] of envEntries) {
     await writeToSession(ptyId, `export ${name}=${shellSingleQuote(value)}`);
-    await writeToSession(ptyId, "\n");
+    await writeToSession(ptyId, TERMINAL_ENTER);
   }
 
   if (hasSetup) {
     log(`runProfileInPane(${ptyId}): typing setup command for profile "${profile.id}"`);
     await writeToSession(ptyId, profile.setupCommand!);
-    await writeToSession(ptyId, "\n");
+    await writeToSession(ptyId, TERMINAL_ENTER);
   }
 
   if (hasStartup) {
-    const suffix = (profile.startupBehavior ?? "autoRun") === "typeOnly" ? "" : "\n";
+    const suffix =
+      (profile.startupBehavior ?? "autoRun") === "typeOnly" ? "" : TERMINAL_ENTER;
     log(
       `runProfileInPane(${ptyId}): typing startup command for profile "${profile.id}" (behavior=${profile.startupBehavior ?? "autoRun"})`,
     );

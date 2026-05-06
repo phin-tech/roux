@@ -513,6 +513,7 @@ describe("applyLayoutToSession", () => {
     // Both leaves get profile commands
     expect(runProfileInPane).toHaveBeenCalledTimes(2);
     expect(runProfileInPane).toHaveBeenCalledWith("s9", claude);
+    expect(runProfileInPane).toHaveBeenCalledWith(expect.any(String), shell);
   });
 
   // ── Nono config tests ─────────────────────────────────────────────────────
