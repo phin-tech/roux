@@ -24,10 +24,10 @@ The panel lives in the activity rail (the icon only appears when smolvm is insta
 Each row shows:
 
 - machine name, state (`running` / `stopped` / `starting`), image
-- start / stop / delete buttons
-- "Open shell" — drops you into a pane attached to that machine via `smolvm machine exec`
-- "Assign to active session" — binds the currently active session to this machine
-- agent install dropdown (Claude / Codex)
+- **Assign to active session** — binds the currently active session to this machine
+- **Start** / **Stop** — lifecycle controls (one or the other depending on current state)
+- **Install agent** dropdown — Claude or Codex, in either "Run in VM" (ephemeral) or "Persist via Smolfile" (idempotent boot-time provisioning) mode
+- **Delete** — removes the machine via `smolvm machine delete`
 
 Header controls:
 
@@ -55,12 +55,12 @@ When you submit with only a proxy URL (no Smolfile), Roux generates a managed Sm
 In the panel, click **Assign to active session** on a machine row. From that point on:
 
 - Every shell or Claude Code spawn for that session runs inside the VM via `smolvm machine exec --name <name> -it -- /bin/sh`.
-- A subset of `ROUX_*` env vars (session ID, pane ID, project ID, worktree path, notes paths) is forwarded into the guest as `-e KEY=VAL` flags.
+- A small subset of env vars (`TERM`, `COLORTERM`, `ROUX_SESSION`, `ROUX_SESSION_ID`, `ROUX_PANE_ID`, `ROUX_PROJECT_ID`) is forwarded into the guest as `-e KEY=VAL` flags. Host-only paths (`PATH`, `ROUX_SOCKET`, `ROUX_CLI`, `ROUX_WORKTREE_PATH`, `ROUX_NOTES_*`) are intentionally filtered out — they'd point at non-existent locations inside the guest.
 - If the session has a worktree path, Roux passes `--workdir <worktree_path>` so the shell lands in the project directory — provided the path is mounted in the linked Smolfile.
 
 When you bind to a machine whose linked Smolfile doesn't mount the session's worktree, Roux surfaces a yellow banner offering to append a same-path mount. Smolvm bakes volumes at machine create time, so you'll be told to recreate the machine to apply.
 
-To unbind, run `cmd_set_session_smol_machine(id, null)` from the command palette, or use the session card's bound-machine badge.
+The session card shows an informational badge with the bound machine name when smolvm is installed (or a red variant when smolvm is missing), but in v1 the badge is read-only — there's no one-click unbind in the panel UI yet. Unbind by invoking the `set_session_smol_machine` Tauri command with `machine_name: null`, or rebind to a different machine via **Assign to active session** on another row.
 
 ## Agent install (Claude / Codex)
 
@@ -101,7 +101,7 @@ Once configured, the panel header shows a Shield icon. Click to start the proxy;
 
 - Spawns the command via `sh -lc` so PATH and aliases work.
 - Polls the listen socket up to 5s to verify it bound; bubbles up the proxy's stderr on failure.
-- SIGTERMs (then SIGKILLs after 2s) on stop and on app quit so processes don't leak.
+- On stop, sends SIGTERM and waits up to 2s for graceful exit, then SIGKILLs and reaps if the process is still alive. Same path runs on app quit so processes don't leak.
 
 When the proxy is running, the create form's **Host HTTP proxy URL** field auto-fills with `http://<bind>:<port>`. You can override.
 

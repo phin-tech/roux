@@ -1325,10 +1325,11 @@ export type Session = {
 	/**
 	 *  When set, every PTY spawned for this session runs via
 	 *  `smolvm machine exec --name <smol_machine_name> ...` inside the
-	 *  named smol VM instead of on the host. Cleared by sending
-	 *  `cmd_set_session_smol_machine(id, None)`. Field outlives a smolvm
-	 *  uninstall — spawn-time defense in `pty.rs` falls back to a clear
-	 *  "smolvm not installed" error rather than silently running on host.
+	 *  named smol VM instead of on the host. Cleared by calling
+	 *  `setSessionSmolMachine(id, null)` (Tauri command
+	 *  `set_session_smol_machine`). Field outlives a smolvm uninstall —
+	 *  spawn-time defense in `pty.rs` falls back to a clear "smolvm not
+	 *  installed" error rather than silently running on host.
 	 */
 	smolMachineName?: string | null,
 };

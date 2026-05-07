@@ -172,7 +172,7 @@ pub fn delete_machine(binary: &Path, name: &str) -> Result<(), SmolvmError> {
 
 /// Agents Roux knows how to (a) preflight before profile-replay and
 /// (b) install on demand inside a smol guest. The
-/// [`KnownAgent::from_str`] helper lets callers map a
+/// [`KnownAgent::parse`] helper lets callers map a
 /// `startup_command`'s leading binary token (e.g. "claude", "codex")
 /// to a variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,7 +182,11 @@ pub enum KnownAgent {
 }
 
 impl KnownAgent {
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Case-insensitive name → variant. Returns `None` for unknown
+    /// names (so callers can format their own error). Named `parse`
+    /// rather than `from_str` to avoid clashing with [`std::str::FromStr`]
+    /// (whose return type is `Result`, not `Option`).
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
@@ -383,10 +387,11 @@ impl BootstrapConfig {
     }
 
     /// Render a starter file populated with current built-in defaults
-    /// + comments explaining each section. The Tauri "Edit bootstrap
-    /// config" command writes this when the file doesn't exist yet,
-    /// so users have something concrete to edit instead of a blank
-    /// page.
+    /// + comments explaining each section.
+    ///
+    /// The Tauri "Edit bootstrap config" command writes this when the
+    /// file doesn't exist yet, so users have something concrete to
+    /// edit instead of a blank page.
     pub fn default_file_contents() -> &'static str {
         DEFAULT_BOOTSTRAP_CONFIG_TOML
     }
@@ -877,13 +882,13 @@ mod tests {
     }
 
     #[test]
-    fn known_agent_from_str_is_case_insensitive() {
-        assert_eq!(KnownAgent::from_str("claude"), Some(KnownAgent::Claude));
-        assert_eq!(KnownAgent::from_str("Claude"), Some(KnownAgent::Claude));
-        assert_eq!(KnownAgent::from_str("CLAUDE"), Some(KnownAgent::Claude));
-        assert_eq!(KnownAgent::from_str("codex"), Some(KnownAgent::Codex));
-        assert_eq!(KnownAgent::from_str("aider"), None);
-        assert_eq!(KnownAgent::from_str(""), None);
+    fn known_agent_parse_is_case_insensitive() {
+        assert_eq!(KnownAgent::parse("claude"), Some(KnownAgent::Claude));
+        assert_eq!(KnownAgent::parse("Claude"), Some(KnownAgent::Claude));
+        assert_eq!(KnownAgent::parse("CLAUDE"), Some(KnownAgent::Claude));
+        assert_eq!(KnownAgent::parse("codex"), Some(KnownAgent::Codex));
+        assert_eq!(KnownAgent::parse("aider"), None);
+        assert_eq!(KnownAgent::parse(""), None);
     }
 
     #[test]

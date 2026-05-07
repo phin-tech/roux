@@ -11,15 +11,22 @@ use crate::services::library as library_svc;
 use crate::services::smolvm as svc;
 use crate::state::AppState;
 
-/// Resolve the install script for `(agent, distro)` with the full
-/// Phase 2.7 layered chain: library item → bootstrap config TOML →
-/// hardcoded built-in. The library lookup uses Roux's standard layer
-/// stack (global + sources + active-repo if a session is in scope).
-fn resolve_install_script(
-    state: &AppState,
-    agent: roux_smolvm::KnownAgent,
-    distro: &str,
-) -> String {
+/// Owned snapshot of the inputs `resolve_install_script_with_inputs`
+/// needs from `AppState`. Extracting this on the async runtime thread
+/// (cheap — just a mutex read + clone) lets the actual library lookup
+/// and the bootstrap-config read both run inside `spawn_blocking`,
+/// alongside the smolvm CLI calls. Without this split we'd either
+/// have to lock `AppState` from inside the blocking closure
+/// (impossible — `State` has a non-`Send` lifetime) or do filesystem
+/// I/O on the executor.
+struct InstallScriptInputs {
+    global_root: std::path::PathBuf,
+    library_sources: Vec<roux_core::LibrarySource>,
+    library_sources_dir: std::path::PathBuf,
+}
+
+fn install_script_inputs(state: &AppState) -> InstallScriptInputs {
+    let library_sources_dir = crate::paths::roux_config_dir().join("library-sources");
     if let Ok(settings) = state.settings.lock().map(|guard| guard.clone()) {
         let global_root = settings
             .notes_vault_root
@@ -27,21 +34,42 @@ fn resolve_install_script(
             .filter(|p| !p.is_empty())
             .map(std::path::PathBuf::from)
             .unwrap_or_else(crate::paths::default_notes_vault_root);
-        let layers = library_svc::layers(
+        InstallScriptInputs {
             global_root,
-            &settings.library_sources,
-            &crate::paths::roux_config_dir().join("library-sources"),
-            None, // no active repo — install is panel-driven, not session-driven
-        );
-        if let Some(script) = library_svc::find_smolvm_script_in_layers(
-            &layers,
-            agent.binary_name(),
-            distro,
-        ) {
-            return script;
+            library_sources: settings.library_sources.clone(),
+            library_sources_dir,
+        }
+    } else {
+        InstallScriptInputs {
+            global_root: crate::paths::default_notes_vault_root(),
+            library_sources: Vec::new(),
+            library_sources_dir,
         }
     }
+}
 
+/// Resolve the install script for `(agent, distro)` with the full
+/// Phase 2.7 layered chain: library item → bootstrap config TOML →
+/// hardcoded built-in. Pure given `inputs` — safe to call inside
+/// `spawn_blocking`. The library layer walk and the bootstrap TOML
+/// read are both filesystem I/O, so this should not run on the
+/// async executor.
+fn resolve_install_script_with_inputs(
+    inputs: &InstallScriptInputs,
+    agent: roux_smolvm::KnownAgent,
+    distro: &str,
+) -> String {
+    let layers = library_svc::layers(
+        inputs.global_root.clone(),
+        &inputs.library_sources,
+        &inputs.library_sources_dir,
+        None, // no active repo — install is panel-driven, not session-driven
+    );
+    if let Some(script) =
+        library_svc::find_smolvm_script_in_layers(&layers, agent.binary_name(), distro)
+    {
+        return script;
+    }
     // Fall back to bootstrap config TOML / built-in.
     let config = roux_smolvm::BootstrapConfig::load_or_default(&svc::bootstrap_config_path());
     config.agent_script(agent, distro)
@@ -143,11 +171,10 @@ pub(crate) async fn cmd_create_smol_machine(
             .map(str::trim)
             .filter(|s| !s.is_empty());
 
-        let (final_request, recorded_smolfile) = if user_smolfile.is_some() {
+        let (final_request, recorded_smolfile) = if let Some(path) = user_smolfile {
             // User-provided Smolfile is authoritative. Proxy URL is
             // silently ignored if both are set — the user is expected
             // to wire `[dev].init` themselves.
-            let path = user_smolfile.unwrap();
             (request, Some(path))
         } else if let Some(url) = proxy_url {
             // No user Smolfile + proxy URL → generate a managed one.
@@ -227,20 +254,25 @@ pub(crate) async fn cmd_install_smolvm_agent(
     agent: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let known = roux_smolvm::KnownAgent::from_str(&agent).ok_or_else(|| {
+    let known = roux_smolvm::KnownAgent::parse(&agent).ok_or_else(|| {
         format!("unknown agent '{agent}'; supported: claude, codex")
     })?;
-    // Resolve script on the async-runtime thread (needs AppState
-    // lock) before handing off to the blocking subprocess work.
-    let install = svc::resolve_smolvm_binary()
-        .ok_or_else(|| "smolvm is not installed".to_string())?;
-    let machines =
-        roux_smolvm::list_machines(&install.path).map_err(|e| e.to_string())?;
-    let image = machines.iter().find(|m| m.name == machine_name).and_then(|m| m.image.clone());
-    let distro = roux_smolvm::distro_from_image(image.as_deref());
-    let script = resolve_install_script(&state, known, distro);
+    // Snapshot AppState-derived inputs on the async runtime thread.
+    // Smolvm CLI calls (binary resolve, list, install) all happen
+    // inside the blocking closure below.
+    let inputs = install_script_inputs(&state);
 
     tauri::async_runtime::spawn_blocking(move || {
+        let install = svc::resolve_smolvm_binary()
+            .ok_or_else(|| "smolvm is not installed".to_string())?;
+        let machines =
+            roux_smolvm::list_machines(&install.path).map_err(|e| e.to_string())?;
+        let image = machines
+            .iter()
+            .find(|m| m.name == machine_name)
+            .and_then(|m| m.image.clone());
+        let distro = roux_smolvm::distro_from_image(image.as_deref());
+        let script = resolve_install_script_with_inputs(&inputs, known, distro);
         roux_smolvm::run_install_script(&install.path, &machine_name, known, &script)
             .map_err(|e| e.to_string())
     })
@@ -280,24 +312,27 @@ pub(crate) async fn cmd_install_smolvm_agent_persist(
     agent: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<PersistOutcome, String> {
-    let known = roux_smolvm::KnownAgent::from_str(&agent).ok_or_else(|| {
+    let known = roux_smolvm::KnownAgent::parse(&agent).ok_or_else(|| {
         format!("unknown agent '{agent}'; supported: claude, codex")
     })?;
-    // Resolve script on the async runtime thread (needs AppState
-    // lock for library lookup) before the blocking section.
-    let install = svc::resolve_smolvm_binary()
-        .ok_or_else(|| "smolvm is not installed".to_string())?;
-    let machines =
-        roux_smolvm::list_machines(&install.path).map_err(|e| e.to_string())?;
-    let machine = machines
-        .iter()
-        .find(|m| m.name == machine_name)
-        .cloned()
-        .ok_or_else(|| format!("smol machine '{machine_name}' not found"))?;
-    let distro = roux_smolvm::distro_from_image(machine.image.as_deref());
-    let script = resolve_install_script(&state, known, distro);
+    // Snapshot AppState-derived inputs on the async runtime thread.
+    // Smolvm CLI calls + library/bootstrap script resolution happen
+    // inside the blocking closure below.
+    let inputs = install_script_inputs(&state);
 
     tauri::async_runtime::spawn_blocking(move || -> Result<PersistOutcome, String> {
+        let install = svc::resolve_smolvm_binary()
+            .ok_or_else(|| "smolvm is not installed".to_string())?;
+        let machines =
+            roux_smolvm::list_machines(&install.path).map_err(|e| e.to_string())?;
+        let machine = machines
+            .iter()
+            .find(|m| m.name == machine_name)
+            .cloned()
+            .ok_or_else(|| format!("smol machine '{machine_name}' not found"))?;
+        let distro = roux_smolvm::distro_from_image(machine.image.as_deref());
+        let script = resolve_install_script_with_inputs(&inputs, known, distro);
+
         if let Some(smolfile_path) = svc::smolfile_path_for_machine(&machine_name) {
             // Linked: append in place.
             let outcome = roux_smolvm::smolfile_append_init(&smolfile_path, &script)
@@ -345,31 +380,33 @@ pub(crate) async fn cmd_install_smolvm_agent_recreate(
     agent: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let known = roux_smolvm::KnownAgent::from_str(&agent).ok_or_else(|| {
+    let known = roux_smolvm::KnownAgent::parse(&agent).ok_or_else(|| {
         format!("unknown agent '{agent}'; supported: claude, codex")
     })?;
-    // Resolve script + read machine state on the async thread (needs
-    // AppState) before the blocking destructive section.
-    let install = svc::resolve_smolvm_binary()
-        .ok_or_else(|| "smolvm is not installed".to_string())?;
-    let machines =
-        roux_smolvm::list_machines(&install.path).map_err(|e| e.to_string())?;
-    let machine = machines
-        .iter()
-        .find(|m| m.name == machine_name)
-        .cloned()
-        .ok_or_else(|| format!("smol machine '{machine_name}' not found"))?;
-    let image = machine.image.clone().ok_or_else(|| {
-        format!(
-            "smol machine '{machine_name}' has no image — cannot recreate. Recreate it manually with `smolvm machine create -s <smolfile>`."
-        )
-    })?;
-    let network = machine.network;
-    let ssh_agent = machine.ssh_agent;
-    let distro = roux_smolvm::distro_from_image(Some(&image));
-    let script = resolve_install_script(&state, known, distro);
+    // Snapshot AppState-derived inputs on the async runtime thread.
+    // Smolvm CLI calls + library/bootstrap script resolution happen
+    // inside the blocking closure below.
+    let inputs = install_script_inputs(&state);
 
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let install = svc::resolve_smolvm_binary()
+            .ok_or_else(|| "smolvm is not installed".to_string())?;
+        let machines =
+            roux_smolvm::list_machines(&install.path).map_err(|e| e.to_string())?;
+        let machine = machines
+            .iter()
+            .find(|m| m.name == machine_name)
+            .cloned()
+            .ok_or_else(|| format!("smol machine '{machine_name}' not found"))?;
+        let image = machine.image.clone().ok_or_else(|| {
+            format!(
+                "smol machine '{machine_name}' has no image — cannot recreate. Recreate it manually with `smolvm machine create -s <smolfile>`."
+            )
+        })?;
+        let network = machine.network;
+        let ssh_agent = machine.ssh_agent;
+        let distro = roux_smolvm::distro_from_image(Some(&image));
+        let script = resolve_install_script_with_inputs(&inputs, known, distro);
 
         let smolfile_path = crate::paths::roux_config_dir()
             .join("smolmachines")

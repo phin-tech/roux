@@ -216,16 +216,41 @@ impl ManagedProxyState {
     fn stop_inner(&self) {
         let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(mut child) = guard.child.take() {
-            let _ = child.kill();
-            // Wait briefly so we reap and don't leave a zombie.
-            // 2s is enough for any sane proxy to exit after SIGKILL;
-            // we don't loop further because we already SIGKILLed.
-            let _ = child.wait();
+            terminate_gracefully(&mut child);
         }
         guard.pid = None;
         // Keep `port` / `bind` so the panel can still display them
         // as the "last running" config until next start.
     }
+}
+
+/// Send SIGTERM, poll up to 2 seconds for graceful exit, then fall back
+/// to SIGKILL. Most proxies (tinyproxy, mitmproxy, squid) flush their
+/// listen socket and a small amount of state on SIGTERM; SIGKILL skips
+/// that and can leave torn writes for proxies that persist anything
+/// (e.g. mitmproxy's CA cert + flow log). On Windows, `Child::kill` is
+/// already the only available signal, so the graceful step is a no-op
+/// there.
+fn terminate_gracefully(child: &mut Child) {
+    #[cfg(unix)]
+    unsafe {
+        // SIGTERM — give the proxy a chance to clean up.
+        let pid = child.id() as libc::pid_t;
+        if libc::kill(pid, libc::SIGTERM) == 0 {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline {
+                if let Ok(Some(_status)) = child.try_wait() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+    // Fallback (Unix: didn't exit in 2s, or kill() syscall failed;
+    // Windows: only available signal). SIGKILL on Unix, TerminateProcess
+    // on Windows.
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 impl Drop for ManagedProxyState {

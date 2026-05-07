@@ -1714,12 +1714,13 @@ fn roux_env_pairs(
     worktree_path: Option<&str>,
     notes: Option<&NotesEnvInputs>,
 ) -> Vec<(String, String)> {
-    let mut pairs: Vec<(String, String)> = Vec::new();
-    pairs.push(("PATH".to_string(), build_pty_path(user_path)));
-    pairs.push(("TERM".to_string(), "xterm-256color".to_string()));
-    pairs.push(("COLORTERM".to_string(), "truecolor".to_string()));
-    pairs.push(("ROUX_SESSION".to_string(), "1".to_string()));
-    pairs.push(("ROUX_SOCKET".to_string(), socket_path_str()));
+    let mut pairs: Vec<(String, String)> = vec![
+        ("PATH".to_string(), build_pty_path(user_path)),
+        ("TERM".to_string(), "xterm-256color".to_string()),
+        ("COLORTERM".to_string(), "truecolor".to_string()),
+        ("ROUX_SESSION".to_string(), "1".to_string()),
+        ("ROUX_SOCKET".to_string(), socket_path_str()),
+    ];
     if let Some((_, cli_path)) = roux_cli_shim() {
         pairs.push(("ROUX_CLI".to_string(), cli_path));
     }

@@ -455,6 +455,11 @@
     if (!session) return;
     setBusy(name, true);
     error = null;
+    // Clear any prompt left from a previous bind. A new assign always
+    // owns the prompt slot — either we replace it with a fresh
+    // notMounted result below, or the new machine is fine and the
+    // prompt should disappear.
+    pendingMountPrompt = null;
     try {
       await setSessionSmolMachine(session.id, name);
       // The backend persists the binding but does NOT emit a sessions
@@ -474,7 +479,7 @@
       // worktree, surface the prompt so sessions don't silently land
       // in guest $HOME with --workdir failing. Quiet for machines
       // without a linked Smolfile — Roux can't mutate what it doesn't
-      // own.
+      // own — and quiet for already-mounted worktrees.
       if (session.worktreePath) {
         try {
           const check = await checkWorktreeMount(name, session.worktreePath);
@@ -486,6 +491,9 @@
               proposedSpec: check.proposedSpec,
             };
           }
+          // mounted / noLinkedSmolfile → leave pendingMountPrompt at
+          // null (already cleared above). Explicit no-op for
+          // readability of the surrounding control flow.
         } catch (err) {
           // Non-fatal; bind succeeded. Log the check failure on the
           // panel error banner so the user knows the auto-mount UX

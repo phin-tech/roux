@@ -21,7 +21,8 @@ use roux_core::Project;
 /// configured override path no longer resolves), this returns an error
 /// instead of silently falling back to a host shell. The session was
 /// explicitly bound; running it outside the VM would surprise the user.
-/// To unbind, call `cmd_set_session_smol_machine(id, None)`.
+/// To unbind, invoke the `set_session_smol_machine` Tauri command with
+/// `machine_name: None`.
 fn build_smolvm_exec_for_session(
     smol_machine_name: Option<&str>,
 ) -> anyhow::Result<Option<SmolvmExec>> {
