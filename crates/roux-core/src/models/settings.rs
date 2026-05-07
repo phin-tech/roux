@@ -336,6 +336,11 @@ pub struct RouxSettings {
     /// `tauri-plugin-notification` is never invoked. Defaults to true.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
+    /// Per-pane agent completion notifications. When false, the
+    /// generating→idle transition never produces a notification card or OS
+    /// fan-out. Error notifications are unaffected. Defaults to true.
+    #[serde(default = "default_true")]
+    pub agent_completion_notifications_enabled: bool,
     /// When a background agent leaves the "attention" (waiting-for-answer)
     /// state, also clear the pane's `permissionInfo` so the Claude
     /// Allow/Deny affordance disappears alongside the notification.
@@ -494,6 +499,7 @@ impl Default for RouxSettings {
             group_by: GroupBy::Repo,
             confirm_on_quit: true,
             notifications_enabled: true,
+            agent_completion_notifications_enabled: true,
             auto_clear_attention_state: true,
             update_check_on_launch: true,
             notes_include_web_anchors: true,
@@ -804,6 +810,32 @@ mod tests {
 
         let normalized = settings.normalized();
         assert_eq!(normalized.repo_roots, vec!["/tmp/src", "/tmp/other"]);
+    }
+
+    #[test]
+    fn settings_without_agent_completion_field_defaults_to_true() {
+        let legacy = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.5,
+            "taskPanelCollapsed": true
+        }"#;
+        let parsed: RouxSettings = serde_json::from_str(legacy).unwrap();
+        assert!(parsed.agent_completion_notifications_enabled);
     }
 
     #[test]

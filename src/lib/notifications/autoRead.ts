@@ -1,10 +1,11 @@
 import { get } from "svelte/store";
 import { activeSessionId } from "$lib/stores/sessions";
 import { focusedPaneId } from "$lib/panes/focus";
-import { collectLeafIds, sessionLayouts } from "$lib/panes/layout";
+import { findSessionForPane, sessionLayouts } from "$lib/panes/layout";
 import {
   markNotificationRead,
   notifications,
+  removeNotification,
 } from "$lib/stores/notifications";
 import type { Notification } from "$lib/types";
 import { logError } from "$lib/logging";
@@ -16,6 +17,10 @@ let unsubscribeLayouts: (() => void) | null = null;
 const pendingReadIds = new Set<string>();
 const MAX_AUTO_READ_CONCURRENCY = 8;
 let inFlightAutoReads = 0;
+const pendingRemoveIds = new Set<string>();
+const MAX_AUTO_REMOVE_CONCURRENCY = 8;
+let inFlightAutoRemoves = 0;
+const COMPLETION_SESSION_DEDUP_PREFIX = "completion:session:";
 
 export function initNotificationAutoRead(): void {
   if (unsubscribeActiveSession) return;
@@ -41,6 +46,8 @@ export function stopNotificationAutoRead(): void {
   unsubscribeLayouts = null;
   pendingReadIds.clear();
   inFlightAutoReads = 0;
+  pendingRemoveIds.clear();
+  inFlightAutoRemoves = 0;
 }
 
 function markRelevantNotificationsRead(): void {
@@ -49,15 +56,44 @@ function markRelevantNotificationsRead(): void {
   const focusedPaneSession = focusedPane ? findSessionForPane(focusedPane) : null;
   const snapshot = get(notifications);
   const unreadIds = new Set(snapshot.filter((n) => !n.read).map((n) => n.id));
+  const liveIds = new Set(snapshot.map((n) => n.id));
   for (const id of pendingReadIds) {
     if (!unreadIds.has(id)) pendingReadIds.delete(id);
   }
+  for (const id of pendingRemoveIds) {
+    if (!liveIds.has(id)) pendingRemoveIds.delete(id);
+  }
 
   for (const notification of snapshot) {
-    if (notification.read || pendingReadIds.has(notification.id)) continue;
+    if (pendingRemoveIds.has(notification.id)) continue;
     if (!matchesNavigationTarget(notification, activeSession, focusedPaneSession, focusedPane)) {
       continue;
     }
+
+    // Completion-session notifications get auto-*removed* on session visit
+    // rather than just marked read — they exist to alert the user that an
+    // off-screen agent finished, so once the user returns the card is noise.
+    if (notification.dedupKey?.startsWith(COMPLETION_SESSION_DEDUP_PREFIX)) {
+      if (inFlightAutoRemoves >= MAX_AUTO_REMOVE_CONCURRENCY) break;
+      pendingRemoveIds.add(notification.id);
+      inFlightAutoRemoves += 1;
+      let failed = false;
+      void removeNotification(notification.id)
+        .catch((e) => {
+          failed = true;
+          pendingRemoveIds.delete(notification.id);
+          logError("notification auto-remove failed", e);
+        })
+        .finally(() => {
+          inFlightAutoRemoves = Math.max(0, inFlightAutoRemoves - 1);
+          if (!failed && unsubscribeActiveSession) {
+            queueMicrotask(markRelevantNotificationsRead);
+          }
+        });
+      continue;
+    }
+
+    if (notification.read || pendingReadIds.has(notification.id)) continue;
     if (inFlightAutoReads >= MAX_AUTO_READ_CONCURRENCY) break;
     pendingReadIds.add(notification.id);
     inFlightAutoReads += 1;
@@ -102,9 +138,3 @@ function matchesNavigationTarget(
   });
 }
 
-function findSessionForPane(paneId: string): string | null {
-  for (const [sessionId, layout] of get(sessionLayouts)) {
-    if (collectLeafIds(layout).includes(paneId)) return sessionId;
-  }
-  return null;
-}

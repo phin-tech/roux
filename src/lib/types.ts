@@ -124,6 +124,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   groupBy: "repo",
   confirmOnQuit: true,
   notificationsEnabled: true,
+  agentCompletionNotificationsEnabled: true,
   updateCheckOnLaunch: true,
   spawnProfiles: [],
   trustedWorkspaces: [],

@@ -1137,6 +1137,12 @@ export type RouxSettings = {
 	 */
 	notificationsEnabled?: boolean,
 	/**
+	 *  Per-pane agent completion notifications. When false, the
+	 *  generating→idle transition never produces a notification card or OS
+	 *  fan-out. Error notifications are unaffected. Defaults to true.
+	 */
+	agentCompletionNotificationsEnabled?: boolean,
+	/**
 	 *  When a background agent leaves the "attention" (waiting-for-answer)
 	 *  state, also clear the pane's `permissionInfo` so the Claude
 	 *  Allow/Deny affordance disappears alongside the notification.
