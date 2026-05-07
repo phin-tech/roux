@@ -12,7 +12,7 @@ on:
       - .github/workflows/docs.yml
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -29,54 +29,44 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: docs/requirements.txt
+          enable-cache: true
+          cache-dependency-glob: docs/uv.lock
 
-      - name: Install dependencies
-        run: pip install -r docs/requirements.txt
-
-      - name: Configure Git author
+      - name: Install docs dependencies
         run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+          uv sync --project docs --frozen
+          echo "$GITHUB_WORKSPACE/docs/.venv/bin" >> $GITHUB_PATH
 
-      - name: Fetch existing versioned docs
-        run: |
-          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
-            git fetch origin gh-pages --depth=1
-          fi
+      - name: Build docs
+        run: mkdocs build --site-dir site/docs --strict
 
-      - name: Publish dev docs
-        if: github.ref_type != 'tag'
+      - name: Overlay landing site
         run: |
-          mike deploy dev
-          if mike list latest >/dev/null 2>&1; then
-            echo "latest alias already exists; keeping it as the default."
+          # Place the retro landing page at the gh-pages root. Docs are
+          # already built into site/docs/ by the previous step.
+          cp -R docs/landing/. site/
+
+          # Stamp the latest release version into the masthead (as the "issue
+          # number") and the download link. On a tag push, use that tag;
+          # otherwise fall back to the most recent reachable tag.
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION_TAG="${GITHUB_REF_NAME}"
           else
-            mike set-default dev
+            VERSION_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
           fi
-
-      - name: Publish release docs
-        if: github.ref_type == 'tag'
-        env:
-          VERSION: ${{ github.ref_name }}
-        run: |
-          VERSION="${VERSION#v}"
-          mike deploy --update-aliases "$VERSION" latest
-          mike set-default latest
-
-      - name: Archive versioned site
-        run: |
-          rm -rf site
-          mkdir -p site
-          git archive gh-pages | tar -x -C site
-
-      - name: Push gh-pages history
-        run: git push origin gh-pages
+          if [[ -n "$VERSION_TAG" ]]; then
+            VERSION="${VERSION_TAG#v}"
+            sed -i \
+              -e "s|<span data-version-issue>LATEST</span>|<span data-version-issue>${VERSION}</span>|g" \
+              -e "s|<span data-version-tag>v0.LATEST</span>|<span data-version-tag>${VERSION_TAG}</span>|g" \
+              site/index.html
+            echo "Stamped landing with version: ${VERSION_TAG}"
+          else
+            echo "No tags found; landing keeps fallback 'LATEST' placeholders."
+          fi
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
