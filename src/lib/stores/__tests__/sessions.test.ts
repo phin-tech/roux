@@ -58,6 +58,37 @@ describe("sessions store", () => {
     expect(get(sessionState).activeSessionId).toBe(s2.id);
   });
 
+  it("updates an existing session instead of adding a duplicate id", () => {
+    const original = makeSession({ id: "s1", name: "original", status: "idle" });
+    const updated = makeSession({ id: "s1", name: "updated", status: "disconnected" });
+    addSession(original);
+    addSession(updated);
+
+    const state = get(sessionState);
+    expect(state.sessions).toHaveLength(1);
+    expect(state.sessions[0]).toMatchObject({
+      id: "s1",
+      name: "updated",
+      status: "disconnected",
+    });
+    expect(state.activeSessionId).toBe("s1");
+  });
+
+  it("preserves the active session when replacing an existing inactive session", () => {
+    const s1 = makeSession({ id: "s1", name: "original", status: "idle" });
+    const s2 = makeSession({ id: "s2", name: "active", status: "idle" });
+    const s1Updated = makeSession({ id: "s1", name: "updated", status: "disconnected" });
+    addSession(s1);
+    addSession(s2);
+
+    addSession(s1Updated);
+
+    const state = get(sessionState);
+    expect(state.sessions).toHaveLength(2);
+    expect(state.sessions.find((s) => s.id === "s1")?.name).toBe("updated");
+    expect(state.activeSessionId).toBe("s2");
+  });
+
   it("removes a session", () => {
     const s1 = makeSession();
     const s2 = makeSession();

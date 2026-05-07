@@ -30,11 +30,16 @@ export const activeSession = selectSessionState(
 );
 
 export function addSession(session: Session) {
-  sessionState.update((state) => ({
-    ...state,
-    sessions: [...state.sessions, session],
-    activeSessionId: session.id,
-  }));
+  sessionState.update((state) => {
+    const exists = state.sessions.some((s) => s.id === session.id);
+    return {
+      ...state,
+      sessions: exists
+        ? state.sessions.map((s) => (s.id === session.id ? session : s))
+        : [...state.sessions, session],
+      activeSessionId: exists ? state.activeSessionId : session.id,
+    };
+  });
 }
 
 export function removeSession(id: string) {
