@@ -30,15 +30,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: docs/requirements.txt
+          enable-cache: true
+          cache-dependency-glob: docs/uv.lock
 
-      - name: Install dependencies
-        run: pip install -r docs/requirements.txt
+      - name: Install docs dependencies
+        run: |
+          uv sync --project docs --frozen
+          echo "$GITHUB_WORKSPACE/docs/.venv/bin" >> $GITHUB_PATH
 
       - name: Configure Git author
         run: |
