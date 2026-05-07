@@ -16,6 +16,8 @@ import type {
   SmolMachine,
   SmolMachineCreateRequest,
   ManagedProxyStatus,
+  WorktreeMountCheck,
+  MountAppendOutcome,
 } from "./types";
 import { ptyOutputPayloadToBytes, type PtyOutputPayload } from "./ptyOutput";
 export type { PtyOutputPayload } from "./ptyOutput";
@@ -408,6 +410,36 @@ export async function stopManagedProxy(): Promise<ManagedProxyStatus> {
 
 export async function managedProxyStatus(): Promise<ManagedProxyStatus> {
   return invoke("cmd_managed_proxy_status");
+}
+
+/**
+ * Check whether `worktreePath` is reachable inside `machineName`'s
+ * guest. Returns `mounted` when an existing `[dev].volumes` entry
+ * covers the path (host-side path prefix), `notMounted` when the
+ * Smolfile exists but no spec covers it (with a proposed same-path
+ * mount), or `noLinkedSmolfile` when Roux can't auto-mount because
+ * it has no Smolfile to edit.
+ */
+export async function checkWorktreeMount(
+  machineName: string,
+  worktreePath: string,
+): Promise<WorktreeMountCheck> {
+  return invoke("cmd_check_worktree_mount", { machineName, worktreePath });
+}
+
+/**
+ * Append `spec` to the linked Smolfile's `[dev].volumes`. Idempotent.
+ * Errors when the machine has no linked Smolfile.
+ *
+ * The mount only takes effect on the next `smolvm machine create` for
+ * the machine — the caller should inform the user that a recreate is
+ * needed (or trigger one via the existing recreate flow).
+ */
+export async function appendWorktreeMount(
+  machineName: string,
+  spec: string,
+): Promise<MountAppendOutcome> {
+  return invoke("cmd_append_worktree_mount", { machineName, spec });
 }
 
 export type LibraryItemType = "prompt" | "skill";

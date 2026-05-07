@@ -3,6 +3,8 @@
   import PinButton from "./PinButton.svelte";
   import SmolMachineRow from "./SmolMachineRow.svelte";
   import {
+    appendWorktreeMount,
+    checkWorktreeMount,
     createSmolMachine,
     deleteSmolMachine,
     installSmolvmAgent,
@@ -67,6 +69,21 @@
     | null
   >(null);
 
+  // Phase 2.9: post-bind banner state. When the assigned machine's
+  // linked Smolfile doesn't mount the session's worktree, surface a
+  // one-click "Add same-path mount" affordance. Cleared once the user
+  // dismisses or appends.
+  let pendingMountPrompt = $state<
+    | {
+        machineName: string;
+        worktreePath: string;
+        smolfilePath: string;
+        proposedSpec: string;
+      }
+    | null
+  >(null);
+  let mountAppendBusy = $state(false);
+
   // --- Create-machine inline form state -------------------------------
   let createOpen = $state(false);
   let newName = $state("");
@@ -75,9 +92,48 @@
   let newNetwork = $state(false);
   let newSshAgent = $state(false);
   let newProxyUrl = $state("");
+  // Phase 2.9: each row is one host:guest[:ro] mount the user wants
+  // baked into `smolvm machine create -v ...`. Empty rows are dropped
+  // at submit time. Same-path mounting is the common case so we
+  // pre-fill `guest` from `host` when only host is set.
+  let newVolumes = $state<{ host: string; guest: string; ro: boolean }[]>(
+    [],
+  );
   let creating = $state(false);
   let createError = $state<string | null>(null);
   let nameInput = $state<HTMLInputElement | null>(null);
+
+  function addVolumeRow(): void {
+    newVolumes = [...newVolumes, { host: "", guest: "", ro: false }];
+  }
+
+  function removeVolumeRow(index: number): void {
+    newVolumes = newVolumes.filter((_, i) => i !== index);
+  }
+
+  // Compose the host:guest[:ro] specs that ship to the backend.
+  // - Drops rows where `host` is blank.
+  // - Defaults `guest` to `host` (same-path) when blank — this is the
+  //   case that makes `--workdir <host_worktree>` "just work" inside
+  //   the guest.
+  function composeVolumeSpecs(): string[] {
+    return newVolumes
+      .map((row) => {
+        const host = row.host.trim();
+        if (!host) return null;
+        const guest = row.guest.trim() || host;
+        return `${host}:${guest}${row.ro ? ":ro" : ""}`;
+      })
+      .filter((v): v is string => v !== null);
+  }
+
+  async function browseVolumeHostPath(index: number): Promise<void> {
+    const picked = await open({ directory: true, multiple: false });
+    if (typeof picked !== "string") return;
+    newVolumes = newVolumes.map((row, i) =>
+      i === index ? { ...row, host: picked } : row,
+    );
+  }
 
   // --- Managed proxy state --------------------------------------------
   // Reflects the live state of the user-configured host proxy. Polled
@@ -154,6 +210,7 @@
     newNetwork = false;
     newSshAgent = false;
     newProxyUrl = "";
+    newVolumes = [];
     createError = null;
   }
 
@@ -208,6 +265,9 @@
         hostProxyUrl: smolfile
           ? null
           : newProxyUrl.trim() || null,
+        // Mount specs only applied when there's no Smolfile (same
+        // reasoning — Smolfile [dev].volumes is authoritative there).
+        volumes: smolfile ? undefined : composeVolumeSpecs(),
       });
       closeCreateForm();
       await loadMachines();
@@ -408,10 +468,68 @@
           s.id === session.id ? { ...s, smolMachineName: name } : s,
         ),
       }));
+
+      // Phase 2.9 auto-mount detection. When the machine has a linked
+      // Smolfile but no [dev].volumes entry covers the session's
+      // worktree, surface the prompt so sessions don't silently land
+      // in guest $HOME with --workdir failing. Quiet for machines
+      // without a linked Smolfile — Roux can't mutate what it doesn't
+      // own.
+      if (session.worktreePath) {
+        try {
+          const check = await checkWorktreeMount(name, session.worktreePath);
+          if (check.kind === "notMounted") {
+            pendingMountPrompt = {
+              machineName: name,
+              worktreePath: session.worktreePath,
+              smolfilePath: check.smolfilePath,
+              proposedSpec: check.proposedSpec,
+            };
+          }
+        } catch (err) {
+          // Non-fatal; bind succeeded. Log the check failure on the
+          // panel error banner so the user knows the auto-mount UX
+          // didn't run, but don't undo the bind.
+          error = `bound, but mount check failed: ${typeof err === "string" ? err : String(err)}`;
+        }
+      }
     } catch (err) {
       error = typeof err === "string" ? err : String(err);
     } finally {
       setBusy(name, false);
+    }
+  }
+
+  async function handleAppendMount(): Promise<void> {
+    const p = pendingMountPrompt;
+    if (!p) return;
+    mountAppendBusy = true;
+    try {
+      const outcome = await appendWorktreeMount(
+        p.machineName,
+        p.proposedSpec,
+      );
+      pendingMountPrompt = null;
+      if (outcome.kind === "appended") {
+        window.alert(
+          `Added \`${p.proposedSpec}\` to ${outcome.smolfilePath}.\n\n` +
+            `Smolvm bakes volumes at machine create time, so recreate ` +
+            `the machine (Smol Machines panel → Install Claude → ` +
+            `Persist via Smolfile flow, or run ` +
+            `\`smolvm machine delete ${p.machineName} && smolvm machine create ${p.machineName} -s ${outcome.smolfilePath}\`) ` +
+            `to apply.`,
+        );
+      } else {
+        window.alert(
+          `\`${p.proposedSpec}\` was already in ${outcome.smolfilePath}. ` +
+            `If sessions still land in guest $HOME, recreate the machine ` +
+            `to pick up the existing entry.`,
+        );
+      }
+    } catch (err) {
+      error = `Could not append mount: ${typeof err === "string" ? err : String(err)}`;
+    } finally {
+      mountAppendBusy = false;
     }
   }
 </script>
@@ -632,6 +750,81 @@
                 Click the field to use the running managed proxy URL.
               {/if}
             </p>
+
+            <div class="mb-1 flex items-center justify-between">
+              <span
+                class="block text-[10px] font-semibold uppercase tracking-wider text-text-muted"
+              >
+                Mount paths (optional)
+              </span>
+              <button
+                type="button"
+                class="rounded px-1.5 py-0.5 text-[10px] text-text-muted hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
+                disabled={creating}
+                onclick={addVolumeRow}
+              >
+                + Add mount
+              </button>
+            </div>
+            {#each newVolumes as row, i (i)}
+              <div class="mb-1 flex items-center gap-1">
+                <input
+                  bind:value={row.host}
+                  placeholder="host path (e.g. /Users/me/code/foo)"
+                  class="flex-1 rounded border border-border bg-bg-deep px-2 py-1 font-mono text-[10px] text-text-primary outline-none focus:border-accent-dim"
+                  disabled={creating}
+                />
+                <button
+                  type="button"
+                  class="rounded px-1.5 py-1 text-[10px] text-text-muted hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
+                  title="Browse for host directory"
+                  disabled={creating}
+                  onclick={() => void browseVolumeHostPath(i)}
+                >
+                  …
+                </button>
+                <input
+                  bind:value={row.guest}
+                  placeholder="guest path (defaults to host)"
+                  class="flex-1 rounded border border-border bg-bg-deep px-2 py-1 font-mono text-[10px] text-text-primary outline-none focus:border-accent-dim"
+                  disabled={creating}
+                />
+                <label
+                  class="flex items-center gap-1 text-[10px] text-text-secondary"
+                  title="Mount read-only"
+                >
+                  <input
+                    type="checkbox"
+                    bind:checked={row.ro}
+                    class="h-3 w-3"
+                    disabled={creating}
+                  />
+                  ro
+                </label>
+                <button
+                  type="button"
+                  class="rounded px-1 py-1 text-[10px] text-text-muted hover:bg-bg-hover hover:text-red disabled:opacity-40"
+                  title="Remove mount"
+                  disabled={creating}
+                  onclick={() => removeVolumeRow(i)}
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            {/each}
+            {#if newVolumes.length > 0}
+              <p class="mb-2 text-[10px] text-text-muted">
+                Same-path mounts (host == guest) let
+                <code class="rounded bg-bg-surface px-1">--workdir</code>
+                resolve to your worktree inside the VM. Leave guest blank
+                to default to host.
+              </p>
+            {:else}
+              <p class="mb-2 text-[10px] text-text-muted">
+                Add a mount to expose host paths inside the VM (e.g. your
+                worktree, so sessions land there instead of guest $HOME).
+              </p>
+            {/if}
           {:else}
             <p class="mb-2 text-[10px] text-text-muted">
               Image, network, SSH agent, and proxy env are read from the
@@ -671,6 +864,52 @@
               disabled={creating || !newName.trim()}
               >{creating ? "Creating…" : "Create"}</button
             >
+          </div>
+        </div>
+      {/if}
+
+      {#if pendingMountPrompt}
+        <div
+          class="mx-2 mb-2 rounded border border-yellow/30 bg-yellow/10 px-2 py-2 text-[11px] text-text-primary"
+        >
+          <p class="mb-1 font-semibold text-yellow">
+            Worktree not mounted in {pendingMountPrompt.machineName}
+          </p>
+          <p class="mb-2 text-text-secondary">
+            Sessions bound to this machine will land in guest <code
+              class="rounded bg-bg-surface px-1">$HOME</code
+            >
+            because <code class="rounded bg-bg-surface px-1 font-mono"
+              >{pendingMountPrompt.worktreePath}</code
+            > isn't covered by any
+            <code class="rounded bg-bg-surface px-1">[dev].volumes</code> entry.
+          </p>
+          <p class="mb-2 text-text-muted">
+            Roux can append a same-path mount
+            (<code class="rounded bg-bg-surface px-1 font-mono"
+              >{pendingMountPrompt.proposedSpec}</code
+            >) to <code class="rounded bg-bg-surface px-1 font-mono"
+              >{pendingMountPrompt.smolfilePath}</code
+            >. Smolvm bakes volumes at create time, so you'll need to
+            recreate the machine to apply.
+          </p>
+          <div class="flex justify-end gap-2">
+            <button
+              type="button"
+              class="rounded border border-border-subtle bg-transparent px-2 py-1 text-text-muted hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
+              disabled={mountAppendBusy}
+              onclick={() => (pendingMountPrompt = null)}
+            >
+              Skip
+            </button>
+            <button
+              type="button"
+              class="rounded bg-yellow/20 px-2 py-1 font-semibold text-yellow hover:bg-yellow/30 disabled:opacity-40"
+              disabled={mountAppendBusy}
+              onclick={() => void handleAppendMount()}
+            >
+              Add mount
+            </button>
           </div>
         </div>
       {/if}

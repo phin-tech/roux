@@ -592,6 +592,14 @@ pub struct CreateOpts<'a> {
     /// injection (guest exits via its own NAT, which fails for
     /// IP-allowlisted registries).
     pub host_proxy_url: Option<&'a str>,
+    /// Volume specs forwarded to `smolvm machine create -v <spec>`.
+    /// Each entry is a `host:guest[:ro]` string the upstream CLI
+    /// accepts verbatim. Roux does not parse the spec — that's the
+    /// caller's problem. Used by Phase 2.9 to mount session worktrees
+    /// into the guest (typically same-path: `/Users/me/code/foo:
+    /// /Users/me/code/foo`) so `--workdir <host_worktree>` resolves
+    /// inside the VM.
+    pub volumes: &'a [String],
 }
 
 pub fn create_machine(binary: &Path, opts: &CreateOpts) -> Result<(), SmolvmError> {
@@ -630,7 +638,100 @@ fn build_create_args(opts: &CreateOpts) -> Vec<std::ffi::OsString> {
     if opts.ssh_agent {
         args.push("--ssh-agent".into());
     }
+    for volume in opts.volumes {
+        args.push("-v".into());
+        args.push(volume.into());
+    }
     args
+}
+
+/// Parse the host side of a volume spec (`host:guest[:ro]`). Returns
+/// `None` if the spec is malformed (no `:` separator). Used to detect
+/// whether a Smolfile already mounts a given host path.
+///
+/// The host side is everything before the first `:`. macOS-absolute
+/// paths never contain `:` so this is unambiguous; if Roux ever needs
+/// to support guest-side `:` in paths we'd need a smarter parser.
+pub fn volume_spec_host(spec: &str) -> Option<&str> {
+    spec.split_once(':').map(|(host, _)| host)
+}
+
+/// Read a Smolfile's `[dev].volumes` array and return the raw spec
+/// strings. Returns `Ok(vec![])` when the file has no `[dev]` table or
+/// no `volumes` array. Errors on read or TOML-parse failure.
+pub fn smolfile_get_volumes(path: &Path) -> Result<Vec<String>, SmolvmError> {
+    use toml_edit::DocumentMut;
+
+    let body = std::fs::read_to_string(path).map_err(|e| SmolvmError::ParseFailed {
+        message: format!("could not read Smolfile {path:?}: {e}"),
+    })?;
+    let doc = body
+        .parse::<DocumentMut>()
+        .map_err(|e| SmolvmError::ParseFailed {
+            message: format!("could not parse Smolfile {path:?}: {e}"),
+        })?;
+    let Some(dev) = doc.get("dev").and_then(|v| v.as_table()) else {
+        return Ok(Vec::new());
+    };
+    let Some(arr) = dev.get("volumes").and_then(|v| v.as_array()) else {
+        return Ok(Vec::new());
+    };
+    Ok(arr
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect())
+}
+
+/// Append `spec` to a Smolfile's `[dev].volumes` array, creating the
+/// table and array if absent. Idempotent — returns `AlreadyPresent`
+/// when an exact duplicate is already there. Round-trips comments and
+/// formatting via `toml_edit` (same approach as `smolfile_append_init`).
+pub fn smolfile_append_volume(
+    path: &Path,
+    spec: &str,
+) -> Result<AppendOutcome, SmolvmError> {
+    use toml_edit::{value, Array, DocumentMut, Item, Table};
+
+    let body = std::fs::read_to_string(path).map_err(|e| SmolvmError::ParseFailed {
+        message: format!("could not read Smolfile {path:?}: {e}"),
+    })?;
+    let mut doc = body
+        .parse::<DocumentMut>()
+        .map_err(|e| SmolvmError::ParseFailed {
+            message: format!("could not parse Smolfile {path:?}: {e}"),
+        })?;
+
+    if !doc.contains_key("dev") {
+        doc["dev"] = Item::Table(Table::new());
+    }
+    let dev = doc["dev"].as_table_mut().ok_or_else(|| SmolvmError::ParseFailed {
+        message: format!("Smolfile {path:?}: `dev` is not a table"),
+    })?;
+
+    if !dev.contains_key("volumes") {
+        dev["volumes"] = value(Array::new());
+    }
+    let arr = dev["volumes"]
+        .as_array_mut()
+        .ok_or_else(|| SmolvmError::ParseFailed {
+            message: format!("Smolfile {path:?}: `[dev].volumes` is not an array"),
+        })?;
+
+    let trimmed_target = spec.trim();
+    for existing in arr.iter() {
+        if let Some(s) = existing.as_str() {
+            if s.trim() == trimmed_target {
+                return Ok(AppendOutcome::AlreadyPresent);
+            }
+        }
+    }
+
+    arr.push(spec);
+
+    std::fs::write(path, doc.to_string()).map_err(|e| SmolvmError::ParseFailed {
+        message: format!("could not write Smolfile {path:?}: {e}"),
+    })?;
+    Ok(AppendOutcome::Appended)
 }
 
 fn run_simple(binary: &Path, args: &[&str], label: &str) -> Result<(), SmolvmError> {
@@ -735,6 +836,7 @@ mod tests {
             network: false,
             ssh_agent: false,
             host_proxy_url: None,
+            volumes: &[],
         });
         assert_eq!(args_to_strings(&args), vec!["machine", "create", "my-vm"]);
     }
@@ -749,6 +851,7 @@ mod tests {
             network: false,
             ssh_agent: false,
             host_proxy_url: None,
+            volumes: &[],
         });
         assert_eq!(
             args_to_strings(&args),
@@ -765,6 +868,7 @@ mod tests {
             network: true,
             ssh_agent: false,
             host_proxy_url: None,
+            volumes: &[],
         });
         assert_eq!(
             args_to_strings(&args),
@@ -993,6 +1097,7 @@ init = ["echo hi"]
             network: true,
             ssh_agent: true,
             host_proxy_url: None,
+            volumes: &[],
         });
         // Flag order is stable (name, --smolfile, --image, --net,
         // --ssh-agent) so the test asserts the full vector.
@@ -1011,6 +1116,7 @@ init = ["echo hi"]
             network: false,
             ssh_agent: false,
             host_proxy_url: None,
+            volumes: &[],
         });
         assert!(!args_to_strings(&args).contains(&"--ssh-agent".to_string()));
     }
@@ -1029,6 +1135,7 @@ init = ["echo hi"]
             network: true,
             ssh_agent: false,
             host_proxy_url: None,
+            volumes: &[],
         });
         assert_eq!(
             args_to_strings(&args),
@@ -1043,5 +1150,147 @@ init = ["echo hi"]
                 "--net"
             ]
         );
+    }
+
+    #[test]
+    fn build_create_args_volumes_emit_dash_v_per_entry() {
+        let vols = vec![
+            "/Users/me/code/foo:/Users/me/code/foo".to_string(),
+            "/Users/me/code/bar:/Users/me/code/bar:ro".to_string(),
+        ];
+        let args = build_create_args(&CreateOpts {
+            name: "vm",
+            smolfile_path: None,
+            image: Some("alpine"),
+            network: false,
+            ssh_agent: false,
+            host_proxy_url: None,
+            volumes: &vols,
+        });
+        assert_eq!(
+            args_to_strings(&args),
+            vec![
+                "machine",
+                "create",
+                "vm",
+                "--image",
+                "alpine",
+                "-v",
+                "/Users/me/code/foo:/Users/me/code/foo",
+                "-v",
+                "/Users/me/code/bar:/Users/me/code/bar:ro",
+            ],
+        );
+    }
+
+    #[test]
+    fn build_create_args_empty_volumes_omits_dash_v() {
+        let args = build_create_args(&CreateOpts {
+            name: "vm",
+            smolfile_path: None,
+            image: None,
+            network: false,
+            ssh_agent: false,
+            host_proxy_url: None,
+            volumes: &[],
+        });
+        assert!(!args_to_strings(&args).iter().any(|s| s == "-v"));
+    }
+
+    #[test]
+    fn volume_spec_host_extracts_host_side() {
+        assert_eq!(volume_spec_host("/host:/guest"), Some("/host"));
+        assert_eq!(volume_spec_host("/host:/guest:ro"), Some("/host"));
+        assert_eq!(
+            volume_spec_host("/Users/me/code:/Users/me/code"),
+            Some("/Users/me/code"),
+        );
+        assert_eq!(volume_spec_host("nopath"), None);
+    }
+
+    #[test]
+    fn smolfile_get_volumes_returns_empty_when_dev_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Smolfile");
+        std::fs::write(&path, "image = \"alpine\"\n").unwrap();
+        let vols = smolfile_get_volumes(&path).unwrap();
+        assert!(vols.is_empty());
+    }
+
+    #[test]
+    fn smolfile_get_volumes_returns_empty_when_volumes_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Smolfile");
+        std::fs::write(
+            &path,
+            "image = \"alpine\"\n\n[dev]\ninit = [\"echo hi\"]\n",
+        )
+        .unwrap();
+        let vols = smolfile_get_volumes(&path).unwrap();
+        assert!(vols.is_empty());
+    }
+
+    #[test]
+    fn smolfile_get_volumes_reads_existing_array() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Smolfile");
+        std::fs::write(
+            &path,
+            "image = \"alpine\"\n\n[dev]\nvolumes = [\"/a:/a\", \"/b:/b:ro\"]\n",
+        )
+        .unwrap();
+        let vols = smolfile_get_volumes(&path).unwrap();
+        assert_eq!(vols, vec!["/a:/a".to_string(), "/b:/b:ro".to_string()]);
+    }
+
+    #[test]
+    fn smolfile_append_volume_creates_dev_and_array_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Smolfile");
+        std::fs::write(&path, "image = \"alpine\"\n").unwrap();
+        let outcome = smolfile_append_volume(&path, "/a:/a").unwrap();
+        assert_eq!(outcome, AppendOutcome::Appended);
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("[dev]"), "missing [dev] table:\n{body}");
+        assert!(body.contains("\"/a:/a\""), "missing volume:\n{body}");
+    }
+
+    #[test]
+    fn smolfile_append_volume_idempotent_when_exact_duplicate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Smolfile");
+        std::fs::write(
+            &path,
+            "image = \"alpine\"\n\n[dev]\nvolumes = [\"/a:/a\"]\n",
+        )
+        .unwrap();
+        let outcome = smolfile_append_volume(&path, "/a:/a").unwrap();
+        assert_eq!(outcome, AppendOutcome::AlreadyPresent);
+    }
+
+    #[test]
+    fn smolfile_append_volume_preserves_existing_init_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Smolfile");
+        let original = "\
+image = \"alpine\"
+
+[dev]
+# Bootstrap script
+init = [
+  \"apk add curl\",
+]
+volumes = [
+  # the project mount
+  \"/Users/me/code/foo:/Users/me/code/foo\",
+]
+";
+        std::fs::write(&path, original).unwrap();
+        let outcome = smolfile_append_volume(&path, "/Users/me/code/bar:/Users/me/code/bar:ro").unwrap();
+        assert_eq!(outcome, AppendOutcome::Appended);
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("# Bootstrap script"), "init comment lost:\n{body}");
+        assert!(body.contains("# the project mount"), "volume comment lost:\n{body}");
+        assert!(body.contains("/Users/me/code/bar"), "new volume missing:\n{body}");
     }
 }

@@ -972,6 +972,18 @@ impl PtyManager {
             c.arg(&smol.machine_name);
             c.arg("-i");
             c.arg("-t");
+            // Phase 2.9: when the session has a worktree path, ask
+            // smolvm to start the guest shell there. The path must be
+            // covered by a [dev].volumes mount in the Smolfile;
+            // otherwise smolvm exits with "workdir not found". The
+            // panel's auto-mount UX (bind-time prompt) prevents that
+            // case for new bindings; pre-existing bindings on
+            // un-mounted machines will surface the smolvm error in the
+            // dead-pane view.
+            if let Some(wt) = worktree_path.filter(|p| !p.is_empty()) {
+                c.arg("--workdir");
+                c.arg(wt);
+            }
             // Forward the subset of ROUX_* env that's meaningful in the
             // guest. Host paths (PATH, ROUX_SOCKET, ROUX_CLI, notes paths)
             // are filtered out — see `is_guest_safe_env_key`.

@@ -84,6 +84,8 @@ export const commands = {
 	cmdStartManagedProxy: () => typedError<ManagedProxyStatus, string>(__TAURI_INVOKE("cmd_start_managed_proxy")),
 	cmdStopManagedProxy: () => typedError<ManagedProxyStatus, string>(__TAURI_INVOKE("cmd_stop_managed_proxy")),
 	cmdManagedProxyStatus: () => __TAURI_INVOKE<ManagedProxyStatus>("cmd_managed_proxy_status"),
+	cmdCheckWorktreeMount: (machineName: string, worktreePath: string) => typedError<WorktreeMountCheck, string>(__TAURI_INVOKE("cmd_check_worktree_mount", { machineName, worktreePath })),
+	cmdAppendWorktreeMount: (machineName: string, spec: string) => typedError<MountAppendOutcome, string>(__TAURI_INVOKE("cmd_append_worktree_mount", { machineName, spec })),
 	cmdListAutomationHooks: (repoPath: string | null) => typedError<HookListItem[], string>(__TAURI_INVOKE("cmd_list_automation_hooks", { repoPath })),
 	cmdPreviewAutomationHooks: (request: HookRunRequest) => typedError<HookPreviewItem[], string>(__TAURI_INVOKE("cmd_preview_automation_hooks", { request })),
 	cmdRunAutomationHook: (request: HookRunRequest) => typedError<HookRunSummary, string>(__TAURI_INVOKE("cmd_run_automation_hook", { request })),
@@ -1393,6 +1395,7 @@ export type SmolMachineCreateRequest = {
 	network: boolean,
 	sshAgent: boolean,
 	hostProxyUrl?: string | null,
+	volumes?: string[],
 };
 
 /**
@@ -1413,6 +1416,21 @@ export type ManagedProxyStatus = {
 	bind?: string | null,
 	pid?: number | null,
 	lastError?: string | null,
+};
+
+/**
+ * Result of `cmdCheckWorktreeMount`. The frontend renders an
+ * auto-mount banner only on the `notMounted` variant.
+ */
+export type WorktreeMountCheck =
+	| { kind: "mounted", host: string }
+	| { kind: "notMounted", smolfilePath: string, proposedSpec: string }
+	| { kind: "noLinkedSmolfile" };
+
+/** Result of `cmdAppendWorktreeMount`. */
+export type MountAppendOutcome = {
+	kind: "appended" | "alreadyPresent",
+	smolfilePath: string,
 };
 
 /**

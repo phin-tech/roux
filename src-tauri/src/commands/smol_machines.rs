@@ -406,8 +406,8 @@ pub(crate) async fn cmd_install_smolvm_agent_recreate(
         })?;
 
         // Step 4: recreate. The Smolfile is the source of truth for
-        // image/net/ssh_agent here; the CLI flags echo what we wrote
-        // to it so smolvm can't reject for inconsistency.
+        // image/net/ssh_agent/volumes here; the CLI flags echo what we
+        // wrote to it so smolvm can't reject for inconsistency.
         // Proxy URL preservation across recreate is deferred — the
         // current Smolfile may have a proxy line in [dev].init from
         // a previous create, but we don't parse it back out yet.
@@ -418,6 +418,7 @@ pub(crate) async fn cmd_install_smolvm_agent_recreate(
             network: false,
             ssh_agent,
             host_proxy_url: None,
+            volumes: &[],
         };
         roux_smolvm::create_machine(&install.path, &create_opts).map_err(|e| {
             format!(
@@ -503,6 +504,131 @@ pub(crate) fn cmd_managed_proxy_status(
     state: tauri::State<'_, AppState>,
 ) -> crate::services::managed_proxy::ManagedProxyStatus {
     state.managed_proxy.status()
+}
+
+/// Result of [`cmd_check_worktree_mount`]. Tells the panel whether
+/// the session's worktree is reachable from inside the VM via an
+/// existing `[dev].volumes` mount in the linked Smolfile.
+///
+/// `Mounted` and `NoLinkedSmolfile` mean "no action surfaced" — the
+/// frontend won't show a banner. `NotMounted` is the only case that
+/// triggers the auto-mount UX.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub(crate) enum WorktreeMountCheck {
+    /// Worktree path is covered by an existing volume spec. The
+    /// matching host side is returned for diagnostic display.
+    Mounted { host: String },
+    /// The Smolfile exists, but no volume spec covers the worktree.
+    /// `proposedSpec` is the same-path mount Roux would append if the
+    /// user accepts the auto-mount.
+    NotMounted {
+        smolfile_path: String,
+        proposed_spec: String,
+    },
+    /// The machine has no linked Smolfile — Roux can't auto-mount
+    /// without one. The frontend should keep quiet in this case;
+    /// users with a manually-managed machine know what they're doing.
+    NoLinkedSmolfile,
+}
+
+/// Check whether `worktree_path` is reachable inside `machine_name`'s
+/// guest. "Reachable" means: the linked Smolfile contains a
+/// `[dev].volumes` entry whose host side is a path-prefix of
+/// `worktree_path`. Same-path mapping (host == guest) is the common
+/// case, which makes `--workdir <host_path>` resolve identically
+/// inside the guest.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_check_worktree_mount(
+    machine_name: String,
+    worktree_path: String,
+) -> Result<WorktreeMountCheck, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
+        let Some(smolfile_path) = svc::smolfile_path_for_machine(&machine_name) else {
+            return Ok(WorktreeMountCheck::NoLinkedSmolfile);
+        };
+        if !smolfile_path.exists() {
+            return Ok(WorktreeMountCheck::NoLinkedSmolfile);
+        }
+        let volumes = roux_smolvm::smolfile_get_volumes(&smolfile_path)
+            .map_err(|e| format!("could not read Smolfile: {e}"))?;
+
+        // A worktree is "covered" when an existing host-side path is
+        // either equal to or a parent of it. Strict path-component
+        // match — string-prefix would falsely accept `/Users/me/code`
+        // as covering `/Users/me/code-other`.
+        let wt = std::path::Path::new(&worktree_path);
+        let covered_by = volumes.iter().find_map(|spec| {
+            let host = roux_smolvm::volume_spec_host(spec)?;
+            let host_path = std::path::Path::new(host);
+            if wt == host_path || wt.starts_with(host_path) {
+                Some(host.to_string())
+            } else {
+                None
+            }
+        });
+
+        if let Some(host) = covered_by {
+            return Ok(WorktreeMountCheck::Mounted { host });
+        }
+
+        // Same-path mount: makes `--workdir <wt>` work directly.
+        let proposed_spec = format!("{worktree_path}:{worktree_path}");
+        Ok(WorktreeMountCheck::NotMounted {
+            smolfile_path: smolfile_path.to_string_lossy().into_owned(),
+            proposed_spec,
+        })
+    })
+    .await
+    .map_err(|e| format!("check_worktree_mount task panicked: {e}"))?
+}
+
+/// Append a `host:guest[:ro]` spec to the linked Smolfile's
+/// `[dev].volumes`. Idempotent — `AlreadyPresent` when the exact spec
+/// is already there. Errors when the machine has no linked Smolfile
+/// (frontend should skip the mount UX in that case).
+///
+/// The spec takes effect on the next `smolvm machine create` for the
+/// machine — smolvm volumes are baked at create time. The caller is
+/// expected to inform the user that a recreate (or the existing
+/// recreate flow) is required to apply it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_append_worktree_mount(
+    machine_name: String,
+    spec: String,
+) -> Result<MountAppendOutcome, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
+        let Some(smolfile_path) = svc::smolfile_path_for_machine(&machine_name) else {
+            return Err(format!(
+                "machine '{machine_name}' has no linked Smolfile; \
+                 cannot append a volume spec"
+            ));
+        };
+        let outcome = roux_smolvm::smolfile_append_volume(&smolfile_path, &spec)
+            .map_err(|e| format!("smolfile append: {e}"))?;
+        Ok(MountAppendOutcome {
+            kind: match outcome {
+                roux_smolvm::AppendOutcome::Appended => "appended",
+                roux_smolvm::AppendOutcome::AlreadyPresent => "alreadyPresent",
+            }
+            .to_string(),
+            smolfile_path: smolfile_path.to_string_lossy().into_owned(),
+        })
+    })
+    .await
+    .map_err(|e| format!("append_worktree_mount task panicked: {e}"))?
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MountAppendOutcome {
+    /// `"appended"` when a new line was added; `"alreadyPresent"` when
+    /// the exact spec was already in `[dev].volumes`.
+    pub kind: String,
+    /// Absolute path to the Smolfile that was (or wasn't) modified.
+    pub smolfile_path: String,
 }
 
 /// Open the smolvm bootstrap config file in the user's default

@@ -32,6 +32,8 @@ export type {
   SmolMachineCreateRequest,
   ManagedProxyConfig,
   ManagedProxyStatus,
+  WorktreeMountCheck,
+  MountAppendOutcome,
   SmolvmDetection,
   ClaudeSession,
   Watch,

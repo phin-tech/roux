@@ -106,6 +106,14 @@ pub struct SmolMachineCreateRequest {
     /// and they're expected to wire the proxy env themselves.
     #[serde(default)]
     pub host_proxy_url: Option<String>,
+    /// Host paths to mount into the guest as `host:guest[:ro]` specs.
+    /// Each entry is forwarded verbatim to `smolvm machine create -v`.
+    /// Defaults to empty. The panel UI uses this for Phase 2.9
+    /// worktree mounts; same-path mounting (`/Users/me/code/foo:
+    /// /Users/me/code/foo`) lets `--workdir <host_worktree>` resolve
+    /// inside the VM.
+    #[serde(default)]
+    pub volumes: Vec<String>,
 }
 
 pub fn create_machine(
@@ -128,6 +136,7 @@ pub fn create_machine(
         network: req.network,
         ssh_agent: req.ssh_agent,
         host_proxy_url,
+        volumes: &req.volumes,
     };
     roux_smolvm::create_machine(binary, &opts)
 }
