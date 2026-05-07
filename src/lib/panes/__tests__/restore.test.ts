@@ -1,11 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
 
+const spawnShellMock = vi.fn().mockResolvedValue(undefined);
+
 vi.mock("$lib/tauri", () => ({
   upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
   removePaneRecord: vi.fn().mockResolvedValue(undefined),
   killPty: vi.fn().mockResolvedValue(undefined),
   detachPty: vi.fn().mockResolvedValue(undefined),
+  spawnShell: (...args: unknown[]) => spawnShellMock(...args),
+}));
+
+const runProfileInPaneMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("$lib/panes/profileRunner", () => ({
+  runProfileInPane: (...args: unknown[]) => runProfileInPaneMock(...args),
+}));
+
+const resolveProfileRefMock = vi.fn();
+vi.mock("$lib/panes/profiles", async () => {
+  const actual = await vi.importActual<typeof import("$lib/panes/profiles")>("$lib/panes/profiles");
+  return {
+    ...actual,
+    resolveProfileRef: (...args: unknown[]) => resolveProfileRefMock(...args),
+  };
+});
+
+vi.mock("$lib/stores/projects", () => ({
+  getProjectPrompt: vi.fn().mockReturnValue(""),
 }));
 
 vi.mock("$lib/logging", () => ({
@@ -54,6 +75,9 @@ describe("restoreSessionPanes", () => {
     initTerminal.mockClear();
     attachPtyListeners.mockClear();
     attachLivePtyToPane.mockClear();
+    spawnShellMock.mockReset().mockResolvedValue(undefined);
+    runProfileInPaneMock.mockReset().mockResolvedValue(undefined);
+    resolveProfileRefMock.mockReset().mockReturnValue(null);
   });
 
   it("falls back to a primary Claude pane when no persisted state exists", async () => {
@@ -145,7 +169,65 @@ describe("restoreSessionPanes", () => {
     expect(attachPtyListeners).not.toHaveBeenCalled();
   });
 
-  it("restores stale persisted shell panes as retryable instead of attaching dead PTYs", async () => {
+  it("auto-respawns a fresh PTY for non-primary shell panes whose persisted PTY is gone", async () => {
+    const payload: PaneStatePayload = {
+      schemaVersion: 4,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "s1-main" },
+          { kind: "leaf", paneId: "shell-pane" },
+        ],
+      },
+      descriptors: [
+        {
+          id: "s1-main",
+          type: "shell",
+          ptyId: "s1",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+        },
+        {
+          id: "shell-pane",
+          type: "shell",
+          ptyId: "stale-pty",
+          workingDir: "/repo/sub",
+          spawnProfileRef: { kind: "registered", id: "plain-shell" },
+        },
+      ],
+    };
+
+    await restoreSessionPanes(session(), payload, {
+      initTerminal,
+      attachPtyListeners,
+      attachLivePtyToPane,
+      livePtyIds: new Set(["s1"]),
+    });
+
+    expect(spawnShellMock).toHaveBeenCalledTimes(1);
+    const [freshPtyId, workingDir, sessionId, paneId] =
+      spawnShellMock.mock.calls[0];
+    expect(typeof freshPtyId).toBe("string");
+    expect(freshPtyId).not.toBe("stale-pty");
+    expect(workingDir).toBe("/repo/sub");
+    expect(sessionId).toBe("s1");
+    expect(paneId).toBe("shell-pane");
+
+    const respawned = get(paneInstances).get("shell-pane");
+    expect(respawned?.ptyId).toBe(freshPtyId);
+    expect(respawned?.restoreError).toBeUndefined();
+    expect(initTerminal).toHaveBeenCalledWith("shell-pane");
+    expect(attachPtyListeners).toHaveBeenCalledWith("shell-pane");
+  });
+
+  it("replays the spawn profile after auto-respawn so agents come back live", async () => {
+    const profile = {
+      id: "claude",
+      name: "Claude",
+      startupCommand: "claude",
+    };
+    resolveProfileRefMock.mockReturnValue(profile);
+
     const payload: PaneStatePayload = {
       schemaVersion: 4,
       layout: {
@@ -168,23 +250,105 @@ describe("restoreSessionPanes", () => {
           type: "shell",
           ptyId: "stale-pty",
           workingDir: "/repo",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+        },
+      ],
+    };
+
+    await restoreSessionPanes(session(), payload, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: new Set(["s1"]),
+    });
+
+    expect(runProfileInPaneMock).toHaveBeenCalledTimes(1);
+    const [ptyIdArg, profileArg] = runProfileInPaneMock.mock.calls[0];
+    const respawned = get(paneInstances).get("shell-pane");
+    expect(ptyIdArg).toBe(respawned?.ptyId);
+    expect(profileArg).toBe(profile);
+  });
+
+  it("marks the pane retryable when auto-respawn fails", async () => {
+    spawnShellMock.mockRejectedValueOnce(new Error("No such file or directory"));
+
+    const payload: PaneStatePayload = {
+      schemaVersion: 4,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "s1-main" },
+          { kind: "leaf", paneId: "shell-pane" },
+        ],
+      },
+      descriptors: [
+        {
+          id: "s1-main",
+          type: "shell",
+          ptyId: "s1",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+        },
+        {
+          id: "shell-pane",
+          type: "shell",
+          ptyId: "stale-pty",
+          workingDir: "/missing",
           spawnProfileRef: { kind: "registered", id: "plain-shell" },
         },
       ],
     };
 
-    await restoreSessionPanes(session({ status: "disconnected" }), payload, {
+    await restoreSessionPanes(session(), payload, {
       initTerminal,
       attachPtyListeners,
-      livePtyIds: new Set(),
+      livePtyIds: new Set(["s1"]),
     });
 
-    expect(get(sessionLayouts).get("s1")).toEqual(payload.layout);
-    expect(get(paneInstances).get("s1-main")?.restoreError).toBeUndefined();
-    expect(get(paneInstances).get("shell-pane")?.restoreError).toContain("PTY is no longer running");
-    expect(get(focusedPaneId)).toBe("s1-main");
-    expect(initTerminal).not.toHaveBeenCalled();
-    expect(attachPtyListeners).not.toHaveBeenCalled();
+    const dead = get(paneInstances).get("shell-pane");
+    expect(dead?.ptyId).toBe("");
+    expect(dead?.restoreError).toContain("No such file or directory");
+    expect(initTerminal).not.toHaveBeenCalledWith("shell-pane");
+    expect(attachPtyListeners).not.toHaveBeenCalledWith("shell-pane");
+    expect(runProfileInPaneMock).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-respawn when live PTY inventory is unknown", async () => {
+    const payload: PaneStatePayload = {
+      schemaVersion: 4,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: "s1-main" },
+          { kind: "leaf", paneId: "shell-pane" },
+        ],
+      },
+      descriptors: [
+        {
+          id: "s1-main",
+          type: "shell",
+          ptyId: "s1",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+        },
+        {
+          id: "shell-pane",
+          type: "shell",
+          ptyId: "maybe-live",
+          workingDir: "/repo",
+          spawnProfileRef: { kind: "registered", id: "plain-shell" },
+        },
+      ],
+    };
+
+    await restoreSessionPanes(session(), payload, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: null,
+    });
+
+    expect(spawnShellMock).not.toHaveBeenCalled();
+    expect(runProfileInPaneMock).not.toHaveBeenCalled();
+    expect(get(paneInstances).get("shell-pane")?.ptyId).toBe("maybe-live");
   });
 
   it("restores panes but does not attach PTYs when live inventory is unknown", async () => {
