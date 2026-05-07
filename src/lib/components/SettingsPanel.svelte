@@ -1,6 +1,6 @@
 <script lang="ts">
   import { settings, updateSetting } from "$lib/stores/settings";
-  import { smolvmDetection } from "$lib/stores/smolvmDetection";
+  import { refreshSmolvmDetection, smolvmDetection } from "$lib/stores/smolvmDetection";
   import {
     sidebarLayout,
     setRailSide,
@@ -147,6 +147,14 @@
     if (selected) updateSetting("worktrunkBinaryPath", selected as string);
   }
 
+  async function browseSmolvmBinary() {
+    const selected = await open({
+      directory: false,
+      title: "Select smolvm Binary",
+    });
+    if (selected) updateSetting("smolvmBinaryPath", selected as string);
+  }
+
   async function browseShellBinary() {
     const selected = await open({
       directory: false,
@@ -178,6 +186,7 @@
   let ghDetectionRun = 0;
   let gitDetectionRun = 0;
   let worktrunkDetectionRun = 0;
+  let smolvmDetectionRun = 0;
   let mcpStatusRun = 0;
   let agentNotificationStatusRun = 0;
 
@@ -267,6 +276,23 @@
     }
     const run = ++worktrunkDetectionRun;
     const timer = setTimeout(() => void refreshWorktrunkDetection(run), 250);
+    return () => clearTimeout(timer);
+  });
+
+  $effect(() => {
+    // Mirror the gh / git / worktrunk pattern. The smolvm detection
+    // is a global store (so the activity rail also reads it), not a
+    // local state — `refreshSmolvmDetection` doesn't take a run id,
+    // so the local counter just gates whether we *should* refresh
+    // (debounce + visibility check), not which result to commit.
+    const path = $settings.smolvmBinaryPath;
+    void path;
+    if (!visible || selected !== "integrations") {
+      smolvmDetectionRun += 1;
+      return;
+    }
+    smolvmDetectionRun += 1;
+    const timer = setTimeout(() => void refreshSmolvmDetection(), 250);
     return () => clearTimeout(timer);
   });
 
@@ -1366,6 +1392,11 @@
                       updateSetting("smolvmBinaryPath", e.currentTarget.value || null)}
                     placeholder="/opt/homebrew/bin/smolvm"
                   />
+                  <button
+                    class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                    onclick={browseSmolvmBinary}
+                    aria-label="Browse for smolvm binary"
+                  >...</button>
                 </div>
               </div>
 
@@ -1426,11 +1457,21 @@
                       max="65535"
                       class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-24 text-right focus:border-accent-dim"
                       value={$settings.managedProxy.port}
-                      oninput={(e) =>
+                      oninput={(e) => {
+                        // Coerce to integer, clamp to valid TCP range,
+                        // fall back to 8888 for empty / non-numeric input
+                        // (the Rust backend rejects 0 and >65535 anyway,
+                        // but clamping here means the saved settings stay
+                        // valid and the spinner displays a sensible value).
+                        const raw = Number(e.currentTarget.value);
+                        const port = Number.isInteger(raw)
+                          ? Math.min(65535, Math.max(1, raw))
+                          : 8888;
                         updateSetting("managedProxy", {
                           ...$settings.managedProxy!,
-                          port: Number(e.currentTarget.value) || 8888,
-                        })}
+                          port,
+                        });
+                      }}
                     />
                   </div>
                   <div class="mt-2 flex items-center justify-between gap-2">

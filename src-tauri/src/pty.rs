@@ -1163,11 +1163,28 @@ impl PtyManager {
         project_id: Option<&str>,
         worktree_path: Option<&str>,
         notes: Option<&NotesEnvInputs>,
+        smolvm: Option<&SmolvmExec>,
         initial_size: Option<(u16, u16)>,
         role: PtyRole,
         profile: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
+        // Same readiness gate as `spawn_shell`: when the session is
+        // bound to a smol machine, ensure it's running before opening
+        // the PTY so a stopped VM surfaces as a clean error rather
+        // than a blank pane.
+        if let Some(smol) = smolvm {
+            ensure_machine_running(&smol.binary, &smol.machine_name).map_err(|err| {
+                PtyError::SpawnTask {
+                    source: anyhow::anyhow!(
+                        "smol machine '{}' could not be made ready: {}",
+                        smol.machine_name,
+                        err
+                    ),
+                }
+            })?;
+        }
+
         let pty_system = native_pty_system();
 
         let pair = pty_system
@@ -1177,8 +1194,47 @@ impl PtyManager {
         let shell = resolve_default_shell();
         let user_path = get_user_path();
 
-        let mut cmd = CommandBuilder::new(&shell);
-        apply_task_command_args(&mut cmd, &shell, command);
+        // When the session is bound to a smol machine, run the command
+        // inside the guest via `smolvm machine exec --name <m> -- /bin/sh
+        // -c <cmd>`. Mirrors the spawn_shell smolvm wrap (env subset
+        // forwarded via `-e KEY=VAL`, optional `--workdir` from the
+        // session's worktree) so `roux run` behaves identically to a
+        // shell pane on a bound session.
+        let mut cmd = if let Some(smol) = smolvm {
+            let mut c = CommandBuilder::new(smol.binary.as_os_str());
+            c.arg("machine");
+            c.arg("exec");
+            c.arg("--name");
+            c.arg(&smol.machine_name);
+            c.arg("-i");
+            c.arg("-t");
+            if let Some(wt) = worktree_path.filter(|p| !p.is_empty()) {
+                c.arg("--workdir");
+                c.arg(wt);
+            }
+            for (k, v) in roux_env_pairs(
+                &user_path,
+                session_id,
+                pane_id,
+                project_id,
+                worktree_path,
+                notes,
+            ) {
+                if is_guest_safe_env_key(&k) {
+                    c.arg("-e");
+                    c.arg(format!("{}={}", k, v));
+                }
+            }
+            c.arg("--");
+            c.arg(&smol.guest_shell);
+            c.arg("-c");
+            c.arg(command);
+            c
+        } else {
+            let mut c = CommandBuilder::new(&shell);
+            apply_task_command_args(&mut c, &shell, command);
+            c
+        };
         apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path, notes);
         cmd.cwd(working_dir);
 

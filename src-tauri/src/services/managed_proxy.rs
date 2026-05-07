@@ -112,8 +112,12 @@ impl ManagedProxyState {
         // mitmproxy don't need shell features and `sh` is universally
         // available.
         let mut cmd = Command::new("sh");
+        // stdout is dropped — we don't drain it, and a piped stdout
+        // with no consumer can block the child once the OS buffer fills
+        // (especially for chatty proxies in debug mode). stderr stays
+        // piped because the start-failure path reads its tail.
         cmd.args(["-lc", command])
-            .stdout(Stdio::piped())
+            .stdout(Stdio::null())
             .stderr(Stdio::piped());
 
         let mut child =

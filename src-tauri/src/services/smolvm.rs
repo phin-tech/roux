@@ -6,6 +6,19 @@ use std::path::PathBuf;
 
 use roux_smolvm::SmolvmBinary;
 
+/// POSIX-shell single-quote-escape `value` for embedding inside a
+/// `'…'` argument. Each embedded `'` is rewritten as `'\''`, which
+/// closes the open single-quoted string, inserts a literal quote with
+/// a backslash escape, and reopens single-quoting for the rest. Any
+/// other character (including spaces, `$`, `\`, `"`) is left alone —
+/// inside `'…'` the shell does no expansion.
+///
+/// The caller is expected to wrap the result in `'…'` themselves;
+/// this function returns just the body content.
+fn shell_single_quote_escape(value: &str) -> String {
+    value.replace('\'', "'\\''")
+}
+
 /// Path to the user-editable bootstrap config:
 /// `~/.config/roux/smolvm-bootstraps.toml`. The file is optional —
 /// `roux_smolvm::BootstrapConfig::load_or_default` falls back to
@@ -56,10 +69,19 @@ pub(crate) fn generate_managed_smolfile(
 
     // Proxy export first so subsequent init steps (e.g. apt-get update)
     // already see HTTP_PROXY / HTTPS_PROXY.
+    //
+    // Two-stage escape: the URL is embedded inside a single-quoted
+    // shell argument, which itself lives inside a double-quoted TOML
+    // string. A URL containing `'` (rare but legal in basic-auth form)
+    // would otherwise close the shell quote and inject tokens; a `\`
+    // or `"` would break the TOML wrapper. We single-quote-escape for
+    // the shell first, then TOML-escape the result for the [dev].init
+    // entry.
     if let Some(url) = host_proxy_url {
-        let escaped = url.replace('\\', "\\\\").replace('"', "\\\"");
+        let shell_escaped = shell_single_quote_escape(url);
+        let toml_escaped = shell_escaped.replace('\\', "\\\\").replace('"', "\\\"");
         body.push_str(&format!(
-            "  \"printf 'export HTTP_PROXY=%s\\\\nexport HTTPS_PROXY=%s\\\\nexport NO_PROXY=localhost,127.0.0.1\\\\n' '{escaped}' '{escaped}' > /etc/profile.d/roux-proxy.sh\",\n",
+            "  \"printf 'export HTTP_PROXY=%s\\\\nexport HTTPS_PROXY=%s\\\\nexport NO_PROXY=localhost,127.0.0.1\\\\n' '{toml_escaped}' '{toml_escaped}' > /etc/profile.d/roux-proxy.sh\",\n",
         ));
     }
     if let Some(line) = install_line {

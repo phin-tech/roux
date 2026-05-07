@@ -273,7 +273,7 @@
           {#if loading && items.length === 0}
             <p class="py-4 text-center text-xs text-text-muted">Loading...</p>
           {:else if filteredItems.length === 0}
-            <p class="py-4 text-center text-xs text-text-muted">No prompts or skills found</p>
+            <p class="py-4 text-center text-xs text-text-muted">No matching library items found</p>
           {:else}
             {#each filteredItems as item (item.id)}
               <button
@@ -332,7 +332,7 @@
               ondirtychange={(dirty) => (editDirty = dirty)}
             />
           {:else if $libraryWindow.mode === "browse"}
-            <div class="flex h-full min-h-[360px] items-center justify-center text-sm text-text-muted">Select a prompt or skill, or create a new one.</div>
+            <div class="flex h-full min-h-[360px] items-center justify-center text-sm text-text-muted">Select a library item, or create a new one.</div>
           {:else}
             <div class="flex h-full min-h-[360px] items-center justify-center text-sm text-text-muted">Loading editor...</div>
           {/if}

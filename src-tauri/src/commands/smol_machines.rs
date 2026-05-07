@@ -465,7 +465,7 @@ pub(crate) async fn cmd_install_smolvm_agent_recreate(
             name: &machine_name,
             smolfile_path: Some(&smolfile_path),
             image: None,
-            network: false,
+            network,
             ssh_agent,
             host_proxy_url: None,
             volumes: &[],
