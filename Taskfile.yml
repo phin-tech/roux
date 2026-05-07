@@ -544,3 +544,19 @@ tasks:
         fi
         echo "Watching run ${RUN_ID}..."
         gh run watch "${RUN_ID}" --exit-status
+
+  docs:serve:
+    desc: "Serve the MkDocs site locally with hot reload at http://127.0.0.1:8000/"
+    cmds:
+      - uv run --project docs mkdocs serve
+
+  docs:build:
+    desc: "Build the MkDocs site to ./site (strict mode — fails on warnings)"
+    cmds:
+      - uv run --project docs mkdocs build --strict
+
+  docs:landing:
+    desc: "Serve the retro landing page locally at http://127.0.0.1:8765/"
+    dir: docs/landing
+    cmds:
+      - python3 -m http.server 8765

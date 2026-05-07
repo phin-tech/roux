@@ -1,0 +1,11 @@
+[project]
+name = "roux-docs"
+version = "0"
+description = "Build environment for the Roux documentation site (mkdocs-material + mike)."
+requires-python = ">=3.12"
+dependencies = [
+    "mkdocs-material==9.5.39",
+]
+
+[tool.uv]
+package = false
