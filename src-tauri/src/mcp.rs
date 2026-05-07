@@ -1,11 +1,12 @@
 use rmcp::{
-    handler::server::wrapper::{Json, Parameters},
+    handler::server::wrapper::Parameters,
+    model::CallToolResult,
     schemars::JsonSchema,
     tool, tool_router,
     transport::stdio,
     ErrorData, ServiceExt,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 #[cfg(test)]
@@ -23,12 +24,6 @@ const MCP_TOOL_NAMES: &[&str] = &[
     "roux_append_notes",
     "roux_notes_vault_root",
 ];
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SocketToolOutput {
-    pub data: Value,
-}
 
 #[derive(Debug)]
 enum McpToolError {
@@ -153,7 +148,7 @@ pub struct RouxMcpServer;
 #[tool_router(server_handler)]
 impl RouxMcpServer {
     #[tool(description = "List active Roux sessions.")]
-    async fn roux_list_sessions(&self) -> Result<Json<SocketToolOutput>, ErrorData> {
+    async fn roux_list_sessions(&self) -> Result<CallToolResult, ErrorData> {
         call_socket(json!({ "command": "session-list" })).await
     }
 
@@ -161,7 +156,7 @@ impl RouxMcpServer {
     async fn roux_get_session(
         &self,
         Parameters(params): Parameters<SessionIdParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         call_socket(json!({
             "command": "session-poll",
             "session_id": params.session_id,
@@ -173,7 +168,7 @@ impl RouxMcpServer {
     async fn roux_list_panes(
         &self,
         Parameters(params): Parameters<SessionIdParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         call_socket(json!({
             "command": "session-panes-list",
             "session_id": params.session_id,
@@ -187,7 +182,7 @@ impl RouxMcpServer {
     async fn roux_create_session(
         &self,
         Parameters(params): Parameters<CreateSessionParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         call_socket(build_create_session_request(params)).await
     }
 
@@ -195,7 +190,7 @@ impl RouxMcpServer {
     async fn roux_create_pane(
         &self,
         Parameters(params): Parameters<CreatePaneParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         call_socket(build_create_pane_request(params)).await
     }
 
@@ -203,7 +198,7 @@ impl RouxMcpServer {
     async fn roux_send_text(
         &self,
         Parameters(params): Parameters<SendTextParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         call_socket(build_send_text_request(params)).await
     }
 
@@ -213,7 +208,7 @@ impl RouxMcpServer {
     async fn roux_get_latest_output(
         &self,
         Parameters(params): Parameters<LatestOutputParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         call_socket(build_latest_output_request(params)).await
     }
 
@@ -221,7 +216,7 @@ impl RouxMcpServer {
     async fn roux_focus(
         &self,
         Parameters(params): Parameters<FocusParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         if params.session_id.is_none() && params.pane_id.is_none() {
             return Err(McpToolError::InvalidParams("sessionId or paneId required").into());
         }
@@ -237,7 +232,7 @@ impl RouxMcpServer {
     async fn roux_read_notes(
         &self,
         Parameters(params): Parameters<NotesTargetParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         call_socket(json!({
             "command": "notes-read",
             "args": notes_target(params.scope, params.session_id, params.topic),
@@ -249,7 +244,7 @@ impl RouxMcpServer {
     async fn roux_search_notes(
         &self,
         Parameters(params): Parameters<NotesSearchParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         call_socket(json!({
             "command": "notes-search",
             "args": {
@@ -265,7 +260,7 @@ impl RouxMcpServer {
     async fn roux_append_notes(
         &self,
         Parameters(params): Parameters<NotesAppendParams>,
-    ) -> Result<Json<SocketToolOutput>, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         call_socket(json!({
             "command": "notes-append",
             "args": {
@@ -279,7 +274,7 @@ impl RouxMcpServer {
     }
 
     #[tool(description = "Get the Roux notes vault root path.")]
-    async fn roux_notes_vault_root(&self) -> Result<Json<SocketToolOutput>, ErrorData> {
+    async fn roux_notes_vault_root(&self) -> Result<CallToolResult, ErrorData> {
         call_socket(json!({ "command": "notes-vault-root", "args": {} })).await
     }
 }
@@ -290,11 +285,11 @@ pub async fn run_stdio_server() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn call_socket(request: Value) -> Result<Json<SocketToolOutput>, ErrorData> {
+async fn call_socket(request: Value) -> Result<CallToolResult, ErrorData> {
     call_socket_typed(request).await.map_err(Into::into)
 }
 
-async fn call_socket_typed(request: Value) -> Result<Json<SocketToolOutput>, McpToolError> {
+async fn call_socket_typed(request: Value) -> Result<CallToolResult, McpToolError> {
     ensure_mcp_enabled().await?;
     let response =
         tokio::task::spawn_blocking(move || crate::cli_socket::send_socket_command(request))
@@ -312,8 +307,20 @@ async fn ensure_mcp_enabled() -> Result<(), McpToolError> {
     .map_err(|e| McpToolError::TaskJoin(e.to_string()))?
     .map_err(McpToolError::Socket)?;
 
-    let output = response_to_tool_output(response)?;
-    let enabled = output.0.data.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+    if !response.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+        return Err(McpToolError::SocketResponse(
+            response
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown Roux socket error")
+                .to_string(),
+        ));
+    }
+    let enabled = response
+        .get("data")
+        .and_then(|data| data.get("enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     if enabled {
         Ok(())
     } else {
@@ -321,10 +328,10 @@ async fn ensure_mcp_enabled() -> Result<(), McpToolError> {
     }
 }
 
-fn response_to_tool_output(response: Value) -> Result<Json<SocketToolOutput>, McpToolError> {
+fn response_to_tool_output(response: Value) -> Result<CallToolResult, McpToolError> {
     if response.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         let data = response.get("data").cloned().unwrap_or(Value::Null);
-        Ok(Json(SocketToolOutput { data }))
+        Ok(CallToolResult::structured(json!({ "data": data })))
     } else {
         Err(McpToolError::SocketResponse(
             response
@@ -489,6 +496,34 @@ mod tests {
         match result {
             Ok(_) => panic!("expected tool error"),
             Err(err) => assert_eq!(err.to_string(), "Roux is not running"),
+        }
+    }
+
+    /// Claude Desktop / Claude Code's MCP client silently drops every tool
+    /// when a server's `tools/list` response carries `outputSchema`, `title`,
+    /// or `annotations` at the tool level (anthropics/claude-code#25081,
+    /// closed as not planned). Keep these unset on every Roux tool so the
+    /// connector continues to expose tools.
+    #[test]
+    fn tools_omit_fields_that_break_claude_desktop() {
+        let tools = RouxMcpServer::tool_router().list_all();
+        assert!(!tools.is_empty(), "expected at least one tool");
+        for tool in tools {
+            assert!(
+                tool.output_schema.is_none(),
+                "tool `{}` must not advertise outputSchema",
+                tool.name
+            );
+            assert!(
+                tool.title.is_none(),
+                "tool `{}` must not advertise a top-level title",
+                tool.name
+            );
+            assert!(
+                tool.annotations.is_none(),
+                "tool `{}` must not advertise toolAnnotations",
+                tool.name
+            );
         }
     }
 }
