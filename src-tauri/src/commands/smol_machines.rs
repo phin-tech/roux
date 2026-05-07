@@ -467,7 +467,6 @@ pub(crate) async fn cmd_install_smolvm_agent_recreate(
             image: None,
             network,
             ssh_agent,
-            host_proxy_url: None,
             volumes: &[],
         };
         roux_smolvm::create_machine(&install.path, &create_opts).map_err(|e| {

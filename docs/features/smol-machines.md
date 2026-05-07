@@ -44,7 +44,7 @@ Click **+** in the panel header. Fields:
 - **Smolfile** (optional) — pick a `Smolfile.toml` from disk. When set, the Smolfile is authoritative; Roux hides the per-field overrides below.
 - **Image** — e.g. `alpine:3.19`, `ubuntu:24.04`. Hidden when a Smolfile is provided.
 - **Network** — give the guest outbound network access. Hidden when a Smolfile is provided.
-- **Forward SSH agent** — forward your host's running SSH agent into the guest so `git clone git@…` works for private repos. Private keys never leave the host — the hypervisor enforces it. Requires `ssh-add -l` to list keys on the host.
+- **Forward SSH agent** — forward your host's running SSH agent into the guest so `git clone git@…` works for private repos. Private keys are not copied into the guest, but guest processes can request signatures from your host agent for as long as forwarding is enabled — keep this in mind for untrusted workloads. Requires `ssh-add -l` to list keys on the host.
 - **Host HTTP proxy URL** — route guest HTTP(S) through a host-side proxy. Useful when private registries IP-allowlist your host (AWS CodeArtifact, corporate Artifactory). Roux generates a managed Smolfile that exports `HTTP_PROXY` / `HTTPS_PROXY` in the guest via `/etc/profile.d/roux-proxy.sh` so every login shell picks it up.
 - **Mount paths** — multi-row input. Each row is a `host:guest[:ro]` mount. Same-path mounts (host == guest) make `--workdir <host_worktree>` "just work" inside the guest — sessions land in their actual project directory instead of `$HOME`. Read-only is opt-in via the `ro` checkbox.
 

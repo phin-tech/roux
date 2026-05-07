@@ -285,17 +285,26 @@ pub fn check_guest_binary(
             Ok(Some(stdout))
         }
     } else {
-        // `command -v` exits 1 with empty stdout when the binary isn't
-        // found — that's the "missing" case, not an error. Non-empty
-        // stderr means smolvm itself failed (machine down, exec
-        // refused, etc.) and the caller should surface it.
+        // `command -v` follows POSIX: exit 1 (no stdout, no stderr)
+        // when the requested name isn't on PATH. That's the "missing"
+        // case — return Ok(None). Any other non-zero exit (or any
+        // output) indicates smolvm itself failed (machine down, exec
+        // refused, sh missing, etc.) and we surface it as a typed
+        // error so the caller can render a real message instead of
+        // pretending the binary is just missing.
+        let code = output.status.code();
+        let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.trim().is_empty() {
+        if code == Some(1) && stdout.trim().is_empty() && stderr.trim().is_empty() {
             Ok(None)
         } else {
             Err(SmolvmError::CommandFailed {
                 command: "check guest binary".into(),
-                stderr: stderr.into_owned(),
+                stderr: if stderr.trim().is_empty() {
+                    stdout.into_owned()
+                } else {
+                    stderr.into_owned()
+                },
             })
         }
     }
@@ -589,14 +598,6 @@ pub struct CreateOpts<'a> {
     /// the host — the hypervisor enforces this. The user must have
     /// an agent running with keys (`ssh-add -l` on the host).
     pub ssh_agent: bool,
-    /// HTTP(S) proxy URL the guest should route outbound requests
-    /// through. When set, the create flow appends a
-    /// `/etc/profile.d/roux-proxy.sh` writer to the Smolfile's
-    /// `[dev].init` so every login shell inside the guest exports
-    /// `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`. None = no env
-    /// injection (guest exits via its own NAT, which fails for
-    /// IP-allowlisted registries).
-    pub host_proxy_url: Option<&'a str>,
     /// Volume specs forwarded to `smolvm machine create -v <spec>`.
     /// Each entry is a `host:guest[:ro]` string the upstream CLI
     /// accepts verbatim. Roux does not parse the spec — that's the
@@ -840,7 +841,6 @@ mod tests {
             image: None,
             network: false,
             ssh_agent: false,
-            host_proxy_url: None,
             volumes: &[],
         });
         assert_eq!(args_to_strings(&args), vec!["machine", "create", "my-vm"]);
@@ -855,7 +855,6 @@ mod tests {
             image: None,
             network: false,
             ssh_agent: false,
-            host_proxy_url: None,
             volumes: &[],
         });
         assert_eq!(
@@ -872,7 +871,6 @@ mod tests {
             image: Some("alpine"),
             network: true,
             ssh_agent: false,
-            host_proxy_url: None,
             volumes: &[],
         });
         assert_eq!(
@@ -1101,7 +1099,6 @@ init = ["echo hi"]
             image: Some("alpine"),
             network: true,
             ssh_agent: true,
-            host_proxy_url: None,
             volumes: &[],
         });
         // Flag order is stable (name, --smolfile, --image, --net,
@@ -1120,7 +1117,6 @@ init = ["echo hi"]
             image: Some("alpine"),
             network: false,
             ssh_agent: false,
-            host_proxy_url: None,
             volumes: &[],
         });
         assert!(!args_to_strings(&args).contains(&"--ssh-agent".to_string()));
@@ -1139,7 +1135,6 @@ init = ["echo hi"]
             image: Some("alpine"),
             network: true,
             ssh_agent: false,
-            host_proxy_url: None,
             volumes: &[],
         });
         assert_eq!(
@@ -1169,7 +1164,6 @@ init = ["echo hi"]
             image: Some("alpine"),
             network: false,
             ssh_agent: false,
-            host_proxy_url: None,
             volumes: &vols,
         });
         assert_eq!(
@@ -1196,7 +1190,6 @@ init = ["echo hi"]
             image: None,
             network: false,
             ssh_agent: false,
-            host_proxy_url: None,
             volumes: &[],
         });
         assert!(!args_to_strings(&args).iter().any(|s| s == "-v"));

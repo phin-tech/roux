@@ -243,7 +243,7 @@
             </button>
             <div class="min-w-0">
               <div id="library-window-title" class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Library Manager</div>
-              <div class="mt-1 text-[13px] font-semibold text-text-primary">Prompts & Skills</div>
+              <div class="mt-1 text-[13px] font-semibold text-text-primary">Library Items</div>
             </div>
           </div>
           <div class="mt-3 flex gap-1">

@@ -124,18 +124,18 @@ pub fn create_machine(
     // Empty strings from the form should be treated as "unset" — smolvm
     // would otherwise reject `--image ""` with a confusing error.
     let image = req.image.as_deref().filter(|s| !s.is_empty());
-    let host_proxy_url = req
-        .host_proxy_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
+    // `host_proxy_url` lives on the wire-shape but doesn't reach the
+    // smolvm CLI directly — see services/smolvm.rs::generate_managed_smolfile,
+    // which consumes it earlier in `cmd_create_smol_machine` to write
+    // a `[dev].init` proxy export into the managed Smolfile. By the
+    // time we get here, that's already done; the CLI flags below are
+    // image / net / ssh_agent / volumes.
     let opts = roux_smolvm::CreateOpts {
         name: &req.name,
         smolfile_path,
         image,
         network: req.network,
         ssh_agent: req.ssh_agent,
-        host_proxy_url,
         volumes: &req.volumes,
     };
     roux_smolvm::create_machine(binary, &opts)

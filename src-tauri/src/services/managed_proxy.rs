@@ -106,6 +106,15 @@ impl ManagedProxyState {
             return Err("managed proxy command is empty".to_string());
         }
 
+        // Parse the listen address up-front. If we left this until the
+        // poll loop, a bad config (e.g. `bind = "localhost"`) would
+        // spawn the child first and then bail via `?`, orphaning the
+        // proxy process on the configured port. Failing here keeps
+        // the lifecycle clean.
+        let addr: std::net::SocketAddr = format!("{bind}:{port}")
+            .parse()
+            .map_err(|e| format!("invalid bind address {bind}:{port}: {e}"))?;
+
         // Spawn via the user's login shell so PATH / aliases /
         // `~/.config/...` references in the command resolve. We use
         // `sh -lc` rather than the user's $SHELL because tinyproxy/
@@ -150,7 +159,6 @@ impl ManagedProxyState {
         // failure to cover slower-starting tools (mitmproxy on first
         // run can be slow to compile its CA cert).
         let deadline = Instant::now() + Duration::from_secs(5);
-        let addr = format!("{bind}:{port}");
         let mut last_connect_err: Option<std::io::Error> = None;
         let mut bound = false;
         while Instant::now() < deadline {
@@ -165,10 +173,7 @@ impl ManagedProxyState {
                 ));
                 return Err(guard.last_error.clone().unwrap());
             }
-            match TcpStream::connect_timeout(
-                &addr.parse().map_err(|e| format!("invalid bind {addr}: {e}"))?,
-                Duration::from_millis(100),
-            ) {
+            match TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
                 Ok(_) => {
                     bound = true;
                     break;
