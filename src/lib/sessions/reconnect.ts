@@ -305,6 +305,7 @@ async function reconnectPrimaryPaneOnly(
     try {
       await runProfileInPane(session.id, effectiveProfile, {
         appendSystemPrompt: getProjectPrompt(session.projectId),
+        smolMachineName: session.smolMachineName ?? null,
       });
     } catch (e) {
       log(

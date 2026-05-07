@@ -5,16 +5,23 @@
   import {
     createSmolMachine,
     deleteSmolMachine,
+    installSmolvmAgent,
+    installSmolvmAgentPersist,
+    installSmolvmAgentRecreate,
+    listSmolMachineSmolfiles,
     listSmolMachines,
+    openSmolvmBootstrapConfig,
     setSessionSmolMachine,
     startSmolMachine,
     stopSmolMachine,
+    type SmolvmPersistOutcome,
   } from "$lib/tauri";
   import type { SmolMachine } from "$lib/types";
   import { activeSession, sessionState } from "$lib/stores/sessions";
   import { smolvmDetection } from "$lib/stores/smolvmDetection";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Sliders from "@lucide/svelte/icons/sliders-horizontal";
   import X from "@lucide/svelte/icons/x";
 
   interface Props {
@@ -33,12 +40,33 @@
   // buttons without freezing the whole panel.
   let busyNames = $state<Set<string>>(new Set());
 
+  // Map of `{ machineName: smolfilePath }` for machines created with a
+  // Smolfile (or recreated via the persist flow). Refreshed alongside
+  // the machines list. Used to drive the row's "edit linked file" vs.
+  // "create + recreate" hint and to skip the recreate-confirm modal
+  // when a link already exists.
+  let smolfileLinks = $state<Record<string, string>>({});
+
+  // Pending recreate-confirm state — when set, a modal renders showing
+  // exactly what's about to happen.
+  let pendingRecreate = $state<
+    | {
+        machineName: string;
+        agent: "claude" | "codex";
+        proposedSmolfilePath: string;
+        image: string | null;
+        script: string;
+      }
+    | null
+  >(null);
+
   // --- Create-machine inline form state -------------------------------
   let createOpen = $state(false);
   let newName = $state("");
   let newSmolfile = $state("");
   let newImage = $state("");
   let newNetwork = $state(false);
+  let newSshAgent = $state(false);
   let creating = $state(false);
   let createError = $state<string | null>(null);
   let nameInput = $state<HTMLInputElement | null>(null);
@@ -61,6 +89,7 @@
     newSmolfile = "";
     newImage = "";
     newNetwork = false;
+    newSshAgent = false;
     createError = null;
   }
 
@@ -109,6 +138,7 @@
         // open without a Smolfile, and smolvm rejects redundant flags.
         image: smolfile || !image ? null : image,
         network: smolfile ? false : newNetwork,
+        sshAgent: smolfile ? false : newSshAgent,
       });
       closeCreateForm();
       await loadMachines();
@@ -133,15 +163,22 @@
   async function loadMachines(): Promise<void> {
     if (!$smolvmDetection.binaryPath) {
       machines = [];
+      smolfileLinks = {};
       return;
     }
     loading = true;
     error = null;
     try {
-      machines = await listSmolMachines();
+      const [list, links] = await Promise.all([
+        listSmolMachines(),
+        listSmolMachineSmolfiles(),
+      ]);
+      machines = list;
+      smolfileLinks = links;
     } catch (err) {
       error = typeof err === "string" ? err : String(err);
       machines = [];
+      smolfileLinks = {};
     } finally {
       loading = false;
     }
@@ -192,6 +229,98 @@
     await withBusy(name, () => deleteSmolMachine(name));
   }
 
+  async function handleOpenBootstrapConfig(): Promise<void> {
+    error = null;
+    try {
+      await openSmolvmBootstrapConfig();
+    } catch (err) {
+      error = `Could not open bootstrap config: ${typeof err === "string" ? err : String(err)}`;
+    }
+  }
+
+  async function handleInstallAgent(
+    name: string,
+    agent: "claude" | "codex",
+    mode: "run" | "persist",
+  ): Promise<void> {
+    const label = agent === "claude" ? "Claude" : "Codex";
+    if (mode === "run") {
+      const ok = window.confirm(
+        `Install ${label} in smol machine "${name}"?\n\n` +
+          `Runs a distro-aware install script inside the VM via\n` +
+          `  smolvm machine exec --name ${name} -- sh -c "<script>"\n\n` +
+          `This install is ephemeral — recreating the machine wipes it.\n` +
+          `Use "Persist via Smolfile" to make it stick.`,
+      );
+      if (!ok) return;
+      setBusy(name, true);
+      error = null;
+      try {
+        await installSmolvmAgent(name, agent);
+      } catch (err) {
+        error = `Install ${label} failed: ${typeof err === "string" ? err : String(err)}`;
+      } finally {
+        setBusy(name, false);
+      }
+      return;
+    }
+
+    // mode === "persist"
+    setBusy(name, true);
+    error = null;
+    let outcome: SmolvmPersistOutcome;
+    try {
+      outcome = await installSmolvmAgentPersist(name, agent);
+    } catch (err) {
+      error = `Persist ${label} failed: ${typeof err === "string" ? err : String(err)}`;
+      setBusy(name, false);
+      return;
+    }
+    setBusy(name, false);
+
+    if (outcome.kind === "appended") {
+      error = null;
+      // Reload so the row picks up any new link state.
+      await loadMachines();
+      window.alert(
+        `${label} install line appended to ${outcome.smolfilePath}.\n\n` +
+          `It will run on every machine start (boot-time provisioning).\n` +
+          `Recreate the machine — or simply restart it — to apply now.`,
+      );
+    } else if (outcome.kind === "alreadyPresent") {
+      window.alert(
+        `${label}'s install line is already present in ${outcome.smolfilePath}. ` +
+          `No changes made.`,
+      );
+    } else if (outcome.kind === "needsRecreate") {
+      // Stash the proposal and render the modal — user confirms there
+      // before any destructive action runs.
+      pendingRecreate = {
+        machineName: name,
+        agent,
+        proposedSmolfilePath: outcome.proposedSmolfilePath,
+        image: outcome.image,
+        script: outcome.script,
+      };
+    }
+  }
+
+  async function handleConfirmRecreate(): Promise<void> {
+    const r = pendingRecreate;
+    if (!r) return;
+    pendingRecreate = null;
+    setBusy(r.machineName, true);
+    error = null;
+    try {
+      await installSmolvmAgentRecreate(r.machineName, r.agent);
+      await loadMachines();
+    } catch (err) {
+      error = `Recreate failed: ${typeof err === "string" ? err : String(err)}`;
+    } finally {
+      setBusy(r.machineName, false);
+    }
+  }
+
   async function handleAssign(name: string): Promise<void> {
     const session = $activeSession;
     if (!session) return;
@@ -219,7 +348,7 @@
 </script>
 
 <div
-  class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
+  class="relative flex h-full w-full min-h-0 flex-col bg-bg-deep"
   class:hidden={!visible}
 >
   <div
@@ -263,6 +392,15 @@
         onclick={() => void loadMachines()}
       >
         <RefreshCw size={12} class={loading ? "animate-spin" : ""} />
+      </button>
+      <button
+        type="button"
+        class="flex h-6 w-6 items-center justify-center rounded text-text-muted hover:bg-bg-hover hover:text-text-primary"
+        title="Edit bootstrap config — customize prereqs and install commands per agent / distro"
+        aria-label="Edit bootstrap config"
+        onclick={() => void handleOpenBootstrapConfig()}
+      >
+        <Sliders size={12} />
       </button>
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />
@@ -356,9 +494,31 @@
               />
               Enable network
             </label>
+
+            <label
+              class="mb-2 flex cursor-pointer items-start gap-2 text-[11px] text-text-secondary"
+              title="Forward your host's SSH agent into the VM so `git clone git@…` works for private repos. Private keys never leave the host — the hypervisor enforces it."
+            >
+              <input
+                type="checkbox"
+                bind:checked={newSshAgent}
+                class="mt-0.5 h-3 w-3"
+                disabled={creating}
+              />
+              <span>
+                Forward SSH agent
+                <span class="block text-[10px] text-text-muted">
+                  Enables `git clone git@…` inside the VM. Requires
+                  <code class="rounded bg-bg-surface px-1">ssh-add -l</code>
+                  to list keys on the host.
+                </span>
+              </span>
+            </label>
           {:else}
             <p class="mb-2 text-[10px] text-text-muted">
-              Image and network are read from the Smolfile.
+              Image, network, and SSH agent forwarding are read from the
+              Smolfile (set <code class="rounded bg-bg-surface px-1">ssh_agent = true</code>
+              to forward your host SSH agent).
             </p>
           {/if}
 
@@ -425,13 +585,86 @@
             busy={busyNames.has(machine.name)}
             boundToActive={$activeSession?.smolMachineName === machine.name}
             hasActiveSession={!!$activeSession}
+            hasSmolfileLinked={machine.name in smolfileLinks}
             onStart={() => void handleStart(machine.name)}
             onStop={() => void handleStop(machine.name)}
             onDelete={() => void handleDelete(machine.name)}
             onAssign={() => void handleAssign(machine.name)}
+            onInstallAgent={(agent, mode) =>
+              void handleInstallAgent(machine.name, agent, mode)}
           />
         {/each}
       {/if}
     {/if}
   </div>
+
+  {#if pendingRecreate}
+    <!--
+      Recreate-confirm modal. Blocks the panel until the user picks an
+      option — destructive op (delete + recreate machine) is gated
+      behind this explicit confirm. Closes by clearing
+      `pendingRecreate` from either button or the cancel.
+    -->
+    <div
+      class="absolute inset-0 z-30 flex items-center justify-center bg-bg-deep/85 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="smol-recreate-title"
+    >
+      <div class="w-full max-w-md rounded-md border border-border-subtle bg-bg-elevated p-3 shadow-xl shadow-black/40">
+        <h3
+          id="smol-recreate-title"
+          class="mb-2 text-[12px] font-semibold uppercase tracking-wider text-text-primary"
+        >
+          Persist {pendingRecreate.agent === "claude" ? "Claude" : "Codex"} via Smolfile
+        </h3>
+        <p class="mb-2 text-[11px] text-text-secondary">
+          <code class="rounded bg-bg-surface px-1 text-text-primary">{pendingRecreate.machineName}</code>
+          has no Smolfile linked. Roux can:
+        </p>
+        <ol class="mb-3 list-decimal pl-5 text-[11px] text-text-secondary">
+          <li>
+            Generate
+            <code class="rounded bg-bg-surface px-1 font-mono text-text-primary"
+              >{pendingRecreate.proposedSmolfilePath}</code
+            >
+            with image
+            <code class="rounded bg-bg-surface px-1 font-mono text-text-primary"
+              >{pendingRecreate.image ?? "(unknown)"}</code
+            >.
+          </li>
+          <li>Stop and delete the existing machine.</li>
+          <li>Recreate it from the new Smolfile and start it.</li>
+        </ol>
+        <div class="mb-3 rounded border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-[10px] text-text-secondary">
+          [dev]<br />
+          init = [<br />
+          &nbsp;&nbsp;"{pendingRecreate.script}"<br />
+          ]
+        </div>
+        <div class="mb-3 rounded border border-red/30 bg-red/10 px-2 py-1.5 text-[10px] text-red/90">
+          ⚠ Active sessions inside this machine will be killed when it's
+          deleted. Roux session bindings reattach by name on the next
+          pane spawn — open panes will show their dead-pane banner during
+          the gap.
+          <br /><br />
+          ⚠ If recreate fails after delete, the Smolfile remains at the
+          path above; recover with
+          <code class="rounded bg-bg-deep px-1 font-mono">smolvm machine create {pendingRecreate.machineName} -s {pendingRecreate.proposedSmolfilePath}</code>.
+        </div>
+        <div class="flex justify-end gap-2">
+          <button
+            type="button"
+            class="cursor-pointer rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+            onclick={() => (pendingRecreate = null)}
+          >Cancel</button>
+          <button
+            type="button"
+            class="cursor-pointer rounded border border-red bg-red/20 px-2 py-0.5 text-[10px] text-red hover:bg-red/40"
+            onclick={() => void handleConfirmRecreate()}
+          >Generate &amp; Recreate</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>

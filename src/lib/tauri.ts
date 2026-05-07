@@ -308,6 +308,89 @@ export async function createSmolMachine(
   return invoke("cmd_create_smol_machine", { request });
 }
 
+/**
+ * `which`-style probe inside a smol guest. Resolves to the guest path
+ * when the binary is on PATH, `null` when it isn't, or rejects when
+ * the smolvm CLI itself fails (e.g. machine isn't running).
+ */
+export async function checkSmolvmBinary(
+  machineName: string,
+  binary: string,
+): Promise<string | null> {
+  return invoke("cmd_check_smolvm_binary", { machineName, binary });
+}
+
+/**
+ * Install a known agent inside a smol guest. v1 supports "claude" and
+ * "codex" (case-insensitive). Resolves on success; rejects with the
+ * install command's stderr when smolvm or npm fail.
+ */
+export async function installSmolvmAgent(
+  machineName: string,
+  agent: "claude" | "codex",
+): Promise<void> {
+  return invoke("cmd_install_smolvm_agent", { machineName, agent });
+}
+
+/**
+ * Persist an agent install via the machine's linked Smolfile
+ * `[dev].init`. Returns a discriminated outcome:
+ * - `appended` / `alreadyPresent`: file was (or already was) updated.
+ * - `needsRecreate`: machine has no Smolfile linked. The frontend
+ *   shows a confirmation modal and calls
+ *   `installSmolvmAgentRecreate` if the user agrees.
+ */
+export type SmolvmPersistOutcome =
+  | { kind: "appended"; smolfilePath: string }
+  | { kind: "alreadyPresent"; smolfilePath: string }
+  | {
+      kind: "needsRecreate";
+      proposedSmolfilePath: string;
+      image: string | null;
+      script: string;
+    };
+
+export async function installSmolvmAgentPersist(
+  machineName: string,
+  agent: "claude" | "codex",
+): Promise<SmolvmPersistOutcome> {
+  return invoke("cmd_install_smolvm_agent_persist", { machineName, agent });
+}
+
+/**
+ * Destructive: regenerate the machine from a Roux-managed Smolfile
+ * with the agent's install line in `[dev].init`. Only call after the
+ * user confirms the modal triggered by a `needsRecreate` outcome.
+ */
+export async function installSmolvmAgentRecreate(
+  machineName: string,
+  agent: "claude" | "codex",
+): Promise<void> {
+  return invoke("cmd_install_smolvm_agent_recreate", { machineName, agent });
+}
+
+/**
+ * Map of `{ machine_name: smolfile_path }` for machines Roux has
+ * tracked as "Smolfile-linked" (created via the form with a Smolfile,
+ * or recreated via the persist flow). Used to render the in-place vs.
+ * recreate hint in the panel before the user clicks.
+ */
+export async function listSmolMachineSmolfiles(): Promise<
+  Record<string, string>
+> {
+  return invoke("cmd_list_smol_machine_smolfiles");
+}
+
+/**
+ * Open `~/.config/roux/smolvm-bootstraps.toml` in the user's default
+ * editor. Creates the file with built-in defaults pre-populated when
+ * it doesn't yet exist. Resolves to the absolute path that was
+ * opened, so callers can show it in a tooltip / toast.
+ */
+export async function openSmolvmBootstrapConfig(): Promise<string> {
+  return invoke("cmd_open_smolvm_bootstrap_config");
+}
+
 export type LibraryItemType = "prompt" | "skill";
 export type LibraryLayerKind = "global" | "localRepo" | "gitRepo" | "activeRepo";
 export type LibrarySourceKind = "localRepo" | "gitRepo";

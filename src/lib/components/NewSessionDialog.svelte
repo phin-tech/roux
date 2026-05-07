@@ -863,7 +863,9 @@
 
       // Type the profile's commands into the new shell.
       // session.id is also the PTY id for the session-owned shell.
-      await runProfileInPane(session.id, profile);
+      await runProfileInPane(session.id, profile, {
+        smolMachineName: session.smolMachineName ?? null,
+      });
 
       resetAndClose();
     } catch (e) {

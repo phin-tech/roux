@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SmolMachine } from "$lib/bindings";
   import Check from "@lucide/svelte/icons/check";
+  import Download from "@lucide/svelte/icons/download";
   import Link from "@lucide/svelte/icons/link";
   import Play from "@lucide/svelte/icons/play";
   import Square from "@lucide/svelte/icons/square";
@@ -22,10 +23,17 @@
      * nothing to assign to.
      */
     hasActiveSession: boolean;
+    /**
+     * Whether this machine has a linked Smolfile (created via Roux's
+     * form with one, or via a prior recreate). Pure UI hint — the
+     * persist action falls through to "Run in VM" semantics either way.
+     */
+    hasSmolfileLinked: boolean;
     onStart: () => void;
     onStop: () => void;
     onDelete: () => void;
     onAssign: () => void;
+    onInstallAgent: (agent: "claude" | "codex", mode: "run" | "persist") => void;
   }
 
   let {
@@ -33,11 +41,39 @@
     busy,
     boundToActive,
     hasActiveSession,
+    hasSmolfileLinked,
     onStart,
     onStop,
     onDelete,
     onAssign,
+    onInstallAgent,
   }: Props = $props();
+
+  // Install-agent submenu state. Closed by default; click the Download
+  // icon to toggle. Closes again on outside-click via $effect below.
+  let installMenuOpen = $state(false);
+  let installMenuRef = $state<HTMLDivElement | null>(null);
+
+  $effect(() => {
+    if (!installMenuOpen) return;
+    const onPointerDown = (ev: PointerEvent) => {
+      const target = ev.target;
+      if (!(target instanceof Node)) return;
+      if (installMenuRef && !installMenuRef.contains(target)) {
+        installMenuOpen = false;
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  });
+
+  function pickInstall(
+    agent: "claude" | "codex",
+    mode: "run" | "persist",
+  ): void {
+    installMenuOpen = false;
+    onInstallAgent(agent, mode);
+  }
 
   // smolvm reports state as a free-form lowercase string. Treat anything
   // matching "running" / "starting" as "the machine is up" for the action
@@ -134,6 +170,82 @@
         <Play size={12} />
       </button>
     {/if}
+    <div class="relative" bind:this={installMenuRef}>
+      <button
+        type="button"
+        class="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-bg-surface hover:text-text-primary disabled:opacity-40 {installMenuOpen ? 'bg-white/10 text-text-primary' : ''}"
+        title={isRunning
+          ? "Install an agent in this machine"
+          : "Start the machine to install an agent"}
+        aria-label="Install agent"
+        aria-haspopup="menu"
+        aria-expanded={installMenuOpen}
+        disabled={busy || !isRunning}
+        onclick={() => (installMenuOpen = !installMenuOpen)}
+      >
+        <Download size={12} />
+      </button>
+      {#if installMenuOpen}
+        <div
+          role="menu"
+          class="absolute right-0 top-full z-20 mt-1 min-w-[18rem] rounded border border-border-subtle bg-bg-elevated py-1 text-[11px] shadow-lg shadow-black/40"
+        >
+          <div
+            class="px-2.5 pb-0.5 pt-1 text-[9px] font-semibold uppercase tracking-wider text-text-muted"
+          >
+            Claude
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            class="flex w-full items-center gap-2 px-2.5 py-1 text-left text-text-primary hover:bg-bg-hover"
+            onclick={() => pickInstall("claude", "run")}
+          >
+            Run in VM
+            <span class="ml-auto text-[9px] text-text-muted">ephemeral</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            class="flex w-full items-center gap-2 px-2.5 py-1 text-left text-text-primary hover:bg-bg-hover"
+            onclick={() => pickInstall("claude", "persist")}
+          >
+            Persist via Smolfile
+            <span class="ml-auto text-[9px] text-text-muted">
+              {hasSmolfileLinked ? "edit linked file" : "create + recreate"}
+            </span>
+          </button>
+
+          <div class="my-1 border-t border-border-subtle"></div>
+
+          <div
+            class="px-2.5 pb-0.5 pt-1 text-[9px] font-semibold uppercase tracking-wider text-text-muted"
+          >
+            Codex
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            class="flex w-full items-center gap-2 px-2.5 py-1 text-left text-text-primary hover:bg-bg-hover"
+            onclick={() => pickInstall("codex", "run")}
+          >
+            Run in VM
+            <span class="ml-auto text-[9px] text-text-muted">ephemeral</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            class="flex w-full items-center gap-2 px-2.5 py-1 text-left text-text-primary hover:bg-bg-hover"
+            onclick={() => pickInstall("codex", "persist")}
+          >
+            Persist via Smolfile
+            <span class="ml-auto text-[9px] text-text-muted">
+              {hasSmolfileLinked ? "edit linked file" : "create + recreate"}
+            </span>
+          </button>
+        </div>
+      {/if}
+    </div>
     <button
       type="button"
       class="flex h-6 w-6 items-center justify-center rounded text-red/80 hover:bg-red/10 hover:text-red disabled:opacity-40"

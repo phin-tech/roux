@@ -21,6 +21,8 @@ pub struct SmolMachine {
     pub created_at: Option<String>,
     pub ephemeral: bool,
     pub network: bool,
+    /// `true` when the host's SSH agent is forwarded into the guest.
+    pub ssh_agent: bool,
 }
 
 impl From<roux_smolvm::SmolMachine> for SmolMachine {
@@ -34,6 +36,7 @@ impl From<roux_smolvm::SmolMachine> for SmolMachine {
             created_at: m.created_at,
             ephemeral: m.ephemeral,
             network: m.network,
+            ssh_agent: m.ssh_agent,
         }
     }
 }
@@ -89,6 +92,12 @@ pub struct SmolMachineCreateRequest {
     pub smolfile_path: Option<String>,
     pub image: Option<String>,
     pub network: bool,
+    /// Forward the host's SSH agent into the guest so `git clone
+    /// git@…` works inside the VM. Private keys never leave the
+    /// host — the hypervisor enforces it. Default `false`; the create
+    /// form has a checkbox.
+    #[serde(default)]
+    pub ssh_agent: bool,
 }
 
 pub fn create_machine(
@@ -104,6 +113,7 @@ pub fn create_machine(
         smolfile_path,
         image,
         network: req.network,
+        ssh_agent: req.ssh_agent,
     };
     roux_smolvm::create_machine(binary, &opts)
 }

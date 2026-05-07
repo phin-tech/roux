@@ -61,6 +61,26 @@ export const commands = {
 	cmdStopSmolMachine: (name: string) => typedError<null, string>(__TAURI_INVOKE("cmd_stop_smol_machine", { name })),
 	cmdDeleteSmolMachine: (name: string) => typedError<null, string>(__TAURI_INVOKE("cmd_delete_smol_machine", { name })),
 	cmdCreateSmolMachine: (request: SmolMachineCreateRequest) => typedError<null, string>(__TAURI_INVOKE("cmd_create_smol_machine", { request })),
+	/**
+	 *  `which`-style probe inside a guest. Returns the resolved guest path
+	 *  when the binary is on the guest's PATH, `None` when it isn't, or an
+	 *  error string when the smolvm CLI itself fails. Used by the
+	 *  frontend's profile-replay preflight (see `profileRunner.ts`) to
+	 *  short-circuit `claude`/`codex` startup commands when the agent
+	 *  isn't installed in the guest.
+	 */
+	cmdCheckSmolvmBinary: (machineName: string, binary: string) => typedError<string | null, string>(__TAURI_INVOKE("cmd_check_smolvm_binary", { machineName, binary })),
+	/**
+	 *  Install a known agent inside a smol machine. v1 supports `"claude"`
+	 *  and `"codex"` (case-insensitive). Synchronous from the user's
+	 *  perspective — the panel shows a spinner until the npm install
+	 *  finishes (~30s).
+	 */
+	cmdInstallSmolvmAgent: (machineName: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("cmd_install_smolvm_agent", { machineName, agent })),
+	cmdInstallSmolvmAgentPersist: (machineName: string, agent: string) => typedError<PersistOutcome, string>(__TAURI_INVOKE("cmd_install_smolvm_agent_persist", { machineName, agent })),
+	cmdInstallSmolvmAgentRecreate: (machineName: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("cmd_install_smolvm_agent_recreate", { machineName, agent })),
+	cmdListSmolMachineSmolfiles: () => typedError<{ [key: string]: string }, string>(__TAURI_INVOKE("cmd_list_smol_machine_smolfiles")),
+	cmdOpenSmolvmBootstrapConfig: () => typedError<string, string>(__TAURI_INVOKE("cmd_open_smolvm_bootstrap_config")),
 	cmdListAutomationHooks: (repoPath: string | null) => typedError<HookListItem[], string>(__TAURI_INVOKE("cmd_list_automation_hooks", { repoPath })),
 	cmdPreviewAutomationHooks: (request: HookRunRequest) => typedError<HookPreviewItem[], string>(__TAURI_INVOKE("cmd_preview_automation_hooks", { request })),
 	cmdRunAutomationHook: (request: HookRunRequest) => typedError<HookRunSummary, string>(__TAURI_INVOKE("cmd_run_automation_hook", { request })),
@@ -1354,6 +1374,7 @@ export type SmolMachine = {
 	createdAt: string | null,
 	ephemeral: boolean,
 	network: boolean,
+	sshAgent: boolean,
 };
 
 /**
@@ -1366,7 +1387,19 @@ export type SmolMachineCreateRequest = {
 	smolfilePath: string | null,
 	image: string | null,
 	network: boolean,
+	sshAgent: boolean,
 };
+
+/**
+ * Result of `cmdInstallSmolvmAgentPersist`. Either the line was
+ * appended to a linked Smolfile (or was already there), or there's
+ * no linked Smolfile and the frontend should prompt the user to
+ * confirm a destructive create-and-recreate flow.
+ */
+export type PersistOutcome =
+	| { kind: "appended", smolfilePath: string }
+	| { kind: "alreadyPresent", smolfilePath: string }
+	| { kind: "needsRecreate", proposedSmolfilePath: string, image: string | null, script: string };
 
 /**
  *  Return-shape for the activity-rail detection probe. Mirrors
