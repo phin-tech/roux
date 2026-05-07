@@ -10,6 +10,7 @@ Roux is a terminal-first workspace for running agent sessions, shells, notes, wa
 - [Projects](projects.md) — group sessions across repos, save session blueprints, and inject project context.
 - [Layouts](layouts.md) — start sessions from KDL templates and spawn profiles.
 - [Worktrees](worktrees.md) — manage isolated git checkouts for session work.
+- [Smol Machines](smol-machines.md) — run sessions inside local libkrun / KVM VMs for OS-level isolation.
 
 ## Context
 
