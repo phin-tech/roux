@@ -1,11 +1,12 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
+  import type { GroupBy, Session } from "$lib/types";
   import { renameSignal, sessionDisplayName } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
   import { flashingSessions } from "$lib/stores/watches";
   import { unreadBySession } from "$lib/stores/notifications";
   import { showSessionHints } from "$lib/stores/ui";
   import { ptyInventoryBySession } from "$lib/stores/ptyInventory";
+  import { experimentValues } from "$lib/experiments";
   import {
     sessionAgentStatus,
     computeEffectiveSessionStatus,
@@ -18,8 +19,8 @@
   interface Props {
     session: Session;
     active: boolean;
+    groupBy: GroupBy;
     slotNumber?: number;
-    hideProjectTag?: boolean;
     onselect: () => void;
     onclose: () => void;
     onrename: (newName: string) => void;
@@ -30,14 +31,27 @@
   let {
     session,
     active,
+    groupBy,
     slotNumber,
-    hideProjectTag = false,
     onselect,
     onclose,
     onrename,
     onreconnect,
     oncontextmenu,
   }: Props = $props();
+
+  let simplified = $derived($experimentValues.simplifiedSessionTabs);
+  // Split on both separators so Windows paths (e.g. C:\src\repo\.worktrees\foo)
+  // resolve to the trailing component, not the entire absolute path.
+  let worktreeName = $derived(pathBasename(session.worktreePath));
+  let repoName = $derived(pathBasename(session.repoRoot));
+  let contextualSecondary = $derived(
+    groupBy === "project" ? repoName : worktreeName,
+  );
+
+  function pathBasename(path: string): string {
+    return path.split(/[\\/]+/).filter(Boolean).pop() ?? "";
+  }
 
   let slotLabel = $derived(
     slotNumber == null ? null : slotNumber === 10 ? "0" : String(slotNumber),
@@ -125,7 +139,7 @@
   let projectName = $derived(
     session.projectId ? $projects.find((p) => p.id === session.projectId)?.name ?? null : null
   );
-  let showProjectTag = $derived(!hideProjectTag && projectName != null);
+  let showProjectTag = $derived(groupBy !== "project" && projectName != null);
 
   let isFlashing = $derived($flashingSessions.has(session.id));
   let unreadCount = $derived($unreadBySession.get(session.id) ?? 0);
@@ -136,7 +150,9 @@
   );
 
   let showRow2 = $derived(
-    session.isWorktree || showProjectTag || session.cost != null
+    simplified
+      ? Boolean(secondaryBranch || contextualSecondary)
+      : session.isWorktree || showProjectTag || session.cost != null,
   );
 
   let detailLabel = $derived(
@@ -205,13 +221,13 @@
       </div>
 
       <div class="flex shrink-0 items-center gap-1">
-        {#if showPaneInventory}
+        {#if !simplified && showPaneInventory}
           <span
             class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-bg-surface px-1 text-[9px] font-semibold tabular-nums text-text-muted"
             title={activePaneTitle}
           >{attachedCount}</span>
         {/if}
-        {#if detachedCount > 0}
+        {#if !simplified && detachedCount > 0}
           <span
             class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold tabular-nums
               {detachedHasUnread
@@ -256,33 +272,58 @@
     </div>
 
     {#if showRow2}
-      <div class="mt-0.5 flex min-h-4 items-center gap-1.5 overflow-hidden text-[10px] text-text-muted">
-        {#if session.isWorktree}
-          <span
-            class="inline-flex h-4 shrink-0 items-center gap-1 rounded bg-bg-surface/70 px-1.5 font-medium text-text-secondary"
-            title={detailLabel}
-          >
-            <GitBranch size={10} />
-            <span>worktree</span>
-          </span>
-        {/if}
-        {#if secondaryBranch}
-          <span class="min-w-0 truncate font-mono text-[10px] text-text-muted" title={secondaryBranch}>
-            {secondaryBranch}
-          </span>
-        {/if}
-        {#if session.isWorktree}
-          <span class="inline-flex min-w-0 items-center gap-1">
-            <SessionWorktrunkChips worktreePath={session.worktreePath} />
-          </span>
-        {/if}
-        {#if showProjectTag}
-          <span class="inline-flex h-4 shrink-0 items-center rounded bg-accent-dim/15 px-1.5 font-semibold text-accent">{projectName}</span>
-        {/if}
-        {#if session.cost != null}
-          <span class="ml-auto shrink-0 font-semibold tabular-nums">${session.cost.toFixed(2)}</span>
-        {/if}
-      </div>
+      {#if simplified}
+        <div
+          data-testid="session-secondary"
+          class="mt-0.5 flex min-h-4 min-w-0 items-center gap-1.5 overflow-hidden text-[10px] text-text-muted"
+        >
+          {#if secondaryBranch}
+            <span
+              data-testid="session-secondary-branch"
+              class="min-w-0 truncate font-mono text-text-muted"
+              title={secondaryBranch}
+            >{secondaryBranch}</span>
+            {#if contextualSecondary}
+              <span class="shrink-0 text-text-muted">·</span>
+            {/if}
+          {/if}
+          {#if contextualSecondary}
+            <span
+              data-testid="session-secondary-context"
+              class="min-w-0 truncate"
+              title={contextualSecondary}
+            >{contextualSecondary}</span>
+          {/if}
+        </div>
+      {:else}
+        <div class="mt-0.5 flex min-h-4 items-center gap-1.5 overflow-hidden text-[10px] text-text-muted">
+          {#if session.isWorktree}
+            <span
+              class="inline-flex h-4 shrink-0 items-center gap-1 rounded bg-bg-surface/70 px-1.5 font-medium text-text-secondary"
+              title={detailLabel}
+            >
+              <GitBranch size={10} />
+              <span>worktree</span>
+            </span>
+          {/if}
+          {#if secondaryBranch}
+            <span class="min-w-0 truncate font-mono text-[10px] text-text-muted" title={secondaryBranch}>
+              {secondaryBranch}
+            </span>
+          {/if}
+          {#if session.isWorktree}
+            <span class="inline-flex min-w-0 items-center gap-1">
+              <SessionWorktrunkChips worktreePath={session.worktreePath} />
+            </span>
+          {/if}
+          {#if showProjectTag}
+            <span class="inline-flex h-4 shrink-0 items-center rounded bg-accent-dim/15 px-1.5 font-semibold text-accent">{projectName}</span>
+          {/if}
+          {#if session.cost != null}
+            <span class="ml-auto shrink-0 font-semibold tabular-nums">${session.cost.toFixed(2)}</span>
+          {/if}
+        </div>
+      {/if}
     {/if}
   </div>
 

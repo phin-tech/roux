@@ -85,12 +85,9 @@
   let collapsedGroups = $state(loadStringSet(COLLAPSED_GROUPS_KEY));
   let seenProjects = $state(loadStringSet(SEEN_PROJECTS_KEY));
 
+  let groupByMode = $derived($settings.groupBy ?? "repo");
   let grouped = $derived(
-    getGroupedSessions(
-      $sessionList,
-      $projects,
-      $settings.groupBy ?? "repo",
-    ),
+    getGroupedSessions($sessionList, $projects, groupByMode),
   );
   // In "session" mode there is exactly one synthetic "Sessions" group — its
   // header would just take up space, so we hide it. In repo/project modes a
@@ -505,11 +502,13 @@
     void initTaskOverrides();
   });
 
-  // Poll non-git sessions to detect when they become git repos (e.g. after `git init`)
+  // Poll non-git sessions to detect when they become git repos (e.g. after
+  // `git init`). Read $sessionList inside the timer so we don't keep
+  // refreshing sessions that have since been removed (the prior
+  // implementation closed over a stale snapshot).
   $effect(() => {
-    const sessions = $sessionList;
     const interval = setInterval(() => {
-      for (const s of sessions) {
+      for (const s of $sessionList) {
         if (!s.isGitRepo) {
           refreshSessionGitStatus(s.id).then((isGit) => {
             if (isGit) updateSessionGitStatus(s.id, true);
@@ -648,8 +647,8 @@
             <SessionCard
               {session}
               active={session.id === $activeSessionId}
+              groupBy={groupByMode}
               slotNumber={slotById.get(session.id)}
-              hideProjectTag={($settings.groupBy ?? "repo") === "project"}
               onselect={() => setActiveSession(session.id)}
               onclose={() => handleClose(session.id)}
               onrename={(newName) => renameSession(session.id, newName)}

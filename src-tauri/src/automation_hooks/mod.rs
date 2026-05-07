@@ -1008,6 +1008,11 @@ async fn execute_command(
     if let Some(cwd) = context.cwd_path() {
         child.current_dir(cwd);
     }
+    // Kill the hook child if the future is dropped (e.g. the watch poll
+    // loop's `select!` chose the cancellation branch). Without this a
+    // wedged hook can keep a removed session-scoped watch alive long
+    // after the session was deleted.
+    child.kill_on_drop(true);
     let mut child = child
         .spawn()
         .map_err(|source| HookError::Execute { name: command.name.clone(), source })?;

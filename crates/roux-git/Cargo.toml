@@ -10,6 +10,8 @@ workspace = true
 [dependencies]
 duct = "1"
 thiserror = "2"
+tokio = { version = "1", features = ["process", "io-util", "rt", "macros"] }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt"] }

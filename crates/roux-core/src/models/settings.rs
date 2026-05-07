@@ -189,6 +189,32 @@ pub enum GpuAcceleration {
     Off,
 }
 
+/// No-op variant used to verify the enum-experiment pipeline end to end.
+/// Replace or remove once a real enum experiment lands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ExampleVariant {
+    #[default]
+    A,
+    B,
+    C,
+}
+
+/// Runtime feature flags surfaced under Settings → Experiments. Each field is
+/// either a `bool` (toggle) or a small enum (multi-choice). Adding a field
+/// here also requires adding a registry entry in `src/lib/experiments.ts` so
+/// the UI knows how to render it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExperimentsConfig {
+    #[serde(default)]
+    pub example_flag: bool,
+    #[serde(default)]
+    pub example_variant: ExampleVariant,
+    #[serde(default)]
+    pub simplified_session_tabs: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RouxSettings {
@@ -277,6 +303,11 @@ pub struct RouxSettings {
     /// `tauri-plugin-notification` is never invoked. Defaults to true.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
+    /// Per-pane agent completion notifications. When false, the
+    /// generating→idle transition never produces a notification card or OS
+    /// fan-out. Error notifications are unaffected. Defaults to true.
+    #[serde(default = "default_true")]
+    pub agent_completion_notifications_enabled: bool,
     /// When a background agent leaves the "attention" (waiting-for-answer)
     /// state, also clear the pane's `permissionInfo` so the Claude
     /// Allow/Deny affordance disappears alongside the notification.
@@ -390,6 +421,9 @@ pub struct RouxSettings {
     /// Unix epoch milliseconds for the last successful MCP host config write.
     #[serde(default)]
     pub mcp_last_configured_at_ms: Option<u64>,
+    /// Runtime feature flags. See `ExperimentsConfig`.
+    #[serde(default)]
+    pub experiments: ExperimentsConfig,
 }
 
 impl Default for RouxSettings {
@@ -430,6 +464,7 @@ impl Default for RouxSettings {
             group_by: GroupBy::Repo,
             confirm_on_quit: true,
             notifications_enabled: true,
+            agent_completion_notifications_enabled: true,
             auto_clear_attention_state: true,
             update_check_on_launch: true,
             notes_include_web_anchors: true,
@@ -452,6 +487,7 @@ impl Default for RouxSettings {
             mcp_enabled: false,
             mcp_last_configured_host: None,
             mcp_last_configured_at_ms: None,
+            experiments: ExperimentsConfig::default(),
         }
     }
 }
@@ -690,8 +726,8 @@ mod theme_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        stable_source_id, LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode,
-        UpdateChannel,
+        stable_source_id, ExampleVariant, ExperimentsConfig, LibrarySource, LibrarySourceKind,
+        RouxSettings, SkillSyncMode, UpdateChannel,
     };
 
     #[test]
@@ -739,6 +775,32 @@ mod tests {
 
         let normalized = settings.normalized();
         assert_eq!(normalized.repo_roots, vec!["/tmp/src", "/tmp/other"]);
+    }
+
+    #[test]
+    fn settings_without_agent_completion_field_defaults_to_true() {
+        let legacy = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.5,
+            "taskPanelCollapsed": true
+        }"#;
+        let parsed: RouxSettings = serde_json::from_str(legacy).unwrap();
+        assert!(parsed.agent_completion_notifications_enabled);
     }
 
     #[test]
@@ -833,6 +895,58 @@ mod tests {
     fn settings_default_skill_sync_is_off() {
         let settings = RouxSettings::default();
         assert_eq!(settings.library_skill_sync_default, SkillSyncMode::Off);
+    }
+
+    #[test]
+    fn settings_without_experiments_deserializes_with_default() {
+        // Pre-existing settings.json files written before the experiments
+        // field existed must continue to load with all flags off.
+        let json = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.4,
+            "taskPanelCollapsed": false
+        }"#;
+
+        let settings: RouxSettings = serde_json::from_str(json).unwrap();
+        assert!(!settings.experiments.example_flag);
+        assert_eq!(settings.experiments.example_variant, ExampleVariant::A);
+    }
+
+    #[test]
+    fn experiments_partial_payload_fills_missing_with_defaults() {
+        // A flag added later (e.g. only `exampleVariant` set, `exampleFlag`
+        // absent) must not fail deserialization — each inner field is
+        // `#[serde(default)]`.
+        let json = r#"{ "exampleVariant": "c" }"#;
+        let exp: ExperimentsConfig = serde_json::from_str(json).unwrap();
+        assert!(!exp.example_flag);
+        assert_eq!(exp.example_variant, ExampleVariant::C);
+        assert!(!exp.simplified_session_tabs);
+    }
+
+    #[test]
+    fn experiments_default_simplified_session_tabs_off() {
+        // Legacy settings written before `simplifiedSessionTabs` existed must
+        // deserialize cleanly with the flag defaulting to `false`.
+        let json = r#"{ "exampleFlag": true }"#;
+        let exp: ExperimentsConfig = serde_json::from_str(json).unwrap();
+        assert!(exp.example_flag);
+        assert!(!exp.simplified_session_tabs);
     }
 
     #[test]

@@ -7,7 +7,6 @@
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
-  import MultiLineEditor from "$lib/components/MultiLineEditor.svelte";
   import LibraryWindow from "$lib/components/LibraryWindow.svelte";
   import LibraryVariablePrompt from "$lib/components/LibraryVariablePrompt.svelte";
   import { multiLineEditor } from "$lib/stores/multiLineEditor";
@@ -58,7 +57,15 @@
   import NewProjectDialog from "$lib/components/NewProjectDialog.svelte";
   import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
-  import { installSessionPrEffect } from "$lib/stores/sessionPrLookup";
+  import {
+    initNotificationAutoRead,
+    stopNotificationAutoRead,
+  } from "$lib/notifications/autoRead";
+  import {
+    installSessionPrEffect,
+    refreshActiveSessionPr,
+  } from "$lib/stores/sessionPrLookup";
+  import { installSessionBranchPoller } from "$lib/stores/sessionBranchPoller";
   import { clearPermissionInfo } from "$lib/panes/agentState";
   import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
@@ -214,6 +221,20 @@
     return !cmd.available || cmd.available();
   }
 
+  function commandAllowedWhileMultiLineEditorOpen(commandId: string): boolean {
+    if (commandId === "pane.open-multiline-editor") return true;
+    return registry.get(commandId)?.category === "App";
+  }
+
+  // The editor's gate at line ~281 should only fire when focus is
+  // actually inside the editor. Without this check, opening the editor
+  // in pane A and clicking into xterm pane B would still route every
+  // non-whitelisted chord (Cmd+W, Cmd+1, etc.) through the gate's
+  // early-return, silently dropping them in pane B.
+  function focusIsInMultiLineEditor(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest("[data-multiline-editor-root]") !== null;
+  }
+
   function getLeaderPromptInitialValue(commandId: string): string {
     if (commandId === "pane.rename") {
       return queries.focusedPane()?.name ?? "";
@@ -271,9 +292,22 @@
       // Palette handles its own keys; stay out of the way.
       return;
     }
-    // MultiLineEditor modal owns all keys while open — otherwise global
-    // chords like Cmd+D (split pane) would fire while the user is editing.
-    if (get(multiLineEditor).open) {
+    // MultiLineEditor owns editing-sensitive keys while it has focus.
+    // When the editor is open but focus is in another pane (xterm,
+    // sidebar, etc.) we fall through to normal keymap dispatch so
+    // pane-category chords still work in the focused pane.
+    if (get(multiLineEditor).open && focusIsInMultiLineEditor(e.target)) {
+      const km = get(keymapState);
+      const resolution = resolveKey(e, km, isCommandAvailable);
+      if (
+        resolution.kind === "chord" &&
+        resolution.action.kind === "command" &&
+        commandAllowedWhileMultiLineEditorOpen(resolution.action.id)
+      ) {
+        e.preventDefault();
+        dispatchKeymapAction(resolution.action);
+        if (!resolution.keepTreeOpen) keymapExitTree();
+      }
       return;
     }
     if (get(libraryWindow).open) {
@@ -384,11 +418,22 @@
   let unlistenSessionPrEffect: (() => void) | null = null;
   let stopPtyInventoryPolling: (() => void) | null = null;
   let tauriUnlisteners: Array<() => void> = [];
+  let stopSessionBranchPoller: (() => void) | null = null;
+
+  function handleWindowFocusForPr(): void {
+    // Force-refresh the active session's PR on every focus so a freshly
+    // pushed PR / merged PR / closed PR shows up without waiting for
+    // the negative cache TTL. Cheap (one gh call) and gated by the
+    // existing in-flight guard against thundering herd.
+    void refreshActiveSessionPr();
+  }
 
   function cleanupAppLifecycle() {
+    stopNotificationAutoRead();
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
     window.removeEventListener("blur", handleWindowBlur);
+    window.removeEventListener("focus", handleWindowFocusForPr);
     window.removeEventListener("beforeunload", cleanupAppLifecycle);
     for (const unlisten of tauriUnlisteners.splice(0)) {
       try {
@@ -403,6 +448,8 @@
     unlistenSessionPrEffect = null;
     stopPtyInventoryPolling?.();
     stopPtyInventoryPolling = null;
+    stopSessionBranchPoller?.();
+    stopSessionBranchPoller = null;
     teardownAppMenu();
   }
 
@@ -477,6 +524,16 @@
     // available) so the status bar can render a PR chip and the optional
     // auto-watch flow can create a session-scoped PR watch.
     unlistenSessionPrEffect = installSessionPrEffect();
+
+    // Re-read each session's git branch on a low-frequency tick so a
+    // `git checkout` inside the pane updates `Session.branch` and the
+    // PR-lookup effect re-fires for the new branch.
+    stopSessionBranchPoller = installSessionBranchPoller();
+
+    // Force-refresh the active session's PR on window focus. Catches the
+    // common "user opens a PR in a browser tab and comes back" case
+    // without waiting for the negative cache TTL.
+    window.addEventListener("focus", handleWindowFocusForPr);
 
     // Kick off a silent background update check (5s debounce, respects user toggle)
     runStartupCheck();
@@ -743,6 +800,7 @@
     tauriUnlisteners.push(await onNotificationEvent((payload) => {
       applyNotificationEvent(payload);
     }));
+    initNotificationAutoRead();
 
     // Listen for global status updates from hooks. Tier-1 routing (with a
     // `rouxPaneId` in the payload) updates the pane's runtime agentState so
@@ -815,8 +873,6 @@
   onCheckForUpdates={() => { openSidebar("settings"); void runManualCheck(); }}
   initialCommandId={$commandSurface.initialCommandId}
 />
-
-<MultiLineEditor />
 
 <LibraryWindow />
 

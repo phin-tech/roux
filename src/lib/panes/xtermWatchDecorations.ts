@@ -100,13 +100,18 @@ export function buildWatchConfigForTarget(
   };
 }
 
+export interface XtermWatchDecorationsHandle {
+  dispose(): void;
+}
+
 export function installXtermWatchDecorations(
   terminal: Terminal,
   options?: InstallXtermWatchDecorationOptions,
-): void {
+): XtermWatchDecorationsHandle {
   const decoratedTargets = new Set<string>();
   const createWatchFn = options?.createWatch ?? createWatch;
-  const getActiveSessionId = options?.getActiveSessionId ?? (() => get(sessionState).activeSessionId);
+  const getActiveSessionId =
+    options?.getActiveSessionId ?? (() => get(sessionState).activeSessionId);
 
   const addWatchDecoration = (
     yOffset: number,
@@ -151,20 +156,89 @@ export function installXtermWatchDecorations(
     });
   };
 
-  // Window of visual rows to scan above the cursor. Wide enough to catch
-  // logical lines whose URL wraps across several visual rows at narrow
-  // widths (a 100-char URL at 40 cols wraps to 3 rows). Beyond this we
-  // accept rare misses; the decoration is a UX nicety, not load-bearing.
+  // Default lookback above the cursor. Wide enough to catch logical
+  // lines whose URL wraps across several visual rows at narrow widths
+  // (a 100-char URL at 40 cols wraps to 3 rows).
   const SCAN_WINDOW = 16;
+  // Hard cap on how far back we'll catch up in a single scan. Bursty
+  // PTY output (`git log -p`, `cargo build`) can write hundreds of rows
+  // between rAF callbacks; without a cap we'd traverse the entire
+  // scrollback on the first frame after a burst.
+  const MAX_CATCHUP_LINES = 2048;
 
-  terminal.onWriteParsed(() => {
+  // Coalesce scans into a single rAF callback. Under fast PTY traffic
+  // (`watch`, `ls -R`, build output) `onWriteParsed` fires hundreds of
+  // times per second; without this the buffer + regex scan ran on each
+  // write and pinned the render thread.
+  //
+  // To avoid losing decorations on bursts that scroll URLs out of the
+  // viewport between rAFs, we track the highest absolute line scanned
+  // so far and walk forward from there to the current cursor row each
+  // time, instead of only looking at a fixed window above the cursor.
+  // When a single frame's catch-up would exceed MAX_CATCHUP_LINES, the
+  // unscanned remainder is recorded as `pendingBacklog` and drained on
+  // subsequent rAFs — without this, lines in the gap would be skipped
+  // permanently if output goes quiet right after a burst.
+  let scanScheduled = false;
+  let disposed = false;
+  let lastScannedAbs: number | null = null;
+  let pendingBacklog: { start: number; end: number } | null = null;
+
+  const scheduleScan = () => {
+    if (scanScheduled || disposed) return;
+    scanScheduled = true;
+    // typeof check: keeps node-only Vitest happy where rAF is undefined.
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(runScan);
+    } else {
+      // Fallback for environments without rAF — still defer so a burst of
+      // writes coalesces.
+      setTimeout(runScan, 16);
+    }
+  };
+
+  const runScan = () => {
+    scanScheduled = false;
+    if (disposed) return;
     const buf = terminal.buffer.active;
-    const startVp = Math.max(0, buf.cursorY - SCAN_WINDOW);
-    const endVp = buf.cursorY;
+    const bottomAbs = buf.baseY + buf.cursorY;
+    // Floor: at minimum, scan SCAN_WINDOW rows above the cursor. This
+    // preserves the original behavior on the first scan and in steady
+    // state.
+    const windowFloor = Math.max(0, bottomAbs - SCAN_WINDOW);
+    // Determine the natural catch-up start: pending backlog from a prior
+    // frame takes priority, otherwise extend back to lastScannedAbs+1.
+    let top: number;
+    if (pendingBacklog !== null) {
+      top = pendingBacklog.start;
+    } else if (lastScannedAbs === null) {
+      top = windowFloor;
+    } else {
+      top = Math.min(windowFloor, lastScannedAbs + 1);
+    }
 
-    for (let i = startVp; i <= endVp; i++) {
-      const startAbs = buf.baseY + i;
-      const startLine = buf.getLine(startAbs);
+    // Cap the per-frame work at MAX_CATCHUP_LINES. If the range exceeds
+    // it, scan the OLDEST chunk first and record the rest as backlog —
+    // newer chunks can still scroll into scrollback later, but xterm's
+    // buffer keeps absolute lines reachable until they're evicted.
+    const totalRange = bottomAbs - top + 1;
+    let scanEnd: number;
+    if (totalRange > MAX_CATCHUP_LINES) {
+      scanEnd = top + MAX_CATCHUP_LINES - 1;
+      pendingBacklog = { start: scanEnd + 1, end: bottomAbs };
+    } else {
+      scanEnd = bottomAbs;
+      pendingBacklog = null;
+    }
+    // lastScannedAbs tracks the latest line we've actually scanned, not
+    // the latest cursor position — so a backlog drain in the next rAF
+    // doesn't skip rows we haven't yet processed.
+    if (lastScannedAbs === null || scanEnd > lastScannedAbs) {
+      lastScannedAbs = scanEnd;
+    }
+
+    for (let absStart = top; absStart <= scanEnd; absStart++) {
+      const startLine = buf.getLine(absStart);
       if (!startLine) continue;
       // Only kick off processing from a logical-line start. Continuation
       // rows (`isWrapped=true`) are folded into their parent's scan.
@@ -179,7 +253,7 @@ export function installXtermWatchDecorations(
       const segments: Segment[] = [];
       let j = 0;
       while (true) {
-        const absLine = startAbs + j;
+        const absLine = absStart + j;
         const line = buf.getLine(absLine);
         if (!line) break;
         if (j > 0 && !line.isWrapped) break;
@@ -188,7 +262,9 @@ export function installXtermWatchDecorations(
         const text = line.translateToString(false);
         segments.push({
           absLine,
-          yOffset: i + j - buf.cursorY,
+          // yOffset is relative to the cursor; xterm markers accept
+          // negative values, which place the marker in scrollback.
+          yOffset: absLine - bottomAbs,
           length: text.length,
         });
         logicalText += text;
@@ -216,7 +292,26 @@ export function installXtermWatchDecorations(
         );
       }
     }
+
+    // Drain remaining backlog on a follow-up frame. Each pass scans
+    // MAX_CATCHUP_LINES, so the worst-case lag for a deep backlog is
+    // ceil(backlog / MAX_CATCHUP_LINES) frames — orders of magnitude
+    // better than losing the lines outright.
+    if (pendingBacklog !== null) {
+      scheduleScan();
+    }
+  };
+
+  const writeParsedSub = terminal.onWriteParsed(() => {
+    scheduleScan();
   });
+
+  return {
+    dispose() {
+      disposed = true;
+      writeParsedSub.dispose();
+    },
+  };
 }
 
 interface ProjectedOffset {

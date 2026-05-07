@@ -2,6 +2,10 @@ import { get } from "svelte/store";
 import { agentStates, type AgentState } from "./agentState";
 import { paneInstances } from "./instances";
 import { resolveProfileRef } from "./profiles";
+import { findSessionForPane } from "./layout";
+import { focusedPaneId } from "./focus";
+import { activeSessionId } from "$lib/stores/sessions";
+import { settings } from "$lib/stores/settings";
 import { notificationsPush } from "$lib/tauri";
 import { log, logError } from "$lib/logging";
 
@@ -61,6 +65,10 @@ export function initAgentNotifications(): void {
       if (prev === "generating" && state.status === "idle") {
         void fireCompletionNotification(paneId, state);
       }
+
+      if (prev !== "error" && state.status === "error") {
+        void fireErrorNotification(paneId, state);
+      }
     }
 
     // Drop entries for panes that no longer have an agentState — keeps
@@ -84,10 +92,23 @@ async function fireCompletionNotification(
   paneId: string,
   state: AgentState,
 ): Promise<void> {
+  const enabled = get(settings).agentCompletionNotificationsEnabled ?? true;
+  if (!enabled) return;
+
+  const sessionId = findSessionForPane(paneId);
+  const paneIsVisible =
+    sessionId !== null
+    && get(activeSessionId) === sessionId
+    && get(focusedPaneId) === paneId;
+  if (paneIsVisible) return;
+
   const instance = get(paneInstances).get(paneId);
   const profile = resolveProfileRef(instance?.spawnProfileRef);
   const title = deriveTitle(instance?.name, profile?.name, state.provider);
   const body = deriveBody(state);
+  const dedupKey = sessionId
+    ? `completion:session:${sessionId}`
+    : `completion:pane:${paneId}`;
 
   try {
     await notificationsPush({
@@ -96,6 +117,44 @@ async function fireCompletionNotification(
       title,
       subtitle: null,
       body,
+      sessionId,
+      actions: [
+        {
+          id: "focus",
+          label: "Focus pane",
+          kind: { type: "focusPane", paneId },
+          primary: true,
+        },
+        {
+          id: "dismiss",
+          label: "Dismiss",
+          kind: { type: "dismiss" },
+          primary: false,
+        },
+      ],
+      dedupKey,
+    });
+    log(`agentNotifications: fired generating→idle notification for pane ${paneId}`);
+  } catch (e) {
+    logError("agentNotifications: notificationsPush failed", e);
+  }
+}
+
+async function fireErrorNotification(
+  paneId: string,
+  state: AgentState,
+): Promise<void> {
+  const instance = get(paneInstances).get(paneId);
+  const profile = resolveProfileRef(instance?.spawnProfileRef);
+  const title = deriveErrorTitle(instance?.name, profile?.name, state.provider);
+
+  try {
+    await notificationsPush({
+      level: "error",
+      source: { type: "hook", provider: state.provider },
+      title,
+      subtitle: null,
+      body: `${capitalize(state.provider)} reported an error.`,
       sessionId: null,
       actions: [
         {
@@ -111,11 +170,11 @@ async function fireCompletionNotification(
           primary: false,
         },
       ],
-      dedupKey: `completion:pane:${paneId}`,
+      dedupKey: `error:pane:${paneId}`,
     });
-    log(`agentNotifications: fired generating→idle notification for pane ${paneId}`);
+    log(`agentNotifications: fired error notification for pane ${paneId}`);
   } catch (e) {
-    logError("agentNotifications: notificationsPush failed", e);
+    logError("agentNotifications: error notificationsPush failed", e);
   }
 }
 
@@ -124,9 +183,19 @@ function deriveTitle(
   profileName: string | undefined,
   provider: string,
 ): string {
-  if (paneName) return `${paneName} is idle`;
-  if (profileName) return `${profileName} is idle`;
-  return `${capitalize(provider)} is idle`;
+  if (paneName) return `${paneName} finished`;
+  if (profileName) return `${profileName} finished`;
+  return `${capitalize(provider)} finished`;
+}
+
+function deriveErrorTitle(
+  paneName: string | undefined,
+  profileName: string | undefined,
+  provider: string,
+): string {
+  if (paneName) return `${paneName} has an error`;
+  if (profileName) return `${profileName} has an error`;
+  return `${capitalize(provider)} has an error`;
 }
 
 function deriveBody(state: AgentState): string {

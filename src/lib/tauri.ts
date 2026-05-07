@@ -252,12 +252,14 @@ export async function createWorktree(
 export async function removeWorktree(
   repoPath: string,
   worktreePath: string,
-  alsoBranch: boolean = false
+  alsoBranch: boolean = false,
+  force: boolean = false
 ): Promise<void> {
   return invoke("cmd_remove_worktree", {
     repoPath,
     worktreePath,
     alsoBranch,
+    force,
   });
 }
 
@@ -526,8 +528,16 @@ export async function listBranches(repoPath: string): Promise<string[]> {
 }
 
 // Setup / CLI install
-import type { SetupStatus } from "$lib/bindings";
-export type { SetupStatus };
+import type {
+  AgentNotificationSetupStatus,
+  CodexNotificationConfigPreview,
+  SetupStatus,
+} from "$lib/bindings";
+export type {
+  AgentNotificationSetupStatus,
+  CodexNotificationConfigPreview,
+  SetupStatus,
+};
 
 export async function checkSetupNeeded(): Promise<boolean> {
   return invoke("check_setup_needed");
@@ -535,6 +545,18 @@ export async function checkSetupNeeded(): Promise<boolean> {
 
 export async function checkSetupStatus(): Promise<SetupStatus> {
   return invoke("check_setup_status");
+}
+
+export async function agentNotificationSetupStatus(): Promise<AgentNotificationSetupStatus> {
+  return invoke("cmd_agent_notification_setup_status");
+}
+
+export async function previewCodexNotificationConfig(): Promise<CodexNotificationConfigPreview> {
+  return invoke("cmd_preview_codex_notification_config");
+}
+
+export async function configureCodexNotificationConfig(): Promise<void> {
+  return invoke("cmd_configure_codex_notification_config");
 }
 
 export async function runSetup(): Promise<void> {
@@ -575,6 +597,29 @@ export async function listNonoProfiles(): Promise<string[]> {
 }
 
 // GitHub PR integration
+export type PrChecksState = "passing" | "failing" | "pending" | "none";
+export type PrCheckStatus = "passing" | "failing" | "pending";
+
+export interface PrChecksSummary {
+  state: PrChecksState;
+  passing: number;
+  failing: number;
+  pending: number;
+  total: number;
+}
+
+export interface PrCheckDetails {
+  name: string;
+  status: PrCheckStatus;
+  url: string | null;
+}
+
+export interface PrReviewDetails {
+  reviewer: string;
+  state: string;
+  url: string | null;
+}
+
 export interface PrInfo {
   number: number;
   title: string;
@@ -583,6 +628,12 @@ export interface PrInfo {
   isCrossRepository: boolean;
   url: string;
   repoSlug: string;
+  checks: PrChecksSummary | null;
+  checkRuns: PrCheckDetails[];
+  /** GitHub's `reviewDecision`: "APPROVED" | "CHANGES_REQUESTED" |
+   *  "REVIEW_REQUIRED", or null when there's no decision yet. */
+  reviewDecision: string | null;
+  reviewDetails: PrReviewDetails[];
 }
 
 export async function checkGhInstalled(): Promise<boolean> {
@@ -653,6 +704,19 @@ export async function setSessionNameOverride(
   nameOverride: string | null,
 ): Promise<void> {
   return invoke("set_session_name_override", { sessionId, nameOverride });
+}
+
+export async function setSessionPinnedPrUrl(
+  sessionId: string,
+  url: string | null,
+): Promise<void> {
+  return invoke("set_session_pinned_pr_url", { sessionId, url });
+}
+
+export async function refreshSessionBranch(
+  sessionId: string,
+): Promise<string | null> {
+  return invoke("refresh_session_branch", { sessionId });
 }
 
 // Multi-scoped notes (experimental — see docs/features/notes.md). The four

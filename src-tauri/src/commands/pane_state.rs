@@ -5,15 +5,42 @@
 // in specta's generated output. The frontend calls these via raw invoke() anyway.
 
 use crate::state::AppState;
+// `rlog!` is `#[macro_export]`-ed by `crate::logging`, so it's reachable as
+// `crate::rlog!(...)` without an explicit `use`.
 
-#[tauri::command]
-pub(crate) fn load_pane_state(session_id: String) -> Option<serde_json::Value> {
-    crate::pane_state::load_pane_state(&session_id)
+fn join_err(e: tauri::Error) -> String {
+    format!("task join: {e}")
 }
 
 #[tauri::command]
-pub(crate) fn save_pane_state(session_id: String, data: serde_json::Value) -> Result<(), String> {
-    crate::pane_state::save_pane_state(&session_id, data)
+pub(crate) async fn load_pane_state(session_id: String) -> Option<serde_json::Value> {
+    // The loader walks the status directory for provider-session enrichment;
+    // off-main-thread because hundreds of files at startup add up.
+    let id_for_log = session_id.clone();
+    let result =
+        tauri::async_runtime::spawn_blocking(move || crate::pane_state::load_pane_state(&session_id))
+            .await;
+    match result {
+        Ok(value) => value,
+        Err(e) => {
+            // Don't let a panic in the blocking task look like "no saved
+            // state" — that would silently trigger reset behavior.
+            crate::rlog!("load_pane_state: blocking task failed for {id_for_log:?}: {e}");
+            None
+        }
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn save_pane_state(
+    session_id: String,
+    data: serde_json::Value,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::pane_state::save_pane_state(&session_id, data)
+    })
+    .await
+    .map_err(join_err)?
 }
 
 #[tauri::command]
@@ -42,10 +69,16 @@ pub(crate) async fn save_live_pane_state(
         })
         .collect();
 
-    crate::pane_state::save_live_pane_state(&session_id, schema_version, layout, descriptors)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::pane_state::save_live_pane_state(&session_id, schema_version, layout, descriptors)
+    })
+    .await
+    .map_err(join_err)?
 }
 
 #[tauri::command]
-pub(crate) fn delete_pane_state(session_id: String) -> Result<(), String> {
-    crate::pane_state::delete_pane_state(&session_id)
+pub(crate) async fn delete_pane_state(session_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::pane_state::delete_pane_state(&session_id))
+        .await
+        .map_err(join_err)?
 }

@@ -20,6 +20,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Session restore on reconnect** — restores full split/shell layouts from saved pane state
 - **Session history** — closed sessions move into a history pane where you can restore them, open their notes, or delete them forever
 - **Shell terminals** — open shell panes alongside Claude for running commands
+- **Multiline editor** — docked terminal input editor with terminal-selection reinput, command corrections, context chips, and shell-style editing keys
 - **Command palette** — quick access to every action via ++cmd+k++
 - **Leader mode** — Vimish pane and session actions via ++cmd+;++ with inline pane rename
 - **Configurable keymap** — every shortcut lives in a KDL file you can edit; ships with `default` and `tmux` presets, supports sticky/passthrough modes and per-tree HUD timing
@@ -28,6 +29,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Independent terminal themes** — keep the terminal palette separate from the app chrome, including user-imported `.itermcolors` themes
 - **Native menu bar** — File/Edit/View/Session/Pane/Tools/Window/Help menus on macOS, Windows, and Linux
 - **Doctor panel** — inspect and reinstall CLI/hooks/skill integrations from Settings
+- **Agent notifications** — configure Claude Code hooks and Codex TUI notifications from Settings
 - **Projects** — group sessions across repos, save session blueprints, and inject project context
 - **Multi-scoped notes vault** — plain-text notes sidebar (++cmd+b++) with four scopes (global / project / repo / session), backed by an Obsidian-compatible markdown vault. Scriptable from `roux notes <scope> <verb>` and exposed to agents through per-PTY env vars. Experimental.
 - **CLI bridge** — `roux-cli` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal

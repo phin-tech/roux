@@ -10,7 +10,10 @@ import { userTerminalThemes } from "$lib/stores/userTerminalThemes";
 import { resolveTerminalTheme, type TerminalTheme } from "$lib/themes";
 import type { GpuAcceleration } from "$lib/bindings";
 
-import { installXtermWatchDecorations } from "./xtermWatchDecorations";
+import {
+  installXtermWatchDecorations,
+  type XtermWatchDecorationsHandle,
+} from "./xtermWatchDecorations";
 import { readPromptSnapshot, type PromptSnapshot } from "./promptSnapshot";
 import type { TerminalController, TerminalDimensions } from "./terminalRuntime";
 
@@ -23,6 +26,7 @@ class XtermTerminalController implements TerminalController {
   private readonly fitAddon: FitAddon;
   private webglAddon: WebglAddon | null = null;
   private webglContextLossSub: { dispose(): void } | null = null;
+  private watchDecorations: XtermWatchDecorationsHandle | null = null;
 
   constructor(options?: CreateTerminalControllerOptions) {
     const s = get(settings);
@@ -50,7 +54,7 @@ class XtermTerminalController implements TerminalController {
       openUrl(uri);
     }));
 
-    installXtermWatchDecorations(this.terminal);
+    this.watchDecorations = installXtermWatchDecorations(this.terminal);
   }
 
   private setupRenderer(mode: GpuAcceleration): void {
@@ -99,6 +103,8 @@ class XtermTerminalController implements TerminalController {
   }
 
   dispose(): void {
+    this.watchDecorations?.dispose();
+    this.watchDecorations = null;
     this.webglContextLossSub?.dispose();
     this.webglContextLossSub = null;
     this.webglAddon?.dispose();
@@ -129,12 +135,36 @@ class XtermTerminalController implements TerminalController {
     return () => disposable.dispose();
   }
 
+  input(data: string, wasUserInput?: boolean): void {
+    this.terminal.input(data, wasUserInput);
+  }
+
+  paste(data: string): void {
+    this.terminal.paste(data);
+  }
+
   write(bytes: Uint8Array): void {
     this.terminal.write(bytes);
   }
 
   focus(): void {
     this.terminal.focus();
+  }
+
+  hasSelection(): boolean {
+    return this.terminal.hasSelection();
+  }
+
+  getSelection(): string {
+    return this.terminal.getSelection();
+  }
+
+  clearSelection(): void {
+    this.terminal.clearSelection();
+  }
+
+  scrollToBottom(): void {
+    this.terminal.scrollToBottom();
   }
 
   setTheme(theme: TerminalTheme): void {

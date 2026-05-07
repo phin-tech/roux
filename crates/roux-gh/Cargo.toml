@@ -1,0 +1,12 @@
+[package]
+name = "roux-gh"
+version = "0.1.0"
+edition = "2021"
+description = "Async wrapper around the gh CLI for Roux"
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = "2"
+tokio = { version = "1", features = ["process", "io-util", "rt", "macros"] }

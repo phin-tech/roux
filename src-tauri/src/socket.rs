@@ -1512,6 +1512,7 @@ mod tests {
             archived: false,
             ended_at: None,
             blueprint_id: None,
+            pinned_pr_url: None,
         }
     }
 
@@ -2042,6 +2043,7 @@ mod tests {
             archived: false,
             ended_at: None,
             blueprint_id: None,
+            pinned_pr_url: None,
         }
     }
 

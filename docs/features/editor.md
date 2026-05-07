@@ -1,67 +1,124 @@
-# Multi-Line Prompt Editor
+# Multiline Editor
 
-The multi-line editor is a floating panel for preparing and cleaning up shell commands before inserting them into a terminal pane. It's especially useful for:
+The multiline editor is a compact prompt editor docked to the bottom of the active terminal pane. It is for preparing terminal input before sending it to a shell or agent TUI, without fighting the terminal's single-line prompt.
 
-- pasting multi-line CLI commands from documentation or LLM output
-- removing markdown code fence markers (``` ```)
-- collapsing wrapped continuation lines (backslash newlines)
-- stripping prompt prefixes ($, ❯, #, >) from copy-pasted snippets
-- fixing smart quotes that snuck in from rich-text sources
-- joining wrapped lines for compact one-liners
+Use it when you want to:
 
-## Opening the editor
+- paste or revise multi-line commands from docs, chat, or terminal output
+- edit selected terminal text before running it again
+- send a block of text to Claude Code without losing the editor
+- review command corrections before applying them
+- keep pane context visible while editing
 
-### From scratch
-- ++cmd+shift+e++ opens an empty editor seeded from the shell's current prompt (if available)
+The editor is intentionally a plain textarea, not CodeMirror. That keeps focus, selection, clipboard, and terminal submission behavior predictable inside xterm panes.
 
-### From clipboard
-- ++cmd+shift+v++ opens the editor pre-populated with your clipboard contents
+## Open And Close
 
-The editor is only available in **shell panes** and **command panes** that have an attached terminal.
-
-## Submitting and canceling
-
-- ++cmd+enter++ inserts the edited text into the terminal **without auto-executing**. You'll see the command in the terminal, ready to review before you press Enter.
-- ++escape++ closes the editor without writing anything.
-
-## Transform toolbar
-
-The editor includes six one-shot text transforms. Click a button to apply; you can undo and apply multiple times within the same editing session.
-
-| Transform | What it does |
+| Action | Default shortcut |
 |---|---|
-| Join lines | Collapse newlines and surrounding whitespace into a single line |
-| Unwrap \ | Remove trailing backslash-newline continuations (\\n becomes space) |
-| Strip $ / ❯ | Remove leading prompt markers: `$`, `❯`, `#`, `>`, plus one trailing space |
-| Strip ``` | Remove leading and trailing markdown code fence markers |
-| Smart → straight | Replace curly/smart quotes (`"`, `'`) with straight ASCII quotes |
-| Trim | Strip leading and trailing whitespace |
+| Toggle editor for the focused terminal pane | ++ctrl+g++ |
+| Toggle editor from anywhere in the app | ++cmd+shift+e++ |
+| Open editor with clipboard contents | ++cmd+shift+v++ |
+| Close editor without sending | ++escape++ or ++ctrl+g++ while the editor has focus |
 
-## Editor position and dragging
+The editor is available for shell and command panes with an attached terminal. It is scoped to one pane at a time and docks inside that pane, above the status bar.
 
-The editor appears as a floating panel that doesn't block the rest of your layout.
+Clicking the terminal area while the editor is open returns focus to the editor, unless you are selecting/copying terminal text.
 
-- **Smart positioning**: For new shells (minimal output), the editor appears near the top. For active shells (scrolled content), it appears near the bottom so it doesn't hide what you're doing.
-- **Dragging**: Click and drag the header bar to move the panel. Position persists across app restarts.
-- **Viewport safety**: The panel is always kept partially visible so you can grab it back if it drifts off-screen during a resize.
+## Seed Text
 
-## Text editing features
+Roux can open the editor with useful starting text:
 
-The editor uses [CodeMirror](https://codemirror.net/) for syntax highlighting and editing:
+- **Selected terminal text**: select text in a terminal pane, then press ++ctrl+g++. The editor opens with the selection loaded.
+- **Clipboard text**: press ++cmd+shift+v++ to open with clipboard contents. Clipboard text takes priority over terminal selection.
+- **Empty prompt**: press ++ctrl+g++ with no selection to start from a blank editor.
 
-- **Syntax highlighting**: Shell syntax is highlighted for readability
-- **Undo/redo**: ++cmd+z++ and ++cmd+shift+z++ (or ++ctrl+y++ for redo) work as expected
-- **Standard keybindings**: Cut, copy, paste, select-all, and other common text commands work normally
+## Send Behavior
 
-## Keyboard reference
+| Action | Default shortcut |
+|---|---|
+| Send editor text to the terminal and keep the editor open | ++cmd+enter++ |
+| Insert a newline inside the editor | ++shift+enter++, ++ctrl+enter++, or ++alt+enter++ |
+
+When you send:
+
+- the text is written to the focused pane's attached PTY
+- Roux also sends Enter, so the shell or agent sees it as if you pressed Enter in the terminal
+- the editor stays open for follow-up edits
+- shell panes use xterm input for single-line commands so normal shells receive the text reliably
+- multi-line shell input and agent input use paste-style insertion before Enter
+
+## Context Chips
+
+The compact header shows small chips for the context Roux knows about the target pane:
+
+- input target: `shell` or `claude`
+- cwd: the pane working-directory basename, falling back to the session worktree
+- git branch
+- worktrunk state when available: `dirty`, ahead/behind counts, and `locked`
+- spawn profile name when the pane was created from a profile
+
+These chips are informational. Clickable actions stay limited to the close button, command correction pill, keyboard-shortcut hint, and Send button.
+
+## Command Corrections
+
+In shell mode, Roux checks the first command line for a small set of common mistakes and shows a subtle **Fix** pill when it has a suggestion. Corrections are click-to-apply; Roux does not rewrite your input silently.
+
+Current first-pass corrections include:
+
+| Input | Suggested correction |
+|---|---|
+| `gti status` | `git status` |
+| `git statsu` | `git status` |
+| `git comit` | `git commit` |
+| `git chekout` | `git checkout` |
+| `npm dev` | `npm run dev` |
+| `npm build` | `npm run build` |
+| `npm check` | `npm run check` |
+| `npm lint` | `npm run lint` |
+
+Valid npm lifecycle shortcuts such as `npm test` and `npm start` are left alone.
+
+## Editor Keybindings
+
+These shortcuts work while focus is inside the multiline editor:
 
 | Shortcut | Action |
 |---|---|
-| ++cmd+shift+e++ | Open empty editor |
-| ++cmd+shift+v++ | Open with clipboard |
-| ++cmd+enter++ | Insert into terminal |
-| ++escape++ | Cancel |
-| ++cmd+z++ | Undo |
-| ++cmd+shift+z++ | Redo |
+| ++cmd+enter++ | Send text to the target terminal and keep editor open |
+| ++shift+enter++ | Insert newline |
+| ++ctrl+enter++ | Insert newline |
+| ++alt+enter++ | Insert newline |
+| ++ctrl+c++ | Clear the editor when there is no selected text |
+| ++ctrl+u++ | Copy and clear the current line |
+| ++cmd+shift+k++ | Clear selected lines, or the current line when no text is selected |
+| ++alt+backspace++ | Delete word left |
+| ++ctrl+w++ | Delete word left |
+| ++ctrl+k++ | Delete to line end |
+| ++cmd+backspace++ | Delete to line start |
+| ++cmd+delete++ | Delete to line end |
+| ++escape++ | Close without sending |
+| ++ctrl+g++ | Close without sending |
 
-All these keybindings are customizable via `~/.config/roux/keymap.kdl`. See [Keymap](keymap.md) for how to rebind them.
+Normal textarea behavior still applies for ordinary typing, paste, selection, undo/redo, copy, and select-all.
+
+## Terminal Selection And Copy
+
+Terminal selection still works while the editor is open:
+
+- dragging in the terminal can select terminal output
+- copying uses the selected terminal text
+- clicking the terminal without a selection focuses the editor again
+- pressing ++ctrl+g++ with selected terminal text reopens/seeds the editor from that selection
+
+## Customizing Global Shortcuts
+
+The global shortcuts that open the editor come from `~/.config/roux/keymap.kdl`:
+
+```kdl
+bind "Ctrl+KeyG"       "pane.open-multiline-editor"
+bind "Cmd+Shift+KeyE"  "pane.open-multiline-editor"
+bind "Cmd+Shift+KeyV"  "pane.open-multiline-editor-with-clipboard"
+```
+
+Reload via ++cmd+k++ -> **Reload Keymap** after editing the file. See [Keymap](keymap.md) for the full keymap schema.

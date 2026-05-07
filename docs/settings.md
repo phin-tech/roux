@@ -14,7 +14,7 @@ Settings are grouped into categories in a sidebar modal. Changes are persisted a
 - **Claude** — binary path override, default model, additional flags.
 - **Integrations** — GitHub CLI (`gh`) path override for PR/session integrations.
 - **Agent Integrations** — Roux MCP enablement and supported MCP host setup.
-- **Notifications** — OS notification master switch and test notification trigger.
+- **Notifications** — OS notification master switch, test notification trigger, and Claude/Codex agent notification setup.
 - **Keyboard** — toggles for Option-pane and Command-session hint overlays.
 - **Notes** — experimental multi-scoped vault settings. See below.
 - **Advanced** — app version, updater controls, update channel, logging, and the Doctor panel.
@@ -60,6 +60,18 @@ The **Agent Integrations** section configures Roux for MCP hosts such as Claude 
 Roux reads an existing host config before writing. It preserves unrelated config and unknown fields on Roux's own server entry, skips writes when the entry is already current, and writes updates atomically.
 
 For v1, MCP exposes useful inspection and safe action tools by default. It does not expose arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, or broad filesystem mutation.
+
+## Notifications
+
+The **Notifications** section controls both desktop notification fan-out and agent notification setup.
+
+- **Enable OS notifications** (`notificationsEnabled`) — controls whether Roux forwards qualifying events to the operating system. The in-app notifications pane, unread badges, and session indicators still work when this is off.
+- **Agent notifications** — checks whether supported agent CLIs are configured to report back to Roux.
+- **Claude Code** — uses Roux's hook installer. **Configure** installs missing hooks and the Roux CLI if needed; **Reinstall** refreshes an already-configured hook setup.
+- **Codex** — reads `~/.codex/config.toml` and checks `[tui].notification_condition`. **Preview** shows the full TOML content Roux would write. **Configure** creates or updates the file so Codex uses `notification_condition = "always"`, while preserving unrelated config where possible.
+- **Test notification** — sends a sample notification through Roux's notification service so you can confirm OS permissions.
+
+Codex config writes are intentionally previewable because `~/.codex/config.toml` may contain unrelated model, approval, sandbox, or provider settings. Roux only targets the `notification_condition` entry under `[tui]`.
 
 ## Doctor panel
 

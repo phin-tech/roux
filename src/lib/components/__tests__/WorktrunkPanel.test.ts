@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tick } from "svelte";
-import { fireEvent, render } from "@testing-library/svelte";
+import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import type { WorktrunkDiagnostics } from "$lib/bindings";
-import type { Worktree } from "$lib/types";
+import type { Worktree, WorktrunkMetadata } from "$lib/types";
 
 vi.mock("$lib/bindings", () => ({
   commands: {
@@ -104,6 +104,28 @@ function makeWorktree(overrides: Partial<Worktree> = {}): Worktree {
     branch: "feat-a",
     isMain: false,
     worktrunk: null,
+    ...overrides,
+  };
+}
+
+function makeMetadata(
+  overrides: Partial<WorktrunkMetadata> = {},
+): WorktrunkMetadata {
+  return {
+    dirty: false,
+    ahead: 0,
+    behind: 0,
+    locked: false,
+    lockReason: null,
+    prunable: false,
+    prunableReason: null,
+    isCurrent: false,
+    isPrevious: false,
+    ciStatus: null,
+    ciUrl: null,
+    ciStale: false,
+    devServerUrl: null,
+    mainState: null,
     ...overrides,
   };
 }
@@ -311,12 +333,18 @@ describe("WorktrunkPanel", () => {
 
 describe("WorktrunkPanel Worktrees tab", () => {
   let confirmSpy: ReturnType<typeof vi.spyOn>;
+  // Snapshot the real `navigator.clipboard` so the bulk-copy test
+  // (which swaps in a vi.fn for `writeText`) doesn't leak the stub
+  // into later tests.
+  let originalClipboard: typeof navigator.clipboard | undefined;
 
   beforeEach(() => {
     vi.mocked(commands.cmdWorktrunkDiagnostics).mockReset();
     vi.mocked(commands.cmdWorktrunkReadLog).mockReset();
+    vi.mocked(commands.cmdOpenTerminalAt).mockReset();
     vi.mocked(listWorktrees).mockReset();
     vi.mocked(removeWorktree).mockReset();
+    vi.mocked(revealItemInDir).mockReset();
     sessionState.set({ sessions: [], activeSessionId: null });
     _resetWorktreeMetadataForTests();
     _setWorktrunkDetectionForTests({
@@ -325,12 +353,16 @@ describe("WorktrunkPanel Worktrees tab", () => {
       probed: true,
     });
     confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    originalClipboard = navigator.clipboard;
   });
 
   afterEach(() => {
     confirmSpy.mockRestore();
     sessionState.set({ sessions: [], activeSessionId: null });
     _resetWorktreeMetadataForTests();
+    if (originalClipboard !== undefined) {
+      Object.assign(navigator, { clipboard: originalClipboard });
+    }
   });
 
   it("fetches and renders the worktree list for the session's repo", async () => {
@@ -359,6 +391,810 @@ describe("WorktrunkPanel Worktrees tab", () => {
     const rows = await findAllByTestId("worktrunk-worktree-row");
     expect(rows.length).toBe(2);
     expect(listWorktrees).toHaveBeenCalledWith("/project");
+  });
+
+  it("filters worktrees by branch or path and clears the filter", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/tmp/client-special",
+        branch: "topic",
+        isMain: false,
+      }),
+    ]);
+
+    const { findAllByTestId, findByTestId, queryAllByTestId } = render(
+      WorktrunkPanel,
+      {
+        props: { visible: true, onclose: () => {} },
+      },
+    );
+    await findAllByTestId("worktrunk-worktree-row");
+    const input = (await findByTestId(
+      "worktrunk-filter-input",
+    )) as HTMLInputElement;
+
+    await fireEvent.input(input, { target: { value: "feat-a" } });
+    await tick();
+    expect(queryAllByTestId("worktrunk-worktree-row").length).toBe(1);
+    expect(queryAllByTestId("worktrunk-worktree-row")[0].textContent).toContain(
+      "feat-a",
+    );
+
+    await fireEvent.input(input, { target: { value: "client-special" } });
+    await tick();
+    expect(queryAllByTestId("worktrunk-worktree-row").length).toBe(1);
+    expect(queryAllByTestId("worktrunk-worktree-row")[0].textContent).toContain(
+      "topic",
+    );
+
+    await fireEvent.click(await findByTestId("worktrunk-filter-clear"));
+    await tick();
+    expect(queryAllByTestId("worktrunk-worktree-row").length).toBe(3);
+  });
+
+  it("shows a filtered empty state when no worktrees match", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+    ]);
+
+    const { findAllByTestId, findByTestId, queryAllByTestId } = render(
+      WorktrunkPanel,
+      {
+        props: { visible: true, onclose: () => {} },
+      },
+    );
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.input(await findByTestId("worktrunk-filter-input"), {
+      target: { value: "does-not-exist" },
+    });
+    await tick();
+
+    expect(queryAllByTestId("worktrunk-worktree-row").length).toBe(0);
+    expect((await findByTestId("worktrunk-filter-empty")).textContent).toContain(
+      'No worktrees match "does-not-exist"',
+    );
+  });
+
+  it("selects and clears removable worktrees from row checkboxes", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+    ]);
+
+    const { findByTestId, queryByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    const checkbox = (await findByTestId(
+      "worktrunk-row-checkbox",
+    )) as HTMLInputElement;
+
+    await fireEvent.click(checkbox);
+    expect((await findByTestId("worktrunk-bulk-toolbar")).textContent).toContain(
+      "1 selected",
+    );
+
+    await fireEvent.click(await findByTestId("worktrunk-bulk-clear"));
+    await tick();
+    expect(queryByTestId("worktrunk-bulk-toolbar")).toBeNull();
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it("select-all-visible selects only removable visible worktrees", async () => {
+    const active = makeSession({
+      id: "active",
+      repoRoot: "/project",
+      worktreePath: "/project-active",
+      isWorktree: true,
+      branch: "feat-active",
+    });
+    sessionState.set({ sessions: [active], activeSessionId: active.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-keep",
+        branch: "keep",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-active",
+        branch: "feat-active",
+        isMain: false,
+      }),
+    ]);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+
+    expect((await findByTestId("worktrunk-bulk-toolbar")).textContent).toContain(
+      "1 selected",
+    );
+  });
+
+  it("labels select-all by removable visible worktrees", async () => {
+    const active = makeSession({
+      id: "active",
+      repoRoot: "/project",
+      worktreePath: "/project-active",
+      isWorktree: true,
+      branch: "feat-active",
+    });
+    sessionState.set({ sessions: [active], activeSessionId: active.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-keep",
+        branch: "keep",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-active",
+        branch: "feat-active",
+        isMain: false,
+      }),
+    ]);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+
+    expect((await findByTestId("worktrunk-select-all")).parentElement?.textContent).toContain(
+      "Select removable",
+    );
+
+    await fireEvent.input(await findByTestId("worktrunk-filter-input"), {
+      target: { value: "project" },
+    });
+    await tick();
+
+    expect((await findByTestId("worktrunk-select-all")).parentElement?.textContent).toContain(
+      "Select 1 removable match",
+    );
+  });
+
+  it("quick-selects visible merged and prunable worktrees from the header menu", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-merged",
+        branch: "merged-a",
+        isMain: false,
+        worktrunk: makeMetadata({ mainState: "integrated" }),
+      }),
+      makeWorktree({
+        path: "/project-prunable",
+        branch: "prunable-a",
+        isMain: false,
+        worktrunk: makeMetadata({ prunable: true }),
+      }),
+      makeWorktree({
+        path: "/project-other",
+        branch: "other-a",
+        isMain: false,
+        worktrunk: makeMetadata({ mainState: "diverged" }),
+      }),
+    ]);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+
+    await fireEvent.click(await findByTestId("worktrunk-worktrees-header-menu"));
+    await fireEvent.click(await findByTestId("worktrunk-select-merged"));
+    expect((await findByTestId("worktrunk-bulk-toolbar")).textContent).toContain(
+      "1 selected",
+    );
+
+    await fireEvent.click(await findByTestId("worktrunk-worktrees-header-menu"));
+    await fireEvent.click(await findByTestId("worktrunk-select-prunable"));
+    expect((await findByTestId("worktrunk-bulk-toolbar")).textContent).toContain(
+      "2 selected",
+    );
+  });
+
+  it("bulk removes selected worktrees without deleting branches", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees)
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+        makeWorktree({
+          path: "/project-feat-a",
+          branch: "feat-a",
+          isMain: false,
+        }),
+        makeWorktree({
+          path: "/project-feat-b",
+          branch: "feat-b",
+          isMain: false,
+        }),
+      ])
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      ]);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-remove"));
+
+    await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(2));
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      1,
+      "/project",
+      "/project-feat-a",
+      false,
+      false,
+    );
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      2,
+      "/project",
+      "/project-feat-b",
+      false,
+      false,
+    );
+  });
+
+  it("bulk removes selected worktrees and branches", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees)
+      .mockResolvedValueOnce([
+        makeWorktree({
+          path: "/project-feat-a",
+          branch: "feat-a",
+          isMain: false,
+        }),
+      ])
+      .mockResolvedValueOnce([]);
+
+    const { findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await fireEvent.click(await findByTestId("worktrunk-row-checkbox"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-remove-and-branch"));
+
+    await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(1));
+    expect(removeWorktree).toHaveBeenCalledWith(
+      "/project",
+      "/project-feat-a",
+      true,
+      false,
+    );
+  });
+
+  it("skips bulk remove calls when the user cancels confirmation", async () => {
+    confirmSpy.mockReturnValueOnce(false);
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+    ]);
+
+    const { findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await fireEvent.click(await findByTestId("worktrunk-row-checkbox"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-remove"));
+
+    expect(removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("surfaces partial failures from bulk remove", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees)
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+        makeWorktree({
+          path: "/project-feat-a",
+          branch: "feat-a",
+          isMain: false,
+        }),
+        makeWorktree({
+          path: "/project-feat-b",
+          branch: "feat-b",
+          isMain: false,
+        }),
+      ])
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+        makeWorktree({
+          path: "/project-feat-b",
+          branch: "feat-b",
+          isMain: false,
+        }),
+      ]);
+    vi.mocked(removeWorktree).mockImplementation(async (_repo, path) => {
+      if (path === "/project-feat-b") throw new Error("locked");
+    });
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-remove"));
+
+    await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(2));
+    const err = await findByTestId("worktrunk-bulk-error");
+    expect(err.textContent).toContain("1 succeeded, 1 failed");
+    expect(err.textContent).toContain("feat-b");
+    expect(err.textContent).toContain("locked");
+  });
+
+  it("offers to force-delete dirty worktrees after bulk remove leaves them behind", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees)
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+        makeWorktree({
+          path: "/project-clean",
+          branch: "clean",
+          isMain: false,
+        }),
+        makeWorktree({
+          path: "/project-dirty",
+          branch: "dirty",
+          isMain: false,
+        }),
+      ])
+      // After phase 1: only the dirty one remains.
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+        makeWorktree({
+          path: "/project-dirty",
+          branch: "dirty",
+          isMain: false,
+        }),
+      ])
+      // After phase 2 force: dirty also gone.
+      .mockResolvedValueOnce([
+        makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      ]);
+    vi.mocked(removeWorktree).mockImplementation(
+      async (_repo, path, _alsoBranch, force) => {
+        if (path === "/project-dirty" && !force) {
+          throw new Error(
+            "worktree has uncommitted changes: ✗ Cannot remove worktree: dirty has uncommitted changes",
+          );
+        }
+      },
+    );
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-remove"));
+
+    await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(3));
+    // Phase 1: both targets attempted with force=false.
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      1,
+      "/project",
+      "/project-clean",
+      false,
+      false,
+    );
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      2,
+      "/project",
+      "/project-dirty",
+      false,
+      false,
+    );
+    // Phase 2: dirty re-attempted with force=true after the second confirm.
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      3,
+      "/project",
+      "/project-dirty",
+      false,
+      true,
+    );
+    // Two confirms: initial bulk delete + force-delete prompt.
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(confirmSpy.mock.calls[1]?.[0]).toContain("uncommitted changes");
+    expect(confirmSpy.mock.calls[1]?.[0]).toContain("dirty");
+  });
+
+  it("skips force-delete when the user declines the dirty prompt", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-dirty",
+        branch: "dirty",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(removeWorktree).mockImplementation(async () => {
+      throw new Error("worktree has uncommitted changes: dirty");
+    });
+    // First confirm = initial bulk delete (allow); second = force prompt (deny).
+    confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-remove"));
+
+    await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(1));
+    expect(removeWorktree).toHaveBeenCalledWith(
+      "/project",
+      "/project-dirty",
+      false,
+      false,
+    );
+    const err = await findByTestId("worktrunk-bulk-error");
+    expect(err.textContent).toContain("skipped (uncommitted changes)");
+    expect(err.textContent).toContain("dirty");
+  });
+
+  it("offers to force-delete a single worktree from the kebab menu when it's dirty", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValue([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-dirty",
+        branch: "dirty",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(removeWorktree).mockImplementation(
+      async (_repo, _path, _alsoBranch, force) => {
+        if (!force) {
+          throw new Error("worktree has uncommitted changes: dirty");
+        }
+      },
+    );
+
+    const { findAllByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    const rows = await findAllByTestId("worktrunk-worktree-row");
+    const featRow = rows[1];
+    await fireEvent.click(
+      featRow.querySelector(
+        '[data-testid="worktrunk-worktree-menu"]',
+      ) as HTMLButtonElement,
+    );
+    await fireEvent.click(
+      featRow.querySelector(
+        '[data-testid="worktrunk-worktree-remove"]',
+      ) as HTMLButtonElement,
+    );
+
+    await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(2));
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      1,
+      "/project",
+      "/project-dirty",
+      false,
+      false,
+    );
+    expect(removeWorktree).toHaveBeenNthCalledWith(
+      2,
+      "/project",
+      "/project-dirty",
+      false,
+      true,
+    );
+    // Initial confirm + force-delete confirm.
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(confirmSpy.mock.calls[1]?.[0]).toContain("uncommitted changes");
+  });
+
+  it("does not refresh the stale repo after bulk remove if the active repo changes", async () => {
+    const project = makeSession({
+      id: "project",
+      repoRoot: "/project",
+      worktreePath: "/project",
+      isWorktree: false,
+    });
+    const other = makeSession({
+      id: "other",
+      repoRoot: "/other",
+      worktreePath: "/other",
+      isWorktree: false,
+    });
+    sessionState.set({ sessions: [project, other], activeSessionId: project.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockImplementation(async (repo) => {
+      if (repo === "/project") {
+        return [
+          makeWorktree({
+            path: "/project-feat-a",
+            branch: "feat-a",
+            isMain: false,
+          }),
+        ];
+      }
+      if (repo === "/other") {
+        return [makeWorktree({ path: "/other", branch: "main", isMain: true })];
+      }
+      return [];
+    });
+    vi.mocked(removeWorktree).mockImplementation(async () => {
+      sessionState.set({ sessions: [project, other], activeSessionId: other.id });
+    });
+
+    const { findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await fireEvent.click(await findByTestId("worktrunk-row-checkbox"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-remove"));
+
+    await waitFor(() => {
+      const projectCalls = vi
+        .mocked(listWorktrees)
+        .mock.calls.filter(([repo]) => repo === "/project");
+      expect(projectCalls.length).toBe(1);
+    });
+  });
+
+  it("bulk-copies selected worktree paths newline-separated to the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-feat-b",
+        branch: "feat-b",
+        isMain: false,
+      }),
+    ]);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-copy-paths"));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText).toHaveBeenCalledWith("/project-feat-a\n/project-feat-b");
+    expect(await findByTestId("worktrunk-bulk-copied-flash")).toBeDefined();
+  });
+
+  it("bulk-reveals selected worktrees in Finder without confirm under the threshold", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-feat-b",
+        branch: "feat-b",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(revealItemInDir).mockResolvedValue(undefined);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-reveal"));
+
+    await waitFor(() => expect(revealItemInDir).toHaveBeenCalledTimes(2));
+    expect(revealItemInDir).toHaveBeenNthCalledWith(1, "/project-feat-a");
+    expect(revealItemInDir).toHaveBeenNthCalledWith(2, "/project-feat-b");
+    // Threshold is 5, so two items must not have prompted.
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it("prompts before bulk-revealing more than the threshold of worktrees", async () => {
+    confirmSpy.mockReturnValueOnce(false);
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      ...Array.from({ length: 6 }, (_, i) =>
+        makeWorktree({
+          path: `/project-feat-${i}`,
+          branch: `feat-${i}`,
+          isMain: false,
+        }),
+      ),
+    ]);
+    vi.mocked(revealItemInDir).mockResolvedValue(undefined);
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-reveal"));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy.mock.calls[0]?.[0]).toContain("Reveal 6 worktrees");
+    expect(revealItemInDir).not.toHaveBeenCalled();
+  });
+
+  it("bulk-opens selected worktrees in terminal under the threshold", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-feat-b",
+        branch: "feat-b",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(commands.cmdOpenTerminalAt).mockResolvedValue({
+      status: "ok",
+      data: null,
+    });
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-open-terminal"));
+
+    await waitFor(() =>
+      expect(commands.cmdOpenTerminalAt).toHaveBeenCalledTimes(2),
+    );
+    expect(commands.cmdOpenTerminalAt).toHaveBeenNthCalledWith(
+      1,
+      "/project-feat-a",
+    );
+    expect(commands.cmdOpenTerminalAt).toHaveBeenNthCalledWith(
+      2,
+      "/project-feat-b",
+    );
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it("surfaces partial failures from bulk open-in-terminal", async () => {
+    const s = makeSession({ repoRoot: "/project", isWorktree: false });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValueOnce([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+      makeWorktree({
+        path: "/project-feat-a",
+        branch: "feat-a",
+        isMain: false,
+      }),
+      makeWorktree({
+        path: "/project-feat-b",
+        branch: "feat-b",
+        isMain: false,
+      }),
+    ]);
+    vi.mocked(commands.cmdOpenTerminalAt).mockImplementation(async (path) => {
+      if (path === "/project-feat-b") {
+        return { status: "error", error: "no terminal" };
+      }
+      return { status: "ok", data: null };
+    });
+
+    const { findAllByTestId, findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    await findAllByTestId("worktrunk-worktree-row");
+    await fireEvent.click(await findByTestId("worktrunk-select-all"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-more"));
+    await fireEvent.click(await findByTestId("worktrunk-bulk-open-terminal"));
+
+    const err = await findByTestId("worktrunk-bulk-error");
+    expect(err.textContent).toContain("1 succeeded, 1 failed");
+    expect(err.textContent).toContain("feat-b");
+    expect(err.textContent).toContain("no terminal");
   });
 
   it("disables Remove for the main worktree (inside the kebab menu)", async () => {
@@ -468,6 +1304,7 @@ describe("WorktrunkPanel Worktrees tab", () => {
       "/project",
       "/project-feat-a",
       false,
+      false,
     );
   });
 
@@ -549,6 +1386,7 @@ describe("WorktrunkPanel Worktrees tab", () => {
       "/project",
       "/project-feat-a",
       true,
+      false,
     );
   });
 

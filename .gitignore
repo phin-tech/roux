@@ -38,3 +38,5 @@ Thumbs.db
 # Docs site
 site/
 .mkdocs-venv/
+docs/.venv/
+docs/__pycache__/

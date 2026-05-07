@@ -17,7 +17,7 @@ export const commands = {
 } | null, UpdaterError>(__TAURI_INVOKE("check_for_update", { channel })),
 	installUpdate: (channel: UpdateChannel) => typedError<null, UpdaterError>(__TAURI_INVOKE("install_update", { channel })),
 	cmdCreateWorktree: (repoPath: string, branch: string, startPoint: string | null, fetchFirst: boolean | null) => typedError<string, string>(__TAURI_INVOKE("cmd_create_worktree", { repoPath, branch, startPoint, fetchFirst })),
-	cmdRemoveWorktree: (repoPath: string, worktreePath: string, alsoBranch: boolean | null) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { repoPath, worktreePath, alsoBranch })),
+	cmdRemoveWorktree: (repoPath: string, worktreePath: string, alsoBranch: boolean | null, force: boolean | null) => typedError<null, string>(__TAURI_INVOKE("cmd_remove_worktree", { repoPath, worktreePath, alsoBranch, force })),
 	cmdListWorktrees: (repoPath: string) => typedError<Worktree[], string>(__TAURI_INVOKE("cmd_list_worktrees", { repoPath })),
 	/**
 	 *  Resolve a worktree-base-path template (`{project_dir}`, `{git_root}`,
@@ -101,6 +101,19 @@ export const commands = {
 	 */
 	killPty: (id: string) => typedError<null, string>(__TAURI_INVOKE("kill_pty", { id })),
 	setSessionNameOverride: (sessionId: string, nameOverride: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_name_override", { sessionId, nameOverride })),
+	/**
+	 *  Pin (or clear) a PR for a session. The status bar uses this when set
+	 *  instead of the branch-based discovery, so cross-repo PRs and renamed
+	 *  branches still surface in the chip.
+	 */
+	setSessionPinnedPrUrl: (sessionId: string, url: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_pinned_pr_url", { sessionId, url })),
+	/**
+	 *  Re-read the session's worktree branch via `git rev-parse` and update the
+	 *  stored value if it changed. Returns the current branch (whether or not it
+	 *  changed). The frontend calls this on a low-frequency tick so PR discovery
+	 *  re-runs after the user `git checkout`s inside a Roux pane.
+	 */
+	refreshSessionBranch: (sessionId: string) => typedError<string | null, string>(__TAURI_INVOKE("refresh_session_branch", { sessionId })),
 	getPtyGeneration: (id: string) => __TAURI_INVOKE<number | null>("get_pty_generation", { id }),
 	/**
 	 *  Live cwd of a PTY-backed process, resolved from the OS (no shell hooks).
@@ -215,6 +228,9 @@ export const commands = {
 	cmdListBranches: (repoPath: string) => typedError<string[], string>(__TAURI_INVOKE("cmd_list_branches", { repoPath })),
 	checkSetupNeeded: () => __TAURI_INVOKE<boolean>("check_setup_needed"),
 	checkSetupStatus: () => __TAURI_INVOKE<SetupStatus>("check_setup_status"),
+	cmdAgentNotificationSetupStatus: () => __TAURI_INVOKE<AgentNotificationSetupStatus>("cmd_agent_notification_setup_status"),
+	cmdPreviewCodexNotificationConfig: () => typedError<CodexNotificationConfigPreview, string>(__TAURI_INVOKE("cmd_preview_codex_notification_config")),
+	cmdConfigureCodexNotificationConfig: () => typedError<null, string>(__TAURI_INVOKE("cmd_configure_codex_notification_config")),
 	runSetup: () => typedError<null, string>(__TAURI_INVOKE("run_setup")),
 	checkNonoInstalled: () => __TAURI_INVOKE<boolean>("check_nono_installed"),
 	listNonoProfiles: () => __TAURI_INVOKE<string[]>("list_nono_profiles"),
@@ -237,6 +253,26 @@ export const commands = {
 	isCrossRepository: boolean,
 	url: string,
 	repoSlug: string,
+	/**
+	 *  Aggregate check status — feeds the status-bar checks icon.
+	 *  `None` when the lookup didn't (or couldn't) include the rollup.
+	 */
+	checks: PrChecksSummary | null,
+	/**
+	 *  Individual checks from GitHub's `statusCheckRollup` for the
+	 *  status-bar hover popover.
+	 */
+	checkRuns: PrCheckDetails[],
+	/**
+	 *  GitHub's `reviewDecision` enum — `"APPROVED"` |
+	 *  `"CHANGES_REQUESTED"` | `"REVIEW_REQUIRED"`. Mapped 1:1 from gh.
+	 */
+	reviewDecision: string | null,
+	/**
+	 *  Latest review per reviewer from GitHub's `latestReviews`; feeds the
+	 *  status-bar review hover popover.
+	 */
+	reviewDetails: PrReviewDetails[],
 } | null, string>(__TAURI_INVOKE("lookup_pr_for_branch", { repoPath, branch })),
 	cmdDiscoverTasks: (dir: string) => __TAURI_INVOKE<TaskGroup[]>("cmd_discover_tasks", { dir }),
 	cmdLoadTaskOverrides: () => __TAURI_INVOKE<{ [key in string]: { [key in string]: string } }>("cmd_load_task_overrides"),
@@ -315,6 +351,19 @@ export const commands = {
 /* Types */
 export type ActionKind = { type: "focusSession"; sessionId: string } | { type: "focusPane"; paneId: string } | { type: "openUrl"; url: string } | { type: "openPath"; path: string } | { type: "runCommand"; commandId: string } | { type: "retryWatch"; watchId: string } | { type: "dismiss" } | { type: "dismissSource" } | { type: "markRead" };
 
+export type AgentNotificationProviderStatus = {
+	provider: string,
+	label: string,
+	status: string,
+	detail: string | null,
+	configPath: string | null,
+	installable: boolean,
+};
+
+export type AgentNotificationSetupStatus = {
+	providers: AgentNotificationProviderStatus[],
+};
+
 export type AttachResult = {
 	replay_bytes: number[],
 };
@@ -328,6 +377,13 @@ export type ClaudeSession = {
 	sessionId: string,
 	summary: string,
 	modifiedAt: number,
+};
+
+export type CodexNotificationConfigPreview = {
+	configPath: string,
+	configured: boolean,
+	currentValue: string | null,
+	nextContent: string,
 };
 
 /**
@@ -400,6 +456,24 @@ export type DoctorItem = {
 
 export type DoctorStatus = {
 	items: DoctorItem[],
+};
+
+/**
+ *  No-op variant used to verify the enum-experiment pipeline end to end.
+ *  Replace or remove once a real enum experiment lands.
+ */
+export type ExampleVariant = "a" | "b" | "c";
+
+/**
+ *  Runtime feature flags surfaced under Settings → Experiments. Each field is
+ *  either a `bool` (toggle) or a small enum (multi-choice). Adding a field
+ *  here also requires adding a registry entry in `src/lib/experiments.ts` so
+ *  the UI knows how to render it.
+ */
+export type ExperimentsConfig = {
+	exampleFlag?: boolean,
+	exampleVariant?: ExampleVariant,
+	simplifiedSessionTabs?: boolean,
 };
 
 export type GithubJob = {
@@ -482,38 +556,6 @@ export type IntegrationDetection = {
 };
 
 export type KeepOpen = "always" | "on-error" | "never";
-
-export type McpHostConfigPreview = {
-	host: McpHostId,
-	label: string,
-	configPath: string,
-	configExists: boolean,
-	action: string,
-	configured: boolean,
-	currentEntryJson: string | null,
-	nextEntryJson: string,
-};
-
-export type McpHostId = "claudeDesktop";
-
-export type McpHostStatus = {
-	id: McpHostId,
-	label: string,
-	configPath: string | null,
-	configExists: boolean,
-	configured: boolean,
-	error: string | null,
-};
-
-export type McpStatus = {
-	enabled: boolean,
-	cliInstalled: boolean,
-	cliCurrent: boolean,
-	cliPath: string,
-	lastConfiguredHost: string | null,
-	lastConfiguredAtMs: number | null,
-	hosts: McpHostStatus[],
-};
 
 // How a bound key is matched against a `KeyboardEvent`.
 export type KeyRef = 
@@ -624,6 +666,38 @@ export type LibrarySource = {
 };
 
 export type LibrarySourceKind = "localRepo" | "gitRepo";
+
+export type McpHostConfigPreview = {
+	host: McpHostId,
+	label: string,
+	configPath: string,
+	configExists: boolean,
+	action: string,
+	configured: boolean,
+	currentEntryJson: string | null,
+	nextEntryJson: string,
+};
+
+export type McpHostId = "claudeDesktop";
+
+export type McpHostStatus = {
+	id: McpHostId,
+	label: string,
+	configPath: string | null,
+	configExists: boolean,
+	configured: boolean,
+	error: string | null,
+};
+
+export type McpStatus = {
+	enabled: boolean,
+	cliInstalled: boolean,
+	cliCurrent: boolean,
+	cliPath: string,
+	lastConfiguredHost: string | null,
+	lastConfiguredAtMs: number | null,
+	hosts: McpHostStatus[],
+};
 
 /**
  *  A modifier key. `Cmd` is platform-dispatched: on macOS it matches Meta,
@@ -758,10 +832,38 @@ export type ParsedKeymap = {
 	warnings: KeymapWarning[],
 };
 
+export type PrCheckDetails = {
+	name: string,
+	status: PrCheckStatus,
+	url: string | null,
+};
+
 export type PrCheckRun = {
 	name: string,
 	conclusion: string | null,
 	url: string | null,
+};
+
+export type PrCheckStatus = "passing" | "failing" | "pending";
+
+export type PrChecksState = "passing" | "failing" | "pending" | "none";
+
+/**
+ *  Aggregate of a PR's check runs, derived from gh's
+ *  `statusCheckRollup`. We collapse to a single "worst-of" state plus
+ *  counts so the status bar can render a tiny icon without re-deriving
+ *  the rollup on every render.
+ */
+export type PrChecksSummary = {
+	/**
+	 *  `"passing"` | `"failing"` | `"pending"` | `"none"`.
+	 *  `"none"` means there are no check runs at all (empty rollup).
+	 */
+	state: PrChecksState,
+	passing: number,
+	failing: number,
+	pending: number,
+	total: number,
 };
 
 export type PrInfo = {
@@ -772,9 +874,35 @@ export type PrInfo = {
 	isCrossRepository: boolean,
 	url: string,
 	repoSlug: string,
+	/**
+	 *  Aggregate check status — feeds the status-bar checks icon.
+	 *  `None` when the lookup didn't (or couldn't) include the rollup.
+	 */
+	checks: PrChecksSummary | null,
+	/**
+	 *  Individual checks from GitHub's `statusCheckRollup` for the
+	 *  status-bar hover popover.
+	 */
+	checkRuns: PrCheckDetails[],
+	/**
+	 *  GitHub's `reviewDecision` enum — `"APPROVED"` |
+	 *  `"CHANGES_REQUESTED"` | `"REVIEW_REQUIRED"`. Mapped 1:1 from gh.
+	 */
+	reviewDecision: string | null,
+	/**
+	 *  Latest review per reviewer from GitHub's `latestReviews`; feeds the
+	 *  status-bar review hover popover.
+	 */
+	reviewDetails: PrReviewDetails[],
 };
 
 export type PrReview = {
+	reviewer: string,
+	state: string,
+	url: string | null,
+};
+
+export type PrReviewDetails = {
 	reviewer: string,
 	state: string,
 	url: string | null,
@@ -947,6 +1075,12 @@ export type RouxSettings = {
 	 */
 	notificationsEnabled?: boolean,
 	/**
+	 *  Per-pane agent completion notifications. When false, the
+	 *  generating→idle transition never produces a notification card or OS
+	 *  fan-out. Error notifications are unaffected. Defaults to true.
+	 */
+	agentCompletionNotificationsEnabled?: boolean,
+	/**
 	 *  When a background agent leaves the "attention" (waiting-for-answer)
 	 *  state, also clear the pane's `permissionInfo` so the Claude
 	 *  Allow/Deny affordance disappears alongside the notification.
@@ -1075,10 +1209,10 @@ export type RouxSettings = {
 	 *  Settings status only; host config files remain the source of truth.
 	 */
 	mcpLastConfiguredHost?: string | null,
-	/**
-	 *  Unix epoch milliseconds for the last successful MCP host config write.
-	 */
+	// Unix epoch milliseconds for the last successful MCP host config write.
 	mcpLastConfiguredAtMs?: number | null,
+	// Runtime feature flags. See `ExperimentsConfig`.
+	experiments?: ExperimentsConfig,
 };
 
 export type RuntimeState = { type: "pending" } | { type: "active" } | { type: "paused" } | { type: "stopped" } | { type: "error"; message: string };
@@ -1119,6 +1253,13 @@ export type Session = {
 	 *  and respawn it when the live session is killed.
 	 */
 	blueprintId?: string | null,
+	/**
+	 *  User-pinned PR URL or shortform for this session. When set, the
+	 *  status bar uses it directly instead of running the branch-based
+	 *  `gh pr list --head` discovery — useful for cross-repo PRs and for
+	 *  cases where the local branch was renamed after the PR was opened.
+	 */
+	pinnedPrUrl?: string | null,
 };
 
 /**
@@ -1450,3 +1591,4 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
+

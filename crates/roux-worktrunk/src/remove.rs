@@ -75,12 +75,17 @@ pub fn remove_worktree(
     }
 
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    // Heuristic: `wt remove` of a locked worktree emits stderr
-    // containing the word "locked". If that pattern changes upstream
-    // we fall through to `NonZeroExit`, which callers can still inspect.
+    // Heuristics for `wt remove` refusals. If these substrings change
+    // upstream we fall through to `NonZeroExit`, which callers can
+    // still inspect.
     let lower = stderr.to_lowercase();
-    if lower.contains("locked") && !opts.force {
-        return Err(WtError::Locked { reason: stderr });
+    if !opts.force {
+        if lower.contains("locked") {
+            return Err(WtError::Locked { reason: stderr });
+        }
+        if lower.contains("uncommitted changes") || lower.contains("uncommitted change") {
+            return Err(WtError::Dirty { reason: stderr });
+        }
     }
     Err(WtError::NonZeroExit {
         status: out.status.code().unwrap_or(-1),

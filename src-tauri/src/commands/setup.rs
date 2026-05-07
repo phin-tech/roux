@@ -1,3 +1,4 @@
+use crate::services::agent_notifications as agent_notifs;
 use crate::services::setup as svc;
 
 #[derive(serde::Serialize, specta::Type)]
@@ -14,10 +15,144 @@ pub(crate) struct SetupStatus {
     gh_available: bool,
 }
 
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AgentNotificationProviderStatus {
+    provider: String,
+    label: String,
+    status: String,
+    detail: Option<String>,
+    config_path: Option<String>,
+    installable: bool,
+}
+
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AgentNotificationSetupStatus {
+    providers: Vec<AgentNotificationProviderStatus>,
+}
+
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexNotificationConfigPreview {
+    config_path: String,
+    configured: bool,
+    current_value: Option<String>,
+    next_content: String,
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn check_setup_status() -> SetupStatus {
     SetupStatus { cli_installed: svc::is_cli_installed(), gh_available: svc::is_gh_available() }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_agent_notification_setup_status() -> AgentNotificationSetupStatus {
+    let cli_installed = svc::is_cli_installed();
+    let cli_current = svc::is_cli_current();
+    let hooks_installed = svc::is_hooks_installed();
+    let claude_status = if hooks_installed && cli_current {
+        "installed"
+    } else if cli_installed && !cli_current {
+        "stale"
+    } else {
+        "missing"
+    };
+    let claude_detail = if hooks_installed && cli_current {
+        Some("Claude Code hooks are installed.".to_string())
+    } else if cli_installed && !cli_current {
+        match svc::installed_cli_version() {
+            Some(version) => Some(format!(
+                "CLI is stale; installed {}, bundled {}.",
+                version,
+                svc::bundled_cli_version()
+            )),
+            None => {
+                Some(format!("CLI is stale; bundled version is {}.", svc::bundled_cli_version()))
+            }
+        }
+    } else if !cli_installed {
+        Some("Roux CLI is missing; configuring hooks will install it first.".to_string())
+    } else {
+        Some("Claude Code hooks are missing or incomplete.".to_string())
+    };
+
+    let codex_provider = match agent_notifs::codex_config_path() {
+        Some(path) => match agent_notifs::preview_codex_notification_config_at(&path) {
+            Ok(preview) => {
+                let detail = if preview.configured {
+                    Some("Codex TUI notifications are set to always.".to_string())
+                } else if let Some(value) = preview.current_value {
+                    Some(format!("notification_condition is currently `{value}`."))
+                } else {
+                    Some("notification_condition is not set.".to_string())
+                };
+                AgentNotificationProviderStatus {
+                    provider: "codex".to_string(),
+                    label: "Codex".to_string(),
+                    status: if preview.configured { "installed" } else { "missing" }.to_string(),
+                    detail,
+                    config_path: Some(path.display().to_string()),
+                    installable: true,
+                }
+            }
+            Err(e) => AgentNotificationProviderStatus {
+                provider: "codex".to_string(),
+                label: "Codex".to_string(),
+                status: "error".to_string(),
+                detail: Some(e.to_string()),
+                config_path: Some(path.display().to_string()),
+                installable: true,
+            },
+        },
+        None => AgentNotificationProviderStatus {
+            provider: "codex".to_string(),
+            label: "Codex".to_string(),
+            status: "unavailable".to_string(),
+            detail: Some("Could not determine home directory.".to_string()),
+            config_path: None,
+            installable: false,
+        },
+    };
+
+    AgentNotificationSetupStatus {
+        providers: vec![
+            AgentNotificationProviderStatus {
+                provider: "claude".to_string(),
+                label: "Claude Code".to_string(),
+                status: claude_status.to_string(),
+                detail: claude_detail,
+                config_path: None,
+                installable: true,
+            },
+            codex_provider,
+        ],
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_preview_codex_notification_config() -> Result<CodexNotificationConfigPreview, String> {
+    let path = agent_notifs::codex_config_path()
+        .ok_or_else(|| "Could not determine Codex config path".to_string())?;
+    let preview = agent_notifs::preview_codex_notification_config_at(&path)
+        .map_err(|e| e.to_string())?;
+    Ok(CodexNotificationConfigPreview {
+        config_path: preview.config_path.display().to_string(),
+        configured: preview.configured,
+        current_value: preview.current_value,
+        next_content: preview.next_content,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_configure_codex_notification_config() -> Result<(), String> {
+    let path = agent_notifs::codex_config_path()
+        .ok_or_else(|| "Could not determine Codex config path".to_string())?;
+    agent_notifs::configure_codex_notification_config_at(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -246,6 +246,9 @@ pub(crate) async fn kill_session(
     svc::kill_session(&state.pty_manager, &state.session_handle, &id)
         .await
         .map_err(|e| e.to_string())?;
+    // Stop session-scoped recurring watches (e.g. PR pollers) so they
+    // don't outlive the archived session and keep firing forever.
+    state.watch_manager.remove_watches_for_session(&id).await;
     if let Some(session) = session {
         let context = crate::automation_hooks::HookContext {
             repo_path: Some(session.repo_root.clone()),
@@ -287,7 +290,12 @@ pub(crate) async fn delete_session_permanently(
 ) -> Result<(), String> {
     svc::delete_session_permanently(&state.pty_manager, &state.session_handle, &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // Tear down any session-scoped watches that may still be polling
+    // (no-op if the session was already archived and watches were
+    // cleaned up at archive time).
+    state.watch_manager.remove_watches_for_session(&id).await;
+    Ok(())
 }
 
 /// Check whether an archived session's worktree path still exists on disk.
@@ -333,6 +341,63 @@ pub(crate) async fn set_session_name_override(
         .set_name_override(&session_id, name_override)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Pin (or clear) a PR for a session. The status bar uses this when set
+/// instead of the branch-based discovery, so cross-repo PRs and renamed
+/// branches still surface in the chip.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn set_session_pinned_pr_url(
+    session_id: String,
+    url: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let normalized = url.and_then(|u| {
+        let t = u.trim();
+        if t.is_empty() { None } else { Some(t.to_string()) }
+    });
+    state
+        .session_handle
+        .set_pinned_pr_url(&session_id, normalized)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Re-read the session's worktree branch via `git rev-parse` and update the
+/// stored value if it changed. Returns the current branch (whether or not it
+/// changed). The frontend calls this on a low-frequency tick so PR discovery
+/// re-runs after the user `git checkout`s inside a Roux pane.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn refresh_session_branch(
+    session_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let session = state
+        .session_handle
+        .get(&session_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(session) = session else { return Ok(None) };
+    if !session.is_git_repo {
+        return Ok(Some(session.branch));
+    }
+    // `git branch --show-current` returns empty on detached HEAD; in that
+    // case keep whatever the session already has rather than overwriting
+    // with "" — the chip would otherwise vanish during a transient rebase.
+    let Some(current) = svc::get_current_branch(&session.worktree_path) else {
+        return Ok(Some(session.branch));
+    };
+    if current.is_empty() {
+        return Ok(Some(session.branch));
+    }
+    let _ = state
+        .session_handle
+        .set_branch(&session_id, current.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(Some(current))
 }
 
 /// Spawns a plain shell in the session's

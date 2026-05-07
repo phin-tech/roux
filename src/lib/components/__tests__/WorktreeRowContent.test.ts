@@ -1,7 +1,42 @@
-import { describe, expect, it } from "vitest";
-import { render } from "@testing-library/svelte";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import WorktreeRowContent from "../WorktreeRowContent.svelte";
-import type { Worktree, WorktrunkMetadata } from "$lib/types";
+import type { Session, Worktree, WorktrunkMetadata } from "$lib/types";
+
+vi.mock("$lib/tauri", async () => {
+  const actual =
+    await vi.importActual<typeof import("$lib/tauri")>("$lib/tauri");
+  return {
+    ...actual,
+    lookupPrForBranch: vi.fn(),
+    lookupPr: vi.fn(),
+  };
+});
+
+import { lookupPr, lookupPrForBranch } from "$lib/tauri";
+import { _resetSessionPrLookupForTests } from "$lib/stores/sessionPrLookup";
+
+function makeSession(overrides: Partial<Session> = {}): Session {
+  return {
+    id: "s1",
+    name: "sess",
+    repoRoot: "/repo",
+    worktreePath: "/repo",
+    branch: "main",
+    isWorktree: false,
+    status: "idle",
+    model: null,
+    cost: null,
+    createdAt: Date.now() / 1000,
+    projectId: null,
+    isGitRepo: true,
+    nameOverride: null,
+    primaryPtyId: "s1",
+    archived: false,
+    endedAt: null,
+    ...overrides,
+  };
+}
 
 function makeMetadata(overrides: Partial<WorktrunkMetadata> = {}): WorktrunkMetadata {
   return {
@@ -34,6 +69,15 @@ function makeWorktree(overrides: Partial<Worktree> = {}): Worktree {
 }
 
 describe("WorktreeRowContent", () => {
+  beforeEach(() => {
+    vi.mocked(lookupPrForBranch).mockReset();
+    vi.mocked(lookupPr).mockReset();
+    _resetSessionPrLookupForTests();
+  });
+  afterEach(() => {
+    _resetSessionPrLookupForTests();
+  });
+
   it("renders branch + path when no worktrunk metadata is present", () => {
     const { queryByTestId, container } = render(WorktreeRowContent, {
       props: { wt: makeWorktree({ branch: "feat", path: "/tmp/repo-feat" }) },
@@ -207,6 +251,139 @@ describe("WorktreeRowContent", () => {
     const a = getByTestId("wt-ci");
     expect(a.className).toContain("opacity-60");
     expect(a.getAttribute("title")).toContain("stale");
+  });
+
+  it("triggers a PR lookup once on first hover when repoRoot is set", async () => {
+    vi.mocked(lookupPrForBranch).mockResolvedValue(null);
+    const { getByTestId } = render(WorktreeRowContent, {
+      props: {
+        wt: makeWorktree({
+          branch: "feat-x",
+          worktrunk: makeMetadata({
+            ciStatus: "passed",
+            ciUrl: "https://example.com",
+          }),
+        }),
+        repoRoot: "/repo",
+      },
+    });
+    const chipWrap = getByTestId("wt-ci").parentElement as HTMLElement;
+    await fireEvent.mouseEnter(chipWrap);
+    await waitFor(() =>
+      expect(lookupPrForBranch).toHaveBeenCalledWith("/repo", "feat-x"),
+    );
+    // Re-hover doesn't refire; the first attempt is sticky.
+    await fireEvent.mouseEnter(chipWrap);
+    await fireEvent.mouseEnter(chipWrap);
+    expect(lookupPrForBranch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not look up when repoRoot is missing or branch is main", async () => {
+    vi.mocked(lookupPrForBranch).mockResolvedValue(null);
+    const { getByTestId } = render(WorktreeRowContent, {
+      props: {
+        wt: makeWorktree({
+          branch: "main",
+          isMain: true,
+          worktrunk: makeMetadata({
+            ciStatus: "passed",
+            ciUrl: "https://example.com",
+          }),
+        }),
+        repoRoot: "/repo",
+      },
+    });
+    const chipWrap = getByTestId("wt-ci").parentElement as HTMLElement;
+    await fireEvent.mouseEnter(chipWrap);
+    expect(lookupPrForBranch).not.toHaveBeenCalled();
+  });
+
+  it("renders the popover content once PR data lands", async () => {
+    vi.mocked(lookupPrForBranch).mockResolvedValue({
+      number: 42,
+      title: "Fix things",
+      headRef: "feat-x",
+      headOwner: "user",
+      isCrossRepository: false,
+      url: "https://example.com/pr/42",
+      repoSlug: "user/repo",
+      checks: null,
+      checkRuns: [{ name: "build", status: "passing", url: null }],
+      reviewDecision: null,
+      reviewDetails: [
+        { reviewer: "alice", state: "APPROVED", url: null },
+      ],
+    });
+    const { getByTestId, findByTestId } = render(WorktreeRowContent, {
+      props: {
+        wt: makeWorktree({
+          branch: "feat-x",
+          worktrunk: makeMetadata({
+            ciStatus: "passed",
+            ciUrl: "https://example.com",
+          }),
+        }),
+        repoRoot: "/repo",
+      },
+    });
+    const chipWrap = getByTestId("wt-ci").parentElement as HTMLElement;
+    await fireEvent.mouseEnter(chipWrap);
+    const popover = await findByTestId("wt-ci-popover");
+    expect(popover.textContent).toContain("build");
+    expect(popover.textContent).toContain("passing");
+    expect(popover.textContent).toContain("alice");
+    expect(popover.textContent).toContain("approved");
+  });
+
+  it("routes through the session lookup when a session is supplied (so pinned PRs match the status bar)", async () => {
+    vi.mocked(lookupPr).mockResolvedValue({
+      number: 7,
+      title: "Pinned",
+      headRef: "feat-x",
+      headOwner: "user",
+      isCrossRepository: false,
+      url: "https://example.com/pr/7",
+      repoSlug: "user/repo",
+      checks: null,
+      checkRuns: [{ name: "lint", status: "passing", url: null }],
+      reviewDecision: null,
+      reviewDetails: [],
+    });
+
+    const session = makeSession({
+      id: "s2",
+      repoRoot: "/repo",
+      branch: "feat-x",
+      worktreePath: "/repo-feat-x",
+      pinnedPrUrl: "https://example.com/pr/7",
+    });
+
+    const { getByTestId, findByTestId } = render(WorktreeRowContent, {
+      props: {
+        wt: makeWorktree({
+          path: "/repo-feat-x",
+          branch: "feat-x",
+          worktrunk: makeMetadata({
+            ciStatus: "passed",
+            ciUrl: "https://example.com",
+          }),
+        }),
+        repoRoot: "/repo",
+        session,
+      },
+    });
+    const chipWrap = getByTestId("wt-ci").parentElement as HTMLElement;
+    await fireEvent.mouseEnter(chipWrap);
+    // Session-aware path uses lookupPr (pin URL), not lookupPrForBranch.
+    await waitFor(() =>
+      expect(lookupPr).toHaveBeenCalledWith(
+        "/repo",
+        "https://example.com/pr/7",
+      ),
+    );
+    expect(lookupPrForBranch).not.toHaveBeenCalled();
+    const popover = await findByTestId("wt-ci-popover");
+    expect(popover.textContent).toContain("lint");
   });
 
   it("renders dev-server link when devServerUrl is set", () => {

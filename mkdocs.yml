@@ -1,6 +1,6 @@
 site_name: Roux
 site_description: A desktop terminal multiplexer for Claude Code
-site_url: https://phin-tech.github.io/roux/
+site_url: https://phin-tech.github.io/roux/docs/
 repo_url: https://github.com/phin-tech/roux
 repo_name: phin-tech/roux
 edit_uri: edit/main/docs/
@@ -12,6 +12,10 @@ exclude_docs: |
   plans/
   v2/
   superpowers/
+  landing/
+  pyproject.toml
+  uv.lock
+  requirements.txt
 
 theme:
   name: material
@@ -26,27 +30,18 @@ theme:
     - search.suggest
     - search.highlight
     - toc.follow
+  font:
+    text: IBM Plex Mono
+    code: IBM Plex Mono
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/weather-night
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/weather-sunny
-        name: Switch to light mode
+    scheme: slate
+    primary: black
+    accent: pink
   icon:
     repo: fontawesome/brands/github
 
-extra:
-  version:
-    provider: mike
+extra_css:
+  - stylesheets/retro.css
 
 markdown_extensions:
   - admonition
@@ -79,11 +74,13 @@ nav:
   - Features:
       - Overview: features/index.md
       - Panes: features/panes.md
+      - Multiline Editor: features/editor.md
       - Sessions: features/sessions.md
       - Projects: features/projects.md
       - Layouts: features/layouts.md
       - Worktrees: features/worktrees.md
       - Library: features/library.md
+      - Notifications: features/notifications.md
       - Watches: features/watches.md
       - Automation hooks: features/hooks.md
       - CLI: features/cli.md

@@ -55,7 +55,7 @@ describe("routeStatusUpdate", () => {
     expect(routing.event.source).toBe("hook");
   });
 
-  it("maps thinking / attention to generating", () => {
+  it("maps thinking to generating and attention to blocked", () => {
     expect(
       (routeStatusUpdate(ev({ status: "thinking" }), trustAll) as {
         event: { status: string };
@@ -65,12 +65,15 @@ describe("routeStatusUpdate", () => {
       (routeStatusUpdate(ev({ status: "attention" }), trustAll) as {
         event: { status: string };
       }).event.status,
-    ).toBe("generating");
+    ).toBe("blocked");
   });
 
-  it("drops non-routable pane statuses (error/disconnected)", () => {
+  it("routes error to the pane tier and drops disconnected", () => {
     const err = routeStatusUpdate(ev({ status: "error" }), trustAll);
-    expect(err.kind).toBe("dropped");
+    expect(err.kind).toBe("pane");
+    if (err.kind !== "pane") throw new Error("unreachable");
+    expect(err.event.status).toBe("error");
+
     const disc = routeStatusUpdate(ev({ status: "disconnected" }), trustAll);
     expect(disc.kind).toBe("dropped");
   });
@@ -154,6 +157,7 @@ describe("routeStatusUpdate", () => {
     );
     expect(routing.kind).toBe("pane");
     if (routing.kind !== "pane") throw new Error("unreachable");
+    expect(routing.event.status).toBe("blocked");
     expect(routing.event.permissionInfo).toEqual({
       toolName: "Edit",
       toolInput: { file: "README.md" },
@@ -254,7 +258,7 @@ describe("applyStatusRouting", () => {
 
   it("leaves agentStates untouched for dropped events", () => {
     applyStatusRouting(
-      routeStatusUpdate(ev({ status: "error" }), trustAll),
+      routeStatusUpdate(ev({ status: "disconnected" }), trustAll),
     );
     expect(get(agentStates).size).toBe(0);
   });

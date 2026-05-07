@@ -18,9 +18,28 @@ The full set of shortcuts shipped in the `default` keymap. All shortcuts are als
 | Focus right | ++alt+l++ |
 | Focus pane 1–9 | ++alt+1++ … ++alt+9++ |
 | Focus pane 10 | ++alt+0++ |
+| Toggle multiline editor | ++ctrl+g++ |
+| Toggle multiline editor from anywhere | ++cmd+shift+e++ |
+| Open multiline editor with clipboard | ++cmd+shift+v++ |
 
 The pane-focus shortcuts target the Nth visible pane in the active session (depth-first, left-to-right). Hold ++alt++ on its own to see each pane's digit drawn centered over it.
 You can disable this overlay in **Settings → Keyboard** without disabling the shortcuts themselves.
+
+## Multiline editor
+
+The editor has its own local keybindings while focus is inside it. See [Multiline Editor](features/editor.md) for behavior details.
+
+| Action | Shortcut |
+|---|---|
+| Send text to the target terminal and keep editor open | ++cmd+enter++ |
+| Insert newline | ++shift+enter++, ++ctrl+enter++, or ++alt+enter++ |
+| Clear editor when nothing is selected | ++ctrl+c++ |
+| Copy and clear current line | ++ctrl+u++ |
+| Clear selected lines/current line | ++cmd+shift+k++ |
+| Delete word left | ++alt+backspace++ or ++ctrl+w++ |
+| Delete to line end | ++ctrl+k++ or ++cmd+delete++ |
+| Delete to line start | ++cmd+backspace++ |
+| Close without sending | ++escape++ or ++ctrl+g++ |
 
 ## Leader mode
 

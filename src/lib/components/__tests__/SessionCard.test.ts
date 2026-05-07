@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/svelte";
-import type { Notification, Session, WorktrunkMetadata } from "$lib/types";
+import type {
+  GroupBy,
+  Notification,
+  RouxSettings,
+  Session,
+  WorktrunkMetadata,
+} from "$lib/types";
+import { DEFAULT_SETTINGS, EXPERIMENT_DEFAULTS } from "$lib/types";
 import { notifications } from "$lib/stores/notifications";
 import { projects } from "$lib/stores/projects";
+import { settings } from "$lib/stores/settings";
 import { flashingSessions } from "$lib/stores/watches";
 import { sessionLayouts } from "$lib/panes/layout";
 import { agentStates } from "$lib/panes/agentState";
@@ -74,25 +82,53 @@ function makeNotification(overrides: Partial<Notification> = {}): Notification {
   };
 }
 
-describe("SessionCard", () => {
+type RenderProps = {
+  session?: Session;
+  active?: boolean;
+  groupBy?: GroupBy;
+  onselect?: () => void;
+  onclose?: () => void;
+  onrename?: (newName: string) => void;
+  onreconnect?: () => void;
+};
+
+function renderCard(overrides: RenderProps = {}) {
+  return render(SessionCard, {
+    session: overrides.session ?? makeSession(),
+    active: overrides.active ?? false,
+    groupBy: overrides.groupBy ?? "repo",
+    onselect: overrides.onselect ?? (() => {}),
+    onclose: overrides.onclose ?? (() => {}),
+    onrename: overrides.onrename ?? (() => {}),
+    onreconnect: overrides.onreconnect ?? (() => {}),
+  });
+}
+
+function setSimplifiedFlag(enabled: boolean) {
+  settings.update((s: RouxSettings) => ({
+    ...s,
+    experiments: { ...EXPERIMENT_DEFAULTS, simplifiedSessionTabs: enabled },
+  }));
+}
+
+function resetStores() {
+  notifications.set([]);
+  projects.set([]);
+  flashingSessions.set(new Set());
+  sessionLayouts.set(new Map());
+  agentStates.set(new Map());
+  settings.set(DEFAULT_SETTINGS);
+  _resetWorktreeMetadataForTests();
+  _resetPtyInventoryForTests();
+}
+
+describe("SessionCard — legacy rendering (simplifiedSessionTabs off)", () => {
   beforeEach(() => {
-    notifications.set([]);
-    projects.set([]);
-    flashingSessions.set(new Set());
-    sessionLayouts.set(new Map());
-    agentStates.set(new Map());
-    _resetWorktreeMetadataForTests();
-    _resetPtyInventoryForTests();
+    resetStores();
   });
 
   afterEach(() => {
-    notifications.set([]);
-    projects.set([]);
-    flashingSessions.set(new Set());
-    sessionLayouts.set(new Map());
-    agentStates.set(new Map());
-    _resetWorktreeMetadataForTests();
-    _resetPtyInventoryForTests();
+    resetStores();
   });
 
   it("shows active and detached inventory separately when a session has detached terminals", () => {
@@ -100,14 +136,7 @@ describe("SessionCard", () => {
       ["session-1", { attachedCount: 2, detachedCount: 1, detachedHasUnread: true }],
     ]));
 
-    render(SessionCard, {
-      session: makeSession(),
-      active: false,
-      onselect: () => {},
-      onclose: () => {},
-      onrename: () => {},
-      onreconnect: () => {},
-    });
+    renderCard();
 
     const activeBadge = screen.getByTitle("2 active panes");
     expect(activeBadge.textContent).toBe("2");
@@ -121,14 +150,7 @@ describe("SessionCard", () => {
       ["session-1", { attachedCount: 1, detachedCount: 0, detachedHasUnread: false }],
     ]));
 
-    render(SessionCard, {
-      session: makeSession(),
-      active: false,
-      onselect: () => {},
-      onclose: () => {},
-      onrename: () => {},
-      onreconnect: () => {},
-    });
+    renderCard();
 
     expect(screen.queryByTitle("1 active pane")).toBeNull();
     expect(screen.queryByTitle(/detached terminal/)).toBeNull();
@@ -147,17 +169,13 @@ describe("SessionCard", () => {
       },
     ]);
 
-    const { container } = render(SessionCard, {
+    const { container } = renderCard({
       session: makeSession({
         worktreePath: "/repo/.worktrees/restore-closed-sessions",
         branch: "feature/restore-closed-sessions",
         isWorktree: true,
       }),
       active: true,
-      onselect: () => {},
-      onclose: () => {},
-      onrename: () => {},
-      onreconnect: () => {},
     });
 
     expect(container.textContent).toContain("feature/");
@@ -173,18 +191,13 @@ describe("SessionCard", () => {
       ["session-1", { attachedCount: 1, detachedCount: 0, detachedHasUnread: false }],
     ]));
 
-    render(SessionCard, {
+    renderCard({
       session: makeSession({
         worktreePath: "/repo/.worktrees/restore-closed-sessions",
         branch: "feature/restore-closed-sessions",
         isWorktree: true,
         nameOverride: "notes/design",
       }),
-      active: false,
-      onselect: () => {},
-      onclose: () => {},
-      onrename: () => {},
-      onreconnect: () => {},
     });
 
     expect(screen.getByTestId("session-primary-label").textContent).toBe("notes/design");
@@ -199,13 +212,10 @@ describe("SessionCard", () => {
     const onrename = vi.fn();
     const onclose = vi.fn();
 
-    render(SessionCard, {
+    renderCard({
       session: makeSession({ branch: "feature/restore-closed-sessions" }),
-      active: false,
-      onselect: () => {},
-      onclose,
       onrename,
-      onreconnect: () => {},
+      onclose,
     });
 
     await fireEvent.click(screen.getByLabelText("Rename session"));
@@ -227,14 +237,7 @@ describe("SessionCard", () => {
       makeNotification({ id: "notification-2", sessionId: "session-1" }),
     ]);
 
-    render(SessionCard, {
-      session: makeSession(),
-      active: false,
-      onselect: () => {},
-      onclose: () => {},
-      onrename: () => {},
-      onreconnect: () => {},
-    });
+    renderCard();
 
     expect(screen.getByTitle("2 active panes").textContent).toBe("2");
     expect(screen.getByTitle("2 unread notifications").textContent).toBe("2");
@@ -246,12 +249,8 @@ describe("SessionCard", () => {
     ]));
     const onreconnect = vi.fn();
 
-    render(SessionCard, {
+    renderCard({
       session: makeSession({ status: "disconnected" }),
-      active: false,
-      onselect: () => {},
-      onclose: () => {},
-      onrename: () => {},
       onreconnect,
     });
 
@@ -259,5 +258,147 @@ describe("SessionCard", () => {
     await fireEvent.click(button);
 
     expect(onreconnect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SessionCard — simplified rendering (simplifiedSessionTabs on)", () => {
+  beforeEach(() => {
+    resetStores();
+    setSimplifiedFlag(true);
+    ptyInventoryBySession.set(new Map([
+      ["session-1", { attachedCount: 2, detachedCount: 1, detachedHasUnread: true }],
+    ]));
+  });
+
+  afterEach(() => {
+    resetStores();
+  });
+
+  it("hides pane inventory badges and worktree metadata chips", () => {
+    upsertWorktreeMetadata([
+      {
+        path: "/repo/.worktrees/feature-x",
+        branch: "feature/x",
+        isMain: false,
+        worktrunk: makeMetadata({ dirty: true, ahead: 2, behind: 0 }),
+      },
+    ]);
+
+    renderCard({
+      session: makeSession({
+        worktreePath: "/repo/.worktrees/feature-x",
+        branch: "feature/x",
+        isWorktree: true,
+      }),
+    });
+
+    expect(screen.queryByTitle(/active pane/)).toBeNull();
+    expect(screen.queryByTitle(/detached terminal/)).toBeNull();
+    expect(screen.queryByText("worktree")).toBeNull();
+    expect(screen.queryByTestId("session-wt-dirty")).toBeNull();
+    expect(screen.queryByTestId("session-wt-ahead-behind")).toBeNull();
+  });
+
+  it("shows the worktree directory name as secondary when grouping by repo", () => {
+    renderCard({
+      session: makeSession({
+        worktreePath: "/repo/.worktrees/feature-x",
+        branch: "feature/x",
+        isWorktree: true,
+      }),
+      groupBy: "repo",
+    });
+
+    expect(screen.getByTestId("session-secondary-context").textContent).toBe("feature-x");
+  });
+
+  it("shows the worktree directory name as secondary when grouping by session", () => {
+    renderCard({
+      session: makeSession({
+        worktreePath: "/repo/.worktrees/feature-x",
+        branch: "feature/x",
+        isWorktree: true,
+      }),
+      groupBy: "session",
+    });
+
+    expect(screen.getByTestId("session-secondary-context").textContent).toBe("feature-x");
+  });
+
+  it("derives the basename from Windows-style paths", () => {
+    renderCard({
+      session: makeSession({
+        repoRoot: "C:\\src\\cool-repo",
+        worktreePath: "C:\\src\\cool-repo\\.worktrees\\feature-x",
+        branch: "feature/x",
+        isWorktree: true,
+      }),
+      groupBy: "repo",
+    });
+
+    expect(screen.getByTestId("session-secondary-context").textContent).toBe("feature-x");
+  });
+
+  it("shows the repo name as secondary when grouping by project", () => {
+    renderCard({
+      session: makeSession({
+        repoRoot: "/Users/me/code/cool-repo",
+        worktreePath: "/Users/me/code/cool-repo/.worktrees/feature-x",
+        branch: "feature/x",
+        isWorktree: true,
+      }),
+      groupBy: "project",
+    });
+
+    expect(screen.getByTestId("session-secondary-context").textContent).toBe("cool-repo");
+  });
+
+  it("renders branch and contextual name together when a custom name overrides the branch", () => {
+    renderCard({
+      session: makeSession({
+        worktreePath: "/repo/.worktrees/restore-closed-sessions",
+        branch: "feature/restore-closed-sessions",
+        isWorktree: true,
+        nameOverride: "notes/design",
+      }),
+      groupBy: "repo",
+    });
+
+    expect(screen.getByTestId("session-primary-label").textContent).toBe("notes/design");
+    expect(screen.getByTestId("session-secondary-branch").textContent).toBe(
+      "feature/restore-closed-sessions",
+    );
+    expect(screen.getByTestId("session-secondary-context").textContent).toBe(
+      "restore-closed-sessions",
+    );
+  });
+
+  it("keeps rename, close, and continue controls accessible", async () => {
+    const onrename = vi.fn();
+    const onclose = vi.fn();
+    const onreconnect = vi.fn();
+
+    renderCard({
+      session: makeSession({
+        branch: "feature/restore-closed-sessions",
+        status: "disconnected",
+      }),
+      onrename,
+      onclose,
+      onreconnect,
+    });
+
+    const continueButton = screen.getByRole("button", { name: "continue" });
+    await fireEvent.click(continueButton);
+    expect(onreconnect).toHaveBeenCalledTimes(1);
+
+    await fireEvent.click(screen.getByLabelText("Rename session"));
+    const input = screen.getByDisplayValue("feature/restore-closed-sessions");
+    await fireEvent.input(input, { target: { value: "Renamed session" } });
+    await fireEvent.blur(input);
+    expect(onrename).toHaveBeenCalledWith("Renamed session");
+
+    await fireEvent.click(screen.getByLabelText("Close session"));
+    expect(onclose).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import "@xterm/xterm/css/xterm.css";
+  import {
+    multiLineEditor,
+    requestMultiLineEditorFocus,
+  } from "$lib/stores/multiLineEditor";
   import { paneInstances, updateInstance, getAttachedPtyId } from "$lib/panes/instances";
   import { focusedPaneId, requestDomFocus, setLogicalFocus } from "$lib/panes/focus";
   import { collectVisibleLeafIds, sessionLayouts } from "$lib/panes/layout";
@@ -34,6 +38,7 @@
   import DeadPaneView from "./DeadPaneView.svelte";
   import NotesPane from "./NotesPane.svelte";
   import CloseButton from "./CloseButton.svelte";
+  import MultiLineEditor from "./MultiLineEditor.svelte";
   import { projects } from "$lib/stores/projects";
   import type { Session } from "$lib/types";
 
@@ -205,8 +210,52 @@
     return !!instance;
   }
 
-  function handleMouseDown() {
+  function multiLineEditorOwnsPaneInput(): boolean {
+    return $multiLineEditor.open && $multiLineEditor.paneId === paneId;
+  }
+
+  function targetInsideMultiLineEditor(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest("[data-multiline-editor-root]") !== null;
+  }
+
+  function targetInsideTerminalFrame(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest("[data-terminal-frame]") !== null;
+  }
+
+  function terminalSelectionText(): string {
+    return getTerminalController(paneId)?.getSelection() ?? "";
+  }
+
+  function handleMouseDown(event: MouseEvent) {
+    if (multiLineEditorOwnsPaneInput()) {
+      focusedPaneId.set(paneId);
+      if (
+        !targetInsideMultiLineEditor(event.target) &&
+        !targetInsideTerminalFrame(event.target)
+      ) {
+        requestMultiLineEditorFocus(paneId);
+      }
+      return;
+    }
     setLogicalFocus(paneId);
+  }
+
+  function handleTerminalClick() {
+    if (multiLineEditorOwnsPaneInput()) {
+      if (getTerminalController(paneId)?.hasSelection()) return;
+      requestMultiLineEditorFocus(paneId);
+      return;
+    }
+    requestDomFocus(paneId);
+  }
+
+  function handleCopy(event: ClipboardEvent) {
+    if (!multiLineEditorOwnsPaneInput()) return;
+    if (targetInsideMultiLineEditor(event.target)) return;
+    const selection = terminalSelectionText();
+    if (!selection) return;
+    event.clipboardData?.setData("text/plain", selection);
+    event.preventDefault();
   }
 
   function panePtyId(): string | null {
@@ -409,6 +458,7 @@
     data-focused={isFocused}
     data-focus-chrome={(isFocused && hasMultipleVisiblePanes) ? "true" : undefined}
     onmousedown={handleMouseDown}
+    oncopy={handleCopy}
     ondragenter={handleDragEnter}
     ondragover={handleDragOver}
     ondragleave={handleDragLeave}
@@ -551,9 +601,11 @@
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div
             bind:this={containerEl}
+            data-terminal-frame
             class="ui-terminal-frame min-h-0 flex-1"
-            onclick={() => requestDomFocus(paneId)}
+            onclick={handleTerminalClick}
           ></div>
+          <MultiLineEditor paneId={paneId} />
         </div>
       {:else if terminalState?.kind === "empty"}
         <!-- Empty pane: no PTY attached yet -->
@@ -572,20 +624,24 @@
              banner is overlaid below it. -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="relative h-full w-full">
-          <div
-            bind:this={containerEl}
-            class="ui-terminal-frame h-full w-full overflow-hidden"
-            onclick={() => requestDomFocus(paneId)}
-          ></div>
-          {#if terminalState?.kind === "dead"}
-            <!-- Exit banner overlaid on scrollback -->
-            <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-bg-deep/80 px-4 py-2">
-              <span class="text-[11px] text-text-muted">
-                Process exited (code: {terminalState.exitCode ?? "unknown"})
-              </span>
-            </div>
-          {/if}
+        <div class="flex h-full w-full flex-col">
+          <div class="relative min-h-0 flex-1">
+            <div
+              bind:this={containerEl}
+              data-terminal-frame
+              class="ui-terminal-frame h-full w-full overflow-hidden"
+              onclick={handleTerminalClick}
+            ></div>
+            {#if terminalState?.kind === "dead"}
+              <!-- Exit banner overlaid on scrollback -->
+              <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-bg-deep/80 px-4 py-2">
+                <span class="text-[11px] text-text-muted">
+                  Process exited (code: {terminalState.exitCode ?? "unknown"})
+                </span>
+              </div>
+            {/if}
+          </div>
+          <MultiLineEditor paneId={paneId} />
         </div>
       {/if}
     </div>
