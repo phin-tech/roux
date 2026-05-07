@@ -13,6 +13,11 @@ import type {
   Watch,
   CreateWatchConfig,
   WatchUpdateEvent,
+  SmolMachine,
+  SmolMachineCreateRequest,
+  ManagedProxyStatus,
+  WorktreeMountCheck,
+  MountAppendOutcome,
 } from "./types";
 import { ptyOutputPayloadToBytes, type PtyOutputPayload } from "./ptyOutput";
 export type { PtyOutputPayload } from "./ptyOutput";
@@ -52,6 +57,12 @@ export interface CreateSessionShellOpts {
    * row when the live session is up.
    */
   blueprintId?: string | null;
+  /**
+   * Smol-machine binding. When set (and non-empty), the session's primary
+   * PTY and every subsequent shell pane runs inside the named VM via
+   * `smolvm machine exec`. Empty/null leaves the session running on host.
+   */
+  smolMachineName?: string | null;
 }
 
 /**
@@ -79,6 +90,7 @@ export async function createSessionShell(
     fetchFirst,
     projectId,
     blueprintId,
+    smolMachineName,
   } = opts;
   return invoke("create_session_shell", {
     repoPath,
@@ -94,6 +106,7 @@ export async function createSessionShell(
       fetchFirst: fetchFirst ?? null,
       projectId: projectId ?? null,
       blueprintId: blueprintId ?? null,
+      smolMachineName: smolMachineName ?? null,
     },
   });
 }
@@ -273,7 +286,163 @@ export async function listWorktrees(
   return invoke("cmd_list_worktrees", { repoPath });
 }
 
-export type LibraryItemType = "prompt" | "skill";
+// Smol machines: thin wrappers around the typed-error commands so panel
+// code can `await` and `try/catch` instead of branching on the
+// discriminated `{ status: "ok" } | { status: "error" }` shape.
+export async function listSmolMachines(): Promise<SmolMachine[]> {
+  return invoke("cmd_list_smol_machines");
+}
+
+export async function startSmolMachine(name: string): Promise<void> {
+  return invoke("cmd_start_smol_machine", { name });
+}
+
+export async function stopSmolMachine(name: string): Promise<void> {
+  return invoke("cmd_stop_smol_machine", { name });
+}
+
+export async function deleteSmolMachine(name: string): Promise<void> {
+  return invoke("cmd_delete_smol_machine", { name });
+}
+
+export async function createSmolMachine(
+  request: SmolMachineCreateRequest,
+): Promise<void> {
+  return invoke("cmd_create_smol_machine", { request });
+}
+
+/**
+ * `which`-style probe inside a smol guest. Resolves to the guest path
+ * when the binary is on PATH, `null` when it isn't, or rejects when
+ * the smolvm CLI itself fails (e.g. machine isn't running).
+ */
+export async function checkSmolvmBinary(
+  machineName: string,
+  binary: string,
+): Promise<string | null> {
+  return invoke("cmd_check_smolvm_binary", { machineName, binary });
+}
+
+/**
+ * Install a known agent inside a smol guest. v1 supports "claude" and
+ * "codex" (case-insensitive). Resolves on success; rejects with the
+ * install command's stderr when smolvm or npm fail.
+ */
+export async function installSmolvmAgent(
+  machineName: string,
+  agent: "claude" | "codex",
+): Promise<void> {
+  return invoke("cmd_install_smolvm_agent", { machineName, agent });
+}
+
+/**
+ * Persist an agent install via the machine's linked Smolfile
+ * `[dev].init`. Returns a discriminated outcome:
+ * - `appended` / `alreadyPresent`: file was (or already was) updated.
+ * - `needsRecreate`: machine has no Smolfile linked. The frontend
+ *   shows a confirmation modal and calls
+ *   `installSmolvmAgentRecreate` if the user agrees.
+ */
+export type SmolvmPersistOutcome =
+  | { kind: "appended"; smolfilePath: string }
+  | { kind: "alreadyPresent"; smolfilePath: string }
+  | {
+      kind: "needsRecreate";
+      proposedSmolfilePath: string;
+      image: string | null;
+      script: string;
+    };
+
+export async function installSmolvmAgentPersist(
+  machineName: string,
+  agent: "claude" | "codex",
+): Promise<SmolvmPersistOutcome> {
+  return invoke("cmd_install_smolvm_agent_persist", { machineName, agent });
+}
+
+/**
+ * Destructive: regenerate the machine from a Roux-managed Smolfile
+ * with the agent's install line in `[dev].init`. Only call after the
+ * user confirms the modal triggered by a `needsRecreate` outcome.
+ */
+export async function installSmolvmAgentRecreate(
+  machineName: string,
+  agent: "claude" | "codex",
+): Promise<void> {
+  return invoke("cmd_install_smolvm_agent_recreate", { machineName, agent });
+}
+
+/**
+ * Map of `{ machine_name: smolfile_path }` for machines Roux has
+ * tracked as "Smolfile-linked" (created via the form with a Smolfile,
+ * or recreated via the persist flow). Used to render the in-place vs.
+ * recreate hint in the panel before the user clicks.
+ */
+export async function listSmolMachineSmolfiles(): Promise<
+  Record<string, string>
+> {
+  return invoke("cmd_list_smol_machine_smolfiles");
+}
+
+/**
+ * Open `~/.config/roux/smolvm-bootstraps.toml` in the user's default
+ * editor. Creates the file with built-in defaults pre-populated when
+ * it doesn't yet exist. Resolves to the absolute path that was
+ * opened, so callers can show it in a tooltip / toast.
+ */
+export async function openSmolvmBootstrapConfig(): Promise<string> {
+  return invoke("cmd_open_smolvm_bootstrap_config");
+}
+
+/**
+ * Start the user-configured managed HTTP proxy. Errors when
+ * `RouxSettings.managedProxy` isn't set, when the configured
+ * command fails to spawn, or when the listen socket isn't
+ * reachable within ~5s.
+ */
+export async function startManagedProxy(): Promise<ManagedProxyStatus> {
+  return invoke("cmd_start_managed_proxy");
+}
+
+export async function stopManagedProxy(): Promise<ManagedProxyStatus> {
+  return invoke("cmd_stop_managed_proxy");
+}
+
+export async function managedProxyStatus(): Promise<ManagedProxyStatus> {
+  return invoke("cmd_managed_proxy_status");
+}
+
+/**
+ * Check whether `worktreePath` is reachable inside `machineName`'s
+ * guest. Returns `mounted` when an existing `[dev].volumes` entry
+ * covers the path (host-side path prefix), `notMounted` when the
+ * Smolfile exists but no spec covers it (with a proposed same-path
+ * mount), or `noLinkedSmolfile` when Roux can't auto-mount because
+ * it has no Smolfile to edit.
+ */
+export async function checkWorktreeMount(
+  machineName: string,
+  worktreePath: string,
+): Promise<WorktreeMountCheck> {
+  return invoke("cmd_check_worktree_mount", { machineName, worktreePath });
+}
+
+/**
+ * Append `spec` to the linked Smolfile's `[dev].volumes`. Idempotent.
+ * Errors when the machine has no linked Smolfile.
+ *
+ * The mount only takes effect on the next `smolvm machine create` for
+ * the machine — the caller should inform the user that a recreate is
+ * needed (or trigger one via the existing recreate flow).
+ */
+export async function appendWorktreeMount(
+  machineName: string,
+  spec: string,
+): Promise<MountAppendOutcome> {
+  return invoke("cmd_append_worktree_mount", { machineName, spec });
+}
+
+export type LibraryItemType = "prompt" | "skill" | "smolvmScript";
 export type LibraryLayerKind = "global" | "localRepo" | "gitRepo" | "activeRepo";
 export type LibrarySourceKind = "localRepo" | "gitRepo";
 export type LibraryRemoteState = "upToDate" | "ahead" | "behind" | "diverged" | "unknown";
@@ -316,6 +485,17 @@ export interface LibraryItem {
   sourcePath: string;
   overriddenPaths: string[];
   variables: LibraryVariable[];
+  /**
+   * smolvmScript-only: the agent this script installs (`claude` /
+   * `codex`). Undefined for prompts and skills.
+   */
+  agent?: string | null;
+  /**
+   * smolvmScript-only: distro key matching the install resolver
+   * (`alpine` / `ubuntu` / `default`). Undefined for prompts and
+   * skills.
+   */
+  distro?: string | null;
 }
 
 export interface LibraryRead {
@@ -351,6 +531,10 @@ export interface SaveLibraryItemRequest {
   body: string;
   target: SaveLibraryTarget;
   expectedSourcePath?: string | null;
+  /** smolvmScript-only. */
+  agent?: string | null;
+  /** smolvmScript-only. */
+  distro?: string | null;
 }
 
 export interface SavedLibraryItem {
@@ -711,6 +895,13 @@ export async function setSessionPinnedPrUrl(
   url: string | null,
 ): Promise<void> {
   return invoke("set_session_pinned_pr_url", { sessionId, url });
+}
+
+export async function setSessionSmolMachine(
+  sessionId: string,
+  machineName: string | null,
+): Promise<void> {
+  return invoke("set_session_smol_machine", { sessionId, machineName });
 }
 
 export async function refreshSessionBranch(

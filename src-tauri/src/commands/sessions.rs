@@ -37,6 +37,12 @@ pub(crate) struct CreateShellOpts {
     /// blueprint row when the live session is up.
     #[serde(default)]
     pub blueprint_id: Option<String>,
+    /// Smol-machine binding for this session. When set, the session's
+    /// primary PTY (and every subsequent shell pane) runs inside the
+    /// named VM via `smolvm machine exec`. Empty/missing means the
+    /// session runs on the host as usual.
+    #[serde(default)]
+    pub smol_machine_name: Option<String>,
 }
 
 #[tauri::command]
@@ -97,7 +103,7 @@ pub(crate) fn attach_pty_output(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn spawn_shell(
+pub(crate) async fn spawn_shell(
     id: String,
     working_dir: String,
     session_id: Option<String>,
@@ -106,17 +112,48 @@ pub(crate) fn spawn_shell(
     nono_allow_dirs: Option<Vec<String>>,
     profile: Option<String>,
     initial_size: Option<(u16, u16)>,
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    use crate::pty::NonoConfig;
+    use crate::pty::{NonoConfig, SmolvmExec};
     let nono = nono_profile
         .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
+
+    // Look up the session record so secondary panes inherit its
+    // smol-machine binding. Promoted to async (was sync) so the lookup
+    // can happen here rather than forcing the frontend to thread
+    // smol_machine_name through every spawn call site. Lookup failures
+    // (DB read error, IO error) propagate so we never silently bypass
+    // VM isolation by treating an error as "no binding". `Ok(None)` —
+    // the session genuinely doesn't exist yet, e.g. CLI bridge spawning
+    // ahead of session creation — falls through with no binding.
+    let session_record = match session_id.as_deref() {
+        Some(sid) => state.session_handle.get(sid).await.map_err(|e| e.to_string())?,
+        None => None,
+    };
+    let smol_name = session_record.as_ref().and_then(|s| s.smol_machine_name.clone());
+    let smolvm = match smol_name {
+        Some(name) if !name.trim().is_empty() => {
+            let install =
+                crate::services::smolvm::resolve_smolvm_binary().ok_or_else(|| {
+                    format!(
+                        "session is bound to smol machine '{name}', but smolvm is not installed; \
+                         unbind via the panel or install smolvm to continue"
+                    )
+                })?;
+            Some(SmolvmExec {
+                binary: install.path,
+                machine_name: name.trim().to_string(),
+                guest_shell: "/bin/sh".to_string(),
+            })
+        }
+        _ => None,
+    };
+
     // Secondary pane spawn path. Primary session shells already carry
     // ROUX_PROJECT_ID / ROUX_WORKTREE_PATH via services::sessions. Secondary
-    // panes could resolve the same from session_handle, but SessionHandle::get
-    // is async and this command is sync; leaving as None until either the
-    // frontend passes them or this command is promoted to async.
+    // panes could resolve the same from `session_record` above; left as
+    // None until callers actually need them downstream.
     state
         .pty_manager
         .spawn_shell(
@@ -128,6 +165,7 @@ pub(crate) fn spawn_shell(
             None,
             None, // notes env snapshot — session-creation path only
             nono.as_ref(),
+            smolvm.as_ref(),
             initial_size,
             crate::pty::PtyRole::Secondary,
             profile.as_deref(),
@@ -149,6 +187,8 @@ pub(crate) async fn spawn_task(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    use crate::pty::SmolvmExec;
+
     // See spawn_shell above: project/worktree env is deferred for the
     // secondary-pane path until this command goes async.
     let context = crate::automation_hooks::HookContext {
@@ -165,6 +205,35 @@ pub(crate) async fn spawn_task(
         .run_blocking(crate::automation_hooks::HookEvent::PreTaskRun, context)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Inherit the session's smol-machine binding so a `roux run`-style
+    // task lands inside the same VM as the rest of the session. Mirrors
+    // the spawn_shell flow above (via build_smolvm_exec_for_session
+    // in services::sessions). See `commands/sessions.rs::spawn_shell`
+    // and `socket.rs::handle_run` for the matching wraps.
+    let session_record = match session_id.as_deref() {
+        Some(sid) => state.session_handle.get(sid).await.map_err(|e| e.to_string())?,
+        None => None,
+    };
+    let smol_name = session_record.as_ref().and_then(|s| s.smol_machine_name.clone());
+    let smolvm = match smol_name {
+        Some(name) if !name.trim().is_empty() => {
+            let install =
+                crate::services::smolvm::resolve_smolvm_binary().ok_or_else(|| {
+                    format!(
+                        "session is bound to smol machine '{name}', but smolvm is not installed; \
+                         unbind via the panel or install smolvm to continue"
+                    )
+                })?;
+            Some(SmolvmExec {
+                binary: install.path,
+                machine_name: name.trim().to_string(),
+                guest_shell: "/bin/sh".to_string(),
+            })
+        }
+        _ => None,
+    };
+
     state
         .pty_manager
         .spawn_task(
@@ -176,6 +245,7 @@ pub(crate) async fn spawn_task(
             None,
             None,
             None, // notes env snapshot — session-creation path only
+            smolvm.as_ref(),
             initial_size,
             crate::pty::PtyRole::Secondary,
             profile.as_deref(),
@@ -364,6 +434,26 @@ pub(crate) async fn set_session_pinned_pr_url(
         .map_err(|e| e.to_string())
 }
 
+/// Bind (or clear) a smol machine for a session. When set, every PTY
+/// spawned for this session runs via `smolvm machine exec --name <n> ...`
+/// inside the named VM instead of on the host. Pass `None` (or empty) to
+/// unbind. The empty-string normalization happens in
+/// `SessionHandle::set_smol_machine_name`'s service handler so the wire
+/// shape stays simple.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn set_session_smol_machine(
+    session_id: String,
+    machine_name: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .session_handle
+        .set_smol_machine_name(&session_id, machine_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Re-read the session's worktree branch via `git rev-parse` and update the
 /// stored value if it changed. Returns the current branch (whether or not it
 /// changed). The frontend calls this on a low-frequency tick so PR discovery
@@ -438,6 +528,11 @@ pub(crate) async fn create_session_shell(
         svc::SessionTarget::Repo
     };
 
+    let smol_machine_name = opts
+        .smol_machine_name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty());
+
     svc::create_session_shell(
         &state.pty_manager,
         &state.session_handle,
@@ -451,6 +546,7 @@ pub(crate) async fn create_session_shell(
         initial_size,
         opts.project_id.as_deref(),
         opts.blueprint_id.as_deref(),
+        smol_machine_name.as_deref(),
         Some(&state.automation_hooks),
         &app,
     )

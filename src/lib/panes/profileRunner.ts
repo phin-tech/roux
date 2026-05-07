@@ -1,7 +1,12 @@
-import { writeToSession } from "$lib/tauri";
-import { log } from "$lib/logging";
+import { checkSmolvmBinary, writeToSession } from "$lib/tauri";
+import { log, logError } from "$lib/logging";
 import type { SpawnProfile } from "./profiles";
 import { appendAgentSystemPrompt } from "./agentPrompt";
+import {
+  extractBinaryFromStartupCommand,
+  formatGuestAgentMissingComment,
+  knownAgentInstallCommand,
+} from "./agentBinary";
 
 /**
  * Valid POSIX-ish shell identifier: must start with a letter or underscore
@@ -32,6 +37,14 @@ export interface RunProfileOptions {
    *  caller decides where this comes from (project, layout, ad-hoc),
    *  so this option stays provider/source-agnostic. */
   appendSystemPrompt?: string;
+  /** Smol-machine binding for the session this pane belongs to. When
+   *  set and the profile's startup command targets a known agent
+   *  (claude, codex), the runner preflights the agent's presence
+   *  inside the guest before typing the command. If the agent is
+   *  missing, a comment-block pointing at the panel's "Install" action
+   *  is typed instead — saves the user from a confusing
+   *  `/bin/sh: claude: not found`. */
+  smolMachineName?: string | null;
 }
 
 /**
@@ -103,6 +116,44 @@ export async function runProfileInPane(
   }
 
   if (hasStartup) {
+    // Smol-VM-bound preflight: when the profile targets a known agent
+    // (claude / codex) and the guest doesn't have it on PATH, type a
+    // comment block pointing at the panel's Install action instead
+    // of the bad startup command. The shell stays alive at a prompt;
+    // the user reads the comment, installs, and re-runs.
+    const machineName = opts.smolMachineName?.trim() ?? "";
+    if (machineName) {
+      const binary = extractBinaryFromStartupCommand(startupCommand);
+      const installCmd = binary ? knownAgentInstallCommand(binary) : null;
+      if (binary && installCmd) {
+        try {
+          const found = await checkSmolvmBinary(machineName, binary);
+          if (!found) {
+            log(
+              `runProfileInPane(${ptyId}): ${binary} missing in smol machine '${machineName}'; substituting install hint`,
+            );
+            const block = formatGuestAgentMissingComment(
+              binary,
+              machineName,
+              installCmd,
+            );
+            await writeToSession(ptyId, block);
+            await writeToSession(ptyId, "\n");
+            return;
+          }
+        } catch (err) {
+          // Preflight is best-effort. If the smolvm probe fails (e.g.
+          // machine just stopped between `ensure_machine_running` and
+          // here), fall through to the normal type-the-command path —
+          // the user will get the raw `command not found` error and
+          // can investigate. Logging keeps the failure traceable.
+          logError(
+            `runProfileInPane(${ptyId}): smol-binary preflight failed for ${binary} in '${machineName}': ${err}`,
+          );
+        }
+      }
+    }
+
     const suffix = (profile.startupBehavior ?? "autoRun") === "typeOnly" ? "" : "\n";
     log(
       `runProfileInPane(${ptyId}): typing startup command for profile "${profile.id}" (behavior=${profile.startupBehavior ?? "autoRun"})`,

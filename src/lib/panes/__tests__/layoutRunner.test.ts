@@ -184,7 +184,9 @@ describe("applyLayoutToSession", () => {
 
     // runProfileInPane called with the resolved profile
     expect(runProfileInPane).toHaveBeenCalledTimes(1);
-    expect(runProfileInPane).toHaveBeenCalledWith("s1", claude);
+    expect(runProfileInPane).toHaveBeenCalledWith("s1", claude, {
+      smolMachineName: null,
+    });
 
     // Focus set to main pane
     expect(get(focusedPaneId)).toBe("s1-main");
@@ -227,7 +229,9 @@ describe("applyLayoutToSession", () => {
 
     // runProfileInPane called twice
     expect(runProfileInPane).toHaveBeenCalledTimes(2);
-    expect(runProfileInPane).toHaveBeenCalledWith("s2", claude);
+    expect(runProfileInPane).toHaveBeenCalledWith("s2", claude, {
+      smolMachineName: null,
+    });
   });
 
   // ── Test 3: Nested 2x2 split (no flattening) ────────────────────────────
@@ -290,7 +294,9 @@ describe("applyLayoutToSession", () => {
 
     // runProfileInPane called with the inline profile verbatim
     expect(runProfileInPane).toHaveBeenCalledTimes(1);
-    expect(runProfileInPane).toHaveBeenCalledWith("s4", inlineProfile);
+    expect(runProfileInPane).toHaveBeenCalledWith("s4", inlineProfile, {
+      smolMachineName: null,
+    });
 
     // Pane's spawnProfileRef is inline
     const inst = getInstance("s4-main");
@@ -512,7 +518,9 @@ describe("applyLayoutToSession", () => {
 
     // Both leaves get profile commands
     expect(runProfileInPane).toHaveBeenCalledTimes(2);
-    expect(runProfileInPane).toHaveBeenCalledWith("s9", claude);
+    expect(runProfileInPane).toHaveBeenCalledWith("s9", claude, {
+      smolMachineName: null,
+    });
   });
 
   // ── Nono config tests ─────────────────────────────────────────────────────

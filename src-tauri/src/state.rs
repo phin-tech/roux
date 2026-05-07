@@ -24,4 +24,5 @@ pub(crate) struct AppState {
     pub(crate) automation_hooks: crate::automation_hooks::AutomationHookManager,
     pub(crate) notification_manager: NotificationManager,
     pub(crate) pending_replies: PendingReplies,
+    pub(crate) managed_proxy: Arc<crate::services::managed_proxy::ManagedProxyState>,
 }

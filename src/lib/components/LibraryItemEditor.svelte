@@ -40,6 +40,11 @@
   let description = $state("");
   let tags = $state("");
   let provider = $state("");
+  // smolvmScript-only metadata. Frontmatter `agent` (claude / codex)
+  // + `distro` (alpine / ubuntu / default) are required by the
+  // backend resolver to find the matching install line.
+  let agent = $state("");
+  let distro = $state("");
   let variables = $state<LibraryVariable[]>([]);
   let targetValue = $state("global");
   let body = $state("");
@@ -59,6 +64,8 @@
     const nextDescription = next?.item.description ?? "";
     const nextTags = next?.item.tags.join(", ") ?? "";
     const nextProvider = next?.item.provider ?? "";
+    const nextAgent = next?.item.agent ?? (itemType === "smolvmScript" ? "claude" : "");
+    const nextDistro = next?.item.distro ?? (itemType === "smolvmScript" ? "default" : "");
     const nextVariables = next?.item.variables.map((variable) => ({ ...variable })) ?? [];
     originalPath = nextOriginalPath;
     originalId = nextOriginalId;
@@ -67,6 +74,8 @@
     description = nextDescription;
     tags = nextTags;
     provider = nextProvider;
+    agent = nextAgent;
+    distro = nextDistro;
     variables = nextVariables;
     body = nextBody;
     targetValue = nextTargetValue;
@@ -77,6 +86,8 @@
       description: nextDescription,
       tags: nextTags,
       provider: nextProvider,
+      agent: nextAgent,
+      distro: nextDistro,
       variables: nextVariables,
       targetValue: nextTargetValue,
       body: nextBody,
@@ -202,6 +213,8 @@
       description,
       tags,
       provider,
+      agent,
+      distro,
       variables,
       targetValue,
       body,
@@ -214,6 +227,8 @@
     description: string;
     tags: string;
     provider: string;
+    agent: string;
+    distro: string;
     variables: LibraryVariable[];
     targetValue: string;
     body: string;
@@ -241,6 +256,10 @@
         body,
         target: parseTarget(),
         expectedSourcePath: originalPath,
+        // Backend ignores these fields for non-smolvmScript types;
+        // sending them unconditionally keeps the request shape stable.
+        agent: itemType === "smolvmScript" ? agent || null : null,
+        distro: itemType === "smolvmScript" ? distro || null : null,
       });
     } finally {
       saving = false;
@@ -351,6 +370,45 @@
       <input class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border" bind:value={provider} />
     </label>
   </div>
+
+  {#if itemType === "smolvmScript"}
+    <div class="border-b border-hairline p-3">
+      <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
+        Smolvm install metadata
+      </div>
+      <div class="grid gap-3 lg:grid-cols-2">
+        <label class="block">
+          <span class="mb-1 block text-[11px] text-text-secondary">Agent</span>
+          <select
+            class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+            bind:value={agent}
+          >
+            <option value="claude">claude</option>
+            <option value="codex">codex</option>
+          </select>
+        </label>
+        <label class="block">
+          <span class="mb-1 block text-[11px] text-text-secondary">Distro</span>
+          <select
+            class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+            bind:value={distro}
+          >
+            <option value="alpine">alpine</option>
+            <option value="ubuntu">ubuntu</option>
+            <option value="default">default (fallback)</option>
+          </select>
+        </label>
+      </div>
+      <p class="mt-2 text-[11px] text-text-muted">
+        Body should be a single bash one-liner that installs <code
+          class="rounded bg-bg-surface px-1">{agent || "&lt;agent&gt;"}</code
+        > on a <code class="rounded bg-bg-surface px-1">{distro || "&lt;distro&gt;"}</code>
+        guest. Roux runs it via <code class="rounded bg-bg-surface px-1"
+          >smolvm machine exec --name &lt;m&gt; -- sh -c '...'</code
+        >.
+      </p>
+    </div>
+  {/if}
 
   {#if itemType === "prompt"}
     <div class="border-b border-hairline p-3">

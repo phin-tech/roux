@@ -279,10 +279,14 @@ export async function applyLayoutToSession(
     }
   }
 
-  // Step 10: Run profiles — collect failures as warnings
+  // Step 10: Run profiles — collect failures as warnings. The
+  // smol-machine binding is per-session, so every leaf in this layout
+  // inherits the same `smolMachineName` from the session record.
   for (const leaf of leaves) {
     try {
-      await runProfileInPane(leaf.ptyId, leaf.profile);
+      await runProfileInPane(leaf.ptyId, leaf.profile, {
+        smolMachineName: session.smolMachineName ?? null,
+      });
     } catch (e) {
       const label = leaf.name ?? leaf.paneId;
       warnings.push(

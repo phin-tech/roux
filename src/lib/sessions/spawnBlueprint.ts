@@ -80,6 +80,7 @@ export async function spawnBlueprintForProject(
   if (profile) {
     await runProfileInPane(newSession.id, profile, {
       appendSystemPrompt: project.projectPrompt ?? "",
+      smolMachineName: newSession.smolMachineName ?? null,
     });
   }
   return newSession;

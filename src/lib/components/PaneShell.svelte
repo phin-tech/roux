@@ -130,6 +130,7 @@
     try {
       await runProfileInPane(instance.ptyId, activeProfile, {
         appendSystemPrompt: getProjectPrompt(session?.projectId),
+        smolMachineName: session?.smolMachineName ?? null,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

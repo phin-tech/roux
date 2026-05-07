@@ -10,6 +10,11 @@ use serde::{Deserialize, Serialize};
 pub(crate) enum LibraryItemType {
     Prompt,
     Skill,
+    /// Install script for a smol-machine agent. Frontmatter `agent`
+    /// (claude / codex) + `distro` (alpine / ubuntu / default) keys
+    /// drive resolution from the install pipeline (Phase 2.7). Body
+    /// is a bash one-liner — no template substitution in v1.
+    SmolvmScript,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -69,6 +74,15 @@ pub(crate) struct LibraryItem {
     pub(crate) source_path: String,
     pub(crate) overridden_paths: Vec<String>,
     pub(crate) variables: Vec<LibraryVariable>,
+    /// Smolvm-script-only: which agent this script installs.
+    /// `None` for prompts/skills.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) agent: Option<String>,
+    /// Smolvm-script-only: which distro key this script targets
+    /// (matches [`roux_smolvm::distro_from_image`] output —
+    /// `"alpine"` / `"ubuntu"` / `"default"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) distro: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -107,6 +121,15 @@ pub(crate) struct SaveLibraryItemRequest {
     pub(crate) body: String,
     pub(crate) target: SaveLibraryTarget,
     pub(crate) expected_source_path: Option<String>,
+    /// Smolvm-script-only: which agent this script installs.
+    /// Validated to be `claude` or `codex` when item_type is
+    /// SmolvmScript.
+    #[serde(default)]
+    pub(crate) agent: Option<String>,
+    /// Smolvm-script-only: distro key. Validated to be `alpine`,
+    /// `ubuntu`, or `default` when item_type is SmolvmScript.
+    #[serde(default)]
+    pub(crate) distro: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, specta::Type)]
@@ -232,6 +255,50 @@ pub(crate) fn layers(
     out
 }
 
+/// Find a smolvm-script library item matching `(agent, distro)`.
+/// Walks layers in order — later layers (`activeRepo`, then
+/// `gitRepo` sources, then `localRepo`, then global) override
+/// earlier ones by item id, mirroring the existing prompt/skill
+/// resolution. Returns the parsed body of the winning item, or
+/// `None` if no library script matches.
+///
+/// This is the Phase 2.7 hook: callers in the install pipeline ask
+/// here first, then fall back to `BootstrapConfig::agent_script`.
+pub(crate) fn find_smolvm_script_in_layers(
+    layers: &[LibraryLayer],
+    agent: &str,
+    distro: &str,
+) -> Option<String> {
+    let mut all = Vec::new();
+    for layer in layers {
+        all.extend(scan_layer(layer));
+    }
+
+    // Match-by-(agent, distro) first, then later-layer-wins by index.
+    // We walk the items in the order they came from `scan_layer`; the
+    // last matching one wins because the ID-by-id override pass would
+    // give us the same precedence anyway.
+    let mut winner: Option<&ParsedItem> = None;
+    for item in &all {
+        if item.item.item_type != LibraryItemType::SmolvmScript {
+            continue;
+        }
+        let Some(script_agent) = item.item.agent.as_deref() else {
+            continue;
+        };
+        let Some(script_distro) = item.item.distro.as_deref() else {
+            continue;
+        };
+        if script_agent.eq_ignore_ascii_case(agent)
+            && script_distro.eq_ignore_ascii_case(distro)
+        {
+            winner = Some(item);
+        }
+    }
+
+    winner.map(|item| item.body.clone())
+}
+
 pub(crate) fn list_items(layers: &[LibraryLayer]) -> Vec<LibraryItem> {
     let mut resolved: HashMap<String, ParsedItem> = HashMap::new();
     let mut order = Vec::<String>::new();
@@ -299,10 +366,29 @@ pub(crate) fn save_item(
                 .to_string(),
         );
     }
-    if request.item_type == LibraryItemType::Skill
+    if (request.item_type == LibraryItemType::Skill
+        || request.item_type == LibraryItemType::SmolvmScript)
         && request.variables.iter().any(|variable| !variable.name.trim().is_empty())
     {
-        return Err("skills cannot define variables".to_string());
+        return Err(
+            "only prompts can define variables; skills and smolvm-scripts have none".to_string(),
+        );
+    }
+    if request.item_type == LibraryItemType::SmolvmScript {
+        if !matches!(request.agent.as_deref(), Some("claude") | Some("codex")) {
+            return Err(
+                "smolvm-script requires `agent` to be \"claude\" or \"codex\"".to_string(),
+            );
+        }
+        if !matches!(
+            request.distro.as_deref(),
+            Some("alpine") | Some("ubuntu") | Some("default")
+        ) {
+            return Err(
+                "smolvm-script requires `distro` to be \"alpine\", \"ubuntu\", or \"default\""
+                    .to_string(),
+            );
+        }
     }
     if let Some(original_id) =
         request.original_id.as_ref().map(|id| id.trim()).filter(|id| !id.is_empty())
@@ -325,6 +411,7 @@ pub(crate) fn save_item(
     let dir_name = match request.item_type {
         LibraryItemType::Prompt => "prompts",
         LibraryItemType::Skill => "skills",
+        LibraryItemType::SmolvmScript => "smolvm-scripts",
     };
     let next_path = root.join(dir_name).join(format!("{}.md", file_stem_for_id(item_id)));
     let original_path = request
@@ -622,6 +709,12 @@ fn scan_layer(layer: &LibraryLayer) -> Vec<ParsedItem> {
     let mut items = Vec::new();
     scan_kind(layer, LibraryItemType::Prompt, "prompts", &mut items);
     scan_kind(layer, LibraryItemType::Skill, "skills", &mut items);
+    scan_kind(
+        layer,
+        LibraryItemType::SmolvmScript,
+        "smolvm-scripts",
+        &mut items,
+    );
     items.sort_by_key(|item| item.item.title.to_lowercase());
     items
 }
@@ -716,7 +809,7 @@ fn parse_file(
     let title = fm.title.unwrap_or_else(|| title_from_path(path));
     let body = body.trim_start_matches('\n').to_string();
     let variables = match item_type {
-        LibraryItemType::Skill => Vec::new(),
+        LibraryItemType::Skill | LibraryItemType::SmolvmScript => Vec::new(),
         LibraryItemType::Prompt => {
             infer_body_variables(&body, normalize_variables(fm.variables.unwrap_or_default()))
         }
@@ -735,6 +828,8 @@ fn parse_file(
             source_path: path.to_string_lossy().into_owned(),
             overridden_paths: Vec::new(),
             variables,
+            agent: fm.agent.filter(|_| item_type == LibraryItemType::SmolvmScript),
+            distro: fm.distro.filter(|_| item_type == LibraryItemType::SmolvmScript),
         },
         body,
     })
@@ -751,6 +846,13 @@ struct Frontmatter {
     #[serde(rename = "type")]
     item_type: Option<LibraryItemType>,
     variables: Option<Vec<LibraryVariableInput>>,
+    /// Smolvm-script-only: which agent this script installs.
+    /// Required for scripts to be picked up by the install resolver.
+    agent: Option<String>,
+    /// Smolvm-script-only: distro key (`alpine` / `ubuntu` /
+    /// `default`). Required for install resolver to match against
+    /// the machine's image.
+    distro: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -997,9 +1099,18 @@ fn serialize_item_markdown(
         match request.item_type {
             LibraryItemType::Prompt => "prompt",
             LibraryItemType::Skill => "skill",
+            LibraryItemType::SmolvmScript => "smolvmScript",
         }
     ));
     lines.push(format!("title: {}", yaml_string(title)?));
+    if request.item_type == LibraryItemType::SmolvmScript {
+        if let Some(agent) = request.agent.as_ref() {
+            lines.push(format!("agent: {}", yaml_string(agent)?));
+        }
+        if let Some(distro) = request.distro.as_ref() {
+            lines.push(format!("distro: {}", yaml_string(distro)?));
+        }
+    }
     if let Some(description) =
         request.description.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty())
     {
@@ -1380,6 +1491,8 @@ mod tests {
                 body: "Review {{ focus }}\n".into(),
                 target: SaveLibraryTarget::Global,
                 expected_source_path: None,
+                agent: None,
+                distro: None,
             },
         )
         .unwrap();
@@ -1414,6 +1527,8 @@ mod tests {
                 body: "new\n".into(),
                 target: SaveLibraryTarget::Global,
                 expected_source_path: None,
+                agent: None,
+                distro: None,
             },
         )
         .unwrap_err();
@@ -1446,6 +1561,8 @@ mod tests {
                 body: "new\n".into(),
                 target: SaveLibraryTarget::Global,
                 expected_source_path: Some(victim.to_string_lossy().into_owned()),
+                agent: None,
+                distro: None,
             },
         )
         .unwrap_err();
@@ -1522,6 +1639,8 @@ mod tests {
                 body: "Prefer typed errors.\n".into(),
                 target: SaveLibraryTarget::Global,
                 expected_source_path: None,
+                agent: None,
+                distro: None,
             },
         )
         .unwrap();
@@ -1561,12 +1680,14 @@ mod tests {
                 body: "irrelevant\n".into(),
                 target: SaveLibraryTarget::Global,
                 expected_source_path: None,
+                agent: None,
+                distro: None,
             },
         )
         .unwrap_err();
 
         assert!(
-            err.contains("skills cannot define variables"),
+            err.contains("only prompts can define variables"),
             "expected variable rejection, got: {err}"
         );
     }

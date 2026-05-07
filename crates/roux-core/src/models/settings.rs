@@ -215,6 +215,27 @@ pub struct ExperimentsConfig {
     pub simplified_session_tabs: bool,
 }
 
+/// Optional host-side HTTP proxy that Roux can start/stop on behalf
+/// of the user. Roux does **not** ship or bundle a proxy — `command`
+/// is whatever the user has installed (tinyproxy, mitmproxy, squid,
+/// custom). Lifecycle is managed by `services::managed_proxy`.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedProxyConfig {
+    /// Shell command Roux runs to start the proxy. Spawned via the
+    /// user's login shell so PATH / aliases / `~/.config/...` refs
+    /// resolve. Example: `tinyproxy -d -c ~/.config/roux/tinyproxy.conf`.
+    pub command: String,
+    /// Port the proxy listens on. Roux polls this to verify start
+    /// success and uses it to construct the auto-fill URL.
+    pub port: u16,
+    /// Bind address the proxy listens on. Defaults to `127.0.0.1`
+    /// when unset. Use `192.168.x.x` only if the proxy must accept
+    /// connections from the smolvm guest's NAT subnet.
+    #[serde(default)]
+    pub bind: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RouxSettings {
@@ -278,6 +299,18 @@ pub struct RouxSettings {
     /// when nothing is found.
     #[serde(default)]
     pub worktrunk_binary_path: Option<String>,
+    /// Absolute path to the `smolvm` (smol machines) binary. Same motivation
+    /// as `worktrunk_binary_path` — GUI apps inherit a minimal PATH on macOS.
+    /// When unset, Roux resolves via PATH and falls back to "smolvm not
+    /// installed" (the activity rail icon and integration UI hide entirely).
+    #[serde(default)]
+    pub smolvm_binary_path: Option<String>,
+    /// Optional managed HTTP proxy. Lets Roux start/stop a user-
+    /// installed proxy (tinyproxy, mitmproxy, etc.) and point smol
+    /// VMs at it for outbound network. None = feature off; the smol
+    /// machines panel hides the start/stop toggle.
+    #[serde(default)]
+    pub managed_proxy: Option<ManagedProxyConfig>,
     /// Absolute path to the shell binary for terminal panes and login-shell
     /// PATH discovery. When set and non-empty, overrides automatic resolution
     /// from the OS login shell, then $SHELL.
@@ -454,6 +487,8 @@ impl Default for RouxSettings {
             gh_binary_path: None,
             git_binary_path: None,
             worktrunk_binary_path: None,
+            smolvm_binary_path: None,
+            managed_proxy: None,
             shell_binary_path: None,
             worktree_provider: WorktreeProvider::default(),
             additional_flags: Vec::new(),

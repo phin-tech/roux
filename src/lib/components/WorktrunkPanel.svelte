@@ -416,7 +416,10 @@
         nonoAllowDirs,
       });
       await connectPaneTerminal(mainPaneId);
-      if (profile) await runProfileInPane(newSession.id, profile);
+      if (profile)
+        await runProfileInPane(newSession.id, profile, {
+          smolMachineName: newSession.smolMachineName ?? null,
+        });
       setActiveSession(newSession.id);
     } catch (err) {
       worktreesError = `Failed to start session: ${err}`;

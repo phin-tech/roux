@@ -93,7 +93,9 @@ async function spawnShellPaneWithProfile(
   // already in the tree and the shell is alive, so we surface a
   // notification instead of tearing the pane down.
   try {
-    await runProfileInPane(ptyId, profile);
+    await runProfileInPane(ptyId, profile, {
+      smolMachineName: session.smolMachineName ?? null,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     logError(`runProfileInPane failed for split-with-profile "${profile.id}"`, e);

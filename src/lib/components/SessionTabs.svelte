@@ -465,7 +465,10 @@
       });
       const { connectPaneTerminal } = await import("$lib/panes/terminals");
       await connectPaneTerminal(mainPaneId);
-      if (profile) await runProfileInPane(session.id, profile);
+      if (profile)
+        await runProfileInPane(session.id, profile, {
+          smolMachineName: session.smolMachineName ?? null,
+        });
       closeContextMenu();
     } catch (e) {
       logError("Failed to create worktree session", e);
