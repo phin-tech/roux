@@ -108,6 +108,9 @@ fn main() {
         commands::smol_machines::cmd_install_smolvm_agent_recreate,
         commands::smol_machines::cmd_list_smol_machine_smolfiles,
         commands::smol_machines::cmd_open_smolvm_bootstrap_config,
+        commands::smol_machines::cmd_start_managed_proxy,
+        commands::smol_machines::cmd_stop_managed_proxy,
+        commands::smol_machines::cmd_managed_proxy_status,
         automation_hooks::cmd_list_automation_hooks,
         automation_hooks::cmd_preview_automation_hooks,
         automation_hooks::cmd_run_automation_hook,
@@ -240,6 +243,7 @@ fn main() {
             automation_hooks: automation_hooks::AutomationHookManager::new(),
             notification_manager: notifications::NotificationManager::new(),
             pending_replies: Mutex::new(std::collections::HashMap::new()),
+            managed_proxy: services::managed_proxy::ManagedProxyState::new(),
         })
         .invoke_handler(tauri::generate_handler![
             commands::misc::get_log_path,
@@ -272,6 +276,9 @@ fn main() {
             commands::smol_machines::cmd_install_smolvm_agent_recreate,
             commands::smol_machines::cmd_list_smol_machine_smolfiles,
             commands::smol_machines::cmd_open_smolvm_bootstrap_config,
+            commands::smol_machines::cmd_start_managed_proxy,
+            commands::smol_machines::cmd_stop_managed_proxy,
+            commands::smol_machines::cmd_managed_proxy_status,
             automation_hooks::cmd_list_automation_hooks,
             automation_hooks::cmd_preview_automation_hooks,
             automation_hooks::cmd_run_automation_hook,

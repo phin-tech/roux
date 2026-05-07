@@ -30,6 +30,8 @@ export type {
   WorktrunkMetadata,
   SmolMachine,
   SmolMachineCreateRequest,
+  ManagedProxyConfig,
+  ManagedProxyStatus,
   SmolvmDetection,
   ClaudeSession,
   Watch,

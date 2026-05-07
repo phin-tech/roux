@@ -584,6 +584,14 @@ pub struct CreateOpts<'a> {
     /// the host — the hypervisor enforces this. The user must have
     /// an agent running with keys (`ssh-add -l` on the host).
     pub ssh_agent: bool,
+    /// HTTP(S) proxy URL the guest should route outbound requests
+    /// through. When set, the create flow appends a
+    /// `/etc/profile.d/roux-proxy.sh` writer to the Smolfile's
+    /// `[dev].init` so every login shell inside the guest exports
+    /// `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`. None = no env
+    /// injection (guest exits via its own NAT, which fails for
+    /// IP-allowlisted registries).
+    pub host_proxy_url: Option<&'a str>,
 }
 
 pub fn create_machine(binary: &Path, opts: &CreateOpts) -> Result<(), SmolvmError> {
@@ -726,6 +734,7 @@ mod tests {
             image: None,
             network: false,
             ssh_agent: false,
+            host_proxy_url: None,
         });
         assert_eq!(args_to_strings(&args), vec!["machine", "create", "my-vm"]);
     }
@@ -739,6 +748,7 @@ mod tests {
             image: None,
             network: false,
             ssh_agent: false,
+            host_proxy_url: None,
         });
         assert_eq!(
             args_to_strings(&args),
@@ -754,6 +764,7 @@ mod tests {
             image: Some("alpine"),
             network: true,
             ssh_agent: false,
+            host_proxy_url: None,
         });
         assert_eq!(
             args_to_strings(&args),
@@ -981,6 +992,7 @@ init = ["echo hi"]
             image: Some("alpine"),
             network: true,
             ssh_agent: true,
+            host_proxy_url: None,
         });
         // Flag order is stable (name, --smolfile, --image, --net,
         // --ssh-agent) so the test asserts the full vector.
@@ -998,6 +1010,7 @@ init = ["echo hi"]
             image: Some("alpine"),
             network: false,
             ssh_agent: false,
+            host_proxy_url: None,
         });
         assert!(!args_to_strings(&args).contains(&"--ssh-agent".to_string()));
     }
@@ -1015,6 +1028,7 @@ init = ["echo hi"]
             image: Some("alpine"),
             network: true,
             ssh_agent: false,
+            host_proxy_url: None,
         });
         assert_eq!(
             args_to_strings(&args),

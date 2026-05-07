@@ -81,6 +81,9 @@ export const commands = {
 	cmdInstallSmolvmAgentRecreate: (machineName: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("cmd_install_smolvm_agent_recreate", { machineName, agent })),
 	cmdListSmolMachineSmolfiles: () => typedError<{ [key: string]: string }, string>(__TAURI_INVOKE("cmd_list_smol_machine_smolfiles")),
 	cmdOpenSmolvmBootstrapConfig: () => typedError<string, string>(__TAURI_INVOKE("cmd_open_smolvm_bootstrap_config")),
+	cmdStartManagedProxy: () => typedError<ManagedProxyStatus, string>(__TAURI_INVOKE("cmd_start_managed_proxy")),
+	cmdStopManagedProxy: () => typedError<ManagedProxyStatus, string>(__TAURI_INVOKE("cmd_stop_managed_proxy")),
+	cmdManagedProxyStatus: () => __TAURI_INVOKE<ManagedProxyStatus>("cmd_managed_proxy_status"),
 	cmdListAutomationHooks: (repoPath: string | null) => typedError<HookListItem[], string>(__TAURI_INVOKE("cmd_list_automation_hooks", { repoPath })),
 	cmdPreviewAutomationHooks: (request: HookRunRequest) => typedError<HookPreviewItem[], string>(__TAURI_INVOKE("cmd_preview_automation_hooks", { request })),
 	cmdRunAutomationHook: (request: HookRunRequest) => typedError<HookRunSummary, string>(__TAURI_INVOKE("cmd_run_automation_hook", { request })),
@@ -1106,6 +1109,7 @@ export type RouxSettings = {
 	 *  installed" (the activity rail icon and integration UI hide entirely).
 	 */
 	smolvmBinaryPath?: string | null,
+	managedProxy?: ManagedProxyConfig | null,
 	/**
 	 *  Absolute path to the shell binary for terminal panes and login-shell
 	 *  PATH discovery. When set and non-empty, overrides automatic resolution
@@ -1388,6 +1392,27 @@ export type SmolMachineCreateRequest = {
 	image: string | null,
 	network: boolean,
 	sshAgent: boolean,
+	hostProxyUrl?: string | null,
+};
+
+/**
+ * Optional host-side HTTP proxy Roux can start/stop on behalf of
+ * the user. Roux doesn't bundle a proxy — `command` is whatever
+ * the user has installed (tinyproxy, mitmproxy, custom).
+ */
+export type ManagedProxyConfig = {
+	command: string,
+	port: number,
+	bind?: string | null,
+};
+
+/** Snapshot of the managed-proxy lifecycle state. */
+export type ManagedProxyStatus = {
+	running: boolean,
+	port?: number | null,
+	bind?: string | null,
+	pid?: number | null,
+	lastError?: string | null,
 };
 
 /**

@@ -15,6 +15,7 @@ import type {
   WatchUpdateEvent,
   SmolMachine,
   SmolMachineCreateRequest,
+  ManagedProxyStatus,
 } from "./types";
 import { ptyOutputPayloadToBytes, type PtyOutputPayload } from "./ptyOutput";
 export type { PtyOutputPayload } from "./ptyOutput";
@@ -389,6 +390,24 @@ export async function listSmolMachineSmolfiles(): Promise<
  */
 export async function openSmolvmBootstrapConfig(): Promise<string> {
   return invoke("cmd_open_smolvm_bootstrap_config");
+}
+
+/**
+ * Start the user-configured managed HTTP proxy. Errors when
+ * `RouxSettings.managedProxy` isn't set, when the configured
+ * command fails to spawn, or when the listen socket isn't
+ * reachable within ~5s.
+ */
+export async function startManagedProxy(): Promise<ManagedProxyStatus> {
+  return invoke("cmd_start_managed_proxy");
+}
+
+export async function stopManagedProxy(): Promise<ManagedProxyStatus> {
+  return invoke("cmd_stop_managed_proxy");
+}
+
+export async function managedProxyStatus(): Promise<ManagedProxyStatus> {
+  return invoke("cmd_managed_proxy_status");
 }
 
 export type LibraryItemType = "prompt" | "skill";

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { settings, updateSetting } from "$lib/stores/settings";
+  import { smolvmDetection } from "$lib/stores/smolvmDetection";
   import {
     sidebarLayout,
     setRailSide,
@@ -1326,6 +1327,134 @@
                 </div>
               </div>
             </div>
+            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-center justify-between">
+                <div class="text-[13px] font-semibold">Smol Machines</div>
+                {#if $smolvmDetection.binaryPath}
+                  <span
+                    class="rounded bg-green/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green"
+                  >
+                    detected{$smolvmDetection.version
+                      ? ` ${$smolvmDetection.version}`
+                      : ""}
+                  </span>
+                {:else}
+                  <span
+                    class="rounded bg-bg-surface px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted"
+                  >
+                    not detected
+                  </span>
+                {/if}
+              </div>
+              <div class="mt-1 text-[11px] text-text-muted leading-relaxed">
+                Hardware-isolated local VMs for Claude / Codex sessions. Run
+                <code class="font-mono">curl -sSL https://smolmachines.com/install.sh | bash</code>
+                if you don't have <code class="font-mono">smolvm</code> yet.
+              </div>
+              {#if $smolvmDetection.binaryPath}
+                <div class="mt-2 font-mono text-[10px] text-text-muted">
+                  {$smolvmDetection.binaryPath}
+                </div>
+              {/if}
+              <div class="mt-3 flex items-center justify-between gap-2">
+                <span class="text-[13px]">Binary path</span>
+                <div class="flex gap-1">
+                  <input
+                    class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-64 text-right focus:border-accent-dim"
+                    value={$settings.smolvmBinaryPath ?? ""}
+                    oninput={(e) =>
+                      updateSetting("smolvmBinaryPath", e.currentTarget.value || null)}
+                    placeholder="/opt/homebrew/bin/smolvm"
+                  />
+                </div>
+              </div>
+
+              <!--
+                Managed proxy: optional. Roux runs whatever HTTP proxy
+                the user has installed (tinyproxy / mitmproxy / squid /
+                custom) and points VMs at it. We don't ship or bundle a
+                proxy — the command is whatever you configure.
+              -->
+              <div class="mt-4 border-t border-border-subtle pt-3">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="text-[13px]">Managed HTTP proxy</div>
+                    <div class="mt-0.5 text-[11px] text-text-muted leading-relaxed">
+                      Roux starts/stops a host-side proxy that VMs route through.
+                      Useful when private registries (AWS CodeArtifact, corp Artifactory)
+                      IP-allowlist your host. Install your preferred proxy first,
+                      then configure the start command below.
+                    </div>
+                  </div>
+                  <button
+                    aria-label="Toggle managed proxy"
+                    class="w-9 h-5 shrink-0 rounded-full relative cursor-pointer transition-all border
+                      {$settings.managedProxy ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                    onclick={() =>
+                      updateSetting(
+                        "managedProxy",
+                        $settings.managedProxy
+                          ? null
+                          : { command: "", port: 8888, bind: "127.0.0.1" },
+                      )}
+                  >
+                    <div
+                      class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                        {$settings.managedProxy ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"
+                    ></div>
+                  </button>
+                </div>
+                {#if $settings.managedProxy}
+                  <div class="mt-3 flex items-center justify-between gap-2">
+                    <span class="text-[13px]">Start command</span>
+                    <input
+                      class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-80 text-right focus:border-accent-dim"
+                      value={$settings.managedProxy.command}
+                      oninput={(e) =>
+                        updateSetting("managedProxy", {
+                          ...$settings.managedProxy!,
+                          command: e.currentTarget.value,
+                        })}
+                      placeholder="tinyproxy -d -c ~/.config/roux/tinyproxy.conf"
+                    />
+                  </div>
+                  <div class="mt-2 flex items-center justify-between gap-2">
+                    <span class="text-[13px]">Port</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="65535"
+                      class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-24 text-right focus:border-accent-dim"
+                      value={$settings.managedProxy.port}
+                      oninput={(e) =>
+                        updateSetting("managedProxy", {
+                          ...$settings.managedProxy!,
+                          port: Number(e.currentTarget.value) || 8888,
+                        })}
+                    />
+                  </div>
+                  <div class="mt-2 flex items-center justify-between gap-2">
+                    <span class="text-[13px]">Bind address</span>
+                    <input
+                      class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-48 text-right focus:border-accent-dim"
+                      value={$settings.managedProxy.bind ?? ""}
+                      oninput={(e) =>
+                        updateSetting("managedProxy", {
+                          ...$settings.managedProxy!,
+                          bind: e.currentTarget.value || null,
+                        })}
+                      placeholder="127.0.0.1"
+                    />
+                  </div>
+                  <div class="mt-2 text-[10px] leading-relaxed text-text-muted">
+                    Examples: <code class="font-mono">mitmdump --mode regular --listen-port 8888</code>,
+                    <code class="font-mono">squid -N -f /path/to/squid.conf</code>.
+                    Start/stop from the Smol Machines panel header.
+                  </div>
+                {/if}
+              </div>
+            </div>
+
           {:else if selected === "notifications"}
             <div class="flex items-center justify-between py-2">
               <div>

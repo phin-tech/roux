@@ -98,6 +98,14 @@ pub struct SmolMachineCreateRequest {
     /// form has a checkbox.
     #[serde(default)]
     pub ssh_agent: bool,
+    /// HTTP(S) proxy URL the guest should route outbound requests
+    /// through. When set and no Smolfile is provided, Roux generates
+    /// a managed Smolfile that exports `HTTP_PROXY` / `HTTPS_PROXY`
+    /// in the guest. When the user provides their own Smolfile, this
+    /// field is silently ignored — their Smolfile is authoritative
+    /// and they're expected to wire the proxy env themselves.
+    #[serde(default)]
+    pub host_proxy_url: Option<String>,
 }
 
 pub fn create_machine(
@@ -108,12 +116,18 @@ pub fn create_machine(
     // Empty strings from the form should be treated as "unset" — smolvm
     // would otherwise reject `--image ""` with a confusing error.
     let image = req.image.as_deref().filter(|s| !s.is_empty());
+    let host_proxy_url = req
+        .host_proxy_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let opts = roux_smolvm::CreateOpts {
         name: &req.name,
         smolfile_path,
         image,
         network: req.network,
         ssh_agent: req.ssh_agent,
+        host_proxy_url,
     };
     roux_smolvm::create_machine(binary, &opts)
 }

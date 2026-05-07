@@ -16,6 +16,60 @@ pub(crate) fn bootstrap_config_path() -> PathBuf {
     crate::paths::roux_config_dir().join("smolvm-bootstraps.toml")
 }
 
+/// Standard path for a Roux-managed Smolfile for a given machine.
+/// Used by both the create-with-proxy flow (Phase 2.10a) and the
+/// install-persist recreate flow (Phase 2.6) so they share a layout.
+pub(crate) fn managed_smolfile_path(machine_name: &str) -> PathBuf {
+    crate::paths::roux_config_dir()
+        .join("smolmachines")
+        .join(format!("{machine_name}.toml"))
+}
+
+/// Generate a Roux-managed Smolfile body capturing the given machine
+/// settings. The output is plain TOML written verbatim to disk.
+///
+/// `[dev].init` is populated when a proxy URL or install line is
+/// provided — both are appended in order. Either being `None` is
+/// fine; we just emit fewer lines.
+///
+/// `image` is required for a sensible Smolfile; `None` produces a
+/// commented placeholder so the file is at least valid TOML the user
+/// can edit by hand if they need to.
+pub(crate) fn generate_managed_smolfile(
+    image: Option<&str>,
+    network: bool,
+    ssh_agent: bool,
+    host_proxy_url: Option<&str>,
+    install_line: Option<&str>,
+) -> String {
+    let mut body = String::new();
+    body.push_str("# Roux-managed Smolfile. Edits are preserved across\n");
+    body.push_str("# restarts but may be overwritten on machine recreation.\n\n");
+
+    match image {
+        Some(img) => body.push_str(&format!("image     = \"{}\"\n", img.replace('"', "\\\""))),
+        None => body.push_str("# image    = \"alpine:latest\"  # set this before recreating\n"),
+    }
+    body.push_str(&format!("net       = {network}\n"));
+    body.push_str(&format!("ssh_agent = {ssh_agent}\n"));
+    body.push_str("\n[dev]\ninit = [\n");
+
+    // Proxy export first so subsequent init steps (e.g. apt-get update)
+    // already see HTTP_PROXY / HTTPS_PROXY.
+    if let Some(url) = host_proxy_url {
+        let escaped = url.replace('\\', "\\\\").replace('"', "\\\"");
+        body.push_str(&format!(
+            "  \"printf 'export HTTP_PROXY=%s\\\\nexport HTTPS_PROXY=%s\\\\nexport NO_PROXY=localhost,127.0.0.1\\\\n' '{escaped}' '{escaped}' > /etc/profile.d/roux-proxy.sh\",\n",
+        ));
+    }
+    if let Some(line) = install_line {
+        let escaped = line.replace('\\', "\\\\").replace('"', "\\\"");
+        body.push_str(&format!("  \"{escaped}\",\n"));
+    }
+    body.push_str("]\n");
+    body
+}
+
 /// Path to the per-machine Smolfile registry:
 /// `~/.config/roux/smolmachines.json`. JSON map of
 /// `{ machine_name: smolfile_absolute_path }`. Only written when at

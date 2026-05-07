@@ -10,17 +10,24 @@
     installSmolvmAgentRecreate,
     listSmolMachineSmolfiles,
     listSmolMachines,
+    managedProxyStatus,
     openSmolvmBootstrapConfig,
     setSessionSmolMachine,
+    startManagedProxy,
     startSmolMachine,
+    stopManagedProxy,
     stopSmolMachine,
     type SmolvmPersistOutcome,
   } from "$lib/tauri";
+  import { settings } from "$lib/stores/settings";
+  import type { ManagedProxyStatus } from "$lib/types";
   import type { SmolMachine } from "$lib/types";
   import { activeSession, sessionState } from "$lib/stores/sessions";
   import { smolvmDetection } from "$lib/stores/smolvmDetection";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Shield from "@lucide/svelte/icons/shield";
+  import ShieldOff from "@lucide/svelte/icons/shield-off";
   import Sliders from "@lucide/svelte/icons/sliders-horizontal";
   import X from "@lucide/svelte/icons/x";
 
@@ -67,9 +74,65 @@
   let newImage = $state("");
   let newNetwork = $state(false);
   let newSshAgent = $state(false);
+  let newProxyUrl = $state("");
   let creating = $state(false);
   let createError = $state<string | null>(null);
   let nameInput = $state<HTMLInputElement | null>(null);
+
+  // --- Managed proxy state --------------------------------------------
+  // Reflects the live state of the user-configured host proxy. Polled
+  // when the panel is visible so the chip + start/stop button stay in
+  // sync if the proxy crashes externally.
+  let proxyStatus = $state<ManagedProxyStatus>({ running: false });
+  let proxyBusy = $state(false);
+  let proxyError = $state<string | null>(null);
+
+  async function refreshProxyStatus(): Promise<void> {
+    try {
+      proxyStatus = await managedProxyStatus();
+    } catch (err) {
+      proxyError = typeof err === "string" ? err : String(err);
+    }
+  }
+
+  $effect(() => {
+    if (!visible) return;
+    void refreshProxyStatus();
+    // Poll every 5s so an externally-killed proxy reflects in the UI.
+    // Cheap — single Tauri command, no I/O on the host beyond a
+    // mutex read in services::managed_proxy::status.
+    const id = window.setInterval(() => void refreshProxyStatus(), 5000);
+    return () => window.clearInterval(id);
+  });
+
+  async function handleStartProxy(): Promise<void> {
+    proxyBusy = true;
+    proxyError = null;
+    try {
+      proxyStatus = await startManagedProxy();
+      // Auto-fill the create form's proxy URL field if it's empty,
+      // so users aren't left typing the URL Roux just bound.
+      if (!newProxyUrl.trim() && proxyStatus.running && proxyStatus.port) {
+        newProxyUrl = `http://${proxyStatus.bind ?? "127.0.0.1"}:${proxyStatus.port}`;
+      }
+    } catch (err) {
+      proxyError = typeof err === "string" ? err : String(err);
+    } finally {
+      proxyBusy = false;
+    }
+  }
+
+  async function handleStopProxy(): Promise<void> {
+    proxyBusy = true;
+    proxyError = null;
+    try {
+      proxyStatus = await stopManagedProxy();
+    } catch (err) {
+      proxyError = typeof err === "string" ? err : String(err);
+    } finally {
+      proxyBusy = false;
+    }
+  }
 
   // Autofocus the Name field whenever the form opens. Tied to the open
   // flag rather than mount so re-opening the form re-focuses.
@@ -90,6 +153,7 @@
     newImage = "";
     newNetwork = false;
     newSshAgent = false;
+    newProxyUrl = "";
     createError = null;
   }
 
@@ -139,6 +203,11 @@
         image: smolfile || !image ? null : image,
         network: smolfile ? false : newNetwork,
         sshAgent: smolfile ? false : newSshAgent,
+        // Proxy URL only applies when no Smolfile is provided; when
+        // a user picks their own Smolfile, that file is authoritative.
+        hostProxyUrl: smolfile
+          ? null
+          : newProxyUrl.trim() || null,
       });
       closeCreateForm();
       await loadMachines();
@@ -383,6 +452,30 @@
           <Plus size={12} />
         </button>
       {/if}
+      {#if $settings.managedProxy}
+        <button
+          type="button"
+          class="flex h-6 items-center gap-1 rounded px-1.5 text-[10px] disabled:opacity-40 {proxyStatus.running
+            ? 'bg-accent-dim/15 text-accent hover:bg-accent-dim/25'
+            : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'}"
+          title={proxyStatus.running
+            ? `Managed proxy running on ${proxyStatus.bind ?? '127.0.0.1'}:${proxyStatus.port}. Click to stop.`
+            : proxyError ?? proxyStatus.lastError ?? 'Start the configured managed HTTP proxy.'}
+          aria-label={proxyStatus.running ? 'Stop managed proxy' : 'Start managed proxy'}
+          aria-pressed={proxyStatus.running}
+          disabled={proxyBusy}
+          onclick={() =>
+            void (proxyStatus.running ? handleStopProxy() : handleStartProxy())}
+        >
+          {#if proxyStatus.running}
+            <Shield size={11} />
+            <span class="font-mono">{proxyStatus.bind ?? '127.0.0.1'}:{proxyStatus.port}</span>
+          {:else}
+            <ShieldOff size={11} />
+            <span>{proxyError || proxyStatus.lastError ? 'proxy error' : 'proxy off'}</span>
+          {/if}
+        </button>
+      {/if}
       <button
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded text-text-muted hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
@@ -514,11 +607,37 @@
                 </span>
               </span>
             </label>
+
+            <label
+              class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-text-muted"
+              for="smol-new-proxy"
+            >
+              Host HTTP proxy URL (optional)
+            </label>
+            <input
+              id="smol-new-proxy"
+              bind:value={newProxyUrl}
+              placeholder={proxyStatus.running && proxyStatus.port
+                ? `http://${proxyStatus.bind ?? "127.0.0.1"}:${proxyStatus.port}`
+                : "http://192.168.64.1:8888"}
+              class="mb-1 w-full rounded border border-border bg-bg-deep px-2 py-1 font-mono text-[10px] text-text-primary outline-none focus:border-accent-dim"
+              disabled={creating}
+            />
+            <p class="mb-2 text-[10px] text-text-muted">
+              Routes guest HTTP(S) through a host-side proxy. Useful when
+              private registries IP-allowlist your host. Roux generates a
+              managed Smolfile with `[dev].init` exporting `HTTP_PROXY` /
+              `HTTPS_PROXY` so all login shells in the VM pick it up.
+              {#if proxyStatus.running}
+                Click the field to use the running managed proxy URL.
+              {/if}
+            </p>
           {:else}
             <p class="mb-2 text-[10px] text-text-muted">
-              Image, network, and SSH agent forwarding are read from the
+              Image, network, SSH agent, and proxy env are read from the
               Smolfile (set <code class="rounded bg-bg-surface px-1">ssh_agent = true</code>
-              to forward your host SSH agent).
+              and add an `HTTP_PROXY` export under
+              <code class="rounded bg-bg-surface px-1">[dev].init</code>).
             </p>
           {/if}
 

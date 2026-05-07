@@ -120,18 +120,68 @@ pub(crate) async fn cmd_delete_smol_machine(name: String) -> Result<(), String> 
 pub(crate) async fn cmd_create_smol_machine(
     request: roux_core::SmolMachineCreateRequest,
 ) -> Result<(), String> {
-    let smolfile_path = request.smolfile_path.clone();
-    let machine_name = request.name.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let install = svc::resolve_smolvm_binary().ok_or_else(|| "smolvm is not installed".to_string())?;
-        roux_core::smolvm::create_machine(&install.path, &request).map_err(|e| e.to_string())?;
-        // Track the Smolfile link so "Persist via Smolfile" can write
-        // back to it later. Only write the registry when a Smolfile
-        // was actually provided — machines created without one stay
-        // unlinked and the panel falls through to the "create + recreate"
-        // flow.
-        if let Some(path) = smolfile_path.as_deref().filter(|p| !p.trim().is_empty()) {
-            svc::record_smolfile_path(&machine_name, std::path::Path::new(path))?;
+        let machine_name = request.name.clone();
+
+        // Decide whether we need a Roux-managed Smolfile.
+        //
+        // The user-provided Smolfile (if any) is authoritative: we
+        // don't modify it and don't override it. If the user supplied
+        // *only* a proxy URL but no Smolfile, we need to generate one
+        // because there's no other way to inject `[dev].init` into a
+        // smolvm machine — the CLI doesn't take init lines as flags.
+        let user_smolfile = request
+            .smolfile_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(std::path::PathBuf::from);
+        let proxy_url = request
+            .host_proxy_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        let (final_request, recorded_smolfile) = if user_smolfile.is_some() {
+            // User-provided Smolfile is authoritative. Proxy URL is
+            // silently ignored if both are set — the user is expected
+            // to wire `[dev].init` themselves.
+            let path = user_smolfile.unwrap();
+            (request, Some(path))
+        } else if let Some(url) = proxy_url {
+            // No user Smolfile + proxy URL → generate a managed one.
+            let managed_path = svc::managed_smolfile_path(&machine_name);
+            if let Some(parent) = managed_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("could not create {parent:?}: {e}"))?;
+            }
+            let body = svc::generate_managed_smolfile(
+                request.image.as_deref().filter(|s| !s.is_empty()),
+                request.network,
+                request.ssh_agent,
+                Some(url),
+                None, // no install init line yet — that comes via the persist flow
+            );
+            std::fs::write(&managed_path, body)
+                .map_err(|e| format!("could not write {managed_path:?}: {e}"))?;
+            // Override the request to point at our managed Smolfile.
+            // Image / network / ssh_agent stay on the request so they
+            // also flow through as CLI flags — smolvm reconciles them
+            // with the Smolfile (we wrote them to the file too, so
+            // they agree).
+            let mut updated = request;
+            updated.smolfile_path = Some(managed_path.to_string_lossy().into_owned());
+            (updated, Some(managed_path))
+        } else {
+            // No Smolfile, no proxy URL → existing flag-based create
+            // path. Nothing to track.
+            (request, None)
+        };
+
+        roux_core::smolvm::create_machine(&install.path, &final_request).map_err(|e| e.to_string())?;
+        if let Some(path) = recorded_smolfile {
+            svc::record_smolfile_path(&machine_name, &path)?;
         }
         Ok(())
     })
@@ -358,12 +408,16 @@ pub(crate) async fn cmd_install_smolvm_agent_recreate(
         // Step 4: recreate. The Smolfile is the source of truth for
         // image/net/ssh_agent here; the CLI flags echo what we wrote
         // to it so smolvm can't reject for inconsistency.
+        // Proxy URL preservation across recreate is deferred — the
+        // current Smolfile may have a proxy line in [dev].init from
+        // a previous create, but we don't parse it back out yet.
         let create_opts = roux_smolvm::CreateOpts {
             name: &machine_name,
             smolfile_path: Some(&smolfile_path),
             image: None,
             network: false,
             ssh_agent,
+            host_proxy_url: None,
         };
         roux_smolvm::create_machine(&install.path, &create_opts).map_err(|e| {
             format!(
@@ -404,6 +458,51 @@ pub(crate) async fn cmd_list_smol_machine_smolfiles()
     tauri::async_runtime::spawn_blocking(svc::read_smolmachines_registry_for_command)
         .await
         .map_err(|e| format!("list_smol_machine_smolfiles task panicked: {e}"))?
+}
+
+/// Start the user-configured managed HTTP proxy. No-op if already
+/// running. Returns the live status so the UI can update without a
+/// follow-up `cmd_managed_proxy_status` round-trip.
+///
+/// `RouxSettings.managed_proxy` must be set; otherwise returns a
+/// typed error pointing the user at Settings → Smol Machines.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_start_managed_proxy(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::services::managed_proxy::ManagedProxyStatus, String> {
+    let config = state
+        .settings
+        .lock()
+        .map_err(|_| "settings lock poisoned".to_string())?
+        .managed_proxy
+        .clone()
+        .ok_or_else(|| {
+            "managed proxy is not configured (Settings → Smol Machines)".to_string()
+        })?;
+    let proxy_state = state.managed_proxy.clone();
+    tauri::async_runtime::spawn_blocking(move || proxy_state.start(&config))
+        .await
+        .map_err(|e| format!("start_managed_proxy task panicked: {e}"))?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_stop_managed_proxy(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::services::managed_proxy::ManagedProxyStatus, String> {
+    let proxy_state = state.managed_proxy.clone();
+    tauri::async_runtime::spawn_blocking(move || Ok(proxy_state.stop()))
+        .await
+        .map_err(|e| format!("stop_managed_proxy task panicked: {e}"))?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_managed_proxy_status(
+    state: tauri::State<'_, AppState>,
+) -> crate::services::managed_proxy::ManagedProxyStatus {
+    state.managed_proxy.status()
 }
 
 /// Open the smolvm bootstrap config file in the user's default
