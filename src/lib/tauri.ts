@@ -442,7 +442,7 @@ export async function appendWorktreeMount(
   return invoke("cmd_append_worktree_mount", { machineName, spec });
 }
 
-export type LibraryItemType = "prompt" | "skill";
+export type LibraryItemType = "prompt" | "skill" | "smolvmScript";
 export type LibraryLayerKind = "global" | "localRepo" | "gitRepo" | "activeRepo";
 export type LibrarySourceKind = "localRepo" | "gitRepo";
 export type LibraryRemoteState = "upToDate" | "ahead" | "behind" | "diverged" | "unknown";
@@ -485,6 +485,17 @@ export interface LibraryItem {
   sourcePath: string;
   overriddenPaths: string[];
   variables: LibraryVariable[];
+  /**
+   * smolvmScript-only: the agent this script installs (`claude` /
+   * `codex`). Undefined for prompts and skills.
+   */
+  agent?: string | null;
+  /**
+   * smolvmScript-only: distro key matching the install resolver
+   * (`alpine` / `ubuntu` / `default`). Undefined for prompts and
+   * skills.
+   */
+  distro?: string | null;
 }
 
 export interface LibraryRead {
@@ -520,6 +531,10 @@ export interface SaveLibraryItemRequest {
   body: string;
   target: SaveLibraryTarget;
   expectedSourcePath?: string | null;
+  /** smolvmScript-only. */
+  agent?: string | null;
+  /** smolvmScript-only. */
+  distro?: string | null;
 }
 
 export interface SavedLibraryItem {

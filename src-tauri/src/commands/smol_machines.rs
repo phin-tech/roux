@@ -379,18 +379,33 @@ pub(crate) async fn cmd_install_smolvm_agent_recreate(
                 format!("could not create {parent:?}: {e}")
             })?;
         }
-        // Smolfile body. `ssh_agent = true` is preserved from the
-        // original machine so private-repo cloning inside the guest
-        // keeps working after recreation.
-        let body = format!(
-            "image     = \"{image}\"\nnet       = {net}\nssh_agent = {ssh}\n\n[dev]\ninit = [{script}]\n",
-            image = image.replace('"', "\\\""),
-            net = network,
-            ssh = ssh_agent,
-            script = toml_string_literal(&script),
-        );
-        std::fs::write(&smolfile_path, body)
-            .map_err(|e| format!("could not write Smolfile {smolfile_path:?}: {e}"))?;
+        // Smolfile generation: today this command is only invoked
+        // from the NeedsRecreate fallback (no linked Smolfile exists),
+        // so the file usually doesn't exist yet. Write a fresh body
+        // in that case. If a managed Smolfile is already present —
+        // either because a prior recreate ran, or because a future
+        // caller invokes recreate on a linked machine — preserve its
+        // existing [dev].init / [dev].volumes / proxy env by appending
+        // the install line in place rather than overwriting. This
+        // protects the proxy URL written by `cmd_create_smol_machine`
+        // when the machine was originally created with a proxy.
+        // `ssh_agent = true` is preserved from the original machine so
+        // private-repo cloning inside the guest keeps working after
+        // recreation.
+        if smolfile_path.exists() {
+            roux_smolvm::smolfile_append_init(&smolfile_path, &script)
+                .map_err(|e| format!("could not update Smolfile {smolfile_path:?}: {e}"))?;
+        } else {
+            let body = format!(
+                "image     = \"{image}\"\nnet       = {net}\nssh_agent = {ssh}\n\n[dev]\ninit = [{script}]\n",
+                image = image.replace('"', "\\\""),
+                net = network,
+                ssh = ssh_agent,
+                script = toml_string_literal(&script),
+            );
+            std::fs::write(&smolfile_path, body)
+                .map_err(|e| format!("could not write Smolfile {smolfile_path:?}: {e}"))?;
+        }
 
         let path_for_breadcrumb = smolfile_path.to_string_lossy().into_owned();
 
@@ -406,11 +421,9 @@ pub(crate) async fn cmd_install_smolvm_agent_recreate(
         })?;
 
         // Step 4: recreate. The Smolfile is the source of truth for
-        // image/net/ssh_agent/volumes here; the CLI flags echo what we
-        // wrote to it so smolvm can't reject for inconsistency.
-        // Proxy URL preservation across recreate is deferred — the
-        // current Smolfile may have a proxy line in [dev].init from
-        // a previous create, but we don't parse it back out yet.
+        // image / net / ssh_agent / volumes / proxy-env-init here;
+        // the CLI flags echo what we wrote to it so smolvm can't
+        // reject for inconsistency.
         let create_opts = roux_smolvm::CreateOpts {
             name: &machine_name,
             smolfile_path: Some(&smolfile_path),
