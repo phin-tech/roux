@@ -417,6 +417,7 @@
   let unlistenDragDrop: (() => void) | null = null;
   let unlistenSessionPrEffect: (() => void) | null = null;
   let stopPtyInventoryPolling: (() => void) | null = null;
+  let tauriUnlisteners: Array<() => void> = [];
   let stopSessionBranchPoller: (() => void) | null = null;
 
   function handleWindowFocusForPr(): void {
@@ -427,12 +428,20 @@
     void refreshActiveSessionPr();
   }
 
-  onDestroy(() => {
+  function cleanupAppLifecycle() {
     stopNotificationAutoRead();
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
     window.removeEventListener("blur", handleWindowBlur);
     window.removeEventListener("focus", handleWindowFocusForPr);
+    window.removeEventListener("beforeunload", cleanupAppLifecycle);
+    for (const unlisten of tauriUnlisteners.splice(0)) {
+      try {
+        unlisten();
+      } catch {
+        // Best-effort cleanup during reload/shutdown.
+      }
+    }
     unlistenDragDrop?.();
     unlistenDragDrop = null;
     unlistenSessionPrEffect?.();
@@ -442,6 +451,10 @@
     stopSessionBranchPoller?.();
     stopSessionBranchPoller = null;
     teardownAppMenu();
+  }
+
+  onDestroy(() => {
+    cleanupAppLifecycle();
   });
 
   onMount(async () => {
@@ -463,11 +476,12 @@
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("keyup", handleKeyUp, true);
     window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("beforeunload", cleanupAppLifecycle);
 
     // Listen for Tauri close-requested event (red button / Cmd+W)
-    await listen("close-requested", () => void handleCloseRequested());
+    tauriUnlisteners.push(await listen("close-requested", () => void handleCloseRequested()));
     // Listen for macOS Quit menu / Dock quit
-    await listen("quit-requested", () => void handleQuitRequested());
+    tauriUnlisteners.push(await listen("quit-requested", () => void handleQuitRequested()));
 
     // Native file drag-and-drop: write the dropped path(s) into the target pane's terminal.
     // Tauri reports drop position in PHYSICAL pixels; document.elementFromPoint expects CSS
@@ -563,12 +577,28 @@
         "$lib/stores/worktreeMetadata"
       );
       void refreshWorktreeMetadataForRepos(sessions.map((s) => s.repoRoot));
-      const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+      const [{ initTerminal, attachPtyListeners }, { attachPtyToPane }, { listAllPtys }] = await Promise.all([
+        import("$lib/panes/terminals"),
+        import("$lib/panes/attach"),
+        import("$lib/tauri"),
+      ]);
       const { restoreSessionPanes } = await import("$lib/panes/restore");
+      let livePtyIds: Set<string> | null = null;
+      try {
+        livePtyIds = new Set((await listAllPtys()).map((pty) => pty.id));
+      } catch (e) {
+        livePtyIds = null;
+        log(`Unable to read live PTY inventory during restore: ${e}`);
+      }
       for (const s of sessions) {
         addSession(s);
         const persisted = await loadPaneState(s.id);
-        await restoreSessionPanes(s, persisted, { initTerminal, attachPtyListeners });
+        await restoreSessionPanes(s, persisted, {
+          initTerminal,
+          attachPtyListeners,
+          attachLivePtyToPane: attachPtyToPane,
+          livePtyIds,
+        });
       }
     }
 
@@ -578,7 +608,7 @@
     initPersistence();
 
     // Listen for commands from roux-cli via socket server
-    await onRouxCommand(async (cmd: RouxCommand) => {
+    tauriUnlisteners.push(await onRouxCommand(async (cmd: RouxCommand) => {
       log(`roux-command: ${JSON.stringify(cmd)}`);
       switch (cmd.action) {
         case "split": {
@@ -757,7 +787,7 @@
           break;
         }
       }
-    });
+    }));
 
     // Hydrate watches from backend
     listWatches().then((watches) => {
@@ -765,18 +795,18 @@
     });
 
     // Listen for watch updates
-    await onWatchUpdate((event) => {
+    tauriUnlisteners.push(await onWatchUpdate((event) => {
       addOrUpdateWatch(event.watch);
       if (event.changed && event.watch.scope.type === "session") {
         flashSession(event.watch.scope.sessionId);
       }
-    });
+    }));
 
     // Hydrate + subscribe to notifications
     await hydrateNotifications();
-    await onNotificationEvent((payload) => {
+    tauriUnlisteners.push(await onNotificationEvent((payload) => {
       applyNotificationEvent(payload);
-    });
+    }));
     initNotificationAutoRead();
 
     // Listen for global status updates from hooks. Tier-1 routing (with a
@@ -784,7 +814,7 @@
     // the session-card aggregate and provider-specific UI light up. Legacy
     // events without a pane id fall through to cwd-based session status,
     // which still drives notification fan-out.
-    await onRouxStatusUpdate((update) => {
+    tauriUnlisteners.push(await onRouxStatusUpdate((update) => {
       const routing = applyStatusRouting(routeStatusUpdate(update));
       if (routing.kind === "pane") {
         // Tier-1 routing already wrote to agentState; the session aggregate
@@ -799,16 +829,16 @@
       if (match) {
         updateSessionStatus(match.id, update.status as any, null, null);
       }
-    });
+    }));
 
     // Backend FSM tells us when a pane exited `Attention`; clear any
     // stale `permissionInfo` so the Allow/Deny affordance disappears
     // alongside the auto-dismissed notification. Backend already gates
     // on the `autoClearAttentionState` setting — the event simply
     // doesn't fire when it's off.
-    await onAgentAttentionCleared(({ paneId }) => {
+    tauriUnlisteners.push(await onAgentAttentionCleared(({ paneId }) => {
       clearPermissionInfo(paneId);
-    });
+    }));
   });
 </script>
 
