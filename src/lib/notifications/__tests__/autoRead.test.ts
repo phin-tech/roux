@@ -14,7 +14,7 @@ import { focusedPaneId, resetFocus } from "$lib/panes/focus";
 import { resetLayouts, sessionLayouts } from "$lib/panes/layout";
 import { sessionState } from "$lib/stores/sessions";
 import type { Notification } from "$lib/types";
-import { notificationsMarkRead } from "$lib/tauri";
+import { notificationsMarkRead, notificationsRemove } from "$lib/tauri";
 import {
   initNotificationAutoRead,
   stopNotificationAutoRead,
@@ -67,6 +67,8 @@ describe("notification auto-read", () => {
     sessionState.set({ sessions: [], activeSessionId: null });
     vi.mocked(notificationsMarkRead).mockReset();
     vi.mocked(notificationsMarkRead).mockResolvedValue(true);
+    vi.mocked(notificationsRemove).mockReset();
+    vi.mocked(notificationsRemove).mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -144,6 +146,90 @@ describe("notification auto-read", () => {
     await waitTick();
 
     expect(notificationsMarkRead).not.toHaveBeenCalled();
+  });
+
+  it("auto-removes completion-session notifications when the matching session becomes active", async () => {
+    const completion = makeNotification({
+      id: "completion-1",
+      sessionId: "s1",
+      dedupKey: "completion:session:s1",
+      level: "success",
+    });
+    notifications.set([completion]);
+
+    initNotificationAutoRead();
+    sessionState.set({ sessions: [], activeSessionId: "s1" });
+    await waitTick();
+
+    expect(notificationsRemove).toHaveBeenCalledWith("completion-1");
+    expect(notificationsMarkRead).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-remove completion-session notifications for other sessions", async () => {
+    const completion = makeNotification({
+      id: "completion-2",
+      sessionId: "s2",
+      dedupKey: "completion:session:s2",
+      level: "success",
+    });
+    notifications.set([completion]);
+
+    initNotificationAutoRead();
+    sessionState.set({ sessions: [], activeSessionId: "s1" });
+    await waitTick();
+
+    expect(notificationsRemove).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-remove completion:pane fallback notifications", async () => {
+    const fallback = makeNotification({
+      id: "fallback-pane",
+      sessionId: "s1",
+      dedupKey: "completion:pane:pane-1",
+      level: "success",
+    });
+    notifications.set([fallback]);
+
+    initNotificationAutoRead();
+    sessionState.set({ sessions: [], activeSessionId: "s1" });
+    await waitTick();
+
+    expect(notificationsRemove).not.toHaveBeenCalled();
+    // It still gets marked read via the normal path.
+    expect(notificationsMarkRead).toHaveBeenCalledWith("fallback-pane");
+  });
+
+  it("limits concurrent auto-remove requests and drains remaining matches", async () => {
+    const blockers: Array<ReturnType<typeof deferred<boolean>>> = [];
+    vi.mocked(notificationsRemove).mockImplementation(() => {
+      const blocker = deferred<boolean>();
+      blockers.push(blocker);
+      return blocker.promise;
+    });
+    notifications.set(
+      Array.from({ length: 10 }, (_, index) =>
+        makeNotification({
+          id: `completion-${index}`,
+          sessionId: "s1",
+          dedupKey: "completion:session:s1",
+          level: "success",
+        }),
+      ),
+    );
+
+    initNotificationAutoRead();
+    sessionState.set({ sessions: [], activeSessionId: "s1" });
+    await waitTick();
+
+    expect(notificationsRemove).toHaveBeenCalledTimes(8);
+
+    for (const blocker of blockers.slice(0, 8)) {
+      blocker.resolve(true);
+    }
+    await waitTick();
+    await waitTick();
+
+    expect(notificationsRemove).toHaveBeenCalledTimes(10);
   });
 
   it("limits concurrent auto-read requests and drains remaining matches", async () => {

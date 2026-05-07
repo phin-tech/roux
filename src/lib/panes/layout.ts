@@ -187,6 +187,18 @@ export function collectLeafIds(node: LayoutNode): string[] {
 }
 
 /**
+ * Returns the sessionId whose layout currently contains paneId, or null
+ * if no session owns it. Walks all layouts; per-session traversal
+ * short-circuits at the first match via `containsPaneId`.
+ */
+export function findSessionForPane(paneId: string): string | null {
+  for (const [sessionId, layout] of get(sessionLayouts)) {
+    if (containsPaneId(layout, paneId)) return sessionId;
+  }
+  return null;
+}
+
+/**
  * Collects leaf paneIds in DFS order, visiting only the currently-visible
  * branch of stacked splits. Hidden stack tabs are skipped because the
  * session-switch / pane-jump overlay can only draw a badge on a rendered

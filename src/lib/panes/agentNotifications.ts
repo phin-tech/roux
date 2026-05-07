@@ -2,6 +2,10 @@ import { get } from "svelte/store";
 import { agentStates, type AgentState } from "./agentState";
 import { paneInstances } from "./instances";
 import { resolveProfileRef } from "./profiles";
+import { findSessionForPane } from "./layout";
+import { focusedPaneId } from "./focus";
+import { activeSessionId } from "$lib/stores/sessions";
+import { settings } from "$lib/stores/settings";
 import { notificationsPush } from "$lib/tauri";
 import { log, logError } from "$lib/logging";
 
@@ -88,10 +92,23 @@ async function fireCompletionNotification(
   paneId: string,
   state: AgentState,
 ): Promise<void> {
+  const enabled = get(settings).agentCompletionNotificationsEnabled ?? true;
+  if (!enabled) return;
+
+  const sessionId = findSessionForPane(paneId);
+  const paneIsVisible =
+    sessionId !== null
+    && get(activeSessionId) === sessionId
+    && get(focusedPaneId) === paneId;
+  if (paneIsVisible) return;
+
   const instance = get(paneInstances).get(paneId);
   const profile = resolveProfileRef(instance?.spawnProfileRef);
   const title = deriveTitle(instance?.name, profile?.name, state.provider);
   const body = deriveBody(state);
+  const dedupKey = sessionId
+    ? `completion:session:${sessionId}`
+    : `completion:pane:${paneId}`;
 
   try {
     await notificationsPush({
@@ -100,7 +117,7 @@ async function fireCompletionNotification(
       title,
       subtitle: null,
       body,
-      sessionId: null,
+      sessionId,
       actions: [
         {
           id: "focus",
@@ -115,7 +132,7 @@ async function fireCompletionNotification(
           primary: false,
         },
       ],
-      dedupKey: `completion:pane:${paneId}`,
+      dedupKey,
     });
     log(`agentNotifications: fired generating→idle notification for pane ${paneId}`);
   } catch (e) {
@@ -166,9 +183,9 @@ function deriveTitle(
   profileName: string | undefined,
   provider: string,
 ): string {
-  if (paneName) return `${paneName} is idle`;
-  if (profileName) return `${profileName} is idle`;
-  return `${capitalize(provider)} is idle`;
+  if (paneName) return `${paneName} finished`;
+  if (profileName) return `${profileName} finished`;
+  return `${capitalize(provider)} finished`;
 }
 
 function deriveErrorTitle(
