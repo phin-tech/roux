@@ -1346,7 +1346,7 @@
             <div class="flex items-center justify-between py-2">
               <div>
                 <div class="text-[13px]">Agent completion notifications</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Notify when an off-screen agent finishes generating. Errors notify regardless.</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Notify when an agent finishes in a pane other than the one you're focused on. Errors notify regardless.</div>
               </div>
               <button
                 aria-label="Toggle agent completion notifications"

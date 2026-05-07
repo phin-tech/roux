@@ -188,11 +188,12 @@ export function collectLeafIds(node: LayoutNode): string[] {
 
 /**
  * Returns the sessionId whose layout currently contains paneId, or null
- * if no session owns it. Walks all layouts (O(panes)).
+ * if no session owns it. Walks all layouts; per-session traversal
+ * short-circuits at the first match via `containsPaneId`.
  */
 export function findSessionForPane(paneId: string): string | null {
   for (const [sessionId, layout] of get(sessionLayouts)) {
-    if (collectLeafIds(layout).includes(paneId)) return sessionId;
+    if (containsPaneId(layout, paneId)) return sessionId;
   }
   return null;
 }
