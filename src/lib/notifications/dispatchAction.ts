@@ -3,7 +3,7 @@ import { openPathInFinder } from "$lib/tauri";
 import { setActiveSession, sessionState } from "$lib/stores/sessions";
 import { setLogicalFocus } from "$lib/panes/focus";
 import { paneInstances } from "$lib/panes/instances";
-import { sessionLayouts, collectLeafIds } from "$lib/panes/layout";
+import { findSessionForPane } from "$lib/panes/layout";
 import { get } from "svelte/store";
 import { log } from "$lib/logging";
 import {
@@ -25,16 +25,6 @@ function normalizeOpenPath(path: string): string {
   } catch {
     return path.slice("file://".length);
   }
-}
-
-/** Find which session owns a pane by walking layouts. Returns null if none. */
-function findSessionForPane(paneId: string): string | null {
-  for (const [sessionId, layout] of get(sessionLayouts)) {
-    for (const leafId of collectLeafIds(layout)) {
-      if (leafId === paneId) return sessionId;
-    }
-  }
-  return null;
 }
 
 /**

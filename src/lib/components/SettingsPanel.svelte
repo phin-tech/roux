@@ -1343,6 +1343,22 @@
               </button>
             </div>
 
+            <div class="flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Agent completion notifications</div>
+                <div class="text-[11px] text-text-muted mt-0.5">Notify when an off-screen agent finishes generating. Errors notify regardless.</div>
+              </div>
+              <button
+                aria-label="Toggle agent completion notifications"
+                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                  {($settings.agentCompletionNotificationsEnabled ?? true) ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                onclick={() => updateSetting("agentCompletionNotificationsEnabled", !($settings.agentCompletionNotificationsEnabled ?? true))}
+              >
+                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                  {($settings.agentCompletionNotificationsEnabled ?? true) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+              </button>
+            </div>
+
             <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
               <div class="flex items-center justify-between gap-2">
                 <div>
