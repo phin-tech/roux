@@ -99,6 +99,15 @@ pub struct ReadState {
     /// (`mailbox ack <id> --result "PR merged"`).
     #[serde(default)]
     pub ack_result: Option<String>,
+    /// Set when the recipient has cleared this event from their inbox
+    /// view via `mailbox clear`. The underlying event is preserved
+    /// (other recipients can still see it); cleared events drop from
+    /// `list_for_recipient` and don't count as unread for this
+    /// recipient. Distinct from `read_at` so the prior read state isn't
+    /// lost — without this marker, "clear read" would delete `read_at`
+    /// and the event would re-surface as unread on the next list call.
+    #[serde(default)]
+    pub cleared_at: Option<u64>,
 }
 
 impl ReadState {
@@ -109,6 +118,7 @@ impl ReadState {
             read_at: None,
             acked_at: None,
             ack_result: None,
+            cleared_at: None,
         }
     }
 
@@ -118,6 +128,13 @@ impl ReadState {
 
     pub fn is_acked(&self) -> bool {
         self.acked_at.is_some()
+    }
+
+    /// True when the recipient has cleared this event from their view.
+    /// Cleared events are filtered out of `list_for_recipient` and don't
+    /// count as unread.
+    pub fn is_cleared(&self) -> bool {
+        self.cleared_at.is_some()
     }
 }
 

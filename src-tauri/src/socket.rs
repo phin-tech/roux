@@ -1644,7 +1644,7 @@ async fn handle_mailbox_post(req: Request, app: &tauri::AppHandle) -> Response {
     // claimed yet — keeps queued mail addressed and lets a future session
     // pick it up via `roux alias claim`.
     if let Some(c) = &canonical_to {
-        state.alias_manager.ensure(c, project_id.clone());
+        state.alias_manager.ensure(c, project_id.clone(), Some(app));
     }
 
     let mut builder = EventBuilder::new(body).kind(kind);
@@ -1823,7 +1823,7 @@ async fn handle_mailbox_reply(req: Request, app: &tauri::AppHandle) -> Response 
         }
     }
 
-    state.alias_manager.ensure(&canonical_to, builder.project_id.clone());
+    state.alias_manager.ensure(&canonical_to, builder.project_id.clone(), Some(app));
 
     match state.mailbox_manager.post(builder, Some(app)) {
         Ok(event) => Response::success(serde_json::to_value(event).unwrap_or_default()),

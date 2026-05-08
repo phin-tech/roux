@@ -127,9 +127,14 @@ impl EventStore {
         self.read_state(event_id, recipient).map(|s| s.is_read()).unwrap_or(false)
     }
 
+    fn is_cleared_by(&self, event_id: &str, recipient: &str) -> bool {
+        self.read_state(event_id, recipient).map(|s| s.is_cleared()).unwrap_or(false)
+    }
+
     /// Events addressed `to=<recipient>` matching the project filter. Oldest
     /// first (insertion order). `unread_only` filters to events without a
-    /// `read_at` timestamp for this recipient.
+    /// `read_at` timestamp for this recipient. **Cleared events are always
+    /// filtered out** — `clear_read` is meant to hide them.
     pub fn list_for_recipient(
         &self,
         recipient: &str,
@@ -140,6 +145,7 @@ impl EventStore {
             .iter()
             .filter(|e| e.to.as_deref() == Some(recipient))
             .filter(|e| project_filter.matches(e.project_id.as_deref()))
+            .filter(|e| !self.is_cleared_by(&e.id, recipient))
             .filter(|e| !unread_only || !self.is_read_by(&e.id, recipient))
             .cloned()
             .collect()
@@ -251,18 +257,31 @@ impl EventStore {
             .iter()
             .filter(|e| e.to.as_deref() == Some(recipient))
             .filter(|e| project_filter.matches(e.project_id.as_deref()))
+            .filter(|e| !self.is_cleared_by(&e.id, recipient))
             .filter(|e| !self.is_read_by(&e.id, recipient))
             .count()
     }
 
-    /// Clear read events for `recipient`. Removes their `ReadState` rows
-    /// where `read_at` is set; the underlying events stay so other
-    /// recipients can still see them. Returns the count of removed rows.
-    pub fn clear_read(&mut self, recipient: &str) -> usize {
-        let before = self.read_state.len();
-        self.read_state
-            .retain(|(r, _), s| !(r == recipient && s.read_at.is_some()));
-        before - self.read_state.len()
+    /// Mark every read `ReadState` row for `recipient` as cleared.
+    /// Cleared events drop out of `list_for_recipient` and don't count
+    /// as unread; the underlying events are preserved so other
+    /// recipients still see them. Returns the count of newly-cleared
+    /// rows.
+    ///
+    /// We deliberately *do not* delete `ReadState` rows — that would
+    /// erase `read_at` and the next `list_for_recipient` call would
+    /// re-surface the events as unread (the symptom of the prior bug).
+    /// Adding a separate `cleared_at` marker keeps the prior read state
+    /// intact while making the rows invisible to the recipient.
+    pub fn clear_read(&mut self, recipient: &str, now_ms: u64) -> usize {
+        let mut cleared = 0;
+        for ((r, _), state) in self.read_state.iter_mut() {
+            if r == recipient && state.read_at.is_some() && state.cleared_at.is_none() {
+                state.cleared_at = Some(now_ms);
+                cleared += 1;
+            }
+        }
+        cleared
     }
 }
 
@@ -470,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_read_removes_only_read_rows_for_recipient() {
+    fn clear_read_marks_cleared_without_resurrecting_unread() {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "a", None, None);
         post_to(&mut store, "e2", "reviewer", "b", None, None);
@@ -478,9 +497,26 @@ mod tests {
         store.mark_read("e1", "reviewer", 1000);
         store.mark_read("e3", "builder", 1000);
 
-        let cleared = store.clear_read("reviewer");
+        let cleared = store.clear_read("reviewer", 5000);
         assert_eq!(cleared, 1);
-        assert!(store.read_state("e1", "reviewer").is_none());
+
+        // Cleared event still has its ReadState row — but with cleared_at set.
+        let state = store.read_state("e1", "reviewer").unwrap();
+        assert_eq!(state.read_at, Some(1000), "prior read state preserved");
+        assert_eq!(state.cleared_at, Some(5000));
+        assert!(state.is_cleared());
+
+        // Cleared events drop out of list_for_recipient.
+        let visible: Vec<_> = store
+            .list_for_recipient("reviewer", false, ProjectFilter::Any)
+            .iter()
+            .map(|e| e.id.clone())
+            .collect();
+        assert_eq!(visible, vec!["e2"], "e1 cleared, e2 still visible");
+
+        // And don't show up as unread either (regression of prior bug).
+        assert_eq!(store.unread_count("reviewer", ProjectFilter::Any), 1);
+
         // Builder's state is untouched.
         assert!(store.read_state("e3", "builder").is_some());
         // Underlying event is preserved.

@@ -132,7 +132,7 @@ pub async fn mailbox_post(
         None => None,
     };
     if let Some(c) = &canonical_to {
-        state.alias_manager.ensure(c, input.project_id.clone());
+        state.alias_manager.ensure(c, input.project_id.clone(), Some(&app));
     }
 
     let kind = match input.kind.as_deref() {

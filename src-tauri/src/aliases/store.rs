@@ -130,9 +130,15 @@ impl AliasStore {
     /// pane is destroyed or renamed. `only_auto_claimed=true` limits the
     /// release to bindings the system created automatically from the
     /// pane's name; manual `roux alias claim` bindings are preserved.
-    /// Returns the names of the released aliases (in canonical form) so
-    /// the caller can fan out events.
-    pub fn unbind_for_pane(&mut self, pane_id: &str, only_auto_claimed: bool) -> Vec<String> {
+    ///
+    /// Returns `(canonical, project_id)` pairs for each released alias
+    /// so the caller can emit per-scope events. Without `project_id`,
+    /// project-scoped aliases couldn't be unbound on the frontend.
+    pub fn unbind_for_pane(
+        &mut self,
+        pane_id: &str,
+        only_auto_claimed: bool,
+    ) -> Vec<(String, Option<String>)> {
         let now = now_ms();
         let mut released = Vec::new();
         for entry in self.entries.iter_mut() {
@@ -146,7 +152,7 @@ impl AliasStore {
             entry.pane_id = None;
             entry.auto_claimed = false;
             entry.updated_at = now;
-            released.push(entry.alias.clone());
+            released.push((entry.alias.clone(), entry.project_id.clone()));
         }
         released
     }
@@ -582,7 +588,7 @@ mod tests {
             .unwrap();
         store.bind("other", req_pane("sess-1", "pane-B")).unwrap();
         let released = store.unbind_for_pane("pane-A", false);
-        assert_eq!(released, vec!["reviewer".to_string()]);
+        assert_eq!(released, vec![("reviewer".to_string(), None)]);
         assert!(store.get("reviewer", None).unwrap().pane_id.is_none());
         assert_eq!(store.get("other", None).unwrap().pane_id.as_deref(), Some("pane-B"));
     }
@@ -613,7 +619,7 @@ mod tests {
             )
             .unwrap();
         let released = store.unbind_for_pane("pane-A", true);
-        assert_eq!(released, vec!["auto".to_string()]);
+        assert_eq!(released, vec![("auto".to_string(), None)]);
         // manual binding survived
         assert_eq!(
             store.get("manual", None).unwrap().pane_id.as_deref(),

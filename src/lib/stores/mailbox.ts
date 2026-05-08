@@ -19,6 +19,16 @@ import type {
 const EVENT_LIMIT = 500;
 
 /**
+ * Compound key for `unreadByAlias` and any other map that needs to
+ * disambiguate same-name aliases across project scopes. `null` projectId
+ * encodes the global scope; the empty-string sentinel keeps the key a
+ * plain string for Map use.
+ */
+export function aliasKey(alias: string, projectId: string | null): string {
+  return `${alias}|${projectId ?? ""}`;
+}
+
+/**
  * Authoritative store of recent events, newest-first. Capped at
  * `EVENT_LIMIT` so the firehose view stays bounded; the on-disk audit
  * log keeps everything regardless.
@@ -29,13 +39,18 @@ export const events = writable<MailboxEventPayload[]>([]);
 export const aliases = writable<AgentAlias[]>([]);
 
 /**
- * Per-alias unread count. Refreshed whenever a relevant `mailbox-event`
- * fires; caller can also force-refresh via `refreshUnreadCount`.
+ * Per-alias unread count, keyed by `aliasKey(alias, projectId)` so the
+ * same alias name in different project scopes doesn't collide. Refreshed
+ * whenever a relevant `mailbox-event` fires; caller can also force-refresh
+ * via `refreshUnreadCount`.
  */
 export const unreadByAlias = writable<Map<string, number>>(new Map());
 
-/** Total unread count for the human-user mailbox (`me`). */
-export const meUnread = derived(unreadByAlias, ($u) => $u.get("me") ?? 0);
+/** Total unread count for the human-user mailbox (`me`, global scope). */
+export const meUnread = derived(
+  unreadByAlias,
+  ($u) => $u.get(aliasKey("me", null)) ?? 0,
+);
 
 /** Events addressed to `recipient` (oldest first to match drain semantics). */
 export function eventsForRecipient(recipient: string) {
@@ -68,8 +83,11 @@ async function refreshAllUnreadCounts(): Promise<void> {
   await Promise.all(
     aliasList.map(async (a) => {
       try {
-        const c = await mailboxUnreadCount(a.alias);
-        counts.set(a.alias, c);
+        const c = await mailboxUnreadCount(a.alias, {
+          projectId: a.projectId ?? null,
+          global: a.projectId == null,
+        });
+        counts.set(aliasKey(a.alias, a.projectId), c);
       } catch (err) {
         console.warn(`unread count for ${a.alias} failed`, err);
       }
@@ -78,12 +96,36 @@ async function refreshAllUnreadCounts(): Promise<void> {
   unreadByAlias.set(counts);
 }
 
-export async function refreshUnreadCount(alias: string): Promise<void> {
+/**
+ * Refresh the unread count for a specific (alias, projectId) scope.
+ * When the caller doesn't know the projectId (e.g. a `Read`/`Acked`/
+ * `Cleared` Tauri event that only carries the recipient name), pass
+ * `undefined` and we'll refresh all known scopes for that alias name.
+ */
+export async function refreshUnreadCount(
+  alias: string,
+  projectId: string | null | undefined,
+): Promise<void> {
+  if (projectId === undefined) {
+    // Unknown scope — refresh every alias entry that matches this name.
+    const matching = get(aliases).filter((a) => a.alias === alias);
+    if (matching.length === 0) {
+      // No alias entry yet (e.g. mailbox event for an alias we haven't
+      // hydrated). Refresh the global scope as a best-effort default.
+      await refreshUnreadCount(alias, null);
+      return;
+    }
+    await Promise.all(matching.map((a) => refreshUnreadCount(alias, a.projectId)));
+    return;
+  }
   try {
-    const c = await mailboxUnreadCount(alias);
+    const c = await mailboxUnreadCount(alias, {
+      projectId,
+      global: projectId == null,
+    });
     unreadByAlias.update((m) => {
       const next = new Map(m);
-      next.set(alias, c);
+      next.set(aliasKey(alias, projectId), c);
       return next;
     });
   } catch (err) {
@@ -92,11 +134,21 @@ export async function refreshUnreadCount(alias: string): Promise<void> {
 }
 
 /**
+ * Bumped on every `applyMailboxEvent` call so per-recipient views can
+ * react to backend mutations (mark-read / ack / clear) by refetching
+ * their backend-driven listings. The `events` store doesn't change for
+ * read-state-only mutations, so components that need to refresh on
+ * those events subscribe to this tick instead.
+ */
+export const mailboxMutationTick = writable(0);
+
+/**
  * Apply a `MailboxEvent` to the local store. Idempotent for duplicates.
  * The store is a cache of the backend; if state diverges, callers can
  * always re-hydrate.
  */
 export function applyMailboxEvent(event: MailboxEvent): void {
+  mailboxMutationTick.update((n) => n + 1);
   switch (event.kind) {
     case "posted": {
       const e = event.event;
@@ -106,19 +158,20 @@ export function applyMailboxEvent(event: MailboxEvent): void {
         return next.length > EVENT_LIMIT ? next.slice(0, EVENT_LIMIT) : next;
       });
       // The recipient (and the human, who can see fanout into Firehose)
-      // both need their unread totals refreshed.
+      // both need their unread totals refreshed. The event carries
+      // `projectId`, so the refresh targets exactly the right scope.
       if (e.to) {
-        void refreshUnreadCount(e.to);
+        void refreshUnreadCount(e.to, e.projectId);
       }
       break;
     }
     case "read":
     case "acked":
     case "cleared": {
-      // Read-state-only mutations don't change the events array. Refresh
-      // the affected recipient's unread total — Cleared is a single
-      // recipient too. Cheap query against the in-memory store.
-      void refreshUnreadCount(event.recipient);
+      // Read-state-only mutations don't change the events array. The
+      // Tauri payload doesn't carry projectId — refresh every known
+      // scope for that recipient (fan-out is small in practice).
+      void refreshUnreadCount(event.recipient, undefined);
       break;
     }
   }
@@ -138,10 +191,15 @@ export function applyAliasEvent(event: AliasEvent): void {
       break;
     }
     case "unset": {
+      // Clear ALL binding fields (sessionId, paneId, autoClaimed) — not
+      // just sessionId. The Phase 1.5 model binds aliases to panes, so
+      // leaving paneId set would keep the @alias chip on the pane and
+      // the Deliver button enabled even after the backend unbound the
+      // alias.
       aliases.update((list) =>
         list.map((x) =>
           x.alias === event.canonical && x.projectId === event.projectId
-            ? { ...x, sessionId: null }
+            ? { ...x, sessionId: null, paneId: null, autoClaimed: false }
             : x,
         ),
       );

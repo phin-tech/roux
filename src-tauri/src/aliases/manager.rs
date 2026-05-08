@@ -78,14 +78,14 @@ impl AliasManager {
 
     /// Release every binding tied to `pane_id`. Used on pane close /
     /// rename. `only_auto_claimed=true` preserves manual `roux alias claim`
-    /// bindings. Returns the names of released aliases so the caller can
-    /// emit per-alias `Unset` events for the UI.
+    /// bindings. Returns `(canonical, project_id)` pairs so the caller
+    /// can emit per-scope `Unset` events for the UI.
     pub fn unbind_for_pane(
         &self,
         pane_id: &str,
         only_auto_claimed: bool,
         app: Option<&AppHandle>,
-    ) -> Vec<String> {
+    ) -> Vec<(String, Option<String>)> {
         let released = {
             let mut store = self.inner.lock().expect("alias store poisoned");
             store.unbind_for_pane(pane_id, only_auto_claimed)
@@ -93,16 +93,12 @@ impl AliasManager {
         if !released.is_empty() {
             self.persist();
             if let Some(app) = app {
-                for canonical in &released {
-                    // We don't know the project_id post-release without
-                    // re-querying, but the store treats project_id as the
-                    // disambiguator only at lookup time — UI listeners
-                    // re-query via the store for the full alias state.
+                for (canonical, project_id) in &released {
                     let _ = app.emit(
                         ALIAS_EVENT,
                         &AliasEvent::Unset {
                             canonical: canonical.clone(),
-                            project_id: None,
+                            project_id: project_id.clone(),
                         },
                     );
                 }
@@ -227,9 +223,16 @@ impl AliasManager {
     }
 
     /// Idempotent ensure — creates an unbound entry if missing, returns
-    /// the existing entry otherwise. Persists only when a new entry was
-    /// actually inserted.
-    pub fn ensure(&self, canonical: &str, project_id: Option<String>) -> AgentAlias {
+    /// the existing entry otherwise. Persists and fires an `AliasEvent::Set`
+    /// only when a new entry was actually inserted, so the frontend store
+    /// picks up implicit aliases (e.g. `mailbox-post` to a not-yet-claimed
+    /// name) without needing a re-hydrate.
+    pub fn ensure(
+        &self,
+        canonical: &str,
+        project_id: Option<String>,
+        app: Option<&AppHandle>,
+    ) -> AgentAlias {
         let (alias, was_new) = {
             let mut store = self.inner.lock().expect("alias store poisoned");
             let before_len = store.entries().len();
@@ -239,6 +242,9 @@ impl AliasManager {
         };
         if was_new {
             self.persist();
+            if let Some(app) = app {
+                let _ = app.emit(ALIAS_EVENT, &AliasEvent::Set { alias: alias.clone() });
+            }
         }
         alias
     }
@@ -415,7 +421,7 @@ mod tests {
         let before = std::fs::metadata(&path).unwrap().modified().unwrap();
         // Sleep a tick so mtime would change if a write happened.
         std::thread::sleep(std::time::Duration::from_millis(10));
-        mgr.ensure("me", None); // already exists
+        mgr.ensure("me", None, None); // already exists
         let after = std::fs::metadata(&path).unwrap().modified().unwrap();
         assert_eq!(before, after, "ensure on existing entry must not rewrite the file");
     }
@@ -425,7 +431,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("aliases.json");
         let mgr = AliasManager::load_from(path.clone());
-        mgr.ensure("freshly-created", None);
+        mgr.ensure("freshly-created", None, None);
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(raw.contains("freshly-created"));
     }
@@ -563,7 +569,7 @@ mod tests {
         mgr.try_auto_claim_from_pane_name("pane-A", Some("auto"), None, None);
 
         let released = mgr.unbind_for_pane("pane-A", true, None);
-        assert_eq!(released, vec!["auto".to_string()]);
+        assert_eq!(released, vec![("auto".to_string(), None)]);
         // Manual binding is still in place.
         let held = mgr.find_for_pane("pane-A");
         assert_eq!(held.len(), 1);

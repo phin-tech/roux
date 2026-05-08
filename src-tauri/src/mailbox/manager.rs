@@ -142,23 +142,24 @@ impl MailboxManager {
     }
 
     pub fn clear_read(&self, recipient: &str, app: Option<&AppHandle>) -> usize {
-        let removed = {
+        let now = now_ms();
+        let cleared = {
             let mut store = self.inner.lock().expect("event store poisoned");
-            store.clear_read(recipient)
+            store.clear_read(recipient, now)
         };
-        if removed > 0 {
+        if cleared > 0 {
             self.persist_read_state();
             if let Some(app) = app {
                 let _ = app.emit(
                     MAILBOX_EVENT,
                     &MailboxEvent::Cleared {
                         recipient: recipient.to_string(),
-                        count: removed as u32,
+                        count: cleared as u32,
                     },
                 );
             }
         }
-        removed
+        cleared
     }
 
     pub fn list_for_recipient(
@@ -306,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_read_returns_count_and_persists() {
+    fn clear_read_marks_cleared_and_persists() {
         let dir = tempdir().unwrap();
         let (e, r) = paths(dir.path());
         let mgr = MailboxManager::load_from(e, r);
@@ -315,10 +316,12 @@ mod tests {
         mgr.mark_read(&e1.id, "reviewer", None);
         mgr.mark_read(&e2.id, "reviewer", None);
 
-        let removed = mgr.clear_read("reviewer", None);
-        assert_eq!(removed, 2);
-        assert!(mgr.read_state(&e1.id, "reviewer").is_none());
-        assert!(mgr.read_state(&e2.id, "reviewer").is_none());
+        let cleared = mgr.clear_read("reviewer", None);
+        assert_eq!(cleared, 2);
+        // Cleared events keep their ReadState (with cleared_at set) so
+        // they don't re-surface as unread on the next list call.
+        assert!(mgr.read_state(&e1.id, "reviewer").unwrap().is_cleared());
+        assert!(mgr.read_state(&e2.id, "reviewer").unwrap().is_cleared());
     }
 
     #[test]

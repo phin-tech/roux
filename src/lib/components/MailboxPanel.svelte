@@ -2,17 +2,28 @@
   import { onMount } from "svelte";
   import {
     aliases,
+    aliasKey,
     ackEvent,
     clearReadFor,
     events,
     hydrateMailbox,
+    mailboxMutationTick,
     markRead,
     postMailboxMessage,
     refreshUnreadCount,
     unreadByAlias,
   } from "$lib/stores/mailbox";
-  import { mailboxDeliverToPane } from "$lib/tauri";
-  import type { AgentAlias, EventKind } from "$lib/tauri";
+  import {
+    mailboxDeliverToPane,
+    mailboxListForRecipient,
+    mailboxReadState,
+  } from "$lib/tauri";
+  import type {
+    AgentAlias,
+    EventKind,
+    MailboxEventPayload,
+    ReadState,
+  } from "$lib/tauri";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
   import PinButton from "./PinButton.svelte";
   import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
@@ -27,7 +38,14 @@
   let { visible, onclose, pinned = false, onTogglePin }: Props = $props();
 
   // ── Local UI state ──────────────────────────────────────────────────────────
+  // `selectedAlias` and `selectedProjectId` together identify a single
+  // entry in `$aliases`. Tracked as separate fields (rather than a
+  // compound key string) so filtering / lookup helpers stay obvious.
+  // Same alias name in different projects is a real case — without the
+  // projectId, "reviewer@proj-a" and "reviewer@proj-b" would silently
+  // share an inbox view.
   let selectedAlias = $state<string>("me");
+  let selectedProjectId = $state<string | null>(null);
   let composeOpen = $state(false);
   let composeTo = $state("");
   let composeSubject = $state("");
@@ -55,15 +73,63 @@
     }
   });
 
-  // ── Derived views ───────────────────────────────────────────────────────────
-  let recipientEvents = $derived(
-    visible
-      ? $events
-          .filter((e) => e.to === selectedAlias)
-          .slice()
-          .reverse() // oldest first for drain semantics
-      : [],
-  );
+  // ── Inbox: backend-driven listing ───────────────────────────────────────────
+  // The Inbox view pulls from `mailboxListForRecipient` rather than
+  // filtering `$events` so the backend's read/clear semantics flow
+  // through correctly: cleared events drop out, unread-only filtering
+  // works, and mark-read/ack actions visibly affect the displayed list
+  // when paired with the unread-only toggle. Refetched on selection
+  // changes and on every `mailboxMutationTick` bump so backend
+  // mutations propagate without polling.
+  let recipientEvents = $state<MailboxEventPayload[]>([]);
+  let recipientReadStates = $state<Map<string, ReadState | null>>(new Map());
+  let unreadOnly = $state(false);
+
+  $effect(() => {
+    // Touch each dependency so the effect re-runs on any of them.
+    void $mailboxMutationTick;
+    const alias = selectedAlias;
+    const project = selectedProjectId;
+    const filter = unreadOnly;
+    if (!visible) {
+      recipientEvents = [];
+      recipientReadStates = new Map();
+      return;
+    }
+
+    void (async () => {
+      try {
+        const evs = await mailboxListForRecipient(alias, {
+          unreadOnly: filter,
+          projectId: project,
+          global: project == null,
+        });
+        // Selection may have changed during the await — guard against
+        // stale results overwriting a newer fetch.
+        if (selectedAlias !== alias || selectedProjectId !== project) return;
+        recipientEvents = evs;
+
+        // Fetch read state per event so we can show greyed-out / acked
+        // styling. Cheap (in-memory backend); fine for inboxes with
+        // dozens of events.
+        const states = await Promise.all(
+          evs.map((e) =>
+            mailboxReadState(e.id, alias).catch(() => null),
+          ),
+        );
+        if (selectedAlias !== alias || selectedProjectId !== project) return;
+        const map = new Map<string, ReadState | null>();
+        evs.forEach((e, i) => map.set(e.id, states[i]));
+        recipientReadStates = map;
+      } catch (err) {
+        console.warn("inbox fetch failed", err);
+      }
+    })();
+  });
+
+  function eventReadState(id: string): ReadState | null {
+    return recipientReadStates.get(id) ?? null;
+  }
 
   let firehoseEvents = $derived(visible ? $events : []);
 
@@ -73,8 +139,8 @@
       // `me` always first.
       if (a.alias === "me") return -1;
       if (b.alias === "me") return 1;
-      const ua = $unreadByAlias.get(a.alias) ?? 0;
-      const ub = $unreadByAlias.get(b.alias) ?? 0;
+      const ua = $unreadByAlias.get(aliasKey(a.alias, a.projectId)) ?? 0;
+      const ub = $unreadByAlias.get(aliasKey(b.alias, b.projectId)) ?? 0;
       if (ub !== ua) return ub - ua;
       return a.alias.localeCompare(b.alias);
     });
@@ -82,8 +148,8 @@
   });
 
   // ── Handlers ────────────────────────────────────────────────────────────────
-  function unreadFor(a: string): number {
-    return $unreadByAlias.get(a) ?? 0;
+  function unreadFor(alias: string, projectId: string | null): number {
+    return $unreadByAlias.get(aliasKey(alias, projectId)) ?? 0;
   }
 
   function formatRelative(ts: number): string {
@@ -126,7 +192,9 @@
       composeOpen = false;
       // The recipient may not be one of `selectedAlias`'s set, so refresh
       // its count too — covers the cross-repo "post to reviewer" case.
-      void refreshUnreadCount(composeTo);
+      // Pass `undefined` so the helper refreshes every known scope for
+      // that name (we don't track projectId on the compose form yet).
+      void refreshUnreadCount(composeTo, undefined);
     } catch (err) {
       postError = String(err);
     } finally {
@@ -301,13 +369,17 @@
       class="flex shrink-0 gap-1 overflow-x-auto border-b border-border-subtle p-1"
     >
       {#each sortedAliases as a (a.alias + (a.projectId ?? ""))}
-        {@const u = unreadFor(a.alias)}
+        {@const u = unreadFor(a.alias, a.projectId)}
+        {@const isSelected =
+          selectedAlias === a.alias && selectedProjectId === a.projectId}
         <button
-          class="flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-[11px] {selectedAlias ===
-          a.alias
+          class="flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-[11px] {isSelected
             ? 'border-accent-dim bg-accent/15 text-text-primary'
             : 'border-border-subtle bg-transparent text-text-muted hover:bg-bg-hover hover:text-text-primary'}"
-          onclick={() => (selectedAlias = a.alias)}
+          onclick={() => {
+            selectedAlias = a.alias;
+            selectedProjectId = a.projectId;
+          }}
         >
           <span>{a.alias}</span>
           {#if u > 0}
@@ -326,11 +398,16 @@
       {#if recipientEvents.length === 0}
         <div
           class="flex h-full items-center justify-center text-sm text-text-muted"
-        >No mail for {selectedAlias}</div>
+        >No {unreadOnly ? "unread" : ""} mail for {selectedAlias}</div>
       {:else}
         {#each recipientEvents as e (e.id)}
+          {@const state = eventReadState(e.id)}
+          {@const isRead = state?.readAt != null}
+          {@const isAcked = state?.ackedAt != null}
           <article
-            class="mb-2 flex flex-col gap-1 rounded-lg border border-border-subtle bg-bg-surface/30 px-2 py-1.5"
+            class="mb-2 flex flex-col gap-1 rounded-lg border border-border-subtle bg-bg-surface/30 px-2 py-1.5 {isRead
+              ? 'opacity-60'
+              : ''}"
           >
             <header class="flex items-center gap-2">
               <span
@@ -345,6 +422,13 @@
                 <span class="truncate text-[10px] text-text-muted"
                   >from {e.from}</span
                 >
+              {/if}
+              {#if isAcked}
+                <span class="text-[10px] text-green" title={state?.ackResult ?? "Acked"}
+                  >✓ ack{state?.ackResult ? `: ${state.ackResult}` : ""}</span
+                >
+              {:else if isRead}
+                <span class="text-[10px] text-text-muted">read</span>
               {/if}
               <span class="ml-auto shrink-0 text-[10px] text-text-muted/70"
                 >{formatRelative(e.createdAt)}</span
@@ -363,12 +447,14 @@
             {/if}
             <footer class="flex flex-wrap gap-1">
               <button
-                class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
+                class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
                 onclick={() => handleMarkRead(e.id)}
+                disabled={isRead}
               >mark read</button>
               <button
-                class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
+                class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
                 onclick={() => handleAck(e.id)}
+                disabled={isAcked}
               >ack</button>
               {#if recipientHasPane(e.to)}
                 <button
@@ -390,14 +476,19 @@
       </div>
     {/if}
 
-    {#if recipientEvents.length > 0}
-      <div class="border-t border-border-subtle p-1.5">
+    <div class="flex items-center gap-2 border-t border-border-subtle p-1.5">
+      <label class="flex items-center gap-1 text-[10px] text-text-muted">
+        <input type="checkbox" bind:checked={unreadOnly} class="h-3 w-3" />
+        unread only
+      </label>
+      {#if recipientEvents.length > 0}
         <button
-          class="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
+          class="ml-auto cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
           onclick={handleClearRead}
+          title="Hide read mail from this view. Underlying events are preserved for audit."
         >clear read</button>
-      </div>
-    {/if}
+      {/if}
+    </div>
   {:else}
     <!-- Firehose: every event newest first, no per-recipient state -->
     <div class="flex-1 overflow-y-auto p-2">

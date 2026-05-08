@@ -20,6 +20,7 @@
   } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
   import {
+    aliasKey as mailboxAliasKey,
     aliases as mailboxAliases,
     unreadByAlias as mailboxUnreadByAlias,
   } from "$lib/stores/mailbox";
@@ -74,7 +75,11 @@
     $mailboxAliases.find((a) => a.paneId === paneId) ?? null,
   );
   const paneAliasUnread = $derived(
-    paneAlias ? ($mailboxUnreadByAlias.get(paneAlias.alias) ?? 0) : 0,
+    paneAlias
+      ? ($mailboxUnreadByAlias.get(
+          mailboxAliasKey(paneAlias.alias, paneAlias.projectId),
+        ) ?? 0)
+      : 0,
   );
   const terminalState = $derived(instance?.terminalState);
   const isFocused = $derived($focusedPaneId === paneId);
