@@ -1527,6 +1527,7 @@ fn parse_event_kind(s: &str) -> Result<roux_core::EventKind, String> {
 ///   1. Pane-bound aliases (`req.pane_id` → `find_for_pane`) — Phase 1.5.
 ///   2. Session-bound aliases (`req.session_id` → `whoami`) — Phase 1 compat.
 ///   3. Error.
+///
 /// Multiple matches → error and ask for disambiguation via `args.alias`.
 fn resolve_recipient_alias(
     state: &tauri::State<AppState>,

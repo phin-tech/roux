@@ -50,7 +50,7 @@ pub fn validate_alias_name(input: &str) -> Result<String, AliasNameError> {
 }
 
 pub fn is_reserved_alias(canonical: &str) -> bool {
-    RESERVED_ALIASES.iter().any(|r| *r == canonical)
+    RESERVED_ALIASES.contains(&canonical)
 }
 
 /// Format-validate AND reject reserved names. Use for the public CLI/socket

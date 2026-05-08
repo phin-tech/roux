@@ -181,7 +181,7 @@ impl AliasManager {
         // case (oldname→newname) doesn't leave a stale binding.
         self.unbind_for_pane(pane_id, true, app);
 
-        match self.bind(
+        self.bind(
             &canonical,
             BindRequest {
                 project_id,
@@ -191,10 +191,8 @@ impl AliasManager {
                 force: false,
             },
             app,
-        ) {
-            Ok(alias) => Some(alias),
-            Err(_) => None,
-        }
+        )
+        .ok()
     }
 
     pub fn unbind(
