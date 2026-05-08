@@ -19,6 +19,10 @@
     notificationsPush,
   } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
+  import {
+    aliases as mailboxAliases,
+    unreadByAlias as mailboxUnreadByAlias,
+  } from "$lib/stores/mailbox";
   import { showPaneHints, paneSlotById } from "$lib/stores/ui";
   import {
     clearDraggedLibraryPrompt,
@@ -62,6 +66,16 @@
   let elapsed = $state("0s");
 
   const instance = $derived($paneInstances.get(paneId));
+
+  // Aliases auto-claimed (or manually claimed) for this pane. Rendered as
+  // a small chip in the title bar so the user can tell at a glance that
+  // mail addressed to e.g. `reviewer` lands here.
+  const paneAlias = $derived(
+    $mailboxAliases.find((a) => a.paneId === paneId) ?? null,
+  );
+  const paneAliasUnread = $derived(
+    paneAlias ? ($mailboxUnreadByAlias.get(paneAlias.alias) ?? 0) : 0,
+  );
   const terminalState = $derived(instance?.terminalState);
   const isFocused = $derived($focusedPaneId === paneId);
   const hasMultipleVisiblePanes = $derived.by<boolean>(() => {
@@ -490,6 +504,31 @@
         <span class="min-w-0 flex-1 truncate text-[11px] text-text-secondary">{instance.name}</span>
       {:else}
         <span class="flex-1"></span>
+      {/if}
+      {#if paneAlias}
+        <!--
+          Alias chip + optional unread badge. Auto-claimed bindings get a
+          lighter outline; manual claims use the filled accent so the
+          user can tell whether the alias came from the pane's name or
+          from `roux alias claim`. Unread count appears as a tighter
+          inline badge — keeps the chip small but visible at a glance.
+        -->
+        <span
+          class="flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] leading-none {paneAlias.autoClaimed
+            ? 'border border-accent-dim/50 text-accent-dim'
+            : 'bg-accent/20 text-accent'}"
+          title={paneAlias.autoClaimed
+            ? `Auto-claimed alias '${paneAlias.alias}' from pane name. Mail to ${paneAlias.alias} lands here. Rename pane or close it to release.`
+            : `Manual alias '${paneAlias.alias}'. Mail to ${paneAlias.alias} lands here.`}
+        >
+          <span>@{paneAlias.alias}</span>
+          {#if paneAliasUnread > 0}
+            <span
+              class="rounded bg-red-500 px-1 text-[9px] font-semibold leading-none text-white"
+              title={`${paneAliasUnread} unread mail item${paneAliasUnread === 1 ? "" : "s"}`}
+            >{paneAliasUnread > 9 ? "9+" : paneAliasUnread}</span>
+          {/if}
+        </span>
       {/if}
       <div
         class="flex shrink-0 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"

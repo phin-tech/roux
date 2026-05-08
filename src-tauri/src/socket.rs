@@ -188,6 +188,22 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "notes-vault-root" => handle_notes_vault_root(app),
         "hook-show" => handle_hook_show(req, app).await,
         "hook-run" => handle_hook_run(req, app).await,
+        "alias-set" => handle_alias_set(req, app).await,
+        "alias-unset" => handle_alias_unset(req, app).await,
+        "alias-claim" => handle_alias_claim(req, app).await,
+        "alias-list" => handle_alias_list(req, app).await,
+        "alias-get" => handle_alias_get(req, app).await,
+        "alias-whoami" => handle_alias_whoami(req, app).await,
+        "mailbox-post" => handle_mailbox_post(req, app).await,
+        "mailbox-peek" => handle_mailbox_peek(req, app).await,
+        "mailbox-read" => handle_mailbox_read(req, app).await,
+        "mailbox-ack" => handle_mailbox_ack(req, app).await,
+        "mailbox-count" => handle_mailbox_count(req, app).await,
+        "mailbox-clear" => handle_mailbox_clear(req, app).await,
+        "mailbox-reply" => handle_mailbox_reply(req, app).await,
+        "mailbox-sent" => handle_mailbox_sent(req, app).await,
+        "bus-publish" => handle_bus_publish(req, app).await,
+        "bus-tail" => handle_bus_tail(req, app).await,
         "session-list" => handle_session_list(req, app).await,
         "session-poll" => handle_session_poll(req, app).await,
         "session-panes-list" => handle_session_panes_list(req, app).await,
@@ -1301,6 +1317,618 @@ async fn handle_notify(req: Request, app: &tauri::AppHandle) -> Response {
     );
 
     Response::success(serde_json::json!({ "id": notification.id }))
+}
+
+// ---------------------------------------------------------------------------
+// Alias handlers — bind/unbind/claim/list/get/whoami over the socket.
+// All write paths fan out via Tauri's `alias-event` so the frontend can
+// react without polling.
+// ---------------------------------------------------------------------------
+
+fn args_str<'a>(req: &'a Request, key: &str) -> Option<&'a str> {
+    req.args.get(key).and_then(|v| v.as_str())
+}
+
+fn args_bool(req: &Request, key: &str) -> Option<bool> {
+    req.args.get(key).and_then(|v| v.as_bool())
+}
+
+/// Build a `ProjectFilter` from optional `project` / `global` args.
+/// - `project` set → `Exact(Some(project))`
+/// - `global=true` (and `project` absent) → `Exact(None)` (global-only)
+/// - both absent → `Any`
+fn alias_project_filter<'a>(
+    project: Option<&'a str>,
+    global: Option<bool>,
+) -> roux_lib::aliases::ProjectFilter<'a> {
+    use roux_lib::aliases::ProjectFilter;
+    match (project, global) {
+        (Some(p), _) => ProjectFilter::Exact(Some(p)),
+        (None, Some(true)) => ProjectFilter::Exact(None),
+        (None, _) => ProjectFilter::Any,
+    }
+}
+
+async fn handle_alias_set(req: Request, app: &tauri::AppHandle) -> Response {
+    let raw_alias = match args_str(&req, "alias") {
+        Some(s) => s,
+        None => return Response::err("alias required"),
+    };
+    let canonical = match roux_core::validate_user_alias_name(raw_alias) {
+        Ok(c) => c,
+        Err(e) => return Response::err(e.to_string()),
+    };
+    // Caller may target a specific session via args.session_id; otherwise
+    // default to the calling session's id.
+    let session_id = args_str(&req, "session_id")
+        .map(String::from)
+        .or_else(|| req.session_id.clone());
+    let session_id = match session_id {
+        Some(s) => s,
+        None => return Response::err("session_id required (call from a session, or pass args.session_id)"),
+    };
+    let project_id = args_str(&req, "project_id").map(String::from);
+    let force = args_bool(&req, "force").unwrap_or(false);
+    // `args.pane_id` overrides `req.pane_id` (both are optional). Without
+    // either, the binding stays at session-level for Phase-1 compat.
+    let pane_id = args_str(&req, "pane_id")
+        .map(String::from)
+        .or_else(|| req.pane_id.clone());
+
+    let state: tauri::State<AppState> = app.state();
+    let bind_req = roux_lib::aliases::BindRequest {
+        project_id,
+        session_id: Some(session_id),
+        pane_id,
+        auto_claimed: false,
+        force,
+    };
+    match state.alias_manager.bind(&canonical, bind_req, Some(app)) {
+        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_alias_unset(req: Request, app: &tauri::AppHandle) -> Response {
+    let raw_alias = match args_str(&req, "alias") {
+        Some(s) => s,
+        None => return Response::err("alias required"),
+    };
+    let canonical = match roux_core::validate_user_alias_name(raw_alias) {
+        Ok(c) => c,
+        Err(e) => return Response::err(e.to_string()),
+    };
+    let project_id = args_str(&req, "project_id");
+    let state: tauri::State<AppState> = app.state();
+    let changed = state.alias_manager.unbind(&canonical, project_id, Some(app));
+    Response::success(serde_json::json!({ "changed": changed }))
+}
+
+async fn handle_alias_claim(req: Request, app: &tauri::AppHandle) -> Response {
+    let raw_alias = match args_str(&req, "alias") {
+        Some(s) => s,
+        None => return Response::err("alias required"),
+    };
+    let canonical = match roux_core::validate_user_alias_name(raw_alias) {
+        Ok(c) => c,
+        Err(e) => return Response::err(e.to_string()),
+    };
+    let session_id = match req.session_id.clone() {
+        Some(s) => s,
+        None => return Response::err("alias-claim must be invoked from inside a session"),
+    };
+    let project_id = args_str(&req, "project_id").map(String::from);
+    let steal = args_bool(&req, "steal").unwrap_or(false);
+    // Claim picks up the calling pane via `req.pane_id` (set by the CLI
+    // from `$ROUX_PANE_ID`). `args.pane_id` lets the caller target a
+    // specific pane explicitly, useful from MCP / programmatic clients.
+    let pane_id = args_str(&req, "pane_id")
+        .map(String::from)
+        .or_else(|| req.pane_id.clone());
+
+    let state: tauri::State<AppState> = app.state();
+    let bind_req = roux_lib::aliases::BindRequest {
+        project_id,
+        session_id: Some(session_id),
+        pane_id,
+        auto_claimed: false,
+        force: steal,
+    };
+    match state.alias_manager.bind(&canonical, bind_req, Some(app)) {
+        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_alias_list(req: Request, app: &tauri::AppHandle) -> Response {
+    let project = args_str(&req, "project_id");
+    let global = args_bool(&req, "global");
+    let only_unbound = args_bool(&req, "only_unbound").unwrap_or(false);
+    let filter = alias_project_filter(project, global);
+
+    let state: tauri::State<AppState> = app.state();
+    let aliases = state.alias_manager.list(filter, only_unbound);
+    Response::success(serde_json::to_value(aliases).unwrap_or_default())
+}
+
+async fn handle_alias_get(req: Request, app: &tauri::AppHandle) -> Response {
+    let raw_alias = match args_str(&req, "alias") {
+        Some(s) => s,
+        None => return Response::err("alias required"),
+    };
+    // `validate_alias_name` (not `validate_user_alias_name`) so callers can
+    // resolve reserved aliases like `me`.
+    let canonical = match roux_core::validate_alias_name(raw_alias) {
+        Ok(c) => c,
+        Err(e) => return Response::err(e.to_string()),
+    };
+    let project_id = args_str(&req, "project_id");
+
+    let state: tauri::State<AppState> = app.state();
+    if let Some(alias) = state.alias_manager.get(&canonical, project_id) {
+        Response::success(serde_json::to_value(alias).unwrap_or_default())
+    } else if project_id.is_none() {
+        // Bare-alias resolution: no exact (canonical, None) entry, but the
+        // alias might exist scoped to a project. Surface ambiguity to the
+        // caller so it can re-issue with `--project`.
+        let matches = state.alias_manager.find_all_by_name(&canonical);
+        match matches.len() {
+            0 => Response::err(format!("alias '{canonical}' not found")),
+            1 => Response::success(serde_json::to_value(&matches[0]).unwrap_or_default()),
+            _ => {
+                let projects: Vec<_> =
+                    matches.iter().map(|a| a.project_id.clone()).collect();
+                Response::err(format!(
+                    "alias '{canonical}' is ambiguous across projects {projects:?}; pass project_id"
+                ))
+            }
+        }
+    } else {
+        Response::err(format!("alias '{canonical}' not found"))
+    }
+}
+
+async fn handle_alias_whoami(req: Request, app: &tauri::AppHandle) -> Response {
+    let session_id = args_str(&req, "session_id")
+        .map(String::from)
+        .or_else(|| req.session_id.clone());
+    let session_id = match session_id {
+        Some(s) => s,
+        None => return Response::err("session_id required (call from a session, or pass args.session_id)"),
+    };
+    let state: tauri::State<AppState> = app.state();
+    let aliases = state.alias_manager.whoami(&session_id);
+    Response::success(serde_json::to_value(aliases).unwrap_or_default())
+}
+
+// ---------------------------------------------------------------------------
+// Mailbox handlers — categorical event store surface (`to`-addressed mail
+// + per-recipient read/ack state). Bus and reply/sent live in a separate
+// section below.
+// ---------------------------------------------------------------------------
+
+fn parse_event_kind(s: &str) -> Result<roux_core::EventKind, String> {
+    use roux_core::EventKind;
+    match s {
+        "task" => Ok(EventKind::Task),
+        "result" => Ok(EventKind::Result),
+        "question" => Ok(EventKind::Question),
+        "fyi" => Ok(EventKind::Fyi),
+        "signal" => Ok(EventKind::Signal),
+        other => Err(format!(
+            "invalid kind: {other}; expected task|result|question|fyi|signal"
+        )),
+    }
+}
+
+/// Pick the recipient alias for receive-side commands (peek/read/ack/count/clear).
+/// Caller may pass `args.alias` explicitly. Otherwise we resolve the
+/// caller's identity in this priority:
+///   1. Pane-bound aliases (`req.pane_id` → `find_for_pane`) — Phase 1.5.
+///   2. Session-bound aliases (`req.session_id` → `whoami`) — Phase 1 compat.
+///   3. Error.
+/// Multiple matches → error and ask for disambiguation via `args.alias`.
+fn resolve_recipient_alias(
+    state: &tauri::State<AppState>,
+    req: &Request,
+    explicit: Option<&str>,
+) -> Result<String, String> {
+    if let Some(a) = explicit {
+        return roux_core::validate_alias_name(a).map_err(|e| e.to_string());
+    }
+
+    let mut candidates: Vec<roux_core::AgentAlias> = Vec::new();
+    if let Some(pid) = req.pane_id.as_deref() {
+        candidates.extend(state.alias_manager.find_for_pane(pid));
+    }
+    if candidates.is_empty() {
+        if let Some(sid) = req.session_id.as_deref() {
+            candidates.extend(state.alias_manager.whoami(sid));
+        }
+    }
+
+    match candidates.len() {
+        0 => Err(format!(
+            "no alias bound to {context}; claim one with `roux alias claim <name>` or pass args.alias",
+            context = req
+                .pane_id
+                .as_deref()
+                .map(|p| format!("pane {p}"))
+                .or_else(|| req.session_id.as_deref().map(|s| format!("session {s}")))
+                .unwrap_or_else(|| "this caller".to_string())
+        )),
+        1 => Ok(candidates[0].alias.clone()),
+        _ => {
+            let names: Vec<_> = candidates.iter().map(|a| a.alias.clone()).collect();
+            Err(format!(
+                "caller holds multiple aliases ({names:?}); pass args.alias"
+            ))
+        }
+    }
+}
+
+/// Default `from` for outgoing posts: prefer the calling pane's auto-claim
+/// (if exactly one alias bound to `req.pane_id`), else the session's
+/// primary alias, else the session_id itself, else `None`.
+fn default_from(state: &tauri::State<AppState>, req: &Request) -> Option<String> {
+    if let Some(pid) = req.pane_id.as_deref() {
+        let pane_aliases = state.alias_manager.find_for_pane(pid);
+        if pane_aliases.len() == 1 {
+            return Some(pane_aliases[0].alias.clone());
+        }
+    }
+    let session_id = req.session_id.as_deref()?;
+    let mine = state.alias_manager.whoami(session_id);
+    if mine.len() == 1 {
+        Some(mine[0].alias.clone())
+    } else {
+        Some(session_id.to_string())
+    }
+}
+
+fn mailbox_project_filter<'a>(
+    project: Option<&'a str>,
+    global: Option<bool>,
+) -> roux_lib::aliases::ProjectFilter<'a> {
+    use roux_lib::aliases::ProjectFilter;
+    match (project, global) {
+        (Some(p), _) => ProjectFilter::Exact(Some(p)),
+        (None, Some(true)) => ProjectFilter::Exact(None),
+        (None, _) => ProjectFilter::Any,
+    }
+}
+
+async fn handle_mailbox_post(req: Request, app: &tauri::AppHandle) -> Response {
+    use roux_core::EventBuilder;
+
+    let body = match args_str(&req, "body") {
+        Some(s) => s.to_string(),
+        None => return Response::err("body required"),
+    };
+
+    let to_raw = args_str(&req, "to");
+    let topic = args_str(&req, "topic").map(String::from);
+    if to_raw.is_none() && topic.is_none() {
+        return Response::err("at least one of `to` or `topic` required");
+    }
+
+    let canonical_to = match to_raw {
+        Some(raw) => match roux_core::validate_alias_name(raw) {
+            Ok(c) => Some(c),
+            Err(e) => return Response::err(e.to_string()),
+        },
+        None => None,
+    };
+
+    let kind = match args_str(&req, "kind") {
+        Some(s) => match parse_event_kind(s) {
+            Ok(k) => k,
+            Err(e) => return Response::err(e),
+        },
+        None => roux_core::EventKind::Task,
+    };
+
+    let state: tauri::State<AppState> = app.state();
+
+    let from = match args_str(&req, "from") {
+        Some(s) => Some(s.to_string()),
+        None => default_from(&state, &req),
+    };
+
+    let project_id = args_str(&req, "project_id").map(String::from);
+    let subject = args_str(&req, "subject").map(String::from);
+    let correlation_id = args_str(&req, "correlation_id").map(String::from);
+    let structured = req.args.get("structured").cloned();
+
+    // Materialize an unbound alias entry if the recipient hasn't been
+    // claimed yet — keeps queued mail addressed and lets a future session
+    // pick it up via `roux alias claim`.
+    if let Some(c) = &canonical_to {
+        state.alias_manager.ensure(c, project_id.clone());
+    }
+
+    let mut builder = EventBuilder::new(body).kind(kind);
+    if let Some(c) = canonical_to {
+        builder = builder.to(c);
+    }
+    if let Some(t) = topic {
+        builder = builder.topic(t);
+    }
+    if let Some(f) = from {
+        builder = builder.from(f);
+    }
+    if let Some(p) = project_id {
+        builder = builder.project_id(p);
+    }
+    if let Some(s) = subject {
+        builder = builder.subject(s);
+    }
+    if let Some(c) = correlation_id {
+        builder = builder.correlation_id(c);
+    }
+    if let Some(v) = structured {
+        if !v.is_null() {
+            builder = builder.structured(v);
+        }
+    }
+
+    match state.mailbox_manager.post(builder, Some(app)) {
+        Ok(event) => Response::success(serde_json::to_value(event).unwrap_or_default()),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_mailbox_peek(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let alias = match resolve_recipient_alias(&state, &req, args_str(&req, "alias")) {
+        Ok(a) => a,
+        Err(e) => return Response::err(e),
+    };
+    let unread_only = args_bool(&req, "unread").unwrap_or(false);
+    let filter = mailbox_project_filter(args_str(&req, "project_id"), args_bool(&req, "global"));
+    let mut events =
+        state.mailbox_manager.list_for_recipient(&alias, unread_only, filter);
+    if let Some(limit) = req.args.get("limit").and_then(|v| v.as_u64()) {
+        events.truncate(limit as usize);
+    }
+    Response::success(serde_json::to_value(events).unwrap_or_default())
+}
+
+async fn handle_mailbox_read(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let alias = match resolve_recipient_alias(&state, &req, args_str(&req, "alias")) {
+        Ok(a) => a,
+        Err(e) => return Response::err(e),
+    };
+    let with_ack = args_bool(&req, "ack").unwrap_or(false);
+    let filter = mailbox_project_filter(args_str(&req, "project_id"), args_bool(&req, "global"));
+    let mut events =
+        state.mailbox_manager.list_for_recipient(&alias, true, filter);
+    if let Some(limit) = req.args.get("limit").and_then(|v| v.as_u64()) {
+        events.truncate(limit as usize);
+    }
+    // Mark each returned event read (and optionally ack).
+    for e in &events {
+        state.mailbox_manager.mark_read(&e.id, &alias, Some(app));
+        if with_ack {
+            state.mailbox_manager.ack(&e.id, &alias, None, Some(app));
+        }
+    }
+    Response::success(serde_json::to_value(events).unwrap_or_default())
+}
+
+async fn handle_mailbox_ack(req: Request, app: &tauri::AppHandle) -> Response {
+    let event_id = match args_str(&req, "event_id") {
+        Some(s) => s.to_string(),
+        None => return Response::err("event_id required"),
+    };
+    let state: tauri::State<AppState> = app.state();
+    let alias = match resolve_recipient_alias(&state, &req, args_str(&req, "alias")) {
+        Ok(a) => a,
+        Err(e) => return Response::err(e),
+    };
+    let result = args_str(&req, "result").map(String::from);
+    let changed = state.mailbox_manager.ack(&event_id, &alias, result, Some(app));
+    Response::success(serde_json::json!({ "changed": changed }))
+}
+
+async fn handle_mailbox_count(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let alias = match resolve_recipient_alias(&state, &req, args_str(&req, "alias")) {
+        Ok(a) => a,
+        Err(e) => return Response::err(e),
+    };
+    let filter = mailbox_project_filter(args_str(&req, "project_id"), args_bool(&req, "global"));
+    let count = state.mailbox_manager.unread_count(&alias, filter);
+    Response::success(serde_json::json!({ "unread": count }))
+}
+
+async fn handle_mailbox_clear(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let alias = match resolve_recipient_alias(&state, &req, args_str(&req, "alias")) {
+        Ok(a) => a,
+        Err(e) => return Response::err(e),
+    };
+    let removed = state.mailbox_manager.clear_read(&alias, Some(app));
+    Response::success(serde_json::json!({ "cleared": removed }))
+}
+
+// ---------------------------------------------------------------------------
+// Reply / sent / bus surface. Reply threads via correlation_id; sent shows
+// outgoing events with per-recipient state. Bus publish/tail are thin
+// facades over the same store, biased toward topic-style usage.
+// ---------------------------------------------------------------------------
+
+async fn handle_mailbox_reply(req: Request, app: &tauri::AppHandle) -> Response {
+    use roux_core::EventBuilder;
+
+    let event_id = match args_str(&req, "event_id") {
+        Some(s) => s.to_string(),
+        None => return Response::err("event_id required"),
+    };
+    let body = match args_str(&req, "body") {
+        Some(s) => s.to_string(),
+        None => return Response::err("body required"),
+    };
+
+    let state: tauri::State<AppState> = app.state();
+    let original = match state.mailbox_manager.get(&event_id) {
+        Some(e) => e,
+        None => return Response::err(format!("event_id not found: {event_id}")),
+    };
+
+    let recipient = match original.from.as_deref() {
+        Some(r) => r.to_string(),
+        None => {
+            return Response::err(
+                "cannot reply: original event has no `from` (anonymous sender)",
+            );
+        }
+    };
+    let canonical_to = roux_core::validate_alias_name(&recipient).ok().unwrap_or(recipient);
+
+    // Inherit correlation_id; if the original lacks one, seed a thread
+    // using the original event's id so the conversation is groupable.
+    let correlation_id = original.correlation_id.clone().unwrap_or_else(|| original.id.clone());
+
+    let from = match args_str(&req, "from") {
+        Some(s) => Some(s.to_string()),
+        None => default_from(&state, &req),
+    };
+
+    let kind = match args_str(&req, "kind") {
+        Some(s) => match parse_event_kind(s) {
+            Ok(k) => k,
+            Err(e) => return Response::err(e),
+        },
+        None => roux_core::EventKind::Result,
+    };
+
+    let mut builder = EventBuilder::new(body)
+        .to(canonical_to.clone())
+        .kind(kind)
+        .correlation_id(correlation_id);
+    if let Some(f) = from {
+        builder = builder.from(f);
+    }
+    if let Some(s) = args_str(&req, "subject") {
+        builder = builder.subject(s.to_string());
+    }
+    if let Some(p) = original.project_id {
+        builder = builder.project_id(p);
+    }
+    if let Some(v) = req.args.get("structured").cloned() {
+        if !v.is_null() {
+            builder = builder.structured(v);
+        }
+    }
+
+    state.alias_manager.ensure(&canonical_to, builder.project_id.clone());
+
+    match state.mailbox_manager.post(builder, Some(app)) {
+        Ok(event) => Response::success(serde_json::to_value(event).unwrap_or_default()),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_mailbox_sent(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let sender = match args_str(&req, "sender") {
+        Some(s) => s.to_string(),
+        None => match default_from(&state, &req) {
+            Some(s) => s,
+            None => {
+                return Response::err(
+                    "sender required (call from a session, or pass args.sender)",
+                );
+            }
+        },
+    };
+    let recipient_filter = args_str(&req, "to");
+    let limit = req.args.get("limit").and_then(|v| v.as_u64()).map(|n| n as usize);
+    let pairs = state.mailbox_manager.list_sent_by(&sender, recipient_filter, limit);
+
+    // Shape the response so consumers can read both the event and the
+    // recipient's read/ack state in one shot.
+    let payload: Vec<serde_json::Value> = pairs
+        .into_iter()
+        .map(|(event, state)| {
+            serde_json::json!({
+                "event": event,
+                "state": state,
+            })
+        })
+        .collect();
+    Response::success(serde_json::Value::Array(payload))
+}
+
+async fn handle_bus_publish(req: Request, app: &tauri::AppHandle) -> Response {
+    use roux_core::EventBuilder;
+
+    let topic = match args_str(&req, "topic") {
+        Some(s) => s.to_string(),
+        None => return Response::err("topic required"),
+    };
+    let body = match args_str(&req, "body") {
+        Some(s) => s.to_string(),
+        None => "".to_string(),
+    };
+    let structured = req.args.get("structured").cloned();
+    if body.trim().is_empty() && structured.as_ref().map(|v| v.is_null()).unwrap_or(true) {
+        return Response::err("body or structured payload required");
+    }
+
+    let state: tauri::State<AppState> = app.state();
+    let kind = match args_str(&req, "kind") {
+        Some(s) => match parse_event_kind(s) {
+            Ok(k) => k,
+            Err(e) => return Response::err(e),
+        },
+        None => roux_core::EventKind::Signal,
+    };
+    let from = match args_str(&req, "from") {
+        Some(s) => Some(s.to_string()),
+        None => default_from(&state, &req),
+    };
+
+    let mut builder = EventBuilder::new(body).topic(topic).kind(kind);
+    if let Some(f) = from {
+        builder = builder.from(f);
+    }
+    if let Some(p) = args_str(&req, "project_id") {
+        builder = builder.project_id(p.to_string());
+    }
+    if let Some(s) = args_str(&req, "subject") {
+        builder = builder.subject(s.to_string());
+    }
+    if let Some(v) = structured {
+        if !v.is_null() {
+            builder = builder.structured(v);
+        }
+    }
+
+    match state.mailbox_manager.post(builder, Some(app)) {
+        Ok(event) => Response::success(serde_json::to_value(event).unwrap_or_default()),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_bus_tail(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let limit = req.args.get("limit").and_then(|v| v.as_u64()).map(|n| n as usize);
+    let filter = mailbox_project_filter(args_str(&req, "project_id"), args_bool(&req, "global"));
+
+    let events = match args_str(&req, "topic") {
+        Some(t) => {
+            let mut events = state.mailbox_manager.list_for_topic(t, filter);
+            if let Some(n) = limit {
+                events.truncate(n);
+            }
+            events
+        }
+        None => state.mailbox_manager.list_all(filter, limit),
+    };
+    Response::success(serde_json::to_value(events).unwrap_or_default())
 }
 
 fn crypto_random_uuid() -> String {

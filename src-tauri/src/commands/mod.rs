@@ -1,5 +1,7 @@
+pub(crate) mod aliases;
 pub(crate) mod docs;
 pub(crate) mod layouts;
+pub(crate) mod mailbox;
 pub(crate) mod library;
 pub(crate) mod library_sync;
 pub(crate) mod mcp;

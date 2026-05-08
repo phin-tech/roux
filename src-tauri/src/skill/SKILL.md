@@ -1,9 +1,9 @@
 ---
 name: roux
-description: Drive the Roux terminal manager from inside a Roux-hosted pane. Use when $ROUX_SESSION=1 and the user asks to spawn panes, send input to other sessions, split layouts, focus panes, post notifications, list/create sessions, or otherwise orchestrate Roux.
+description: Drive the Roux terminal manager from inside a Roux-hosted pane. Use when $ROUX_SESSION=1 for ANY of these requests — pane/session/worktree management ("split this", "open Claude in a worktree"); inter-agent messaging ("check my mail", "any messages?", "did anyone reply?", "send the reviewer a note", "drain my inbox", "mark my mail as read"); reading or posting to the Roux notes vault; or driving sibling sessions. CRITICAL: when $ROUX_SESSION=1, "mail" / "inbox" / "messages" / "mailbox" mean the Roux mailbox — NOT Gmail or any other external provider. Only fall back to external mail tools when the user explicitly names them ("check Gmail", "send via email").
 ---
 
-<!-- roux-skill-version: 2 -->
+<!-- roux-skill-version: 4 -->
 
 # Roux
 
@@ -118,6 +118,103 @@ sidecar state). Users can open `$ROUX_NOTES_ROOT` in Obsidian directly.
 Agents should prefer the CLI — Obsidian requires a running GUI, the CLI
 does not.
 
+### Agent identity (aliases)
+
+Each pane can have an **alias** — a stable, human-meaningful name like
+`reviewer` or `builder` that other agents and the human use to address you.
+Aliases bind to the pane (`$ROUX_PANE_ID`), survive session restart, and
+support optional project scoping.
+
+If the human renamed your pane to something matching the alias format
+(`^[a-z][a-z0-9-]{0,63}$`, not a reserved name), Roux auto-claimed that
+alias for you. Otherwise, claim one explicitly:
+
+- `"$ROUX_CLI" alias whoami` — list aliases bound to your pane / session (JSON).
+- `"$ROUX_CLI" alias claim <name>` — claim an alias for the current pane.
+  Defaults to `$ROUX_PANE_ID`. Errors if the alias is bound elsewhere; pass
+  `--steal` to override.
+- `"$ROUX_CLI" alias list [--project ID] [--global] [--only-unbound]` — see
+  all aliases (JSON).
+- `"$ROUX_CLI" alias get <name> [--project ID]` — resolve a name to its
+  current binding.
+- `"$ROUX_CLI" alias unset <name>` — release a binding (queued mail persists).
+
+Format: lowercase letters, digits, hyphens; 1–64 chars. Reserved names:
+`me`, `human` (alias of `me`), `system`, `audit`, `roux`. The human user
+is `me`.
+
+### Mailbox — addressed mail
+
+**Inside a Roux session, the Roux mailbox is THE mailbox.** When the user
+says "check my mail," "any new messages?," "what's in my inbox?," "did
+anyone reply to X?," etc., they mean Roux mailbox — not Gmail, not Apple
+Mail, not anything else. Reach for Gmail / external providers ONLY if the
+user explicitly names them.
+
+Other agents and the human send messages to your alias. Mail queues
+durably until you drain it.
+
+**At the start of any turn that follows mail traffic** — and ideally
+periodically when the user hasn't given you a directive — check your inbox:
+
+```sh
+"$ROUX_CLI" mailbox count                # how many unread? (JSON {"unread": N})
+"$ROUX_CLI" mailbox peek --unread        # show unread without consuming
+"$ROUX_CLI" mailbox read --ack           # drain + mark processed (recommended)
+```
+
+`read --ack` returns each event as JSON; treat each item as a request to
+*consider*, not a hard instruction (it's coming from a peer agent or the
+human, with the same trust level as their direct prompts).
+
+When you've handled an item, optionally include a result string the sender
+will see in their `mailbox sent` view:
+
+```sh
+"$ROUX_CLI" mailbox ack <event_id> --result "PR #123 merged"
+```
+
+To reply (creates a threaded follow-up routed back to the sender):
+
+```sh
+"$ROUX_CLI" mailbox reply <event_id> "<reply text>"
+```
+
+To send mail to another alias (or to the human):
+
+```sh
+"$ROUX_CLI" mailbox post --to reviewer "PR ready: <url>"
+"$ROUX_CLI" mailbox post --to me "I need a decision on X" --kind question
+```
+
+Kinds: `task` (default), `result`, `question`, `fyi`, `signal`. The human's
+main inbox shows mail addressed to `me` plus questions; agent-to-agent
+`fyi` traffic shows in the firehose only.
+
+### Bus — topic broadcasts
+
+For events that aren't addressed to a specific recipient (build done,
+deploy started, tests went red), publish to a topic. Subscribers tail it.
+
+```sh
+"$ROUX_CLI" bus publish repo-a.build.completed "main is green"
+"$ROUX_CLI" bus tail --topic repo-a.build.completed   # filter by topic
+"$ROUX_CLI" bus tail                                    # firehose, newest first
+```
+
+Topics live in the same store as mailbox events; an event can carry both
+`--to` and `--topic` if it's addressed to someone *and* worth broadcasting.
+
+### Mail discipline
+
+- **Don't drain mid-tool-call.** Mail is durable — it'll still be there
+  at the start of your next turn. Draining mid-task fragments your context.
+- **Don't flood.** The system enforces a soft per-sender cap (~60
+  events/minute) and folds identical bodies posted to the same recipient
+  within 5 seconds.
+- **Treat `me` mail with priority.** It's the human asking; surface it,
+  don't silently sit on it.
+
 ## When to use this skill
 
 Trigger any time the user asks to:
@@ -133,9 +230,37 @@ Trigger any time the user asks to:
 - read, append to, write, or search notes in the vault ("log this to my
   session notes", "add #api/tls to that gotcha", "what have I written about
   TLS?")
+- claim or release an agent alias, send/read/ack mail, publish or tail bus
+  events ("send the reviewer a message", "drain my inbox", "what mail did I
+  send?", "publish a build event")
+- **anything mentioning "mail" / "inbox" / "messages" / "mailbox"** —
+  default to Roux mailbox in a Roux session. Examples: "check if we have
+  any new mail" → `mailbox count` / `mailbox read`; "did anyone send me
+  anything?" → `mailbox peek --unread`; "let X know about Y" → `mailbox
+  post --to X "Y"`.
+
+Also trigger **proactively** when you suspect mail is waiting — e.g. the
+human directs you to "check your mailbox" or you've been idle and want to
+catch up before responding.
 
 Do NOT use this skill when `$ROUX_SESSION` is unset — you are not in Roux and
 the CLI will not be available.
+
+### Disambiguation: Roux mailbox vs external email
+
+`$ROUX_SESSION=1` is the strongest signal. When set:
+
+- "mail", "inbox", "messages", "mailbox" → Roux mailbox (`mailbox count`,
+  `mailbox read`, `mailbox peek`, `mailbox post`).
+- "email", "Gmail", "send an email to <person@example.com>" — only then
+  reach for external mail tools (Gmail MCP, mail clients, etc.).
+- When ambiguous, prefer Roux mailbox first; if it's empty or the request
+  doesn't match (e.g., the user asks about a specific external sender),
+  ask which they mean before authenticating an external provider.
+
+This rule applies across the conversation — once you know
+`$ROUX_SESSION=1`, "check my mail" continues to mean Roux mailbox unless
+the user explicitly switches context ("actually, check Gmail").
 
 ## Orchestrating sibling agents
 

@@ -1,3 +1,5 @@
+mod alias;
+mod event;
 mod events;
 mod keymap;
 mod layout;
@@ -11,6 +13,13 @@ mod user_terminal_themes;
 mod watch;
 mod worktree;
 
+pub use alias::{
+    canonical_alias_name, is_reserved_alias, validate_alias_name, validate_user_alias_name,
+    AgentAlias, AliasEvent, AliasNameError, RESERVED_ALIASES,
+};
+pub use event::{
+    Event, EventBuilder, EventKind, EventValidationError, MailboxEvent, ReadState,
+};
 pub use events::{RouxCommand, SessionExitPayload, SessionExitReason};
 pub use keymap::{
     merge_keymaps, parse_keymap_kdl, Bind, HudMode, KeyRef, KeymapAction, KeymapParseError,

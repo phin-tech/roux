@@ -7,25 +7,39 @@ use tauri::Emitter;
 #[serde(rename_all = "camelCase")]
 pub(crate) enum McpHostId {
     ClaudeDesktop,
+    ClaudeCode,
+    Codex,
 }
 
 impl McpHostId {
     fn as_str(self) -> &'static str {
         match self {
             McpHostId::ClaudeDesktop => "claudeDesktop",
+            McpHostId::ClaudeCode => "claudeCode",
+            McpHostId::Codex => "codex",
         }
     }
 
     fn label(self) -> &'static str {
         match self {
             McpHostId::ClaudeDesktop => "Claude Desktop",
+            McpHostId::ClaudeCode => "Claude Code",
+            McpHostId::Codex => "Codex",
         }
     }
 
     fn config_path(self) -> Option<std::path::PathBuf> {
         match self {
             McpHostId::ClaudeDesktop => svc::claude_desktop_config_path(),
+            McpHostId::ClaudeCode => svc::claude_code_config_path(),
+            McpHostId::Codex => svc::codex_config_path(),
         }
+    }
+
+    /// All hosts known to this build, in the order users see them in
+    /// the Settings UI (most-likely-to-want first).
+    fn all() -> &'static [McpHostId] {
+        &[McpHostId::ClaudeCode, McpHostId::ClaudeDesktop, McpHostId::Codex]
     }
 }
 
@@ -77,7 +91,11 @@ pub(crate) fn cmd_mcp_status(state: tauri::State<AppState>) -> McpStatus {
         cli_path: cli_path.to_string_lossy().to_string(),
         last_configured_host: settings.mcp_last_configured_host,
         last_configured_at_ms: settings.mcp_last_configured_at_ms,
-        hosts: vec![host_status(McpHostId::ClaudeDesktop, &cli_path.to_string_lossy())],
+        hosts: McpHostId::all()
+            .iter()
+            .copied()
+            .map(|host| host_status(host, &cli_path.to_string_lossy()))
+            .collect(),
     }
 }
 
@@ -98,7 +116,17 @@ pub(crate) fn cmd_configure_mcp_host(
         .config_path()
         .ok_or_else(|| format!("{} config path is unavailable on this platform", host.label()))?;
     let cli_path = svc::roux_cli_command_path().to_string_lossy().to_string();
-    let plan = svc::write_config_file(&path, &cli_path).map_err(|e| e.to_string())?;
+    let plan = match host {
+        // JSON `mcpServers` format — Claude Desktop, Claude Code, and any
+        // other downstream tool that follows the same convention.
+        McpHostId::ClaudeDesktop | McpHostId::ClaudeCode => {
+            svc::write_config_file(&path, &cli_path).map_err(|e| e.to_string())?
+        }
+        // TOML `[mcp_servers.<id>]` table — OpenAI Codex CLI's config.toml.
+        McpHostId::Codex => {
+            svc::write_codex_config_file(&path, &cli_path).map_err(|e| e.to_string())?
+        }
+    };
     if let Err(error) = record_configured_host(host, state, app) {
         eprintln!("roux: failed to record MCP host configuration metadata: {error}");
     }
@@ -140,7 +168,13 @@ fn host_status(host: McpHostId, cli_path: &str) -> McpHostStatus {
     };
 
     let config_exists = path.exists();
-    match svc::plan_config_file(&path, cli_path) {
+    let plan_result = match host {
+        McpHostId::ClaudeDesktop | McpHostId::ClaudeCode => {
+            svc::plan_config_file(&path, cli_path)
+        }
+        McpHostId::Codex => svc::plan_codex_config_file(&path, cli_path),
+    };
+    match plan_result {
         Ok(plan) => McpHostStatus {
             id: host,
             label: host.label().to_string(),
@@ -165,7 +199,14 @@ fn preview_host(host: McpHostId) -> Result<McpHostConfigPreview, String> {
         .config_path()
         .ok_or_else(|| format!("{} config path is unavailable on this platform", host.label()))?;
     let cli_path = svc::roux_cli_command_path().to_string_lossy().to_string();
-    let plan = svc::plan_config_file(&path, &cli_path).map_err(|e| e.to_string())?;
+    let plan = match host {
+        McpHostId::ClaudeDesktop | McpHostId::ClaudeCode => {
+            svc::plan_config_file(&path, &cli_path).map_err(|e| e.to_string())?
+        }
+        McpHostId::Codex => {
+            svc::plan_codex_config_file(&path, &cli_path).map_err(|e| e.to_string())?
+        }
+    };
     Ok(preview_from_plan(host, path, plan))
 }
 

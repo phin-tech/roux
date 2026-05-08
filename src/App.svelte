@@ -37,6 +37,11 @@
   import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
+  import {
+    hydrateMailbox,
+    applyMailboxEvent,
+    applyAliasEvent,
+  } from "$lib/stores/mailbox";
   import { initPtyInventoryPolling } from "$lib/stores/ptyInventory";
   import { initSessionWithProfile, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
@@ -67,7 +72,7 @@
   } from "$lib/stores/sessionPrLookup";
   import { installSessionBranchPoller } from "$lib/stores/sessionBranchPoller";
   import { clearPermissionInfo } from "$lib/panes/agentState";
-  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, quitApp, submitRouxReply } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, onMailboxEvent, onAliasEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
   import { profileRegistry } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -808,6 +813,17 @@
       applyNotificationEvent(payload);
     }));
     initNotificationAutoRead();
+
+    // Hydrate + subscribe to the mailbox / alias stream. Hydration is
+    // cheap (one list-all + one alias-list + per-alias unread counts);
+    // the listener keeps the store in sync without polling.
+    await hydrateMailbox();
+    tauriUnlisteners.push(
+      await onMailboxEvent((payload) => applyMailboxEvent(payload)),
+    );
+    tauriUnlisteners.push(
+      await onAliasEvent((payload) => applyAliasEvent(payload)),
+    );
 
     // Listen for global status updates from hooks. Tier-1 routing (with a
     // `rouxPaneId` in the payload) updates the pane's runtime agentState so

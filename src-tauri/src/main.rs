@@ -244,6 +244,8 @@ fn main() {
             watch_manager: watches::WatchManager::new(watch_store_handle),
             automation_hooks: automation_hooks::AutomationHookManager::new(),
             notification_manager: notifications::NotificationManager::new(),
+            alias_manager: roux_lib::aliases::AliasManager::load(),
+            mailbox_manager: roux_lib::mailbox::MailboxManager::load(),
             pending_replies: Mutex::new(std::collections::HashMap::new()),
             managed_proxy: services::managed_proxy::ManagedProxyState::new(),
         })
@@ -406,6 +408,20 @@ fn main() {
             commands::pty::set_pty_name,
             commands::user_themes::list_user_terminal_themes,
             commands::user_themes::user_themes_dir,
+            commands::aliases::aliases_list,
+            commands::aliases::aliases_get,
+            commands::aliases::aliases_whoami,
+            commands::mailbox::mailbox_list_for_recipient,
+            commands::mailbox::mailbox_list_for_topic,
+            commands::mailbox::mailbox_list_all,
+            commands::mailbox::mailbox_unread_count,
+            commands::mailbox::mailbox_get_event,
+            commands::mailbox::mailbox_read_state,
+            commands::mailbox::mailbox_post,
+            commands::mailbox::mailbox_mark_read,
+            commands::mailbox::mailbox_ack,
+            commands::mailbox::mailbox_clear_read,
+            commands::mailbox::mailbox_deliver_to_pane,
         ])
         .setup(|app| {
             // Install the roux-cli shim dir (~/.config/roux/bin) with

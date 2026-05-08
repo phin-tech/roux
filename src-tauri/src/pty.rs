@@ -1785,6 +1785,15 @@ fn roux_env_pairs(
     }
     if let Some(pid) = pane_id {
         pairs.push(("ROUX_PANE_ID".to_string(), pid.to_string()));
+        // Snapshot any alias bound to this pane at spawn time. The lookup
+        // hits the persisted `aliases.json` directly so we don't have to
+        // plumb `AliasManager` through the PtyManager. If the alias is
+        // auto-claimed AFTER spawn (pane rename / auto-claim from name),
+        // the env stays stale until the next respawn — agents should
+        // prefer `roux alias whoami` for live state.
+        if let Some(alias) = lookup_pane_alias(pid) {
+            pairs.push(("ROUX_AGENT_ALIAS".to_string(), alias));
+        }
     }
     if let Some(pid) = project_id {
         pairs.push(("ROUX_PROJECT_ID".to_string(), pid.to_string()));
@@ -1812,7 +1821,19 @@ fn is_guest_safe_env_key(key: &str) -> bool {
             | "ROUX_SESSION_ID"
             | "ROUX_PANE_ID"
             | "ROUX_PROJECT_ID"
+            | "ROUX_AGENT_ALIAS"
     )
+}
+
+/// Best-effort lookup: which alias is bound to `pane_id` right now?
+/// Reads `aliases.json` directly via the lib crate. Returns `None` for
+/// unknown panes or when the file is missing/malformed (the env var is
+/// just a hint — agents have `roux alias whoami` for authoritative state).
+fn lookup_pane_alias(pane_id: &str) -> Option<String> {
+    roux_lib::aliases::load_aliases()
+        .into_iter()
+        .find(|a| a.pane_id.as_deref() == Some(pane_id))
+        .map(|a| a.alias)
 }
 
 /// Make sure a smol machine is running before we exec into it.
