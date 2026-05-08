@@ -208,6 +208,10 @@ enum MailboxAction {
     Clear {
         #[arg(short = 'a', long)]
         alias: Option<String>,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        #[arg(long, conflicts_with = "project")]
+        global: bool,
     },
     /// Reply to an event, preserving its correlation_id for threading
     Reply {
@@ -1104,16 +1108,12 @@ fn main() {
                     "args": build_mailbox_recv_args(alias, project, global, None, None),
                 }));
             }
-            MailboxAction::Clear { alias } => {
-                let mut args = serde_json::Map::new();
-                if let Some(a) = alias {
-                    args.insert("alias".into(), Value::String(a));
-                }
+            MailboxAction::Clear { alias, project, global } => {
                 run_socket_command(serde_json::json!({
                     "command": "mailbox-clear",
                     "session_id": get_session_id(),
                     "pane_id": get_pane_id(),
-                    "args": Value::Object(args),
+                    "args": build_mailbox_recv_args(alias, project, global, None, None),
                 }));
             }
             MailboxAction::Reply { event_id, body, subject, kind } => {

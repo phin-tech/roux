@@ -10,6 +10,12 @@ const DEFAULT_CAPACITY: usize = 5000;
 pub enum PostError {
     #[error(transparent)]
     Validation(#[from] EventValidationError),
+    /// Caller passed an `id` that already exists in the store. Should
+    /// never happen with the uuid v4 generator the manager uses, but
+    /// keeping it as a typed error guards against id-collision races
+    /// in tests and future schemes (deterministic ids, etc.).
+    #[error("duplicate event id: {0}")]
+    DuplicateId(String),
     /// Disk persistence failed after the in-memory append. The manager
     /// rolls the in-memory state back before returning this so the UI
     /// doesn't observe a "Posted" that disappears on restart.
@@ -63,12 +69,17 @@ impl EventStore {
     /// Append `builder`'s event. Caller passes a generated `id` and `now_ms`
     /// (the store doesn't depend on the uuid crate so roux-core stays free
     /// of id-generation deps). Returns the stored event on success.
+    /// Rejects duplicate ids — the store is keyed by id, so collisions
+    /// would conflate ReadState rows across distinct events.
     pub fn post(
         &mut self,
         builder: EventBuilder,
         id: String,
         now_ms: u64,
     ) -> Result<Event, PostError> {
+        if self.get(&id).is_some() {
+            return Err(PostError::DuplicateId(id));
+        }
         let event = builder.build_with(id, now_ms)?;
         self.events.push_back(event.clone());
         self.evict_overflow();

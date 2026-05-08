@@ -104,9 +104,17 @@
           projectId: project,
           global: project == null,
         });
-        // Selection may have changed during the await — guard against
-        // stale results overwriting a newer fetch.
-        if (selectedAlias !== alias || selectedProjectId !== project) return;
+        // Selection — including unreadOnly + visibility — may have
+        // changed during the await. Bail if any input shifted so an
+        // older response can't overwrite a newer fetch's results.
+        if (
+          !visible ||
+          selectedAlias !== alias ||
+          selectedProjectId !== project ||
+          unreadOnly !== filter
+        ) {
+          return;
+        }
         recipientEvents = evs;
 
         // Fetch read state per event so we can show greyed-out / acked
@@ -117,7 +125,14 @@
             mailboxReadState(e.id, alias).catch(() => null),
           ),
         );
-        if (selectedAlias !== alias || selectedProjectId !== project) return;
+        if (
+          !visible ||
+          selectedAlias !== alias ||
+          selectedProjectId !== project ||
+          unreadOnly !== filter
+        ) {
+          return;
+        }
         const map = new Map<string, ReadState | null>();
         evs.forEach((e, i) => map.set(e.id, states[i]));
         recipientReadStates = map;
@@ -231,12 +246,21 @@
 
   /**
    * True when the event's recipient currently has a pane bound — we
-   * only enable the Deliver button in that case. Computed lazily per
-   * event row.
+   * only enable the Deliver button in that case. Scoped by both alias
+   * and projectId, otherwise an alias of the same name in a different
+   * project would falsely enable Deliver here.
    */
-  function recipientHasPane(toAlias: string | null): boolean {
+  function recipientHasPane(
+    toAlias: string | null,
+    projectId: string | null,
+  ): boolean {
     if (!toAlias) return false;
-    return $aliases.some((a) => a.alias === toAlias && a.paneId !== null);
+    return $aliases.some(
+      (a) =>
+        a.alias === toAlias &&
+        (a.projectId ?? null) === projectId &&
+        a.paneId !== null,
+    );
   }
 
   onMount(() => {
@@ -456,7 +480,7 @@
                 onclick={() => handleAck(e.id)}
                 disabled={isAcked}
               >ack</button>
-              {#if recipientHasPane(e.to)}
+              {#if recipientHasPane(e.to, e.projectId)}
                 <button
                   class="cursor-pointer rounded border border-accent-dim/60 bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent hover:bg-accent/20 disabled:opacity-50"
                   onclick={() => handleDeliver(e.id)}
