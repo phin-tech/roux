@@ -21,6 +21,7 @@ Roux is a terminal-first workspace for running agent sessions, shells, notes, wa
 ## Automation
 
 - [Notifications](notifications.md) — in-app inbox, unread badges, OS notification fan-out, and agent setup.
+- [Mailbox & Bus](mailbox.md) — addressable mail between agents and the human, plus topic-based broadcasts. Aliases bind to panes; auto-claim from pane name.
 - [Watches](watches.md) — track long-running checks, HTTP endpoints, and GitHub PRs.
 - [CLI](cli.md) — drive sessions, panes, notes, notifications, and automation from `roux-cli`.
 - [Keymap](keymap.md) — customize direct shortcuts, leader chords, and command bindings.

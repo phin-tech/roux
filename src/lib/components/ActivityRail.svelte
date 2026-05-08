@@ -6,6 +6,7 @@
   import Library from "@lucide/svelte/icons/library";
   import BookOpen from "@lucide/svelte/icons/book-open";
   import Bell from "@lucide/svelte/icons/bell";
+  import Inbox from "@lucide/svelte/icons/inbox";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import Trees from "@lucide/svelte/icons/trees";
   import Container from "@lucide/svelte/icons/container";
@@ -27,6 +28,7 @@
   } from "$lib/stores/ui";
   import { sidebarLayout } from "$lib/stores/sidebarLayout";
   import { unreadTotal } from "$lib/stores/notifications";
+  import { meUnread } from "$lib/stores/mailbox";
 
   interface Item {
     id: SidebarId;
@@ -45,6 +47,7 @@
     { id: "tasks", label: "Tasks", icon: ListTodo },
     { id: "docs", label: "Docs", icon: BookOpen },
     { id: "notifications", label: "Notifications", icon: Bell },
+    { id: "mailbox", label: "Mailbox", icon: Inbox },
   ];
   const worktrunkItem: Item = {
     id: "worktrunk",
@@ -121,7 +124,13 @@
   {#each dockItems as item (item.id)}
     {@const active = $activeSidebar === item.id}
     {@const pinned = $pinnedSidebar === item.id}
-    {@const showBadge = item.id === "notifications" && $unreadTotal > 0}
+    {@const badgeCount =
+      item.id === "notifications"
+        ? $unreadTotal
+        : item.id === "mailbox"
+          ? $meUnread
+          : 0}
+    {@const showBadge = badgeCount > 0}
     <button
       type="button"
       aria-label={item.label}
@@ -141,7 +150,7 @@
       {/if}
       {#if showBadge}
         <span class="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-semibold leading-none text-white">
-          {$unreadTotal > 9 ? "9+" : $unreadTotal}
+          {badgeCount > 9 ? "9+" : badgeCount}
         </span>
       {/if}
     </button>

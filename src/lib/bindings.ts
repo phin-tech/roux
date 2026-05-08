@@ -732,7 +732,7 @@ export type McpHostConfigPreview = {
 	nextEntryJson: string,
 };
 
-export type McpHostId = "claudeDesktop";
+export type McpHostId = "claudeDesktop" | "claudeCode" | "codex";
 
 export type McpHostStatus = {
 	id: McpHostId,

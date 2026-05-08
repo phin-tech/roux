@@ -167,11 +167,13 @@
   let gitDetection = $state<IntegrationDetection | null>(null);
   let worktrunkDetection = $state<WorktrunkDetection | null>(null);
   let mcpStatus = $state<McpStatus | null>(null);
-  let mcpPreview = $state<McpHostConfigPreview | null>(null);
-  let mcpMessage = $state<string | null>(null);
-  let mcpError = $state<string | null>(null);
-  let mcpBusy = $state<"preview" | "configure" | null>(null);
-  const claudeMcpHost = $derived(mcpStatus?.hosts.find((host) => host.id === "claudeDesktop") ?? null);
+  // Per-host UI state, keyed by host id (`claudeDesktop`, `claudeCode`,
+  // `codex`). Each host gets its own preview blob + status message so a
+  // configure-Codex run doesn't blow away a preview-Claude-Code result.
+  let mcpPreviewByHost = $state<Record<string, McpHostConfigPreview | null>>({});
+  let mcpMessageByHost = $state<Record<string, string | null>>({});
+  let mcpErrorByHost = $state<Record<string, string | null>>({});
+  let mcpBusyByHost = $state<Record<string, "preview" | "configure" | null>>({});
   let agentNotificationStatus = $state<AgentNotificationSetupStatus | null>(null);
   let agentNotificationMessage = $state<string | null>(null);
   let agentNotificationError = $state<string | null>(null);
@@ -318,42 +320,60 @@
     return () => clearTimeout(timer);
   });
 
-  async function previewMcpHostConfig() {
-    mcpBusy = "preview";
-    mcpError = null;
-    mcpMessage = null;
+  type McpHostIdT = "claudeDesktop" | "claudeCode" | "codex";
+
+  async function previewMcpHostConfig(hostId: McpHostIdT, label: string) {
+    mcpBusyByHost = { ...mcpBusyByHost, [hostId]: "preview" };
+    mcpErrorByHost = { ...mcpErrorByHost, [hostId]: null };
+    mcpMessageByHost = { ...mcpMessageByHost, [hostId]: null };
     try {
-      const result = await commands.cmdPreviewMcpHostConfig("claudeDesktop");
+      const result = await commands.cmdPreviewMcpHostConfig(hostId);
       if (result.status === "error") {
         throw new Error(result.error);
       }
-      mcpPreview = result.data;
-      mcpMessage = mcpPreview.configured ? "Claude Desktop is already configured." : "Preview ready.";
+      mcpPreviewByHost = { ...mcpPreviewByHost, [hostId]: result.data };
+      mcpMessageByHost = {
+        ...mcpMessageByHost,
+        [hostId]: result.data.configured
+          ? `${label} is already configured.`
+          : "Preview ready.",
+      };
     } catch (e) {
-      mcpPreview = null;
-      mcpError = e instanceof Error ? e.message : String(e);
+      mcpPreviewByHost = { ...mcpPreviewByHost, [hostId]: null };
+      mcpErrorByHost = {
+        ...mcpErrorByHost,
+        [hostId]: e instanceof Error ? e.message : String(e),
+      };
     } finally {
-      mcpBusy = null;
+      mcpBusyByHost = { ...mcpBusyByHost, [hostId]: null };
     }
   }
 
-  async function configureMcpHost() {
-    mcpBusy = "configure";
-    mcpError = null;
-    mcpMessage = null;
+  async function configureMcpHost(hostId: McpHostIdT, label: string) {
+    mcpBusyByHost = { ...mcpBusyByHost, [hostId]: "configure" };
+    mcpErrorByHost = { ...mcpErrorByHost, [hostId]: null };
+    mcpMessageByHost = { ...mcpMessageByHost, [hostId]: null };
     try {
-      const result = await commands.cmdConfigureMcpHost("claudeDesktop");
+      const result = await commands.cmdConfigureMcpHost(hostId);
       if (result.status === "error") {
         throw new Error(result.error);
       }
-      mcpPreview = result.data;
-      mcpMessage = mcpPreview.configured ? "Claude Desktop was already configured." : "Claude Desktop configuration updated.";
+      mcpPreviewByHost = { ...mcpPreviewByHost, [hostId]: result.data };
+      mcpMessageByHost = {
+        ...mcpMessageByHost,
+        [hostId]: result.data.configured
+          ? `${label} was already configured.`
+          : `${label} configuration updated.`,
+      };
       const run = ++mcpStatusRun;
       await refreshMcpStatus(run);
     } catch (e) {
-      mcpError = e instanceof Error ? e.message : String(e);
+      mcpErrorByHost = {
+        ...mcpErrorByHost,
+        [hostId]: e instanceof Error ? e.message : String(e),
+      };
     } finally {
-      mcpBusy = null;
+      mcpBusyByHost = { ...mcpBusyByHost, [hostId]: null };
     }
   }
 
@@ -1073,47 +1093,56 @@
                   </div>
                 </div>
               {/if}
-              <div class="mt-3 rounded border border-border-subtle bg-bg-deep/60 p-2">
-                <div class="flex items-center justify-between gap-2">
-                  <div>
-                    <div class="text-[12px] font-medium">Claude Desktop</div>
-                    <div class="mt-0.5 max-w-[22rem] truncate font-mono text-[10px] text-text-muted" title={claudeMcpHost?.configPath ?? ""}>
-                      {claudeMcpHost?.configPath ?? "Config path unavailable"}
+              {#if mcpStatus}
+                {#each mcpStatus.hosts as host (host.id)}
+                  {@const hostId = host.id as McpHostIdT}
+                  {@const busy = mcpBusyByHost[hostId] ?? null}
+                  {@const message = mcpMessageByHost[hostId] ?? null}
+                  {@const error = mcpErrorByHost[hostId] ?? null}
+                  {@const preview = mcpPreviewByHost[hostId] ?? null}
+                  <div class="mt-3 rounded border border-border-subtle bg-bg-deep/60 p-2">
+                    <div class="flex items-center justify-between gap-2">
+                      <div>
+                        <div class="text-[12px] font-medium">{host.label}</div>
+                        <div class="mt-0.5 max-w-[22rem] truncate font-mono text-[10px] text-text-muted" title={host.configPath ?? ""}>
+                          {host.configPath ?? "Config path unavailable"}
+                        </div>
+                      </div>
+                      {#if host.configured}
+                        <span class="rounded bg-green/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green">configured</span>
+                      {:else if host.error}
+                        <span class="rounded bg-red/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red">needs attention</span>
+                      {:else}
+                        <span class="rounded bg-bg-active px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">not configured</span>
+                      {/if}
                     </div>
+                    <div class="mt-2 flex gap-1">
+                      <button
+                        class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={!($settings.mcpEnabled ?? false) || busy !== null}
+                        onclick={() => previewMcpHostConfig(hostId, host.label)}
+                      >{busy === "preview" ? "Previewing" : "Preview"}</button>
+                      <button
+                        class="rounded border border-accent-dim bg-accent/15 px-2 py-1 text-[11px] text-text-primary hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={!($settings.mcpEnabled ?? false) || busy !== null}
+                        onclick={() => configureMcpHost(hostId, host.label)}
+                      >{busy === "configure" ? "Adding…" : `Add to ${host.label}`}</button>
+                    </div>
+                    {#if message}
+                      <div class="mt-2 text-[11px] text-green">{message}</div>
+                    {/if}
+                    {#if error || host.error}
+                      <div class="mt-2 text-[11px] text-red">{error ?? host.error}</div>
+                    {/if}
+                    {#if preview}
+                      <div class="mt-2 rounded border border-border-subtle bg-bg-deep/70 p-2">
+                        <div class="mb-1 text-[10px] uppercase tracking-wider text-text-muted">Roux entry</div>
+                        <pre class="app-scrollbar max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{preview.nextEntryJson}</pre>
+                      </div>
+                    {/if}
                   </div>
-                  {#if claudeMcpHost?.configured}
-                    <span class="rounded bg-green/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green">configured</span>
-                  {:else if claudeMcpHost?.error}
-                    <span class="rounded bg-red/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red">needs attention</span>
-                  {:else}
-                    <span class="rounded bg-bg-active px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">not configured</span>
-                  {/if}
-                </div>
-                <div class="mt-2 flex gap-1">
-                  <button
-                    class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={!($settings.mcpEnabled ?? false) || mcpBusy !== null}
-                    onclick={previewMcpHostConfig}
-                  >{mcpBusy === "preview" ? "Previewing" : "Preview"}</button>
-                  <button
-                    class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={!($settings.mcpEnabled ?? false) || mcpBusy !== null}
-                    onclick={configureMcpHost}
-                  >{mcpBusy === "configure" ? "Configuring" : "Configure"}</button>
-                </div>
-                {#if mcpMessage}
-                  <div class="mt-2 text-[11px] text-green">{mcpMessage}</div>
-                {/if}
-                {#if mcpError || claudeMcpHost?.error}
-                  <div class="mt-2 text-[11px] text-red">{mcpError ?? claudeMcpHost?.error}</div>
-                {/if}
-                {#if mcpPreview}
-                  <div class="mt-2 rounded border border-border-subtle bg-bg-deep/70 p-2">
-                    <div class="mb-1 text-[10px] uppercase tracking-wider text-text-muted">Roux entry</div>
-                    <pre class="app-scrollbar max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{mcpPreview.nextEntryJson}</pre>
-                  </div>
-                {/if}
-              </div>
+                {/each}
+              {/if}
             </div>
 
             <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">

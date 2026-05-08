@@ -26,6 +26,7 @@
   import WorktrunkPanel from "./WorktrunkPanel.svelte";
   import WatchesPane from "./WatchesPane.svelte";
   import NotificationsPane from "./NotificationsPane.svelte";
+  import MailboxPanel from "./MailboxPanel.svelte";
   import DocPanel from "./DocPanel.svelte";
   import LibraryPanel from "./LibraryPanel.svelte";
   import TaskPanel from "./TaskPanel.svelte";
@@ -124,6 +125,7 @@
     "library",
     "tasks",
     "notifications",
+    "mailbox",
     "docs",
     "smolMachines",
     "worktrunk",
@@ -271,6 +273,13 @@
             />
           {:else if id === "notifications"}
             <NotificationsPane
+              {visible}
+              onclose={onCloseFor(id)}
+              pinned={$pinnedSidebar === id}
+              onTogglePin={onTogglePinFor(id)}
+            />
+          {:else if id === "mailbox"}
+            <MailboxPanel
               {visible}
               onclose={onCloseFor(id)}
               pinned={$pinnedSidebar === id}

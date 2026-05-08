@@ -112,6 +112,212 @@ enum Commands {
     },
     /// Start the Roux MCP stdio server
     Mcp,
+    /// Manage agent aliases — stable, restart-durable identity for sessions
+    Alias {
+        #[command(subcommand)]
+        action: AliasAction,
+    },
+    /// Direct, ack-able mail addressed to an alias
+    Mailbox {
+        #[command(subcommand)]
+        action: MailboxAction,
+    },
+    /// Topic-based broadcast over the same event store
+    Bus {
+        #[command(subcommand)]
+        action: BusAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum MailboxAction {
+    /// Post a message to a recipient alias and/or topic
+    Post {
+        /// Body text
+        body: String,
+        /// Recipient alias (at least one of --to or --topic required)
+        #[arg(short = 't', long)]
+        to: Option<String>,
+        /// Topic name for broadcast (mailbox + bus addressing combine)
+        #[arg(long)]
+        topic: Option<String>,
+        /// Optional subject line
+        #[arg(long)]
+        subject: Option<String>,
+        /// Kind: task | result | question | fyi | signal (default: task)
+        #[arg(long)]
+        kind: Option<String>,
+        /// Project scope
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        /// Thread key — copy from a previous event id to thread replies
+        #[arg(long)]
+        correlation_id: Option<String>,
+        /// Override sender (default: calling session's primary alias)
+        #[arg(long)]
+        from: Option<String>,
+    },
+    /// Peek at unread mail (does not change read state)
+    Peek {
+        /// Recipient alias (default: calling session's primary alias)
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+        /// Only show unread events
+        #[arg(short = 'u', long)]
+        unread: bool,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        #[arg(long, conflicts_with = "project")]
+        global: bool,
+        #[arg(short = 'l', long)]
+        limit: Option<u32>,
+    },
+    /// Drain unread mail and mark it read
+    Read {
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+        /// Also ack each drained event
+        #[arg(long)]
+        ack: bool,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        #[arg(long, conflicts_with = "project")]
+        global: bool,
+        #[arg(short = 'l', long)]
+        limit: Option<u32>,
+    },
+    /// Ack a specific event (terminal "I've handled this" state)
+    Ack {
+        event_id: String,
+        /// Optional short result string visible to the sender
+        #[arg(short = 'r', long)]
+        result: Option<String>,
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+    },
+    /// Count unread mail
+    Count {
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        #[arg(long, conflicts_with = "project")]
+        global: bool,
+    },
+    /// Clear read mail (read events drop from your view; unread persist)
+    Clear {
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        #[arg(long, conflicts_with = "project")]
+        global: bool,
+    },
+    /// Reply to an event, preserving its correlation_id for threading
+    Reply {
+        event_id: String,
+        body: String,
+        #[arg(long)]
+        subject: Option<String>,
+        /// Kind (default: result)
+        #[arg(long)]
+        kind: Option<String>,
+    },
+    /// List events I've sent with their per-recipient state
+    Sent {
+        /// Filter to a single recipient alias
+        #[arg(long)]
+        to: Option<String>,
+        /// Override sender lookup (default: calling session's primary alias)
+        #[arg(long)]
+        sender: Option<String>,
+        #[arg(short = 'l', long)]
+        limit: Option<u32>,
+    },
+}
+
+#[derive(Subcommand)]
+enum BusAction {
+    /// Publish an event to a topic (no specific recipient)
+    Publish {
+        topic: String,
+        /// Body text (or empty when only `--structured` is meaningful)
+        body: String,
+        /// Kind (default: signal)
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        #[arg(long)]
+        subject: Option<String>,
+    },
+    /// Tail events. With --topic filters by topic; otherwise firehose
+    Tail {
+        #[arg(short = 't', long)]
+        topic: Option<String>,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        #[arg(long, conflicts_with = "project")]
+        global: bool,
+        #[arg(short = 'l', long)]
+        limit: Option<u32>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AliasAction {
+    /// Bind an alias to a session (defaults to the current session)
+    Set {
+        /// Alias name (lowercase, hyphens allowed; reserved names rejected)
+        alias: String,
+        /// Target session id; defaults to $ROUX_SESSION_ID
+        #[arg(short, long)]
+        session: Option<String>,
+        /// Project scope; aliases with the same name in different projects are independent
+        #[arg(short, long)]
+        project: Option<String>,
+        /// Override an existing binding to a different session
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Release an alias's binding (queued mail persists for the next claim)
+    Unset {
+        alias: String,
+        #[arg(short, long)]
+        project: Option<String>,
+    },
+    /// Current session claims the alias
+    Claim {
+        alias: String,
+        #[arg(short, long)]
+        project: Option<String>,
+        /// Override existing binding
+        #[arg(long)]
+        steal: bool,
+    },
+    /// List aliases
+    List {
+        /// Filter to a specific project scope
+        #[arg(short, long)]
+        project: Option<String>,
+        /// Only list global (project-less) aliases
+        #[arg(long, conflicts_with = "project")]
+        global: bool,
+        /// Only list aliases that are currently unbound
+        #[arg(long)]
+        only_unbound: bool,
+    },
+    /// Resolve an alias to its current binding
+    Get {
+        alias: String,
+        #[arg(short, long)]
+        project: Option<String>,
+    },
+    /// List aliases bound to a session (defaults to the current session)
+    Whoami {
+        #[arg(short, long)]
+        session: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -326,6 +532,35 @@ enum NotesScopeVerb {
 
 fn status_dir() -> PathBuf {
     platform::status_dir()
+}
+
+/// Build the shared `args` map for receive-side mailbox commands
+/// (peek/read/count/clear). Keeps the dispatch arms focused on their
+/// command-specific extras.
+fn build_mailbox_recv_args(
+    alias: Option<String>,
+    project: Option<String>,
+    global: bool,
+    unread: Option<bool>,
+    limit: Option<u32>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    if let Some(a) = alias {
+        args.insert("alias".into(), Value::String(a));
+    }
+    if let Some(p) = project {
+        args.insert("project_id".into(), Value::String(p));
+    }
+    if global {
+        args.insert("global".into(), Value::Bool(true));
+    }
+    if let Some(true) = unread {
+        args.insert("unread".into(), Value::Bool(true));
+    }
+    if let Some(n) = limit {
+        args.insert("limit".into(), Value::Number(n.into()));
+    }
+    Value::Object(args)
 }
 
 fn resolve_path(path: &str) -> String {
@@ -696,6 +931,271 @@ fn main() {
                 "args": { "path": resolved },
             }));
         }
+
+        Commands::Alias { action } => match action {
+            AliasAction::Set { alias, session, project, force } => {
+                let mut args = serde_json::Map::new();
+                args.insert("alias".into(), Value::String(alias));
+                if let Some(s) = session {
+                    args.insert("session_id".into(), Value::String(s));
+                }
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                if force {
+                    args.insert("force".into(), Value::Bool(true));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "alias-set",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            AliasAction::Unset { alias, project } => {
+                let mut args = serde_json::Map::new();
+                args.insert("alias".into(), Value::String(alias));
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "alias-unset",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            AliasAction::Claim { alias, project, steal } => {
+                let mut args = serde_json::Map::new();
+                args.insert("alias".into(), Value::String(alias));
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                if steal {
+                    args.insert("steal".into(), Value::Bool(true));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "alias-claim",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            AliasAction::List { project, global, only_unbound } => {
+                let mut args = serde_json::Map::new();
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                if global {
+                    args.insert("global".into(), Value::Bool(true));
+                }
+                if only_unbound {
+                    args.insert("only_unbound".into(), Value::Bool(true));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "alias-list",
+                    "args": Value::Object(args),
+                }));
+            }
+            AliasAction::Get { alias, project } => {
+                let mut args = serde_json::Map::new();
+                args.insert("alias".into(), Value::String(alias));
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "alias-get",
+                    "args": Value::Object(args),
+                }));
+            }
+            AliasAction::Whoami { session } => {
+                let effective_session = session.or_else(get_session_id);
+                run_socket_command(serde_json::json!({
+                    "command": "alias-whoami",
+                    "session_id": effective_session,
+                    "args": {},
+                }));
+            }
+        },
+
+        Commands::Mailbox { action } => match action {
+            MailboxAction::Post {
+                body,
+                to,
+                topic,
+                subject,
+                kind,
+                project,
+                correlation_id,
+                from,
+            } => {
+                // Fail fast locally rather than burning a socket round-trip
+                // on a malformed post.
+                if to.is_none() && topic.is_none() {
+                    eprintln!("Error: mailbox post requires at least one of --to or --topic");
+                    std::process::exit(2);
+                }
+                let mut args = serde_json::Map::new();
+                args.insert("body".into(), Value::String(body));
+                if let Some(v) = to {
+                    args.insert("to".into(), Value::String(v));
+                }
+                if let Some(v) = topic {
+                    args.insert("topic".into(), Value::String(v));
+                }
+                if let Some(v) = subject {
+                    args.insert("subject".into(), Value::String(v));
+                }
+                if let Some(v) = kind {
+                    args.insert("kind".into(), Value::String(v));
+                }
+                if let Some(v) = project {
+                    args.insert("project_id".into(), Value::String(v));
+                }
+                if let Some(v) = correlation_id {
+                    args.insert("correlation_id".into(), Value::String(v));
+                }
+                if let Some(v) = from {
+                    args.insert("from".into(), Value::String(v));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-post",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            MailboxAction::Peek { alias, unread, project, global, limit } => {
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-peek",
+                    "session_id": get_session_id(),
+                    "args": build_mailbox_recv_args(alias, project, global, Some(unread), limit),
+                }));
+            }
+            MailboxAction::Read { alias, ack, project, global, limit } => {
+                let mut args =
+                    build_mailbox_recv_args(alias, project, global, None, limit);
+                if ack {
+                    args["ack"] = Value::Bool(true);
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-read",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": args,
+                }));
+            }
+            MailboxAction::Ack { event_id, result, alias } => {
+                let mut args = serde_json::Map::new();
+                args.insert("event_id".into(), Value::String(event_id));
+                if let Some(r) = result {
+                    args.insert("result".into(), Value::String(r));
+                }
+                if let Some(a) = alias {
+                    args.insert("alias".into(), Value::String(a));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-ack",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            MailboxAction::Count { alias, project, global } => {
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-count",
+                    "session_id": get_session_id(),
+                    "args": build_mailbox_recv_args(alias, project, global, None, None),
+                }));
+            }
+            MailboxAction::Clear { alias, project, global } => {
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-clear",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": build_mailbox_recv_args(alias, project, global, None, None),
+                }));
+            }
+            MailboxAction::Reply { event_id, body, subject, kind } => {
+                let mut args = serde_json::Map::new();
+                args.insert("event_id".into(), Value::String(event_id));
+                args.insert("body".into(), Value::String(body));
+                if let Some(s) = subject {
+                    args.insert("subject".into(), Value::String(s));
+                }
+                if let Some(k) = kind {
+                    args.insert("kind".into(), Value::String(k));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-reply",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            MailboxAction::Sent { to, sender, limit } => {
+                let mut args = serde_json::Map::new();
+                if let Some(t) = to {
+                    args.insert("to".into(), Value::String(t));
+                }
+                if let Some(s) = sender {
+                    args.insert("sender".into(), Value::String(s));
+                }
+                if let Some(n) = limit {
+                    args.insert("limit".into(), Value::Number(n.into()));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-sent",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+        },
+
+        Commands::Bus { action } => match action {
+            BusAction::Publish { topic, body, kind, project, subject } => {
+                let mut args = serde_json::Map::new();
+                args.insert("topic".into(), Value::String(topic));
+                args.insert("body".into(), Value::String(body));
+                if let Some(k) = kind {
+                    args.insert("kind".into(), Value::String(k));
+                }
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                if let Some(s) = subject {
+                    args.insert("subject".into(), Value::String(s));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "bus-publish",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            BusAction::Tail { topic, project, global, limit } => {
+                let mut args = serde_json::Map::new();
+                if let Some(t) = topic {
+                    args.insert("topic".into(), Value::String(t));
+                }
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                if global {
+                    args.insert("global".into(), Value::Bool(true));
+                }
+                if let Some(n) = limit {
+                    args.insert("limit".into(), Value::Number(n.into()));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "bus-tail",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+        },
 
         Commands::Split { direction } => {
             run_socket_command(serde_json::json!({

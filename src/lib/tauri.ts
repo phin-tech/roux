@@ -1326,3 +1326,188 @@ export async function upsertPaneRecord(record: PaneRecordPayload): Promise<void>
 export async function removePaneRecord(id: string): Promise<void> {
   return invoke("remove_pane_record", { id });
 }
+
+// ── Mailbox + alias events ────────────────────────────────────────────────────
+//
+// Hand-rolled command wrappers because `Event.structured` is `serde_json::Value`,
+// which specta cannot render as TypeScript. Mirrors how `pane_state` is exposed.
+
+import type {
+  AgentAlias,
+  AliasEvent,
+  Event as MailboxEventPayload,
+  MailboxEvent,
+  ReadState,
+} from "./types/mailbox";
+
+export type {
+  AgentAlias,
+  AliasEvent,
+  EventKind,
+  MailboxEvent,
+  ReadState,
+} from "./types/mailbox";
+export type { Event as MailboxEventPayload } from "./types/mailbox";
+
+export function onMailboxEvent(
+  callback: (payload: MailboxEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<MailboxEvent>("mailbox-event", (e) => callback(e.payload));
+}
+
+export function onAliasEvent(
+  callback: (payload: AliasEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<AliasEvent>("alias-event", (e) => callback(e.payload));
+}
+
+export interface MailboxListOptions {
+  unreadOnly?: boolean;
+  projectId?: string | null;
+  global?: boolean;
+}
+
+export async function mailboxListForRecipient(
+  alias: string,
+  options: MailboxListOptions = {},
+): Promise<MailboxEventPayload[]> {
+  return invoke("mailbox_list_for_recipient", {
+    alias,
+    unreadOnly: options.unreadOnly ?? null,
+    projectId: options.projectId ?? null,
+    global: options.global ?? null,
+  });
+}
+
+export async function mailboxListForTopic(
+  topic: string,
+  options: { projectId?: string | null; global?: boolean } = {},
+): Promise<MailboxEventPayload[]> {
+  return invoke("mailbox_list_for_topic", {
+    topic,
+    projectId: options.projectId ?? null,
+    global: options.global ?? null,
+  });
+}
+
+export async function mailboxListAll(
+  options: { projectId?: string | null; global?: boolean; limit?: number } = {},
+): Promise<MailboxEventPayload[]> {
+  return invoke("mailbox_list_all", {
+    projectId: options.projectId ?? null,
+    global: options.global ?? null,
+    limit: options.limit ?? null,
+  });
+}
+
+export async function mailboxUnreadCount(
+  alias: string,
+  options: { projectId?: string | null; global?: boolean } = {},
+): Promise<number> {
+  return invoke("mailbox_unread_count", {
+    alias,
+    projectId: options.projectId ?? null,
+    global: options.global ?? null,
+  });
+}
+
+export async function mailboxGetEvent(
+  eventId: string,
+): Promise<MailboxEventPayload | null> {
+  return invoke("mailbox_get_event", { eventId });
+}
+
+export async function mailboxReadState(
+  eventId: string,
+  recipient: string,
+): Promise<ReadState | null> {
+  return invoke("mailbox_read_state", { eventId, recipient });
+}
+
+export interface MailboxPostInput {
+  to?: string | null;
+  topic?: string | null;
+  body: string;
+  subject?: string | null;
+  kind?: import("./types/mailbox").EventKind | null;
+  projectId?: string | null;
+  correlationId?: string | null;
+  structured?: unknown;
+  from?: string | null;
+}
+
+export async function mailboxPost(
+  input: MailboxPostInput,
+): Promise<MailboxEventPayload> {
+  return invoke("mailbox_post", {
+    input: {
+      to: input.to ?? null,
+      topic: input.topic ?? null,
+      body: input.body,
+      subject: input.subject ?? null,
+      kind: input.kind ?? null,
+      projectId: input.projectId ?? null,
+      correlationId: input.correlationId ?? null,
+      structured: input.structured ?? null,
+      from: input.from ?? null,
+    },
+  });
+}
+
+export async function mailboxMarkRead(
+  eventId: string,
+  recipient: string,
+): Promise<boolean> {
+  return invoke("mailbox_mark_read", { eventId, recipient });
+}
+
+export async function mailboxAck(
+  eventId: string,
+  recipient: string,
+  result: string | null = null,
+): Promise<boolean> {
+  return invoke("mailbox_ack", { eventId, recipient, result });
+}
+
+export async function mailboxClearRead(recipient: string): Promise<number> {
+  return invoke("mailbox_clear_read", { recipient });
+}
+
+/**
+ * Type a mailbox event's body into the recipient's pane (plus trailing CR
+ * so Claude/Codex see it as submitted input). Backend looks up
+ * recipient → alias → pane_id → pty_id and writes via the existing PTY
+ * write path. Auto-acks the event with a "delivered" marker.
+ *
+ * Errors when the recipient alias has no pane bound — that's the
+ * "delivery requires a live pane" rule. Use `roux mailbox post` for
+ * durable queueing without delivery.
+ */
+export async function mailboxDeliverToPane(eventId: string): Promise<void> {
+  return invoke("mailbox_deliver_to_pane", { eventId });
+}
+
+export async function aliasesList(
+  options: {
+    projectId?: string | null;
+    global?: boolean;
+    onlyUnbound?: boolean;
+  } = {},
+): Promise<AgentAlias[]> {
+  return invoke("aliases_list", {
+    projectId: options.projectId ?? null,
+    global: options.global ?? null,
+    onlyUnbound: options.onlyUnbound ?? null,
+  });
+}
+
+export async function aliasesGet(
+  alias: string,
+  projectId: string | null = null,
+): Promise<AgentAlias | null> {
+  return invoke("aliases_get", { alias, projectId });
+}
+
+export async function aliasesWhoami(sessionId: string): Promise<AgentAlias[]> {
+  return invoke("aliases_whoami", { sessionId });
+}

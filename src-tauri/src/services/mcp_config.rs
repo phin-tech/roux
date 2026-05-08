@@ -12,6 +12,10 @@ type McpConfigResult<T> = std::result::Result<T, McpConfigError>;
 pub(crate) enum McpConfigError {
     #[error("invalid MCP host config JSON: {0}")]
     InvalidJson(#[source] serde_json::Error),
+    #[error("invalid MCP host config TOML: {0}")]
+    InvalidToml(#[source] toml::de::Error),
+    #[error("failed to serialize MCP host config TOML: {0}")]
+    SerializeToml(#[source] toml::ser::Error),
     #[error("MCP host config must be a JSON object")]
     InvalidRootObject,
     #[error("MCP host config field `mcpServers` must be a JSON object")]
@@ -62,6 +66,19 @@ pub(crate) fn claude_desktop_config_path() -> Option<PathBuf> {
     {
         dirs::config_dir().map(|base| base.join("Claude").join("claude_desktop_config.json"))
     }
+}
+
+/// Claude Code (the CLI / Anthropic-developed coding agent) keeps its
+/// per-user MCP servers in `~/.claude.json` under the `mcpServers` field
+/// — same JSON shape as Claude Desktop, different path.
+pub(crate) fn claude_code_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".claude.json"))
+}
+
+/// OpenAI Codex CLI uses `~/.codex/config.toml`. MCP servers live under
+/// `[mcp_servers.<id>]` tables (TOML, not JSON).
+pub(crate) fn codex_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".codex").join("config.toml"))
 }
 
 pub(crate) fn target_entry(cli_path: &str) -> Value {
@@ -152,6 +169,160 @@ pub(crate) fn plan_config_file(path: &PathBuf, cli_path: &str) -> McpConfigResul
         Err(e) => return Err(McpConfigError::ReadConfig(e)),
     };
     plan_config(content.as_deref(), cli_path)
+}
+
+/// Plan a Codex `config.toml` mutation. Reads the existing file (if any),
+/// inserts or refreshes `[mcp_servers.roux]`, and reports whether the
+/// change is a no-op so the UI can render an "already configured" badge.
+pub(crate) fn plan_codex_config_file(
+    path: &PathBuf,
+    cli_path: &str,
+) -> McpConfigResult<ConfigPlan> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => Some(content),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(McpConfigError::ReadConfig(e)),
+    };
+    plan_codex_config(content.as_deref(), cli_path)
+}
+
+pub(crate) fn plan_codex_config(
+    existing: Option<&str>,
+    cli_path: &str,
+) -> McpConfigResult<ConfigPlan> {
+    use toml::Value as TomlValue;
+
+    let mut doc: TomlValue = match existing {
+        Some(content) if !content.trim().is_empty() => content
+            .parse::<TomlValue>()
+            .map_err(McpConfigError::InvalidToml)?,
+        _ => TomlValue::Table(toml::value::Table::new()),
+    };
+
+    let root = doc.as_table_mut().ok_or(McpConfigError::InvalidRootObject)?;
+    if !root.contains_key("mcp_servers") {
+        root.insert("mcp_servers".into(), TomlValue::Table(toml::value::Table::new()));
+    }
+    let servers = root
+        .get_mut("mcp_servers")
+        .and_then(TomlValue::as_table_mut)
+        .ok_or(McpConfigError::InvalidMcpServersField)?;
+
+    let current_entry_toml = servers.get(ROUX_SERVER_ID).cloned();
+    // Merge — preserve any user-set keys (env, cwd, custom flags) inside
+    // [mcp_servers.roux] that aren't part of the Roux-managed surface.
+    // A naive replace would drop them on every Configure click.
+    let next_entry_toml = merge_codex_roux_entry(current_entry_toml.as_ref(), cli_path);
+    let configured = current_entry_toml.as_ref() == Some(&next_entry_toml);
+    let action = if configured {
+        ConfigAction::Unchanged
+    } else if current_entry_toml.is_some() {
+        ConfigAction::Update
+    } else {
+        ConfigAction::Create
+    };
+    servers.insert(ROUX_SERVER_ID.into(), next_entry_toml.clone());
+
+    // Convert TOML values to JSON for `ConfigPlan` so the preview renderer
+    // (which speaks JSON) shows them. The user-visible form is good enough
+    // for a "what's about to be written" diff, and the actual on-disk
+    // serialization stays TOML in `write_codex_config_file`.
+    let current_entry = current_entry_toml.as_ref().map(toml_to_json);
+    let next_entry = toml_to_json(&next_entry_toml);
+    let next_config = toml_to_json(&doc);
+
+    Ok(ConfigPlan { action, configured, current_entry, next_entry, next_config })
+}
+
+fn codex_target_entry(cli_path: &str) -> toml::Value {
+    use toml::Value as TomlValue;
+    let mut tbl = toml::value::Table::new();
+    tbl.insert("command".into(), TomlValue::String(cli_path.to_string()));
+    tbl.insert("args".into(), TomlValue::Array(vec![TomlValue::String("mcp".into())]));
+    TomlValue::Table(tbl)
+}
+
+/// Merge the desired Roux-managed keys (`command`, `args`) onto whatever
+/// is already in `[mcp_servers.roux]`. Mirrors the JSON-side
+/// `merge_roux_entry` so re-running Configure refreshes the managed
+/// fields without nuking user-set keys (e.g. `env`, `cwd`).
+fn merge_codex_roux_entry(current_entry: Option<&toml::Value>, cli_path: &str) -> toml::Value {
+    let desired = codex_target_entry(cli_path);
+    let Some(current_table) = current_entry.and_then(toml::Value::as_table) else {
+        return desired;
+    };
+    let Some(desired_table) = desired.as_table() else {
+        return desired;
+    };
+
+    let mut merged = current_table.clone();
+    for (key, value) in desired_table {
+        merged.insert(key.clone(), value.clone());
+    }
+    toml::Value::Table(merged)
+}
+
+fn toml_to_json(value: &toml::Value) -> Value {
+    match value {
+        toml::Value::String(s) => Value::String(s.clone()),
+        toml::Value::Integer(i) => Value::Number((*i).into()),
+        toml::Value::Float(f) => serde_json::Number::from_f64(*f)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+        toml::Value::Boolean(b) => Value::Bool(*b),
+        toml::Value::Datetime(d) => Value::String(d.to_string()),
+        toml::Value::Array(arr) => Value::Array(arr.iter().map(toml_to_json).collect()),
+        toml::Value::Table(tbl) => {
+            let mut obj = serde_json::Map::new();
+            for (k, v) in tbl {
+                obj.insert(k.clone(), toml_to_json(v));
+            }
+            Value::Object(obj)
+        }
+    }
+}
+
+pub(crate) fn write_codex_config_file(
+    path: &PathBuf,
+    cli_path: &str,
+) -> McpConfigResult<ConfigPlan> {
+    let plan = plan_codex_config_file(path, cli_path)?;
+    if plan.action == ConfigAction::Unchanged {
+        return Ok(plan);
+    }
+
+    // Re-serialize as TOML by re-running the plan against the on-disk
+    // file's TOML form (the JSON `next_config` is for preview only).
+    let existing = match std::fs::read_to_string(path) {
+        Ok(s) => Some(s),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(McpConfigError::ReadConfig(e)),
+    };
+    let mut doc: toml::Value = match existing {
+        Some(content) if !content.trim().is_empty() => content
+            .parse::<toml::Value>()
+            .map_err(McpConfigError::InvalidToml)?,
+        _ => toml::Value::Table(toml::value::Table::new()),
+    };
+    let root = doc.as_table_mut().ok_or(McpConfigError::InvalidRootObject)?;
+    if !root.contains_key("mcp_servers") {
+        root.insert("mcp_servers".into(), toml::Value::Table(toml::value::Table::new()));
+    }
+    let servers = root
+        .get_mut("mcp_servers")
+        .and_then(toml::Value::as_table_mut)
+        .ok_or(McpConfigError::InvalidMcpServersField)?;
+    let current_entry_toml = servers.get(ROUX_SERVER_ID).cloned();
+    servers.insert(
+        ROUX_SERVER_ID.into(),
+        merge_codex_roux_entry(current_entry_toml.as_ref(), cli_path),
+    );
+
+    let parent = path.parent().ok_or(McpConfigError::MissingParentDir)?;
+    std::fs::create_dir_all(parent).map_err(McpConfigError::CreateConfigDir)?;
+    let serialized = toml::to_string_pretty(&doc).map_err(McpConfigError::SerializeToml)?;
+    atomic_write(path, serialized.as_bytes())?;
+    Ok(plan)
 }
 
 pub(crate) fn write_config_file(path: &PathBuf, cli_path: &str) -> McpConfigResult<ConfigPlan> {
