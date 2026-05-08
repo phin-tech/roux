@@ -1025,6 +1025,12 @@ fn main() {
                 correlation_id,
                 from,
             } => {
+                // Fail fast locally rather than burning a socket round-trip
+                // on a malformed post.
+                if to.is_none() && topic.is_none() {
+                    eprintln!("Error: mailbox post requires at least one of --to or --topic");
+                    std::process::exit(2);
+                }
                 let mut args = serde_json::Map::new();
                 args.insert("body".into(), Value::String(body));
                 if let Some(v) = to {

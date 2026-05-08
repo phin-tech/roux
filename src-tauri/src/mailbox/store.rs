@@ -10,6 +10,11 @@ const DEFAULT_CAPACITY: usize = 5000;
 pub enum PostError {
     #[error(transparent)]
     Validation(#[from] EventValidationError),
+    /// Disk persistence failed after the in-memory append. The manager
+    /// rolls the in-memory state back before returning this so the UI
+    /// doesn't observe a "Posted" that disappears on restart.
+    #[error("persistence failed: {0}")]
+    Persist(String),
 }
 
 /// Append-only event store with per-recipient read/ack state. Events are
@@ -94,6 +99,21 @@ impl EventStore {
 
     pub fn get(&self, id: &str) -> Option<&Event> {
         self.events.iter().find(|e| e.id == id)
+    }
+
+    /// Remove an event by id. Used by `MailboxManager::post` to roll
+    /// back an in-memory append when the disk persist fails. Returns
+    /// true if the event existed.
+    pub fn remove_event(&mut self, id: &str) -> bool {
+        if let Some(pos) = self.events.iter().position(|e| e.id == id) {
+            self.events.remove(pos);
+            // Drop any ReadState rows that pointed at this event so the
+            // index never holds dangling refs.
+            self.read_state.retain(|(_, eid), _| eid != id);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -207,11 +227,30 @@ impl EventStore {
         out
     }
 
+    /// True when `recipient` is allowed to mutate ReadState for `event_id`.
+    /// For now: only the addressed recipient (or anyone if the event is
+    /// pure topic-broadcast — `to=None`). Future subscriptions / group
+    /// memberships extend this check.
+    fn recipient_owns(&self, event_id: &str, recipient: &str) -> bool {
+        let Some(event) = self.get(event_id) else {
+            return false;
+        };
+        match event.to.as_deref() {
+            Some(addressed) => addressed == recipient,
+            // Pure topic events have no addressed recipient; any caller
+            // can track their own read state against them.
+            None => true,
+        }
+    }
+
     /// Idempotently mark `event_id` as read for `recipient`. Returns true
-    /// when state changed (i.e. it wasn't already read).
+    /// when state changed (i.e. it wasn't already read). Returns false
+    /// when `recipient` is not the addressed owner of the event — that
+    /// prevents a caller from creating a bogus ReadState row that
+    /// `list_sent_by` would later report back to the sender as if a
+    /// stranger had read their direct mail.
     pub fn mark_read(&mut self, event_id: &str, recipient: &str, now_ms: u64) -> bool {
-        // Don't materialize ReadState for events that don't exist.
-        if self.get(event_id).is_none() {
+        if !self.recipient_owns(event_id, recipient) {
             return false;
         }
         let state = self.read_state_mut_or_insert(event_id, recipient);
@@ -224,6 +263,8 @@ impl EventStore {
 
     /// Ack with optional result string. Sets `acked_at` (and `read_at` if
     /// not already set — ack implies read). Returns true on state change.
+    /// Refuses to mutate state for callers that don't own the event (see
+    /// `mark_read`).
     pub fn ack(
         &mut self,
         event_id: &str,
@@ -231,7 +272,7 @@ impl EventStore {
         result: Option<String>,
         now_ms: u64,
     ) -> bool {
-        if self.get(event_id).is_none() {
+        if !self.recipient_owns(event_id, recipient) {
             return false;
         }
         let state = self.read_state_mut_or_insert(event_id, recipient);
@@ -262,7 +303,9 @@ impl EventStore {
             .count()
     }
 
-    /// Mark every read `ReadState` row for `recipient` as cleared.
+    /// Mark read `ReadState` rows for `recipient` as cleared, scoped to
+    /// the project filter so a clear action in project A doesn't blow
+    /// away read state for an alias of the same name in project B.
     /// Cleared events drop out of `list_for_recipient` and don't count
     /// as unread; the underlying events are preserved so other
     /// recipients still see them. Returns the count of newly-cleared
@@ -273,10 +316,29 @@ impl EventStore {
     /// re-surface the events as unread (the symptom of the prior bug).
     /// Adding a separate `cleared_at` marker keeps the prior read state
     /// intact while making the rows invisible to the recipient.
-    pub fn clear_read(&mut self, recipient: &str, now_ms: u64) -> usize {
+    pub fn clear_read(
+        &mut self,
+        recipient: &str,
+        project_filter: ProjectFilter<'_>,
+        now_ms: u64,
+    ) -> usize {
+        // Build the set of event ids that match the project filter so we
+        // can scope the ReadState mutation. Iterating `read_state` and
+        // event lookups separately keeps the borrow checker happy.
+        let scoped_event_ids: std::collections::HashSet<&String> = self
+            .events
+            .iter()
+            .filter(|e| project_filter.matches(e.project_id.as_deref()))
+            .map(|e| &e.id)
+            .collect();
+
         let mut cleared = 0;
-        for ((r, _), state) in self.read_state.iter_mut() {
-            if r == recipient && state.read_at.is_some() && state.cleared_at.is_none() {
+        for ((r, eid), state) in self.read_state.iter_mut() {
+            if r == recipient
+                && state.read_at.is_some()
+                && state.cleared_at.is_none()
+                && scoped_event_ids.contains(eid)
+            {
                 state.cleared_at = Some(now_ms);
                 cleared += 1;
             }
@@ -497,7 +559,7 @@ mod tests {
         store.mark_read("e1", "reviewer", 1000);
         store.mark_read("e3", "builder", 1000);
 
-        let cleared = store.clear_read("reviewer", 5000);
+        let cleared = store.clear_read("reviewer", ProjectFilter::Any, 5000);
         assert_eq!(cleared, 1);
 
         // Cleared event still has its ReadState row — but with cleared_at set.
@@ -555,13 +617,31 @@ mod tests {
     #[test]
     fn list_sent_by_recipient_filter_overrides_default() {
         let mut store = EventStore::new();
-        // Event addressed to reviewer; sender wants to see qa's view.
-        post_to(&mut store, "e1", "reviewer", "a", Some("me"), None);
-        store.mark_read("e1", "qa", 1500); // pretend qa is also tracking it
+        // Topic-only event (no `to`); any recipient can track read state
+        // for it because there's no addressed owner to gatekeep against.
+        // The sender then filters list_sent_by by an explicit recipient
+        // to see that subscriber's view.
+        let topic_event = EventBuilder::new("build green")
+            .topic("repo-a.build.completed")
+            .from("me")
+            .kind(EventKind::Signal);
+        store.post(topic_event, "e1".into(), 1000).unwrap();
+        store.mark_read("e1", "qa", 1500); // qa subscribes to the topic
 
         let sent_qa_view = store.list_sent_by("me", Some("qa"), None);
         assert_eq!(sent_qa_view.len(), 1);
         assert!(sent_qa_view[0].1.as_ref().unwrap().is_read());
+    }
+
+    #[test]
+    fn mark_read_rejects_non_addressed_recipient() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "a", Some("me"), None);
+        // qa is NOT the addressed recipient — can't fabricate read state.
+        assert!(!store.mark_read("e1", "qa", 1500));
+        assert!(store.read_state("e1", "qa").is_none());
+        // The actual recipient still works fine.
+        assert!(store.mark_read("e1", "reviewer", 1500));
     }
 
     #[test]

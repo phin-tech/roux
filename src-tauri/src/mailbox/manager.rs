@@ -73,12 +73,19 @@ impl MailboxManager {
             let mut store = self.inner.lock().expect("event store poisoned");
             store.post(builder, id, now)?
         };
+        // Persist BEFORE emitting the success event. The mailbox's
+        // durable-queue contract is the whole point — if the event
+        // doesn't hit disk, the UI mustn't observe a "Posted" that
+        // disappears on restart. Roll the in-memory event back on
+        // persistence failure and surface the IO error.
         if let Some(paths) = self.paths.as_ref() {
             if let Err(e) = append_event_to(&paths.events, &event) {
-                eprintln!(
-                    "[roux] mailbox events.jsonl append failed at {}: {e}",
+                let mut store = self.inner.lock().expect("event store poisoned");
+                store.remove_event(&event.id);
+                return Err(PostError::Persist(format!(
+                    "events.jsonl append failed at {}: {e}",
                     paths.events.display()
-                );
+                )));
             }
         }
         if let Some(app) = app {
@@ -141,11 +148,16 @@ impl MailboxManager {
         changed
     }
 
-    pub fn clear_read(&self, recipient: &str, app: Option<&AppHandle>) -> usize {
+    pub fn clear_read(
+        &self,
+        recipient: &str,
+        project_filter: ProjectFilter<'_>,
+        app: Option<&AppHandle>,
+    ) -> usize {
         let now = now_ms();
         let cleared = {
             let mut store = self.inner.lock().expect("event store poisoned");
-            store.clear_read(recipient, now)
+            store.clear_read(recipient, project_filter, now)
         };
         if cleared > 0 {
             self.persist_read_state();
@@ -316,7 +328,7 @@ mod tests {
         mgr.mark_read(&e1.id, "reviewer", None);
         mgr.mark_read(&e2.id, "reviewer", None);
 
-        let cleared = mgr.clear_read("reviewer", None);
+        let cleared = mgr.clear_read("reviewer", ProjectFilter::Any, None);
         assert_eq!(cleared, 2);
         // Cleared events keep their ReadState (with cleared_at set) so
         // they don't re-surface as unread on the next list call.

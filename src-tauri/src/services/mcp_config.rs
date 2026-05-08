@@ -209,7 +209,10 @@ pub(crate) fn plan_codex_config(
         .ok_or(McpConfigError::InvalidMcpServersField)?;
 
     let current_entry_toml = servers.get(ROUX_SERVER_ID).cloned();
-    let next_entry_toml = codex_target_entry(cli_path);
+    // Merge — preserve any user-set keys (env, cwd, custom flags) inside
+    // [mcp_servers.roux] that aren't part of the Roux-managed surface.
+    // A naive replace would drop them on every Configure click.
+    let next_entry_toml = merge_codex_roux_entry(current_entry_toml.as_ref(), cli_path);
     let configured = current_entry_toml.as_ref() == Some(&next_entry_toml);
     let action = if configured {
         ConfigAction::Unchanged
@@ -237,6 +240,26 @@ fn codex_target_entry(cli_path: &str) -> toml::Value {
     tbl.insert("command".into(), TomlValue::String(cli_path.to_string()));
     tbl.insert("args".into(), TomlValue::Array(vec![TomlValue::String("mcp".into())]));
     TomlValue::Table(tbl)
+}
+
+/// Merge the desired Roux-managed keys (`command`, `args`) onto whatever
+/// is already in `[mcp_servers.roux]`. Mirrors the JSON-side
+/// `merge_roux_entry` so re-running Configure refreshes the managed
+/// fields without nuking user-set keys (e.g. `env`, `cwd`).
+fn merge_codex_roux_entry(current_entry: Option<&toml::Value>, cli_path: &str) -> toml::Value {
+    let desired = codex_target_entry(cli_path);
+    let Some(current_table) = current_entry.and_then(toml::Value::as_table) else {
+        return desired;
+    };
+    let Some(desired_table) = desired.as_table() else {
+        return desired;
+    };
+
+    let mut merged = current_table.clone();
+    for (key, value) in desired_table {
+        merged.insert(key.clone(), value.clone());
+    }
+    toml::Value::Table(merged)
 }
 
 fn toml_to_json(value: &toml::Value) -> Value {
@@ -289,7 +312,11 @@ pub(crate) fn write_codex_config_file(
         .get_mut("mcp_servers")
         .and_then(toml::Value::as_table_mut)
         .ok_or(McpConfigError::InvalidMcpServersField)?;
-    servers.insert(ROUX_SERVER_ID.into(), codex_target_entry(cli_path));
+    let current_entry_toml = servers.get(ROUX_SERVER_ID).cloned();
+    servers.insert(
+        ROUX_SERVER_ID.into(),
+        merge_codex_roux_entry(current_entry_toml.as_ref(), cli_path),
+    );
 
     let parent = path.parent().ok_or(McpConfigError::MissingParentDir)?;
     std::fs::create_dir_all(parent).map_err(McpConfigError::CreateConfigDir)?;

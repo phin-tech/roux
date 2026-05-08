@@ -192,10 +192,16 @@ pub async fn mailbox_ack(
 #[tauri::command]
 pub async fn mailbox_clear_read(
     recipient: String,
+    project_id: Option<String>,
+    global: Option<bool>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<u32, String> {
-    Ok(state.mailbox_manager.clear_read(&recipient, Some(&app)) as u32)
+    Ok(state.mailbox_manager.clear_read(
+        &recipient,
+        project_filter(project_id.as_deref(), global.unwrap_or(false)),
+        Some(&app),
+    ) as u32)
 }
 
 /// Deliver a mailbox event to the recipient's pane by writing the body

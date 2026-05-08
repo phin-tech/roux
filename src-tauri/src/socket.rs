@@ -1749,7 +1749,8 @@ async fn handle_mailbox_clear(req: Request, app: &tauri::AppHandle) -> Response 
         Ok(a) => a,
         Err(e) => return Response::err(e),
     };
-    let removed = state.mailbox_manager.clear_read(&alias, Some(app));
+    let filter = mailbox_project_filter(args_str(&req, "project_id"), args_bool(&req, "global"));
+    let removed = state.mailbox_manager.clear_read(&alias, filter, Some(app));
     Response::success(serde_json::json!({ "cleared": removed }))
 }
 

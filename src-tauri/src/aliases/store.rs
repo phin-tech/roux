@@ -197,7 +197,10 @@ impl AliasStore {
         self.entries
             .iter()
             .filter(|a| project_filter.matches(a.project_id.as_deref()))
-            .filter(|a| !only_unbound || a.session_id.is_none())
+            // Phase 1.5: an alias bound only at the pane level still
+            // counts as bound. Earlier we only checked session_id, which
+            // mis-classified pane-bound aliases as unbound.
+            .filter(|a| !only_unbound || !a.is_bound())
             .cloned()
             .collect()
     }
@@ -245,8 +248,12 @@ fn current_binding_conflict(
     match (existing.pane_id.as_deref(), new_pane) {
         (Some(eid), Some(nid)) if eid != nid => Some(format!("pane '{eid}'")),
         (Some(eid), None) => Some(format!("pane '{eid}'")),
-        _ => match (existing.session_id.as_deref(), new_session, new_pane) {
-            (Some(esid), Some(ns), None) if esid != ns => Some(format!("session '{esid}'")),
+        _ => match (existing.session_id.as_deref(), new_session) {
+            // Session-level conflict applies regardless of whether the
+            // new bind specifies a pane: a Phase-1 session-only alias
+            // bound to `sess-1` shouldn't get silently rebound to
+            // `pane-B` in `sess-2` without `force`.
+            (Some(esid), Some(ns)) if esid != ns => Some(format!("session '{esid}'")),
             _ => None,
         },
     }
