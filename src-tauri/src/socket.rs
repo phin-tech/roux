@@ -2111,7 +2111,6 @@ async fn handle_mailbox_watch<R, W>(
 
     watch_stream_loop(
         &state.mailbox_manager,
-        &state.subscription_manager,
         &alias,
         project_filter,
         ack,
@@ -2126,9 +2125,13 @@ async fn handle_mailbox_watch<R, W>(
 /// can be exercised in unit tests without a Tauri AppState. Owns the
 /// reader/writer for the lifetime of the watch and returns when the
 /// client disconnects, the broadcast closes, or a write fails.
+///
+/// The `MailboxManager` already carries the `SubscriptionManager` (via
+/// `with_subscriptions`); subscription matches reach this loop through
+/// the broadcast channel as `MailboxEvent::TopicDelivered` frames, so
+/// the loop doesn't need a separate handle on subscriptions.
 pub(crate) async fn watch_stream_loop<R, W>(
     mailbox: &roux_lib::mailbox::MailboxManager,
-    subscriptions: &roux_lib::subscriptions::SubscriptionManager,
     alias: &str,
     project_filter: roux_lib::aliases::ProjectFilter<'_>,
     ack: bool,
@@ -2145,16 +2148,28 @@ pub(crate) async fn watch_stream_loop<R, W>(
     };
 
     // Subscribe BEFORE replaying the backlog so we don't drop events
-    // posted during the handshake.
+    // posted during the handshake. The trade-off is that an event
+    // posted between `subscribe_events()` and `list_for_recipient()`
+    // can appear in both — `forwarded_ids` below dedupes those.
     let mut rx = mailbox.subscribe_events();
 
     if write_frame(&mut writer, &serde_json::json!({"type": "ready"})).await.is_err() {
         return;
     }
 
+    // Track event IDs we've already forwarded so the same event can't
+    // arrive twice via:
+    // (a) backlog list + live broadcast race, or
+    // (b) `Posted` arm + `TopicDelivered` arm for the same subscribed
+    //     event (both broadcast on every post — the watcher must
+    //     deliver only once).
+    let mut forwarded_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
     if send_backlog {
         let backlog = mailbox.list_for_recipient(alias, true, project_filter);
         for event in backlog {
+            forwarded_ids.insert(event.id.clone());
             if !forward_event(mailbox, &mut writer, &event, alias, ack).await {
                 return;
             }
@@ -2167,8 +2182,20 @@ pub(crate) async fn watch_stream_loop<R, W>(
         tokio::select! {
             recv = rx.recv() => {
                 match recv {
+                    // Direct-mail-only on this arm: subscription events
+                    // are forwarded via TopicDelivered below. Without
+                    // this restriction, a subscribed alias would see
+                    // each match twice (once here, once on TopicDelivered).
                     Ok(roux_core::MailboxEvent::Posted { event }) => {
-                        if !visible_to_alias(subscriptions, &event, alias, project_scope.as_deref()) {
+                        if event.to.as_deref() != Some(alias) {
+                            continue;
+                        }
+                        if let Some(scope) = project_scope.as_deref() {
+                            if event.project_id.as_deref() != Some(scope) {
+                                continue;
+                            }
+                        }
+                        if !forwarded_ids.insert(event.id.clone()) {
                             continue;
                         }
                         if !forward_event(mailbox, &mut writer, &event, alias, ack).await {
@@ -2184,6 +2211,9 @@ pub(crate) async fn watch_stream_loop<R, W>(
                             if event.project_id.as_deref() != Some(scope) {
                                 continue;
                             }
+                        }
+                        if !forwarded_ids.insert(event.id.clone()) {
+                            continue;
                         }
                         if !forward_event(mailbox, &mut writer, &event, alias, ack).await {
                             return;
@@ -2219,29 +2249,6 @@ pub(crate) async fn watch_stream_loop<R, W>(
 
 /// True when the event is visible to `alias` under the requested
 /// project scope. Visibility = direct mail OR matching subscription.
-fn visible_to_alias(
-    subscriptions: &roux_lib::subscriptions::SubscriptionManager,
-    event: &roux_core::Event,
-    alias: &str,
-    project_scope: Option<&str>,
-) -> bool {
-    if let Some(scope) = project_scope {
-        if event.project_id.as_deref() != Some(scope) {
-            return false;
-        }
-    }
-    if event.to.as_deref() == Some(alias) {
-        return true;
-    }
-    let Some(topic) = event.topic.as_deref() else {
-        return false;
-    };
-    let patterns = subscriptions.patterns_for_alias(alias, event.project_id.as_deref());
-    patterns
-        .iter()
-        .any(|p| roux_core::topic_matches(p, topic))
-}
-
 /// Write one event frame, optionally acking. Returns false on write
 /// error so the caller can exit the loop.
 async fn forward_event<W>(
@@ -3234,9 +3241,13 @@ mod tests {
 
     /// Helper: spawn the watch loop against a tokio duplex pipe, return
     /// the client side so the test can read frames and close on demand.
+    /// `subs` is kept on the signature so callers can wire subscriptions
+    /// into the mailbox before spawning; the loop itself reads them via
+    /// the broadcast channel, not directly.
+    #[allow(clippy::needless_pass_by_value)]
     fn spawn_watch_for_test(
         mailbox: roux_lib::mailbox::MailboxManager,
-        subs: roux_lib::subscriptions::SubscriptionManager,
+        _subs: roux_lib::subscriptions::SubscriptionManager,
         alias: &'static str,
         ack: bool,
         send_backlog: bool,
@@ -3247,7 +3258,6 @@ mod tests {
         tokio::spawn(async move {
             watch_stream_loop(
                 &mailbox,
-                &subs,
                 alias,
                 roux_lib::aliases::ProjectFilter::Any,
                 ack,
@@ -3410,9 +3420,51 @@ mod tests {
             )
             .unwrap();
 
-        let frames = read_frames(&mut client, 2, std::time::Duration::from_millis(500)).await;
-        let event_frame = frames.iter().find(|f| f["type"] == "event").unwrap();
-        assert_eq!(event_frame["event"]["id"], event.id);
+        // Read enough frames to catch any duplicate. Pre-fix the loop
+        // emitted the same event twice (once via `Posted`, once via
+        // `TopicDelivered`); requesting 3 frames and asserting exactly
+        // one event row catches the regression.
+        let frames = read_frames(&mut client, 3, std::time::Duration::from_millis(300)).await;
+        let event_frames: Vec<_> = frames.iter().filter(|f| f["type"] == "event").collect();
+        assert_eq!(
+            event_frames.len(),
+            1,
+            "subscribed topic event must be delivered exactly once: {frames:?}"
+        );
+        assert_eq!(event_frames[0]["event"]["id"], event.id);
+    }
+
+    /// Regression for the TOCTOU between `subscribe_events()` and the
+    /// backlog `list_for_recipient` call. An event posted in that
+    /// window can appear in both, so the watcher needs an in-loop
+    /// dedup guard.
+    #[tokio::test]
+    async fn watch_dedupes_event_seen_in_backlog_and_live_stream() {
+        let (_dir, mgr, subs) = watch_test_managers();
+
+        // Post first so the event is unread → goes into the backlog.
+        let event = mgr
+            .post(
+                roux_core::EventBuilder::new("queued")
+                    .to("auditor")
+                    .from("builder"),
+                None,
+            )
+            .unwrap();
+
+        // The watcher's broadcast subscribe happens inside the spawn,
+        // so the broadcast for `event` already fired. The backlog read
+        // will surface the same event. Without dedup the watcher would
+        // forward it twice.
+        let mut client = spawn_watch_for_test(mgr, subs, "auditor", false, true);
+        let frames = read_frames(&mut client, 3, std::time::Duration::from_millis(300)).await;
+        let event_frames: Vec<_> = frames.iter().filter(|f| f["type"] == "event").collect();
+        assert_eq!(
+            event_frames.len(),
+            1,
+            "backlog event must not also be delivered through the live stream: {frames:?}"
+        );
+        assert_eq!(event_frames[0]["event"]["id"], event.id);
     }
 
     #[tokio::test]
