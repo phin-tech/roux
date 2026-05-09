@@ -308,6 +308,33 @@ pub struct BusTailParams {
     pub limit: Option<u64>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusSubscribeParams {
+    /// Glob pattern. `*` matches one segment, `**` matches many.
+    pub pattern: String,
+    /// Alias to bind the subscription to. Required for MCP/stdio
+    /// callers — there's no pane context for the implicit fallback the
+    /// CLI uses, so missing alias would silently fail to subscribe.
+    pub alias: String,
+    pub project_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusUnsubscribeParams {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BusSubscriptionsParams {
+    pub alias: Option<String>,
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub global: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct RouxMcpServer;
 
@@ -812,6 +839,64 @@ impl RouxMcpServer {
         }
         call_socket(json!({
             "command": "bus-tail",
+            "args": Value::Object(args),
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Subscribe an alias to topic events matching a glob pattern. `*` matches one segment, `**` matches many. When `alias` is omitted, defaults to the calling pane's alias. Matched events land in the subscriber's mailbox so subsequent `roux_mailbox_read` returns them."
+    )]
+    async fn roux_bus_subscribe(
+        &self,
+        Parameters(params): Parameters<BusSubscribeParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        args.insert("pattern".into(), Value::String(params.pattern));
+        args.insert("alias".into(), Value::String(params.alias));
+        if let Some(p) = params.project_id {
+            args.insert("project_id".into(), Value::String(p));
+        }
+        call_socket(json!({
+            "command": "bus-subscribe",
+            "args": Value::Object(args),
+        }))
+        .await
+    }
+
+    #[tool(description = "Remove a bus subscription by id.")]
+    async fn roux_bus_unsubscribe(
+        &self,
+        Parameters(params): Parameters<BusUnsubscribeParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), Value::String(params.id));
+        call_socket(json!({
+            "command": "bus-unsubscribe",
+            "args": Value::Object(args),
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "List bus subscriptions. With `alias`, only that alias's subscriptions; with `projectId` or `global`, scoped accordingly. Without filters, all subscriptions are returned."
+    )]
+    async fn roux_bus_subscriptions(
+        &self,
+        Parameters(params): Parameters<BusSubscriptionsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        if let Some(a) = params.alias {
+            args.insert("alias".into(), Value::String(a));
+        }
+        if let Some(p) = params.project_id {
+            args.insert("project_id".into(), Value::String(p));
+        }
+        if params.global {
+            args.insert("global".into(), Value::Bool(true));
+        }
+        call_socket(json!({
+            "command": "bus-subscriptions",
             "args": Value::Object(args),
         }))
         .await

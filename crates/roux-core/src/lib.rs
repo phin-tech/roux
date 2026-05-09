@@ -7,9 +7,11 @@
 pub mod agent_fsm;
 pub mod models;
 pub mod smolvm;
+pub mod topic_glob;
 pub mod worktree;
 
 pub use models::*;
+pub use topic_glob::{topic_matches, validate_topic, validate_topic_pattern, PatternError};
 pub use smolvm::{SmolMachine, SmolMachineCreateRequest, SmolvmDetection, SmolvmError};
 pub use worktree::{
     create_worktree, create_worktree_with_provider, expand_base_template, fetch_origin,

@@ -155,6 +155,50 @@ anyone tailing that topic.
 
 Default `kind` for `bus publish` is `signal`.
 
+### Subscriptions
+
+Tail-and-grep is fine for ad-hoc inspection, but for durable "tell my
+alias whenever X fires" wiring use a **subscription**. A subscription
+ties an alias to a topic glob; matched events land in the subscriber's
+mailbox so `roux mailbox read` (and the `UserPromptSubmit` hook) just
+work. Subscriptions persist across app restarts.
+
+```sh
+# Auditor wants every completion event from any repo:
+roux bus subscribe '**.completed' --alias auditor
+
+# Same alias also wants build failures, but only in repo-a:
+roux bus subscribe 'repo-a.build.failed' --alias auditor
+
+roux bus subscriptions               # list everything
+roux bus subscriptions --alias auditor
+roux bus unsubscribe <subscription-id>
+```
+
+Glob syntax (MQTT-style segment-aware):
+
+| Pattern | Matches | Doesn't match |
+|---|---|---|
+| `repo-a.build` | exact `repo-a.build` | anything else |
+| `repo-a.*` | `repo-a.build` | `repo-a.build.completed` |
+| `repo-a.**` | `repo-a`, `repo-a.build`, `repo-a.build.completed` | `repo-b.build` |
+| `*.completed` | `build.completed` | `repo-a.build.completed` |
+| `**.completed` | `completed`, `build.completed`, `repo-a.build.completed` | `build.failed` |
+| `repo-a.**.completed` | `repo-a.completed`, `repo-a.x.y.completed` | `repo-a.x.failed` |
+
+Pattern segments are lowercase letters, digits, and hyphens — same
+alphabet as topics and aliases. `*` and `**` must occupy a whole
+segment; partial-segment globbing (`foo*`) is rejected at validation
+time.
+
+Project scoping: a subscription with `--project p1` only matches events
+whose `project_id` is also `p1`. A subscription with no project (the
+default) matches events in any scope.
+
+Subscribed events appear in the subscriber's `mailbox read` output and
+update their unread count via the same `mailbox-event` Tauri channel —
+the UI's per-alias badge increments on every match.
+
 ## The Mailbox panel (UI)
 
 Click the inbox icon in the activity rail (or use the keybinding for
@@ -239,6 +283,7 @@ CLI uses; you get parity with the CLI surface, just typed.
 | File | Format | Notes |
 |---|---|---|
 | `aliases.json` | Versioned envelope (`{version: 1, data: [...]}`) | Full rewrite on mutation |
+| `subscriptions.json` | Versioned envelope | Full rewrite on subscribe / unsubscribe |
 | `events.jsonl` | Append-only NDJSON, one event per line, with `schemaVersion: 1` | Audit log; never compacted |
 | `read_state.json` | Versioned envelope | Full rewrite on mark-read / ack / clear-read |
 
@@ -298,8 +343,16 @@ roux mailbox post --to frontend --kind result "/reviews implemented in commit ab
 roux bus publish repo-a.build.completed "main is green at sha abc123"
 ```
 
-Anyone tailing `repo-a.*` (or a wildcard subscriber, once subscriptions
-land) sees it.
+Anyone tailing the topic sees it. To get push delivery rather than
+poll-via-tail, an alias subscribes once:
+
+```sh
+roux bus subscribe 'repo-a.**.completed' --alias auditor
+```
+
+After that, every matching publish lands in `auditor`'s mailbox; the
+auditor agent's `UserPromptSubmit` hook (or `roux mailbox read --ack`)
+picks them up at the start of the next turn.
 
 ### "Send me a note from a script"
 

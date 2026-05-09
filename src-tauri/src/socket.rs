@@ -204,6 +204,9 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "mailbox-sent" => handle_mailbox_sent(req, app).await,
         "bus-publish" => handle_bus_publish(req, app).await,
         "bus-tail" => handle_bus_tail(req, app).await,
+        "bus-subscribe" => handle_bus_subscribe(req, app).await,
+        "bus-unsubscribe" => handle_bus_unsubscribe(req, app).await,
+        "bus-subscriptions" => handle_bus_subscriptions(req, app).await,
         "session-list" => handle_session_list(req, app).await,
         "session-poll" => handle_session_poll(req, app).await,
         "session-panes-list" => handle_session_panes_list(req, app).await,
@@ -1931,6 +1934,77 @@ async fn handle_bus_tail(req: Request, app: &tauri::AppHandle) -> Response {
         None => state.mailbox_manager.list_all(filter, limit),
     };
     Response::success(serde_json::to_value(events).unwrap_or_default())
+}
+
+/// Resolve the alias to subscribe under: explicit `--alias` wins, else
+/// the calling pane's bound alias. We require *something* to bind to
+/// — anonymous subscriptions can't deliver mail anywhere. When the
+/// pane holds multiple aliases (manual + auto-claim, or several manual
+/// claims) we refuse to guess and return a disambiguation error;
+/// silently picking by `created_at` would route deliveries to the
+/// wrong inbox.
+fn resolve_subscriber_alias(req: &Request, app: &tauri::AppHandle) -> Result<String, String> {
+    if let Some(a) = args_str(req, "alias") {
+        return Ok(a.to_string());
+    }
+    let state: tauri::State<AppState> = app.state();
+    let pane_id = req.pane_id.as_deref().ok_or_else(|| {
+        "no --alias given and no pane context available; pass --alias <name>".to_string()
+    })?;
+    let held = state.alias_manager.find_for_pane(pane_id);
+    match held.len() {
+        0 => Err(
+            "no --alias given and the calling pane holds no alias; pass --alias <name>"
+                .to_string(),
+        ),
+        1 => Ok(held[0].alias.clone()),
+        _ => {
+            let names: Vec<_> = held.iter().map(|a| a.alias.as_str()).collect();
+            Err(format!(
+                "no --alias given and the calling pane holds multiple aliases ({names:?}); pass --alias <name>"
+            ))
+        }
+    }
+}
+
+async fn handle_bus_subscribe(req: Request, app: &tauri::AppHandle) -> Response {
+    let pattern = match args_str(&req, "pattern") {
+        Some(p) if !p.trim().is_empty() => p.to_string(),
+        _ => return Response::err("pattern required"),
+    };
+    let alias = match resolve_subscriber_alias(&req, app) {
+        Ok(a) => a,
+        Err(e) => return Response::err(e),
+    };
+    let project_id = args_str(&req, "project_id").map(str::to_string);
+
+    let state: tauri::State<AppState> = app.state();
+    match state.subscription_manager.subscribe(&alias, &pattern, project_id, Some(app)) {
+        Ok(s) => Response::success(serde_json::to_value(s).unwrap_or_default()),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_bus_unsubscribe(req: Request, app: &tauri::AppHandle) -> Response {
+    let id = match args_str(&req, "id") {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return Response::err("subscription id required"),
+    };
+    let state: tauri::State<AppState> = app.state();
+    match state.subscription_manager.unsubscribe(&id, Some(app)) {
+        Ok(removed) => Response::success(serde_json::json!({ "removed": removed })),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_bus_subscriptions(req: Request, app: &tauri::AppHandle) -> Response {
+    let state: tauri::State<AppState> = app.state();
+    let filter = mailbox_project_filter(args_str(&req, "project_id"), args_bool(&req, "global"));
+    let subs = match args_str(&req, "alias") {
+        Some(a) => state.subscription_manager.for_alias(a, filter),
+        None => state.subscription_manager.list(filter),
+    };
+    Response::success(serde_json::to_value(subs).unwrap_or_default())
 }
 
 fn crypto_random_uuid() -> String {

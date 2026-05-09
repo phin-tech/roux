@@ -1335,6 +1335,8 @@ export async function removePaneRecord(id: string): Promise<void> {
 import type {
   AgentAlias,
   AliasEvent,
+  BusSubscription,
+  BusSubscriptionEvent,
   Event as MailboxEventPayload,
   MailboxEvent,
   ReadState,
@@ -1343,6 +1345,8 @@ import type {
 export type {
   AgentAlias,
   AliasEvent,
+  BusSubscription,
+  BusSubscriptionEvent,
   EventKind,
   MailboxEvent,
   ReadState,
@@ -1510,4 +1514,40 @@ export async function aliasesGet(
 
 export async function aliasesWhoami(sessionId: string): Promise<AgentAlias[]> {
   return invoke("aliases_whoami", { sessionId });
+}
+
+// ── Bus subscriptions ─────────────────────────────────────────────────────────
+
+export function onBusSubscriptionEvent(
+  callback: (payload: BusSubscriptionEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<BusSubscriptionEvent>("subscription-event", (e) =>
+    callback(e.payload),
+  );
+}
+
+export async function subscriptionsList(
+  options: {
+    alias?: string | null;
+    projectId?: string | null;
+    global?: boolean;
+  } = {},
+): Promise<BusSubscription[]> {
+  return invoke("subscriptions_list", {
+    alias: options.alias ?? null,
+    projectId: options.projectId ?? null,
+    global: options.global ?? null,
+  });
+}
+
+export async function subscriptionsCreate(
+  alias: string,
+  pattern: string,
+  projectId: string | null = null,
+): Promise<BusSubscription> {
+  return invoke("subscriptions_create", { alias, pattern, projectId });
+}
+
+export async function subscriptionsDelete(id: string): Promise<boolean> {
+  return invoke("subscriptions_delete", { id });
 }

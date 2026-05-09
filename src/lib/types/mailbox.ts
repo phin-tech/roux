@@ -62,7 +62,17 @@ export type MailboxEvent =
       recipient: string;
       result: string | null;
     }
-  | { kind: "cleared"; recipient: string; count: number };
+  | { kind: "cleared"; recipient: string; count: number }
+  | {
+      /** Bus subscription matched a published topic event. The event itself
+       *  also fires as `posted`; this variant adds the per-subscriber
+       *  delivery context so the UI can bump the subscriber's unread count
+       *  and surface the delivery without a new mailbox row. */
+      kind: "topicDelivered";
+      eventId: string;
+      recipient: string;
+      subscriptionId: string;
+    };
 
 /**
  * Frontend mirror of `roux_core::AliasEvent`. Tagged with `kind`.
@@ -70,3 +80,22 @@ export type MailboxEvent =
 export type AliasEvent =
   | { kind: "set"; alias: AgentAlias }
   | { kind: "unset"; canonical: string; projectId: string | null };
+
+/**
+ * Frontend mirror of `roux_core::BusSubscription`.
+ */
+export interface BusSubscription {
+  id: string;
+  alias: string;
+  pattern: string;
+  projectId: string | null;
+  createdAt: number;
+}
+
+/**
+ * Frontend mirror of `roux_core::BusSubscriptionEvent`. Tagged with `kind`.
+ * Emitted on the `subscription-event` Tauri channel for every mutation.
+ */
+export type BusSubscriptionEvent =
+  | { kind: "created"; subscription: BusSubscription }
+  | { kind: "removed"; id: string };
