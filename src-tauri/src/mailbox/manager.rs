@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use roux_core::{Event, EventBuilder, MailboxEvent, ReadState};
 use tauri::{AppHandle, Emitter};
+use tokio::sync::broadcast;
 
 use crate::aliases::ProjectFilter;
 use crate::subscriptions::SubscriptionManager;
@@ -15,6 +16,13 @@ use super::store::{EventStore, PostError};
 /// Tauri event name emitted on every mailbox mutation. Frontend listens
 /// here to update the inbox / firehose without polling.
 pub const MAILBOX_EVENT: &str = "mailbox-event";
+
+/// In-process broadcast capacity. Each `mailbox watch` socket connection
+/// holds one receiver. 256 buffered events is well above any realistic
+/// burst — if a slow consumer ever falls behind, `broadcast::Receiver`
+/// surfaces a `Lagged` error and the watch handler can decide whether
+/// to reconnect or drop.
+const BROADCAST_CAPACITY: usize = 256;
 
 struct MailboxPaths {
     events: PathBuf,
@@ -34,11 +42,16 @@ struct MailboxPaths {
 /// `subscriptions` is optional so test fixtures and other call paths can
 /// construct a manager without a live subscription store. When absent,
 /// recipient pattern lookup is empty (legacy exact-match semantics).
+///
+/// `broadcast_tx` is always present and fires on every mutation so
+/// in-process consumers (`mailbox watch` socket handler, future
+/// internal listeners) can subscribe without going through Tauri.
 #[derive(Clone)]
 pub struct MailboxManager {
     inner: Arc<Mutex<EventStore>>,
     paths: Option<Arc<MailboxPaths>>,
     subscriptions: Option<SubscriptionManager>,
+    broadcast_tx: broadcast::Sender<MailboxEvent>,
 }
 
 impl MailboxManager {
@@ -52,6 +65,7 @@ impl MailboxManager {
         let events = load_events_from(&events_path);
         let read_state = load_read_state_from(&read_state_path);
         let store = EventStore::from_entries(events, read_state);
+        let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         Self {
             inner: Arc::new(Mutex::new(store)),
             paths: Some(Arc::new(MailboxPaths {
@@ -59,6 +73,7 @@ impl MailboxManager {
                 read_state: read_state_path,
             })),
             subscriptions: None,
+            broadcast_tx,
         }
     }
 
@@ -74,11 +89,29 @@ impl MailboxManager {
     /// don't care about disk IO.
     #[cfg(test)]
     pub fn in_memory() -> Self {
+        let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         Self {
             inner: Arc::new(Mutex::new(EventStore::new())),
             paths: None,
             subscriptions: None,
+            broadcast_tx,
         }
+    }
+
+    /// Subscribe to in-process mailbox events. Each call returns a
+    /// fresh `broadcast::Receiver` — caller drops it when done. Used by
+    /// the `mailbox watch` socket handler to push events to a long-
+    /// lived CLI client without polling.
+    pub fn subscribe_events(&self) -> broadcast::Receiver<MailboxEvent> {
+        self.broadcast_tx.subscribe()
+    }
+
+    /// Send a `MailboxEvent` to in-process subscribers. Failures (no
+    /// receivers, lagged consumer) are intentionally ignored — the Tauri
+    /// emit and persistence are the durable paths; this channel is a
+    /// best-effort fast path for live consumers.
+    fn broadcast(&self, event: &MailboxEvent) {
+        let _ = self.broadcast_tx.send(event.clone());
     }
 
     /// Patterns subscribed to by `recipient` in scopes compatible with
@@ -138,22 +171,25 @@ impl MailboxManager {
                 )));
             }
         }
+        let posted = MailboxEvent::Posted { event: event.clone() };
+        self.broadcast(&posted);
         if let Some(app) = app {
-            let _ = app.emit(MAILBOX_EVENT, &MailboxEvent::Posted { event: event.clone() });
-            // Topic-event subscriptions: notify each matching subscriber.
-            // Frontend uses these to bump the subscriber alias's unread
-            // count and surface the delivery without a new mailbox row.
-            if let (Some(topic), Some(subs)) = (event.topic.as_deref(), self.subscriptions.as_ref())
-            {
-                for sub in subs.matching_topic(topic, event.project_id.as_deref()) {
-                    let _ = app.emit(
-                        MAILBOX_EVENT,
-                        &MailboxEvent::TopicDelivered {
-                            event_id: event.id.clone(),
-                            recipient: sub.alias,
-                            subscription_id: sub.id,
-                        },
-                    );
+            let _ = app.emit(MAILBOX_EVENT, &posted);
+        }
+        // Topic-event subscriptions: notify each matching subscriber.
+        // Frontend uses these to bump the subscriber alias's unread
+        // count and surface the delivery without a new mailbox row.
+        // CLI watchers see the same events through `subscribe_events()`.
+        if let (Some(topic), Some(subs)) = (event.topic.as_deref(), self.subscriptions.as_ref()) {
+            for sub in subs.matching_topic(topic, event.project_id.as_deref()) {
+                let delivered = MailboxEvent::TopicDelivered {
+                    event_id: event.id.clone(),
+                    recipient: sub.alias,
+                    subscription_id: sub.id,
+                };
+                self.broadcast(&delivered);
+                if let Some(app) = app {
+                    let _ = app.emit(MAILBOX_EVENT, &delivered);
                 }
             }
         }
@@ -181,14 +217,13 @@ impl MailboxManager {
         };
         if changed {
             self.persist_read_state();
+            let evt = MailboxEvent::Read {
+                event_id: event_id.to_string(),
+                recipient: recipient.to_string(),
+            };
+            self.broadcast(&evt);
             if let Some(app) = app {
-                let _ = app.emit(
-                    MAILBOX_EVENT,
-                    &MailboxEvent::Read {
-                        event_id: event_id.to_string(),
-                        recipient: recipient.to_string(),
-                    },
-                );
+                let _ = app.emit(MAILBOX_EVENT, &evt);
             }
         }
         changed
@@ -212,15 +247,14 @@ impl MailboxManager {
         };
         if changed {
             self.persist_read_state();
+            let evt = MailboxEvent::Acked {
+                event_id: event_id.to_string(),
+                recipient: recipient.to_string(),
+                result,
+            };
+            self.broadcast(&evt);
             if let Some(app) = app {
-                let _ = app.emit(
-                    MAILBOX_EVENT,
-                    &MailboxEvent::Acked {
-                        event_id: event_id.to_string(),
-                        recipient: recipient.to_string(),
-                        result,
-                    },
-                );
+                let _ = app.emit(MAILBOX_EVENT, &evt);
             }
         }
         changed
@@ -239,14 +273,13 @@ impl MailboxManager {
         };
         if cleared > 0 {
             self.persist_read_state();
+            let evt = MailboxEvent::Cleared {
+                recipient: recipient.to_string(),
+                count: cleared as u32,
+            };
+            self.broadcast(&evt);
             if let Some(app) = app {
-                let _ = app.emit(
-                    MAILBOX_EVENT,
-                    &MailboxEvent::Cleared {
-                        recipient: recipient.to_string(),
-                        count: cleared as u32,
-                    },
-                );
+                let _ = app.emit(MAILBOX_EVENT, &evt);
             }
         }
         cleared
@@ -590,5 +623,83 @@ mod tests {
             !mgr.ack(&event.id, "auditor", Some("done".into()), None),
             "p2-scoped subscription must not authorize p1 event ack",
         );
+    }
+
+    // ── In-process broadcast (powers `mailbox watch`) ──────────────
+
+    #[tokio::test]
+    async fn broadcast_fires_on_post() {
+        let mgr = MailboxManager::in_memory();
+        let mut rx = mgr.subscribe_events();
+        mgr.post(task("hello"), None).unwrap();
+        match rx.recv().await.expect("broadcast must deliver") {
+            MailboxEvent::Posted { event } => assert_eq!(event.body, "hello"),
+            other => panic!("expected Posted, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn broadcast_fires_topic_delivered_for_each_subscription() {
+        let mgr = MailboxManager::in_memory()
+            .with_subscriptions(SubscriptionManager::in_memory());
+        mgr.subscriptions
+            .as_ref()
+            .unwrap()
+            .subscribe("auditor", "**.completed", None, None)
+            .unwrap();
+        mgr.subscriptions
+            .as_ref()
+            .unwrap()
+            .subscribe("watcher", "**", None, None)
+            .unwrap();
+
+        let mut rx = mgr.subscribe_events();
+        let topic_event = EventBuilder::new("a")
+            .topic("build.completed")
+            .kind(EventKind::Signal);
+        mgr.post(topic_event, None).unwrap();
+
+        // First message: Posted. Then one TopicDelivered per matching sub.
+        let mut delivered_recipients: Vec<String> = Vec::new();
+        for _ in 0..3 {
+            match rx.recv().await {
+                Ok(MailboxEvent::Posted { .. }) => {}
+                Ok(MailboxEvent::TopicDelivered { recipient, .. }) => {
+                    delivered_recipients.push(recipient);
+                }
+                Ok(other) => panic!("unexpected {other:?}"),
+                Err(e) => panic!("recv failed: {e:?}"),
+            }
+        }
+        delivered_recipients.sort();
+        assert_eq!(
+            delivered_recipients,
+            vec!["auditor".to_string(), "watcher".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn broadcast_fires_on_mark_read_and_ack() {
+        let mgr = MailboxManager::in_memory();
+        let event = mgr.post(task("hi"), None).unwrap();
+
+        let mut rx = mgr.subscribe_events();
+        mgr.mark_read(&event.id, "reviewer", None);
+        mgr.ack(&event.id, "reviewer", Some("done".into()), None);
+
+        let first = rx.recv().await.unwrap();
+        assert!(matches!(first, MailboxEvent::Read { .. }));
+        let second = rx.recv().await.unwrap();
+        assert!(matches!(second, MailboxEvent::Acked { .. }));
+    }
+
+    #[tokio::test]
+    async fn broadcast_each_subscriber_gets_independent_stream() {
+        let mgr = MailboxManager::in_memory();
+        let mut rx_a = mgr.subscribe_events();
+        let mut rx_b = mgr.subscribe_events();
+        mgr.post(task("hi"), None).unwrap();
+        assert!(matches!(rx_a.recv().await.unwrap(), MailboxEvent::Posted { .. }));
+        assert!(matches!(rx_b.recv().await.unwrap(), MailboxEvent::Posted { .. }));
     }
 }

@@ -2,6 +2,121 @@ use serde_json::Value;
 
 use crate::platform;
 
+/// Connect to Roux and stream a long-lived command (e.g. `mailbox-watch`).
+/// Each newline-delimited JSON line the server emits is passed to
+/// `on_line`. Returns when the server closes the connection or
+/// `on_line` returns false. Read timeout is intentionally absent —
+/// streaming commands block until events arrive.
+pub fn stream_socket_command<F>(request: Value, mut on_line: F) -> Result<(), String>
+where
+    F: FnMut(&str) -> bool,
+{
+    use std::io::BufRead;
+
+    #[cfg(windows)]
+    let stream: Box<dyn StreamSocket> = {
+        use std::net::TcpStream;
+        let mut request = request;
+        let auth_token = platform::load_socket_auth_token()
+            .ok_or_else(|| "Roux command channel token not found".to_string())?;
+        if let Some(obj) = request.as_object_mut() {
+            obj.insert("auth_token".to_string(), Value::String(auth_token));
+        }
+        let endpoint =
+            platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
+        let s = TcpStream::connect(&endpoint).map_err(map_connect_err)?;
+        Box::new(WindowsStream(s, request))
+    };
+
+    #[cfg(not(windows))]
+    let stream: Box<dyn StreamSocket> = {
+        use std::os::unix::net::UnixStream;
+        let path = platform::socket_path();
+        let s = UnixStream::connect(&path).map_err(map_connect_err)?;
+        Box::new(UnixStreamHolder(s, request))
+    };
+
+    stream.send_request()?;
+
+    let reader = stream.into_reader();
+    let mut reader = std::io::BufReader::new(reader);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => return Ok(()), // server closed
+            Ok(_) => {
+                let trimmed = line.trim_end();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if !on_line(trimmed) {
+                    return Ok(());
+                }
+            }
+            Err(e) => return Err(format!("Read failed: {e}")),
+        }
+    }
+}
+
+fn map_connect_err(e: std::io::Error) -> String {
+    if matches!(
+        e.kind(),
+        std::io::ErrorKind::NotFound
+            | std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::AddrNotAvailable
+    ) {
+        "Roux is not running".to_string()
+    } else {
+        format!("Failed to connect to Roux: {e}")
+    }
+}
+
+/// Internal trait so `stream_socket_command` works for both Unix and
+/// Windows transports without duplicating the loop. Each impl carries
+/// the request JSON it was constructed with so `send_request` is a
+/// straightforward "serialize + write line."
+trait StreamSocket {
+    fn send_request(&self) -> Result<(), String>;
+    fn into_reader(self: Box<Self>) -> Box<dyn std::io::Read + Send>;
+}
+
+#[cfg(not(windows))]
+struct UnixStreamHolder(std::os::unix::net::UnixStream, Value);
+
+#[cfg(not(windows))]
+impl StreamSocket for UnixStreamHolder {
+    fn send_request(&self) -> Result<(), String> {
+        use std::io::Write;
+        let json = serde_json::to_string(&self.1).unwrap();
+        let mut s = &self.0;
+        s.write_all(json.as_bytes())
+            .and_then(|_| s.write_all(b"\n"))
+            .map_err(|e| format!("Failed to send command: {e}"))
+    }
+    fn into_reader(self: Box<Self>) -> Box<dyn std::io::Read + Send> {
+        Box::new(self.0)
+    }
+}
+
+#[cfg(windows)]
+struct WindowsStream(std::net::TcpStream, Value);
+
+#[cfg(windows)]
+impl StreamSocket for WindowsStream {
+    fn send_request(&self) -> Result<(), String> {
+        use std::io::Write;
+        let json = serde_json::to_string(&self.1).unwrap();
+        let mut s = &self.0;
+        s.write_all(json.as_bytes())
+            .and_then(|_| s.write_all(b"\n"))
+            .map_err(|e| format!("Failed to send command: {e}"))
+    }
+    fn into_reader(self: Box<Self>) -> Box<dyn std::io::Read + Send> {
+        Box::new(self.0)
+    }
+}
+
 pub fn send_socket_command(request: Value) -> Result<Value, String> {
     #[cfg(windows)]
     {
