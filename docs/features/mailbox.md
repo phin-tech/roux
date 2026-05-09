@@ -316,9 +316,12 @@ holds the alias. Either rename the conflicting pane (auto-release), use
 `roux alias claim reviewer --steal` to take it over, or pick a different
 name.
 
-**My pane name auto-claimed but other pane has the same name**: only the
-first auto-claim wins; the second pane keeps its name but no alias.
-Manually `roux alias claim <some-other-name>` for the second pane.
+**My pane name auto-claimed but other pane has the same name**: auto-claims
+are scoped per project, so `reviewer` in project A and `reviewer` in
+project B coexist. Within the same project (or both panes outside any
+project) only the first auto-claim wins; the second pane keeps its name
+but no alias — manually `roux alias claim <some-other-name>` for the
+second pane.
 
 **Mail isn't arriving even though I posted**: check `roux alias list` to
 confirm the recipient alias exists and has a `paneId` set. Posts to
