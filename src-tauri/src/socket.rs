@@ -1937,8 +1937,12 @@ async fn handle_bus_tail(req: Request, app: &tauri::AppHandle) -> Response {
 }
 
 /// Resolve the alias to subscribe under: explicit `--alias` wins, else
-/// the calling pane's auto-claimed alias. We require *something* to bind
-/// to — anonymous subscriptions can't deliver mail anywhere.
+/// the calling pane's bound alias. We require *something* to bind to
+/// — anonymous subscriptions can't deliver mail anywhere. When the
+/// pane holds multiple aliases (manual + auto-claim, or several manual
+/// claims) we refuse to guess and return a disambiguation error;
+/// silently picking by `created_at` would route deliveries to the
+/// wrong inbox.
 fn resolve_subscriber_alias(req: &Request, app: &tauri::AppHandle) -> Result<String, String> {
     if let Some(a) = args_str(req, "alias") {
         return Ok(a.to_string());
@@ -1947,14 +1951,20 @@ fn resolve_subscriber_alias(req: &Request, app: &tauri::AppHandle) -> Result<Str
     let pane_id = req.pane_id.as_deref().ok_or_else(|| {
         "no --alias given and no pane context available; pass --alias <name>".to_string()
     })?;
-    let mut held = state.alias_manager.find_for_pane(pane_id);
-    held.sort_by_key(|a| a.created_at);
-    held.into_iter()
-        .next()
-        .map(|a| a.alias)
-        .ok_or_else(|| {
-            "no --alias given and the calling pane holds no alias; pass --alias <name>".to_string()
-        })
+    let held = state.alias_manager.find_for_pane(pane_id);
+    match held.len() {
+        0 => Err(
+            "no --alias given and the calling pane holds no alias; pass --alias <name>"
+                .to_string(),
+        ),
+        1 => Ok(held[0].alias.clone()),
+        _ => {
+            let names: Vec<_> = held.iter().map(|a| a.alias.as_str()).collect();
+            Err(format!(
+                "no --alias given and the calling pane holds multiple aliases ({names:?}); pass --alias <name>"
+            ))
+        }
+    }
 }
 
 async fn handle_bus_subscribe(req: Request, app: &tauri::AppHandle) -> Response {
@@ -1981,8 +1991,10 @@ async fn handle_bus_unsubscribe(req: Request, app: &tauri::AppHandle) -> Respons
         _ => return Response::err("subscription id required"),
     };
     let state: tauri::State<AppState> = app.state();
-    let removed = state.subscription_manager.unsubscribe(&id, Some(app));
-    Response::success(serde_json::json!({ "removed": removed }))
+    match state.subscription_manager.unsubscribe(&id, Some(app)) {
+        Ok(removed) => Response::success(serde_json::json!({ "removed": removed })),
+        Err(e) => Response::err(e.to_string()),
+    }
 }
 
 async fn handle_bus_subscriptions(req: Request, app: &tauri::AppHandle) -> Response {

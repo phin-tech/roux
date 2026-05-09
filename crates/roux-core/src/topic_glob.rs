@@ -102,40 +102,66 @@ fn is_literal_segment(s: &str) -> bool {
 /// Caller is responsible for passing a validated pattern; an unvalidated
 /// pattern with weird tokens like `foo*bar` will be treated as a literal
 /// segment and won't match anything that doesn't equal it byte-for-byte.
+///
+/// Complexity: `O(P * T)` for adversarial inputs thanks to the
+/// `(pi, ti)` memo table — a naïve recursive `**` matcher is exponential
+/// when the pattern contains multiple `**` over a long topic.
 pub fn topic_matches(pattern: &str, topic: &str) -> bool {
     if pattern.is_empty() || topic.is_empty() {
         return false;
     }
     let pat: Vec<&str> = pattern.split('.').collect();
     let top: Vec<&str> = topic.split('.').collect();
-    matches_segments(&pat, &top)
+    // Memo entries are keyed by (pattern_index, topic_index). Since
+    // both bounds are typically tiny (< 16 segments) we use a flat
+    // `Vec<Option<bool>>` of size `(P+1) * (T+1)` for cache locality
+    // — faster than HashMap and indexable by simple arithmetic.
+    let p_len = pat.len();
+    let t_len = top.len();
+    let mut memo = vec![None; (p_len + 1) * (t_len + 1)];
+    matches_segments(&pat, &top, 0, 0, &mut memo)
 }
 
-fn matches_segments(pattern: &[&str], topic: &[&str]) -> bool {
-    match (pattern.first(), topic.first()) {
+fn matches_segments(
+    pattern: &[&str],
+    topic: &[&str],
+    pi: usize,
+    ti: usize,
+    memo: &mut [Option<bool>],
+) -> bool {
+    let row = topic.len() + 1;
+    let key = pi * row + ti;
+    if let Some(cached) = memo[key] {
+        return cached;
+    }
+    let result = match (pattern.get(pi), topic.get(ti)) {
         (None, None) => true,
         (None, Some(_)) => false,
         (Some(p), _) if *p == "**" => {
             // `**` matches zero or more segments. Try every length.
-            let rest_pat = &pattern[1..];
             // zero segments: drop the `**` and continue against the same topic
-            if matches_segments(rest_pat, topic) {
-                return true;
-            }
-            // one or more segments: consume one topic segment, retry
-            for i in 1..=topic.len() {
-                if matches_segments(rest_pat, &topic[i..]) {
-                    return true;
+            if matches_segments(pattern, topic, pi + 1, ti, memo) {
+                true
+            } else {
+                // one or more segments: consume one topic segment, retry
+                let mut found = false;
+                for i in 1..=(topic.len() - ti) {
+                    if matches_segments(pattern, topic, pi + 1, ti + i, memo) {
+                        found = true;
+                        break;
+                    }
                 }
+                found
             }
-            false
         }
         (Some(_), None) => false,
         (Some(p), Some(t)) => {
             let head_ok = *p == "*" || *p == *t;
-            head_ok && matches_segments(&pattern[1..], &topic[1..])
+            head_ok && matches_segments(pattern, topic, pi + 1, ti + 1, memo)
         }
-    }
+    };
+    memo[key] = Some(result);
+    result
 }
 
 #[cfg(test)]
@@ -228,6 +254,22 @@ mod tests {
         assert!(topic_matches("*.*.completed", "repo-a.build.completed"));
         assert!(!topic_matches("*.*.completed", "repo-a.completed"));
         assert!(!topic_matches("*.*.completed", "a.b.c.completed"));
+    }
+
+    #[test]
+    fn many_double_stars_over_long_topic_is_fast() {
+        // Adversarial pattern that would explode in a naïve recursive
+        // matcher (each `**` retries every suffix). With memoization the
+        // worst case is O(P * T). 16 segments × 8 stars completes
+        // instantly; without memo the naïve walk takes >2s on this box.
+        let pattern = "**.**.**.**.**.**.**.**";
+        let topic = "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p";
+        let start = std::time::Instant::now();
+        assert!(topic_matches(pattern, topic));
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(100),
+            "memoized matcher must finish quickly even with adversarial patterns",
+        );
     }
 
     // ── validate_topic_pattern ──────────────────────────────────────

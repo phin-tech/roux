@@ -20,6 +20,17 @@ pub enum SubscribeError {
     InvalidAlias(String),
     #[error(transparent)]
     Store(#[from] AddError),
+    /// Disk save failed. The in-memory mutation has been rolled back
+    /// before this error is surfaced — caller need not retry the undo.
+    #[error("persistence failed: {0}")]
+    Persist(String),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UnsubscribeError {
+    /// Disk save failed; the deletion has been rolled back.
+    #[error("persistence failed: {0}")]
+    Persist(String),
 }
 
 /// Clonable handle over the subscription store. Persistence runs
@@ -81,7 +92,15 @@ impl SubscriptionManager {
             let mut store = self.inner.lock().expect("subscription store poisoned");
             store.add(subscription)?
         };
-        self.persist();
+        // Persist BEFORE emitting — if the disk write fails, roll the
+        // in-memory mutation back and surface the error so the caller
+        // can retry. Otherwise the UI/CLI would observe a "Created"
+        // event that disappears on next restart.
+        if let Err(e) = self.persist() {
+            let mut store = self.inner.lock().expect("subscription store poisoned");
+            store.remove(&inserted.id);
+            return Err(SubscribeError::Persist(e.to_string()));
+        }
         if let Some(app) = app {
             let _ = app.emit(
                 SUBSCRIPTION_EVENT,
@@ -91,20 +110,39 @@ impl SubscriptionManager {
         Ok(inserted)
     }
 
-    /// Remove by id. Returns `true` when something was deleted.
-    pub fn unsubscribe(&self, id: &str, app: Option<&AppHandle>) -> bool {
-        let removed = {
+    /// Remove by id. Returns `Ok(true)` when something was deleted,
+    /// `Ok(false)` when the id was unknown, and an error when the
+    /// disk save failed (in which case the in-memory deletion has
+    /// been rolled back).
+    pub fn unsubscribe(
+        &self,
+        id: &str,
+        app: Option<&AppHandle>,
+    ) -> Result<bool, UnsubscribeError> {
+        let removed_entry = {
             let mut store = self.inner.lock().expect("subscription store poisoned");
-            store.remove(id)
-        };
-        if removed {
-            self.persist();
-            if let Some(app) = app {
-                let _ = app
-                    .emit(SUBSCRIPTION_EVENT, &BusSubscriptionEvent::Removed { id: id.to_string() });
+            let entry = store.get(id).cloned();
+            if entry.is_some() {
+                store.remove(id);
             }
+            entry
+        };
+        let Some(removed) = removed_entry else {
+            return Ok(false);
+        };
+        if let Err(e) = self.persist() {
+            // Roll back: re-insert the entry. We use `add` here because
+            // the duplicate-triple guard won't fire (we just removed the
+            // sole row with this triple).
+            let mut store = self.inner.lock().expect("subscription store poisoned");
+            let _ = store.add(removed);
+            return Err(UnsubscribeError::Persist(e.to_string()));
         }
-        removed
+        if let Some(app) = app {
+            let _ = app
+                .emit(SUBSCRIPTION_EVENT, &BusSubscriptionEvent::Removed { id: id.to_string() });
+        }
+        Ok(true)
     }
 
     pub fn get(&self, id: &str) -> Option<BusSubscription> {
@@ -150,17 +188,14 @@ impl SubscriptionManager {
         store.patterns_for_alias(alias, event_project_id)
     }
 
-    fn persist(&self) {
+    /// Persist the current in-memory state. `Ok(())` when there's no
+    /// configured path (test mode) so callers can chain unconditionally.
+    fn persist(&self) -> std::io::Result<()> {
         let Some(path) = self.persistence_path.as_ref() else {
-            return;
+            return Ok(());
         };
         let store = self.inner.lock().expect("subscription store poisoned");
-        if let Err(e) = save_to_path(store.entries(), path.as_path()) {
-            eprintln!(
-                "[roux] subscription persistence failed at {}: {e}",
-                path.display(),
-            );
-        }
+        save_to_path(store.entries(), path.as_path())
     }
 }
 
@@ -220,7 +255,7 @@ mod tests {
     #[test]
     fn unsubscribe_returns_false_for_missing_id() {
         let mgr = SubscriptionManager::in_memory();
-        assert!(!mgr.unsubscribe("ghost", None));
+        assert!(!mgr.unsubscribe("ghost", None).unwrap());
     }
 
     #[test]
@@ -229,7 +264,7 @@ mod tests {
         let path = dir.path().join("subscriptions.json");
         let mgr = SubscriptionManager::load_from(path.clone());
         let s = mgr.subscribe("auditor", "*", None, None).unwrap();
-        assert!(mgr.unsubscribe(&s.id, None));
+        assert!(mgr.unsubscribe(&s.id, None).unwrap());
 
         let mgr2 = SubscriptionManager::load_from(path);
         assert!(mgr2.get(&s.id).is_none());

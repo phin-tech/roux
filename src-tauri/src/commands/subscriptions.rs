@@ -53,5 +53,8 @@ pub async fn subscriptions_delete(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
-    Ok(state.subscription_manager.unsubscribe(&id, Some(&app)))
+    state
+        .subscription_manager
+        .unsubscribe(&id, Some(&app))
+        .map_err(|e| e.to_string())
 }

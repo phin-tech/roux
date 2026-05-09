@@ -63,9 +63,13 @@
   // Subscription compose form state. Shown only when the Subscriptions
   // tab is active. Pattern is validated server-side; we surface the
   // backend error inline to keep the form concrete-feedback-driven.
+  // Project scope is global-only from the UI for now — the form
+  // doesn't expose a project picker, and silently passing the current
+  // project would surprise users who expect form fields to govern
+  // submitted state. CLI/MCP cover scoped subscriptions until we add
+  // a proper picker.
   let subAlias = $state("");
   let subPattern = $state("");
-  let subProjectId = $state<string | null>(null);
   let subSubmitting = $state(false);
   let subError = $state<string | null>(null);
   let deletingSubId = $state<string | null>(null);
@@ -249,11 +253,7 @@
     subSubmitting = true;
     subError = null;
     try {
-      await createSubscription(
-        subAlias.trim(),
-        subPattern.trim(),
-        subProjectId,
-      );
+      await createSubscription(subAlias.trim(), subPattern.trim(), null);
       // Reset on success — the store updates from the
       // `subscription-event` listener so the new row appears in the list.
       subPattern = "";
