@@ -145,11 +145,28 @@ pub fn start_socket_server(app: tauri::AppHandle) {
                     }
                 }
 
-                let response = match serde_json::from_str::<Request>(line.trim()) {
-                    Ok(req) => handle_request(req, &app).await,
-                    Err(e) => Response::err(format!("Invalid request: {}", e)),
+                let req = match serde_json::from_str::<Request>(line.trim()) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        let resp = Response::err(format!("Invalid request: {}", e));
+                        let json = serde_json::to_string(&resp).unwrap_or_default();
+                        let _ = writer.write_all(json.as_bytes()).await;
+                        let _ = writer.write_all(b"\n").await;
+                        let _ = writer.shutdown().await;
+                        return;
+                    }
                 };
 
+                // Streaming commands keep the writer open and push
+                // newline-delimited JSON until the client disconnects.
+                // One-shot commands (the default) write a single
+                // Response and shut the writer down.
+                if is_streaming_command(&req.command) {
+                    handle_streaming_request(req, &app, buf_reader, writer).await;
+                    return;
+                }
+
+                let response = handle_request(req, &app).await;
                 let json = serde_json::to_string(&response).unwrap_or_default();
                 let _ = writer.write_all(json.as_bytes()).await;
                 let _ = writer.write_all(b"\n").await;
@@ -157,6 +174,58 @@ pub fn start_socket_server(app: tauri::AppHandle) {
             });
         }
     });
+}
+
+/// True for commands that switch to a streaming protocol (multiple
+/// newline-delimited JSON objects) instead of the default
+/// request/response. Must stay in sync with `handle_streaming_request`.
+fn is_streaming_command(cmd: &str) -> bool {
+    matches!(cmd, "mailbox-watch")
+}
+
+/// Dispatch streaming commands. Owns the writer for the lifetime of the
+/// connection; the handler returns when the client disconnects, an
+/// error happens, or the watch is cancelled. Generic over reader/writer
+/// types so the same code path works for Unix sockets and Windows TCP.
+async fn handle_streaming_request<R, W>(
+    req: Request,
+    app: &tauri::AppHandle,
+    reader: BufReader<R>,
+    writer: W,
+) where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    #[cfg(windows)]
+    {
+        let Some(expected_token) = platform::load_socket_auth_token() else {
+            stream_error(writer, "Socket auth token unavailable").await;
+            return;
+        };
+        if req.auth_token.as_deref() != Some(expected_token.as_str()) {
+            stream_error(writer, "unauthorized").await;
+            return;
+        }
+    }
+    match req.command.as_str() {
+        "mailbox-watch" => handle_mailbox_watch(req, app, reader, writer).await,
+        // Should never be reached: `is_streaming_command` is the source
+        // of truth and only routes known streaming commands here.
+        other => stream_error(writer, format!("unknown streaming command: {other}")).await,
+    }
+}
+
+/// Write a single error frame and close. Used for auth/dispatch failures
+/// before the streaming loop starts.
+async fn stream_error<W>(mut writer: W, msg: impl Into<String>)
+where
+    W: tokio::io::AsyncWrite + Unpin + Send,
+{
+    let resp = Response::err(msg);
+    let json = serde_json::to_string(&resp).unwrap_or_default();
+    let _ = writer.write_all(json.as_bytes()).await;
+    let _ = writer.write_all(b"\n").await;
+    let _ = writer.shutdown().await;
 }
 
 async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
@@ -1533,7 +1602,7 @@ fn parse_event_kind(s: &str) -> Result<roux_core::EventKind, String> {
 ///
 /// Multiple matches → error and ask for disambiguation via `args.alias`.
 fn resolve_recipient_alias(
-    state: &tauri::State<AppState>,
+    state: &tauri::State<'_, AppState>,
     req: &Request,
     explicit: Option<&str>,
 ) -> Result<String, String> {
@@ -2005,6 +2074,231 @@ async fn handle_bus_subscriptions(req: Request, app: &tauri::AppHandle) -> Respo
         None => state.subscription_manager.list(filter),
     };
     Response::success(serde_json::to_value(subs).unwrap_or_default())
+}
+
+/// Long-lived `mailbox watch` stream. The client connects, receives a
+/// `ready` line, then reads newline-delimited JSON frames until it
+/// disconnects:
+///
+/// - `{"type":"ready"}` — handshake; safe to start consuming.
+/// - `{"type":"event","event":{...}}` — a fresh event (initial backlog
+///   or live delivery). When `args.ack=true` the watch handler also
+///   calls `mark_read+ack` on the recipient before forwarding.
+/// - `{"type":"error","error":"..."}` — terminal error; stream ends.
+///
+/// The reader side of the stream is consulted only for client
+/// disconnect detection — any line the client sends terminates the
+/// watch (treated as "client done"). Real bidirectional control is
+/// future work.
+async fn handle_mailbox_watch<R, W>(
+    req: Request,
+    app: &tauri::AppHandle,
+    reader: BufReader<R>,
+    writer: W,
+) where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let state: tauri::State<AppState> = app.state();
+    let alias = match resolve_recipient_alias(&state, &req, args_str(&req, "alias")) {
+        Ok(a) => a,
+        Err(e) => return stream_error(writer, e).await,
+    };
+    let project_filter =
+        mailbox_project_filter(args_str(&req, "project_id"), args_bool(&req, "global"));
+    let ack = args_bool(&req, "ack").unwrap_or(false);
+    let send_backlog = args_bool(&req, "backlog").unwrap_or(true);
+
+    watch_stream_loop(
+        &state.mailbox_manager,
+        &alias,
+        project_filter,
+        ack,
+        send_backlog,
+        reader,
+        writer,
+    )
+    .await;
+}
+
+/// Streaming watch loop, factored out of `handle_mailbox_watch` so it
+/// can be exercised in unit tests without a Tauri AppState. Owns the
+/// reader/writer for the lifetime of the watch and returns when the
+/// client disconnects, the broadcast closes, or a write fails.
+///
+/// The `MailboxManager` already carries the `SubscriptionManager` (via
+/// `with_subscriptions`); subscription matches reach this loop through
+/// the broadcast channel as `MailboxEvent::TopicDelivered` frames, so
+/// the loop doesn't need a separate handle on subscriptions.
+pub(crate) async fn watch_stream_loop<R, W>(
+    mailbox: &roux_lib::mailbox::MailboxManager,
+    alias: &str,
+    project_filter: roux_lib::aliases::ProjectFilter<'_>,
+    ack: bool,
+    send_backlog: bool,
+    mut reader: BufReader<R>,
+    mut writer: W,
+) where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    // Three states, not two: `None` = no filter (Any); `Some(None)` =
+    // global-only (event.project_id must be None); `Some(Some(p))` =
+    // exact project match. Collapsing `Exact(None)` to `None` would
+    // make `--global` watchers receive cross-project events on the
+    // live stream while the backlog (which goes through
+    // `list_for_recipient(... Exact(None))`) correctly filtered them.
+    let project_scope: Option<Option<String>> = match project_filter {
+        roux_lib::aliases::ProjectFilter::Any => None,
+        roux_lib::aliases::ProjectFilter::Exact(None) => Some(None),
+        roux_lib::aliases::ProjectFilter::Exact(Some(p)) => Some(Some(p.to_string())),
+    };
+
+    // Subscribe BEFORE replaying the backlog so we don't drop events
+    // posted during the handshake. The trade-off is that an event
+    // posted between `subscribe_events()` and `list_for_recipient()`
+    // can appear in both — `forwarded_ids` below dedupes those.
+    let mut rx = mailbox.subscribe_events();
+
+    if write_frame(&mut writer, &serde_json::json!({"type": "ready"})).await.is_err() {
+        return;
+    }
+
+    // Track event IDs we've already forwarded so the same event can't
+    // arrive twice via:
+    // (a) backlog list + live broadcast race, or
+    // (b) `Posted` arm + `TopicDelivered` arm for the same subscribed
+    //     event (both broadcast on every post — the watcher must
+    //     deliver only once).
+    let mut forwarded_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    if send_backlog {
+        let backlog = mailbox.list_for_recipient(alias, true, project_filter);
+        for event in backlog {
+            forwarded_ids.insert(event.id.clone());
+            if !forward_event(mailbox, &mut writer, &event, alias, ack).await {
+                return;
+            }
+        }
+    }
+
+    let mut line = String::new();
+    loop {
+        line.clear();
+        tokio::select! {
+            recv = rx.recv() => {
+                match recv {
+                    // Direct-mail-only on this arm: subscription events
+                    // are forwarded via TopicDelivered below. Without
+                    // this restriction, a subscribed alias would see
+                    // each match twice (once here, once on TopicDelivered).
+                    Ok(roux_core::MailboxEvent::Posted { event }) => {
+                        if event.to.as_deref() != Some(alias) {
+                            continue;
+                        }
+                        if !event_in_scope(&event, project_scope.as_ref()) {
+                            continue;
+                        }
+                        if !forwarded_ids.insert(event.id.clone()) {
+                            continue;
+                        }
+                        if !forward_event(mailbox, &mut writer, &event, alias, ack).await {
+                            return;
+                        }
+                    }
+                    Ok(roux_core::MailboxEvent::TopicDelivered { event_id, recipient, .. }) => {
+                        if recipient != alias {
+                            continue;
+                        }
+                        let Some(event) = mailbox.get(&event_id) else { continue };
+                        if !event_in_scope(&event, project_scope.as_ref()) {
+                            continue;
+                        }
+                        if !forwarded_ids.insert(event.id.clone()) {
+                            continue;
+                        }
+                        if !forward_event(mailbox, &mut writer, &event, alias, ack).await {
+                            return;
+                        }
+                    }
+                    // Read/Acked/Cleared aren't watch payloads.
+                    Ok(_) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        let warn = serde_json::json!({
+                            "type": "warning",
+                            "message": format!("dropped {n} buffered events; consumer fell behind"),
+                        });
+                        if write_frame(&mut writer, &warn).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+            client = reader.read_line(&mut line) => {
+                match client {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) => {
+                        // Any client write terminates the watch. Reserved
+                        // for future control frames (e.g. dynamic ack).
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// True when the event is visible to `alias` under the requested
+/// project scope. Visibility = direct mail OR matching subscription.
+/// True when `event` falls inside the requested project scope.
+/// `scope`:
+/// - `None` ⇒ no filter (Any).
+/// - `Some(None)` ⇒ global-only; event must also be unscoped.
+/// - `Some(Some(p))` ⇒ event must be scoped to project `p`.
+fn event_in_scope(event: &roux_core::Event, scope: Option<&Option<String>>) -> bool {
+    match scope {
+        None => true,
+        Some(None) => event.project_id.is_none(),
+        Some(Some(p)) => event.project_id.as_deref() == Some(p.as_str()),
+    }
+}
+
+/// Write one event frame, optionally acking. Returns false on write
+/// error so the caller can exit the loop.
+async fn forward_event<W>(
+    mailbox: &roux_lib::mailbox::MailboxManager,
+    writer: &mut W,
+    event: &roux_core::Event,
+    alias: &str,
+    ack: bool,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin + Send,
+{
+    // Write the frame first, then ack — if the socket write fails
+    // (client disconnected mid-stream), we must NOT stamp the event
+    // "watched" since the recipient's agent never actually saw it.
+    // Acking before delivery confirmation would corrupt the sender's
+    // `mailbox sent` view with a false delivery record.
+    let frame = serde_json::json!({ "type": "event", "event": event });
+    let delivered = write_frame(writer, &frame).await.is_ok();
+    if delivered && ack {
+        mailbox.mark_read(&event.id, alias, None);
+        mailbox.ack(&event.id, alias, Some("watched".into()), None);
+    }
+    delivered
+}
+
+async fn write_frame<W>(writer: &mut W, value: &serde_json::Value) -> std::io::Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin + Send,
+{
+    let json = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
+    writer.write_all(json.as_bytes()).await?;
+    writer.write_all(b"\n").await?;
+    writer.flush().await
 }
 
 fn crypto_random_uuid() -> String {
@@ -2942,5 +3236,373 @@ mod tests {
         assert_eq!(resp["ok"], true);
 
         server.await.unwrap();
+    }
+
+    // ── mailbox-watch streaming ─────────────────────────────────────
+
+    /// Build an in-memory MailboxManager + SubscriptionManager pair for
+    /// streaming tests. Both `in_memory()` ctors are gated to the
+    /// owning module's tests, so we go through `load_from` with a
+    /// tempdir — same pattern other cross-module tests use.
+    fn watch_test_managers() -> (
+        tempfile::TempDir,
+        roux_lib::mailbox::MailboxManager,
+        roux_lib::subscriptions::SubscriptionManager,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let state = dir.path().join("read_state.json");
+        let subs_path = dir.path().join("subscriptions.json");
+        let subs = roux_lib::subscriptions::SubscriptionManager::load_from(subs_path);
+        let mgr = roux_lib::mailbox::MailboxManager::load_from(events, state)
+            .with_subscriptions(subs.clone());
+        (dir, mgr, subs)
+    }
+
+    /// Helper: spawn the watch loop against a tokio duplex pipe, return
+    /// the client side so the test can read frames and close on demand.
+    /// `subs` is kept on the signature so callers can wire subscriptions
+    /// into the mailbox before spawning; the loop itself reads them via
+    /// the broadcast channel, not directly.
+    #[allow(clippy::needless_pass_by_value)]
+    fn spawn_watch_for_test(
+        mailbox: roux_lib::mailbox::MailboxManager,
+        _subs: roux_lib::subscriptions::SubscriptionManager,
+        alias: &'static str,
+        ack: bool,
+        send_backlog: bool,
+    ) -> tokio::io::DuplexStream {
+        spawn_watch_with_filter(
+            mailbox,
+            alias,
+            roux_lib::aliases::ProjectFilter::Any,
+            ack,
+            send_backlog,
+        )
+    }
+
+    fn spawn_watch_with_filter(
+        mailbox: roux_lib::mailbox::MailboxManager,
+        alias: &'static str,
+        filter: roux_lib::aliases::ProjectFilter<'static>,
+        ack: bool,
+        send_backlog: bool,
+    ) -> tokio::io::DuplexStream {
+        let (server_side, client_side) = tokio::io::duplex(8192);
+        let (server_read, server_write) = tokio::io::split(server_side);
+        let buf_reader = BufReader::new(server_read);
+        tokio::spawn(async move {
+            watch_stream_loop(
+                &mailbox, alias, filter, ack, send_backlog, buf_reader, server_write,
+            )
+            .await;
+        });
+        client_side
+    }
+
+    /// Read newline-delimited frames from the watch socket until either
+    /// `count` frames are collected or `timeout` elapses. Returns
+    /// whatever was read.
+    async fn read_frames(
+        client: &mut tokio::io::DuplexStream,
+        count: usize,
+        timeout: std::time::Duration,
+    ) -> Vec<serde_json::Value> {
+        let (read, _write) = tokio::io::split(client);
+        let mut reader = BufReader::new(read);
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut frames: Vec<serde_json::Value> = Vec::new();
+        while frames.len() < count {
+            let mut line = String::new();
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, reader.read_line(&mut line)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(_)) => {
+                    let trimmed = line.trim_end();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                        frames.push(v);
+                    }
+                }
+                Ok(Err(_)) | Err(_) => break,
+            }
+        }
+        frames
+    }
+
+    #[tokio::test]
+    async fn watch_emits_ready_then_streams_addressed_event() {
+        let (_dir, mgr, subs) = watch_test_managers();
+        let mut client = spawn_watch_for_test(mgr.clone(), subs, "auditor", false, true);
+
+        // Give the watch loop a moment to write `ready` before we post.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // Post an event addressed to auditor. Must come AFTER `ready`
+        // so we hit the live-loop path, not the backlog path.
+        let event = mgr
+            .post(
+                roux_core::EventBuilder::new("hi")
+                    .to("auditor")
+                    .from("builder")
+                    .kind(roux_core::EventKind::Task),
+                None,
+            )
+            .unwrap();
+
+        let frames = read_frames(&mut client, 2, std::time::Duration::from_millis(500)).await;
+        assert!(!frames.is_empty(), "expected at least the ready frame");
+        assert_eq!(frames[0]["type"], "ready");
+        // Find the event frame (might be at index 1).
+        let event_frame = frames.iter().find(|f| f["type"] == "event").unwrap();
+        assert_eq!(event_frame["event"]["id"], event.id);
+    }
+
+    #[tokio::test]
+    async fn watch_replays_unread_backlog_first() {
+        let (_dir, mgr, subs) = watch_test_managers();
+        // Post BEFORE starting the watcher → the event lives in backlog.
+        let event = mgr
+            .post(
+                roux_core::EventBuilder::new("queued")
+                    .to("auditor")
+                    .from("builder"),
+                None,
+            )
+            .unwrap();
+
+        let mut client = spawn_watch_for_test(mgr, subs, "auditor", false, true);
+
+        let frames = read_frames(&mut client, 2, std::time::Duration::from_millis(500)).await;
+        let event_frame = frames.iter().find(|f| f["type"] == "event").unwrap();
+        assert_eq!(event_frame["event"]["id"], event.id);
+    }
+
+    #[tokio::test]
+    async fn watch_no_backlog_skips_existing_events() {
+        let (_dir, mgr, subs) = watch_test_managers();
+        mgr.post(
+            roux_core::EventBuilder::new("queued")
+                .to("auditor")
+                .from("builder"),
+            None,
+        )
+        .unwrap();
+
+        let mut client =
+            spawn_watch_for_test(mgr.clone(), subs, "auditor", false, /* send_backlog */ false);
+
+        let frames = read_frames(&mut client, 1, std::time::Duration::from_millis(150)).await;
+        // Only `ready` — no event (queued was unread but backlog suppressed).
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0]["type"], "ready");
+    }
+
+    #[tokio::test]
+    async fn watch_filters_other_recipients_from_live_stream() {
+        let (_dir, mgr, subs) = watch_test_managers();
+        let mut client = spawn_watch_for_test(mgr.clone(), subs, "auditor", false, true);
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // Post one to a different alias, one to auditor.
+        mgr.post(
+            roux_core::EventBuilder::new("not for you")
+                .to("reviewer")
+                .from("builder"),
+            None,
+        )
+        .unwrap();
+        let mine = mgr
+            .post(
+                roux_core::EventBuilder::new("for you")
+                    .to("auditor")
+                    .from("builder"),
+                None,
+            )
+            .unwrap();
+
+        let frames = read_frames(&mut client, 3, std::time::Duration::from_millis(500)).await;
+        let event_ids: Vec<_> = frames
+            .iter()
+            .filter(|f| f["type"] == "event")
+            .map(|f| f["event"]["id"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert_eq!(event_ids, vec![mine.id], "only auditor-addressed events propagate");
+    }
+
+    #[tokio::test]
+    async fn watch_streams_subscribed_topic_events() {
+        let (_dir, mgr, subs) = watch_test_managers();
+        subs.subscribe("auditor", "**.completed", None, None).unwrap();
+
+        let mut client = spawn_watch_for_test(mgr.clone(), subs, "auditor", false, true);
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let event = mgr
+            .post(
+                roux_core::EventBuilder::new("green")
+                    .topic("repo-a.build.completed")
+                    .from("builder")
+                    .kind(roux_core::EventKind::Signal),
+                None,
+            )
+            .unwrap();
+
+        // Read enough frames to catch any duplicate. Pre-fix the loop
+        // emitted the same event twice (once via `Posted`, once via
+        // `TopicDelivered`); requesting 3 frames and asserting exactly
+        // one event row catches the regression.
+        let frames = read_frames(&mut client, 3, std::time::Duration::from_millis(300)).await;
+        let event_frames: Vec<_> = frames.iter().filter(|f| f["type"] == "event").collect();
+        assert_eq!(
+            event_frames.len(),
+            1,
+            "subscribed topic event must be delivered exactly once: {frames:?}"
+        );
+        assert_eq!(event_frames[0]["event"]["id"], event.id);
+    }
+
+    /// Regression for the TOCTOU between `subscribe_events()` and the
+    /// backlog `list_for_recipient` call. An event posted in that
+    /// window can appear in both, so the watcher needs an in-loop
+    /// dedup guard.
+    #[tokio::test]
+    async fn watch_dedupes_event_seen_in_backlog_and_live_stream() {
+        let (_dir, mgr, subs) = watch_test_managers();
+
+        // Post first so the event is unread → goes into the backlog.
+        let event = mgr
+            .post(
+                roux_core::EventBuilder::new("queued")
+                    .to("auditor")
+                    .from("builder"),
+                None,
+            )
+            .unwrap();
+
+        // The watcher's broadcast subscribe happens inside the spawn,
+        // so the broadcast for `event` already fired. The backlog read
+        // will surface the same event. Without dedup the watcher would
+        // forward it twice.
+        let mut client = spawn_watch_for_test(mgr, subs, "auditor", false, true);
+        let frames = read_frames(&mut client, 3, std::time::Duration::from_millis(300)).await;
+        let event_frames: Vec<_> = frames.iter().filter(|f| f["type"] == "event").collect();
+        assert_eq!(
+            event_frames.len(),
+            1,
+            "backlog event must not also be delivered through the live stream: {frames:?}"
+        );
+        assert_eq!(event_frames[0]["event"]["id"], event.id);
+    }
+
+    /// Regression for the `--global` filter being silently dropped on
+    /// the live stream. Pre-fix the live arm collapsed `Exact(None)` to
+    /// `None` (no filter), so a `--global` watcher would receive
+    /// project-scoped events even though the backlog correctly hid
+    /// them. The two paths must agree.
+    #[tokio::test]
+    async fn watch_global_filter_excludes_project_scoped_live_events() {
+        let (_dir, mgr, _subs) = watch_test_managers();
+        let mut client = spawn_watch_with_filter(
+            mgr.clone(),
+            "auditor",
+            roux_lib::aliases::ProjectFilter::Exact(None),
+            false,
+            true,
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // Project-scoped event must NOT propagate to a global watcher.
+        mgr.post(
+            roux_core::EventBuilder::new("p1")
+                .to("auditor")
+                .from("builder")
+                .project_id("p1"),
+            None,
+        )
+        .unwrap();
+        // Global event MUST propagate.
+        let global = mgr
+            .post(
+                roux_core::EventBuilder::new("g")
+                    .to("auditor")
+                    .from("builder"),
+                None,
+            )
+            .unwrap();
+
+        let frames = read_frames(&mut client, 3, std::time::Duration::from_millis(300)).await;
+        let event_ids: Vec<_> = frames
+            .iter()
+            .filter(|f| f["type"] == "event")
+            .map(|f| f["event"]["id"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert_eq!(
+            event_ids,
+            vec![global.id],
+            "global watcher must skip project-scoped events: {frames:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn watch_with_ack_marks_event_read_and_acked() {
+        let (_dir, mgr, subs) = watch_test_managers();
+        let event = mgr
+            .post(
+                roux_core::EventBuilder::new("queued")
+                    .to("auditor")
+                    .from("builder"),
+                None,
+            )
+            .unwrap();
+
+        let mut client =
+            spawn_watch_for_test(mgr.clone(), subs, "auditor", /* ack */ true, true);
+
+        // Read until we've seen the event frame, then drop the client to
+        // close the watch and let the ack persist before we assert.
+        let _ = read_frames(&mut client, 2, std::time::Duration::from_millis(500)).await;
+        drop(client);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = mgr.read_state(&event.id, "auditor").unwrap();
+        assert!(state.is_read(), "watch --ack must mark read");
+        assert!(state.is_acked(), "watch --ack must ack");
+        assert_eq!(state.ack_result.as_deref(), Some("watched"));
+    }
+
+    /// Regression: don't ack on undelivered events. Pre-fix
+    /// `forward_event` called `mark_read`/`ack` BEFORE the socket write,
+    /// so a client that dropped mid-stream still ended up with the
+    /// event stamped "watched" — a false delivery record visible to the
+    /// sender. Now we write first and only ack on successful delivery.
+    #[tokio::test]
+    async fn forward_event_does_not_ack_when_write_fails() {
+        let (_dir, mgr, _subs) = watch_test_managers();
+        let event = mgr
+            .post(
+                roux_core::EventBuilder::new("queued")
+                    .to("auditor")
+                    .from("builder"),
+                None,
+            )
+            .unwrap();
+
+        // tokio::io::sink() with a custom Empty wouldn't fail — instead
+        // we close the duplex stream by dropping the client side, then
+        // call forward_event against the dead writer.
+        let (server_side, client_side) = tokio::io::duplex(8);
+        drop(client_side);
+        let (_r, mut w) = tokio::io::split(server_side);
+        let delivered = forward_event(&mgr, &mut w, &event, "auditor", true).await;
+        assert!(!delivered, "write to a closed pipe must report failure");
+
+        let state = mgr.read_state(&event.id, "auditor");
+        assert!(
+            state.is_none() || !state.unwrap().is_acked(),
+            "failed delivery must not leave an acked ReadState behind",
+        );
     }
 }
