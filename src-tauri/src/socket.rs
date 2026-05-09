@@ -2142,9 +2142,16 @@ pub(crate) async fn watch_stream_loop<R, W>(
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    let project_scope: Option<String> = match project_filter {
-        roux_lib::aliases::ProjectFilter::Exact(Some(p)) => Some(p.to_string()),
-        _ => None,
+    // Three states, not two: `None` = no filter (Any); `Some(None)` =
+    // global-only (event.project_id must be None); `Some(Some(p))` =
+    // exact project match. Collapsing `Exact(None)` to `None` would
+    // make `--global` watchers receive cross-project events on the
+    // live stream while the backlog (which goes through
+    // `list_for_recipient(... Exact(None))`) correctly filtered them.
+    let project_scope: Option<Option<String>> = match project_filter {
+        roux_lib::aliases::ProjectFilter::Any => None,
+        roux_lib::aliases::ProjectFilter::Exact(None) => Some(None),
+        roux_lib::aliases::ProjectFilter::Exact(Some(p)) => Some(Some(p.to_string())),
     };
 
     // Subscribe BEFORE replaying the backlog so we don't drop events
@@ -2190,10 +2197,8 @@ pub(crate) async fn watch_stream_loop<R, W>(
                         if event.to.as_deref() != Some(alias) {
                             continue;
                         }
-                        if let Some(scope) = project_scope.as_deref() {
-                            if event.project_id.as_deref() != Some(scope) {
-                                continue;
-                            }
+                        if !event_in_scope(&event, project_scope.as_ref()) {
+                            continue;
                         }
                         if !forwarded_ids.insert(event.id.clone()) {
                             continue;
@@ -2207,10 +2212,8 @@ pub(crate) async fn watch_stream_loop<R, W>(
                             continue;
                         }
                         let Some(event) = mailbox.get(&event_id) else { continue };
-                        if let Some(scope) = project_scope.as_deref() {
-                            if event.project_id.as_deref() != Some(scope) {
-                                continue;
-                            }
+                        if !event_in_scope(&event, project_scope.as_ref()) {
+                            continue;
                         }
                         if !forwarded_ids.insert(event.id.clone()) {
                             continue;
@@ -2249,6 +2252,19 @@ pub(crate) async fn watch_stream_loop<R, W>(
 
 /// True when the event is visible to `alias` under the requested
 /// project scope. Visibility = direct mail OR matching subscription.
+/// True when `event` falls inside the requested project scope.
+/// `scope`:
+/// - `None` ⇒ no filter (Any).
+/// - `Some(None)` ⇒ global-only; event must also be unscoped.
+/// - `Some(Some(p))` ⇒ event must be scoped to project `p`.
+fn event_in_scope(event: &roux_core::Event, scope: Option<&Option<String>>) -> bool {
+    match scope {
+        None => true,
+        Some(None) => event.project_id.is_none(),
+        Some(Some(p)) => event.project_id.as_deref() == Some(p.as_str()),
+    }
+}
+
 /// Write one event frame, optionally acking. Returns false on write
 /// error so the caller can exit the loop.
 async fn forward_event<W>(
@@ -3252,18 +3268,28 @@ mod tests {
         ack: bool,
         send_backlog: bool,
     ) -> tokio::io::DuplexStream {
+        spawn_watch_with_filter(
+            mailbox,
+            alias,
+            roux_lib::aliases::ProjectFilter::Any,
+            ack,
+            send_backlog,
+        )
+    }
+
+    fn spawn_watch_with_filter(
+        mailbox: roux_lib::mailbox::MailboxManager,
+        alias: &'static str,
+        filter: roux_lib::aliases::ProjectFilter<'static>,
+        ack: bool,
+        send_backlog: bool,
+    ) -> tokio::io::DuplexStream {
         let (server_side, client_side) = tokio::io::duplex(8192);
         let (server_read, server_write) = tokio::io::split(server_side);
         let buf_reader = BufReader::new(server_read);
         tokio::spawn(async move {
             watch_stream_loop(
-                &mailbox,
-                alias,
-                roux_lib::aliases::ProjectFilter::Any,
-                ack,
-                send_backlog,
-                buf_reader,
-                server_write,
+                &mailbox, alias, filter, ack, send_backlog, buf_reader, server_write,
             )
             .await;
         });
@@ -3465,6 +3491,55 @@ mod tests {
             "backlog event must not also be delivered through the live stream: {frames:?}"
         );
         assert_eq!(event_frames[0]["event"]["id"], event.id);
+    }
+
+    /// Regression for the `--global` filter being silently dropped on
+    /// the live stream. Pre-fix the live arm collapsed `Exact(None)` to
+    /// `None` (no filter), so a `--global` watcher would receive
+    /// project-scoped events even though the backlog correctly hid
+    /// them. The two paths must agree.
+    #[tokio::test]
+    async fn watch_global_filter_excludes_project_scoped_live_events() {
+        let (_dir, mgr, _subs) = watch_test_managers();
+        let mut client = spawn_watch_with_filter(
+            mgr.clone(),
+            "auditor",
+            roux_lib::aliases::ProjectFilter::Exact(None),
+            false,
+            true,
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // Project-scoped event must NOT propagate to a global watcher.
+        mgr.post(
+            roux_core::EventBuilder::new("p1")
+                .to("auditor")
+                .from("builder")
+                .project_id("p1"),
+            None,
+        )
+        .unwrap();
+        // Global event MUST propagate.
+        let global = mgr
+            .post(
+                roux_core::EventBuilder::new("g")
+                    .to("auditor")
+                    .from("builder"),
+                None,
+            )
+            .unwrap();
+
+        let frames = read_frames(&mut client, 3, std::time::Duration::from_millis(300)).await;
+        let event_ids: Vec<_> = frames
+            .iter()
+            .filter(|f| f["type"] == "event")
+            .map(|f| f["event"]["id"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert_eq!(
+            event_ids,
+            vec![global.id],
+            "global watcher must skip project-scoped events: {frames:?}"
+        );
     }
 
     #[tokio::test]
