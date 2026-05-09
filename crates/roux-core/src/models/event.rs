@@ -156,6 +156,15 @@ pub enum MailboxEvent {
     },
     /// Recipient cleared their inbox (or a project-scoped slice of it).
     Cleared { recipient: String, count: u32 },
+    /// A `bus publish` matched a persistent subscription. Frontend uses
+    /// this to bump unread counts for the subscriber alias and to surface
+    /// the delivery in the recipient's inbox without an explicit
+    /// `to=<alias>` on the underlying event.
+    TopicDelivered {
+        event_id: String,
+        recipient: String,
+        subscription_id: String,
+    },
 }
 
 /// Builder for new events. Validates at construction so callers get a

@@ -8,6 +8,7 @@ mod profile;
 mod project;
 mod session;
 mod settings;
+mod subscription;
 mod task;
 mod user_terminal_themes;
 mod watch;
@@ -20,6 +21,7 @@ pub use alias::{
 pub use event::{
     Event, EventBuilder, EventKind, EventValidationError, MailboxEvent, ReadState,
 };
+pub use subscription::{BusSubscription, BusSubscriptionEvent};
 pub use events::{RouxCommand, SessionExitPayload, SessionExitReason};
 pub use keymap::{
     merge_keymaps, parse_keymap_kdl, Bind, HudMode, KeyRef, KeymapAction, KeymapParseError,

@@ -217,12 +217,21 @@ fn main() {
         commands::user_themes::user_themes_dir,
         // pane_state commands are omitted from specta — serde_json::Value
         // produces invalid TypeScript. They're called via raw invoke() instead.
+        // Subscription commands are registered with `invoke_handler!`
+        // only (below). They're hand-typed in `src/lib/types/mailbox.ts`
+        // to mirror the mailbox/aliases pattern.
     ]);
 
     #[cfg(debug_assertions)]
     builder
         .export(specta_typescript::Typescript::default(), "../src/lib/bindings.ts")
         .expect("Failed to export TypeScript bindings");
+
+    // Subscription manager loaded once and shared by both the
+    // MailboxManager (so post() can fan out matches) and AppState (so
+    // the Tauri/CLI/MCP layers can mutate the subscription set). Clone
+    // is cheap — internally an Arc.
+    let subscription_manager = roux_lib::subscriptions::SubscriptionManager::load();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -245,7 +254,13 @@ fn main() {
             automation_hooks: automation_hooks::AutomationHookManager::new(),
             notification_manager: notifications::NotificationManager::new(),
             alias_manager: roux_lib::aliases::AliasManager::load(),
-            mailbox_manager: roux_lib::mailbox::MailboxManager::load(),
+            // Subscriptions feed into the mailbox manager so topic events
+            // become visible / ack-able to subscribers. The same handle
+            // also lives on AppState so the Tauri/CLI/MCP layers can
+            // mutate the subscription set; clone is cheap (Arc inside).
+            mailbox_manager: roux_lib::mailbox::MailboxManager::load()
+                .with_subscriptions(subscription_manager.clone()),
+            subscription_manager,
             pending_replies: Mutex::new(std::collections::HashMap::new()),
             managed_proxy: services::managed_proxy::ManagedProxyState::new(),
         })
@@ -422,6 +437,9 @@ fn main() {
             commands::mailbox::mailbox_ack,
             commands::mailbox::mailbox_clear_read,
             commands::mailbox::mailbox_deliver_to_pane,
+            commands::subscriptions::subscriptions_list,
+            commands::subscriptions::subscriptions_create,
+            commands::subscriptions::subscriptions_delete,
         ])
         .setup(|app| {
             // Install the roux-cli shim dir (~/.config/roux/bin) with

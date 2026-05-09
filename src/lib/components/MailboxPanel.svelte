@@ -14,6 +14,11 @@
     unreadByAlias,
   } from "$lib/stores/mailbox";
   import {
+    createSubscription,
+    deleteSubscription,
+    subscriptions,
+  } from "$lib/stores/subscriptions";
+  import {
     mailboxDeliverToPane,
     mailboxListForRecipient,
     mailboxReadState,
@@ -53,7 +58,17 @@
   let composeKind = $state<EventKind>("task");
   let posting = $state(false);
   let postError = $state<string | null>(null);
-  let view = $state<"mailbox" | "firehose">("mailbox");
+  let view = $state<"mailbox" | "firehose" | "subscriptions">("mailbox");
+
+  // Subscription compose form state. Shown only when the Subscriptions
+  // tab is active. Pattern is validated server-side; we surface the
+  // backend error inline to keep the form concrete-feedback-driven.
+  let subAlias = $state("");
+  let subPattern = $state("");
+  let subProjectId = $state<string | null>(null);
+  let subSubmitting = $state(false);
+  let subError = $state<string | null>(null);
+  let deletingSubId = $state<string | null>(null);
 
   // Hydrate the first time the panel is shown. (`hydrateMailbox` is
   // idempotent, but a guard keeps it from spamming on re-mount.)
@@ -229,6 +244,47 @@
     await clearReadFor(selectedAlias);
   }
 
+  async function handleSubscribe(): Promise<void> {
+    if (subSubmitting) return;
+    subSubmitting = true;
+    subError = null;
+    try {
+      await createSubscription(
+        subAlias.trim(),
+        subPattern.trim(),
+        subProjectId,
+      );
+      // Reset on success — the store updates from the
+      // `subscription-event` listener so the new row appears in the list.
+      subPattern = "";
+    } catch (err) {
+      subError = String(err);
+    } finally {
+      subSubmitting = false;
+    }
+  }
+
+  async function handleUnsubscribe(id: string): Promise<void> {
+    if (deletingSubId) return;
+    deletingSubId = id;
+    try {
+      await deleteSubscription(id);
+    } catch (err) {
+      subError = String(err);
+    } finally {
+      deletingSubId = null;
+    }
+  }
+
+  // Pre-fill the alias field from the current selection so a user
+  // working in the Inbox can switch tabs and see "this alias's
+  // subscriptions" without re-typing.
+  $effect(() => {
+    if (view === "subscriptions" && subAlias === "") {
+      subAlias = selectedAlias === "me" ? "" : selectedAlias;
+    }
+  });
+
   let deliveringId = $state<string | null>(null);
   let deliverError = $state<string | null>(null);
 
@@ -293,6 +349,13 @@
           onclick={() => (view = "firehose")}
           title="Firehose view — every event in the store, newest first"
         >All</button>
+        <button
+          class="rounded px-2 py-0.5 text-[11px] {view === 'subscriptions'
+            ? 'bg-bg-hover text-text-primary'
+            : 'text-text-muted hover:text-text-primary'}"
+          onclick={() => (view = "subscriptions")}
+          title="Bus subscriptions — alias receives matching topic events"
+        >Subs</button>
       </div>
       <button
         class="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
@@ -513,7 +576,7 @@
         >clear read</button>
       {/if}
     </div>
-  {:else}
+  {:else if view === "firehose"}
     <!-- Firehose: every event newest first, no per-recipient state -->
     <div class="flex-1 overflow-y-auto p-2">
       {#if firehoseEvents.length === 0}
@@ -548,6 +611,82 @@
             <p class="truncate text-[11px] text-text-secondary">
               {e.subject ?? e.body}
             </p>
+          </article>
+        {/each}
+      {/if}
+    </div>
+  {:else}
+    <!-- Subscriptions: list + create form. The list updates live via
+         the `subscription-event` Tauri channel; mutations here go through
+         the same Tauri commands that CLI/MCP use. -->
+    <form
+      class="flex flex-col gap-1 border-b border-border-subtle bg-bg-surface/30 p-2"
+      onsubmit={(e) => {
+        e.preventDefault();
+        void handleSubscribe();
+      }}
+    >
+      <div class="flex gap-1">
+        <input
+          class="flex-1 rounded border border-border-subtle bg-bg-deep px-2 py-1 text-[11px] text-text-primary placeholder:text-text-muted/60"
+          bind:value={subAlias}
+          placeholder="Alias (e.g. auditor)"
+          list="mailbox-compose-aliases"
+          autocomplete="off"
+          required
+        />
+        <input
+          class="flex-[2] rounded border border-border-subtle bg-bg-deep px-2 py-1 text-[11px] text-text-primary placeholder:text-text-muted/60"
+          bind:value={subPattern}
+          placeholder="Pattern: repo-a.* or **.completed"
+          autocomplete="off"
+          required
+        />
+      </div>
+      <div class="flex items-center gap-2 text-[10px] text-text-muted/80">
+        <span>* matches one segment, ** matches many. Patterns and aliases are lowercase, hyphens allowed.</span>
+        <button
+          type="submit"
+          class="ml-auto cursor-pointer rounded border border-accent-dim bg-accent/20 px-2 py-1 text-[11px] text-text-primary hover:bg-accent/30 disabled:opacity-50"
+          disabled={subSubmitting}
+        >{subSubmitting ? "Adding…" : "Subscribe"}</button>
+      </div>
+      {#if subError}
+        <div class="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300">
+          {subError}
+        </div>
+      {/if}
+    </form>
+
+    <div class="flex-1 overflow-y-auto p-2">
+      {#if $subscriptions.length === 0}
+        <div
+          class="flex h-full items-center justify-center text-center text-sm text-text-muted"
+        >No subscriptions yet. Add one above to push topic events into
+          an alias's mailbox.</div>
+      {:else}
+        {#each $subscriptions as s (s.id)}
+          <article
+            class="mb-1 flex items-center gap-2 rounded border border-border-subtle bg-bg-surface/30 px-2 py-1.5"
+          >
+            <span class="rounded bg-bg-hover px-1.5 py-0.5 text-[10px] text-text-primary"
+              >@{s.alias}</span
+            >
+            <code class="text-[11px] text-text-secondary">{s.pattern}</code>
+            {#if s.projectId}
+              <span class="text-[9px] text-text-muted">scope: {s.projectId}</span>
+            {:else}
+              <span class="text-[9px] text-text-muted/70">scope: global</span>
+            {/if}
+            <span class="ml-auto shrink-0 text-[10px] text-text-muted/70"
+              >{formatRelative(s.createdAt)}</span
+            >
+            <button
+              class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
+              onclick={() => handleUnsubscribe(s.id)}
+              disabled={deletingSubId === s.id}
+              title="Remove this subscription"
+            >{deletingSubId === s.id ? "…" : "remove"}</button>
           </article>
         {/each}
       {/if}

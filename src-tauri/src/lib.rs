@@ -1,6 +1,7 @@
 pub mod aliases;
 pub mod mailbox;
 pub mod paths;
+pub mod subscriptions;
 
 pub fn run() {
     tauri::Builder::default()
