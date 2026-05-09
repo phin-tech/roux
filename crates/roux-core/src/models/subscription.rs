@@ -18,8 +18,11 @@ pub struct BusSubscription {
     /// Validated glob pattern. Empty / invalid patterns are rejected at
     /// the manager boundary.
     pub pattern: String,
-    /// Project scope. `None` = global. A subscription only matches
-    /// events whose `project_id` is `None` or equals this scope.
+    /// Project scope. `None` = global (matches events in any scope).
+    /// A scoped subscription (`Some(p)`) only matches events whose
+    /// `project_id` is exactly `p` — it does NOT match global events
+    /// or events from other projects. This asymmetry keeps cross-
+    /// project authorization closed.
     #[serde(default)]
     pub project_id: Option<String>,
     /// Unix epoch milliseconds.

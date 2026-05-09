@@ -42,11 +42,24 @@ export function applySubscriptionEvent(event: BusSubscriptionEvent): void {
 }
 
 let unlisten: (() => void) | null = null;
+// Tracks an in-flight listener registration so two near-simultaneous
+// `startSubscriptionEventListener` calls don't both subscribe before
+// the first await resolves (which would leak one unlisten handle and
+// double-handle every future event).
+let listenerInit: Promise<void> | null = null;
 
 /** Wire the global event listener. Idempotent across hot reloads. */
 export async function startSubscriptionEventListener(): Promise<void> {
   if (unlisten) return;
-  unlisten = await onBusSubscriptionEvent(applySubscriptionEvent);
+  if (listenerInit) return listenerInit;
+  listenerInit = onBusSubscriptionEvent(applySubscriptionEvent)
+    .then((fn) => {
+      unlisten = fn;
+    })
+    .finally(() => {
+      listenerInit = null;
+    });
+  return listenerInit;
 }
 
 export function stopSubscriptionEventListener(): void {
@@ -54,6 +67,20 @@ export function stopSubscriptionEventListener(): void {
     unlisten();
     unlisten = null;
   }
+}
+
+/**
+ * Start the listener and return its unlisten function so callers can
+ * drop it through their existing cleanup pipeline (e.g. App.svelte's
+ * `tauriUnlisteners` array). The cleanup wrapper goes through
+ * `stopSubscriptionEventListener` so the module-level handle is
+ * cleared and a later restart gets a fresh subscription.
+ */
+export async function startSubscriptionEventListenerWithCleanup(): Promise<
+  () => void
+> {
+  await startSubscriptionEventListener();
+  return stopSubscriptionEventListener;
 }
 
 /** Create a new subscription. Throws on backend validation errors. */

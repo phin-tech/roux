@@ -313,9 +313,10 @@ pub struct BusTailParams {
 pub struct BusSubscribeParams {
     /// Glob pattern. `*` matches one segment, `**` matches many.
     pub pattern: String,
-    /// Alias to bind the subscription to. Defaults to the calling
-    /// pane's alias when omitted.
-    pub alias: Option<String>,
+    /// Alias to bind the subscription to. Required for MCP/stdio
+    /// callers — there's no pane context for the implicit fallback the
+    /// CLI uses, so missing alias would silently fail to subscribe.
+    pub alias: String,
     pub project_id: Option<String>,
 }
 
@@ -852,9 +853,7 @@ impl RouxMcpServer {
     ) -> Result<CallToolResult, ErrorData> {
         let mut args = serde_json::Map::new();
         args.insert("pattern".into(), Value::String(params.pattern));
-        if let Some(a) = params.alias {
-            args.insert("alias".into(), Value::String(a));
-        }
+        args.insert("alias".into(), Value::String(params.alias));
         if let Some(p) = params.project_id {
             args.insert("project_id".into(), Value::String(p));
         }

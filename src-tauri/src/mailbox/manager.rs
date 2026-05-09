@@ -84,22 +84,32 @@ impl MailboxManager {
     /// Patterns subscribed to by `recipient` in scopes compatible with
     /// `project_filter`. Returns an empty vec when no subscription
     /// manager is wired or the recipient has no subscriptions.
+    ///
+    /// When `project_filter` is `Any`, returns global subscriptions
+    /// (`project_id == None`) only — scoped patterns must NOT cross
+    /// project boundaries even on broad list calls. The `list_for_recipient`
+    /// callers that need cross-project visibility iterate per-event scope
+    /// via `patterns_for_event`.
     fn patterns_for(&self, recipient: &str, project_filter: ProjectFilter<'_>) -> Vec<String> {
         let Some(subs) = self.subscriptions.as_ref() else {
             return Vec::new();
         };
         match project_filter {
-            // For the "Any" filter, give the recipient every pattern they
-            // hold regardless of project — visibility broadens with the
-            // request scope.
-            ProjectFilter::Any => {
-                subs.for_alias(recipient, ProjectFilter::Any)
-                    .into_iter()
-                    .map(|s| s.pattern)
-                    .collect()
-            }
+            ProjectFilter::Any => subs.patterns_for_alias(recipient, None),
             ProjectFilter::Exact(scope) => subs.patterns_for_alias(recipient, scope),
         }
+    }
+
+    /// Patterns for `recipient` scoped to a specific event. Used by the
+    /// per-event ownership check (`mark_read`, `ack`) so a `p2`-scoped
+    /// subscription can't authorize ReadState writes against a `p1`
+    /// event. Caller passes the event so we can derive its `project_id`
+    /// from a single `store.get` rather than asking the caller to.
+    fn patterns_for_event(&self, recipient: &str, event: &Event) -> Vec<String> {
+        let Some(subs) = self.subscriptions.as_ref() else {
+            return Vec::new();
+        };
+        subs.patterns_for_alias(recipient, event.project_id.as_deref())
     }
 
     pub fn post(
@@ -157,7 +167,14 @@ impl MailboxManager {
         app: Option<&AppHandle>,
     ) -> bool {
         let now = now_ms();
-        let patterns = self.patterns_for(recipient, ProjectFilter::Any);
+        // Patterns are scoped to the event's own project so a recipient's
+        // p2-scoped subscription can't authorize ReadState writes against
+        // a p1-scoped event. Empty if the event doesn't exist — store will
+        // then refuse the write either way.
+        let patterns = self
+            .get(event_id)
+            .map(|e| self.patterns_for_event(recipient, &e))
+            .unwrap_or_default();
         let changed = {
             let mut store = self.inner.lock().expect("event store poisoned");
             store.mark_read(event_id, recipient, &patterns, now)
@@ -185,7 +202,10 @@ impl MailboxManager {
         app: Option<&AppHandle>,
     ) -> bool {
         let now = now_ms();
-        let patterns = self.patterns_for(recipient, ProjectFilter::Any);
+        let patterns = self
+            .get(event_id)
+            .map(|e| self.patterns_for_event(recipient, &e))
+            .unwrap_or_default();
         let changed = {
             let mut store = self.inner.lock().expect("event store poisoned");
             store.ack(event_id, recipient, &patterns, result.clone(), now)
@@ -528,5 +548,47 @@ mod tests {
             ProjectFilter::Exact(Some("p2")),
         );
         assert!(visible_p2.is_empty());
+    }
+
+    /// Regression for the cross-project authorization bug: a p2-scoped
+    /// subscription must NOT let the recipient mark p1 events read.
+    /// Pre-fix `patterns_for(Any)` flattened all the recipient's
+    /// patterns and the store's ownership check granted access whenever
+    /// any pattern matched the topic, regardless of project.
+    #[test]
+    fn cross_project_subscription_cannot_authorize_other_project_events() {
+        let mgr = MailboxManager::in_memory()
+            .with_subscriptions(SubscriptionManager::in_memory());
+        // Auditor only subscribes inside p2.
+        mgr.subscriptions
+            .as_ref()
+            .unwrap()
+            .subscribe("auditor", "*", Some("p2".into()), None)
+            .unwrap();
+
+        // Bob posts a topic event in p1, addressed to reviewer (not auditor).
+        let event = mgr
+            .post(
+                EventBuilder::new("p1 work")
+                    .to("reviewer")
+                    .topic("foo")
+                    .from("bob")
+                    .project_id("p1")
+                    .kind(EventKind::Task),
+                None,
+            )
+            .unwrap();
+
+        // Auditor must NOT be able to mark this read — their p2 sub
+        // doesn't apply to p1 events.
+        assert!(
+            !mgr.mark_read(&event.id, "auditor", None),
+            "p2-scoped subscription must not authorize p1 event ownership",
+        );
+        assert!(mgr.read_state(&event.id, "auditor").is_none());
+        assert!(
+            !mgr.ack(&event.id, "auditor", Some("done".into()), None),
+            "p2-scoped subscription must not authorize p1 event ack",
+        );
     }
 }
