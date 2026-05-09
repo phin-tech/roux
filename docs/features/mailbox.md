@@ -104,10 +104,20 @@ to-agent `fyi` traffic shows in the Firehose tab only.
 roux mailbox count                    # how many unread? (JSON)
 roux mailbox peek --unread            # see them without consuming
 roux mailbox read --ack               # drain + mark processed (recommended)
+roux mailbox watch --ack              # follow new mail in real time (long-lived)
 ```
 
 `read` returns each event as JSON. `--ack` also flips `acked_at` on each so
 the sender's `mailbox sent` view shows the work was processed.
+
+`watch` opens a long-lived socket connection and prints each new event as
+a JSON line as it arrives — no polling. Initial unread mail is replayed
+first (pass `--no-backlog` to skip), then the stream stays open until
+you disconnect (Ctrl+C). With `--ack`, every delivered event is marked
+read+acked with a `"watched"` result so the sender sees you saw it.
+Subscribed-topic events (see [Subscriptions](#subscriptions)) flow
+through the same stream. CLI-only for now — the in-app Mailbox panel
+already gets push delivery through Tauri events.
 
 ### Acking with results
 

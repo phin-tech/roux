@@ -234,6 +234,23 @@ enum MailboxAction {
         #[arg(short = 'l', long)]
         limit: Option<u32>,
     },
+    /// Stream new mail as it arrives (push, no polling). Prints each
+    /// event as a JSON line; exits on Ctrl+C or socket close.
+    Watch {
+        /// Recipient alias (default: calling session's primary alias)
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+        /// Also ack each delivered event with a "watched" marker
+        #[arg(long)]
+        ack: bool,
+        /// Skip the initial unread backlog and only stream future events
+        #[arg(long)]
+        no_backlog: bool,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        #[arg(long, conflicts_with = "project")]
+        global: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -723,6 +740,58 @@ fn run_socket_command(request: Value) {
     }
 }
 
+/// Stream a long-lived command and print each event-bearing frame as a
+/// JSON line to stdout. `ready`/`warning`/`error` frames are surfaced
+/// on stderr so a downstream `jq` pipeline only sees event payloads.
+fn run_streaming_command(request: Value) {
+    use crate::cli_socket::stream_socket_command;
+    let exit_code = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
+    let exit_clone = exit_code.clone();
+
+    let result = stream_socket_command(request, move |line| {
+        let value: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("watch: invalid frame from server: {e}");
+                return true; // keep going; one bad line shouldn't kill the watch
+            }
+        };
+        match value.get("type").and_then(|t| t.as_str()) {
+            Some("event") => {
+                if let Some(event) = value.get("event") {
+                    println!("{}", event);
+                }
+                true
+            }
+            Some("ready") => true,
+            Some("warning") => {
+                if let Some(msg) = value.get("message").and_then(|m| m.as_str()) {
+                    eprintln!("watch: warning: {msg}");
+                }
+                true
+            }
+            // Server-emitted error frames (auth/dispatch failures) come
+            // through as `{"ok":false,"error":"..."}` per Response::err.
+            _ if value.get("ok").and_then(|v| v.as_bool()) == Some(false) => {
+                let err = value.get("error").and_then(|e| e.as_str()).unwrap_or("unknown error");
+                eprintln!("Error: {err}");
+                exit_clone.store(1, std::sync::atomic::Ordering::SeqCst);
+                false
+            }
+            _ => true,
+        }
+    });
+
+    if let Err(e) = result {
+        eprintln!("{e}");
+        std::process::exit(1);
+    }
+    let code = exit_code.load(std::sync::atomic::Ordering::SeqCst);
+    if code != 0 {
+        std::process::exit(code);
+    }
+}
+
 fn handle_hook(status: &str) {
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
@@ -1173,6 +1242,30 @@ fn main() {
                 }
                 run_socket_command(serde_json::json!({
                     "command": "mailbox-sent",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            MailboxAction::Watch { alias, ack, no_backlog, project, global } => {
+                let mut args = serde_json::Map::new();
+                if let Some(a) = alias {
+                    args.insert("alias".into(), Value::String(a));
+                }
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                if global {
+                    args.insert("global".into(), Value::Bool(true));
+                }
+                if ack {
+                    args.insert("ack".into(), Value::Bool(true));
+                }
+                if no_backlog {
+                    args.insert("backlog".into(), Value::Bool(false));
+                }
+                run_streaming_command(serde_json::json!({
+                    "command": "mailbox-watch",
                     "session_id": get_session_id(),
                     "pane_id": get_pane_id(),
                     "args": Value::Object(args),
