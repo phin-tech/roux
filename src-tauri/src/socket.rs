@@ -2277,14 +2277,18 @@ async fn forward_event<W>(
 where
     W: tokio::io::AsyncWrite + Unpin + Send,
 {
-    if ack {
-        // Mark read + ack with a "watched" marker so the sender's
-        // `mailbox sent` view reflects that the watcher saw it.
+    // Write the frame first, then ack — if the socket write fails
+    // (client disconnected mid-stream), we must NOT stamp the event
+    // "watched" since the recipient's agent never actually saw it.
+    // Acking before delivery confirmation would corrupt the sender's
+    // `mailbox sent` view with a false delivery record.
+    let frame = serde_json::json!({ "type": "event", "event": event });
+    let delivered = write_frame(writer, &frame).await.is_ok();
+    if delivered && ack {
         mailbox.mark_read(&event.id, alias, None);
         mailbox.ack(&event.id, alias, Some("watched".into()), None);
     }
-    let frame = serde_json::json!({ "type": "event", "event": event });
-    write_frame(writer, &frame).await.is_ok()
+    delivered
 }
 
 async fn write_frame<W>(writer: &mut W, value: &serde_json::Value) -> std::io::Result<()>
@@ -3567,5 +3571,38 @@ mod tests {
         assert!(state.is_read(), "watch --ack must mark read");
         assert!(state.is_acked(), "watch --ack must ack");
         assert_eq!(state.ack_result.as_deref(), Some("watched"));
+    }
+
+    /// Regression: don't ack on undelivered events. Pre-fix
+    /// `forward_event` called `mark_read`/`ack` BEFORE the socket write,
+    /// so a client that dropped mid-stream still ended up with the
+    /// event stamped "watched" — a false delivery record visible to the
+    /// sender. Now we write first and only ack on successful delivery.
+    #[tokio::test]
+    async fn forward_event_does_not_ack_when_write_fails() {
+        let (_dir, mgr, _subs) = watch_test_managers();
+        let event = mgr
+            .post(
+                roux_core::EventBuilder::new("queued")
+                    .to("auditor")
+                    .from("builder"),
+                None,
+            )
+            .unwrap();
+
+        // tokio::io::sink() with a custom Empty wouldn't fail — instead
+        // we close the duplex stream by dropping the client side, then
+        // call forward_event against the dead writer.
+        let (server_side, client_side) = tokio::io::duplex(8);
+        drop(client_side);
+        let (_r, mut w) = tokio::io::split(server_side);
+        let delivered = forward_event(&mgr, &mut w, &event, "auditor", true).await;
+        assert!(!delivered, "write to a closed pipe must report failure");
+
+        let state = mgr.read_state(&event.id, "auditor");
+        assert!(
+            state.is_none() || !state.unwrap().is_acked(),
+            "failed delivery must not leave an acked ReadState behind",
+        );
     }
 }
