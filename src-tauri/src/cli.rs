@@ -262,6 +262,33 @@ enum BusAction {
         #[arg(short = 'l', long)]
         limit: Option<u32>,
     },
+    /// Subscribe an alias to topic events matching a glob pattern.
+    /// `*` matches one segment, `**` matches many (e.g. `repo-a.*`,
+    /// `**.completed`). Defaults `--alias` to the current pane's alias.
+    Subscribe {
+        /// Glob pattern (validated server-side). Quote in shells that
+        /// expand `*` themselves.
+        pattern: String,
+        /// Alias receiving deliveries. Defaults to the calling pane's
+        /// auto-claimed alias.
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+    },
+    /// Remove a subscription by id.
+    Unsubscribe {
+        id: String,
+    },
+    /// List subscriptions. Without --alias / --project, lists all.
+    Subscriptions {
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+        #[arg(long, conflicts_with = "project")]
+        global: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1190,6 +1217,50 @@ fn main() {
                 }
                 run_socket_command(serde_json::json!({
                     "command": "bus-tail",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            BusAction::Subscribe { pattern, alias, project } => {
+                let mut args = serde_json::Map::new();
+                args.insert("pattern".into(), Value::String(pattern));
+                if let Some(a) = alias {
+                    args.insert("alias".into(), Value::String(a));
+                }
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "bus-subscribe",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            BusAction::Unsubscribe { id } => {
+                let mut args = serde_json::Map::new();
+                args.insert("id".into(), Value::String(id));
+                run_socket_command(serde_json::json!({
+                    "command": "bus-unsubscribe",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            BusAction::Subscriptions { alias, project, global } => {
+                let mut args = serde_json::Map::new();
+                if let Some(a) = alias {
+                    args.insert("alias".into(), Value::String(a));
+                }
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                if global {
+                    args.insert("global".into(), Value::Bool(true));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "bus-subscriptions",
                     "session_id": get_session_id(),
                     "pane_id": get_pane_id(),
                     "args": Value::Object(args),

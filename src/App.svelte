@@ -42,6 +42,10 @@
     applyMailboxEvent,
     applyAliasEvent,
   } from "$lib/stores/mailbox";
+  import {
+    hydrateSubscriptions,
+    startSubscriptionEventListener,
+  } from "$lib/stores/subscriptions";
   import { initPtyInventoryPolling } from "$lib/stores/ptyInventory";
   import { initSessionWithProfile, splitPane } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
@@ -818,6 +822,8 @@
     // cheap (one list-all + one alias-list + per-alias unread counts);
     // the listener keeps the store in sync without polling.
     await hydrateMailbox();
+    await hydrateSubscriptions();
+    await startSubscriptionEventListener();
     tauriUnlisteners.push(
       await onMailboxEvent((payload) => applyMailboxEvent(payload)),
     );

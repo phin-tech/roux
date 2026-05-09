@@ -1,8 +1,14 @@
 use std::collections::{HashMap, VecDeque};
 
-use roux_core::{Event, EventBuilder, EventValidationError, ReadState};
+use roux_core::{topic_matches, Event, EventBuilder, EventValidationError, ReadState};
 
 use crate::aliases::ProjectFilter;
+
+/// Empty pattern slice — convenience for callers that don't have
+/// subscriptions wired (most existing tests, the in-memory mailbox
+/// manager, the bus-tail handler). Equivalent to "this recipient is not
+/// subscribed to anything", so subscription semantics are a no-op.
+pub const NO_SUBSCRIPTIONS: &[String] = &[];
 
 const DEFAULT_CAPACITY: usize = 5000;
 
@@ -162,19 +168,32 @@ impl EventStore {
         self.read_state(event_id, recipient).map(|s| s.is_cleared()).unwrap_or(false)
     }
 
-    /// Events addressed `to=<recipient>` matching the project filter. Oldest
-    /// first (insertion order). `unread_only` filters to events without a
-    /// `read_at` timestamp for this recipient. **Cleared events are always
-    /// filtered out** — `clear_read` is meant to hide them.
+    /// Events visible to `recipient`, oldest-first. An event is visible
+    /// when either:
+    ///
+    /// - `e.to == recipient` (direct mail), or
+    /// - `e.topic` matches any pattern in `subscribed_patterns` (bus
+    ///   subscription delivery).
+    ///
+    /// `unread_only` filters to events without a `read_at` timestamp for
+    /// this recipient. **Cleared events are always filtered out** —
+    /// `clear_read` is meant to hide them.
+    ///
+    /// Caller is responsible for sourcing `subscribed_patterns` —
+    /// typically the manager looks them up via the SubscriptionStore
+    /// scoped to the project filter. Pass `NO_SUBSCRIPTIONS` when the
+    /// recipient has no subscriptions or to preserve pre-subscription
+    /// semantics.
     pub fn list_for_recipient(
         &self,
         recipient: &str,
+        subscribed_patterns: &[String],
         unread_only: bool,
         project_filter: ProjectFilter<'_>,
     ) -> Vec<Event> {
         self.events
             .iter()
-            .filter(|e| e.to.as_deref() == Some(recipient))
+            .filter(|e| event_visible_to(e, recipient, subscribed_patterns))
             .filter(|e| project_filter.matches(e.project_id.as_deref()))
             .filter(|e| !self.is_cleared_by(&e.id, recipient))
             .filter(|e| !unread_only || !self.is_read_by(&e.id, recipient))
@@ -238,16 +257,29 @@ impl EventStore {
         out
     }
 
-    /// True when `recipient` is allowed to mutate ReadState for `event_id`.
-    /// For now: only the addressed recipient (or anyone if the event is
-    /// pure topic-broadcast — `to=None`). Future subscriptions / group
-    /// memberships extend this check.
-    fn recipient_owns(&self, event_id: &str, recipient: &str) -> bool {
+    /// True when `recipient` is allowed to mutate ReadState for
+    /// `event_id`. Permitted when:
+    ///
+    /// - `event.to == recipient` (direct mail), or
+    /// - `event.to.is_none()` and the event has a topic (pure bus
+    ///   broadcast — anyone can track their own state), or
+    /// - the recipient is subscribed to a pattern matching the event's
+    ///   topic (delivery via subscription).
+    ///
+    /// The caller threads `subscribed_patterns` so the store stays
+    /// dependency-free of the subscription module.
+    fn recipient_owns(
+        &self,
+        event_id: &str,
+        recipient: &str,
+        subscribed_patterns: &[String],
+    ) -> bool {
         let Some(event) = self.get(event_id) else {
             return false;
         };
         match event.to.as_deref() {
-            Some(addressed) => addressed == recipient,
+            Some(addressed) if addressed == recipient => true,
+            Some(_) => topic_matches_any(event.topic.as_deref(), subscribed_patterns),
             // Pure topic events have no addressed recipient; any caller
             // can track their own read state against them.
             None => true,
@@ -256,12 +288,18 @@ impl EventStore {
 
     /// Idempotently mark `event_id` as read for `recipient`. Returns true
     /// when state changed (i.e. it wasn't already read). Returns false
-    /// when `recipient` is not the addressed owner of the event — that
-    /// prevents a caller from creating a bogus ReadState row that
-    /// `list_sent_by` would later report back to the sender as if a
-    /// stranger had read their direct mail.
-    pub fn mark_read(&mut self, event_id: &str, recipient: &str, now_ms: u64) -> bool {
-        if !self.recipient_owns(event_id, recipient) {
+    /// when `recipient` doesn't own the event — that prevents a caller
+    /// from creating a bogus ReadState row that `list_sent_by` would
+    /// later report back to the sender as if a stranger had read their
+    /// direct mail.
+    pub fn mark_read(
+        &mut self,
+        event_id: &str,
+        recipient: &str,
+        subscribed_patterns: &[String],
+        now_ms: u64,
+    ) -> bool {
+        if !self.recipient_owns(event_id, recipient, subscribed_patterns) {
             return false;
         }
         let state = self.read_state_mut_or_insert(event_id, recipient);
@@ -280,10 +318,11 @@ impl EventStore {
         &mut self,
         event_id: &str,
         recipient: &str,
+        subscribed_patterns: &[String],
         result: Option<String>,
         now_ms: u64,
     ) -> bool {
-        if !self.recipient_owns(event_id, recipient) {
+        if !self.recipient_owns(event_id, recipient, subscribed_patterns) {
             return false;
         }
         let state = self.read_state_mut_or_insert(event_id, recipient);
@@ -304,10 +343,15 @@ impl EventStore {
         true
     }
 
-    pub fn unread_count(&self, recipient: &str, project_filter: ProjectFilter<'_>) -> usize {
+    pub fn unread_count(
+        &self,
+        recipient: &str,
+        subscribed_patterns: &[String],
+        project_filter: ProjectFilter<'_>,
+    ) -> usize {
         self.events
             .iter()
-            .filter(|e| e.to.as_deref() == Some(recipient))
+            .filter(|e| event_visible_to(e, recipient, subscribed_patterns))
             .filter(|e| project_filter.matches(e.project_id.as_deref()))
             .filter(|e| !self.is_cleared_by(&e.id, recipient))
             .filter(|e| !self.is_read_by(&e.id, recipient))
@@ -362,6 +406,23 @@ impl Default for EventStore {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// True if `event` is visible to `recipient` — either addressed
+/// directly or matches a subscription pattern. Hot-path helper kept
+/// adjacent to `EventStore` so the visibility rule lives in one place.
+fn event_visible_to(event: &Event, recipient: &str, subscribed_patterns: &[String]) -> bool {
+    if event.to.as_deref() == Some(recipient) {
+        return true;
+    }
+    topic_matches_any(event.topic.as_deref(), subscribed_patterns)
+}
+
+fn topic_matches_any(topic: Option<&str>, patterns: &[String]) -> bool {
+    let Some(t) = topic else {
+        return false;
+    };
+    patterns.iter().any(|p| topic_matches(p, t))
 }
 
 fn now_ms() -> u64 {
@@ -420,7 +481,7 @@ mod tests {
         post_to(&mut store, "e2", "builder", "b", None, None);
         post_to(&mut store, "e3", "reviewer", "c", None, None);
 
-        let mine = store.list_for_recipient("reviewer", false, ProjectFilter::Any);
+        let mine = store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Any);
         let ids: Vec<_> = mine.iter().map(|e| e.id.clone()).collect();
         assert_eq!(ids, vec!["e1", "e3"]);
     }
@@ -430,9 +491,9 @@ mod tests {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "a", None, None);
         post_to(&mut store, "e2", "reviewer", "b", None, None);
-        store.mark_read("e1", "reviewer", 2000);
+        store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 2000);
 
-        let unread = store.list_for_recipient("reviewer", true, ProjectFilter::Any);
+        let unread = store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, true, ProjectFilter::Any);
         assert_eq!(unread.len(), 1);
         assert_eq!(unread[0].id, "e2");
     }
@@ -446,13 +507,14 @@ mod tests {
 
         let only_a = store.list_for_recipient(
             "reviewer",
+            NO_SUBSCRIPTIONS,
             false,
             ProjectFilter::Exact(Some("proj-a")),
         );
         assert_eq!(only_a.len(), 1);
         assert_eq!(only_a[0].id, "a");
 
-        let global_only = store.list_for_recipient("reviewer", false, ProjectFilter::Exact(None));
+        let global_only = store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Exact(None));
         assert_eq!(global_only.len(), 1);
         assert_eq!(global_only[0].id, "g");
     }
@@ -500,8 +562,8 @@ mod tests {
     fn mark_read_is_idempotent() {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "x", None, None);
-        assert!(store.mark_read("e1", "reviewer", 1000));
-        assert!(!store.mark_read("e1", "reviewer", 2000), "second call should report no change");
+        assert!(store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 1000));
+        assert!(!store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 2000), "second call should report no change");
         let state = store.read_state("e1", "reviewer").unwrap();
         assert_eq!(state.read_at, Some(1000), "first read_at should be preserved");
     }
@@ -509,7 +571,7 @@ mod tests {
     #[test]
     fn mark_read_for_unknown_event_is_noop() {
         let mut store = EventStore::new();
-        assert!(!store.mark_read("nope", "reviewer", 1000));
+        assert!(!store.mark_read("nope", "reviewer", NO_SUBSCRIPTIONS, 1000));
         assert!(store.read_state("nope", "reviewer").is_none(), "no orphan state row");
     }
 
@@ -517,7 +579,7 @@ mod tests {
     fn ack_implies_read() {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "x", None, None);
-        assert!(store.ack("e1", "reviewer", Some("done".into()), 1500));
+        assert!(store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, Some("done".into()), 1500));
         let state = store.read_state("e1", "reviewer").unwrap();
         assert!(state.is_read());
         assert!(state.is_acked());
@@ -530,8 +592,8 @@ mod tests {
     fn ack_after_read_preserves_read_at() {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "x", None, None);
-        store.mark_read("e1", "reviewer", 1000);
-        assert!(store.ack("e1", "reviewer", None, 2000));
+        store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 1000);
+        assert!(store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, None, 2000));
         let state = store.read_state("e1", "reviewer").unwrap();
         assert_eq!(state.read_at, Some(1000));
         assert_eq!(state.acked_at, Some(2000));
@@ -541,10 +603,10 @@ mod tests {
     fn double_ack_is_noop_unless_result_changes() {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "x", None, None);
-        store.ack("e1", "reviewer", Some("first".into()), 1000);
-        assert!(!store.ack("e1", "reviewer", None, 2000), "redundant ack returns false");
+        store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, Some("first".into()), 1000);
+        assert!(!store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, None, 2000), "redundant ack returns false");
         // Updating the result is allowed.
-        assert!(store.ack("e1", "reviewer", Some("better".into()), 3000));
+        assert!(store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, Some("better".into()), 3000));
         let state = store.read_state("e1", "reviewer").unwrap();
         assert_eq!(state.acked_at, Some(1000), "acked_at preserved across re-ack");
         assert_eq!(state.ack_result.as_deref(), Some("better"));
@@ -556,9 +618,9 @@ mod tests {
         post_to(&mut store, "e1", "reviewer", "a", None, None);
         post_to(&mut store, "e2", "reviewer", "b", None, None);
         post_to(&mut store, "e3", "builder", "c", None, None);
-        assert_eq!(store.unread_count("reviewer", ProjectFilter::Any), 2);
-        store.mark_read("e1", "reviewer", 1500);
-        assert_eq!(store.unread_count("reviewer", ProjectFilter::Any), 1);
+        assert_eq!(store.unread_count("reviewer", NO_SUBSCRIPTIONS, ProjectFilter::Any), 2);
+        store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 1500);
+        assert_eq!(store.unread_count("reviewer", NO_SUBSCRIPTIONS, ProjectFilter::Any), 1);
     }
 
     #[test]
@@ -567,8 +629,8 @@ mod tests {
         post_to(&mut store, "e1", "reviewer", "a", None, None);
         post_to(&mut store, "e2", "reviewer", "b", None, None);
         post_to(&mut store, "e3", "builder", "c", None, None);
-        store.mark_read("e1", "reviewer", 1000);
-        store.mark_read("e3", "builder", 1000);
+        store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 1000);
+        store.mark_read("e3", "builder", NO_SUBSCRIPTIONS, 1000);
 
         let cleared = store.clear_read("reviewer", ProjectFilter::Any, 5000);
         assert_eq!(cleared, 1);
@@ -581,14 +643,14 @@ mod tests {
 
         // Cleared events drop out of list_for_recipient.
         let visible: Vec<_> = store
-            .list_for_recipient("reviewer", false, ProjectFilter::Any)
+            .list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Any)
             .iter()
             .map(|e| e.id.clone())
             .collect();
         assert_eq!(visible, vec!["e2"], "e1 cleared, e2 still visible");
 
         // And don't show up as unread either (regression of prior bug).
-        assert_eq!(store.unread_count("reviewer", ProjectFilter::Any), 1);
+        assert_eq!(store.unread_count("reviewer", NO_SUBSCRIPTIONS, ProjectFilter::Any), 1);
 
         // Builder's state is untouched.
         assert!(store.read_state("e3", "builder").is_some());
@@ -600,7 +662,7 @@ mod tests {
     fn capacity_eviction_drops_orphan_read_state() {
         let mut store = EventStore::with_capacity(2, None);
         post_to(&mut store, "e1", "reviewer", "a", None, None);
-        store.mark_read("e1", "reviewer", 500);
+        store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 500);
         post_to(&mut store, "e2", "reviewer", "b", None, None);
         post_to(&mut store, "e3", "reviewer", "c", None, None);
         // e1 should be evicted now; its read_state row should also be gone.
@@ -614,7 +676,7 @@ mod tests {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "a", Some("me"), None);
         post_to(&mut store, "e2", "builder", "b", Some("me"), None);
-        store.mark_read("e1", "reviewer", 1500);
+        store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 1500);
 
         let sent = store.list_sent_by("me", None, None);
         assert_eq!(sent.len(), 2);
@@ -637,7 +699,7 @@ mod tests {
             .from("me")
             .kind(EventKind::Signal);
         store.post(topic_event, "e1".into(), 1000).unwrap();
-        store.mark_read("e1", "qa", 1500); // qa subscribes to the topic
+        store.mark_read("e1", "qa", NO_SUBSCRIPTIONS, 1500); // qa subscribes to the topic
 
         let sent_qa_view = store.list_sent_by("me", Some("qa"), None);
         assert_eq!(sent_qa_view.len(), 1);
@@ -649,10 +711,10 @@ mod tests {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "a", Some("me"), None);
         // qa is NOT the addressed recipient — can't fabricate read state.
-        assert!(!store.mark_read("e1", "qa", 1500));
+        assert!(!store.mark_read("e1", "qa", NO_SUBSCRIPTIONS, 1500));
         assert!(store.read_state("e1", "qa").is_none());
         // The actual recipient still works fine.
-        assert!(store.mark_read("e1", "reviewer", 1500));
+        assert!(store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 1500));
     }
 
     #[test]
@@ -660,7 +722,7 @@ mod tests {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "a", None, None);
         post_to(&mut store, "e2", "reviewer", "b", None, None);
-        store.mark_read("e1", "reviewer", 1000);
+        store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 1000);
 
         let events: Vec<_> = store.events().cloned().collect();
         let states: Vec<_> = store.all_read_state().cloned().collect();
@@ -668,5 +730,121 @@ mod tests {
         assert_eq!(restored.len(), 2);
         assert!(restored.read_state("e1", "reviewer").unwrap().is_read());
         assert!(restored.read_state("e2", "reviewer").is_none());
+    }
+
+    // ── Subscription-aware visibility ──────────────────────────────
+
+    fn post_topic(store: &mut EventStore, id: &str, topic: &str) -> Event {
+        let b = EventBuilder::new("body").topic(topic).kind(EventKind::Signal);
+        store.post(b, id.to_string(), 1000).unwrap()
+    }
+
+    fn post_topic_to(
+        store: &mut EventStore,
+        id: &str,
+        topic: &str,
+        addressed: &str,
+    ) -> Event {
+        let b = EventBuilder::new("body")
+            .to(addressed)
+            .topic(topic)
+            .kind(EventKind::Task);
+        store.post(b, id.to_string(), 1000).unwrap()
+    }
+
+    #[test]
+    fn list_for_recipient_unions_addressed_and_subscribed_topics() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "auditor", "direct", None, None);
+        post_topic(&mut store, "e2", "repo-a.build.completed");
+        post_topic(&mut store, "e3", "repo-a.build.failed");
+
+        let patterns = vec!["**.completed".to_string()];
+        let events =
+            store.list_for_recipient("auditor", &patterns, false, ProjectFilter::Any);
+        let ids: Vec<_> = events.iter().map(|e| e.id.clone()).collect();
+        // e1 is direct mail, e2 matches the pattern, e3 doesn't.
+        assert_eq!(ids, vec!["e1", "e2"]);
+    }
+
+    #[test]
+    fn list_for_recipient_no_subscriptions_keeps_legacy_semantics() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "auditor", "direct", None, None);
+        post_topic(&mut store, "e2", "build.completed");
+
+        let events =
+            store.list_for_recipient("auditor", NO_SUBSCRIPTIONS, false, ProjectFilter::Any);
+        let ids: Vec<_> = events.iter().map(|e| e.id.clone()).collect();
+        assert_eq!(ids, vec!["e1"], "no subs → topic event invisible");
+    }
+
+    #[test]
+    fn subscriber_can_mark_read_topic_event() {
+        let mut store = EventStore::new();
+        post_topic(&mut store, "e1", "build.completed");
+
+        let patterns = vec!["**.completed".to_string()];
+        // Subscriber can ack/read.
+        assert!(store.mark_read("e1", "auditor", &patterns, 2000));
+        assert!(store.read_state("e1", "auditor").unwrap().is_read());
+    }
+
+    #[test]
+    fn subscriber_can_mark_read_addressed_topic_event() {
+        // Event is addressed to `reviewer` AND has a topic. Pre-fix,
+        // `auditor` could not write read state because to=reviewer
+        // gatekeeps. With a matching subscription, `auditor` can.
+        let mut store = EventStore::new();
+        post_topic_to(&mut store, "e1", "build.completed", "reviewer");
+
+        let auditor_patterns = vec!["**.completed".to_string()];
+        assert!(store.mark_read("e1", "auditor", &auditor_patterns, 2000));
+        // And the addressed recipient still works without subscriptions.
+        assert!(store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 2000));
+    }
+
+    #[test]
+    fn non_subscriber_still_cannot_mark_read_addressed_event() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "direct", None, None);
+
+        // `qa` has subscriptions, but none matches this event's (absent) topic.
+        let patterns = vec!["**.completed".to_string()];
+        assert!(!store.mark_read("e1", "qa", &patterns, 2000));
+        assert!(store.read_state("e1", "qa").is_none());
+    }
+
+    #[test]
+    fn unread_count_includes_subscribed_events() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "auditor", "direct", None, None);
+        post_topic(&mut store, "e2", "build.completed");
+        post_topic(&mut store, "e3", "build.failed");
+
+        let patterns = vec!["**.completed".to_string()];
+        let unread = store.unread_count("auditor", &patterns, ProjectFilter::Any);
+        assert_eq!(unread, 2, "direct (e1) + matching topic (e2)");
+
+        // Read the topic event; unread drops by one.
+        store.mark_read("e2", "auditor", &patterns, 2000);
+        assert_eq!(store.unread_count("auditor", &patterns, ProjectFilter::Any), 1);
+    }
+
+    #[test]
+    fn clear_read_works_for_subscribed_topic_events() {
+        let mut store = EventStore::new();
+        post_topic(&mut store, "e1", "build.completed");
+
+        let patterns = vec!["**.completed".to_string()];
+        store.mark_read("e1", "auditor", &patterns, 1000);
+        let cleared = store.clear_read("auditor", ProjectFilter::Any, 5000);
+        assert_eq!(cleared, 1);
+        assert!(store.read_state("e1", "auditor").unwrap().is_cleared());
+
+        // Cleared topic event drops out of list_for_recipient.
+        let events =
+            store.list_for_recipient("auditor", &patterns, false, ProjectFilter::Any);
+        assert!(events.is_empty());
     }
 }

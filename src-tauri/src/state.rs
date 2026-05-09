@@ -5,6 +5,7 @@ use tokio::sync::oneshot;
 
 use roux_lib::aliases::AliasManager;
 use roux_lib::mailbox::MailboxManager;
+use roux_lib::subscriptions::SubscriptionManager;
 
 use crate::notifications::NotificationManager;
 use crate::pane_service::PaneHandle;
@@ -28,6 +29,7 @@ pub(crate) struct AppState {
     pub(crate) notification_manager: NotificationManager,
     pub(crate) alias_manager: AliasManager,
     pub(crate) mailbox_manager: MailboxManager,
+    pub(crate) subscription_manager: SubscriptionManager,
     pub(crate) pending_replies: PendingReplies,
     pub(crate) managed_proxy: Arc<crate::services::managed_proxy::ManagedProxyState>,
 }
