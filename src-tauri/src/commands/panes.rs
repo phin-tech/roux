@@ -1,25 +1,23 @@
-use crate::pane_service::{PaneHandle, PaneRecord};
+use crate::pane_service::PaneRecord;
 use crate::session_service::SessionHandle;
 use crate::state::AppState;
 
-/// Resolve the project scope for a pane by walking pane → pty → session →
-/// project_id. Returns `None` (the global scope) when any link is missing —
-/// e.g. the PTY hasn't registered yet or the session has no project. This
-/// is best-effort: a later upsert (rename, replacePty) re-resolves with
-/// whatever state exists at that moment.
+/// Resolve the project scope of the PTY at `pty_id` by walking pty →
+/// session → project_id. Returns `None` (the global scope) when any
+/// link is missing — e.g. the PTY hasn't registered yet or its session
+/// has no project. This is best-effort: a later upsert (rename,
+/// replacePty) re-resolves with whatever state exists at that moment.
 ///
-/// `pty_session_lookup` maps a pty_id → its session_id. In production the
-/// caller passes a closure over `PtyManager::get_info_direct`; tests pass
-/// a closure backed by a simple map so they don't need a live PTY manager.
-async fn pane_project_scope(
-    pane_handle: &PaneHandle,
+/// `pty_session_lookup` maps a pty_id → its session_id. In production
+/// the caller passes a closure over `PtyManager::get_info_direct`;
+/// tests pass a closure backed by a simple map so they don't need a
+/// live PTY manager.
+async fn pty_project_scope(
     session_handle: &SessionHandle,
     pty_session_lookup: impl Fn(&str) -> Option<String>,
-    pane_id: &str,
+    pty_id: &str,
 ) -> Option<String> {
-    let records = pane_handle.list_by_ids(vec![pane_id.to_string()]).await.ok()?;
-    let record = records.into_iter().next()?;
-    let session_id = pty_session_lookup(&record.pty_id)?;
+    let session_id = pty_session_lookup(pty_id)?;
     let session = session_handle.get(&session_id).await.ok().flatten()?;
     session.project_id
 }
@@ -32,6 +30,10 @@ pub(crate) async fn upsert_pane_record(
 ) -> Result<(), String> {
     let pane_id = record.id.clone();
     let pane_name = record.name.clone();
+    // Capture pty_id BEFORE the upsert moves the record so the resolver
+    // doesn't need a second round-trip through the pane service to
+    // recover what we already had.
+    let pty_id = record.pty_id.clone();
     state.pane_handle.upsert(record).await.map_err(|e| e.to_string())?;
 
     // Try to auto-claim an alias from the pane's name. No-op if the
@@ -45,11 +47,10 @@ pub(crate) async fn upsert_pane_record(
     // upsert (rename, replacePty) re-runs the resolver and corrects the
     // scope.
     let pty_manager = state.pty_manager.clone();
-    let project_id = pane_project_scope(
-        &state.pane_handle,
+    let project_id = pty_project_scope(
         &state.session_handle,
-        move |pty_id| pty_manager.get_info_direct(pty_id).and_then(|info| info.session_id),
-        &pane_id,
+        move |pty| pty_manager.get_info_direct(pty).and_then(|info| info.session_id),
+        &pty_id,
     )
     .await;
 
@@ -80,28 +81,8 @@ pub(crate) async fn remove_pane_record(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pane_service;
     use crate::session_service;
     use roux_core::Session;
-
-    fn pane_record(id: &str, pty_id: &str) -> PaneRecord {
-        PaneRecord {
-            id: id.into(),
-            pane_type: "shell".into(),
-            pty_id: pty_id.into(),
-            name: None,
-            working_dir: None,
-            command: None,
-            doc_path: None,
-            spawn_profile_ref: None,
-            provider: None,
-            provider_session_id: None,
-            nono_profile: None,
-            nono_allow_dirs: None,
-            notes_scope: None,
-            notes_view_mode: None,
-        }
-    }
 
     fn session_with_project(id: &str, project_id: Option<&str>) -> Session {
         Session {
@@ -139,88 +120,57 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pane_project_scope_resolves_via_pty_to_session_project() {
-        let (panes, _pjoin) = pane_service::spawn();
+    async fn pty_project_scope_resolves_via_pty_to_session_project() {
         let dir = tempfile::tempdir().unwrap();
         let (sessions, _sjoin) = session_service::spawn_with_path(
             vec![session_with_project("sess-1", Some("proj-A"))],
             dir.path().join("sessions.json"),
         );
-        panes.upsert(pane_record("pane-1", "pty-X")).await.unwrap();
 
-        let project = pane_project_scope(
-            &panes,
-            &sessions,
-            pty_lookup(&[("pty-X", "sess-1")]),
-            "pane-1",
-        )
-        .await;
+        let project =
+            pty_project_scope(&sessions, pty_lookup(&[("pty-X", "sess-1")]), "pty-X").await;
         assert_eq!(project.as_deref(), Some("proj-A"));
     }
 
     #[tokio::test]
-    async fn pane_project_scope_returns_none_when_session_has_no_project() {
-        let (panes, _pjoin) = pane_service::spawn();
+    async fn pty_project_scope_returns_none_when_session_has_no_project() {
         let dir = tempfile::tempdir().unwrap();
         let (sessions, _sjoin) = session_service::spawn_with_path(
             vec![session_with_project("sess-1", None)],
             dir.path().join("sessions.json"),
         );
-        panes.upsert(pane_record("pane-1", "pty-X")).await.unwrap();
 
-        let project = pane_project_scope(
-            &panes,
-            &sessions,
-            pty_lookup(&[("pty-X", "sess-1")]),
-            "pane-1",
-        )
-        .await;
+        let project =
+            pty_project_scope(&sessions, pty_lookup(&[("pty-X", "sess-1")]), "pty-X").await;
         assert!(project.is_none());
     }
 
     #[tokio::test]
-    async fn pane_project_scope_returns_none_when_pty_lookup_fails() {
+    async fn pty_project_scope_returns_none_when_pty_lookup_fails() {
         // PTY hasn't registered yet at the moment upsert fires. Resolver
         // gracefully returns None; auto-claim lands in the global scope
         // and a later upsert can re-resolve.
-        let (panes, _pjoin) = pane_service::spawn();
-        let dir = tempfile::tempdir().unwrap();
-        let (sessions, _sjoin) =
-            session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
-        panes.upsert(pane_record("pane-1", "pty-missing")).await.unwrap();
-
-        let project = pane_project_scope(&panes, &sessions, pty_lookup(&[]), "pane-1").await;
-        assert!(project.is_none());
-    }
-
-    #[tokio::test]
-    async fn pane_project_scope_returns_none_when_pane_not_found() {
-        let (panes, _pjoin) = pane_service::spawn();
         let dir = tempfile::tempdir().unwrap();
         let (sessions, _sjoin) =
             session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
 
-        let project =
-            pane_project_scope(&panes, &sessions, pty_lookup(&[]), "ghost-pane").await;
+        let project = pty_project_scope(&sessions, pty_lookup(&[]), "pty-missing").await;
         assert!(project.is_none());
     }
 
     #[tokio::test]
-    async fn pane_project_scope_returns_none_when_session_missing() {
+    async fn pty_project_scope_returns_none_when_session_missing() {
         // PTY says session-X but session-X isn't in the session store.
         // Could happen during a tear-down race. Resolver returns None
         // rather than panicking.
-        let (panes, _pjoin) = pane_service::spawn();
         let dir = tempfile::tempdir().unwrap();
         let (sessions, _sjoin) =
             session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
-        panes.upsert(pane_record("pane-1", "pty-X")).await.unwrap();
 
-        let project = pane_project_scope(
-            &panes,
+        let project = pty_project_scope(
             &sessions,
             pty_lookup(&[("pty-X", "missing-sess")]),
-            "pane-1",
+            "pty-X",
         )
         .await;
         assert!(project.is_none());
@@ -234,7 +184,6 @@ mod tests {
     async fn cross_project_auto_claim_does_not_collide() {
         use roux_lib::aliases::AliasManager;
 
-        let (panes, _pjoin) = pane_service::spawn();
         let dir = tempfile::tempdir().unwrap();
         let (sessions, _sjoin) = session_service::spawn_with_path(
             vec![
@@ -244,16 +193,9 @@ mod tests {
             dir.path().join("sessions.json"),
         );
 
-        let mut pane_a = pane_record("pane-A", "pty-A");
-        pane_a.name = Some("reviewer".into());
-        let mut pane_b = pane_record("pane-B", "pty-B");
-        pane_b.name = Some("reviewer".into());
-        panes.upsert(pane_a).await.unwrap();
-        panes.upsert(pane_b).await.unwrap();
-
         let lookup = pty_lookup(&[("pty-A", "sess-A"), ("pty-B", "sess-B")]);
-        let project_a = pane_project_scope(&panes, &sessions, &lookup, "pane-A").await;
-        let project_b = pane_project_scope(&panes, &sessions, &lookup, "pane-B").await;
+        let project_a = pty_project_scope(&sessions, &lookup, "pty-A").await;
+        let project_b = pty_project_scope(&sessions, &lookup, "pty-B").await;
         assert_eq!(project_a.as_deref(), Some("proj-A"));
         assert_eq!(project_b.as_deref(), Some("proj-B"));
 
