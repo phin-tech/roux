@@ -16,7 +16,7 @@ mod worktree;
 
 pub use alias::{
     canonical_alias_name, is_reserved_alias, validate_alias_name, validate_user_alias_name,
-    AgentAlias, AliasEvent, AliasNameError, RESERVED_ALIASES,
+    AgentAlias, AliasEvent, AliasMember, AliasNameError, ConsumptionMode, RESERVED_ALIASES,
 };
 pub use event::{
     Event, EventBuilder, EventKind, EventValidationError, MailboxEvent, ReadState,

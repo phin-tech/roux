@@ -1337,6 +1337,7 @@ import type {
   AliasEvent,
   BusSubscription,
   BusSubscriptionEvent,
+  ConsumptionMode,
   Event as MailboxEventPayload,
   MailboxEvent,
   ReadState,
@@ -1345,8 +1346,10 @@ import type {
 export type {
   AgentAlias,
   AliasEvent,
+  AliasMember,
   BusSubscription,
   BusSubscriptionEvent,
+  ConsumptionMode,
   EventKind,
   MailboxEvent,
   ReadState,
@@ -1514,6 +1517,30 @@ export async function aliasesGet(
 
 export async function aliasesWhoami(sessionId: string): Promise<AgentAlias[]> {
   return invoke("aliases_whoami", { sessionId });
+}
+
+export async function aliasesAddMember(
+  alias: string,
+  paneId: string,
+  projectId: string | null = null,
+): Promise<AgentAlias> {
+  return invoke("aliases_add_member", { alias, paneId, projectId });
+}
+
+export async function aliasesRemoveMember(
+  alias: string,
+  paneId: string,
+  projectId: string | null = null,
+): Promise<boolean> {
+  return invoke("aliases_remove_member", { alias, paneId, projectId });
+}
+
+export async function aliasesSetMode(
+  alias: string,
+  mode: ConsumptionMode,
+  projectId: string | null = null,
+): Promise<AgentAlias> {
+  return invoke("aliases_set_mode", { alias, mode, projectId });
 }
 
 // ── Bus subscriptions ─────────────────────────────────────────────────────────

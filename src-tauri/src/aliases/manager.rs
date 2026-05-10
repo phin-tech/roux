@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use roux_core::{AgentAlias, AliasEvent};
+use roux_core::{AgentAlias, AliasEvent, ConsumptionMode};
 use tauri::{AppHandle, Emitter};
 
 use super::persistence::{self, load_from_path, save_to_path};
-use super::store::{AliasStore, BindError, BindRequest, ProjectFilter};
+use super::store::{AliasStore, BindError, BindRequest, GroupError, PaneUnbindResult, ProjectFilter};
 
 /// Tauri event name emitted on every alias mutation.
 pub const ALIAS_EVENT: &str = "alias-event";
@@ -77,15 +77,21 @@ impl AliasManager {
     }
 
     /// Release every binding tied to `pane_id`. Used on pane close /
-    /// rename. `only_auto_claimed=true` preserves manual `roux alias claim`
-    /// bindings. Returns `(canonical, project_id)` pairs so the caller
-    /// can emit per-scope `Unset` events for the UI.
+    /// rename. `only_auto_claimed=true` preserves manual `roux alias
+    /// claim` bindings; group memberships always release.
+    ///
+    /// Emits `AliasEvent::Unset` when the legacy single-pane binding
+    /// was reset (frontend clears `paneId`/`sessionId`/`autoClaimed`).
+    /// Emits `AliasEvent::Set` with the updated alias when only group
+    /// membership changed — without that distinction the frontend
+    /// would clear the wrong fields and show a still-bound alias as
+    /// unbound.
     pub fn unbind_for_pane(
         &self,
         pane_id: &str,
         only_auto_claimed: bool,
         app: Option<&AppHandle>,
-    ) -> Vec<(String, Option<String>)> {
+    ) -> Vec<PaneUnbindResult> {
         let released = {
             let mut store = self.inner.lock().expect("alias store poisoned");
             store.unbind_for_pane(pane_id, only_auto_claimed)
@@ -93,14 +99,30 @@ impl AliasManager {
         if !released.is_empty() {
             self.persist();
             if let Some(app) = app {
-                for (canonical, project_id) in &released {
-                    let _ = app.emit(
-                        ALIAS_EVENT,
-                        &AliasEvent::Unset {
-                            canonical: canonical.clone(),
-                            project_id: project_id.clone(),
-                        },
-                    );
+                for result in &released {
+                    // When BOTH flags fire (the pane held the legacy
+                    // binding AND was a group member), emit `Set`
+                    // first so the frontend updates `members` from
+                    // the post-mutation snapshot, THEN `Unset` to
+                    // clear legacy fields. The frontend's `unset`
+                    // handler doesn't touch `members`, so without
+                    // this ordering it would render stale group
+                    // membership.
+                    if result.membership_changed {
+                        let _ = app.emit(
+                            ALIAS_EVENT,
+                            &AliasEvent::Set { alias: result.alias.clone() },
+                        );
+                    }
+                    if result.binding_cleared {
+                        let _ = app.emit(
+                            ALIAS_EVENT,
+                            &AliasEvent::Unset {
+                                canonical: result.alias.alias.clone(),
+                                project_id: result.alias.project_id.clone(),
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -265,6 +287,95 @@ impl AliasManager {
     pub fn whoami(&self, session_id: &str) -> Vec<AgentAlias> {
         let store = self.inner.lock().expect("alias store poisoned");
         store.whoami(session_id)
+    }
+
+    /// Add `pane_id` to the group membership of `canonical`. Auto-
+    /// `ensure`s the alias if it doesn't exist (mirrors `bind`'s
+    /// auto-creation behavior). Persists + emits `AliasEvent::Set`
+    /// only when the call actually changed state — idempotent re-adds
+    /// don't trigger frontend re-renders or extra disk writes.
+    pub fn add_member(
+        &self,
+        canonical: &str,
+        project_id: Option<&str>,
+        pane_id: &str,
+        app: Option<&AppHandle>,
+    ) -> Result<AgentAlias, GroupError> {
+        let (alias, changed) = {
+            let mut store = self.inner.lock().expect("alias store poisoned");
+            // Auto-create row so callers don't have to chain `ensure`.
+            let was_new_row = store.get(canonical, project_id).is_none();
+            if was_new_row {
+                store.ensure(canonical, project_id.map(String::from));
+            }
+            let before = store
+                .get(canonical, project_id)
+                .map(|a| a.members.len())
+                .unwrap_or(0);
+            let alias = store.add_member(canonical, project_id, pane_id)?;
+            let added = alias.members.len() != before;
+            (alias, was_new_row || added)
+        };
+        if changed {
+            self.persist();
+            if let Some(app) = app {
+                let _ = app.emit(ALIAS_EVENT, &AliasEvent::Set { alias: alias.clone() });
+            }
+        }
+        Ok(alias)
+    }
+
+    /// Remove `pane_id` from `canonical`'s membership. Returns `true`
+    /// when the pane was actually a member; `false` (no event) when it
+    /// wasn't. `NotFound` when the alias itself is missing.
+    pub fn remove_member(
+        &self,
+        canonical: &str,
+        project_id: Option<&str>,
+        pane_id: &str,
+        app: Option<&AppHandle>,
+    ) -> Result<bool, GroupError> {
+        let (changed, alias) = {
+            let mut store = self.inner.lock().expect("alias store poisoned");
+            let changed = store.remove_member(canonical, project_id, pane_id)?;
+            let alias = store.get(canonical, project_id).cloned();
+            (changed, alias)
+        };
+        if changed {
+            self.persist();
+            if let Some((app, alias)) = app.zip(alias) {
+                let _ = app.emit(ALIAS_EVENT, &AliasEvent::Set { alias });
+            }
+        }
+        Ok(changed)
+    }
+
+    pub fn set_consumption_mode(
+        &self,
+        canonical: &str,
+        project_id: Option<&str>,
+        mode: ConsumptionMode,
+        app: Option<&AppHandle>,
+    ) -> Result<AgentAlias, GroupError> {
+        // Idempotency mirror of `add_member` / `remove_member`: only
+        // persist + emit when the mode actually changed. The
+        // store-level `set_consumption_mode` already only bumps
+        // `updated_at` on a real change, but it doesn't tell us so —
+        // sample the prior mode before calling.
+        let (alias, changed) = {
+            let mut store = self.inner.lock().expect("alias store poisoned");
+            let before = store.get(canonical, project_id).map(|a| a.consumption_mode);
+            let alias = store.set_consumption_mode(canonical, project_id, mode)?;
+            let changed = before != Some(alias.consumption_mode);
+            (alias, changed)
+        };
+        if changed {
+            self.persist();
+            if let Some(app) = app {
+                let _ = app.emit(ALIAS_EVENT, &AliasEvent::Set { alias: alias.clone() });
+            }
+        }
+        Ok(alias)
     }
 
     fn persist(&self) {
@@ -550,6 +661,59 @@ mod tests {
         assert!(mgr.find_for_pane("pane-A").is_empty());
     }
 
+    /// set_consumption_mode is idempotent at the store level. The
+    /// manager wrapper must not rewrite aliases.json or emit on a
+    /// no-op call — same shape as add_member / remove_member.
+    #[test]
+    fn set_consumption_mode_idempotent_does_not_persist() {
+        use roux_core::ConsumptionMode;
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("aliases.json");
+        let mgr = AliasManager::load_from(path.clone());
+        mgr.add_member("team", None, "pane-A", None).unwrap();
+        // Default is CompetingConsumer — the next line is a no-op.
+        let mtime_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        mgr.set_consumption_mode("team", None, ConsumptionMode::CompetingConsumer, None)
+            .unwrap();
+        let mtime_after = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(
+            mtime_before, mtime_after,
+            "no-op set_consumption_mode must not rewrite aliases.json",
+        );
+        // A real change DOES rewrite.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        mgr.set_consumption_mode("team", None, ConsumptionMode::Broadcast, None)
+            .unwrap();
+        let mtime_change = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_ne!(
+            mtime_after, mtime_change,
+            "real mode change must rewrite aliases.json",
+        );
+    }
+
+    /// add_member is idempotent at the store level (re-adding an
+    /// existing pane is a no-op). The manager wrapper must not write
+    /// to disk or emit an event in that case — symmetric with how
+    /// remove_member behaves.
+    #[test]
+    fn add_member_idempotent_does_not_persist_or_emit() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("aliases.json");
+        let mgr = AliasManager::load_from(path.clone());
+        // First add — actually mutates → persists.
+        mgr.add_member("team", None, "pane-A", None).unwrap();
+        let mtime_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        // Second identical add — no-op; file mtime must not change.
+        mgr.add_member("team", None, "pane-A", None).unwrap();
+        let mtime_after = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(
+            mtime_before, mtime_after,
+            "idempotent add_member must not rewrite aliases.json",
+        );
+    }
+
     #[test]
     fn unbind_for_pane_releases_only_auto_when_only_auto_claimed_true() {
         let mgr = AliasManager::in_memory();
@@ -567,7 +731,9 @@ mod tests {
         mgr.try_auto_claim_from_pane_name("pane-A", Some("auto"), None, None);
 
         let released = mgr.unbind_for_pane("pane-A", true, None);
-        assert_eq!(released, vec![("auto".to_string(), None)]);
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].alias.alias, "auto");
+        assert!(released[0].binding_cleared);
         // Manual binding is still in place.
         let held = mgr.find_for_pane("pane-A");
         assert_eq!(held.len(), 1);

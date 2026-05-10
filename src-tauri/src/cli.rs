@@ -362,6 +362,34 @@ enum AliasAction {
         #[arg(short, long)]
         session: Option<String>,
     },
+    /// Add a pane to a group alias. Creates the alias if it doesn't
+    /// exist. The pane is `--pane` if given, else `$ROUX_PANE_ID`.
+    AddMember {
+        alias: String,
+        #[arg(long)]
+        pane: Option<String>,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+    },
+    /// Remove a pane from a group alias's membership.
+    RemoveMember {
+        alias: String,
+        #[arg(long)]
+        pane: Option<String>,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+    },
+    /// Set the consumption mode for a group alias. `competing` (the
+    /// default) is a work-queue: the first member to ack claims the
+    /// event. `broadcast` is reserved for the per-member ReadState
+    /// follow-up; today it falls back to competing semantics.
+    Mode {
+        alias: String,
+        /// `competing` | `broadcast`
+        mode: String,
+        #[arg(short = 'p', long)]
+        project: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1110,6 +1138,61 @@ fn main() {
                     "command": "alias-whoami",
                     "session_id": effective_session,
                     "args": {},
+                }));
+            }
+            AliasAction::AddMember { alias, pane, project } => {
+                // Fail fast locally rather than burning a socket round-trip
+                // on a request the backend will reject for missing pane_id.
+                let pane_id = pane.or_else(get_pane_id).unwrap_or_else(|| {
+                    eprintln!(
+                        "Error: alias add-member requires --pane <id> or $ROUX_PANE_ID"
+                    );
+                    std::process::exit(2);
+                });
+                let mut args = serde_json::Map::new();
+                args.insert("alias".into(), Value::String(alias));
+                args.insert("pane_id".into(), Value::String(pane_id));
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "alias-add-member",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            AliasAction::RemoveMember { alias, pane, project } => {
+                let pane_id = pane.or_else(get_pane_id).unwrap_or_else(|| {
+                    eprintln!(
+                        "Error: alias remove-member requires --pane <id> or $ROUX_PANE_ID"
+                    );
+                    std::process::exit(2);
+                });
+                let mut args = serde_json::Map::new();
+                args.insert("alias".into(), Value::String(alias));
+                args.insert("pane_id".into(), Value::String(pane_id));
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "alias-remove-member",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            AliasAction::Mode { alias, mode, project } => {
+                let mut args = serde_json::Map::new();
+                args.insert("alias".into(), Value::String(alias));
+                args.insert("mode".into(), Value::String(mode));
+                if let Some(p) = project {
+                    args.insert("project_id".into(), Value::String(p));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "alias-mode",
+                    "session_id": get_session_id(),
+                    "args": Value::Object(args),
                 }));
             }
         },

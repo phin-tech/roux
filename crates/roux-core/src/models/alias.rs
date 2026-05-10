@@ -63,6 +63,35 @@ pub fn validate_user_alias_name(input: &str) -> Result<String, AliasNameError> {
     Ok(canonical)
 }
 
+/// One participant in a group alias. Members are panes — the session
+/// is derivable from the pane and not duplicated here.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AliasMember {
+    pub pane_id: String,
+    /// Unix epoch milliseconds at which this pane joined the group.
+    pub joined_at: u64,
+}
+
+/// How a group alias distributes events across members.
+///
+/// V1 implements `CompetingConsumer` semantics directly through the
+/// existing per-alias `ReadState`: any member acking on behalf of the
+/// alias hides the event for the rest. `Broadcast` is declared in the
+/// schema for forward-compat, but currently behaves the same as
+/// `CompetingConsumer`. True per-member tracking is a follow-up.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ConsumptionMode {
+    /// First member to ack claims the event; subsequent members no
+    /// longer see it as unread. Use for work-queue distribution.
+    #[default]
+    CompetingConsumer,
+    /// Each member acks independently. Currently behaves like
+    /// `CompetingConsumer` until per-member ReadState lands.
+    Broadcast,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentAlias {
@@ -82,6 +111,18 @@ pub struct AgentAlias {
     /// alias name exists in multiple projects.
     #[serde(default)]
     pub project_id: Option<String>,
+    /// Group members. Empty for single-pane aliases (which use
+    /// `pane_id`/`session_id`). Non-empty when the alias has been
+    /// extended via `roux alias add-member` to fan out across panes.
+    /// The single-pane fields and `members` can coexist during
+    /// migration — `is_bound`, `find_for_pane`, and the resolver
+    /// consult both.
+    #[serde(default)]
+    pub members: Vec<AliasMember>,
+    /// How posts to a group alias distribute to members. Ignored for
+    /// single-pane aliases.
+    #[serde(default)]
+    pub consumption_mode: ConsumptionMode,
     /// True when the alias was auto-claimed from a pane name (vs explicit
     /// `roux alias claim`). Auto-claimed bindings release on pane rename
     /// or close; manual bindings persist for queued mail.
@@ -119,16 +160,44 @@ impl AgentAlias {
             session_id: None,
             pane_id: None,
             project_id,
+            members: Vec::new(),
+            consumption_mode: ConsumptionMode::default(),
             auto_claimed: false,
             created_at: now_ms,
             updated_at: now_ms,
         }
     }
 
-    /// True when this alias has any active binding (pane-level or legacy
-    /// session-level).
+    /// True when this alias has any active binding — single-pane
+    /// (`pane_id`/`session_id`), or one or more group `members`.
     pub fn is_bound(&self) -> bool {
-        self.pane_id.is_some() || self.session_id.is_some()
+        self.pane_id.is_some() || self.session_id.is_some() || !self.members.is_empty()
+    }
+
+    /// True when this alias has at least one group member registered.
+    /// `is_group()` is independent of single-pane binding — an alias
+    /// can carry both during migration (one pane held the legacy
+    /// binding before `add-member` extended it to a group).
+    pub fn is_group(&self) -> bool {
+        !self.members.is_empty()
+    }
+
+    /// All pane IDs this alias resolves to: the legacy single pane (if
+    /// any) plus group members. De-duplicated in case a member also
+    /// happens to be the legacy `pane_id` (which can happen during
+    /// migration). Order: legacy pane first, then members in join
+    /// order.
+    pub fn bound_panes(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::with_capacity(1 + self.members.len());
+        if let Some(p) = self.pane_id.as_deref() {
+            out.push(p.to_string());
+        }
+        for m in &self.members {
+            if !out.iter().any(|existing| existing == &m.pane_id) {
+                out.push(m.pane_id.clone());
+            }
+        }
+        out
     }
 }
 
@@ -225,5 +294,61 @@ mod tests {
         assert!(a.session_id.is_none());
         assert!(a.created_at > 0);
         assert_eq!(a.created_at, a.updated_at);
+    }
+
+    #[test]
+    fn agent_alias_new_defaults_group_fields_empty() {
+        let a = AgentAlias::new("reviewer", None);
+        assert!(a.members.is_empty());
+        assert_eq!(a.consumption_mode, ConsumptionMode::CompetingConsumer);
+        assert!(!a.is_group());
+        assert!(!a.is_bound(), "fresh alias has no panes");
+    }
+
+    #[test]
+    fn is_bound_true_when_any_member_set() {
+        let mut a = AgentAlias::new("team", None);
+        a.members.push(AliasMember { pane_id: "p1".into(), joined_at: 1 });
+        assert!(a.is_bound());
+        assert!(a.is_group());
+    }
+
+    #[test]
+    fn bound_panes_combines_legacy_and_members_without_dupes() {
+        let mut a = AgentAlias::new("team", None);
+        a.pane_id = Some("p1".into());
+        a.members.push(AliasMember { pane_id: "p2".into(), joined_at: 1 });
+        // p1 is also a member — must not appear twice.
+        a.members.push(AliasMember { pane_id: "p1".into(), joined_at: 2 });
+        a.members.push(AliasMember { pane_id: "p3".into(), joined_at: 3 });
+        assert_eq!(a.bound_panes(), vec!["p1", "p2", "p3"]);
+    }
+
+    #[test]
+    fn agent_alias_serde_round_trip_includes_group_fields() {
+        let mut a = AgentAlias::new("team", Some("proj".into()));
+        a.members.push(AliasMember { pane_id: "p1".into(), joined_at: 1 });
+        a.members.push(AliasMember { pane_id: "p2".into(), joined_at: 2 });
+        a.consumption_mode = ConsumptionMode::Broadcast;
+        let json = serde_json::to_string(&a).unwrap();
+        let parsed: AgentAlias = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, a);
+    }
+
+    #[test]
+    fn agent_alias_loads_legacy_rows_without_group_fields() {
+        // Pre-V1-group on-disk rows have no `members` or
+        // `consumptionMode`. Defaults must keep them loadable.
+        let raw = r#"{
+            "alias":"reviewer",
+            "sessionId":"sess-1",
+            "paneId":"pane-A",
+            "createdAt":1,
+            "updatedAt":1
+        }"#;
+        let parsed: AgentAlias = serde_json::from_str(raw).unwrap();
+        assert_eq!(parsed.alias, "reviewer");
+        assert!(parsed.members.is_empty());
+        assert_eq!(parsed.consumption_mode, ConsumptionMode::CompetingConsumer);
     }
 }

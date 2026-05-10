@@ -32,6 +32,19 @@ export interface ReadState {
   ackResult: string | null;
 }
 
+/** A pane participating in a group alias. */
+export interface AliasMember {
+  paneId: string;
+  joinedAt: number;
+}
+
+/** How a group alias distributes events.
+ *  - `competingConsumer` (V1 default): first member to ack claims the
+ *    event; others stop seeing it. Work-queue.
+ *  - `broadcast`: declared for forward-compat. V1 currently behaves
+ *    like `competingConsumer` until per-member ReadState ships. */
+export type ConsumptionMode = "competingConsumer" | "broadcast";
+
 export interface AgentAlias {
   alias: string;
   /** Cached parent session id (Phase 1 / legacy session-only bindings). */
@@ -40,6 +53,9 @@ export interface AgentAlias {
    *  back to the session's primary pane at delivery time. */
   paneId: string | null;
   projectId: string | null;
+  /** Group members. Empty when this is a single-pane alias. */
+  members: AliasMember[];
+  consumptionMode: ConsumptionMode;
   /** True when the alias was auto-derived from the pane's name (vs an
    *  explicit `roux alias claim`). UI surfaces this with a lighter
    *  outline on the badge so the user can tell it's automatic. */
