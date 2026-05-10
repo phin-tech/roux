@@ -167,10 +167,33 @@ export function applyMailboxEvent(event: MailboxEvent): void {
     }
     case "read":
     case "acked":
-    case "cleared": {
+    case "cleared":
+    case "dismissed": {
       // Read-state-only mutations don't change the events array. The
       // Tauri payload doesn't carry projectId — refresh every known
       // scope for that recipient (fan-out is small in practice).
+      void refreshUnreadCount(event.recipient, undefined);
+      break;
+    }
+    case "retracted": {
+      // Mark the event row retracted in-place so the firehose / sent
+      // view can render it as such; recipient inbox queries hit the
+      // backend (which already filters retracted) so they refresh
+      // through the existing mailboxMutationTick effect.
+      events.update((list) =>
+        list.map((e) =>
+          e.id === event.eventId
+            ? { ...e, retractedAt: e.retractedAt ?? Date.now() }
+            : e,
+        ),
+      );
+      // Bump every alias's unread count — the retracted event might
+      // have been counted somewhere we can't pinpoint without scanning.
+      void refreshAllUnreadCounts();
+      break;
+    }
+    case "topicDelivered": {
+      // Bump the subscriber's unread count.
       void refreshUnreadCount(event.recipient, undefined);
       break;
     }

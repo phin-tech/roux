@@ -251,6 +251,23 @@ pub struct MailboxAckParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct MailboxRetractParams {
+    pub event_id: String,
+    /// Sender alias to retract on behalf of. Required for MCP/stdio
+    /// (no pane context for the implicit fallback the CLI uses).
+    pub alias: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MailboxDismissParams {
+    pub event_id: String,
+    /// Recipient alias whose view to dismiss from. Required for MCP.
+    pub alias: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct MailboxCountParams {
     pub alias: Option<String>,
     pub project_id: Option<String>,
@@ -697,6 +714,40 @@ impl RouxMcpServer {
         }
         call_socket(json!({
             "command": "mailbox-ack",
+            "args": Value::Object(args),
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Unsend an event you posted. Allowed only when no recipient has acked yet — once anyone confirmed delivery, retraction is rejected to keep the audit trail intact."
+    )]
+    async fn roux_mailbox_unsend(
+        &self,
+        Parameters(params): Parameters<MailboxRetractParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        args.insert("event_id".into(), Value::String(params.event_id));
+        args.insert("alias".into(), Value::String(params.alias));
+        call_socket(json!({
+            "command": "mailbox-retract",
+            "args": Value::Object(args),
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Dismiss a single event from a recipient's inbox view (read or unread). The event itself is preserved; only this recipient's view loses it."
+    )]
+    async fn roux_mailbox_dismiss(
+        &self,
+        Parameters(params): Parameters<MailboxDismissParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        args.insert("event_id".into(), Value::String(params.event_id));
+        args.insert("alias".into(), Value::String(params.alias));
+        call_socket(json!({
+            "command": "mailbox-dismiss",
             "args": Value::Object(args),
         }))
         .await
