@@ -310,12 +310,9 @@ impl MailboxManager {
                 if let Some(ev) = store.events_mut_find(&event.id) {
                     ev.retracted_at = None;
                 }
-                eprintln!(
-                    "[roux] retract persistence failed at {}: {e}",
+                return Err(RetractError::Persist(format!(
+                    "events.jsonl append failed at {}: {e}",
                     paths.events.display()
-                );
-                return Err(RetractError::NotFound(format!(
-                    "persistence error rolled back: {e}"
                 )));
             }
         }

@@ -649,7 +649,7 @@
             </p>
             {#if e.retractedAt != null}
               <span class="text-[9px] text-text-muted/70 italic">retracted</span>
-            {:else if e.from === "me"}
+            {:else if e.from === selectedAlias}
               <button
                 class="self-start cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0 text-[9px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
                 onclick={() => handleRetract(e)}
