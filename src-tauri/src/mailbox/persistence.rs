@@ -154,13 +154,12 @@ pub(crate) fn load_events_from(path: &Path) -> Vec<Event> {
             }
         }
     }
-    // Apply retract markers. Order matters: events with multiple
-    // markers (shouldn't happen in normal use, but defensive) take
-    // the most recent timestamp.
+    // Apply retract markers. Earliest retract wins on duplicates —
+    // the first retract is authoritative; later markers (which only
+    // appear on corruption or hand-edited files in normal use) are
+    // ignored. The matching test is `earliest_retract_wins_when_duplicated`.
     for (id, at) in retracts {
         if let Some(e) = events.iter_mut().find(|e| e.id == id) {
-            // Earliest retract wins — the first retract is the
-            // authoritative one; later duplicates are redundant.
             if e.retracted_at.is_none() {
                 e.retracted_at = Some(at);
             }
