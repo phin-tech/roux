@@ -48,6 +48,12 @@ pub enum RetractError {
     /// manager surfaces this so callers don't double-emit Tauri events.
     #[error("event {0} already retracted")]
     AlreadyRetracted(String),
+    /// Disk persistence failed after the in-memory retract was
+    /// applied. The manager rolls the in-memory state back before
+    /// returning this so the UI doesn't observe a "Retracted" that
+    /// disappears on restart. Symmetric with `PostError::Persist`.
+    #[error("retract persistence failed: {0}")]
+    Persist(String),
 }
 
 /// Append-only event store with per-recipient read/ack state. Events are
