@@ -168,6 +168,14 @@ threads:
 roux mailbox reply <event_id> "looking now, will get back in 10"
 ```
 
+The Mailbox panel's Inbox view groups events sharing a `correlation_id`
+into threads — replies render indented under their root with a `↳`
+prefix, so a long back-and-forth reads as one conversation instead of
+N flat rows. Per-event actions (mark read, ack, dismiss, deliver) work
+on each event independently. When the original isn't visible (e.g.
+you've dismissed it but kept the replies), the earliest visible
+reply becomes the visual root.
+
 ### Sender's view
 
 ```sh

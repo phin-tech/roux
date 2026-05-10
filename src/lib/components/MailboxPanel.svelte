@@ -6,6 +6,7 @@
     ackEvent,
     clearReadFor,
     events,
+    groupIntoThreads,
     hydrateMailbox,
     mailboxMutationTick,
     markRead,
@@ -166,6 +167,11 @@
   function eventReadState(id: string): ReadState | null {
     return recipientReadStates.get(id) ?? null;
   }
+
+  // Group inbox events into threads by `correlationId` so replies
+  // render nested under their root. Singletons (no correlation) are
+  // 1-event threads, visually identical to a flat row.
+  let recipientThreads = $derived(groupIntoThreads(recipientEvents));
 
   let firehoseEvents = $derived(visible ? $events : []);
 
@@ -512,83 +518,97 @@
       {/each}
     </div>
 
+    {#snippet eventCard(e: MailboxEventPayload, isReply: boolean)}
+      {@const state = eventReadState(e.id)}
+      {@const isRead = state?.readAt != null}
+      {@const isAcked = state?.ackedAt != null}
+      <article
+        class="flex flex-col gap-1 rounded-lg border border-border-subtle bg-bg-surface/30 px-2 py-1.5 {isRead
+          ? 'opacity-60'
+          : ''} {isReply
+          ? 'ml-3 border-l-2 border-l-accent-dim/40 bg-bg-surface/20'
+          : ''}"
+      >
+        <header class="flex items-center gap-2">
+          {#if isReply}
+            <span class="text-[10px] text-text-muted/70" title="Reply">↳</span>
+          {/if}
+          <span
+            class="inline-block h-2 w-2 shrink-0 rounded-full {kindColor(
+              e.kind,
+            )}"
+          ></span>
+          <span class="text-[10px] uppercase tracking-wider text-text-muted"
+            >{e.kind}</span
+          >
+          {#if e.from}
+            <span class="truncate text-[10px] text-text-muted"
+              >from {e.from}</span
+            >
+          {/if}
+          {#if isAcked}
+            <span class="text-[10px] text-green" title={state?.ackResult ?? "Acked"}
+              >✓ ack{state?.ackResult ? `: ${state.ackResult}` : ""}</span
+            >
+          {:else if isRead}
+            <span class="text-[10px] text-text-muted">read</span>
+          {/if}
+          <span class="ml-auto shrink-0 text-[10px] text-text-muted/70"
+            >{formatRelative(e.createdAt)}</span
+          >
+        </header>
+        {#if e.subject}
+          <h4 class="text-[11px] font-medium text-text-primary">
+            {e.subject}
+          </h4>
+        {/if}
+        <p class="whitespace-pre-wrap text-[11px] text-text-secondary">
+          {e.body}
+        </p>
+        {#if e.topic}
+          <span class="text-[9px] text-text-muted">topic: {e.topic}</span>
+        {/if}
+        <footer class="flex flex-wrap gap-1">
+          <button
+            class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
+            onclick={() => handleMarkRead(e.id)}
+            disabled={isRead}
+          >mark read</button>
+          <button
+            class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
+            onclick={() => handleAck(e.id)}
+            disabled={isAcked}
+          >ack</button>
+          <button
+            class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
+            onclick={() => handleDismiss(e.id)}
+            title="Hide this event from your inbox view. The event itself is preserved; other recipients keep seeing it."
+          >dismiss</button>
+          {#if recipientHasPane(e.to, e.projectId)}
+            <button
+              class="cursor-pointer rounded border border-accent-dim/60 bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent hover:bg-accent/20 disabled:opacity-50"
+              onclick={() => handleDeliver(e.id)}
+              disabled={deliveringId === e.id}
+              title="Type this message into the recipient's pane and ack it. Bypasses the agent's drain step — use when you want immediate delivery."
+            >{deliveringId === e.id ? "delivering…" : "deliver →"}</button>
+          {/if}
+        </footer>
+      </article>
+    {/snippet}
+
     <div class="flex-1 overflow-y-auto p-2">
-      {#if recipientEvents.length === 0}
+      {#if recipientThreads.length === 0}
         <div
           class="flex h-full items-center justify-center text-sm text-text-muted"
         >No {unreadOnly ? "unread" : ""} mail for {selectedAlias}</div>
       {:else}
-        {#each recipientEvents as e (e.id)}
-          {@const state = eventReadState(e.id)}
-          {@const isRead = state?.readAt != null}
-          {@const isAcked = state?.ackedAt != null}
-          <article
-            class="mb-2 flex flex-col gap-1 rounded-lg border border-border-subtle bg-bg-surface/30 px-2 py-1.5 {isRead
-              ? 'opacity-60'
-              : ''}"
-          >
-            <header class="flex items-center gap-2">
-              <span
-                class="inline-block h-2 w-2 shrink-0 rounded-full {kindColor(
-                  e.kind,
-                )}"
-              ></span>
-              <span class="text-[10px] uppercase tracking-wider text-text-muted"
-                >{e.kind}</span
-              >
-              {#if e.from}
-                <span class="truncate text-[10px] text-text-muted"
-                  >from {e.from}</span
-                >
-              {/if}
-              {#if isAcked}
-                <span class="text-[10px] text-green" title={state?.ackResult ?? "Acked"}
-                  >✓ ack{state?.ackResult ? `: ${state.ackResult}` : ""}</span
-                >
-              {:else if isRead}
-                <span class="text-[10px] text-text-muted">read</span>
-              {/if}
-              <span class="ml-auto shrink-0 text-[10px] text-text-muted/70"
-                >{formatRelative(e.createdAt)}</span
-              >
-            </header>
-            {#if e.subject}
-              <h4 class="text-[11px] font-medium text-text-primary">
-                {e.subject}
-              </h4>
-            {/if}
-            <p class="whitespace-pre-wrap text-[11px] text-text-secondary">
-              {e.body}
-            </p>
-            {#if e.topic}
-              <span class="text-[9px] text-text-muted">topic: {e.topic}</span>
-            {/if}
-            <footer class="flex flex-wrap gap-1">
-              <button
-                class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
-                onclick={() => handleMarkRead(e.id)}
-                disabled={isRead}
-              >mark read</button>
-              <button
-                class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
-                onclick={() => handleAck(e.id)}
-                disabled={isAcked}
-              >ack</button>
-              <button
-                class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
-                onclick={() => handleDismiss(e.id)}
-                title="Hide this event from your inbox view. The event itself is preserved; other recipients keep seeing it."
-              >dismiss</button>
-              {#if recipientHasPane(e.to, e.projectId)}
-                <button
-                  class="cursor-pointer rounded border border-accent-dim/60 bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent hover:bg-accent/20 disabled:opacity-50"
-                  onclick={() => handleDeliver(e.id)}
-                  disabled={deliveringId === e.id}
-                  title="Type this message into the recipient's pane and ack it. Bypasses the agent's drain step — use when you want immediate delivery."
-                >{deliveringId === e.id ? "delivering…" : "deliver →"}</button>
-              {/if}
-            </footer>
-          </article>
+        {#each recipientThreads as thread (thread.id)}
+          <div class="mb-2 flex flex-col gap-1">
+            {@render eventCard(thread.root, false)}
+            {#each thread.replies as reply (reply.id)}
+              {@render eventCard(reply, true)}
+            {/each}
+          </div>
         {/each}
       {/if}
     </div>
