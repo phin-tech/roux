@@ -100,28 +100,27 @@ impl AliasManager {
             self.persist();
             if let Some(app) = app {
                 for result in &released {
+                    // When BOTH flags fire (the pane held the legacy
+                    // binding AND was a group member), emit `Set`
+                    // first so the frontend updates `members` from
+                    // the post-mutation snapshot, THEN `Unset` to
+                    // clear legacy fields. The frontend's `unset`
+                    // handler doesn't touch `members`, so without
+                    // this ordering it would render stale group
+                    // membership.
+                    if result.membership_changed {
+                        let _ = app.emit(
+                            ALIAS_EVENT,
+                            &AliasEvent::Set { alias: result.alias.clone() },
+                        );
+                    }
                     if result.binding_cleared {
-                        // The legacy binding clear is the more
-                        // destructive change — emit `Unset` so the
-                        // frontend zeroes paneId/sessionId. Even if
-                        // membership ALSO changed, the alias's
-                        // members are already up to date in the next
-                        // store-state read; the UI re-fetches on the
-                        // next render.
                         let _ = app.emit(
                             ALIAS_EVENT,
                             &AliasEvent::Unset {
                                 canonical: result.alias.alias.clone(),
                                 project_id: result.alias.project_id.clone(),
                             },
-                        );
-                    } else if result.membership_changed {
-                        // Membership-only: emit `Set` with the
-                        // updated alias so the frontend's `members`
-                        // list matches without nuking other fields.
-                        let _ = app.emit(
-                            ALIAS_EVENT,
-                            &AliasEvent::Set { alias: result.alias.clone() },
                         );
                     }
                 }
@@ -358,13 +357,23 @@ impl AliasManager {
         mode: ConsumptionMode,
         app: Option<&AppHandle>,
     ) -> Result<AgentAlias, GroupError> {
-        let alias = {
+        // Idempotency mirror of `add_member` / `remove_member`: only
+        // persist + emit when the mode actually changed. The
+        // store-level `set_consumption_mode` already only bumps
+        // `updated_at` on a real change, but it doesn't tell us so —
+        // sample the prior mode before calling.
+        let (alias, changed) = {
             let mut store = self.inner.lock().expect("alias store poisoned");
-            store.set_consumption_mode(canonical, project_id, mode)?
+            let before = store.get(canonical, project_id).map(|a| a.consumption_mode);
+            let alias = store.set_consumption_mode(canonical, project_id, mode)?;
+            let changed = before != Some(alias.consumption_mode);
+            (alias, changed)
         };
-        self.persist();
-        if let Some(app) = app {
-            let _ = app.emit(ALIAS_EVENT, &AliasEvent::Set { alias: alias.clone() });
+        if changed {
+            self.persist();
+            if let Some(app) = app {
+                let _ = app.emit(ALIAS_EVENT, &AliasEvent::Set { alias: alias.clone() });
+            }
         }
         Ok(alias)
     }
@@ -650,6 +659,37 @@ mod tests {
             mgr.try_auto_claim_from_pane_name("pane-A", Some(""), None, None);
         assert!(result.is_none());
         assert!(mgr.find_for_pane("pane-A").is_empty());
+    }
+
+    /// set_consumption_mode is idempotent at the store level. The
+    /// manager wrapper must not rewrite aliases.json or emit on a
+    /// no-op call — same shape as add_member / remove_member.
+    #[test]
+    fn set_consumption_mode_idempotent_does_not_persist() {
+        use roux_core::ConsumptionMode;
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("aliases.json");
+        let mgr = AliasManager::load_from(path.clone());
+        mgr.add_member("team", None, "pane-A", None).unwrap();
+        // Default is CompetingConsumer — the next line is a no-op.
+        let mtime_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        mgr.set_consumption_mode("team", None, ConsumptionMode::CompetingConsumer, None)
+            .unwrap();
+        let mtime_after = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(
+            mtime_before, mtime_after,
+            "no-op set_consumption_mode must not rewrite aliases.json",
+        );
+        // A real change DOES rewrite.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        mgr.set_consumption_mode("team", None, ConsumptionMode::Broadcast, None)
+            .unwrap();
+        let mtime_change = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_ne!(
+            mtime_after, mtime_change,
+            "real mode change must rewrite aliases.json",
+        );
     }
 
     /// add_member is idempotent at the store level (re-adding an
