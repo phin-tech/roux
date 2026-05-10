@@ -251,6 +251,23 @@ enum MailboxAction {
         #[arg(long, conflicts_with = "project")]
         global: bool,
     },
+    /// Unsend an event you posted. Only works if no recipient has
+    /// acked yet — once anyone confirmed delivery the audit trail is
+    /// preserved.
+    Unsend {
+        event_id: String,
+        /// Sender alias to retract on behalf of (default: calling
+        /// pane's bound alias).
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+    },
+    /// Dismiss a single event from your inbox view (read or unread).
+    /// The event itself is preserved; only your view loses it.
+    Dismiss {
+        event_id: String,
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1349,6 +1366,32 @@ fn main() {
                 }
                 run_streaming_command(serde_json::json!({
                     "command": "mailbox-watch",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            MailboxAction::Unsend { event_id, alias } => {
+                let mut args = serde_json::Map::new();
+                args.insert("event_id".into(), Value::String(event_id));
+                if let Some(a) = alias {
+                    args.insert("alias".into(), Value::String(a));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-retract",
+                    "session_id": get_session_id(),
+                    "pane_id": get_pane_id(),
+                    "args": Value::Object(args),
+                }));
+            }
+            MailboxAction::Dismiss { event_id, alias } => {
+                let mut args = serde_json::Map::new();
+                args.insert("event_id".into(), Value::String(event_id));
+                if let Some(a) = alias {
+                    args.insert("alias".into(), Value::String(a));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "mailbox-dismiss",
                     "session_id": get_session_id(),
                     "pane_id": get_pane_id(),
                     "args": Value::Object(args),

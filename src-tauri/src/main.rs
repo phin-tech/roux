@@ -439,6 +439,8 @@ fn main() {
             commands::mailbox::mailbox_mark_read,
             commands::mailbox::mailbox_ack,
             commands::mailbox::mailbox_clear_read,
+            commands::mailbox::mailbox_retract,
+            commands::mailbox::mailbox_dismiss,
             commands::mailbox::mailbox_deliver_to_pane,
             commands::subscriptions::subscriptions_list,
             commands::subscriptions::subscriptions_create,

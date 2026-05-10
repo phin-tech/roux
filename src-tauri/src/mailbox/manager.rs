@@ -9,9 +9,10 @@ use crate::aliases::ProjectFilter;
 use crate::subscriptions::SubscriptionManager;
 
 use super::persistence::{
-    self, append_event_to, load_events_from, load_read_state_from, save_read_state_to,
+    self, append_event_to, append_retract_to, load_events_from, load_read_state_from,
+    save_read_state_to,
 };
-use super::store::{EventStore, PostError};
+use super::store::{EventStore, PostError, RetractError};
 
 /// Tauri event name emitted on every mailbox mutation. Frontend listens
 /// here to update the inbox / firehose without polling.
@@ -283,6 +284,76 @@ impl MailboxManager {
             }
         }
         cleared
+    }
+
+    /// Sender-side unsend. Sets `retracted_at` on the event in memory,
+    /// appends a retract marker row to `events.jsonl` (audit log
+    /// stays append-only), and emits `MailboxEvent::Retracted` so UIs
+    /// drop the event from inbox views. Roll back the in-memory
+    /// retraction on persist failure to keep on-disk + memory state
+    /// in sync — symmetric with `post`'s rollback.
+    pub fn retract(
+        &self,
+        event_id: &str,
+        caller: &str,
+        app: Option<&AppHandle>,
+    ) -> Result<Event, RetractError> {
+        let now = now_ms();
+        let event = {
+            let mut store = self.inner.lock().expect("event store poisoned");
+            store.retract(event_id, caller, now)?
+        };
+        if let Some(paths) = self.paths.as_ref() {
+            if let Err(e) = append_retract_to(&paths.events, &event.id, now) {
+                let mut store = self.inner.lock().expect("event store poisoned");
+                // Roll back: the event still exists; just clear the flag.
+                if let Some(ev) = store.events_mut_find(&event.id) {
+                    ev.retracted_at = None;
+                }
+                return Err(RetractError::Persist(format!(
+                    "events.jsonl append failed at {}: {e}",
+                    paths.events.display()
+                )));
+            }
+        }
+        let evt = MailboxEvent::Retracted { event_id: event.id.clone() };
+        self.broadcast(&evt);
+        if let Some(app) = app {
+            let _ = app.emit(MAILBOX_EVENT, &evt);
+        }
+        Ok(event)
+    }
+
+    /// Recipient-side single-event hide. Sets `cleared_at` on the
+    /// (event_id, recipient) ReadState regardless of read state and
+    /// persists the read_state file. Returns true on state change.
+    pub fn dismiss(
+        &self,
+        event_id: &str,
+        recipient: &str,
+        app: Option<&AppHandle>,
+    ) -> bool {
+        let now = now_ms();
+        let patterns = self
+            .get(event_id)
+            .map(|e| self.patterns_for_event(recipient, &e))
+            .unwrap_or_default();
+        let changed = {
+            let mut store = self.inner.lock().expect("event store poisoned");
+            store.dismiss(event_id, recipient, &patterns, now)
+        };
+        if changed {
+            self.persist_read_state();
+            let evt = MailboxEvent::Dismissed {
+                event_id: event_id.to_string(),
+                recipient: recipient.to_string(),
+            };
+            self.broadcast(&evt);
+            if let Some(app) = app {
+                let _ = app.emit(MAILBOX_EVENT, &evt);
+            }
+        }
+        changed
     }
 
     pub fn list_for_recipient(
@@ -701,5 +772,80 @@ mod tests {
         mgr.post(task("hi"), None).unwrap();
         assert!(matches!(rx_a.recv().await.unwrap(), MailboxEvent::Posted { .. }));
         assert!(matches!(rx_b.recv().await.unwrap(), MailboxEvent::Posted { .. }));
+    }
+
+    // ── Retract / Dismiss ──────────────────────────────────────────
+
+    #[test]
+    fn retract_round_trips_through_disk_reload() {
+        let dir = tempdir().unwrap();
+        let (e, r) = paths(dir.path());
+        let mgr = MailboxManager::load_from(e.clone(), r.clone());
+        let event = mgr.post(task("ephemeral"), None).unwrap();
+        let retracted = mgr.retract(&event.id, "me", None).unwrap();
+        assert!(retracted.is_retracted());
+
+        // Reload from disk — retract marker must reapply.
+        let mgr2 = MailboxManager::load_from(e, r);
+        let inbox = mgr2.list_for_recipient("reviewer", false, ProjectFilter::Any);
+        assert!(inbox.is_empty(), "retracted event must not appear after reload");
+        let raw = mgr2.get(&event.id).unwrap();
+        assert!(raw.is_retracted());
+    }
+
+    #[tokio::test]
+    async fn retract_broadcasts_retracted_event() {
+        let mgr = MailboxManager::in_memory();
+        let event = mgr.post(task("oops"), None).unwrap();
+        let mut rx = mgr.subscribe_events();
+        mgr.retract(&event.id, "me", None).unwrap();
+        // Skip the (Posted) which was emitted before subscribe; the
+        // broadcaster only delivers events after subscribe_events.
+        let frame = rx.recv().await.unwrap();
+        match frame {
+            MailboxEvent::Retracted { event_id } => assert_eq!(event_id, event.id),
+            other => panic!("expected Retracted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dismiss_round_trips_through_disk_reload() {
+        let dir = tempdir().unwrap();
+        let (e, r) = paths(dir.path());
+        let mgr = MailboxManager::load_from(e.clone(), r.clone());
+        let event = mgr.post(task("noisy"), None).unwrap();
+        assert!(mgr.dismiss(&event.id, "reviewer", None));
+
+        let mgr2 = MailboxManager::load_from(e, r);
+        let inbox = mgr2.list_for_recipient("reviewer", false, ProjectFilter::Any);
+        assert!(
+            inbox.is_empty(),
+            "dismissed event must not reappear after reload"
+        );
+    }
+
+    #[tokio::test]
+    async fn dismiss_broadcasts_dismissed_event() {
+        let mgr = MailboxManager::in_memory();
+        let event = mgr.post(task("noise"), None).unwrap();
+        let mut rx = mgr.subscribe_events();
+        mgr.dismiss(&event.id, "reviewer", None);
+        let frame = rx.recv().await.unwrap();
+        match frame {
+            MailboxEvent::Dismissed { event_id, recipient } => {
+                assert_eq!(event_id, event.id);
+                assert_eq!(recipient, "reviewer");
+            }
+            other => panic!("expected Dismissed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn retract_rejected_after_ack() {
+        let mgr = MailboxManager::in_memory();
+        let event = mgr.post(task("x"), None).unwrap();
+        mgr.ack(&event.id, "reviewer", Some("done".into()), None);
+        let err = mgr.retract(&event.id, "me", None).unwrap_err();
+        assert!(matches!(err, RetractError::AlreadyAcked(_)));
     }
 }

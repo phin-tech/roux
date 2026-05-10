@@ -77,6 +77,24 @@ pub struct Event {
     /// `{ task, context, expectsReply }` but nothing is enforced.
     #[serde(default)]
     pub structured: Option<Value>,
+
+    // ── Lifecycle ───────────────────────────────────────────────────
+    /// Set when the sender retracts (unsends) this event before any
+    /// recipient has acked. Retracted events are filtered out of
+    /// recipient inbox views and the firehose but stay in
+    /// `events.jsonl` for audit (a retract marker row is applied at
+    /// load time). The sender's `mailbox sent` view still surfaces
+    /// them with this timestamp visible.
+    #[serde(default)]
+    pub retracted_at: Option<u64>,
+}
+
+impl Event {
+    /// True when the sender has unsent this event. Retracted events
+    /// are filtered out of inbox/firehose views.
+    pub fn is_retracted(&self) -> bool {
+        self.retracted_at.is_some()
+    }
 }
 
 /// Per-recipient mutable state for an event. Split from `Event` so a
@@ -165,6 +183,13 @@ pub enum MailboxEvent {
         recipient: String,
         subscription_id: String,
     },
+    /// Sender unsent the event. Recipients should drop it from their
+    /// inbox view; the row stays in `events.jsonl` for audit.
+    Retracted { event_id: String },
+    /// Recipient dismissed a single event from their inbox without
+    /// having read it (or after, doesn't matter). The event itself is
+    /// preserved; only this recipient's view loses it.
+    Dismissed { event_id: String, recipient: String },
 }
 
 /// Builder for new events. Validates at construction so callers get a
@@ -253,6 +278,7 @@ impl EventBuilder {
             subject: self.subject,
             body: self.body,
             structured: self.structured,
+            retracted_at: None,
         })
     }
 }

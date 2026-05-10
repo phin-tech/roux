@@ -29,6 +29,33 @@ pub enum PostError {
     Persist(String),
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum RetractError {
+    /// No event with that id exists in the store.
+    #[error("event not found: {0}")]
+    NotFound(String),
+    /// Only the original sender may retract a posted event. Anyone
+    /// else trying to unsend is blocked here.
+    #[error("only the sender ({event_sender:?}) can retract event {event_id}; got {caller:?}")]
+    NotSender { event_id: String, event_sender: Option<String>, caller: String },
+    /// At least one recipient has acked the event. Retraction is only
+    /// allowed before delivery is confirmed — once anyone acked, the
+    /// audit trail must reflect that they saw it.
+    #[error("event {0} already acked by a recipient; retraction blocked")]
+    AlreadyAcked(String),
+    /// The event was already retracted. Idempotent retract isn't
+    /// useful (no state changes) so the second call is rejected; the
+    /// manager surfaces this so callers don't double-emit Tauri events.
+    #[error("event {0} already retracted")]
+    AlreadyRetracted(String),
+    /// Disk persistence failed after the in-memory retract was
+    /// applied. The manager rolls the in-memory state back before
+    /// returning this so the UI doesn't observe a "Retracted" that
+    /// disappears on restart. Symmetric with `PostError::Persist`.
+    #[error("retract persistence failed: {0}")]
+    Persist(String),
+}
+
 /// Append-only event store with per-recipient read/ack state. Events are
 /// keyed by `id`; `ReadState` is keyed by `(recipient, event_id)` so a
 /// single broadcast event can have N independent cursors without
@@ -193,6 +220,9 @@ impl EventStore {
     ) -> Vec<Event> {
         self.events
             .iter()
+            // Retracted events disappear from recipient inboxes — the
+            // sender unsent them before any ack confirmed delivery.
+            .filter(|e| !e.is_retracted())
             .filter(|e| event_visible_to(e, recipient, subscribed_patterns))
             .filter(|e| project_filter.matches(e.project_id.as_deref()))
             .filter(|e| !self.is_cleared_by(&e.id, recipient))
@@ -202,22 +232,28 @@ impl EventStore {
     }
 
     /// Events on `topic` (exact match in Phase 2; glob support is a
-    /// follow-up). Includes events that also have `to` set.
+    /// follow-up). Includes events that also have `to` set. Retracted
+    /// events are filtered out — see `list_for_recipient`.
     pub fn list_for_topic(&self, topic: &str, project_filter: ProjectFilter<'_>) -> Vec<Event> {
         self.events
             .iter()
+            .filter(|e| !e.is_retracted())
             .filter(|e| e.topic.as_deref() == Some(topic))
             .filter(|e| project_filter.matches(e.project_id.as_deref()))
             .cloned()
             .collect()
     }
 
-    /// Firehose view: every event matching the project filter, newest first.
+    /// Firehose view: every event matching the project filter, newest
+    /// first. Retracted events are skipped — `list_sent_by` is the
+    /// only view that surfaces them, since the sender wants to know
+    /// what they unsent.
     pub fn list_all(&self, project_filter: ProjectFilter<'_>, limit: Option<usize>) -> Vec<Event> {
         let iter = self
             .events
             .iter()
             .rev()
+            .filter(|e| !e.is_retracted())
             .filter(|e| project_filter.matches(e.project_id.as_deref()));
         match limit {
             Some(n) => iter.take(n).cloned().collect(),
@@ -351,6 +387,7 @@ impl EventStore {
     ) -> usize {
         self.events
             .iter()
+            .filter(|e| !e.is_retracted())
             .filter(|e| event_visible_to(e, recipient, subscribed_patterns))
             .filter(|e| project_filter.matches(e.project_id.as_deref()))
             .filter(|e| !self.is_cleared_by(&e.id, recipient))
@@ -399,6 +436,91 @@ impl EventStore {
             }
         }
         cleared
+    }
+
+    /// Retract (unsend) `event_id` on behalf of `caller`. Only the
+    /// original sender may retract, and only before any recipient has
+    /// acked. Sets `retracted_at = Some(now_ms)` on the in-memory
+    /// event and returns the updated copy.
+    pub fn retract(
+        &mut self,
+        event_id: &str,
+        caller: &str,
+        now_ms: u64,
+    ) -> Result<Event, RetractError> {
+        // Look up the event first; emit a precise error before any
+        // mutation so the manager can persist or skip cleanly.
+        let any_acked = self
+            .read_state
+            .iter()
+            .any(|((_, eid), s)| eid == event_id && s.acked_at.is_some());
+        let event = self
+            .events
+            .iter_mut()
+            .find(|e| e.id == event_id)
+            .ok_or_else(|| RetractError::NotFound(event_id.to_string()))?;
+        if event.from.as_deref() != Some(caller) {
+            return Err(RetractError::NotSender {
+                event_id: event_id.to_string(),
+                event_sender: event.from.clone(),
+                caller: caller.to_string(),
+            });
+        }
+        if event.is_retracted() {
+            return Err(RetractError::AlreadyRetracted(event_id.to_string()));
+        }
+        if any_acked {
+            return Err(RetractError::AlreadyAcked(event_id.to_string()));
+        }
+        event.retracted_at = Some(now_ms);
+        Ok(event.clone())
+    }
+
+    /// Apply a retracted_at timestamp to an existing event without
+    /// any caller/ack checks. Used by the persistence loader to
+    /// replay retract marker rows. Returns true when the event
+    /// existed and was updated; false silently when the event isn't
+    /// in memory (the marker was for an evicted-from-RAM event).
+    pub fn apply_retract_marker(&mut self, event_id: &str, retracted_at: u64) -> bool {
+        if let Some(event) = self.events.iter_mut().find(|e| e.id == event_id) {
+            event.retracted_at = Some(retracted_at);
+            return true;
+        }
+        false
+    }
+
+    /// Mutable lookup by id. Used by the manager to roll back an
+    /// in-memory retract when the persistence write fails.
+    pub fn events_mut_find(&mut self, event_id: &str) -> Option<&mut Event> {
+        self.events.iter_mut().find(|e| e.id == event_id)
+    }
+
+    /// Dismiss `event_id` from `recipient`'s inbox view. Unlike
+    /// `clear_read` (which acts on a project-scoped batch of *read*
+    /// rows), this targets a single event regardless of read state.
+    /// `recipient_owns` still gatekeeps so a stranger can't fabricate
+    /// a ReadState row that `list_sent_by` would surface back to the
+    /// sender.
+    ///
+    /// Returns `true` when the cleared_at flag flipped (false when
+    /// already cleared, when the recipient doesn't own the event,
+    /// or when the event itself doesn't exist).
+    pub fn dismiss(
+        &mut self,
+        event_id: &str,
+        recipient: &str,
+        subscribed_patterns: &[String],
+        now_ms: u64,
+    ) -> bool {
+        if !self.recipient_owns(event_id, recipient, subscribed_patterns) {
+            return false;
+        }
+        let state = self.read_state_mut_or_insert(event_id, recipient);
+        if state.cleared_at.is_some() {
+            return false;
+        }
+        state.cleared_at = Some(now_ms);
+        true
     }
 }
 
@@ -846,5 +968,150 @@ mod tests {
         let events =
             store.list_for_recipient("auditor", &patterns, false, ProjectFilter::Any);
         assert!(events.is_empty());
+    }
+
+    // ── Retract (unsend) ───────────────────────────────────────────
+
+    #[test]
+    fn retract_sets_retracted_at_when_caller_is_sender() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", Some("me"), None);
+        let updated = store.retract("e1", "me", 5000).unwrap();
+        assert_eq!(updated.retracted_at, Some(5000));
+        assert!(store.get("e1").unwrap().is_retracted());
+    }
+
+    #[test]
+    fn retract_rejects_non_sender() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", Some("me"), None);
+        let err = store.retract("e1", "stranger", 5000).unwrap_err();
+        assert!(matches!(err, RetractError::NotSender { .. }));
+        assert!(!store.get("e1").unwrap().is_retracted());
+    }
+
+    #[test]
+    fn retract_rejects_already_acked() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", Some("me"), None);
+        // Reviewer acks → sender can no longer unsend.
+        store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, Some("done".into()), 1000);
+        let err = store.retract("e1", "me", 5000).unwrap_err();
+        assert!(matches!(err, RetractError::AlreadyAcked(_)));
+        assert!(!store.get("e1").unwrap().is_retracted());
+    }
+
+    #[test]
+    fn retract_idempotent_returns_already_retracted() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", Some("me"), None);
+        store.retract("e1", "me", 5000).unwrap();
+        let err = store.retract("e1", "me", 6000).unwrap_err();
+        assert!(matches!(err, RetractError::AlreadyRetracted(_)));
+    }
+
+    #[test]
+    fn retract_rejects_missing_event() {
+        let mut store = EventStore::new();
+        let err = store.retract("ghost", "me", 5000).unwrap_err();
+        assert!(matches!(err, RetractError::NotFound(_)));
+    }
+
+    #[test]
+    fn retracted_event_disappears_from_recipient_inbox() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "live", Some("me"), None);
+        post_to(&mut store, "e2", "reviewer", "to-retract", Some("me"), None);
+        store.retract("e2", "me", 5000).unwrap();
+        let inbox = store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Any);
+        let ids: Vec<_> = inbox.iter().map(|e| e.id.clone()).collect();
+        assert_eq!(ids, vec!["e1"]);
+    }
+
+    #[test]
+    fn retracted_event_excluded_from_unread_count_and_firehose() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "live", Some("me"), None);
+        post_to(&mut store, "e2", "reviewer", "to-retract", Some("me"), None);
+        store.retract("e2", "me", 5000).unwrap();
+        assert_eq!(store.unread_count("reviewer", NO_SUBSCRIPTIONS, ProjectFilter::Any), 1);
+        let firehose = store.list_all(ProjectFilter::Any, None);
+        let ids: Vec<_> = firehose.iter().map(|e| e.id.clone()).collect();
+        assert_eq!(ids, vec!["e1"]);
+    }
+
+    #[test]
+    fn list_sent_by_still_surfaces_retracted_for_sender() {
+        // The sender wants to know what they unsent. list_sent_by
+        // intentionally ignores the retract filter.
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "to-retract", Some("me"), None);
+        store.retract("e1", "me", 5000).unwrap();
+        let sent = store.list_sent_by("me", None, None);
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].0.is_retracted());
+    }
+
+    #[test]
+    fn apply_retract_marker_idempotently_sets_timestamp() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", Some("me"), None);
+        assert!(store.apply_retract_marker("e1", 5000));
+        assert_eq!(store.get("e1").unwrap().retracted_at, Some(5000));
+        // Marker for an evicted/missing event is a silent no-op.
+        assert!(!store.apply_retract_marker("ghost", 5000));
+    }
+
+    // ── Dismiss (per-event recipient-side hide) ────────────────────
+
+    #[test]
+    fn dismiss_sets_cleared_at_for_unread_event() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", None, None);
+        assert!(store.dismiss("e1", "reviewer", NO_SUBSCRIPTIONS, 5000));
+        assert!(store.read_state("e1", "reviewer").unwrap().is_cleared());
+    }
+
+    #[test]
+    fn dismissed_event_disappears_from_inbox() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", None, None);
+        post_to(&mut store, "e2", "reviewer", "y", None, None);
+        store.dismiss("e1", "reviewer", NO_SUBSCRIPTIONS, 5000);
+        let ids: Vec<_> = store
+            .list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Any)
+            .iter()
+            .map(|e| e.id.clone())
+            .collect();
+        assert_eq!(ids, vec!["e2"]);
+    }
+
+    #[test]
+    fn dismiss_rejects_non_recipient() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", None, None);
+        // qa is not the addressed recipient and has no subscription —
+        // can't fabricate a ReadState row.
+        assert!(!store.dismiss("e1", "qa", NO_SUBSCRIPTIONS, 5000));
+        assert!(store.read_state("e1", "qa").is_none());
+    }
+
+    #[test]
+    fn dismiss_idempotent_returns_false_on_repeat() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", None, None);
+        assert!(store.dismiss("e1", "reviewer", NO_SUBSCRIPTIONS, 5000));
+        assert!(!store.dismiss("e1", "reviewer", NO_SUBSCRIPTIONS, 6000));
+    }
+
+    #[test]
+    fn dismiss_works_after_read_without_overwriting_read_at() {
+        let mut store = EventStore::new();
+        post_to(&mut store, "e1", "reviewer", "x", None, None);
+        store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 1000);
+        assert!(store.dismiss("e1", "reviewer", NO_SUBSCRIPTIONS, 5000));
+        let state = store.read_state("e1", "reviewer").unwrap();
+        assert_eq!(state.read_at, Some(1000), "prior read_at preserved");
+        assert_eq!(state.cleared_at, Some(5000));
     }
 }

@@ -22,6 +22,10 @@ export interface Event {
   body: string;
   /** Free-form structured payload. May be any JSON value. */
   structured: unknown | null;
+  /** Set when the sender retracted the event. Recipients hide it from
+   *  inbox views; the sender's `mailbox sent` view still surfaces it
+   *  with this timestamp. */
+  retractedAt: number | null;
 }
 
 export interface ReadState {
@@ -88,6 +92,19 @@ export type MailboxEvent =
       eventId: string;
       recipient: string;
       subscriptionId: string;
+    }
+  | {
+      /** Sender unsent the event. UIs should drop it from inbox views;
+       *  the sender's "sent" view should mark it as retracted. */
+      kind: "retracted";
+      eventId: string;
+    }
+  | {
+      /** Recipient dismissed a single event from their inbox view.
+       *  Other recipients are unaffected. */
+      kind: "dismissed";
+      eventId: string;
+      recipient: string;
     };
 
 /**
