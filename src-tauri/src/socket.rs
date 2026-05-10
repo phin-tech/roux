@@ -1602,8 +1602,12 @@ async fn handle_alias_add_member(req: Request, app: &tauri::AppHandle) -> Respon
 }
 
 async fn handle_alias_remove_member(req: Request, app: &tauri::AppHandle) -> Response {
+    use roux_core::validate_user_alias_name;
     let alias = match args_str(&req, "alias") {
-        Some(s) => s.to_string(),
+        Some(s) => match validate_user_alias_name(s) {
+            Ok(canon) => canon,
+            Err(e) => return Response::err(e.to_string()),
+        },
         None => return Response::err("alias required"),
     };
     let pane_id = match args_str(&req, "pane_id").map(str::to_string).or_else(|| req.pane_id.clone()) {
@@ -1619,9 +1623,12 @@ async fn handle_alias_remove_member(req: Request, app: &tauri::AppHandle) -> Res
 }
 
 async fn handle_alias_mode(req: Request, app: &tauri::AppHandle) -> Response {
-    use roux_core::ConsumptionMode;
+    use roux_core::{validate_user_alias_name, ConsumptionMode};
     let alias = match args_str(&req, "alias") {
-        Some(s) => s.to_string(),
+        Some(s) => match validate_user_alias_name(s) {
+            Ok(canon) => canon,
+            Err(e) => return Response::err(e.to_string()),
+        },
         None => return Response::err("alias required"),
     };
     let mode = match args_str(&req, "mode") {

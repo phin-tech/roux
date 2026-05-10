@@ -35,6 +35,24 @@ pub enum GroupError {
     NotFound(String),
 }
 
+/// One result of `unbind_for_pane`: tells the manager which kind of
+/// `AliasEvent` to emit. `binding_cleared` covers the legacy
+/// `pane_id`/`session_id` reset; `membership_changed` covers a group
+/// member being dropped. Both can be true (a pane held the legacy
+/// binding AND was a group member); the manager prefers the more
+/// destructive `Unset` in that case so the frontend resets fields
+/// that were actually cleared.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneUnbindResult {
+    /// Snapshot of the alias AFTER the mutation — used by the manager
+    /// when emitting `AliasEvent::Set` for membership-only changes.
+    pub alias: AgentAlias,
+    /// True when the legacy `pane_id`/`session_id` binding was reset.
+    pub binding_cleared: bool,
+    /// True when this pane was removed from `alias.members`.
+    pub membership_changed: bool,
+}
+
 /// Bind request bag. Use `BindRequest::default()` then set the fields you
 /// care about; reduces multi-positional-arg call ergonomics to one struct
 /// literal per call site.
@@ -138,45 +156,50 @@ impl AliasStore {
 
     /// Release every binding currently tied to `pane_id`. Used when a
     /// pane is destroyed or renamed. `only_auto_claimed=true` limits the
-    /// release to bindings the system created automatically from the
-    /// pane's name; manual `roux alias claim` bindings are preserved.
+    /// release of legacy single-pane bindings to those the system
+    /// created automatically from the pane's name; manual
+    /// `roux alias claim` bindings are preserved. Group memberships
+    /// always release (membership is always explicit, never auto).
     ///
-    /// Returns `(canonical, project_id)` pairs for each released alias
-    /// so the caller can emit per-scope events. Without `project_id`,
-    /// project-scoped aliases couldn't be unbound on the frontend.
+    /// Returns one `PaneUnbindResult` per affected alias so the manager
+    /// can emit the right `AliasEvent` shape: legacy-binding clears go
+    /// out as `Unset`, while member-only changes go out as `Set` with
+    /// the updated alias (so the frontend's `members` list stays in
+    /// sync without nuking `paneId`/`sessionId`).
     pub fn unbind_for_pane(
         &mut self,
         pane_id: &str,
         only_auto_claimed: bool,
-    ) -> Vec<(String, Option<String>)> {
+    ) -> Vec<PaneUnbindResult> {
         let now = now_ms();
         let mut released = Vec::new();
         for entry in self.entries.iter_mut() {
             let was_legacy_pane = entry.pane_id.as_deref() == Some(pane_id);
-            // Group memberships are explicit ("manual"); the
-            // `only_auto_claimed` filter doesn't gate dropping a closed
-            // pane out of a group. Without this, a pane closing while a
-            // group held it would leave a dangling member that resolves
-            // to a dead pane.
             let was_member = entry.members.iter().any(|m| m.pane_id == pane_id);
             if !was_legacy_pane && !was_member {
                 continue;
             }
-            let mut changed = false;
+            let mut binding_cleared = false;
+            let mut membership_changed = false;
             if was_legacy_pane && (!only_auto_claimed || entry.auto_claimed) {
                 entry.session_id = None;
                 entry.pane_id = None;
                 entry.auto_claimed = false;
-                changed = true;
+                binding_cleared = true;
             }
             if was_member {
                 entry.members.retain(|m| m.pane_id != pane_id);
-                changed = true;
+                membership_changed = true;
             }
-            if changed {
-                entry.updated_at = now;
-                released.push((entry.alias.clone(), entry.project_id.clone()));
+            if !binding_cleared && !membership_changed {
+                continue;
             }
+            entry.updated_at = now;
+            released.push(PaneUnbindResult {
+                alias: entry.clone(),
+                binding_cleared,
+                membership_changed,
+            });
         }
         released
     }
@@ -693,7 +716,10 @@ mod tests {
             .unwrap();
         store.bind("other", req_pane("sess-1", "pane-B")).unwrap();
         let released = store.unbind_for_pane("pane-A", false);
-        assert_eq!(released, vec![("reviewer".to_string(), None)]);
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].alias.alias, "reviewer");
+        assert!(released[0].binding_cleared);
+        assert!(!released[0].membership_changed);
         assert!(store.get("reviewer", None).unwrap().pane_id.is_none());
         assert_eq!(store.get("other", None).unwrap().pane_id.as_deref(), Some("pane-B"));
     }
@@ -724,7 +750,9 @@ mod tests {
             )
             .unwrap();
         let released = store.unbind_for_pane("pane-A", true);
-        assert_eq!(released, vec![("auto".to_string(), None)]);
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].alias.alias, "auto");
+        assert!(released[0].binding_cleared);
         // manual binding survived
         assert_eq!(
             store.get("manual", None).unwrap().pane_id.as_deref(),
@@ -830,9 +858,31 @@ mod tests {
         // pane-A closes — only-auto-claimed flag must NOT gate group
         // removal (group membership is always explicit, not auto).
         let released = store.unbind_for_pane("pane-A", true);
-        assert_eq!(released, vec![("team".to_string(), None)]);
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].alias.alias, "team");
+        assert!(released[0].membership_changed);
+        assert!(!released[0].binding_cleared, "group-only change must not clear paneId");
         let entry = store.get("team", None).unwrap();
         assert_eq!(entry.members.len(), 1);
         assert_eq!(entry.members[0].pane_id, "pane-B");
+    }
+
+    /// When a pane held both a legacy single-pane binding AND was a
+    /// group member, both flags should fire so the manager can pick
+    /// the right `AliasEvent` shape.
+    #[test]
+    fn unbind_for_pane_reports_both_when_pane_was_legacy_and_member() {
+        let mut store = AliasStore::new();
+        store.bind("dual", req_pane("sess-1", "pane-A")).unwrap();
+        store.add_member("dual", None, "pane-A").unwrap();
+        store.add_member("dual", None, "pane-B").unwrap();
+
+        let released = store.unbind_for_pane("pane-A", false);
+        assert_eq!(released.len(), 1);
+        assert!(released[0].binding_cleared);
+        assert!(released[0].membership_changed);
+        let entry = store.get("dual", None).unwrap();
+        assert!(entry.pane_id.is_none());
+        assert_eq!(entry.members.len(), 1);
     }
 }

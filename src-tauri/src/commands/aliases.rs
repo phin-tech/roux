@@ -5,7 +5,7 @@
 //! the CLI / socket so settings-style UI work can land later without
 //! re-shaping the surface.
 
-use roux_core::{AgentAlias, ConsumptionMode};
+use roux_core::{validate_user_alias_name, AgentAlias, ConsumptionMode};
 use roux_lib::aliases::ProjectFilter;
 
 use crate::state::AppState;
@@ -56,9 +56,10 @@ pub async fn aliases_add_member(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<AgentAlias, String> {
+    let canonical = validate_user_alias_name(&alias).map_err(|e| e.to_string())?;
     state
         .alias_manager
-        .add_member(&alias, project_id.as_deref(), &pane_id, Some(&app))
+        .add_member(&canonical, project_id.as_deref(), &pane_id, Some(&app))
         .map_err(|e| e.to_string())
 }
 
@@ -70,9 +71,10 @@ pub async fn aliases_remove_member(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
+    let canonical = validate_user_alias_name(&alias).map_err(|e| e.to_string())?;
     state
         .alias_manager
-        .remove_member(&alias, project_id.as_deref(), &pane_id, Some(&app))
+        .remove_member(&canonical, project_id.as_deref(), &pane_id, Some(&app))
         .map_err(|e| e.to_string())
 }
 
@@ -84,6 +86,7 @@ pub async fn aliases_set_mode(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<AgentAlias, String> {
+    let canonical = validate_user_alias_name(&alias).map_err(|e| e.to_string())?;
     let parsed = match mode.as_str() {
         "competing" | "competingConsumer" | "competing-consumer" => {
             ConsumptionMode::CompetingConsumer
@@ -97,6 +100,6 @@ pub async fn aliases_set_mode(
     };
     state
         .alias_manager
-        .set_consumption_mode(&alias, project_id.as_deref(), parsed, Some(&app))
+        .set_consumption_mode(&canonical, project_id.as_deref(), parsed, Some(&app))
         .map_err(|e| e.to_string())
 }

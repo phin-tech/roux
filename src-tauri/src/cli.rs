@@ -1141,11 +1141,17 @@ fn main() {
                 }));
             }
             AliasAction::AddMember { alias, pane, project } => {
+                // Fail fast locally rather than burning a socket round-trip
+                // on a request the backend will reject for missing pane_id.
+                let pane_id = pane.or_else(get_pane_id).unwrap_or_else(|| {
+                    eprintln!(
+                        "Error: alias add-member requires --pane <id> or $ROUX_PANE_ID"
+                    );
+                    std::process::exit(2);
+                });
                 let mut args = serde_json::Map::new();
                 args.insert("alias".into(), Value::String(alias));
-                if let Some(p) = pane.or_else(get_pane_id) {
-                    args.insert("pane_id".into(), Value::String(p));
-                }
+                args.insert("pane_id".into(), Value::String(pane_id));
                 if let Some(p) = project {
                     args.insert("project_id".into(), Value::String(p));
                 }
@@ -1157,11 +1163,15 @@ fn main() {
                 }));
             }
             AliasAction::RemoveMember { alias, pane, project } => {
+                let pane_id = pane.or_else(get_pane_id).unwrap_or_else(|| {
+                    eprintln!(
+                        "Error: alias remove-member requires --pane <id> or $ROUX_PANE_ID"
+                    );
+                    std::process::exit(2);
+                });
                 let mut args = serde_json::Map::new();
                 args.insert("alias".into(), Value::String(alias));
-                if let Some(p) = pane.or_else(get_pane_id) {
-                    args.insert("pane_id".into(), Value::String(p));
-                }
+                args.insert("pane_id".into(), Value::String(pane_id));
                 if let Some(p) = project {
                     args.insert("project_id".into(), Value::String(p));
                 }
