@@ -82,6 +82,36 @@ The same alias name can exist independently in different projects:
   first (via `$ROUX_PROJECT_ID`), falling back to the global scope.
 - Cross-project addressing uses `<alias>@<project>` syntax.
 
+### Group aliases
+
+A group alias resolves to multiple panes — useful for fan-out scenarios
+like a shared review queue or a team that takes turns on mail.
+
+```sh
+roux alias add-member reviewers --pane $ROUX_PANE_ID    # join the group
+roux alias add-member reviewers --pane <other-pane>     # add a teammate
+roux alias remove-member reviewers --pane <pane>        # leave the group
+roux alias mode reviewers competing                     # work-queue (default)
+roux alias mode reviewers broadcast                     # see note below
+```
+
+`roux alias get <name>` shows the members and current mode. `add-member`
+auto-creates the alias if it doesn't exist.
+
+**Consumption modes** govern how mail addressed to the group is
+distributed:
+
+- **`competing`** *(V1 default)*: first member to ack the mail claims
+  it; subsequent members no longer see it as unread. Equivalent to a
+  work queue — everyone polls the same inbox, the first responder wins.
+- **`broadcast`**: declared in the schema for forward-compat, but in V1
+  it currently behaves the same as `competing`. True per-member ReadState
+  (where each member acks independently) is a follow-up.
+
+When a pane closes, it's automatically removed from any groups it was a
+member of (queued mail addressed to the alias persists for the
+remaining members).
+
 ## Mailbox
 
 Direct addressed mail with per-recipient read/ack state.

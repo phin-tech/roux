@@ -263,6 +263,9 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "alias-list" => handle_alias_list(req, app).await,
         "alias-get" => handle_alias_get(req, app).await,
         "alias-whoami" => handle_alias_whoami(req, app).await,
+        "alias-add-member" => handle_alias_add_member(req, app).await,
+        "alias-remove-member" => handle_alias_remove_member(req, app).await,
+        "alias-mode" => handle_alias_mode(req, app).await,
         "mailbox-post" => handle_mailbox_post(req, app).await,
         "mailbox-peek" => handle_mailbox_peek(req, app).await,
         "mailbox-read" => handle_mailbox_read(req, app).await,
@@ -1571,6 +1574,79 @@ async fn handle_alias_whoami(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
     let aliases = state.alias_manager.whoami(&session_id);
     Response::success(serde_json::to_value(aliases).unwrap_or_default())
+}
+
+async fn handle_alias_add_member(req: Request, app: &tauri::AppHandle) -> Response {
+    use roux_core::validate_user_alias_name;
+    let alias = match args_str(&req, "alias") {
+        Some(s) => match validate_user_alias_name(s) {
+            Ok(canon) => canon,
+            Err(e) => return Response::err(e.to_string()),
+        },
+        None => return Response::err("alias required"),
+    };
+    let pane_id = match args_str(&req, "pane_id").map(str::to_string).or_else(|| req.pane_id.clone()) {
+        Some(p) => p,
+        None => {
+            return Response::err(
+                "pane_id required (call from a pane, or pass args.pane_id)",
+            )
+        }
+    };
+    let project_id = args_str(&req, "project_id").map(str::to_string);
+    let state: tauri::State<AppState> = app.state();
+    match state.alias_manager.add_member(&alias, project_id.as_deref(), &pane_id, Some(app)) {
+        Ok(a) => Response::success(serde_json::to_value(a).unwrap_or_default()),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_alias_remove_member(req: Request, app: &tauri::AppHandle) -> Response {
+    let alias = match args_str(&req, "alias") {
+        Some(s) => s.to_string(),
+        None => return Response::err("alias required"),
+    };
+    let pane_id = match args_str(&req, "pane_id").map(str::to_string).or_else(|| req.pane_id.clone()) {
+        Some(p) => p,
+        None => return Response::err("pane_id required"),
+    };
+    let project_id = args_str(&req, "project_id").map(str::to_string);
+    let state: tauri::State<AppState> = app.state();
+    match state.alias_manager.remove_member(&alias, project_id.as_deref(), &pane_id, Some(app)) {
+        Ok(removed) => Response::success(serde_json::json!({ "removed": removed })),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_alias_mode(req: Request, app: &tauri::AppHandle) -> Response {
+    use roux_core::ConsumptionMode;
+    let alias = match args_str(&req, "alias") {
+        Some(s) => s.to_string(),
+        None => return Response::err("alias required"),
+    };
+    let mode = match args_str(&req, "mode") {
+        Some("competing") | Some("competingConsumer") | Some("competing-consumer") => {
+            ConsumptionMode::CompetingConsumer
+        }
+        Some("broadcast") => ConsumptionMode::Broadcast,
+        Some(other) => {
+            return Response::err(format!(
+                "invalid mode '{other}'; expected 'competing' or 'broadcast'"
+            ))
+        }
+        None => return Response::err("mode required"),
+    };
+    let project_id = args_str(&req, "project_id").map(str::to_string);
+    let state: tauri::State<AppState> = app.state();
+    match state.alias_manager.set_consumption_mode(
+        &alias,
+        project_id.as_deref(),
+        mode,
+        Some(app),
+    ) {
+        Ok(a) => Response::success(serde_json::to_value(a).unwrap_or_default()),
+        Err(e) => Response::err(e.to_string()),
+    }
 }
 
 // ---------------------------------------------------------------------------

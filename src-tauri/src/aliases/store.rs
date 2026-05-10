@@ -1,4 +1,4 @@
-use roux_core::AgentAlias;
+use roux_core::{AgentAlias, AliasMember, ConsumptionMode};
 
 /// Filter helper for list operations. `Any` matches every project; `Exact`
 /// matches one specific project (or global, when the inner value is `None`).
@@ -23,6 +23,16 @@ pub enum BindError {
         "alias '{canonical}' is already bound to {current}; pass force=true to override"
     )]
     AlreadyBoundElsewhere { canonical: String, current: String },
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum GroupError {
+    /// Adding/removing/configuring a group on an alias that doesn't
+    /// have a row in the store. The store doesn't auto-materialize on
+    /// these calls — the manager `ensure`s first if the user wants
+    /// implicit creation.
+    #[error("alias '{0}' not found in store")]
+    NotFound(String),
 }
 
 /// Bind request bag. Use `BindRequest::default()` then set the fields you
@@ -142,28 +152,47 @@ impl AliasStore {
         let now = now_ms();
         let mut released = Vec::new();
         for entry in self.entries.iter_mut() {
-            if entry.pane_id.as_deref() != Some(pane_id) {
+            let was_legacy_pane = entry.pane_id.as_deref() == Some(pane_id);
+            // Group memberships are explicit ("manual"); the
+            // `only_auto_claimed` filter doesn't gate dropping a closed
+            // pane out of a group. Without this, a pane closing while a
+            // group held it would leave a dangling member that resolves
+            // to a dead pane.
+            let was_member = entry.members.iter().any(|m| m.pane_id == pane_id);
+            if !was_legacy_pane && !was_member {
                 continue;
             }
-            if only_auto_claimed && !entry.auto_claimed {
-                continue;
+            let mut changed = false;
+            if was_legacy_pane && (!only_auto_claimed || entry.auto_claimed) {
+                entry.session_id = None;
+                entry.pane_id = None;
+                entry.auto_claimed = false;
+                changed = true;
             }
-            entry.session_id = None;
-            entry.pane_id = None;
-            entry.auto_claimed = false;
-            entry.updated_at = now;
-            released.push((entry.alias.clone(), entry.project_id.clone()));
+            if was_member {
+                entry.members.retain(|m| m.pane_id != pane_id);
+                changed = true;
+            }
+            if changed {
+                entry.updated_at = now;
+                released.push((entry.alias.clone(), entry.project_id.clone()));
+            }
         }
         released
     }
 
-    /// Aliases currently bound to the given pane. Typically zero or one
-    /// in practice (auto-claim binds a single name from the pane's name),
-    /// but the API returns a Vec because manual claims can stack.
+    /// Aliases currently bound to the given pane. Matches both legacy
+    /// single-pane bindings (`pane_id == pane`) and group memberships
+    /// (`members[..].pane_id == pane`). Typically zero or one in
+    /// practice for single-pane aliases; group aliases naturally
+    /// surface in this list for every member.
     pub fn find_for_pane(&self, pane_id: &str) -> Vec<&AgentAlias> {
         self.entries
             .iter()
-            .filter(|a| a.pane_id.as_deref() == Some(pane_id))
+            .filter(|a| {
+                a.pane_id.as_deref() == Some(pane_id)
+                    || a.members.iter().any(|m| m.pane_id == pane_id)
+            })
             .collect()
     }
 
@@ -184,6 +213,70 @@ impl AliasStore {
         self.entries
             .iter()
             .find(|a| a.alias == canonical && a.project_id.as_deref() == project_id)
+    }
+
+    /// Add `pane_id` to the alias's group membership list. Idempotent —
+    /// adding a pane that's already a member returns the alias unchanged.
+    /// Creates no new alias rows; the manager's `ensure` is responsible
+    /// for that.
+    pub fn add_member(
+        &mut self,
+        canonical: &str,
+        project_id: Option<&str>,
+        pane_id: &str,
+    ) -> Result<AgentAlias, GroupError> {
+        let now = now_ms();
+        let entry = self
+            .find_mut(canonical, project_id)
+            .ok_or_else(|| GroupError::NotFound(canonical.to_string()))?;
+        if entry.members.iter().any(|m| m.pane_id == pane_id) {
+            return Ok(entry.clone());
+        }
+        entry.members.push(AliasMember { pane_id: pane_id.to_string(), joined_at: now });
+        entry.updated_at = now;
+        Ok(entry.clone())
+    }
+
+    /// Remove `pane_id` from the alias's members. Returns whether the
+    /// pane was a member (false if the alias exists but the pane wasn't
+    /// in its members; `NotFound` if the alias doesn't exist).
+    pub fn remove_member(
+        &mut self,
+        canonical: &str,
+        project_id: Option<&str>,
+        pane_id: &str,
+    ) -> Result<bool, GroupError> {
+        let now = now_ms();
+        let entry = self
+            .find_mut(canonical, project_id)
+            .ok_or_else(|| GroupError::NotFound(canonical.to_string()))?;
+        let before = entry.members.len();
+        entry.members.retain(|m| m.pane_id != pane_id);
+        let removed = entry.members.len() != before;
+        if removed {
+            entry.updated_at = now;
+        }
+        Ok(removed)
+    }
+
+    /// Set the consumption mode on the alias. Mode is stored regardless
+    /// of whether the alias currently has any members — V1 allows the
+    /// caller to configure the mode before adding members.
+    pub fn set_consumption_mode(
+        &mut self,
+        canonical: &str,
+        project_id: Option<&str>,
+        mode: ConsumptionMode,
+    ) -> Result<AgentAlias, GroupError> {
+        let now = now_ms();
+        let entry = self
+            .find_mut(canonical, project_id)
+            .ok_or_else(|| GroupError::NotFound(canonical.to_string()))?;
+        if entry.consumption_mode != mode {
+            entry.consumption_mode = mode;
+            entry.updated_at = now;
+        }
+        Ok(entry.clone())
     }
 
     /// All entries matching `canonical` regardless of project scope. Used
@@ -646,5 +739,100 @@ mod tests {
         store.bind("builder", req_pane("s", "pane-B")).unwrap();
         let mine: Vec<_> = store.find_for_pane("pane-A").iter().map(|a| a.alias.clone()).collect();
         assert_eq!(mine, vec!["reviewer"]);
+    }
+
+    // ── Group aliases ───────────────────────────────────────────────
+
+    #[test]
+    fn add_member_creates_no_alias_when_missing() {
+        let mut store = AliasStore::new();
+        let err = store.add_member("ghost", None, "pane-A").unwrap_err();
+        assert!(matches!(err, GroupError::NotFound(_)));
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn add_member_appends_pane_to_existing_alias() {
+        let mut store = AliasStore::new();
+        store.ensure("team", None);
+        store.add_member("team", None, "pane-A").unwrap();
+        store.add_member("team", None, "pane-B").unwrap();
+        let entry = store.get("team", None).unwrap();
+        let panes: Vec<&str> = entry.members.iter().map(|m| m.pane_id.as_str()).collect();
+        assert_eq!(panes, vec!["pane-A", "pane-B"]);
+    }
+
+    #[test]
+    fn add_member_is_idempotent() {
+        let mut store = AliasStore::new();
+        store.ensure("team", None);
+        store.add_member("team", None, "pane-A").unwrap();
+        store.add_member("team", None, "pane-A").unwrap();
+        assert_eq!(store.get("team", None).unwrap().members.len(), 1);
+    }
+
+    #[test]
+    fn remove_member_returns_false_when_not_present() {
+        let mut store = AliasStore::new();
+        store.ensure("team", None);
+        store.add_member("team", None, "pane-A").unwrap();
+        let removed = store.remove_member("team", None, "pane-Z").unwrap();
+        assert!(!removed);
+    }
+
+    #[test]
+    fn remove_member_drops_pane_from_members() {
+        let mut store = AliasStore::new();
+        store.ensure("team", None);
+        store.add_member("team", None, "pane-A").unwrap();
+        store.add_member("team", None, "pane-B").unwrap();
+        assert!(store.remove_member("team", None, "pane-A").unwrap());
+        let entry = store.get("team", None).unwrap();
+        assert_eq!(entry.members.len(), 1);
+        assert_eq!(entry.members[0].pane_id, "pane-B");
+    }
+
+    #[test]
+    fn set_consumption_mode_updates_field() {
+        let mut store = AliasStore::new();
+        store.ensure("team", None);
+        store
+            .set_consumption_mode("team", None, ConsumptionMode::Broadcast)
+            .unwrap();
+        assert_eq!(
+            store.get("team", None).unwrap().consumption_mode,
+            ConsumptionMode::Broadcast,
+        );
+    }
+
+    #[test]
+    fn find_for_pane_includes_group_members() {
+        let mut store = AliasStore::new();
+        store.ensure("team", None);
+        store.add_member("team", None, "pane-A").unwrap();
+        store.add_member("team", None, "pane-B").unwrap();
+
+        let aliases_for_a: Vec<_> = store
+            .find_for_pane("pane-A")
+            .iter()
+            .map(|a| a.alias.clone())
+            .collect();
+        assert_eq!(aliases_for_a, vec!["team"]);
+    }
+
+    #[test]
+    fn unbind_for_pane_drops_group_membership() {
+        let mut store = AliasStore::new();
+        store.ensure("team", None);
+        store.add_member("team", None, "pane-A").unwrap();
+        store.add_member("team", None, "pane-B").unwrap();
+
+        // pane-A closes — only-auto-claimed flag must NOT gate group
+        // removal (group membership is always explicit, not auto).
+        let released = store.unbind_for_pane("pane-A", true);
+        assert_eq!(released, vec![("team".to_string(), None)]);
+        let entry = store.get("team", None).unwrap();
+        assert_eq!(entry.members.len(), 1);
+        assert_eq!(entry.members[0].pane_id, "pane-B");
     }
 }

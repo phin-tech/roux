@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use roux_core::{AgentAlias, AliasEvent};
+use roux_core::{AgentAlias, AliasEvent, ConsumptionMode};
 use tauri::{AppHandle, Emitter};
 
 use super::persistence::{self, load_from_path, save_to_path};
-use super::store::{AliasStore, BindError, BindRequest, ProjectFilter};
+use super::store::{AliasStore, BindError, BindRequest, GroupError, ProjectFilter};
 
 /// Tauri event name emitted on every alias mutation.
 pub const ALIAS_EVENT: &str = "alias-event";
@@ -265,6 +265,74 @@ impl AliasManager {
     pub fn whoami(&self, session_id: &str) -> Vec<AgentAlias> {
         let store = self.inner.lock().expect("alias store poisoned");
         store.whoami(session_id)
+    }
+
+    /// Add `pane_id` to the group membership of `canonical`. Auto-
+    /// `ensure`s the alias if it doesn't exist (mirrors `bind`'s
+    /// auto-creation behavior). Persists + emits `AliasEvent::Set`.
+    pub fn add_member(
+        &self,
+        canonical: &str,
+        project_id: Option<&str>,
+        pane_id: &str,
+        app: Option<&AppHandle>,
+    ) -> Result<AgentAlias, GroupError> {
+        let alias = {
+            let mut store = self.inner.lock().expect("alias store poisoned");
+            // Auto-create row so callers don't have to chain `ensure`.
+            if store.get(canonical, project_id).is_none() {
+                store.ensure(canonical, project_id.map(String::from));
+            }
+            store.add_member(canonical, project_id, pane_id)?
+        };
+        self.persist();
+        if let Some(app) = app {
+            let _ = app.emit(ALIAS_EVENT, &AliasEvent::Set { alias: alias.clone() });
+        }
+        Ok(alias)
+    }
+
+    /// Remove `pane_id` from `canonical`'s membership. Returns `true`
+    /// when the pane was actually a member; `false` (no event) when it
+    /// wasn't. `NotFound` when the alias itself is missing.
+    pub fn remove_member(
+        &self,
+        canonical: &str,
+        project_id: Option<&str>,
+        pane_id: &str,
+        app: Option<&AppHandle>,
+    ) -> Result<bool, GroupError> {
+        let (changed, alias) = {
+            let mut store = self.inner.lock().expect("alias store poisoned");
+            let changed = store.remove_member(canonical, project_id, pane_id)?;
+            let alias = store.get(canonical, project_id).cloned();
+            (changed, alias)
+        };
+        if changed {
+            self.persist();
+            if let Some((app, alias)) = app.zip(alias) {
+                let _ = app.emit(ALIAS_EVENT, &AliasEvent::Set { alias });
+            }
+        }
+        Ok(changed)
+    }
+
+    pub fn set_consumption_mode(
+        &self,
+        canonical: &str,
+        project_id: Option<&str>,
+        mode: ConsumptionMode,
+        app: Option<&AppHandle>,
+    ) -> Result<AgentAlias, GroupError> {
+        let alias = {
+            let mut store = self.inner.lock().expect("alias store poisoned");
+            store.set_consumption_mode(canonical, project_id, mode)?
+        };
+        self.persist();
+        if let Some(app) = app {
+            let _ = app.emit(ALIAS_EVENT, &AliasEvent::Set { alias: alias.clone() });
+        }
+        Ok(alias)
     }
 
     fn persist(&self) {

@@ -5,7 +5,7 @@
 //! the CLI / socket so settings-style UI work can land later without
 //! re-shaping the surface.
 
-use roux_core::AgentAlias;
+use roux_core::{AgentAlias, ConsumptionMode};
 use roux_lib::aliases::ProjectFilter;
 
 use crate::state::AppState;
@@ -46,4 +46,57 @@ pub async fn aliases_whoami(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<AgentAlias>, String> {
     Ok(state.alias_manager.whoami(&session_id))
+}
+
+#[tauri::command]
+pub async fn aliases_add_member(
+    alias: String,
+    pane_id: String,
+    project_id: Option<String>,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<AgentAlias, String> {
+    state
+        .alias_manager
+        .add_member(&alias, project_id.as_deref(), &pane_id, Some(&app))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn aliases_remove_member(
+    alias: String,
+    pane_id: String,
+    project_id: Option<String>,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    state
+        .alias_manager
+        .remove_member(&alias, project_id.as_deref(), &pane_id, Some(&app))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn aliases_set_mode(
+    alias: String,
+    mode: String,
+    project_id: Option<String>,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<AgentAlias, String> {
+    let parsed = match mode.as_str() {
+        "competing" | "competingConsumer" | "competing-consumer" => {
+            ConsumptionMode::CompetingConsumer
+        }
+        "broadcast" => ConsumptionMode::Broadcast,
+        other => {
+            return Err(format!(
+                "invalid mode '{other}'; expected 'competing' or 'broadcast'"
+            ))
+        }
+    };
+    state
+        .alias_manager
+        .set_consumption_mode(&alias, project_id.as_deref(), parsed, Some(&app))
+        .map_err(|e| e.to_string())
 }
