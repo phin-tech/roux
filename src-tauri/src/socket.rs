@@ -270,6 +270,8 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "mailbox-peek" => handle_mailbox_peek(req, app).await,
         "mailbox-read" => handle_mailbox_read(req, app).await,
         "mailbox-ack" => handle_mailbox_ack(req, app).await,
+        "mailbox-retract" => handle_mailbox_retract(req, app).await,
+        "mailbox-dismiss" => handle_mailbox_dismiss(req, app).await,
         "mailbox-count" => handle_mailbox_count(req, app).await,
         "mailbox-clear" => handle_mailbox_clear(req, app).await,
         "mailbox-reply" => handle_mailbox_reply(req, app).await,
@@ -1885,6 +1887,39 @@ async fn handle_mailbox_ack(req: Request, app: &tauri::AppHandle) -> Response {
     };
     let result = args_str(&req, "result").map(String::from);
     let changed = state.mailbox_manager.ack(&event_id, &alias, result, Some(app));
+    Response::success(serde_json::json!({ "changed": changed }))
+}
+
+async fn handle_mailbox_retract(req: Request, app: &tauri::AppHandle) -> Response {
+    let event_id = match args_str(&req, "event_id") {
+        Some(s) => s.to_string(),
+        None => return Response::err("event_id required"),
+    };
+    let state: tauri::State<AppState> = app.state();
+    // Retract is a sender-side action: caller must be the alias that
+    // sent the event. Use `args.alias` if given, else the calling
+    // pane's bound alias.
+    let alias = match resolve_recipient_alias(&state, &req, args_str(&req, "alias")) {
+        Ok(a) => a,
+        Err(e) => return Response::err(e),
+    };
+    match state.mailbox_manager.retract(&event_id, &alias, Some(app)) {
+        Ok(event) => Response::success(serde_json::to_value(event).unwrap_or_default()),
+        Err(e) => Response::err(e.to_string()),
+    }
+}
+
+async fn handle_mailbox_dismiss(req: Request, app: &tauri::AppHandle) -> Response {
+    let event_id = match args_str(&req, "event_id") {
+        Some(s) => s.to_string(),
+        None => return Response::err("event_id required"),
+    };
+    let state: tauri::State<AppState> = app.state();
+    let alias = match resolve_recipient_alias(&state, &req, args_str(&req, "alias")) {
+        Ok(a) => a,
+        Err(e) => return Response::err(e),
+    };
+    let changed = state.mailbox_manager.dismiss(&event_id, &alias, Some(app));
     Response::success(serde_json::json!({ "changed": changed }))
 }
 

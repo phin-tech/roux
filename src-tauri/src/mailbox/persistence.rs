@@ -29,6 +29,23 @@ struct EventRowV1 {
     event: Event,
 }
 
+/// Append-only retract marker. Written when a sender unsends an
+/// event; the loader detects rows with `rowType: "retract"` and
+/// applies `retracted_at` to the matching event so the audit log
+/// stays append-only (we don't rewrite previously-written rows).
+#[derive(Debug, Serialize, Deserialize)]
+struct RetractRowV1 {
+    #[serde(rename = "schemaVersion", default = "default_schema_version")]
+    schema_version: u32,
+    /// Tag used by the loader to disambiguate from event rows.
+    #[serde(rename = "rowType")]
+    row_type: String,
+    #[serde(rename = "eventId")]
+    event_id: String,
+    #[serde(rename = "retractedAt")]
+    retracted_at: u64,
+}
+
 fn default_schema_version() -> u32 {
     EVENT_SCHEMA_VERSION
 }
@@ -59,6 +76,10 @@ pub fn append_event(event: &Event) -> io::Result<()> {
     append_event_to(&events_path(), event)
 }
 
+pub fn append_retract(event_id: &str, retracted_at: u64) -> io::Result<()> {
+    append_retract_to(&events_path(), event_id, retracted_at)
+}
+
 pub fn save_read_state(states: &[ReadState]) -> io::Result<()> {
     save_read_state_to(&read_state_path(), states)
 }
@@ -67,6 +88,10 @@ pub fn save_read_state(states: &[ReadState]) -> io::Result<()> {
 /// (logged via stderr). Rows whose `schemaVersion` is greater than the
 /// version this binary understands are skipped at load time but retained
 /// on disk by virtue of being append-only.
+///
+/// Retract marker rows (`rowType: "retract"`) are detected here and
+/// applied to the matching event's `retracted_at` field — the audit log
+/// stays append-only and the in-memory store reflects the retraction.
 pub(crate) fn load_events_from(path: &Path) -> Vec<Event> {
     if !path.exists() {
         return Vec::new();
@@ -76,7 +101,8 @@ pub(crate) fn load_events_from(path: &Path) -> Vec<Event> {
         Err(_) => return Vec::new(),
     };
     let reader = BufReader::new(file);
-    let mut out = Vec::new();
+    let mut events: Vec<Event> = Vec::new();
+    let mut retracts: Vec<(String, u64)> = Vec::new();
     for (lineno, line) in reader.lines().enumerate() {
         let Ok(line) = line else { continue };
         if line.trim().is_empty() {
@@ -105,8 +131,21 @@ pub(crate) fn load_events_from(path: &Path) -> Vec<Event> {
             );
             continue;
         }
+        // Retract marker — collect; apply after all events are loaded.
+        if value.get("rowType").and_then(|v| v.as_str()) == Some("retract") {
+            match serde_json::from_value::<RetractRowV1>(value) {
+                Ok(row) => retracts.push((row.event_id, row.retracted_at)),
+                Err(e) => {
+                    eprintln!(
+                        "[roux] events.jsonl:{}: malformed retract row: {e}",
+                        lineno + 1
+                    );
+                }
+            }
+            continue;
+        }
         match serde_json::from_value::<EventRowV1>(value) {
-            Ok(row) => out.push(row.event),
+            Ok(row) => events.push(row.event),
             Err(e) => {
                 eprintln!(
                     "[roux] events.jsonl:{}: row failed to deserialize: {e}",
@@ -115,7 +154,19 @@ pub(crate) fn load_events_from(path: &Path) -> Vec<Event> {
             }
         }
     }
-    out
+    // Apply retract markers. Order matters: events with multiple
+    // markers (shouldn't happen in normal use, but defensive) take
+    // the most recent timestamp.
+    for (id, at) in retracts {
+        if let Some(e) = events.iter_mut().find(|e| e.id == id) {
+            // Earliest retract wins — the first retract is the
+            // authoritative one; later duplicates are redundant.
+            if e.retracted_at.is_none() {
+                e.retracted_at = Some(at);
+            }
+        }
+    }
+    events
 }
 
 pub(crate) fn append_event_to(path: &Path, event: &Event) -> io::Result<()> {
@@ -123,6 +174,26 @@ pub(crate) fn append_event_to(path: &Path, event: &Event) -> io::Result<()> {
         fs::create_dir_all(parent)?;
     }
     let row = EventRowV1 { schema_version: EVENT_SCHEMA_VERSION, event: event.clone() };
+    let json = serde_json::to_string(&row)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(file, "{}", json)?;
+    Ok(())
+}
+
+pub(crate) fn append_retract_to(
+    path: &Path,
+    event_id: &str,
+    retracted_at: u64,
+) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let row = RetractRowV1 {
+        schema_version: EVENT_SCHEMA_VERSION,
+        row_type: "retract".to_string(),
+        event_id: event_id.to_string(),
+        retracted_at,
+    };
     let json = serde_json::to_string(&row)?;
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(file, "{}", json)?;
@@ -303,5 +374,57 @@ mod tests {
         let path = dir.path().join("nested").join("read_state.json");
         save_read_state_to(&path, &[]).unwrap();
         assert!(path.exists());
+    }
+
+    // ── Retract marker rows ────────────────────────────────────────
+
+    #[test]
+    fn append_retract_then_load_applies_retracted_at() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        append_event_to(&path, &sample_event("e1", "x")).unwrap();
+        append_retract_to(&path, "e1", 9999).unwrap();
+        let loaded = load_events_from(&path);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].retracted_at, Some(9999));
+    }
+
+    #[test]
+    fn retract_marker_for_missing_event_is_silent_noop() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        append_event_to(&path, &sample_event("e1", "x")).unwrap();
+        // Marker references an event that never existed (or was
+        // evicted). Loader doesn't fail; just doesn't apply.
+        append_retract_to(&path, "ghost", 5000).unwrap();
+        let loaded = load_events_from(&path);
+        assert_eq!(loaded.len(), 1);
+        assert!(loaded[0].retracted_at.is_none());
+    }
+
+    #[test]
+    fn earliest_retract_wins_when_duplicated() {
+        // Defensive: if two retract markers somehow appear for the
+        // same id (e.g. corruption, ill-behaved external editor), the
+        // first one is authoritative.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        append_event_to(&path, &sample_event("e1", "x")).unwrap();
+        append_retract_to(&path, "e1", 1000).unwrap();
+        append_retract_to(&path, "e1", 9000).unwrap();
+        let loaded = load_events_from(&path);
+        assert_eq!(loaded[0].retracted_at, Some(1000));
+    }
+
+    #[test]
+    fn append_retract_writes_row_type_tag() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        append_retract_to(&path, "e1", 5).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(raw.trim()).unwrap();
+        assert_eq!(parsed["rowType"], "retract");
+        assert_eq!(parsed["eventId"], "e1");
+        assert_eq!(parsed["retractedAt"], 5);
     }
 }

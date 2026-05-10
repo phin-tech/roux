@@ -20,8 +20,10 @@
   } from "$lib/stores/subscriptions";
   import {
     mailboxDeliverToPane,
+    mailboxDismiss,
     mailboxListForRecipient,
     mailboxReadState,
+    mailboxRetract,
   } from "$lib/tauri";
   import type {
     AgentAlias,
@@ -246,6 +248,35 @@
 
   async function handleClearRead() {
     await clearReadFor(selectedAlias);
+  }
+
+  async function handleDismiss(eventId: string) {
+    try {
+      await mailboxDismiss(eventId, selectedAlias);
+    } catch (err) {
+      // Mirrors handleDeliver's error-surface pattern for consistency.
+      deliverError = `Dismiss failed: ${String(err)}`;
+    }
+  }
+
+  let retractError = $state<string | null>(null);
+  let retractingId = $state<string | null>(null);
+
+  async function handleRetract(event: MailboxEventPayload) {
+    if (retractingId) return;
+    if (!event.from) {
+      retractError = "Cannot retract — event has no sender alias.";
+      return;
+    }
+    retractingId = event.id;
+    retractError = null;
+    try {
+      await mailboxRetract(event.id, event.from);
+    } catch (err) {
+      retractError = String(err);
+    } finally {
+      retractingId = null;
+    }
   }
 
   async function handleSubscribe(): Promise<void> {
@@ -543,6 +574,11 @@
                 onclick={() => handleAck(e.id)}
                 disabled={isAcked}
               >ack</button>
+              <button
+                class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
+                onclick={() => handleDismiss(e.id)}
+                title="Hide this event from your inbox view. The event itself is preserved; other recipients keep seeing it."
+              >dismiss</button>
               {#if recipientHasPane(e.to, e.projectId)}
                 <button
                   class="cursor-pointer rounded border border-accent-dim/60 bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent hover:bg-accent/20 disabled:opacity-50"
@@ -611,10 +647,25 @@
             <p class="truncate text-[11px] text-text-secondary">
               {e.subject ?? e.body}
             </p>
+            {#if e.retractedAt != null}
+              <span class="text-[9px] text-text-muted/70 italic">retracted</span>
+            {:else if e.from === "me"}
+              <button
+                class="self-start cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0 text-[9px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
+                onclick={() => handleRetract(e)}
+                disabled={retractingId === e.id}
+                title="Unsend this event. Allowed only if no recipient has acked yet."
+              >{retractingId === e.id ? "unsending…" : "unsend"}</button>
+            {/if}
           </article>
         {/each}
       {/if}
     </div>
+    {#if retractError}
+      <div class="shrink-0 border-t border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300">
+        {retractError}
+      </div>
+    {/if}
   {:else}
     <!-- Subscriptions: list + create form. The list updates live via
          the `subscription-event` Tauri channel; mutations here go through

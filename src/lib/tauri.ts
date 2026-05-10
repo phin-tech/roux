@@ -1481,6 +1481,30 @@ export async function mailboxClearRead(recipient: string): Promise<number> {
 }
 
 /**
+ * Sender-side unsend. Sets retracted_at on the event so recipients drop
+ * it from their inbox views. Allowed only when no recipient has acked
+ * yet — once anyone confirmed delivery the audit trail is preserved.
+ */
+export async function mailboxRetract(
+  eventId: string,
+  sender: string,
+): Promise<MailboxEventPayload> {
+  return invoke("mailbox_retract", { eventId, sender });
+}
+
+/**
+ * Recipient-side single-event hide. Sets cleared_at on the
+ * (eventId, recipient) ReadState regardless of read state. The event
+ * itself is preserved; only this recipient's view loses it.
+ */
+export async function mailboxDismiss(
+  eventId: string,
+  recipient: string,
+): Promise<boolean> {
+  return invoke("mailbox_dismiss", { eventId, recipient });
+}
+
+/**
  * Type a mailbox event's body into the recipient's pane (plus trailing CR
  * so Claude/Codex see it as submitted input). Backend looks up
  * recipient → alias → pane_id → pty_id and writes via the existing PTY

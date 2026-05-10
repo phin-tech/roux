@@ -204,6 +204,29 @@ pub async fn mailbox_clear_read(
     ) as u32)
 }
 
+#[tauri::command]
+pub async fn mailbox_retract(
+    event_id: String,
+    sender: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Event, String> {
+    state
+        .mailbox_manager
+        .retract(&event_id, &sender, Some(&app))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn mailbox_dismiss(
+    event_id: String,
+    recipient: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    Ok(state.mailbox_manager.dismiss(&event_id, &recipient, Some(&app)))
+}
+
 /// Deliver a mailbox event to the recipient's pane by writing the body
 /// (plus a trailing CR) into its PTY. Acks the event with a "delivered
 /// via UI" marker so the sender's `mailbox sent` view shows it landed.

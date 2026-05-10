@@ -178,6 +178,34 @@ roux mailbox sent --to reviewer       # only stuff I sent to reviewer
 Each row pairs the event with the recipient's read/ack state, so you can
 tell whether the reviewer saw your mail and what they did with it.
 
+### Unsend (retract)
+
+```sh
+roux mailbox unsend <event_id>        # default: --alias = my pane's alias
+roux mailbox unsend <event_id> --alias me
+```
+
+Marks the event as retracted: it disappears from recipient inbox views
+and the firehose. Allowed only **before any recipient has acked** —
+once anyone confirmed delivery, retraction is rejected so the audit
+trail stays honest. Your `mailbox sent` view still surfaces retracted
+events with the `retractedAt` timestamp visible.
+
+The events log is append-only; retraction is recorded as a marker row
+in `events.jsonl` and applied to the event at load time.
+
+### Dismiss (recipient-side hide)
+
+```sh
+roux mailbox dismiss <event_id>       # default: --alias = my pane's alias
+```
+
+Hides a single event from your inbox view (read or unread). The event
+itself is preserved; other recipients keep seeing it. Use this when an
+agent has been chatty or you want to drop one specific item without
+clearing your whole read backlog. The Mailbox panel exposes this as a
+`dismiss` button on each inbox row.
+
 ## Bus
 
 When you want to publish "this happened" without addressing a specific
