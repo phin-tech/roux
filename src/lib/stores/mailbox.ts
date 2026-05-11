@@ -261,3 +261,65 @@ export async function clearReadFor(recipient: string): Promise<number> {
 export function getEventSnapshot(id: string): MailboxEventPayload | undefined {
   return get(events).find((e) => e.id === id);
 }
+
+// ── Threading ──────────────────────────────────────────────────────────────
+
+/**
+ * One thread in the inbox view. A thread groups events sharing the same
+ * `correlationId`; events without a correlation are 1-event threads
+ * (visually identical to a flat row).
+ *
+ * Resolution rules:
+ * - The root is the event whose `id === correlationId` (the original
+ *   message that seeded the thread). If that event isn't in the
+ *   provided slice (clipped, dismissed, retracted) the earliest event
+ *   in the group becomes the visual root.
+ * - Replies are sorted oldest → newest so the conversation reads
+ *   top-to-bottom.
+ */
+export interface MailboxThread {
+  /** Stable id for keyed rendering. Equals `correlationId` when set,
+   *  else the singleton's event id. */
+  id: string;
+  root: MailboxEventPayload;
+  replies: MailboxEventPayload[];
+}
+
+/**
+ * Group a flat event list into threads by `correlationId`. Threads are
+ * ordered by their root's `createdAt` ascending, matching the flat
+ * drain order ("oldest first") the inbox already used. Pure function;
+ * exported so it can be unit-tested without a Tauri runtime.
+ */
+export function groupIntoThreads(
+  events: MailboxEventPayload[],
+): MailboxThread[] {
+  const buckets = new Map<string, MailboxEventPayload[]>();
+  for (const e of events) {
+    const key = e.correlationId ?? e.id;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(e);
+    else buckets.set(key, [e]);
+  }
+
+  const threads: MailboxThread[] = [];
+  for (const [key, group] of buckets) {
+    group.sort((a, b) => a.createdAt - b.createdAt);
+    // Prefer the event whose id matches the correlationId — that's
+    // the original. Fall back to the earliest visible event when the
+    // root isn't in this slice.
+    const rootIdx = group.findIndex((e) => e.id === key);
+    const root = rootIdx >= 0 ? group[rootIdx] : group[0];
+    const replies = group.filter((e) => e.id !== root.id);
+    threads.push({ id: key, root, replies });
+  }
+
+  // Stable thread order: oldest root first. Ties broken by id so the
+  // result is deterministic across hot reloads.
+  threads.sort((a, b) => {
+    const byTime = a.root.createdAt - b.root.createdAt;
+    if (byTime !== 0) return byTime;
+    return a.id.localeCompare(b.id);
+  });
+  return threads;
+}
