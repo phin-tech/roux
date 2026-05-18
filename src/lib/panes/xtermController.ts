@@ -123,6 +123,9 @@ class XtermTerminalController implements TerminalController {
   fit(): TerminalDimensions | null {
     this.fitAddon.fit();
     const dims = this.fitAddon.proposeDimensions();
+    if (dims) {
+      this.webglAddon?.clearTextureAtlas();
+    }
     return dims ? { cols: dims.cols, rows: dims.rows } : null;
   }
 

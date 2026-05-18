@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
     webglConstructor: vi.fn(),
     webglDispose: vi.fn(),
     webglOnContextLoss: vi.fn(),
+    webglClearTextureAtlas: vi.fn(),
     contextLossSubDispose: vi.fn(),
     nextWebglShouldThrow: false,
     lastWebglContextLossHandler: null as (() => void) | null,
@@ -103,6 +104,7 @@ vi.mock("@xterm/addon-webgl", () => ({
       throw new Error("WebGL unavailable");
     }
     this.dispose = mocks.webglDispose;
+    this.clearTextureAtlas = mocks.webglClearTextureAtlas;
     this.onContextLoss = (handler: () => void) => {
       mocks.lastWebglContextLossHandler = handler;
       mocks.webglOnContextLoss(handler);
@@ -122,6 +124,7 @@ beforeEach(() => {
   mocks.webglConstructor.mockClear();
   mocks.webglDispose.mockClear();
   mocks.webglOnContextLoss.mockClear();
+  mocks.webglClearTextureAtlas.mockClear();
   mocks.contextLossSubDispose.mockClear();
   mocks.lastWebglContextLossHandler = null;
   mocks.nextWebglShouldThrow = false;
@@ -149,6 +152,30 @@ describe("XtermTerminalController renderer setup", () => {
     expect(mocks.terminalOpen).toHaveBeenCalledWith(container);
     expect(raf).not.toHaveBeenCalled();
     expect(mocks.fitAddonFit).not.toHaveBeenCalled();
+  });
+
+  it("clears the WebGL texture atlas after a successful fit", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+    mocks.fitAddonProposeDimensions.mockReturnValue({ cols: 120, rows: 30 });
+
+    const controller = createXtermTerminalController();
+    const dims = controller.fit();
+
+    expect(dims).toEqual({ cols: 120, rows: 30 });
+    expect(mocks.fitAddonFit).toHaveBeenCalledTimes(1);
+    expect(mocks.webglClearTextureAtlas).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not clear the WebGL texture atlas when fit cannot propose dimensions", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+    mocks.fitAddonProposeDimensions.mockReturnValue(null);
+
+    const controller = createXtermTerminalController();
+    const dims = controller.fit();
+
+    expect(dims).toBeNull();
+    expect(mocks.fitAddonFit).toHaveBeenCalledTimes(1);
+    expect(mocks.webglClearTextureAtlas).not.toHaveBeenCalled();
   });
 
   it("loads WebglAddon when gpuAcceleration is 'on'", () => {
