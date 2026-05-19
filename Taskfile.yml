@@ -117,6 +117,10 @@ tasks:
   dev:install:
     desc: "Build and install the desktop app and CLI locally (unsigned, no updater artifacts)"
     cmds:
+      # Stage a placeholder externalBin so the first `cargo build --bin
+      # roux-cli` (inside prepare-cli) doesn't fail Tauri's build-script
+      # existence check on a clean checkout. See `cli:ensure-placeholder`.
+      - task: cli:ensure-placeholder
       - task: macos:prepare-cli
       - npm run tauri build -- -c '{"bundle":{"createUpdaterArtifacts":false}}'
       - |
@@ -132,6 +136,9 @@ tasks:
   build:
     desc: "Build the app locally (unsigned, no updater artifacts). Use task sign for release builds."
     cmds:
+      # See note in `dev:install`: ensure the placeholder before prepare-cli
+      # so a clean checkout can build roux-cli at all.
+      - task: cli:ensure-placeholder
       - task: bundle:prepare-cli
       - npm run tauri build -- -c '{"bundle":{"createUpdaterArtifacts":false}}'
 
@@ -238,6 +245,9 @@ tasks:
   sign:
     desc: "Build, sign, notarize, and staple the macOS app"
     cmds:
+      # See note in `dev:install`: ensure the placeholder before prepare-cli
+      # so a clean checkout can build roux-cli at all.
+      - task: cli:ensure-placeholder
       - task: macos:prepare-cli
       - |
         set -euo pipefail

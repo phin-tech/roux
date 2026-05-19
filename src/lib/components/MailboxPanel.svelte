@@ -194,6 +194,16 @@
     return $unreadByAlias.get(aliasKey(alias, projectId)) ?? 0;
   }
 
+  function handleAliasSelect(event: Event): void {
+    const selectedKey = (event.currentTarget as HTMLSelectElement).value;
+    const nextAlias = sortedAliases.find(
+      (a) => aliasKey(a.alias, a.projectId) === selectedKey,
+    );
+    if (!nextAlias) return;
+    selectedAlias = nextAlias.alias;
+    selectedProjectId = nextAlias.projectId;
+  }
+
   function formatRelative(ts: number): string {
     const secs = Math.floor((Date.now() - ts) / 1000);
     if (secs < 10) return "just now";
@@ -488,34 +498,32 @@
   {/if}
 
   {#if view === "mailbox"}
-    <!-- Alias selector strip -->
-    <div
-      class="flex shrink-0 gap-1 overflow-x-auto border-b border-border-subtle p-1"
-    >
-      {#each sortedAliases as a (a.alias + (a.projectId ?? ""))}
-        {@const u = unreadFor(a.alias, a.projectId)}
-        {@const isSelected =
-          selectedAlias === a.alias && selectedProjectId === a.projectId}
-        <button
-          class="flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-[11px] {isSelected
-            ? 'border-accent-dim bg-accent/15 text-text-primary'
-            : 'border-border-subtle bg-transparent text-text-muted hover:bg-bg-hover hover:text-text-primary'}"
-          onclick={() => {
-            selectedAlias = a.alias;
-            selectedProjectId = a.projectId;
-          }}
+    <div class="flex shrink-0 items-center gap-2 border-b border-border-subtle p-1.5">
+      {#if sortedAliases.length > 0}
+        <select
+          class="min-w-0 flex-1 rounded border border-border-subtle bg-bg-deep px-2 py-1 text-[11px] text-text-primary"
+          value={aliasKey(selectedAlias, selectedProjectId)}
+          onchange={handleAliasSelect}
+          aria-label="Mailbox alias"
         >
-          <span>{a.alias}</span>
-          {#if u > 0}
-            <span class="rounded bg-accent px-1 text-[9px] text-bg-deep">{u}</span>
-          {/if}
-          {#if a.projectId}
-            <span class="text-[9px] text-text-muted/70">@{a.projectId}</span>
-          {/if}
-        </button>
+          {#each sortedAliases as a (aliasKey(a.alias, a.projectId))}
+            {@const u = unreadFor(a.alias, a.projectId)}
+            {@const projectSuffix = a.projectId ? ` @${a.projectId}` : ""}
+            {@const unreadSuffix = u > 0 ? ` (${u} unread)` : ""}
+            <option value={aliasKey(a.alias, a.projectId)}>
+              {a.alias}{projectSuffix}{unreadSuffix}
+            </option>
+          {/each}
+        </select>
+        {@const selectedUnread = unreadFor(selectedAlias, selectedProjectId)}
+        {#if selectedUnread > 0}
+          <span class="shrink-0 rounded bg-accent px-1.5 py-0.5 text-[9px] text-bg-deep">
+            {selectedUnread}
+          </span>
+        {/if}
       {:else}
-        <span class="px-2 py-1 text-[11px] text-text-muted">No aliases</span>
-      {/each}
+        <span class="px-1 py-1 text-[11px] text-text-muted">No aliases</span>
+      {/if}
     </div>
 
     {#snippet eventCard(e: MailboxEventPayload, isReply: boolean)}
