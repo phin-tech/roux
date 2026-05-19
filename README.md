@@ -115,3 +115,9 @@ Or do signing and publishing together:
 ```bash
 task publish:op
 ```
+
+Publish the current prerelease docs alias after a prerelease tag exists:
+
+```bash
+task docs:prerelease VERSION=0.5.4-pre.1
+```

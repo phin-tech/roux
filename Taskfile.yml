@@ -565,6 +565,46 @@ tasks:
     cmds:
       - uv run --project docs mkdocs build --strict
 
+  docs:prerelease:
+    desc: "Publish prerelease docs to https://phin-tech.github.io/roux/pre-releases/. Usage: task docs:prerelease VERSION=0.5.4-pre.1 [SOURCE_REF=v0.5.4-pre.1]"
+    requires:
+      vars: [VERSION]
+    vars:
+      SOURCE_REF_ARG: '{{default "" .SOURCE_REF}}'
+    preconditions:
+      - sh: "command -v gh >/dev/null 2>&1"
+        msg: "GitHub CLI 'gh' is required"
+    cmds:
+      - |
+        set -euo pipefail
+        VERSION="{{.VERSION}}"
+        SOURCE_REF="{{.SOURCE_REF_ARG}}"
+        if [ -z "$SOURCE_REF" ]; then
+          SOURCE_REF="v${VERSION#v}"
+        fi
+
+        echo "Dispatching prerelease docs publish (VERSION=${VERSION}, SOURCE_REF=${SOURCE_REF})..."
+        DISPATCHED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        gh workflow run docs-prerelease.yml \
+          --ref main \
+          -f version="${VERSION}" \
+          -f source_ref="${SOURCE_REF}"
+        sleep 2
+        RUN_ID=$(gh run list \
+          --workflow=docs-prerelease.yml \
+          --event=workflow_dispatch \
+          --branch main \
+          --created ">${DISPATCHED_AT}" \
+          --limit=10 \
+          --json databaseId,createdAt \
+          --jq 'sort_by(.createdAt) | reverse | .[0].databaseId // ""')
+        if [ -z "${RUN_ID}" ] || [ "${RUN_ID}" = "null" ]; then
+          echo "Dispatched, but could not resolve the run ID. Check https://github.com/phin-tech/roux/actions" >&2
+          exit 0
+        fi
+        echo "Watching run ${RUN_ID}..."
+        gh run watch "${RUN_ID}" --exit-status
+
   docs:landing:
     desc: "Serve the retro landing page locally at http://127.0.0.1:8765/"
     dir: docs/landing

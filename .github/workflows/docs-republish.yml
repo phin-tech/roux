@@ -51,15 +51,16 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: docs/requirements.txt
+          enable-cache: true
+          cache-dependency-glob: docs/uv.lock
 
       - name: Install dependencies
-        run: pip install -r docs/requirements.txt
+        run: |
+          uv sync --project docs --frozen
+          echo "$GITHUB_WORKSPACE/docs/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Configure Git author
         run: |
@@ -69,7 +70,7 @@ jobs:
       - name: Fetch existing versioned docs
         run: |
           if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
-            git fetch origin gh-pages --depth=1
+            git fetch origin gh-pages:gh-pages --depth=1
           fi
 
       - name: Republish versioned docs
@@ -90,6 +91,26 @@ jobs:
           rm -rf site
           mkdir -p site
           git archive gh-pages | tar -x -C site
+
+      - name: Checkout primary site source
+        run: |
+          git fetch origin main --depth=1
+          git checkout --detach FETCH_HEAD
+
+      - name: Build primary docs site
+        run: mkdocs build --site-dir site/docs --strict
+
+      - name: Overlay landing site
+        run: |
+          cp -R docs/landing/. site/
+          VERSION_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -Ev '-' | head -n1 || true)"
+          if [[ -n "$VERSION_TAG" ]]; then
+            VERSION="${VERSION_TAG#v}"
+            sed -i \
+              -e "s|<span data-version-issue>LATEST</span>|<span data-version-issue>${VERSION}</span>|g" \
+              -e "s|<span data-version-tag>v0.LATEST</span>|<span data-version-tag>${VERSION_TAG}</span>|g" \
+              site/index.html
+          fi
 
       - name: Push gh-pages history
         run: git push origin gh-pages
