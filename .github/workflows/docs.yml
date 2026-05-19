@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.ref_type != 'tag' || !contains(github.ref_name, '-')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -40,6 +41,15 @@ jobs:
           uv sync --project docs --frozen
           echo "$GITHUB_WORKSPACE/docs/.venv/bin" >> $GITHUB_PATH
 
+      - name: Restore versioned docs
+        run: |
+          rm -rf site
+          mkdir -p site
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages --depth=1
+            git archive FETCH_HEAD | tar -x -C site
+          fi
+
       - name: Build docs
         run: mkdocs build --site-dir site/docs --strict
 
@@ -51,11 +61,11 @@ jobs:
 
           # Stamp the latest release version into the masthead (as the "issue
           # number") and the download link. On a tag push, use that tag;
-          # otherwise fall back to the most recent reachable tag.
+          # otherwise fall back to the most recent reachable stable tag.
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION_TAG="${GITHUB_REF_NAME}"
           else
-            VERSION_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            VERSION_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -Ev '-' | head -n1 || true)"
           fi
           if [[ -n "$VERSION_TAG" ]]; then
             VERSION="${VERSION_TAG#v}"

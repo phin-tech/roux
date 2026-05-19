@@ -312,7 +312,7 @@ When a pane is hosting an agent, Roux injects these:
 
 ## How agents discover the mailbox
 
-Roux ships a Claude Code [skill](../sessions.md#skills) (auto-installed at
+Roux ships a Claude Code skill (auto-installed at
 `~/.claude/skills/roux/SKILL.md`) that teaches agents:
 
 - `$ROUX_SESSION=1` ⇒ they're in Roux
