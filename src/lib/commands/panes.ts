@@ -21,6 +21,7 @@ import {
   type SpawnProfileRef,
 } from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
+import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
 import { spawnShell, spawnTask, listDocs, notificationsPush, listSessionPtys, killPty, setPtyName } from "$lib/tauri";
 import { attachPtyToPane } from "$lib/panes/attach";
 import { openCustomProfileEditor } from "$lib/stores/customProfileModal";
@@ -93,7 +94,12 @@ async function spawnShellPaneWithProfile(
   // already in the tree and the shell is alive, so we surface a
   // notification instead of tearing the pane down.
   try {
+    const appendSystemPrompt = await renderProjectPromptForSession(
+      session,
+      profile,
+    );
     await runProfileInPane(ptyId, profile, {
+      ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
       smolMachineName: session.smolMachineName ?? null,
     });
   } catch (e) {

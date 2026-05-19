@@ -8,7 +8,7 @@ import { log } from "$lib/logging";
 import { resolveProfileRef, type SpawnProfile, type SpawnProfileRef } from "./profiles";
 import { runProfileInPane } from "./profileRunner";
 import { spawnShell } from "$lib/tauri";
-import { getProjectPrompt } from "$lib/stores/projects";
+import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
 
 export interface RestoreSessionPanesOptions {
   initTerminal: (paneId: string) => void;
@@ -137,8 +137,12 @@ export async function restoreSessionPanes(
       }
       if (respawn.profile) {
         try {
+          const appendSystemPrompt = await renderProjectPromptForSession(
+            session,
+            respawn.profile,
+          );
           await runProfileInPane(respawn.ptyId, respawn.profile, {
-            appendSystemPrompt: getProjectPrompt(session.projectId),
+            ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
           });
         } catch (e) {
           log(`restoreSessionPanes(${session.id}): profile replay failed for ${d.id}: ${e}`);

@@ -11,7 +11,7 @@
   import { closePane } from "$lib/panes/actions";
   import { resolveProfileRef } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
-  import { getProjectPrompt } from "$lib/stores/projects";
+  import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
   import {
     resizeSession,
@@ -147,8 +147,11 @@
     if (!instance || !activeProfile) return;
     log(`Re-running profile "${activeProfile.id}" in pane ${paneId}`);
     try {
+      const appendSystemPrompt = session
+        ? await renderProjectPromptForSession(session, activeProfile)
+        : "";
       await runProfileInPane(instance.ptyId, activeProfile, {
-        appendSystemPrompt: getProjectPrompt(session?.projectId),
+        ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
         smolMachineName: session?.smolMachineName ?? null,
       });
     } catch (e) {

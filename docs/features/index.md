@@ -8,6 +8,7 @@ Roux is a terminal-first workspace for running agent sessions, shells, notes, wa
 - [Multiline Editor](editor.md) — docked terminal input editor with selection seeding, command corrections, and context chips.
 - [Sessions](sessions.md) — create, reconnect, archive, restore, and group agent workflows.
 - [Projects](projects.md) — group sessions across repos, save session blueprints, and inject project context.
+- [Project Prompt Templates](project-prompt-templates.md) — Minijinja variables for branch, worktree, model, and sibling-session context.
 - [Layouts](layouts.md) — start sessions from KDL templates and spawn profiles.
 - [Worktrees](worktrees.md) — manage isolated git checkouts for session work.
 - [Smol Machines](smol-machines.md) — run sessions inside local libkrun / KVM VMs for OS-level isolation.
