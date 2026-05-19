@@ -98,6 +98,11 @@ describe("project prompt template context", () => {
           name: "other-project",
           projectId: "proj-2",
         }),
+        session({
+          id: "s4",
+          name: "archived",
+          archived: true,
+        }),
       ],
     });
 
@@ -140,5 +145,23 @@ describe("project prompt template context", () => {
     });
     expect(ctx.model).toEqual({ name: null, family: "codex" });
     expect(ctx.other_sessions.map((s) => s.id)).toEqual(["s2"]);
+  });
+
+  it("treats branch-only blueprint previews as worktree sessions", () => {
+    const ctx = buildProjectPromptPreviewContext({
+      project: {
+        id: "proj-1",
+        name: "Template Vars",
+        repoRoots: ["/Users/sam/src/roux"],
+        contextPaths: [],
+      },
+      blueprint: blueprint({ worktreePath: null }),
+      profile: profile(),
+      settings: DEFAULT_SETTINGS,
+      sessions: [],
+    });
+
+    expect(ctx.session.worktree_path).toBe("/Users/sam/src/roux");
+    expect(ctx.session.is_worktree).toBe(true);
   });
 });

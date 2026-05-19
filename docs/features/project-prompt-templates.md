@@ -103,6 +103,6 @@ Project context:
 
 ## Errors
 
-Malformed templates block profile startup instead of sending raw template text to the agent. Use **Preview** before saving when adding loops or conditionals.
+Malformed templates and missing or misspelled variables block profile startup instead of sending raw template text to the agent. Use **Preview** before saving when adding loops, conditionals, or new variables.
 
 Changing a project prompt does not rewrite already-running agent commands. Spawn a new session, reconnect, or re-run the profile to use the updated template.

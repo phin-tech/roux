@@ -97,7 +97,7 @@ function sameProjectSessions(
 ): ProjectPromptTemplateSession[] {
   if (!projectId) return [];
   return sessions
-    .filter((s) => s.projectId === projectId && s.id !== excludeSessionId)
+    .filter((s) => s.projectId === projectId && s.id !== excludeSessionId && !s.archived)
     .map(sessionTemplateContext);
 }
 
@@ -150,6 +150,8 @@ export function buildProjectPromptPreviewContext({
     worktree_path: worktreePath,
     worktree_name: lastPathSegment(worktreePath),
     branch: blueprint?.branch ?? null,
+    // Project blueprints map a branch-only target to SessionTarget::NewWorktree
+    // when the session is created, so preview should expose worktree semantics.
     is_worktree: Boolean(blueprint?.branch || blueprint?.worktreePath),
     blueprint_id: blueprint?.id ?? null,
   };

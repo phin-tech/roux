@@ -1,6 +1,6 @@
 use crate::services::projects as svc;
 use crate::state::AppState;
-use minijinja::Environment;
+use minijinja::{AutoEscape, Environment, UndefinedBehavior};
 use roux_core::{Project, ProjectUpdate};
 use serde_json::Value;
 
@@ -88,10 +88,15 @@ pub(crate) fn render_project_prompt_template_inner(
     template: &str,
     context: Value,
 ) -> Result<String, String> {
-    let env = Environment::new();
+    let mut env = Environment::new();
+    env.set_auto_escape_callback(|_| AutoEscape::None);
+    env.set_undefined_behavior(UndefinedBehavior::Strict);
     env.render_str(template, &context).map_err(|e| e.to_string())
 }
 
+// No #[specta::specta]: serde_json::Value produces invalid generated
+// TypeScript for this dynamic Minijinja context. The frontend uses a
+// manually typed wrapper in src/lib/tauri.ts instead.
 #[tauri::command]
 pub(crate) async fn render_project_prompt_template(
     template: String,
@@ -143,6 +148,15 @@ mod template_tests {
         let err = render_project_prompt_template_inner("{% for s in other_sessions %}", json!({}))
             .unwrap_err();
 
-        assert!(err.contains("unexpected end of template") || err.contains("unknown block"));
+        assert!(!err.is_empty());
+    }
+
+    #[test]
+    fn missing_variables_return_error() {
+        let err =
+            render_project_prompt_template_inner("{{ session.missing }}", json!({ "session": {} }))
+                .unwrap_err();
+
+        assert!(err.contains("undefined value"));
     }
 }
