@@ -21,11 +21,20 @@ interface CreateTerminalControllerOptions {
   allowKeyboardEvent?: (event: KeyboardEvent) => boolean;
 }
 
+// Trailing-edge throttle for WebGL texture-atlas refreshes. Above one animation
+// frame so a streaming output burst never causes per-frame re-rasterization,
+// and sub-second so any glyph-atlas corruption reads as a brief flicker rather
+// than a stuck frame.
+const ATLAS_REFRESH_THROTTLE_MS = 250;
+
 class XtermTerminalController implements TerminalController {
   private readonly terminal: Terminal;
   private readonly fitAddon: FitAddon;
   private webglAddon: WebglAddon | null = null;
   private webglContextLossSub: { dispose(): void } | null = null;
+  private webglAtlasSub: { dispose(): void } | null = null;
+  private atlasRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private atlasRefreshPending = false;
   private watchDecorations: XtermWatchDecorationsHandle | null = null;
 
   constructor(options?: CreateTerminalControllerOptions) {
@@ -68,17 +77,48 @@ class XtermTerminalController implements TerminalController {
       const webgl = new WebglAddon();
       this.terminal.loadAddon(webgl);
       this.webglAddon = webgl;
+      // A new atlas page (allocation or merge) rewrites glyph page indices and
+      // UVs; cells outside the dirty range keep stale coordinates and render
+      // garbled. clearTextureAtlas() forces a full atlas + model rebuild, so
+      // refresh (throttled) whenever the atlas grows — this is decoupled from
+      // resize, which is why streaming output could corrupt without recovery.
+      this.webglAtlasSub = webgl.onAddTextureAtlasCanvas(() => {
+        this.scheduleAtlasRefresh();
+      });
       this.webglContextLossSub = webgl.onContextLoss(() => {
         // Guard against the handler firing twice (xterm hands us an event
         // disposable, not a one-shot) or after the controller is disposed.
         // Null the ref before dispose() so a re-entrant call is a no-op.
         if (this.webglAddon !== webgl) return;
         this.webglAddon = null;
+        this.cancelAtlasRefresh();
+        this.webglAtlasSub?.dispose();
+        this.webglAtlasSub = null;
         webgl.dispose();
       });
     } catch {
       this.webglAddon = null;
     }
+  }
+
+  private scheduleAtlasRefresh(): void {
+    if (!this.webglAddon) return;
+    this.atlasRefreshPending = true;
+    if (this.atlasRefreshTimer !== null) return;
+    this.atlasRefreshTimer = setTimeout(() => {
+      this.atlasRefreshTimer = null;
+      if (!this.atlasRefreshPending) return;
+      this.atlasRefreshPending = false;
+      this.webglAddon?.clearTextureAtlas();
+    }, ATLAS_REFRESH_THROTTLE_MS);
+  }
+
+  private cancelAtlasRefresh(): void {
+    if (this.atlasRefreshTimer !== null) {
+      clearTimeout(this.atlasRefreshTimer);
+      this.atlasRefreshTimer = null;
+    }
+    this.atlasRefreshPending = false;
   }
 
   attach(container: HTMLElement): void {
@@ -93,6 +133,11 @@ class XtermTerminalController implements TerminalController {
     } else if (!container.contains(this.terminal.element)) {
       container.appendChild(this.terminal.element);
     }
+    // A pane keeps receiving write() while detached (display:none), so its
+    // model can hold stale atlas coordinates from a page merge triggered by
+    // another pane. Refresh the atlas on (re)attach so it cannot surface
+    // corruption when the pane becomes visible again.
+    this.scheduleAtlasRefresh();
   }
 
   detach(): void {
@@ -105,6 +150,9 @@ class XtermTerminalController implements TerminalController {
   dispose(): void {
     this.watchDecorations?.dispose();
     this.watchDecorations = null;
+    this.cancelAtlasRefresh();
+    this.webglAtlasSub?.dispose();
+    this.webglAtlasSub = null;
     this.webglContextLossSub?.dispose();
     this.webglContextLossSub = null;
     this.webglAddon?.dispose();
