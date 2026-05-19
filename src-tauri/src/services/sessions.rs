@@ -449,6 +449,8 @@ pub(crate) async fn reconnect_session_shell(
 /// record stays on disk for the history view. The Tauri command name is
 /// still `kill_session` for frontend backward-compat — the behavior changed
 /// from hard-delete to soft-archive when the sessions-history pane shipped.
+/// Pane state is kept so Restore can rebuild the archived session's layout;
+/// permanent deletion still removes it.
 ///
 /// Worktree cleanup is **not** done here — the close dialog archives only
 /// (worktree always kept). Users remove the worktree later from the History
@@ -460,9 +462,6 @@ pub(crate) async fn kill_session(
 ) -> anyhow::Result<()> {
     pty_manager.kill_session_ptys(id);
     session_handle.archive(id).await?;
-    if let Err(e) = crate::pane_state::delete_pane_state(id) {
-        rlog!("kill_session: failed to delete pane state for {id}: {e}");
-    }
     Ok(())
 }
 
@@ -676,7 +675,53 @@ fn should_skip_dir(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::list_git_repos_in_roots;
+    use super::{list_git_repos_in_roots, restore_session};
+    use crate::session::Session;
+    use std::path::PathBuf;
+
+    fn make_session(id: &str) -> Session {
+        Session {
+            id: id.to_string(),
+            name: id.to_string(),
+            repo_root: "/tmp/repo".to_string(),
+            worktree_path: "/tmp/repo".to_string(),
+            branch: "main".to_string(),
+            is_worktree: false,
+            status: roux_core::SessionStatus::Generating,
+            model: None,
+            cost: None,
+            created_at: 0,
+            project_id: None,
+            is_git_repo: false,
+            name_override: None,
+            primary_pty_id: None,
+            archived: true,
+            ended_at: Some(123),
+            blueprint_id: None,
+            pinned_pr_url: None,
+            smol_machine_name: None,
+        }
+    }
+
+    fn temp_persist_path() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.json");
+        (dir, path)
+    }
+
+    #[tokio::test]
+    async fn restore_session_unarchives_and_marks_disconnected() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) =
+            crate::session_service::spawn_with_path(vec![make_session("s1")], path);
+
+        restore_session(&handle, "s1").await.unwrap();
+
+        let session = handle.get("s1").await.unwrap().unwrap();
+        assert!(!session.archived);
+        assert!(session.ended_at.is_none());
+        assert_eq!(session.status, roux_core::SessionStatus::Disconnected);
+    }
 
     #[test]
     fn list_git_repos_in_roots_finds_nested_repos() {

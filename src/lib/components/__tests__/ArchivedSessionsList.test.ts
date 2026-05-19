@@ -405,4 +405,48 @@ describe("ArchivedSessionsList", () => {
     const restoreBtn = screen.getAllByText("Restore")[0].closest("button") as HTMLButtonElement;
     expect(restoreBtn.disabled).toBe(true);
   });
+
+  it("notifies the parent after a single archived session is restored", async () => {
+    const archived = makeArchived("feature-a");
+    const restored: Session = { ...archived, archived: false, endedAt: null, status: "disconnected" };
+    const onrestore = vi.fn().mockResolvedValue(undefined);
+    mockListArchivedSessions.mockResolvedValue([archived]);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+    mockListSessions.mockResolvedValueOnce([restored]);
+    vi.mocked(restoreSession).mockResolvedValue(undefined);
+
+    render(ArchivedSessionsList, { collapsed: false, onrestore });
+
+    await screen.findByText("feature-a");
+    await fireEvent.click(screen.getByText("Restore"));
+
+    await waitFor(() => {
+      expect(vi.mocked(restoreSession)).toHaveBeenCalledWith("feature-a");
+      expect(onrestore).toHaveBeenCalledWith("feature-a");
+    });
+    expect(screen.queryByText("feature-a")).toBeNull();
+  });
+
+  it("keeps the restored active row and shows an error when reconnect after restore fails", async () => {
+    const archived = makeArchived("feature-a");
+    const restored: Session = { ...archived, archived: false, endedAt: null, status: "disconnected" };
+    const onrestore = vi.fn().mockRejectedValue(new Error("spawn failed"));
+    mockListArchivedSessions.mockResolvedValue([archived]);
+    mockSessionWorktreeExists.mockResolvedValue(true);
+    mockListSessions.mockResolvedValueOnce([restored]);
+    vi.mocked(restoreSession).mockResolvedValue(undefined);
+
+    render(ArchivedSessionsList, { collapsed: false, onrestore });
+
+    await screen.findByText("feature-a");
+    await fireEvent.click(screen.getByText("Restore"));
+
+    await waitFor(() => {
+      expect(onrestore).toHaveBeenCalledWith("feature-a");
+      expect(screen.getByTestId("archived-bulk-error").textContent).toContain(
+        "Restored session, but failed to reconnect",
+      );
+    });
+    expect(screen.queryByText("feature-a")).toBeNull();
+  });
 });

@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import { get } from "svelte/store";
   import SessionCard from "./SessionCard.svelte";
   import ArchivedSessionsList from "./ArchivedSessionsList.svelte";
   import {
     activeSession,
     activeSessionId,
+    sessionState,
     sessionList,
     setActiveSession,
     renameSession,
@@ -534,6 +536,20 @@
     await continueSession(session);
   }
 
+  async function handleArchivedRestore(id: string) {
+    const session = get(sessionState).sessions.find((s) => s.id === id);
+    if (!session) {
+      throw new Error(`restored session ${id} was not returned by listSessions`);
+    }
+    setActiveSession(id);
+    try {
+      await continueSession(session);
+    } catch (e) {
+      logError(`Failed to reconnect restored session ${id}`, e);
+      throw e;
+    }
+  }
+
   function archivedMaxHeight(): number {
     if (!rootEl) return 420;
     const rect = rootEl.getBoundingClientRect();
@@ -704,6 +720,7 @@
       oncollapsedchange={(next) => (archivedCollapsed = next)}
       onresizestart={onArchivedResizeStart}
       resizing={archivedDragging}
+      onrestore={handleArchivedRestore}
     />
   </div>
 

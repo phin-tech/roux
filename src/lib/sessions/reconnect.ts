@@ -5,10 +5,11 @@ import { reconnectSessionShellPty, spawnShell } from "$lib/tauri";
 import { replacePty, createPane, updateInstance, getInstance, type PaneInstance } from "$lib/panes/instances";
 import { sessionLayouts, collectLeafIds, type LayoutNode } from "$lib/panes/layout";
 import { loadPaneState, stripCommandPanes, type PaneDescriptor, type PaneStatePayload } from "$lib/panes/persistence";
-import { resolveProfileRef, type SpawnProfile } from "$lib/panes/profiles";
+import { resolveProfileRef, type SpawnProfile, type SpawnProfileRef } from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
 import { getProjectPrompt } from "$lib/stores/projects";
 import { log } from "$lib/logging";
+import { setLogicalFocus } from "$lib/panes/focus";
 
 const reconnecting = new Set<string>();
 
@@ -63,6 +64,64 @@ function findSessionPrimaryInstance(sessionId: string): PaneInstance | null {
   const primaryPaneId = findSessionPrimaryPaneId(sessionId);
   if (!primaryPaneId) return null;
   return getInstance(primaryPaneId) ?? null;
+}
+
+function ensurePrimaryPaneForReconnect(
+  sessionId: string,
+  descriptor?: PaneDescriptor | null,
+): string {
+  const existing = findSessionPrimaryPaneId(sessionId);
+  if (existing) return existing;
+
+  const paneId = descriptor?.id ?? `${sessionId}-main`;
+  const spawnProfileRef: SpawnProfileRef =
+    descriptor?.spawnProfileRef ?? { kind: "registered", id: "claude" };
+
+  if (getInstance(paneId)) {
+    updateInstance(paneId, {
+      type: "shell",
+      ptyId: sessionId,
+      name: descriptor?.name,
+      workingDir: descriptor?.workingDir,
+      command: descriptor?.command,
+      docPath: descriptor?.docPath,
+      spawnProfileRef,
+      provider: descriptor?.provider,
+      providerSessionId: descriptor?.providerSessionId,
+      nonoProfile: descriptor?.nonoProfile,
+      nonoAllowDirs: descriptor?.nonoAllowDirs,
+      notesScope: descriptor?.notesScope,
+      notesViewMode: descriptor?.notesViewMode,
+      restoreError: undefined,
+      terminalState: undefined,
+    });
+  } else {
+    createPane({
+      id: paneId,
+      type: "shell",
+      ptyId: sessionId,
+      name: descriptor?.name,
+      workingDir: descriptor?.workingDir,
+      command: descriptor?.command,
+      docPath: descriptor?.docPath,
+      spawnProfileRef,
+      provider: descriptor?.provider,
+      providerSessionId: descriptor?.providerSessionId,
+      nonoProfile: descriptor?.nonoProfile,
+      nonoAllowDirs: descriptor?.nonoAllowDirs,
+      notesScope: descriptor?.notesScope,
+      notesViewMode: descriptor?.notesViewMode,
+    });
+  }
+
+  sessionLayouts.update((m) => {
+    if (m.has(sessionId)) return m;
+    const next = new Map(m);
+    next.set(sessionId, { kind: "leaf", paneId });
+    return next;
+  });
+  setLogicalFocus(paneId);
+  return paneId;
 }
 
 // Tokens that are safe to type into ANY shell verbatim — POSIX (bash/zsh),
@@ -340,13 +399,14 @@ export async function reconnectSession(
     const isPrimaryOnly =
       !!currentTree && isSinglePrimaryLeaf(currentTree, livePrimaryPaneId);
 
-    if (!isPrimaryOnly) {
+    if (currentTree && !isPrimaryOnly) {
       return await reconnectPrimaryPaneOnly(session, extraFlags);
     }
 
     // Try to load persisted pane state from disk.
     const persisted = await loadPaneState(session.id);
     if (!persisted) {
+      ensurePrimaryPaneForReconnect(session.id);
       return await reconnectPrimaryPaneOnly(session, extraFlags);
     }
 
@@ -356,6 +416,8 @@ export async function reconnectSession(
       persisted.descriptors,
     );
     if (isSinglePrimaryLeaf(persisted.layout, persistedPrimaryId)) {
+      const primaryDesc = persisted.descriptors.find((d) => d.id === persistedPrimaryId);
+      ensurePrimaryPaneForReconnect(session.id, primaryDesc);
       return await reconnectPrimaryPaneOnly(session, extraFlags);
     }
 
@@ -374,10 +436,13 @@ export async function reconnectSession(
     );
 
     if (!strippedTree) {
+      ensurePrimaryPaneForReconnect(session.id);
       return await reconnectPrimaryPaneOnly(session, extraFlags);
     }
 
     // Reconnect the session-owned PTY. Abort layout restore if this fails.
+    const primaryDesc = strippedDescs.find((d) => d.ptyId === session.id);
+    ensurePrimaryPaneForReconnect(session.id, primaryDesc);
     const updated = await reconnectPrimaryPaneOnly(session, extraFlags);
 
     // Rehydrate non-primary panes. All PaneInstances must exist BEFORE we

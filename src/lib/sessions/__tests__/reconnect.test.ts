@@ -453,6 +453,48 @@ describe("reconnectSession — full rehydration", () => {
     expect(connectPaneTerminal).toHaveBeenCalledWith(`${session.id}-main`);
   });
 
+  it("reconnects a restored archived session that has no current layout", async () => {
+    const session = makeSession();
+    addSession(session);
+
+    await reconnectSession(session);
+
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(get(sessionLayouts).get(session.id)).toEqual({
+      kind: "leaf",
+      paneId: `${session.id}-main`,
+    });
+    expect(get(paneInstances).get(`${session.id}-main`)?.ptyId).toBe(session.id);
+    expect(connectPaneTerminal).toHaveBeenCalledWith(`${session.id}-main`);
+  });
+
+  it("rehydrates persisted panes for a restored archived session with no current layout", async () => {
+    const session = makeSession();
+    addSession(session);
+    vi.mocked(loadPaneStateRaw).mockResolvedValue(
+      makePayloadWithShells(session.id, [{ id: "shell-a", workingDir: "/repo/a" }]),
+    );
+
+    await reconnectSession(session);
+
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(spawnShell).toHaveBeenCalledWith(
+      expect.any(String),
+      "/repo/a",
+      session.id,
+      "shell-a",
+      null,
+      null,
+      null,
+    );
+    const tree = get(sessionLayouts).get(session.id);
+    expect(tree?.kind).toBe("split");
+    expect(get(paneInstances).get(`${session.id}-main`)?.ptyId).toBe(session.id);
+    expect(get(paneInstances).get("shell-a")?.type).toBe("shell");
+    expect(connectPaneTerminal).toHaveBeenCalledWith(`${session.id}-main`);
+    expect(connectPaneTerminal).toHaveBeenCalledWith("shell-a", expect.any(Function));
+  });
+
   it("spawns shells for each shell descriptor and creates pane instances", async () => {
     const session = makeSession();
     addSession(session);

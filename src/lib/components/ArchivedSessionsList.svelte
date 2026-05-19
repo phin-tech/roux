@@ -28,6 +28,7 @@
     oncollapsedchange?: (collapsed: boolean) => void;
     onresizestart?: (event: MouseEvent) => void;
     resizing?: boolean;
+    onrestore?: (sessionId: string) => void | Promise<void>;
   }
 
   let {
@@ -35,6 +36,7 @@
     oncollapsedchange,
     onresizestart,
     resizing = false,
+    onrestore,
   }: Props = $props();
   let loadError = $state<string | null>(null);
   let actionError = $state<{ sessionId: string | null; message: string } | null>(null);
@@ -211,11 +213,18 @@
   async function handleRestore(e: Event, s: Session) {
     e.stopPropagation();
     actionError = null;
+    bulkError = null;
     menuOpenFor = null;
     try {
       await restoreArchivedSession(s.id);
     } catch (err) {
       actionError = { sessionId: s.id, message: `Failed to restore: ${err}` };
+      return;
+    }
+    try {
+      await onrestore?.(s.id);
+    } catch (err) {
+      bulkError = `Restored session, but failed to reconnect: ${err}`;
     }
   }
 

@@ -2597,6 +2597,43 @@ mod lifecycle_command_tests {
     }
 
     #[test]
+    fn session_primary_can_reregister_after_archive_kills_old_ptys() {
+        let manager = Arc::new(PtyManager::new());
+        let lifecycle_tx = spawn_command_only_handler(Arc::clone(&manager));
+        manager.set_lifecycle_tx(lifecycle_tx.clone());
+
+        let (old_primary, old_kill) = make_test_session(
+            Some("session-a"),
+            PtyStatus::RunningAttached { pane_id: "session-a-main".to_string() },
+        );
+        let (old_secondary, secondary_kill) = make_test_session(
+            Some("session-a"),
+            PtyStatus::RunningDetached { since_ms: 1 },
+        );
+        register_via_bus(&lifecycle_tx, "session-a", old_primary);
+        register_via_bus(&lifecycle_tx, "pty-secondary", old_secondary);
+
+        manager.kill_session_ptys("session-a");
+
+        assert!(manager.list_for_session("session-a").is_empty());
+        assert_eq!(old_kill.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(secondary_kill.load(AtomicOrdering::SeqCst), 1);
+
+        let (mut restored_primary, restored_kill) = make_test_session(
+            Some("session-a"),
+            PtyStatus::RunningAttached { pane_id: "session-a-main".to_string() },
+        );
+        restored_primary.role = PtyRole::SessionPrimary;
+        register_via_bus(&lifecycle_tx, "session-a", restored_primary);
+
+        let snapshot = manager.list_for_session("session-a");
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].id, "session-a");
+        assert!(matches!(snapshot[0].role, PtyRole::SessionPrimary));
+        assert_eq!(restored_kill.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[test]
     fn mark_exited_if_generation_matches_ignores_stale_exit() {
         let manager = Arc::new(PtyManager::new());
         let lifecycle_tx = spawn_command_only_handler(Arc::clone(&manager));
