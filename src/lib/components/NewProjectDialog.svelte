@@ -11,9 +11,14 @@
   import type { Project, SessionBlueprint } from "$lib/types";
   import { logError } from "$lib/logging";
   import { settings } from "$lib/stores/settings";
+  import { sessionState } from "$lib/stores/sessions";
   import { listGitReposInRoots } from "$lib/tauri";
   import RepoAutoComplete from "./RepoAutoComplete.svelte";
   import { buildQuickPickOptions, type RepoQuickPickOption } from "$lib/repos/quickPick";
+  import {
+    buildProjectPromptPreviewContext,
+    renderProjectPromptTemplate,
+  } from "$lib/projectPromptTemplates";
 
   interface Props {
     visible: boolean;
@@ -30,6 +35,10 @@
   let contextPaths = $state<string[]>([]);
   let blueprints = $state<SessionBlueprint[]>([]);
   let projectPrompt = $state("");
+  let promptPreviewBlueprintId = $state("");
+  let promptPreview = $state("");
+  let promptPreviewError = $state("");
+  let promptPreviewing = $state(false);
   let error = $state("");
   let saving = $state(false);
   let confirmDelete = $state(false);
@@ -91,6 +100,10 @@
     contextPaths = [...(project?.contextPaths ?? [])];
     blueprints = (project?.sessionBlueprints ?? []).map((bp) => ({ ...bp }));
     projectPrompt = project?.projectPrompt ?? "";
+    promptPreviewBlueprintId = "";
+    promptPreview = "";
+    promptPreviewError = "";
+    promptPreviewing = false;
     error = "";
     saving = false;
     repoDraft = "";
@@ -145,6 +158,25 @@
   const profiles: SpawnProfile[] = $derived($profileList);
   const defaultProfileId = $derived(profiles[0]?.id ?? "claude");
   const effectiveDefaultProfile = $derived(defaultProfileChoice || defaultProfileId);
+  const selectedPreviewBlueprint = $derived(
+    blueprints.find((bp) => bp.id === promptPreviewBlueprintId) ?? blueprints[0] ?? null,
+  );
+
+  $effect(() => {
+    const hasSelection = blueprints.some((bp) => bp.id === promptPreviewBlueprintId);
+    if (!hasSelection) promptPreviewBlueprintId = blueprints[0]?.id ?? "";
+  });
+
+  $effect(() => {
+    projectPrompt;
+    promptPreviewBlueprintId;
+    name;
+    repoRoots;
+    contextPaths;
+    blueprints;
+    promptPreview = "";
+    promptPreviewError = "";
+  });
 
   // Last segment of a repo path → human-friendly handle for the name
   // template. Mirrors how SessionTabs and the existing repo-grouping logic
@@ -276,6 +308,41 @@
 
   function updateBlueprint(id: string, patch: Partial<SessionBlueprint>) {
     blueprints = blueprints.map((bp) => (bp.id === id ? { ...bp, ...patch } : bp));
+  }
+
+  async function previewProjectPrompt() {
+    if (!projectPrompt.trim()) {
+      promptPreview = "";
+      promptPreviewError = "";
+      return;
+    }
+
+    const blueprint = selectedPreviewBlueprint;
+    const profileId = blueprint?.spawnProfile ?? effectiveDefaultProfile;
+    const profile = profiles.find((p) => p.id === profileId) ?? null;
+    const context = buildProjectPromptPreviewContext({
+      project: {
+        id: project?.id ?? null,
+        name: name.trim(),
+        repoRoots,
+        contextPaths,
+      },
+      blueprint,
+      profile,
+      settings: $settings,
+      sessions: $sessionState.sessions,
+    });
+
+    promptPreviewing = true;
+    promptPreviewError = "";
+    try {
+      promptPreview = await renderProjectPromptTemplate(projectPrompt, context);
+    } catch (e) {
+      promptPreview = "";
+      promptPreviewError = e instanceof Error ? e.message : String(e);
+    } finally {
+      promptPreviewing = false;
+    }
   }
 
   function validate(): string | null {
@@ -643,6 +710,43 @@
               placeholder="Extra instructions to inject at the top of every spawned agent's system prompt"
               rows="4"
             ></textarea>
+            {#if projectPrompt.trim()}
+              <div class="rounded-md border border-border-subtle/70 bg-bg-deep/60 p-2">
+                <div class="flex flex-wrap items-center gap-2">
+                  {#if blueprints.length > 1}
+                    <select
+                      class={smallInput + " max-w-[240px]"}
+                      bind:value={promptPreviewBlueprintId}
+                      disabled={promptPreviewing}
+                    >
+                      {#each blueprints as bp (bp.id)}
+                        <option value={bp.id}>{bp.name || "Untitled session"}</option>
+                      {/each}
+                    </select>
+                  {:else if selectedPreviewBlueprint}
+                    <span class="truncate text-[11px] text-text-muted">
+                      Preview: {selectedPreviewBlueprint.name || "Untitled session"}
+                    </span>
+                  {:else}
+                    <span class="truncate text-[11px] text-text-muted">Preview: draft project</span>
+                  {/if}
+                  <button
+                    class={ghostBtn}
+                    onclick={previewProjectPrompt}
+                    disabled={promptPreviewing}
+                  >
+                    {promptPreviewing ? "Previewing…" : "Preview"}
+                  </button>
+                  <span class="text-[11px] text-text-muted">Minijinja variables</span>
+                </div>
+                {#if promptPreviewError}
+                  <p class="mt-2 whitespace-pre-wrap text-[11px] text-red">{promptPreviewError}</p>
+                {/if}
+                {#if promptPreview}
+                  <pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border-subtle/60 bg-bg-surface/60 p-2 font-mono text-[11px] leading-relaxed text-text-primary">{promptPreview}</pre>
+                {/if}
+              </div>
+            {/if}
           </div>
 
           <!-- Context paths -->

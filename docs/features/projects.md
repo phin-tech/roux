@@ -45,7 +45,7 @@ The sidebar suppresses the blueprint row while its live session is active, so th
 
 ## Project Prompts
 
-The project prompt is free-form text injected when supported agent profiles start.
+The project prompt is free-form text injected when supported agent profiles start. It can include Minijinja variables for the model family, worktree path, branch, same-project sessions, and other spawn-time context.
 
 Supported providers:
 
@@ -57,6 +57,8 @@ Supported providers:
 Other profiles are left unchanged. The prompt is still exposed as `ROUX_PROJECT_PROMPT`, so custom profiles can opt into it manually.
 
 Prompt injection happens at spawn time. Changing a project prompt does not rewrite already-running agent commands; spawn a new session to pick up the new prompt.
+
+See [Project Prompt Templates](project-prompt-templates.md) for the variable reference, examples, preview behavior, and template error handling.
 
 ## Context Paths
 

@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { SpawnProfileRef } from "$lib/panes/profiles";
+import type { ProjectPromptTemplateContext } from "$lib/projectPromptTemplates";
 import type {
   Session,
   Project,
@@ -874,6 +875,13 @@ export async function updateProject(
   patch: ProjectUpdate,
 ): Promise<Project> {
   return invoke("update_project", { id, patch });
+}
+
+export async function renderProjectPromptTemplate(
+  template: string,
+  context: ProjectPromptTemplateContext,
+): Promise<string> {
+  return invoke("render_project_prompt_template", { template, context });
 }
 
 export async function setSessionProject(

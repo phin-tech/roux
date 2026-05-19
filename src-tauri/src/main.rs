@@ -382,6 +382,7 @@ fn main() {
             commands::projects::rename_project,
             commands::projects::update_project,
             commands::projects::set_session_project,
+            commands::projects::render_project_prompt_template,
             commands::notes::notes_read,
             commands::notes::notes_write,
             commands::notes::notes_append,
