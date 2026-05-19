@@ -31,8 +31,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      prerelease_url: ${{ steps.release.outputs.prerelease_url }}
     env:
       PRERELEASE_ALIAS: pre-releases
     steps:
@@ -62,7 +60,6 @@ jobs:
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "source_ref=$SOURCE_REF" >> "$GITHUB_OUTPUT"
-          echo "prerelease_url=https://phin-tech.github.io/roux/${PRERELEASE_ALIAS}/" >> "$GITHUB_OUTPUT"
 
       - name: Checkout selected ref
         uses: actions/checkout@v4
@@ -95,7 +92,6 @@ jobs:
       - name: Publish prerelease docs
         env:
           VERSION: ${{ steps.release.outputs.version }}
-          PRERELEASE_ALIAS: ${{ env.PRERELEASE_ALIAS }}
         run: |
           set -euo pipefail
           mike deploy --branch gh-pages --update-aliases "$VERSION" "$PRERELEASE_ALIAS"
@@ -105,6 +101,11 @@ jobs:
           rm -rf site
           mkdir -p site
           git archive gh-pages | tar -x -C site
+
+      - name: Checkout primary site source
+        run: |
+          git fetch origin main --depth=1
+          git checkout --detach FETCH_HEAD
 
       - name: Build primary docs site
         run: mkdocs build --site-dir site/docs --strict
@@ -137,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ needs.build.outputs.prerelease_url }}
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

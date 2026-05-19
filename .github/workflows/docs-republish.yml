@@ -92,6 +92,11 @@ jobs:
           mkdir -p site
           git archive gh-pages | tar -x -C site
 
+      - name: Checkout primary site source
+        run: |
+          git fetch origin main --depth=1
+          git checkout --detach FETCH_HEAD
+
       - name: Build primary docs site
         run: mkdocs build --site-dir site/docs --strict
 
