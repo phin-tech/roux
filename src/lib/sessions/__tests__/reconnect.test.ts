@@ -176,6 +176,35 @@ describe("reconnectSession — existing behavior preserved", () => {
     expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
   });
 
+  it("continues a restored archived Claude primary by persisted provider session id", async () => {
+    setUserProfiles([makeProfile()]);
+    const session = makeSession();
+    addSession(session);
+    const mainId = `${session.id}-main`;
+    vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 4,
+      layout: { kind: "leaf", paneId: mainId },
+      descriptors: [
+        {
+          id: mainId,
+          type: "shell",
+          ptyId: session.id,
+          spawnProfileRef: { kind: "registered", id: "claude" },
+          provider: "claude",
+          providerSessionId: "claude-session-archived",
+        },
+      ],
+    } satisfies PaneStatePayload);
+
+    await continueSession(session);
+
+    expect(writeToSession).toHaveBeenCalledWith(
+      session.id,
+      "claude --resume claude-session-archived",
+    );
+    expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
+  });
+
   it("falls back to Claude continue when provider session id contains shell metacharacters", async () => {
     setUserProfiles([makeProfile()]);
     const session = makeSession();
@@ -518,6 +547,50 @@ describe("reconnectSession — full rehydration", () => {
     expect(instances.has("shell-b")).toBe(true);
     expect(instances.get("shell-a")?.type).toBe("shell");
     expect(instances.get("shell-b")?.restoreError).toBeUndefined();
+  });
+
+  it("replays restored non-primary agent panes with exact continue flags", async () => {
+    setUserProfiles([makeProfile()]);
+    const session = makeSession();
+    addSession(session);
+    const mainId = `${session.id}-main`;
+    vi.mocked(loadPaneStateRaw).mockResolvedValue({
+      schemaVersion: 4,
+      layout: {
+        kind: "split",
+        direction: "h",
+        children: [
+          { kind: "leaf", paneId: mainId },
+          { kind: "leaf", paneId: "agent-pane" },
+        ],
+      },
+      descriptors: [
+        {
+          id: mainId,
+          type: "shell",
+          ptyId: session.id,
+          spawnProfileRef: { kind: "registered", id: "plain-shell" },
+        },
+        {
+          id: "agent-pane",
+          type: "shell",
+          ptyId: "old-agent-pty",
+          workingDir: "/repo/agent",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+          provider: "claude",
+          providerSessionId: "claude-secondary-123",
+        },
+      ],
+    } satisfies PaneStatePayload);
+
+    await continueSession(session);
+
+    const [freshPtyId] = vi.mocked(spawnShell).mock.calls[0];
+    expect(writeToSession).toHaveBeenCalledWith(
+      freshPtyId,
+      "claude --resume claude-secondary-123",
+    );
+    expect(writeToSession).toHaveBeenCalledWith(freshPtyId, "\n");
   });
 
   it("applies the restored layout tree to sessionLayouts", async () => {

@@ -17,6 +17,8 @@ interface ContinuePlan {
   flags?: string[];
 }
 
+type ReconnectIntent = "reconnect" | "continue";
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -164,6 +166,30 @@ function defaultContinuePlan(
     }
   }
   return { flags: fallbackFlags };
+}
+
+function flagsForIntent(
+  intent: ReconnectIntent,
+  instance: PaneInstance | null,
+  profile: SpawnProfile | null,
+  explicitFlags?: string[],
+): string[] | undefined {
+  if (explicitFlags !== undefined) return explicitFlags;
+  if (intent !== "continue") return undefined;
+  return defaultContinuePlan(instance, profile).flags;
+}
+
+function profileWithFlags(
+  profile: SpawnProfile,
+  flags: string[] | undefined,
+): SpawnProfile {
+  if (!flags?.length) return profile;
+  const baseCmd = profile.startupCommand ?? "";
+  const combined = `${baseCmd} ${flags.join(" ")}`.trim();
+  return {
+    ...profile,
+    startupCommand: combined.length ? combined : undefined,
+  };
 }
 
 // ── Integrity preflight ───────────────────────────────────────────────────────
@@ -316,6 +342,7 @@ async function rehydratePane(
 async function reconnectPrimaryPaneOnly(
   session: Session,
   extraFlags?: string[],
+  intent: ReconnectIntent = "reconnect",
 ): Promise<Session> {
   const primaryPaneId = findSessionPrimaryPaneId(session.id);
   if (!primaryPaneId) {
@@ -352,15 +379,8 @@ async function reconnectPrimaryPaneOnly(
   // typed line in the shell and a retry would compound the mess. If write
   // fails, we leave the shell in whatever state it landed in and log.
   if (profile) {
-    let effectiveProfile: SpawnProfile = profile;
-    if (extraFlags?.length) {
-      const baseCmd = profile.startupCommand ?? "";
-      const combined = `${baseCmd} ${extraFlags.join(" ")}`.trim();
-      effectiveProfile = {
-        ...profile,
-        startupCommand: combined.length ? combined : undefined,
-      };
-    }
+    const flags = flagsForIntent(intent, instance ?? null, profile, extraFlags);
+    const effectiveProfile = profileWithFlags(profile, flags);
     try {
       await runProfileInPane(session.id, effectiveProfile, {
         appendSystemPrompt: getProjectPrompt(session.projectId),
@@ -377,11 +397,34 @@ async function reconnectPrimaryPaneOnly(
   return updated;
 }
 
+async function replayRestoredPaneProfile(
+  session: Session,
+  paneId: string,
+  intent: ReconnectIntent,
+): Promise<void> {
+  const instance = getInstance(paneId);
+  if (!instance || instance.type !== "shell" || instance.restoreError) return;
+  const profile = resolveProfileRef(instance.spawnProfileRef);
+  if (!profile) return;
+
+  const flags = flagsForIntent(intent, instance, profile);
+  const effectiveProfile = profileWithFlags(profile, flags);
+  try {
+    await runProfileInPane(instance.ptyId, effectiveProfile, {
+      appendSystemPrompt: getProjectPrompt(session.projectId),
+      smolMachineName: session.smolMachineName ?? null,
+    });
+  } catch (e) {
+    log(`replayRestoredPaneProfile(${paneId}): profile "${profile.id}" replay failed — ${e}`);
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function reconnectSession(
+async function reconnectSessionInternal(
   session: Session,
   extraFlags?: string[],
+  intent: ReconnectIntent = "reconnect",
 ): Promise<Session> {
   if (reconnecting.has(session.id)) {
     throw new Error(`Reconnect already in progress for ${session.id}`);
@@ -400,14 +443,14 @@ export async function reconnectSession(
       !!currentTree && isSinglePrimaryLeaf(currentTree, livePrimaryPaneId);
 
     if (currentTree && !isPrimaryOnly) {
-      return await reconnectPrimaryPaneOnly(session, extraFlags);
+      return await reconnectPrimaryPaneOnly(session, extraFlags, intent);
     }
 
     // Try to load persisted pane state from disk.
     const persisted = await loadPaneState(session.id);
     if (!persisted) {
       ensurePrimaryPaneForReconnect(session.id);
-      return await reconnectPrimaryPaneOnly(session, extraFlags);
+      return await reconnectPrimaryPaneOnly(session, extraFlags, intent);
     }
 
     // Fast-path: persisted tree is also a lone primary leaf.
@@ -418,7 +461,7 @@ export async function reconnectSession(
     if (isSinglePrimaryLeaf(persisted.layout, persistedPrimaryId)) {
       const primaryDesc = persisted.descriptors.find((d) => d.id === persistedPrimaryId);
       ensurePrimaryPaneForReconnect(session.id, primaryDesc);
-      return await reconnectPrimaryPaneOnly(session, extraFlags);
+      return await reconnectPrimaryPaneOnly(session, extraFlags, intent);
     }
 
     // Integrity preflight: reject corrupt/mismatched data before touching state.
@@ -426,7 +469,9 @@ export async function reconnectSession(
       log(
         `pane restore preflight failed for ${session.id}, falling back to primary-pane-only reconnect`,
       );
-      return await reconnectPrimaryPaneOnly(session, extraFlags);
+      const primaryDesc = persisted.descriptors.find((d) => d.ptyId === session.id);
+      ensurePrimaryPaneForReconnect(session.id, primaryDesc);
+      return await reconnectPrimaryPaneOnly(session, extraFlags, intent);
     }
 
     // Strip command panes — they cannot be restarted.
@@ -437,13 +482,13 @@ export async function reconnectSession(
 
     if (!strippedTree) {
       ensurePrimaryPaneForReconnect(session.id);
-      return await reconnectPrimaryPaneOnly(session, extraFlags);
+      return await reconnectPrimaryPaneOnly(session, extraFlags, intent);
     }
 
     // Reconnect the session-owned PTY. Abort layout restore if this fails.
     const primaryDesc = strippedDescs.find((d) => d.ptyId === session.id);
     ensurePrimaryPaneForReconnect(session.id, primaryDesc);
-    const updated = await reconnectPrimaryPaneOnly(session, extraFlags);
+    const updated = await reconnectPrimaryPaneOnly(session, extraFlags, intent);
 
     // Rehydrate non-primary panes. All PaneInstances must exist BEFORE we
     // apply the layout tree, so the renderer can resolve every leaf.
@@ -484,6 +529,7 @@ export async function reconnectSession(
           },
         });
       });
+      await replayRestoredPaneProfile(session, paneId, intent);
     }
 
     log(`Session ${session.id} reconnected with ${nonMainIds.length} additional pane(s)`);
@@ -493,10 +539,15 @@ export async function reconnectSession(
   }
 }
 
+export async function reconnectSession(
+  session: Session,
+  extraFlags?: string[],
+): Promise<Session> {
+  return reconnectSessionInternal(session, extraFlags, "reconnect");
+}
+
 export async function continueSession(session: Session): Promise<Session> {
-  const primary = findSessionPrimaryInstance(session.id);
-  const plan = defaultContinuePlan(primary, resolveProfileRef(primary?.spawnProfileRef));
-  return reconnectSession(session, plan.flags);
+  return reconnectSessionInternal(session, undefined, "continue");
 }
 
 /**
