@@ -25,8 +25,8 @@ vi.mock("$lib/panes/profiles", async () => {
   };
 });
 
-vi.mock("$lib/stores/projects", () => ({
-  getProjectPrompt: vi.fn().mockReturnValue(""),
+vi.mock("$lib/projectPromptTemplates", () => ({
+  renderProjectPromptForSession: vi.fn().mockResolvedValue(""),
 }));
 
 vi.mock("$lib/logging", () => ({

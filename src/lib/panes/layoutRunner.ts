@@ -7,6 +7,7 @@ import { sessionLayouts, type LayoutNode, type SplitDirection } from "./layout";
 import { setLogicalFocus } from "./focus";
 import { spawnShell, killPty } from "$lib/tauri";
 import { runProfileInPane } from "./profileRunner";
+import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -284,7 +285,12 @@ export async function applyLayoutToSession(
   // inherits the same `smolMachineName` from the session record.
   for (const leaf of leaves) {
     try {
+      const appendSystemPrompt = await renderProjectPromptForSession(
+        session,
+        leaf.profile,
+      );
       await runProfileInPane(leaf.ptyId, leaf.profile, {
+        ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
         smolMachineName: session.smolMachineName ?? null,
       });
     } catch (e) {

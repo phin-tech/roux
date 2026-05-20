@@ -1,18 +1,28 @@
-name: Preview docs
+name: Publish prerelease docs
 
 on:
+  push:
+    tags:
+      - "v*-pre.*"
+      - "v*-alpha.*"
+      - "v*-beta.*"
+      - "v*-rc.*"
   workflow_dispatch:
     inputs:
-      pr_number:
-        description: Pull request number to update with the preview link
+      version:
+        description: "Prerelease docs version to publish (e.g. 0.5.4-pre.1 or v0.5.4-pre.1)"
         required: true
-        type: number
+        type: string
+      source_ref:
+        description: "Git ref to build docs from"
+        required: false
+        default: main
+        type: string
 
 permissions:
   contents: write
   pages: write
   id-token: write
-  issues: write
 
 concurrency:
   group: pages
@@ -22,12 +32,39 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      PREVIEW_PREFIX: previews/pr-${{ inputs.pr_number }}
-      PREVIEW_URL: https://phin-tech.github.io/roux/previews/pr-${{ inputs.pr_number }}/
+      PRERELEASE_ALIAS: pre-releases
     steps:
+      - name: Resolve prerelease version
+        id: release
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            SOURCE_REF="${GITHUB_REF_NAME}"
+          else
+            VERSION="${INPUT_VERSION#v}"
+            SOURCE_REF="${INPUT_SOURCE_REF:-main}"
+          fi
+
+          if [[ -z "$VERSION" ]]; then
+            echo "Version cannot be empty." >&2
+            exit 1
+          fi
+          if [[ ! "$VERSION" =~ -[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
+            echo "Version must be a prerelease with a hyphen suffix, got: $VERSION" >&2
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$SOURCE_REF" >> "$GITHUB_OUTPUT"
+
       - name: Checkout selected ref
         uses: actions/checkout@v4
         with:
+          ref: ${{ steps.release.outputs.source_ref }}
           fetch-depth: 0
 
       - name: Set up uv
@@ -39,7 +76,7 @@ jobs:
       - name: Install docs dependencies
         run: |
           uv sync --project docs --frozen
-          echo "$GITHUB_WORKSPACE/docs/.venv/bin" >> $GITHUB_PATH
+          echo "$GITHUB_WORKSPACE/docs/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Configure Git author
         run: |
@@ -52,10 +89,12 @@ jobs:
             git fetch origin gh-pages:gh-pages --depth=1
           fi
 
-      - name: Publish preview docs
+      - name: Publish prerelease docs
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
-          mike deploy --branch gh-pages --deploy-prefix "$PREVIEW_PREFIX" preview
-          mike set-default --branch gh-pages --deploy-prefix "$PREVIEW_PREFIX" preview
+          set -euo pipefail
+          mike deploy --branch gh-pages --update-aliases "$VERSION" "$PRERELEASE_ALIAS"
 
       - name: Archive published site
         run: |
@@ -104,54 +143,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-  comment:
-    needs: deploy
-    runs-on: ubuntu-latest
-    env:
-      PR_NUMBER: ${{ inputs.pr_number }}
-      PREVIEW_URL: https://phin-tech.github.io/roux/previews/pr-${{ inputs.pr_number }}/
-    steps:
-      - name: Comment on pull request
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const marker = '<!-- docs-preview-comment -->';
-            const issue_number = Number(process.env.PR_NUMBER);
-            const shortSha = context.sha.slice(0, 7);
-            const branch = context.ref.replace('refs/heads/', '');
-            const body = [
-              marker,
-              `Docs preview updated for \`${branch}\`: [Open preview](${process.env.PREVIEW_URL})`,
-              '',
-              `Commit: \`${shortSha}\``,
-            ].join('\n');
-
-            const { owner, repo } = context.repo;
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner,
-              repo,
-              issue_number,
-              per_page: 100,
-            });
-
-            const existing = comments.find((comment) =>
-              comment.user?.login === 'github-actions[bot]' &&
-              comment.body?.includes(marker)
-            );
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner,
-                repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number,
-                body,
-              });
-            }

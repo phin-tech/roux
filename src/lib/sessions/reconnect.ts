@@ -7,7 +7,7 @@ import { sessionLayouts, collectLeafIds, type LayoutNode } from "$lib/panes/layo
 import { loadPaneState, stripCommandPanes, type PaneDescriptor, type PaneStatePayload } from "$lib/panes/persistence";
 import { resolveProfileRef, type SpawnProfile, type SpawnProfileRef } from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
-import { getProjectPrompt } from "$lib/stores/projects";
+import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
 import { log } from "$lib/logging";
 import { setLogicalFocus } from "$lib/panes/focus";
 
@@ -382,8 +382,12 @@ async function reconnectPrimaryPaneOnly(
     const flags = flagsForIntent(intent, instance ?? null, profile, extraFlags);
     const effectiveProfile = profileWithFlags(profile, flags);
     try {
+      const appendSystemPrompt = await renderProjectPromptForSession(
+        session,
+        effectiveProfile,
+      );
       await runProfileInPane(session.id, effectiveProfile, {
-        appendSystemPrompt: getProjectPrompt(session.projectId),
+        ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
         smolMachineName: session.smolMachineName ?? null,
       });
     } catch (e) {
@@ -410,8 +414,12 @@ async function replayRestoredPaneProfile(
   const flags = flagsForIntent(intent, instance, profile);
   const effectiveProfile = profileWithFlags(profile, flags);
   try {
+    const appendSystemPrompt = await renderProjectPromptForSession(
+      session,
+      effectiveProfile,
+    );
     await runProfileInPane(instance.ptyId, effectiveProfile, {
-      appendSystemPrompt: getProjectPrompt(session.projectId),
+      ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
       smolMachineName: session.smolMachineName ?? null,
     });
   } catch (e) {

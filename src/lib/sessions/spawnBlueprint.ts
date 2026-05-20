@@ -6,6 +6,7 @@ import {
 import { addSession } from "$lib/stores/sessions";
 import { initSessionWithProfile } from "$lib/panes/actions";
 import type { SpawnProfileRef } from "$lib/panes/profiles";
+import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
 
 export interface SpawnBlueprintOptions {
   /**
@@ -78,8 +79,13 @@ export async function spawnBlueprintForProject(
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(mainPaneId);
   if (profile) {
+    const appendSystemPrompt = await renderProjectPromptForSession(
+      newSession,
+      profile,
+      project,
+    );
     await runProfileInPane(newSession.id, profile, {
-      appendSystemPrompt: project.projectPrompt ?? "",
+      ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
       smolMachineName: newSession.smolMachineName ?? null,
     });
   }

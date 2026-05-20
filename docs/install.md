@@ -30,6 +30,8 @@ Roux has a built-in auto-updater. When a new version is published, Roux checks f
 
 You can also switch between **Stable** and **Pre-release (Alpha)** in **Settings** → **Advanced**. The prerelease channel follows the newest published prerelease build; switching back to Stable takes effect on the next stable release at or above your current version.
 
+Docs for the current prerelease channel are published at [phin-tech.github.io/roux/pre-releases/](https://phin-tech.github.io/roux/pre-releases/). Version-specific prerelease docs remain available at paths like `https://phin-tech.github.io/roux/0.5.4-pre.1/`.
+
 Updates are signed and verified on device before they're installed.
 
 After you click **Install and restart**, Roux downloads the new version, verifies the signature, and replaces the app bundle in place. In most cases it will then relaunch itself into the new version automatically. Occasionally — on macOS, after the bundle has just been swapped on disk — the automatic relaunch fails. When that happens the banner changes to **"Update installed. Quit and reopen Roux to finish."** with a **Quit Roux** button. Click it (or quit the app yourself) and reopen Roux from Launchpad or Spotlight — you'll be on the new version.
