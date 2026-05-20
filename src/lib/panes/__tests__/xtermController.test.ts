@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writable } from "svelte/store";
 
 import { DEFAULT_SETTINGS } from "$lib/types";
@@ -15,9 +15,12 @@ const mocks = vi.hoisted(() => {
     webglDispose: vi.fn(),
     webglOnContextLoss: vi.fn(),
     webglClearTextureAtlas: vi.fn(),
+    webglOnAddTextureAtlasCanvas: vi.fn(),
     contextLossSubDispose: vi.fn(),
+    atlasAddSubDispose: vi.fn(),
     nextWebglShouldThrow: false,
     lastWebglContextLossHandler: null as (() => void) | null,
+    lastWebglAtlasAddHandler: null as (() => void) | null,
   };
 });
 
@@ -110,6 +113,11 @@ vi.mock("@xterm/addon-webgl", () => ({
       mocks.webglOnContextLoss(handler);
       return { dispose: mocks.contextLossSubDispose };
     };
+    this.onAddTextureAtlasCanvas = (handler: () => void) => {
+      mocks.lastWebglAtlasAddHandler = handler;
+      mocks.webglOnAddTextureAtlasCanvas(handler);
+      return { dispose: mocks.atlasAddSubDispose };
+    };
   }),
 }));
 
@@ -125,8 +133,11 @@ beforeEach(() => {
   mocks.webglDispose.mockClear();
   mocks.webglOnContextLoss.mockClear();
   mocks.webglClearTextureAtlas.mockClear();
+  mocks.webglOnAddTextureAtlasCanvas.mockClear();
   mocks.contextLossSubDispose.mockClear();
+  mocks.atlasAddSubDispose.mockClear();
   mocks.lastWebglContextLossHandler = null;
+  mocks.lastWebglAtlasAddHandler = null;
   mocks.nextWebglShouldThrow = false;
   mocks.settingsStore.set({ ...DEFAULT_SETTINGS });
 });
@@ -152,6 +163,10 @@ describe("XtermTerminalController renderer setup", () => {
     expect(mocks.terminalOpen).toHaveBeenCalledWith(container);
     expect(raf).not.toHaveBeenCalled();
     expect(mocks.fitAddonFit).not.toHaveBeenCalled();
+
+    // dispose() cancels the throttled atlas-refresh timer attach() schedules,
+    // so it cannot leak into a later test.
+    controller.dispose();
   });
 
   it("clears the WebGL texture atlas after a successful fit", () => {
@@ -311,5 +326,98 @@ describe("XtermTerminalController renderer setup", () => {
 
     expect(terminal.input).toHaveBeenCalledWith("\r", undefined);
     expect(terminal.paste).toHaveBeenCalledWith("echo hi");
+  });
+});
+
+describe("XtermTerminalController WebGL atlas refresh", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("subscribes to onAddTextureAtlasCanvas when WebGL is active", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+
+    createXtermTerminalController();
+
+    expect(mocks.webglOnAddTextureAtlasCanvas).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not subscribe to onAddTextureAtlasCanvas when gpuAcceleration is 'off'", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "off" });
+
+    createXtermTerminalController();
+
+    expect(mocks.webglOnAddTextureAtlasCanvas).not.toHaveBeenCalled();
+  });
+
+  it("clears the texture atlas on a throttled delay after a page is added", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+    createXtermTerminalController();
+
+    mocks.lastWebglAtlasAddHandler?.();
+    // Throttled: nothing happens synchronously on the page-add event.
+    expect(mocks.webglClearTextureAtlas).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(250);
+    expect(mocks.webglClearTextureAtlas).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces a burst of page-add events into a single clear", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+    createXtermTerminalController();
+
+    for (let i = 0; i < 5; i++) {
+      mocks.lastWebglAtlasAddHandler?.();
+    }
+
+    vi.advanceTimersByTime(250);
+    expect(mocks.webglClearTextureAtlas).toHaveBeenCalledTimes(1);
+  });
+
+  it("schedules a throttled atlas refresh on attach", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+    const controller = createXtermTerminalController();
+
+    controller.attach(document.createElement("div"));
+    expect(mocks.webglClearTextureAtlas).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(250);
+    expect(mocks.webglClearTextureAtlas).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a pending atlas refresh when the controller is disposed", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+    const controller = createXtermTerminalController();
+
+    mocks.lastWebglAtlasAddHandler?.();
+    controller.dispose();
+
+    expect(() => vi.advanceTimersByTime(250)).not.toThrow();
+    expect(mocks.webglClearTextureAtlas).not.toHaveBeenCalled();
+  });
+
+  it("disposes the onAddTextureAtlasCanvas subscription on dispose", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+    const controller = createXtermTerminalController();
+
+    expect(mocks.atlasAddSubDispose).not.toHaveBeenCalled();
+
+    controller.dispose();
+
+    expect(mocks.atlasAddSubDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a page-add event that fires after the controller is disposed", () => {
+    mocks.settingsStore.set({ ...DEFAULT_SETTINGS, gpuAcceleration: "auto" });
+    const controller = createXtermTerminalController();
+    controller.dispose();
+
+    expect(() => mocks.lastWebglAtlasAddHandler?.()).not.toThrow();
+    vi.advanceTimersByTime(250);
+    expect(mocks.webglClearTextureAtlas).not.toHaveBeenCalled();
   });
 });
