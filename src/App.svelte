@@ -34,7 +34,7 @@
   } from "$lib/stores/commandSurface";
   import { runStartupCheck, runManualCheck } from "$lib/stores/updater";
   import { initSettings, settings } from "$lib/stores/settings";
-  import { addSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
+  import { addSession, removeSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
   import {
@@ -717,6 +717,10 @@
           }
           break;
         }
+        case "session-killed": {
+          if (cmd.sessionId) removeSession(cmd.sessionId);
+          break;
+        }
         case "focus": {
           if (cmd.sessionId) {
             setActiveSession(cmd.sessionId);
@@ -724,6 +728,25 @@
           if (cmd.paneId) {
             setLogicalFocus(cmd.paneId);
           }
+          break;
+        }
+        case "session-renamed": {
+          // CLI / external renamed a session — pick up the new
+          // nameOverride from the authoritative backend state.
+          const sessionId = cmd.sessionId;
+          if (!sessionId) break;
+          listSessions().then((sessions) => {
+            const updated = sessions.find((s) => s.id === sessionId);
+            if (!updated) return;
+            sessionState.update((state) => ({
+              ...state,
+              sessions: state.sessions.map((s) =>
+                s.id === sessionId
+                  ? { ...s, nameOverride: updated.nameOverride, name: updated.name }
+                  : s,
+              ),
+            }));
+          }).catch((e) => logError("session-renamed: listSessions failed", e));
           break;
         }
         case "panes-list-request": {

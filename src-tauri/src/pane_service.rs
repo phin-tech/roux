@@ -85,6 +85,10 @@ enum PaneMsg {
         ids: Vec<String>,
         reply: oneshot::Sender<Vec<PaneRecord>>,
     },
+    ListBySession {
+        session_id: String,
+        reply: oneshot::Sender<Vec<PaneRecord>>,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -118,6 +122,19 @@ impl PaneHandle {
         self.send(PaneMsg::ListByIds { ids, reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
+
+    /// Return all panes whose id starts with `{session_id}-`.
+    pub async fn list_by_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<PaneRecord>, ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(PaneMsg::ListBySession {
+            session_id: session_id.to_string(),
+            reply: reply_tx,
+        })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
 }
 
 pub fn spawn() -> (PaneHandle, JoinHandle<()>) {
@@ -143,6 +160,15 @@ async fn service_loop(mut rx: mpsc::UnboundedReceiver<PaneMsg>) {
                 let records = ids
                     .into_iter()
                     .filter_map(|id| panes.get(&id).cloned())
+                    .collect();
+                let _ = reply.send(records);
+            }
+            PaneMsg::ListBySession { session_id, reply } => {
+                let prefix = format!("{}-", session_id);
+                let records = panes
+                    .values()
+                    .filter(|r| r.id.starts_with(&prefix))
+                    .cloned()
                     .collect();
                 let _ = reply.send(records);
             }

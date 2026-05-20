@@ -283,6 +283,8 @@ async fn handle_request(req: Request, app: &tauri::AppHandle) -> Response {
         "bus-subscriptions" => handle_bus_subscriptions(req, app).await,
         "session-list" => handle_session_list(req, app).await,
         "session-poll" => handle_session_poll(req, app).await,
+        "session-kill" => handle_session_kill(req, app).await,
+        "session-rename" => handle_session_rename(req, app).await,
         "session-panes-list" => handle_session_panes_list(req, app).await,
         "session-panes-create" => handle_session_panes_create(req, app).await,
         "mcp-enabled" => handle_mcp_enabled(app),
@@ -468,6 +470,61 @@ async fn handle_session_poll(req: Request, app: &tauri::AppHandle) -> Response {
         Ok(None) => Response::err("session not found"),
         Err(e) => Response::err(format!("{}", e)),
     }
+}
+
+async fn handle_session_rename(req: Request, app: &tauri::AppHandle) -> Response {
+    let session_id = match req.session_id.as_deref() {
+        Some(id) => id.to_string(),
+        None => return Response::err("session_id required (set $ROUX_SESSION_ID or pass --session)"),
+    };
+    let raw = match req.args.get("name").and_then(|n| n.as_str()) {
+        Some(n) => n.to_string(),
+        None => return Response::err("name required"),
+    };
+    // Empty / whitespace-only name clears the override (matches the
+    // GUI's clearSessionNameOverride path).
+    let name_override =
+        if raw.trim().is_empty() { None } else { Some(raw.trim().to_string()) };
+
+    let state: tauri::State<AppState> = app.state();
+    if let Err(e) = state.session_handle.set_name_override(&session_id, name_override.clone()).await
+    {
+        return Response::err(format!("{}", e));
+    }
+
+    use tauri::Emitter;
+    let cmd = roux_core::RouxCommand::new("session-renamed").session_id(&session_id);
+    if let Err(e) = app.emit("roux-command", &cmd) {
+        rlog!("Warning: failed to emit session-renamed event: {}", e);
+    }
+
+    Response::success(serde_json::json!({
+        "session_id": session_id,
+        "name_override": name_override,
+    }))
+}
+
+async fn handle_session_kill(req: Request, app: &tauri::AppHandle) -> Response {
+    let session_id = match req.session_id.as_deref() {
+        Some(id) => id.to_string(),
+        None => {
+            return Response::err(
+                "session_id required (set $ROUX_SESSION_ID or pass --session)",
+            )
+        }
+    };
+    let state: tauri::State<AppState> = app.state();
+    if let Err(e) =
+        crate::commands::sessions::archive_session_with_hooks(&state, &session_id).await
+    {
+        return Response::err(e);
+    }
+    use tauri::Emitter;
+    let cmd = roux_core::RouxCommand::new("session-killed").session_id(&session_id);
+    if let Err(e) = app.emit("roux-command", &cmd) {
+        rlog!("Warning: failed to emit session-killed event: {}", e);
+    }
+    Response::success(serde_json::json!({ "session_id": session_id }))
 }
 
 /// Register a pending-reply oneshot channel and return its request_id + receiver.
@@ -799,6 +856,9 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
     let worktree_branch =
         req.args.get("worktree_branch").and_then(|d| d.as_str()).map(|s| s.to_string());
+    let start_point =
+        req.args.get("start_point").and_then(|d| d.as_str()).map(|s| s.to_string());
+    let prompt = req.args.get("prompt").and_then(|d| d.as_str()).map(|s| s.to_string());
     let profile = req.args.get("profile").and_then(|p| p.as_str()).unwrap_or("claude").to_string();
     let flags: Vec<String> = req
         .args
@@ -814,13 +874,16 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    // Resolve repo_path: use the requesting session's repo_root, or the working_dir
-    let repo_path = match req.session_id.as_deref() {
-        Some(id) => match handle.get(id).await {
+    // Resolve repo_path: explicit working_dir wins so a caller inside another
+    // session can target a different repo. Fall back to the caller session's
+    // repo_root only when working_dir is not provided.
+    let repo_path = match (working_dir.clone(), req.session_id.as_deref()) {
+        (Some(d), _) => d,
+        (None, Some(id)) => match handle.get(id).await {
             Ok(Some(session)) => session.repo_root.clone(),
-            _ => working_dir.clone().unwrap_or_default(),
+            _ => String::new(),
         },
-        None => working_dir.clone().unwrap_or_default(),
+        (None, None) => String::new(),
     };
 
     if repo_path.is_empty() {
@@ -835,8 +898,15 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
 
     // Build the session target. worktree_branch wins; else treat a distinct
     // working_dir as an existing worktree; else use the repo directly.
+    // For new worktrees, fetch first when the start_point references an
+    // origin ref so it resolves to an up-to-date commit.
     let target = if let Some(branch) = worktree_branch.as_deref() {
-        SessionTarget::NewWorktree { branch, start_point: None, fetch_first: false }
+        let fetch_first = start_point.as_deref().is_some_and(|sp| sp.starts_with("origin/"));
+        SessionTarget::NewWorktree {
+            branch,
+            start_point: start_point.as_deref(),
+            fetch_first,
+        }
     } else {
         match &working_dir {
             Some(dir) if dir != &repo_path => SessionTarget::ExistingWorktree { path: dir },
@@ -883,6 +953,16 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     };
 
     let session_id = session.id.clone();
+
+    // Write the initial prompt to the primary PTY before notifying the
+    // frontend so the text is in the PTY buffer when the pane attaches.
+    if let Some(ref text) = prompt {
+        let mut bytes = text.as_bytes().to_vec();
+        bytes.push(b'\r');
+        if let Err(e) = state.pty_manager.write(&session_id, &bytes) {
+            rlog!("Warning: failed to write prompt to session {}: {}", session_id, e);
+        }
+    }
 
     use tauri::Emitter;
     let mut cmd = roux_core::RouxCommand::new("session-created").session_id(&session_id);
@@ -1139,11 +1219,16 @@ fn format_send_data(text: &str, enter: bool) -> String {
 /// when the caller passes a pane_id we have to look it up via the pane
 /// service rather than treating it as a pty_id directly. When no pane_id
 /// is given, fall back to the session's primary PTY.
+///
+/// `pane_type` is an optional filter: when set and `pane_id` is absent,
+/// resolves to the first registered pane of that type in the session
+/// (e.g. "shell" targets a non-agent shell pane).
 async fn resolve_send_pty_id(
     pane_handle: &crate::pane_service::PaneHandle,
     session_handle: &crate::session_service::SessionHandle,
     session_id: &str,
     pane_id: Option<&str>,
+    pane_type: Option<&str>,
 ) -> Result<String, String> {
     if let Some(pane_id) = pane_id {
         let records = pane_handle
@@ -1160,6 +1245,20 @@ async fn resolve_send_pty_id(
             return Err(format!("pane {} does not belong to session {}", pane_id, session_id));
         }
         return Ok(record.pty_id);
+    }
+
+    if let Some(pt) = pane_type {
+        let mut records = pane_handle
+            .list_by_session(session_id)
+            .await
+            .map_err(|e| format!("pane lookup failed: {}", e))?;
+        // Stable order: sort by id so repeated calls return the same pane.
+        records.sort_by(|a, b| a.id.cmp(&b.id));
+        return records
+            .into_iter()
+            .find(|r| r.pane_type == pt)
+            .map(|r| r.pty_id)
+            .ok_or_else(|| format!("no '{}' pane found in session {}", pt, session_id));
     }
 
     match session_handle.get(session_id).await {
@@ -1202,7 +1301,7 @@ async fn resolve_latest_output_pty_id(
     }
 
     if let Some(session_id) = session_id {
-        return resolve_send_pty_id(pane_handle, session_handle, session_id, None).await;
+        return resolve_send_pty_id(pane_handle, session_handle, session_id, None, None).await;
     }
 
     Err("session_id or pane_id required".to_string())
@@ -1286,9 +1385,16 @@ async fn prepare_send(
 
     let session_id = req.session_id.as_deref().ok_or_else(|| "session_id required".to_string())?;
 
+    let pane_type = req.args.get("pane_type").and_then(|v| v.as_str());
     let pty_id =
-        resolve_send_pty_id(pane_handle, session_handle, session_id, req.pane_id.as_deref())
-            .await?;
+        resolve_send_pty_id(
+            pane_handle,
+            session_handle,
+            session_id,
+            req.pane_id.as_deref(),
+            pane_type,
+        )
+        .await?;
 
     let cr = req.args.get("enter").and_then(|v| v.as_bool()).unwrap_or(true);
     let data = format_send_data(&text, cr).into_bytes();
@@ -2637,6 +2743,35 @@ mod tests {
         assert_eq!(req.args["nono_allow_dirs"].as_array().unwrap().len(), 2);
     }
 
+    #[test]
+    fn request_session_create_with_start_point_deserializes() {
+        let json = r#"{
+            "command": "session-create",
+            "args": {
+                "working_dir": "/path/to/repo-b",
+                "worktree_branch": "feat/x",
+                "start_point": "origin/main"
+            }
+        }"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.args["working_dir"], "/path/to/repo-b");
+        assert_eq!(req.args["worktree_branch"], "feat/x");
+        assert_eq!(req.args["start_point"], "origin/main");
+    }
+
+    #[test]
+    fn request_session_rename_deserializes() {
+        let json = r#"{
+            "command": "session-rename",
+            "session_id": "sid-1",
+            "args": { "name": "renamed" }
+        }"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.command, "session-rename");
+        assert_eq!(req.session_id.as_deref(), Some("sid-1"));
+        assert_eq!(req.args["name"], "renamed");
+    }
+
     // ── resolve_send_pty_id ──────────────────────────────────
 
     fn pane_record(id: &str, pty_id: &str) -> crate::pane_service::PaneRecord {
@@ -2694,7 +2829,7 @@ mod tests {
         panes.upsert(pane_record("sid-1-main", "sid-1")).await.unwrap();
 
         let pty_id =
-            resolve_send_pty_id(&panes, &sessions, "sid-1", Some("sid-1-main")).await.unwrap();
+            resolve_send_pty_id(&panes, &sessions, "sid-1", Some("sid-1-main"), None).await.unwrap();
         assert_eq!(pty_id, "sid-1");
     }
 
@@ -2709,7 +2844,7 @@ mod tests {
             dir.path().join("sessions.json"),
         );
 
-        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", None).await.unwrap();
+        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", None, None).await.unwrap();
         assert_eq!(pty_id, "sid-1");
     }
 
@@ -2727,7 +2862,7 @@ mod tests {
         );
 
         let err =
-            resolve_send_pty_id(&panes, &sessions, "sid-2", Some("sid-1-main")).await.unwrap_err();
+            resolve_send_pty_id(&panes, &sessions, "sid-2", Some("sid-1-main"), None).await.unwrap_err();
         assert!(err.contains("pane not found"), "got: {}", err);
     }
 
@@ -2748,7 +2883,7 @@ mod tests {
         panes.upsert(pane_record("sid-B-main", "sid-B")).await.unwrap();
 
         let err =
-            resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main")).await.unwrap_err();
+            resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main"), None).await.unwrap_err();
         assert!(err.contains("does not belong to session"), "got: {}", err);
     }
 
@@ -2759,7 +2894,7 @@ mod tests {
         let (sessions, _sjoin) =
             crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
 
-        let err = resolve_send_pty_id(&panes, &sessions, "missing-sid", None).await.unwrap_err();
+        let err = resolve_send_pty_id(&panes, &sessions, "missing-sid", None, None).await.unwrap_err();
         assert!(err.contains("session not found"), "got: {}", err);
     }
 
@@ -2777,8 +2912,57 @@ mod tests {
             dir.path().join("sessions.json"),
         );
 
-        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", None).await.unwrap();
+        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", None, None).await.unwrap();
         assert_eq!(pty_id, "sid-1");
+    }
+
+    #[tokio::test]
+    async fn resolve_send_pty_id_pane_type_picks_first_matching_pane() {
+        let (panes, _pjoin) = crate::pane_service::spawn();
+        let dir = tempfile::tempdir().unwrap();
+        let (sessions, _sjoin) =
+            crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
+        // Claude pane (the main PTY) + two shell panes.
+        let mut claude = pane_record("sid-1-main", "sid-1");
+        claude.pane_type = "claude".into();
+        let mut shell_a = pane_record("sid-1-leaf-a", "pty-shell-a");
+        shell_a.pane_type = "shell".into();
+        let mut shell_b = pane_record("sid-1-leaf-b", "pty-shell-b");
+        shell_b.pane_type = "shell".into();
+        panes.upsert(claude).await.unwrap();
+        panes.upsert(shell_a).await.unwrap();
+        panes.upsert(shell_b).await.unwrap();
+
+        // Asking for "shell" returns the lexically-first shell pane.
+        let pty_id =
+            resolve_send_pty_id(&panes, &sessions, "sid-1", None, Some("shell")).await.unwrap();
+        assert_eq!(pty_id, "pty-shell-a");
+
+        // Asking for a type with no match errors cleanly.
+        let err =
+            resolve_send_pty_id(&panes, &sessions, "sid-1", None, Some("command")).await.unwrap_err();
+        assert!(err.contains("no 'command' pane found"), "got: {}", err);
+    }
+
+    #[test]
+    fn request_session_kill_deserializes() {
+        let json =
+            r#"{"command": "session-kill", "session_id": "sid-1"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.command, "session-kill");
+        assert_eq!(req.session_id.as_deref(), Some("sid-1"));
+    }
+
+    #[test]
+    fn request_send_with_pane_type_deserializes() {
+        let json = r#"{
+            "command": "send",
+            "session_id": "sid-1",
+            "args": { "text": "ls", "enter": true, "pane_type": "shell" }
+        }"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.args["pane_type"], "shell");
+        assert_eq!(req.args["text"], "ls");
     }
 
     #[tokio::test]
