@@ -3997,7 +3997,7 @@ dependencies = [
 
 [[package]]
 name = "roux"
-version = "0.5.3-pre.9"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4014,6 +4014,7 @@ dependencies = [
  "roux-core",
  "roux-gh",
  "roux-git",
+ "roux-runtime",
  "roux-smolvm",
  "roux-worktrunk",
  "schemars 1.2.1",
@@ -4071,6 +4072,18 @@ name = "roux-git"
 version = "0.1.0"
 dependencies = [
  "duct",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "roux-runtime"
+version = "0.1.0"
+dependencies = [
+ "roux-core",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

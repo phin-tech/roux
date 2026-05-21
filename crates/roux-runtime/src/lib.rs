@@ -1,0 +1,9 @@
+//! Tauri-free runtime services for Roux.
+//!
+//! This crate hosts stateful backend services that can be embedded by the
+//! current Tauri app and, later, by a standalone daemon.
+
+pub mod pane_service;
+pub mod project_service;
+pub mod pty_ready_gate;
+pub mod session_service;

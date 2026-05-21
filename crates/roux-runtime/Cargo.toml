@@ -1,0 +1,18 @@
+[package]
+name = "roux-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Tauri-free runtime services for Roux"
+
+[lints]
+workspace = true
+
+[dependencies]
+roux-core = { path = "../roux-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+tempfile = "3"
