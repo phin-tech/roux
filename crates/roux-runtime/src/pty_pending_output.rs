@@ -21,13 +21,15 @@ impl<Channel> PtyPendingOutput<Channel> {
         self.pending.retain(|pty_id, _| exists(pty_id));
     }
 
-    #[cfg(test)]
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.pending.len()
     }
 
-    #[cfg(test)]
-    fn contains_key(&self, pty_id: &str) -> bool {
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
+    pub fn contains_key(&self, pty_id: &str) -> bool {
         self.pending.contains_key(pty_id)
     }
 }
