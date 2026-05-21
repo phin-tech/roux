@@ -1714,15 +1714,6 @@ fn shell_binary_path_cache() -> &'static Mutex<Option<Option<String>>> {
     CACHE.get_or_init(|| Mutex::new(None))
 }
 
-#[cfg(not(windows))]
-fn resolve_default_shell_from_sources(
-    setting_shell: Option<&str>,
-    login_shell: Option<&str>,
-    env_shell: Option<&str>,
-) -> String {
-    terminal_env::resolve_default_shell_from_sources(setting_shell, login_shell, env_shell)
-}
-
 fn apply_shell_command_flags(cmd: &mut CommandBuilder, shell: &str) {
     #[cfg(windows)]
     {
@@ -1845,7 +1836,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn default_shell_prefers_explicit_setting_over_login_shell_and_env() {
-        let shell = resolve_default_shell_from_sources(
+        let shell = terminal_env::resolve_default_shell_from_sources(
             Some(" /custom/fish "),
             Some("/bin/zsh"),
             Some("/bin/bash"),
@@ -1857,7 +1848,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn default_shell_prefers_login_shell_over_env_shell() {
-        let shell = resolve_default_shell_from_sources(
+        let shell = terminal_env::resolve_default_shell_from_sources(
             None,
             Some("/opt/homebrew/bin/fish"),
             Some("/bin/zsh"),
@@ -1869,7 +1860,8 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn default_shell_uses_env_shell_when_login_shell_is_unavailable() {
-        let shell = resolve_default_shell_from_sources(None, None, Some("/bin/bash"));
+        let shell =
+            terminal_env::resolve_default_shell_from_sources(None, None, Some("/bin/bash"));
 
         assert_eq!(shell, "/bin/bash");
     }
