@@ -1,4 +1,4 @@
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::Read;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -9,7 +9,6 @@ use tauri::{
     ipc::{Channel, Response},
     Emitter,
 };
-use thiserror::Error;
 
 use crate::platform;
 use crate::pty_ready_gate::ShellReadyGate;
@@ -17,25 +16,47 @@ use crate::pty_ready_gate::ShellReadyGate;
 pub use roux_core::{PtyInfo, PtyRole, PtyStatus};
 pub use roux_runtime::process::cwd_for_pid;
 use roux_runtime::pty_lifecycle::{PtyMetadataCommand, PtyMetadataCommandResult};
-use roux_runtime::pty_output::{
-    plan_reader_step, PtyOutputChunk, PtyOutputDelivery, PtyOutputDeliveryState,
-    PtyOutputFlushAction, PtyOutputFlusher, PtyReaderPlan, PtyReaderStep,
+use roux_runtime::pty_live::{
+    PtyError, PtyOutput as RuntimePtyOutput, PtyOutputLogger, PtyOutputSink,
+    PtySession as RuntimePtySession, PtyWriter, ReadyGate, WaitedChild,
 };
-use roux_runtime::pty_pending_output::PtyPendingOutput;
-use roux_runtime::pty_registry::{PtySessionRegistry, PtySessionRegistryEntry};
 #[cfg(test)]
 pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
+use roux_runtime::pty_output::{
+    plan_reader_step, PtyOutputChunk, PtyOutputFlushAction, PtyOutputFlusher, PtyReaderPlan,
+    PtyReaderStep,
+};
+use roux_runtime::pty_pending_output::PtyPendingOutput;
+use roux_runtime::pty_registry::PtySessionRegistry;
 use roux_runtime::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
 use roux_runtime::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
-pub use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs, SmolvmExec};
 use roux_runtime::terminal_env;
-
-type PtyWriter = Arc<Mutex<Box<dyn std::io::Write + Send>>>;
-type ReadyGate = Arc<Mutex<ShellReadyGate>>;
+pub use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs, SmolvmExec};
 
 const GATE_QUIET: Duration = Duration::from_millis(200);
 const GATE_TIMEOUT: Duration = Duration::from_secs(5);
 const GATE_TICK: Duration = Duration::from_millis(75);
+
+pub(crate) struct TauriOutputChannel(Channel<Response>);
+
+impl PtyOutputSink for TauriOutputChannel {
+    fn send_output(&self, bytes: Vec<u8>) -> bool {
+        self.0.send(Response::new(bytes)).is_ok()
+    }
+}
+
+impl PtyOutputLogger for crate::pty_logger::PtyLogger {
+    fn write_output(&mut self, bytes: &[u8]) {
+        crate::pty_logger::PtyLogger::write(self, bytes);
+    }
+
+    fn recent_output(&self, max_bytes: usize) -> Vec<u8> {
+        crate::pty_logger::PtyLogger::recent(self, max_bytes)
+    }
+}
+
+type PtyOutput = RuntimePtyOutput<TauriOutputChannel, crate::pty_logger::PtyLogger>;
+pub(crate) type PtySession = RuntimePtySession<TauriOutputChannel, crate::pty_logger::PtyLogger>;
 
 fn pty_size_from_dimensions(size: pty_spawn::PtyDimensions) -> PtySize {
     PtySize { rows: size.rows, cols: size.cols, pixel_width: 0, pixel_height: 0 }
@@ -54,10 +75,7 @@ fn command_builder_from_plan(plan: &pty_spawn::PtyCommandPlan) -> CommandBuilder
 }
 
 fn unix_now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
 /// Best-effort flush of bytes the gate released. Errors are logged but
@@ -102,86 +120,6 @@ fn spawn_gate_ticker(gate: ReadyGate, writer: PtyWriter, session_id: String) {
             return;
         }
     });
-}
-
-struct PtyOutputState {
-    channel: Option<Channel<Response>>,
-    delivery: PtyOutputDeliveryState,
-    logger: Option<Arc<Mutex<crate::pty_logger::PtyLogger>>>,
-}
-
-impl PtyOutputState {
-    #[cfg(test)]
-    fn new() -> Self {
-        Self { channel: None, delivery: PtyOutputDeliveryState::default(), logger: None }
-    }
-
-    fn new_with_logger(logger: Arc<Mutex<crate::pty_logger::PtyLogger>>) -> Self {
-        Self {
-            channel: None,
-            delivery: PtyOutputDeliveryState::default(),
-            logger: Some(logger),
-        }
-    }
-
-    fn send_or_buffer(&mut self, bytes: Vec<u8>) {
-        // Log every byte headed to the frontend (best-effort).
-        if let Some(ref logger) = self.logger {
-            if let Ok(mut l) = logger.lock() {
-                l.write(&bytes);
-            }
-        }
-        if let Some(delivery) = self.delivery.send(bytes) {
-            self.deliver(delivery);
-        }
-    }
-
-    fn attach(&mut self, channel: Channel<Response>) {
-        self.channel = Some(channel);
-        let mut next = self.delivery.attach();
-        while let Some(delivery) = next {
-            next = self.deliver(delivery);
-        }
-    }
-
-    fn deliver(&mut self, delivery: PtyOutputDelivery) -> Option<PtyOutputDelivery> {
-        let Some(channel) = &self.channel else {
-            self.delivery.delivery_failed(delivery);
-            return None;
-        };
-        let kind = delivery.kind;
-        if channel.send(Response::new(delivery.bytes.clone())).is_ok() {
-            self.delivery.delivery_succeeded(kind)
-        } else {
-            self.channel = None;
-            self.delivery.delivery_failed(delivery);
-            None
-        }
-    }
-}
-
-#[derive(Clone)]
-struct PtyOutput {
-    state: Arc<Mutex<PtyOutputState>>,
-}
-
-impl PtyOutput {
-    #[cfg(test)]
-    fn new() -> Self {
-        Self { state: Arc::new(Mutex::new(PtyOutputState::new())) }
-    }
-
-    fn new_with_logger(logger: Arc<Mutex<crate::pty_logger::PtyLogger>>) -> Self {
-        Self { state: Arc::new(Mutex::new(PtyOutputState::new_with_logger(logger))) }
-    }
-
-    fn send(&self, bytes: Vec<u8>) {
-        self.state.lock().unwrap().send_or_buffer(bytes);
-    }
-
-    fn attach(&self, channel: Channel<Response>) {
-        self.state.lock().unwrap().attach(channel);
-    }
 }
 
 /// Spawn a flusher thread that batches chunks from the reader and sends them to the frontend
@@ -245,24 +183,22 @@ fn spawn_flusher(
                     Ok(c) => c,
                     Err(_) => break,
                 },
-                Some(timeout_ms) => {
-                    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-                        Ok(c) => c,
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
-                            for action in flusher.on_timeout(elapsed_ms_since(started_at)) {
-                                apply_direct_flusher_action(
-                                    &output,
-                                    action,
-                                    &exit_event,
-                                    &app,
-                                    &exit_registry_hook,
-                                );
-                            }
-                            continue;
+                Some(timeout_ms) => match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
+                    Ok(c) => c,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        for action in flusher.on_timeout(elapsed_ms_since(started_at)) {
+                            apply_direct_flusher_action(
+                                &output,
+                                action,
+                                &exit_event,
+                                &app,
+                                &exit_registry_hook,
+                            );
                         }
-                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        continue;
                     }
-                }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                },
             };
 
             for action in flusher.on_chunk(chunk, elapsed_ms_since(started_at)) {
@@ -307,20 +243,18 @@ fn spawn_flusher_with_lifecycle(
                     Ok(c) => c,
                     Err(_) => break,
                 },
-                Some(timeout_ms) => {
-                    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-                        Ok(c) => c,
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
-                            for action in flusher.on_timeout(elapsed_ms_since(started_at)) {
-                                if let PtyOutputFlushAction::Output(bytes) = action {
-                                    output.send(bytes);
-                                }
+                Some(timeout_ms) => match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
+                    Ok(c) => c,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        for action in flusher.on_timeout(elapsed_ms_since(started_at)) {
+                            if let PtyOutputFlushAction::Output(bytes) = action {
+                                output.send(bytes);
                             }
-                            continue;
                         }
-                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        continue;
                     }
-                }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                },
             };
 
             for action in flusher.on_chunk(chunk, elapsed_ms_since(started_at)) {
@@ -372,10 +306,7 @@ fn apply_reader_plan(
                 drop(guard);
                 flush_to_writer(w, &flush, &format!("reader({})", id));
             } else {
-                rlog!(
-                    "pty_ready_gate: reader saw poisoned gate mutex, skipping feed for {}",
-                    id,
-                );
+                rlog!("pty_ready_gate: reader saw poisoned gate mutex, skipping feed for {}", id,);
             }
         }
     }
@@ -407,121 +338,9 @@ fn spawn_reader(
     });
 }
 
-/// Placeholder for a child process that's already being waited on by another thread.
-#[derive(Debug)]
-struct WaitedChild;
-
-impl portable_pty::ChildKiller for WaitedChild {
-    fn kill(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
-        Box::new(WaitedChild)
-    }
-}
-
-impl portable_pty::Child for WaitedChild {
-    fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
-        Ok(None)
-    }
-    fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
-        Err(std::io::Error::other("child already waited"))
-    }
-    fn process_id(&self) -> Option<u32> {
-        None
-    }
-
-    #[cfg(windows)]
-    fn as_raw_handle(&self) -> Option<*mut std::ffi::c_void> {
-        None
-    }
-}
-
-pub(crate) struct PtySession {
-    master: Box<dyn MasterPty + Send>,
-    #[allow(dead_code)]
-    child: Box<dyn portable_pty::Child + Send>,
-    writer: Arc<Mutex<Box<dyn std::io::Write + Send>>>,
-    output: PtyOutput,
-    generation: u64,
-    /// Write-side readiness gate. Present only for shell spawns, which
-    /// are the only PTYs where early-write races bite (shells take time
-    /// to initialise ZLE/readline and drop stdin that arrives before).
-    /// `None` means writes pass through unchecked.
-    ready_gate: Option<ReadyGate>,
-
-    pub metadata: PtySessionMetadata,
-    pub last_activity: std::time::Instant,
-    pub logger: Option<Arc<Mutex<crate::pty_logger::PtyLogger>>>,
-}
-
-impl PtySessionRegistryEntry for PtySession {
-    fn metadata(&self) -> &PtySessionMetadata {
-        &self.metadata
-    }
-
-    fn metadata_mut(&mut self) -> &mut PtySessionMetadata {
-        &mut self.metadata
-    }
-
-    fn generation(&self) -> u64 {
-        self.generation
-    }
-
-    fn touch_last_activity(&mut self) {
-        self.last_activity = std::time::Instant::now();
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PtyError {
-    #[error("Failed to open PTY: {source}")]
-    OpenPty {
-        #[source]
-        source: anyhow::Error,
-    },
-    #[error("Failed to spawn shell: {source}")]
-    SpawnShell {
-        #[source]
-        source: anyhow::Error,
-    },
-    #[error("Failed to spawn task: {source}")]
-    SpawnTask {
-        #[source]
-        source: anyhow::Error,
-    },
-    #[error("Failed to get PTY writer: {source}")]
-    GetWriter {
-        #[source]
-        source: anyhow::Error,
-    },
-    #[error("Failed to get PTY reader: {source}")]
-    GetReader {
-        #[source]
-        source: anyhow::Error,
-    },
-    #[error("Session {session_id} not found")]
-    SessionNotFound { session_id: String },
-    #[error("Write failed: {source}")]
-    WriteFailed {
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Flush failed: {source}")]
-    FlushFailed {
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Resize failed: {source}")]
-    ResizeFailed {
-        #[source]
-        source: anyhow::Error,
-    },
-}
-
 pub struct PtyManager {
     sessions: Mutex<PtySessionRegistry<PtySession>>,
-    pending_outputs: Mutex<PtyPendingOutput<Channel<Response>>>,
+    pending_outputs: Mutex<PtyPendingOutput<TauriOutputChannel>>,
     generation: AtomicU64,
     /// Set once at app startup. When present, PTY exit triggers a
     /// `RegistryMessage::SessionEnded` broadcast so the agent FSM can
@@ -557,10 +376,7 @@ impl PtyManager {
     /// Install the registry sender. Any PTY spawned after this is
     /// wired to broadcast `SessionEnded` when it exits. Safe to call
     /// multiple times — last writer wins.
-    pub fn set_agent_sender(
-        &self,
-        sender: mpsc::Sender<crate::agent_registry::RegistryMessage>,
-    ) {
+    pub fn set_agent_sender(&self, sender: mpsc::Sender<crate::agent_registry::RegistryMessage>) {
         *self.agent_sender.lock().unwrap() = Some(sender);
     }
 
@@ -579,10 +395,7 @@ impl PtyManager {
         }
     }
 
-    fn send_lifecycle_command(
-        &self,
-        command: crate::pty_lifecycle::PtyLifecycleCommand,
-    ) -> bool {
+    fn send_lifecycle_command(&self, command: crate::pty_lifecycle::PtyLifecycleCommand) -> bool {
         let Some(tx) = self.lifecycle_tx.lock().unwrap().clone() else {
             return false;
         };
@@ -675,14 +488,15 @@ impl PtyManager {
         // clean PtyError that the caller can render in the dead-pane
         // view rather than a blank pane that silently never connects.
         if let Some(smol) = smolvm {
-            ensure_machine_running(&smol.binary, &smol.machine_name)
-                .map_err(|err| PtyError::SpawnShell {
+            ensure_machine_running(&smol.binary, &smol.machine_name).map_err(|err| {
+                PtyError::SpawnShell {
                     source: anyhow::anyhow!(
                         "smol machine '{}' could not be made ready: {}",
                         smol.machine_name,
                         err
                     ),
-                })?;
+                }
+            })?;
         }
 
         let shell = resolve_default_shell();
@@ -706,7 +520,8 @@ impl PtyManager {
             .map_err(|source| PtyError::OpenPty { source })?;
 
         let nono_label = nono.map(|n| format!(" (nono profile={})", n.profile)).unwrap_or_default();
-        let smol_label = smolvm.map(|s| format!(" (smol machine={})", s.machine_name)).unwrap_or_default();
+        let smol_label =
+            smolvm.map(|s| format!(" (smol machine={})", s.machine_name)).unwrap_or_default();
         let pane_label = pane_id.map(|p| format!(", pane '{}'", p)).unwrap_or_default();
         let session_label = session_id.map(|s| format!(", session '{}'", s)).unwrap_or_default();
         rlog!(
@@ -734,10 +549,8 @@ impl PtyManager {
 
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
-        let logger = Arc::new(Mutex::new(crate::pty_logger::PtyLogger::new(
-            session_id.unwrap_or(id),
-            id,
-        )));
+        let logger =
+            Arc::new(Mutex::new(crate::pty_logger::PtyLogger::new(session_id.unwrap_or(id), id)));
         let output = PtyOutput::new_with_logger(Arc::clone(&logger));
 
         let writer = Arc::new(Mutex::new(writer));
@@ -784,14 +597,12 @@ impl PtyManager {
                 Err(mpsc::SendError(crate::pty_lifecycle::PtyLifecycleMessage::Command(
                     command,
                     _,
-                ))) => {
-                    match *command {
-                        crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session } => {
-                            self.register_session_direct(pty_id, *session);
-                        }
-                        _ => unreachable!("register send only emits register commands here"),
+                ))) => match *command {
+                    crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session } => {
+                        self.register_session_direct(pty_id, *session);
                     }
-                }
+                    _ => unreachable!("register send only emits register commands here"),
+                },
                 Err(_) => unreachable!("register send only emits command messages here"),
             }
         } else {
@@ -896,10 +707,8 @@ impl PtyManager {
 
         let gen = self.generation.fetch_add(1, Ordering::Relaxed);
 
-        let logger_task = Arc::new(Mutex::new(crate::pty_logger::PtyLogger::new(
-            session_id.unwrap_or(id),
-            id,
-        )));
+        let logger_task =
+            Arc::new(Mutex::new(crate::pty_logger::PtyLogger::new(session_id.unwrap_or(id), id)));
         let output = PtyOutput::new_with_logger(Arc::clone(&logger_task));
 
         // Insert session before attaching pending output and starting threads
@@ -945,14 +754,12 @@ impl PtyManager {
                 Err(mpsc::SendError(crate::pty_lifecycle::PtyLifecycleMessage::Command(
                     command,
                     _,
-                ))) => {
-                    match *command {
-                        crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session } => {
-                            self.register_session_direct(pty_id, *session);
-                        }
-                        _ => unreachable!("register send only emits register commands here"),
+                ))) => match *command {
+                    crate::pty_lifecycle::PtyLifecycleCommand::Register { pty_id, session } => {
+                        self.register_session_direct(pty_id, *session);
                     }
-                }
+                    _ => unreachable!("register send only emits register commands here"),
+                },
                 Err(_) => unreachable!("register send only emits command messages here"),
             }
         } else {
@@ -966,12 +773,8 @@ impl PtyManager {
         // Note: Tasks use the flusher primarily for output buffering, not exit events.
         // The actual exit event comes from the child.wait() thread below.
         let lifecycle_tx_clone = self.lifecycle_tx.lock().unwrap().clone();
-        let tx = spawn_flusher(
-            output.clone(),
-            None,
-            app.clone(),
-            self.exit_registry_info(session_id),
-        );
+        let tx =
+            spawn_flusher(output.clone(), None, app.clone(), self.exit_registry_info(session_id));
         let sniffer =
             crate::notifications::OscSniffer::new(app.clone(), session_id.map(|s| s.to_string()));
         spawn_reader(reader, tx, Some(sniffer), None);
@@ -1011,6 +814,7 @@ impl PtyManager {
         self.cleanup_stale_pending();
         let output =
             self.sessions.lock().unwrap().get(session_id).map(|session| session.output.clone());
+        let channel = TauriOutputChannel(channel);
         if let Some(output) = output {
             output.attach(channel);
         } else {
@@ -1102,9 +906,7 @@ impl PtyManager {
 
     /// Detach a PTY from its pane (PTY keeps running).
     pub fn detach(&self, pty_id: &str) {
-        let command = PtyMetadataCommand::Detach {
-            pty_id: pty_id.to_string(),
-        };
+        let command = PtyMetadataCommand::Detach { pty_id: pty_id.to_string() };
         if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Metadata(
             command.clone(),
         )) {
@@ -1127,9 +929,7 @@ impl PtyManager {
 
     /// Clear unread output and bell flags for a PTY.
     pub fn mark_read(&self, pty_id: &str) {
-        let command = PtyMetadataCommand::MarkRead {
-            pty_id: pty_id.to_string(),
-        };
+        let command = PtyMetadataCommand::MarkRead { pty_id: pty_id.to_string() };
         if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Metadata(
             command.clone(),
         )) {
@@ -1152,9 +952,11 @@ impl PtyManager {
 
     /// Kill all PTY sessions for a session ID.
     pub fn kill_session_ptys(&self, session_id: &str) {
-        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::KillSessionPtys {
-            session_id: session_id.to_string(),
-        }) {
+        if !self.send_lifecycle_command(
+            crate::pty_lifecycle::PtyLifecycleCommand::KillSessionPtys {
+                session_id: session_id.to_string(),
+            },
+        ) {
             self.kill_session_ptys_direct(session_id);
         }
     }
@@ -1308,7 +1110,9 @@ fn roux_env_pairs(
     let output = terminal_env::roux_env_pairs_with_warnings(terminal_env::RouxEnvInputs {
         user_path,
         socket_path: &socket_path,
-        cli_shim: cli_shim.as_ref().map(|(bin_dir, cli_path)| (bin_dir.as_str(), cli_path.as_str())),
+        cli_shim: cli_shim
+            .as_ref()
+            .map(|(bin_dir, cli_path)| (bin_dir.as_str(), cli_path.as_str())),
         session_id,
         pane_id,
         pane_alias: pane_alias.as_deref(),
@@ -1317,10 +1121,8 @@ fn roux_env_pairs(
         notes,
     });
     for warning in &output.warnings {
-        let terminal_env::TerminalEnvWarning::ProjectContextPathsJoinFailed {
-            path_count,
-            error,
-        } = warning;
+        let terminal_env::TerminalEnvWarning::ProjectContextPathsJoinFailed { path_count, error } =
+            warning;
         rlog!(
             "notes_env_pairs: failed to encode ROUX_PROJECT_CONTEXT_PATHS ({} paths): {}",
             path_count,
@@ -1480,7 +1282,8 @@ mod tests {
 
     #[test]
     fn logger_receives_bytes_sent_to_output() {
-        let logger = Arc::new(Mutex::new(crate::pty_logger::PtyLogger::new("test-sess", "test-pty")));
+        let logger =
+            Arc::new(Mutex::new(crate::pty_logger::PtyLogger::new("test-sess", "test-pty")));
         let output = PtyOutput::new_with_logger(Arc::clone(&logger));
 
         output.send(vec![1, 2, 3]);
@@ -1497,7 +1300,7 @@ mod tests {
         output.send(vec![4, 5, 6]);
 
         let received = Arc::new(Mutex::new(Vec::new()));
-        output.attach(raw_channel(received.clone()));
+        output.attach(TauriOutputChannel(raw_channel(received.clone())));
 
         assert_eq!(*received.lock().unwrap(), vec![vec![1, 2, 3], vec![4, 5, 6]]);
     }
@@ -1510,7 +1313,7 @@ mod tests {
         output.send(vec![3; PTY_BACKLOG_LIMIT_BYTES / 2]);
 
         let received = Arc::new(Mutex::new(Vec::new()));
-        output.attach(raw_channel(received.clone()));
+        output.attach(TauriOutputChannel(raw_channel(received.clone())));
 
         assert_eq!(
             *received.lock().unwrap(),
@@ -1522,7 +1325,7 @@ mod tests {
     fn sends_directly_once_channel_is_attached() {
         let output = PtyOutput::new();
         let received = Arc::new(Mutex::new(Vec::new()));
-        output.attach(raw_channel(received.clone()));
+        output.attach(TauriOutputChannel(raw_channel(received.clone())));
 
         output.send(vec![9, 8, 7]);
 
@@ -1568,8 +1371,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn default_shell_uses_env_shell_when_login_shell_is_unavailable() {
-        let shell =
-            terminal_env::resolve_default_shell_from_sources(None, None, Some("/bin/bash"));
+        let shell = terminal_env::resolve_default_shell_from_sources(None, None, Some("/bin/bash"));
 
         assert_eq!(shell, "/bin/bash");
     }
@@ -1626,18 +1428,16 @@ mod flusher_lifecycle_tests {
 
         // Verify lifecycle event was sent
         let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(
-            matches!(
-                event,
-                PtyLifecycleMessage::Event(PtyLifecycleEvent::Exited {
-                    pty_id,
-                    session_id,
-                    code: None,
-                    reason: ExitReason::Exit,
-                    generation: 42,
-                }) if pty_id == "pty-123" && session_id.as_deref() == Some("session-456")
-            )
-        );
+        assert!(matches!(
+            event,
+            PtyLifecycleMessage::Event(PtyLifecycleEvent::Exited {
+                pty_id,
+                session_id,
+                code: None,
+                reason: ExitReason::Exit,
+                generation: 42,
+            }) if pty_id == "pty-123" && session_id.as_deref() == Some("session-456")
+        ));
     }
 
     #[test]
@@ -1659,18 +1459,16 @@ mod flusher_lifecycle_tests {
 
         // Verify lifecycle event was sent with IoError reason
         let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(
-            matches!(
-                event,
-                PtyLifecycleMessage::Event(PtyLifecycleEvent::Exited {
-                    pty_id,
-                    session_id: None,
-                    code: None,
-                    reason: ExitReason::IoError,
-                    generation: 99,
-                }) if pty_id == "pty-err"
-            )
-        );
+        assert!(matches!(
+            event,
+            PtyLifecycleMessage::Event(PtyLifecycleEvent::Exited {
+                pty_id,
+                session_id: None,
+                code: None,
+                reason: ExitReason::IoError,
+                generation: 99,
+            }) if pty_id == "pty-err"
+        ));
     }
 
     #[test]
@@ -1680,7 +1478,7 @@ mod flusher_lifecycle_tests {
         let received = Arc::new(Mutex::new(Vec::new()));
 
         // Attach channel to capture output
-        output.attach(super::tests::raw_channel(received.clone()));
+        output.attach(TauriOutputChannel(super::tests::raw_channel(received.clone())));
 
         let tx = spawn_flusher_with_lifecycle(
             output,
@@ -1861,7 +1659,8 @@ mod lifecycle_command_tests {
         let (tx, rx) = crate::pty_lifecycle::channel();
         std::thread::spawn(move || {
             while let Ok(message) = rx.recv() {
-                if let crate::pty_lifecycle::PtyLifecycleMessage::Command(command, reply) = message {
+                if let crate::pty_lifecycle::PtyLifecycleMessage::Command(command, reply) = message
+                {
                     crate::pty_lifecycle::handle_command(&manager, *command);
                     let _ = reply.send(());
                 }
@@ -1870,11 +1669,7 @@ mod lifecycle_command_tests {
         tx
     }
 
-    fn register_via_bus(
-        tx: &crate::pty_lifecycle::LifecycleTx,
-        pty_id: &str,
-        session: PtySession,
-    ) {
+    fn register_via_bus(tx: &crate::pty_lifecycle::LifecycleTx, pty_id: &str, session: PtySession) {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Command(
             Box::new(crate::pty_lifecycle::PtyLifecycleCommand::Register {
@@ -1939,10 +1734,8 @@ mod lifecycle_command_tests {
             Some("session-a"),
             PtyStatus::RunningAttached { pane_id: "pane-a".to_string() },
         );
-        let (session_b, kill_b) = make_test_session(
-            Some("session-a"),
-            PtyStatus::RunningDetached { since_ms: 1 },
-        );
+        let (session_b, kill_b) =
+            make_test_session(Some("session-a"), PtyStatus::RunningDetached { since_ms: 1 });
         let (session_other, kill_other) = make_test_session(
             Some("session-b"),
             PtyStatus::RunningAttached { pane_id: "pane-other".to_string() },
@@ -1971,10 +1764,8 @@ mod lifecycle_command_tests {
             Some("session-a"),
             PtyStatus::RunningAttached { pane_id: "session-a-main".to_string() },
         );
-        let (old_secondary, secondary_kill) = make_test_session(
-            Some("session-a"),
-            PtyStatus::RunningDetached { since_ms: 1 },
-        );
+        let (old_secondary, secondary_kill) =
+            make_test_session(Some("session-a"), PtyStatus::RunningDetached { since_ms: 1 });
         register_via_bus(&lifecycle_tx, "session-a", old_primary);
         register_via_bus(&lifecycle_tx, "pty-secondary", old_secondary);
 

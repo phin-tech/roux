@@ -4081,8 +4081,10 @@ dependencies = [
 name = "roux-runtime"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "dirs",
  "libc",
+ "portable-pty",
  "roux-core",
  "serde",
  "serde_json",

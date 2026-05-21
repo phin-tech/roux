@@ -8,6 +8,8 @@ description = "Tauri-free runtime services for Roux"
 workspace = true
 
 [dependencies]
+anyhow = "1"
+portable-pty = "0.9"
 roux-core = { path = "../roux-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
