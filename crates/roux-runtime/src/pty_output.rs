@@ -64,6 +64,40 @@ pub enum PtyOutputFlushAction {
     Exit(ExitReason),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyReaderStep<'a> {
+    Data(&'a [u8]),
+    Eof,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PtyReaderPlan {
+    pub observer_bytes: Option<Vec<u8>>,
+    pub output_chunk: PtyOutputChunk,
+    pub stop: bool,
+}
+
+pub fn plan_reader_step(step: PtyReaderStep<'_>) -> PtyReaderPlan {
+    match step {
+        PtyReaderStep::Data(bytes) => PtyReaderPlan {
+            observer_bytes: Some(bytes.to_vec()),
+            output_chunk: PtyOutputChunk::Data(bytes.to_vec()),
+            stop: false,
+        },
+        PtyReaderStep::Eof => PtyReaderPlan {
+            observer_bytes: None,
+            output_chunk: PtyOutputChunk::Eof,
+            stop: true,
+        },
+        PtyReaderStep::Error => PtyReaderPlan {
+            observer_bytes: None,
+            output_chunk: PtyOutputChunk::Error,
+            stop: true,
+        },
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PtyOutputFlusher {
     batch: Vec<u8>,
@@ -257,5 +291,47 @@ mod tests {
             vec![PtyOutputFlushAction::Exit(ExitReason::IoError)]
         );
         assert!(flusher.is_finished());
+    }
+
+    #[test]
+    fn reader_plan_for_data_feeds_observers_and_output() {
+        let plan = plan_reader_step(PtyReaderStep::Data(b"abc"));
+
+        assert_eq!(
+            plan,
+            PtyReaderPlan {
+                observer_bytes: Some(b"abc".to_vec()),
+                output_chunk: PtyOutputChunk::Data(b"abc".to_vec()),
+                stop: false,
+            }
+        );
+    }
+
+    #[test]
+    fn reader_plan_for_eof_stops_after_eof_chunk() {
+        let plan = plan_reader_step(PtyReaderStep::Eof);
+
+        assert_eq!(
+            plan,
+            PtyReaderPlan {
+                observer_bytes: None,
+                output_chunk: PtyOutputChunk::Eof,
+                stop: true,
+            }
+        );
+    }
+
+    #[test]
+    fn reader_plan_for_error_stops_after_error_chunk() {
+        let plan = plan_reader_step(PtyReaderStep::Error);
+
+        assert_eq!(
+            plan,
+            PtyReaderPlan {
+                observer_bytes: None,
+                output_chunk: PtyOutputChunk::Error,
+                stop: true,
+            }
+        );
     }
 }

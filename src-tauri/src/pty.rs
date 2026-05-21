@@ -19,7 +19,8 @@ pub use roux_core::{PtyInfo, PtyRole, PtyStatus};
 pub use roux_runtime::process::cwd_for_pid;
 use roux_runtime::pty_lifecycle::{self, PtyMetadataCommand, PtyMetadataCommandResult};
 use roux_runtime::pty_output::{
-    PtyOutputBacklog, PtyOutputChunk, PtyOutputFlushAction, PtyOutputFlusher,
+    plan_reader_step, PtyOutputBacklog, PtyOutputChunk, PtyOutputFlushAction, PtyOutputFlusher,
+    PtyReaderPlan, PtyReaderStep,
 };
 #[cfg(test)]
 pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
@@ -350,6 +351,37 @@ fn spawn_flusher_with_lifecycle(
     tx
 }
 
+fn apply_reader_plan(
+    plan: PtyReaderPlan,
+    tx: &mpsc::Sender<PtyOutputChunk>,
+    sniffer: &mut Option<crate::notifications::OscSniffer>,
+    gate: &Option<(ReadyGate, PtyWriter, String)>,
+) -> bool {
+    if let Some(bytes) = plan.observer_bytes.as_deref() {
+        if let Some(s) = sniffer {
+            s.feed(bytes);
+        }
+        // Feed the readiness gate. If this output opens the gate and had
+        // writes buffered, flush them back into the PTY so the user's typed
+        // command actually runs. Must not short-circuit the output send below:
+        // a poisoned gate mutex would otherwise silently stop output forwarding.
+        if let Some((g, w, id)) = gate {
+            if let Ok(mut guard) = g.lock() {
+                let flush = guard.on_output(bytes, Instant::now());
+                drop(guard);
+                flush_to_writer(w, &flush, &format!("reader({})", id));
+            } else {
+                rlog!(
+                    "pty_ready_gate: reader saw poisoned gate mutex, skipping feed for {}",
+                    id,
+                );
+            }
+        }
+    }
+
+    tx.send(plan.output_chunk).is_err() || plan.stop
+}
+
 /// Spawn a reader thread that blocks on PTY reads and sends chunks to the flusher.
 /// If `sniffer` is provided, every chunk is also fed through the OSC parser
 /// before being forwarded (non-consuming — bytes pass through unchanged).
@@ -362,41 +394,13 @@ fn spawn_reader(
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
         loop {
-            match reader.read(&mut buf) {
-                Ok(0) => {
-                    let _ = tx.send(PtyOutputChunk::Eof);
-                    break;
-                }
-                Ok(n) => {
-                    if let Some(ref mut s) = sniffer {
-                        s.feed(&buf[..n]);
-                    }
-                    // Feed the readiness gate. If this output opens the
-                    // gate and had writes buffered, flush them back into
-                    // the PTY so the user's typed command actually runs.
-                    // Must not short-circuit the tx.send below — a
-                    // poisoned gate mutex would otherwise silently stop
-                    // output forwarding for the session.
-                    if let Some((ref g, ref w, ref id)) = gate {
-                        if let Ok(mut guard) = g.lock() {
-                            let flush = guard.on_output(&buf[..n], Instant::now());
-                            drop(guard);
-                            flush_to_writer(w, &flush, &format!("reader({})", id));
-                        } else {
-                            rlog!(
-                                "pty_ready_gate: reader saw poisoned gate mutex, skipping feed for {}",
-                                id,
-                            );
-                        }
-                    }
-                    if tx.send(PtyOutputChunk::Data(buf[..n].to_vec())).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => {
-                    let _ = tx.send(PtyOutputChunk::Error);
-                    break;
-                }
+            let plan = match reader.read(&mut buf) {
+                Ok(0) => plan_reader_step(PtyReaderStep::Eof),
+                Ok(n) => plan_reader_step(PtyReaderStep::Data(&buf[..n])),
+                Err(_) => plan_reader_step(PtyReaderStep::Error),
+            };
+            if apply_reader_plan(plan, &tx, &mut sniffer, &gate) {
+                break;
             }
         }
     });
