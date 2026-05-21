@@ -20,6 +20,7 @@ pub use roux_runtime::process::cwd_for_pid;
 use roux_runtime::pty_output::PtyOutputBacklog;
 #[cfg(test)]
 pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
+use roux_runtime::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
 use roux_runtime::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
 pub use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs, SmolvmExec};
 use roux_runtime::terminal_env;
@@ -45,6 +46,13 @@ fn command_builder_from_plan(plan: &pty_spawn::PtyCommandPlan) -> CommandBuilder
     }
     cmd.cwd(&plan.cwd);
     cmd
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 /// Best-effort flush of bytes the gate released. Errors are logged but
@@ -448,14 +456,6 @@ impl portable_pty::Child for WaitedChild {
     }
 }
 
-/// Information captured when a PTY exits.
-#[derive(Clone, Debug, serde::Serialize, specta::Type)]
-pub struct ExitInfo {
-    pub code: Option<i32>,
-    pub at_ms: u64,
-    pub was_attached: bool,
-}
-
 pub(crate) struct PtySession {
     master: Box<dyn MasterPty + Send>,
     #[allow(dead_code)]
@@ -469,19 +469,8 @@ pub(crate) struct PtySession {
     /// `None` means writes pass through unchecked.
     ready_gate: Option<ReadyGate>,
 
-    // --- attach/detach metadata ---
-    pub role: PtyRole,
-    pub status: PtyStatus,
-    pub exit_info: Option<ExitInfo>,
-    pub session_id: Option<String>,
-    pub name: Option<String>,
-    pub working_dir: Option<String>,
-    pub profile: Option<String>,
-    #[allow(dead_code)] // Reserved for future PTY size tracking
-    pub last_size: (u16, u16),
+    pub metadata: PtySessionMetadata,
     pub last_activity: std::time::Instant,
-    pub unread_output: bool,
-    pub bell_pending: bool,
     pub logger: Option<Arc<Mutex<crate::pty_logger::PtyLogger>>>,
 }
 
@@ -642,11 +631,7 @@ impl PtyManager {
     pub(crate) fn detach_direct(&self, pty_id: &str) {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(session) = sessions.get_mut(pty_id) {
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64;
-            session.status = PtyStatus::RunningDetached { since_ms: now_ms };
+            session.metadata.detach(unix_now_ms());
             rlog!("PtyManager: detached PTY '{}'", pty_id);
         }
     }
@@ -654,9 +639,7 @@ impl PtyManager {
     pub(crate) fn attach_to_pane_direct(&self, pty_id: &str, pane_id: &str) {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(session) = sessions.get_mut(pty_id) {
-            session.status = PtyStatus::RunningAttached { pane_id: pane_id.to_string() };
-            session.unread_output = false;
-            session.bell_pending = false;
+            session.metadata.attach_to_pane(pane_id);
             session.last_activity = std::time::Instant::now();
             rlog!("PtyManager: attached PTY '{}' to pane '{}'", pty_id, pane_id);
         }
@@ -676,42 +659,35 @@ impl PtyManager {
             return false;
         }
 
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-        let was_attached = matches!(session.status, PtyStatus::RunningAttached { .. });
-        session.status = PtyStatus::Exited { code, at_ms: now_ms };
-        session.exit_info = Some(ExitInfo { code, at_ms: now_ms, was_attached });
+        session.metadata.mark_exited(code, unix_now_ms());
         true
     }
 
     pub(crate) fn mark_read_direct(&self, pty_id: &str) {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(session) = sessions.get_mut(pty_id) {
-            session.unread_output = false;
-            session.bell_pending = false;
+            session.metadata.mark_read();
         }
     }
 
     pub(crate) fn set_unread_output_direct(&self, pty_id: &str, value: bool) {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(session) = sessions.get_mut(pty_id) {
-            session.unread_output = value;
+            session.metadata.set_unread_output(value);
         }
     }
 
     pub(crate) fn set_bell_pending_direct(&self, pty_id: &str, value: bool) {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(session) = sessions.get_mut(pty_id) {
-            session.bell_pending = value;
+            session.metadata.set_bell_pending(value);
         }
     }
 
     pub(crate) fn set_name_direct(&self, pty_id: &str, name: Option<&str>) {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(session) = sessions.get_mut(pty_id) {
-            session.name = name.map(|s| s.to_string());
+            session.metadata.set_name(name);
         }
     }
 
@@ -720,7 +696,7 @@ impl PtyManager {
             let sessions = self.sessions.lock().unwrap();
             sessions
                 .iter()
-                .filter(|(_, s)| s.session_id.as_deref() == Some(session_id))
+                .filter(|(_, s)| s.metadata.belongs_to_session(session_id))
                 .map(|(id, _)| id.clone())
                 .collect()
         };
@@ -819,17 +795,6 @@ impl PtyManager {
         let gate =
             Arc::new(Mutex::new(ShellReadyGate::new(Instant::now(), GATE_QUIET, GATE_TIMEOUT)));
 
-        let initial_pane = pane_id.map(|p| p.to_string());
-        let initial_status = match initial_pane {
-            Some(ref p) => PtyStatus::RunningAttached { pane_id: p.clone() },
-            None => {
-                let since_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64;
-                PtyStatus::RunningDetached { since_ms }
-            }
-        };
         let size = spawn_plan.size.as_tuple();
         let session = PtySession {
             master: pair.master,
@@ -838,17 +803,16 @@ impl PtyManager {
             output: output.clone(),
             generation: gen,
             ready_gate: Some(Arc::clone(&gate)),
-            role,
-            status: initial_status,
-            exit_info: None,
-            session_id: session_id.map(|s| s.to_string()),
-            name: None,
-            working_dir: Some(working_dir.to_string()),
-            profile: profile.map(|p| p.to_string()),
-            last_size: size,
+            metadata: PtySessionMetadata::new(PtySessionMetadataInputs {
+                role,
+                pane_id,
+                detached_since_ms: unix_now_ms(),
+                session_id,
+                working_dir: Some(working_dir),
+                profile,
+                last_size: size,
+            }),
             last_activity: std::time::Instant::now(),
-            unread_output: false,
-            bell_pending: false,
             logger: Some(logger),
         };
         let lifecycle_tx = self.lifecycle_tx.lock().unwrap().clone();
@@ -990,17 +954,6 @@ impl PtyManager {
         let output = PtyOutput::new_with_logger(Arc::clone(&logger_task));
 
         // Insert session before attaching pending output and starting threads
-        let initial_pane_task = pane_id.map(|p| p.to_string());
-        let initial_status_task = match initial_pane_task {
-            Some(ref p) => PtyStatus::RunningAttached { pane_id: p.clone() },
-            None => {
-                let since_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64;
-                PtyStatus::RunningDetached { since_ms }
-            }
-        };
         let size_task = spawn_plan.size.as_tuple();
         let session = PtySession {
             master: pair.master,
@@ -1011,17 +964,16 @@ impl PtyManager {
             // One-shot tasks run the command as argv to the shell
             // (non-interactive), so there is no ZLE/readline init to race.
             ready_gate: None,
-            role,
-            status: initial_status_task,
-            exit_info: None,
-            session_id: session_id.map(|s| s.to_string()),
-            name: None,
-            working_dir: Some(working_dir.to_string()),
-            profile: profile.map(|p| p.to_string()),
-            last_size: size_task,
+            metadata: PtySessionMetadata::new(PtySessionMetadataInputs {
+                role,
+                pane_id,
+                detached_since_ms: unix_now_ms(),
+                session_id,
+                working_dir: Some(working_dir),
+                profile,
+                last_size: size_task,
+            }),
             last_activity: std::time::Instant::now(),
-            unread_output: false,
-            bell_pending: false,
             logger: Some(logger_task),
         };
         let lifecycle_tx = self.lifecycle_tx.lock().unwrap().clone();
@@ -1187,17 +1139,7 @@ impl PtyManager {
 
     pub(crate) fn get_info_direct(&self, pty_id: &str) -> Option<PtyInfo> {
         let sessions = self.sessions.lock().unwrap();
-        sessions.get(pty_id).map(|s| PtyInfo {
-            id: pty_id.to_string(),
-            session_id: s.session_id.clone(),
-            role: s.role.clone(),
-            status: s.status.clone(),
-            name: s.name.clone(),
-            working_dir: s.working_dir.clone(),
-            profile: s.profile.clone(),
-            unread_output: s.unread_output,
-            bell_pending: s.bell_pending,
-        })
+        sessions.get(pty_id).map(|s| s.metadata.to_info(pty_id))
     }
 
     /// List PTY info snapshots for a given session (for picker UI).
@@ -1205,18 +1147,8 @@ impl PtyManager {
         let sessions = self.sessions.lock().unwrap();
         sessions
             .iter()
-            .filter(|(_, s)| s.session_id.as_deref() == Some(session_id))
-            .map(|(id, s)| PtyInfo {
-                id: id.clone(),
-                session_id: s.session_id.clone(),
-                role: s.role.clone(),
-                status: s.status.clone(),
-                name: s.name.clone(),
-                working_dir: s.working_dir.clone(),
-                profile: s.profile.clone(),
-                unread_output: s.unread_output,
-                bell_pending: s.bell_pending,
-            })
+            .filter(|(_, s)| s.metadata.belongs_to_session(session_id))
+            .map(|(id, s)| s.metadata.to_info(id))
             .collect()
     }
 
@@ -1225,17 +1157,7 @@ impl PtyManager {
         let sessions = self.sessions.lock().unwrap();
         sessions
             .iter()
-            .map(|(id, s)| PtyInfo {
-                id: id.clone(),
-                session_id: s.session_id.clone(),
-                role: s.role.clone(),
-                status: s.status.clone(),
-                name: s.name.clone(),
-                working_dir: s.working_dir.clone(),
-                profile: s.profile.clone(),
-                unread_output: s.unread_output,
-                bell_pending: s.bell_pending,
-            })
+            .map(|(id, s)| s.metadata.to_info(id))
             .collect()
     }
 
@@ -1968,6 +1890,17 @@ mod lifecycle_command_tests {
         let child: Box<dyn portable_pty::Child + Send> =
             Box::new(FakeChild { kill_count: Arc::clone(&kill_count) });
 
+        let mut metadata = PtySessionMetadata::new(PtySessionMetadataInputs {
+            role: PtyRole::Secondary,
+            pane_id: None,
+            detached_since_ms: 1,
+            session_id,
+            working_dir: Some("/tmp"),
+            profile: Some("plain-shell"),
+            last_size: (80, 24),
+        });
+        metadata.status = status;
+
         let session = PtySession {
             master: pair.master,
             child,
@@ -1975,17 +1908,8 @@ mod lifecycle_command_tests {
             output: PtyOutput::new(),
             generation,
             ready_gate: None,
-            role: PtyRole::Secondary,
-            status,
-            exit_info: None,
-            session_id: session_id.map(ToString::to_string),
-            name: None,
-            working_dir: Some("/tmp".to_string()),
-            profile: Some("plain-shell".to_string()),
-            last_size: (80, 24),
+            metadata,
             last_activity: Instant::now(),
-            unread_output: false,
-            bell_pending: false,
             logger: None,
         };
 
@@ -2111,7 +2035,7 @@ mod lifecycle_command_tests {
             Some("session-a"),
             PtyStatus::RunningAttached { pane_id: "session-a-main".to_string() },
         );
-        restored_primary.role = PtyRole::SessionPrimary;
+        restored_primary.metadata.role = PtyRole::SessionPrimary;
         register_via_bus(&lifecycle_tx, "session-a", restored_primary);
 
         let snapshot = manager.list_for_session("session-a");
