@@ -1562,7 +1562,7 @@ fn roux_env_pairs(
     // `roux alias whoami`.
     let pane_alias = pane_id.and_then(lookup_pane_alias);
 
-    terminal_env::roux_env_pairs(terminal_env::RouxEnvInputs {
+    let output = terminal_env::roux_env_pairs_with_warnings(terminal_env::RouxEnvInputs {
         user_path,
         socket_path: &socket_path,
         cli_shim: cli_shim.as_ref().map(|(bin_dir, cli_path)| (bin_dir.as_str(), cli_path.as_str())),
@@ -1572,7 +1572,19 @@ fn roux_env_pairs(
         project_id,
         worktree_path,
         notes,
-    })
+    });
+    for warning in &output.warnings {
+        let terminal_env::TerminalEnvWarning::ProjectContextPathsJoinFailed {
+            path_count,
+            error,
+        } = warning;
+        rlog!(
+            "notes_env_pairs: failed to encode ROUX_PROJECT_CONTEXT_PATHS ({} paths): {}",
+            path_count,
+            error
+        );
+    }
+    output.pairs
 }
 
 /// True for env keys that are meaningful inside a smolvm guest. Host

@@ -65,6 +65,17 @@ pub struct RouxEnvInputs<'a> {
     pub notes: Option<&'a NotesEnvInputs>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalEnvWarning {
+    ProjectContextPathsJoinFailed { path_count: usize, error: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouxEnvOutput {
+    pub pairs: Vec<(String, String)>,
+    pub warnings: Vec<TerminalEnvWarning>,
+}
+
 /// Build the PATH value to hand to a PTY child.
 pub fn build_pty_path(user_path: &str, roux_cli_bin_dir: Option<&str>) -> String {
     let Some(bin_dir) = roux_cli_bin_dir else {
@@ -85,6 +96,10 @@ pub fn build_pty_path(user_path: &str, roux_cli_bin_dir: Option<&str>) -> String
 }
 
 pub fn roux_env_pairs(inputs: RouxEnvInputs<'_>) -> Vec<(String, String)> {
+    roux_env_pairs_with_warnings(inputs).pairs
+}
+
+pub fn roux_env_pairs_with_warnings(inputs: RouxEnvInputs<'_>) -> RouxEnvOutput {
     let mut pairs: Vec<(String, String)> = vec![
         (
             "PATH".to_string(),
@@ -113,10 +128,11 @@ pub fn roux_env_pairs(inputs: RouxEnvInputs<'_>) -> Vec<(String, String)> {
     if let Some(wt) = inputs.worktree_path {
         pairs.push(("ROUX_WORKTREE_PATH".to_string(), wt.to_string()));
     }
+    let mut warnings = Vec::new();
     if let Some(n) = inputs.notes {
-        notes_env_pairs(n, &mut pairs);
+        warnings.extend(notes_env_pairs(n, &mut pairs));
     }
-    pairs
+    RouxEnvOutput { pairs, warnings }
 }
 
 /// True for env keys that are meaningful inside a smolvm guest.
@@ -133,7 +149,11 @@ pub fn is_guest_safe_env_key(key: &str) -> bool {
     )
 }
 
-pub fn notes_env_pairs(n: &NotesEnvInputs, pairs: &mut Vec<(String, String)>) {
+pub fn notes_env_pairs(
+    n: &NotesEnvInputs,
+    pairs: &mut Vec<(String, String)>,
+) -> Vec<TerminalEnvWarning> {
+    let mut warnings = Vec::new();
     let root = Path::new(&n.vault_root);
     let global_dir = root.join("global");
     let repo_dir = root.join("repos").join(&n.repo_slug);
@@ -170,16 +190,23 @@ pub fn notes_env_pairs(n: &NotesEnvInputs, pairs: &mut Vec<(String, String)>) {
     }
 
     if !n.context_paths.is_empty() {
-        if let Ok(joined) = std::env::join_paths(n.context_paths.iter().map(Path::new)) {
-            pairs.push((
-                "ROUX_PROJECT_CONTEXT_PATHS".to_string(),
-                joined.to_string_lossy().to_string(),
-            ));
+        match std::env::join_paths(n.context_paths.iter().map(Path::new)) {
+            Ok(joined) => {
+                pairs.push((
+                    "ROUX_PROJECT_CONTEXT_PATHS".to_string(),
+                    joined.to_string_lossy().to_string(),
+                ));
+            }
+            Err(e) => warnings.push(TerminalEnvWarning::ProjectContextPathsJoinFailed {
+                path_count: n.context_paths.len(),
+                error: e.to_string(),
+            }),
         }
     }
     if !n.project_prompt.is_empty() {
         pairs.push(("ROUX_PROJECT_PROMPT".to_string(), n.project_prompt.clone()));
     }
+    warnings
 }
 
 #[cfg(not(windows))]
@@ -274,6 +301,43 @@ mod tests {
         assert!(pairs.contains(&("ROUX_AGENT_ALIAS".to_string(), "agent-a".to_string())));
         assert!(pairs.contains(&("ROUX_PROJECT_PROMPT".to_string(), "Follow the spec".to_string())));
         assert!(pairs.iter().any(|(k, v)| k == "PATH" && v.starts_with("/roux/bin:")));
+    }
+
+    #[test]
+    fn roux_env_pairs_reports_invalid_context_paths() {
+        #[cfg(windows)]
+        let invalid_context_path = "bad;path".to_string();
+        #[cfg(not(windows))]
+        let invalid_context_path = "bad:path".to_string();
+
+        let notes = NotesEnvInputs {
+            vault_root: "/vault".to_string(),
+            session_slug: "session-a".to_string(),
+            repo_slug: "repo-a".to_string(),
+            project_slug: None,
+            context_paths: vec![invalid_context_path],
+            project_prompt: String::new(),
+        };
+
+        let output = roux_env_pairs_with_warnings(RouxEnvInputs {
+            user_path: "/usr/bin",
+            socket_path: "/tmp/roux.sock",
+            cli_shim: None,
+            session_id: None,
+            pane_id: None,
+            pane_alias: None,
+            project_id: None,
+            worktree_path: None,
+            notes: Some(&notes),
+        });
+
+        assert!(!output.pairs.iter().any(|(k, _)| k == "ROUX_PROJECT_CONTEXT_PATHS"));
+        assert_eq!(output.warnings.len(), 1);
+        assert!(matches!(
+            &output.warnings[0],
+            TerminalEnvWarning::ProjectContextPathsJoinFailed { path_count: 1, error }
+                if !error.is_empty()
+        ));
     }
 
     #[test]
