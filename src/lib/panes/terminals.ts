@@ -36,6 +36,19 @@ function inputPreview(data: string): string {
   return escaped.length > 24 ? `${escaped.slice(0, 24)}...` : escaped;
 }
 
+function outputPreview(bytes: Uint8Array): string {
+  const slice = bytes.slice(0, 24);
+  const chars = Array.from(slice, (byte) => {
+    if (byte === 13) return "\\r";
+    if (byte === 10) return "\\n";
+    if (byte === 9) return "\\t";
+    if (byte === 27) return "\\e";
+    if (byte < 32 || byte > 126) return `\\x${byte.toString(16).padStart(2, "0")}`;
+    return String.fromCharCode(byte);
+  }).join("");
+  return bytes.length > slice.length ? `${chars}...` : chars;
+}
+
 /**
  * Create a terminal controller for a pane. No-ops if the controller already
  * exists or the pane is markdown-only.
@@ -106,9 +119,14 @@ export function initTerminal(paneId: string): void {
     log(
       `[pane-input] onData pane=${paneId} pty=${inst.ptyId} bytes=${data.length} data=${inputPreview(data)}`,
     );
-    writeToSession(inst.ptyId, data).catch((e) => {
-      log(`Write failed for ${inst.ptyId}: ${e}`);
-    });
+    writeToSession(inst.ptyId, data)
+      .then(() => {
+        log(`[pane-input] writeToSession.ok pane=${paneId} pty=${inst.ptyId} bytes=${data.length}`);
+      })
+      .catch((e) => {
+        log(`[pane-input] writeToSession.err pane=${paneId} pty=${inst.ptyId} error=${e}`);
+        log(`Write failed for ${inst.ptyId}: ${e}`);
+      });
   });
 
   const currentFocused = get(focusedPaneId);
@@ -169,6 +187,10 @@ export async function attachPtyListeners(
   let outputChannel = getPaneOutputChannel(paneId);
   if (!outputChannel) {
     outputChannel = createPtyOutputChannel((bytes) => {
+      log(
+        `[pane-input] output pane=${paneId} pty=${targetPtyId} bytes=${bytes.length} ` +
+          `data=${outputPreview(bytes)} hasTerm=${!!getTerminalController(paneId)}`,
+      );
       emitPtyOutput(targetPtyId, bytes);
       getTerminalController(paneId)?.write(bytes);
     });
