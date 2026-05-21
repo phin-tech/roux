@@ -121,8 +121,8 @@ async fn service_loop(
                     Some(ProjectMsg::Rename { id, name, reply }) => {
                         if let Some(p) = projects.iter_mut().find(|p| p.id == id) {
                             p.name = name;
+                            dirty = true;
                         }
-                        dirty = true;
                         let _ = reply.send(());
                     }
                     Some(ProjectMsg::Update { id, patch, reply }) => {
@@ -243,6 +243,15 @@ mod tests {
         handle.rename("p1", "New Name").await.unwrap();
         let projects = handle.list().await.unwrap();
         assert_eq!(projects[0].name, "New Name");
+    }
+
+    #[tokio::test]
+    async fn rename_missing_id_is_noop() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) = spawn_with_path(vec![make_project("p1")], path.clone());
+        handle.rename("missing", "New Name").await.unwrap();
+        handle.shutdown().await;
+        assert!(!path.exists(), "missing-project rename should be a no-op write");
     }
 
     #[tokio::test]
