@@ -36,6 +36,8 @@ class XtermTerminalController implements TerminalController {
   private atlasRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private atlasRefreshPending = false;
   private watchDecorations: XtermWatchDecorationsHandle | null = null;
+  private inputEnabled = false;
+  private customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null;
 
   constructor(options?: CreateTerminalControllerOptions) {
     const s = get(settings);
@@ -47,7 +49,7 @@ class XtermTerminalController implements TerminalController {
       cursorStyle: s.cursorStyle as "block" | "underline" | "bar",
       cursorBlink: s.cursorBlink,
       theme: toXtermTheme(resolveTerminalTheme(s.theme, s.terminalTheme, get(userTerminalThemes))),
-      disableStdin: true,
+      disableStdin: false,
       allowProposedApi: true,
     });
 
@@ -55,9 +57,12 @@ class XtermTerminalController implements TerminalController {
     this.terminal.loadAddon(this.fitAddon);
     this.setupRenderer(s.gpuAcceleration ?? "auto");
 
-    if (options?.allowKeyboardEvent) {
-      this.setCustomKeyHandler(options.allowKeyboardEvent);
-    }
+    this.terminal.attachCustomKeyEventHandler((event) => {
+      if (!this.inputEnabled) return false;
+      if (!this.customKeyHandler) return true;
+      return this.customKeyHandler(event);
+    });
+    if (options?.allowKeyboardEvent) this.setCustomKeyHandler(options.allowKeyboardEvent);
 
     this.terminal.loadAddon(new WebLinksAddon((_event, uri) => {
       openUrl(uri);
@@ -178,7 +183,7 @@ class XtermTerminalController implements TerminalController {
   }
 
   setInputEnabled(enabled: boolean): void {
-    this.terminal.options.disableStdin = !enabled;
+    this.inputEnabled = enabled;
   }
 
   onInput(handler: (data: string) => void): () => void {
@@ -223,10 +228,7 @@ class XtermTerminalController implements TerminalController {
   }
 
   setCustomKeyHandler(handler: ((event: KeyboardEvent) => boolean) | null): void {
-    this.terminal.attachCustomKeyEventHandler((event) => {
-      if (!handler) return true;
-      return handler(event);
-    });
+    this.customKeyHandler = handler;
   }
 
   getPromptSnapshot(): PromptSnapshot | null {

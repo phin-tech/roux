@@ -33,24 +33,6 @@ use roux_runtime::terminal_env;
 type PtyWriter = Arc<Mutex<Box<dyn std::io::Write + Send>>>;
 type ReadyGate = Arc<Mutex<ShellReadyGate>>;
 
-fn debug_bytes_preview(data: &[u8]) -> String {
-    let mut out = String::new();
-    for &byte in data.iter().take(24) {
-        match byte {
-            b'\r' => out.push_str("\\r"),
-            b'\n' => out.push_str("\\n"),
-            b'\t' => out.push_str("\\t"),
-            0x1b => out.push_str("\\e"),
-            0x20..=0x7e => out.push(byte as char),
-            _ => out.push_str(&format!("\\x{byte:02x}")),
-        }
-    }
-    if data.len() > 24 {
-        out.push_str("...");
-    }
-    out
-}
-
 const GATE_QUIET: Duration = Duration::from_millis(200);
 const GATE_TIMEOUT: Duration = Duration::from_secs(5);
 const GATE_TICK: Duration = Duration::from_millis(75);
@@ -1053,49 +1035,19 @@ impl PtyManager {
         let bytes_to_write: Vec<u8> = match gate {
             Some(g) => {
                 let mut guard = g.lock().unwrap();
-                let was_open = guard.is_open();
-                let bytes = guard.on_write(data, Instant::now());
-                crate::rlog!(
-                    "[pane-input] pty.write.gate id={} inputBytes={} writeBytes={} wasOpen={} nowOpen={} data={}",
-                    session_id,
-                    data.len(),
-                    bytes.len(),
-                    was_open,
-                    guard.is_open(),
-                    debug_bytes_preview(data)
-                );
-                bytes
+                guard.on_write(data, Instant::now())
             }
-            None => {
-                crate::rlog!(
-                    "[pane-input] pty.write.noGate id={} inputBytes={} data={}",
-                    session_id,
-                    data.len(),
-                    debug_bytes_preview(data)
-                );
-                data.to_vec()
-            }
+            None => data.to_vec(),
         };
 
         if bytes_to_write.is_empty() {
-            crate::rlog!(
-                "[pane-input] pty.write.buffered id={} inputBytes={}",
-                session_id,
-                data.len()
-            );
             return Ok(());
         }
 
         let mut writer = writer.lock().unwrap();
         use std::io::Write;
         writer.write_all(&bytes_to_write).map_err(|source| PtyError::WriteFailed { source })?;
-        writer.flush().map_err(|source| PtyError::FlushFailed { source })?;
-        crate::rlog!(
-            "[pane-input] pty.write.ok id={} bytes={}",
-            session_id,
-            bytes_to_write.len()
-        );
-        Ok(())
+        writer.flush().map_err(|source| PtyError::FlushFailed { source })
     }
 
     pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), PtyError> {

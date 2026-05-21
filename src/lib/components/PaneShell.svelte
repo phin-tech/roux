@@ -249,19 +249,7 @@
     return getTerminalController(paneId)?.getSelection() ?? "";
   }
 
-  function eventTargetSummary(target: EventTarget | null): string {
-    if (!(target instanceof Element)) return "none";
-    const frame = target.closest("[data-terminal-frame]") ? "terminal-frame" : "outside-terminal";
-    const pane = target.closest("[data-pane-id]")?.getAttribute("data-pane-id") ?? "none";
-    const cls = typeof target.className === "string" ? target.className : "";
-    return `${target.tagName.toLowerCase()} pane=${pane} ${frame} class=${cls.slice(0, 80)}`;
-  }
-
   function handleMouseDown(event: MouseEvent) {
-    log(
-      `[pane-input] PaneShell.mousedown pane=${paneId} pty=${panePtyId() ?? "null"} ` +
-        `focused=${$focusedPaneId ?? "null"} target=${eventTargetSummary(event.target)}`,
-    );
     if (multiLineEditorOwnsPaneInput()) {
       focusedPaneId.set(paneId);
       if (
@@ -272,29 +260,21 @@
       }
       return;
     }
-    setLogicalFocus(paneId, "PaneShell.mousedown");
+    setLogicalFocus(paneId);
   }
 
-  function handleMouseDownCapture(event: MouseEvent) {
+  function handleMouseDownCapture() {
     // xterm owns several nested DOM nodes and may stop pointer events before
     // they bubble to the pane shell. Claim logical focus in capture phase so
     // stdin routing follows the pane the user pressed into.
-    log(
-      `[pane-input] PaneShell.mousedown.capture pane=${paneId} pty=${panePtyId() ?? "null"} ` +
-        `focused=${$focusedPaneId ?? "null"} target=${eventTargetSummary(event.target)}`,
-    );
     if (multiLineEditorOwnsPaneInput()) {
       focusedPaneId.set(paneId);
       return;
     }
-    setLogicalFocus(paneId, "PaneShell.mousedown.capture");
+    setLogicalFocus(paneId);
   }
 
   function handleTerminalClick() {
-    log(
-      `[pane-input] PaneShell.terminalClick pane=${paneId} pty=${panePtyId() ?? "null"} ` +
-        `focused=${$focusedPaneId ?? "null"}`,
-    );
     if (multiLineEditorOwnsPaneInput()) {
       if (getTerminalController(paneId)?.hasSelection()) return;
       requestMultiLineEditorFocus(paneId);

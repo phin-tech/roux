@@ -69,10 +69,10 @@ vi.mock("../promptSnapshot", () => ({
 }));
 
 vi.mock("@xterm/xterm", () => ({
-  Terminal: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+  Terminal: vi.fn().mockImplementation(function (this: Record<string, unknown>, options: Record<string, unknown>) {
     this.loadAddon = mocks.terminalLoadAddon;
     this.dispose = mocks.terminalDispose;
-    this.options = {};
+    this.options = { ...options };
     this.buffer = { active: { length: 0 } };
     this.onData = vi.fn().mockReturnValue({ dispose: vi.fn() });
     this.attachCustomKeyEventHandler = vi.fn();
@@ -326,6 +326,28 @@ describe("XtermTerminalController renderer setup", () => {
 
     expect(terminal.input).toHaveBeenCalledWith("\r", undefined);
     expect(terminal.paste).toHaveBeenCalledWith("echo hi");
+  });
+
+  it("gates keyboard events without disabling terminal protocol responses", async () => {
+    const { Terminal } = await import("@xterm/xterm");
+    const controller = createXtermTerminalController();
+    const terminal = vi.mocked(Terminal).mock.results.at(-1)?.value as {
+      options: Record<string, unknown>;
+      attachCustomKeyEventHandler: ReturnType<typeof vi.fn>;
+    };
+    const keyHandler = terminal.attachCustomKeyEventHandler.mock.calls[0]?.[0] as
+      | ((event: KeyboardEvent) => boolean)
+      | undefined;
+    expect(keyHandler).toBeDefined();
+    expect(terminal.options.disableStdin).toBe(false);
+
+    const event = new KeyboardEvent("keydown", { key: "a" });
+    controller.setInputEnabled(false);
+    expect(keyHandler!(event)).toBe(false);
+    expect(terminal.options.disableStdin).toBe(false);
+
+    controller.setInputEnabled(true);
+    expect(keyHandler!(event)).toBe(true);
   });
 });
 
