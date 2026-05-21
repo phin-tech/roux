@@ -18,7 +18,9 @@ use crate::pty_ready_gate::ShellReadyGate;
 pub use roux_core::{PtyInfo, PtyRole, PtyStatus};
 pub use roux_runtime::process::cwd_for_pid;
 use roux_runtime::pty_lifecycle::{self, PtyMetadataCommand, PtyMetadataCommandResult};
-use roux_runtime::pty_output::PtyOutputBacklog;
+use roux_runtime::pty_output::{
+    PtyOutputBacklog, PtyOutputChunk, PtyOutputFlushAction, PtyOutputFlusher,
+};
 #[cfg(test)]
 pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
 use roux_runtime::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
@@ -98,12 +100,6 @@ fn spawn_gate_ticker(gate: ReadyGate, writer: PtyWriter, session_id: String) {
             return;
         }
     });
-}
-
-enum PtyChunk {
-    Data(Vec<u8>),
-    Eof,
-    Error,
 }
 
 struct PtyOutputState {
@@ -192,96 +188,94 @@ impl PtyOutput {
 /// plumbing, bundled alongside the Tauri event emission at EOF.
 type ExitRegistryHook = (mpsc::Sender<crate::agent_registry::RegistryMessage>, String);
 
+fn elapsed_ms_since(started_at: Instant) -> u64 {
+    started_at.elapsed().as_millis() as u64
+}
+
+fn apply_direct_flusher_action(
+    output: &PtyOutput,
+    action: PtyOutputFlushAction,
+    exit_event: &Option<(String, u64)>,
+    app: &tauri::AppHandle,
+    exit_registry_hook: &Option<ExitRegistryHook>,
+) -> bool {
+    match action {
+        PtyOutputFlushAction::Output(bytes) => {
+            output.send(bytes);
+            false
+        }
+        PtyOutputFlushAction::Exit(reason) => {
+            if let Some((evt, gen)) = exit_event {
+                let _ = app.emit(
+                    evt,
+                    &roux_core::SessionExitPayload {
+                        code: None,
+                        generation: *gen,
+                        reason: reason.into(),
+                    },
+                );
+            }
+            if let Some((tx, sid)) = exit_registry_hook {
+                let _ = tx.send(crate::agent_registry::RegistryMessage::SessionEnded {
+                    session_id: sid.clone(),
+                });
+            }
+            true
+        }
+    }
+}
+
 fn spawn_flusher(
     output: PtyOutput,
     exit_event: Option<(String, u64)>, // (event_name, generation)
     app: tauri::AppHandle,
     exit_registry_hook: Option<ExitRegistryHook>,
-) -> mpsc::Sender<PtyChunk> {
-    let (tx, rx) = mpsc::channel::<PtyChunk>();
+) -> mpsc::Sender<PtyOutputChunk> {
+    let (tx, rx) = mpsc::channel::<PtyOutputChunk>();
 
     thread::spawn(move || {
-        let flush_interval = Duration::from_millis(16);
-        let mut batch = Vec::with_capacity(8192);
-        let mut last_flush = Instant::now();
+        let started_at = Instant::now();
+        let mut flusher = PtyOutputFlusher::new(0);
 
         loop {
-            // If batch is empty, block until data arrives
-            // If batch has data, use timeout to ensure timely flush
-            let chunk = if batch.is_empty() {
-                match rx.recv() {
+            let chunk = match flusher.recv_timeout_ms(elapsed_ms_since(started_at)) {
+                None => match rx.recv() {
                     Ok(c) => c,
                     Err(_) => break,
-                }
-            } else {
-                let remaining = flush_interval.saturating_sub(last_flush.elapsed());
-                match rx.recv_timeout(remaining) {
-                    Ok(c) => c,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        // Flush what we have
-                        output.send(std::mem::take(&mut batch));
-                        batch.clear();
-                        last_flush = Instant::now();
-                        continue;
+                },
+                Some(timeout_ms) => {
+                    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
+                        Ok(c) => c,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            for action in flusher.on_timeout(elapsed_ms_since(started_at)) {
+                                apply_direct_flusher_action(
+                                    &output,
+                                    action,
+                                    &exit_event,
+                                    &app,
+                                    &exit_registry_hook,
+                                );
+                            }
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 }
             };
 
-            match chunk {
-                PtyChunk::Data(data) => {
-                    batch.extend_from_slice(&data);
-                    if last_flush.elapsed() >= flush_interval || batch.len() >= 32768 {
-                        output.send(std::mem::take(&mut batch));
-                        last_flush = Instant::now();
-                    }
-                }
-                PtyChunk::Eof => {
-                    if !batch.is_empty() {
-                        output.send(std::mem::take(&mut batch));
-                    }
-                    if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(
-                            evt,
-                            &roux_core::SessionExitPayload {
-                                code: None,
-                                generation: *gen,
-                                reason: roux_core::SessionExitReason::Exit,
-                            },
-                        );
-                    }
-                    if let Some((tx, sid)) = &exit_registry_hook {
-                        let _ = tx.send(
-                            crate::agent_registry::RegistryMessage::SessionEnded {
-                                session_id: sid.clone(),
-                            },
-                        );
-                    }
+            for action in flusher.on_chunk(chunk, elapsed_ms_since(started_at)) {
+                if apply_direct_flusher_action(
+                    &output,
+                    action,
+                    &exit_event,
+                    &app,
+                    &exit_registry_hook,
+                ) {
                     break;
                 }
-                PtyChunk::Error => {
-                    if !batch.is_empty() {
-                        output.send(std::mem::take(&mut batch));
-                    }
-                    if let Some((evt, gen)) = &exit_event {
-                        let _ = app.emit(
-                            evt,
-                            &roux_core::SessionExitPayload {
-                                code: None,
-                                generation: *gen,
-                                reason: roux_core::SessionExitReason::IoError,
-                            },
-                        );
-                    }
-                    if let Some((tx, sid)) = &exit_registry_hook {
-                        let _ = tx.send(
-                            crate::agent_registry::RegistryMessage::SessionEnded {
-                                session_id: sid.clone(),
-                            },
-                        );
-                    }
-                    break;
-                }
+            }
+            if flusher.is_finished() {
+                break;
             }
         }
     });
@@ -298,76 +292,57 @@ fn spawn_flusher_with_lifecycle(
     generation: u64,
     lifecycle_tx: crate::pty_lifecycle::LifecycleTx,
     emit_exit_event: bool,
-) -> mpsc::Sender<PtyChunk> {
-    let (tx, rx) = mpsc::channel::<PtyChunk>();
+) -> mpsc::Sender<PtyOutputChunk> {
+    let (tx, rx) = mpsc::channel::<PtyOutputChunk>();
 
     thread::spawn(move || {
-        let flush_interval = Duration::from_millis(16);
-        let mut batch = Vec::with_capacity(8192);
-        let mut last_flush = Instant::now();
+        let started_at = Instant::now();
+        let mut flusher = PtyOutputFlusher::new(0);
 
         loop {
-            let chunk = if batch.is_empty() {
-                match rx.recv() {
+            let chunk = match flusher.recv_timeout_ms(elapsed_ms_since(started_at)) {
+                None => match rx.recv() {
                     Ok(c) => c,
                     Err(_) => break,
-                }
-            } else {
-                let remaining = flush_interval.saturating_sub(last_flush.elapsed());
-                match rx.recv_timeout(remaining) {
-                    Ok(c) => c,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        output.send(std::mem::take(&mut batch));
-                        batch.clear();
-                        last_flush = Instant::now();
-                        continue;
+                },
+                Some(timeout_ms) => {
+                    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
+                        Ok(c) => c,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            for action in flusher.on_timeout(elapsed_ms_since(started_at)) {
+                                if let PtyOutputFlushAction::Output(bytes) = action {
+                                    output.send(bytes);
+                                }
+                            }
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 }
             };
 
-            match chunk {
-                PtyChunk::Data(data) => {
-                    batch.extend_from_slice(&data);
-                    if last_flush.elapsed() >= flush_interval || batch.len() >= 32768 {
-                        output.send(std::mem::take(&mut batch));
-                        last_flush = Instant::now();
+            for action in flusher.on_chunk(chunk, elapsed_ms_since(started_at)) {
+                match action {
+                    PtyOutputFlushAction::Output(bytes) => output.send(bytes),
+                    PtyOutputFlushAction::Exit(reason) => {
+                        if emit_exit_event {
+                            let _ = lifecycle_tx.send(
+                                crate::pty_lifecycle::PtyLifecycleMessage::Event(
+                                    crate::pty_lifecycle::PtyLifecycleEvent::Exited {
+                                        pty_id: pty_id.clone(),
+                                        session_id: session_id.clone(),
+                                        code: None,
+                                        reason,
+                                        generation,
+                                    },
+                                ),
+                            );
+                        }
                     }
                 }
-                PtyChunk::Eof => {
-                    if !batch.is_empty() {
-                        output.send(std::mem::take(&mut batch));
-                    }
-                    if emit_exit_event {
-                        let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Event(
-                            crate::pty_lifecycle::PtyLifecycleEvent::Exited {
-                                pty_id: pty_id.clone(),
-                                session_id: session_id.clone(),
-                                code: None,
-                                reason: crate::pty_lifecycle::ExitReason::Exit,
-                                generation,
-                            },
-                        ));
-                    }
-                    break;
-                }
-                PtyChunk::Error => {
-                    if !batch.is_empty() {
-                        output.send(std::mem::take(&mut batch));
-                    }
-                    if emit_exit_event {
-                        let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Event(
-                            crate::pty_lifecycle::PtyLifecycleEvent::Exited {
-                                pty_id: pty_id.clone(),
-                                session_id: session_id.clone(),
-                                code: None,
-                                reason: crate::pty_lifecycle::ExitReason::IoError,
-                                generation,
-                            },
-                        ));
-                    }
-                    break;
-                }
+            }
+            if flusher.is_finished() {
+                break;
             }
         }
     });
@@ -380,7 +355,7 @@ fn spawn_flusher_with_lifecycle(
 /// before being forwarded (non-consuming — bytes pass through unchanged).
 fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
-    tx: mpsc::Sender<PtyChunk>,
+    tx: mpsc::Sender<PtyOutputChunk>,
     mut sniffer: Option<crate::notifications::OscSniffer>,
     gate: Option<(ReadyGate, PtyWriter, String)>,
 ) {
@@ -389,7 +364,7 @@ fn spawn_reader(
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => {
-                    let _ = tx.send(PtyChunk::Eof);
+                    let _ = tx.send(PtyOutputChunk::Eof);
                     break;
                 }
                 Ok(n) => {
@@ -414,12 +389,12 @@ fn spawn_reader(
                             );
                         }
                     }
-                    if tx.send(PtyChunk::Data(buf[..n].to_vec())).is_err() {
+                    if tx.send(PtyOutputChunk::Data(buf[..n].to_vec())).is_err() {
                         break;
                     }
                 }
                 Err(_) => {
-                    let _ = tx.send(PtyChunk::Error);
+                    let _ = tx.send(PtyOutputChunk::Error);
                     break;
                 }
             }
@@ -1646,7 +1621,7 @@ mod flusher_lifecycle_tests {
         );
 
         // Send EOF to trigger exit
-        tx.send(PtyChunk::Eof).unwrap();
+        tx.send(PtyOutputChunk::Eof).unwrap();
 
         // Verify lifecycle event was sent
         let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -1679,7 +1654,7 @@ mod flusher_lifecycle_tests {
         );
 
         // Send Error to trigger exit
-        tx.send(PtyChunk::Error).unwrap();
+        tx.send(PtyOutputChunk::Error).unwrap();
 
         // Verify lifecycle event was sent with IoError reason
         let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -1716,8 +1691,8 @@ mod flusher_lifecycle_tests {
         );
 
         // Send data then EOF
-        tx.send(PtyChunk::Data(vec![1, 2, 3])).unwrap();
-        tx.send(PtyChunk::Eof).unwrap();
+        tx.send(PtyOutputChunk::Data(vec![1, 2, 3])).unwrap();
+        tx.send(PtyOutputChunk::Eof).unwrap();
 
         // Wait for exit event
         let event = lifecycle_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -1743,7 +1718,7 @@ mod flusher_lifecycle_tests {
             false,
         );
 
-        tx.send(PtyChunk::Eof).unwrap();
+        tx.send(PtyOutputChunk::Eof).unwrap();
 
         assert!(matches!(
             lifecycle_rx.recv_timeout(Duration::from_millis(100)),
