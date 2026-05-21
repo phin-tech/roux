@@ -51,6 +51,73 @@ impl Default for PtyOutputBacklog {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyOutputDeliveryKind {
+    Live,
+    Backlog,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtyOutputDelivery {
+    pub kind: PtyOutputDeliveryKind,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct PtyOutputDeliveryState {
+    attached: bool,
+    backlog: PtyOutputBacklog,
+}
+
+impl PtyOutputDeliveryState {
+    pub fn new() -> Self {
+        Self { attached: false, backlog: PtyOutputBacklog::default() }
+    }
+
+    pub fn send(&mut self, bytes: Vec<u8>) -> Option<PtyOutputDelivery> {
+        if self.attached {
+            Some(PtyOutputDelivery { kind: PtyOutputDeliveryKind::Live, bytes })
+        } else {
+            self.backlog.buffer(bytes);
+            None
+        }
+    }
+
+    pub fn attach(&mut self) -> Option<PtyOutputDelivery> {
+        self.attached = true;
+        self.next_backlog_delivery()
+    }
+
+    pub fn delivery_succeeded(
+        &mut self,
+        kind: PtyOutputDeliveryKind,
+    ) -> Option<PtyOutputDelivery> {
+        if matches!(kind, PtyOutputDeliveryKind::Backlog) {
+            self.next_backlog_delivery()
+        } else {
+            None
+        }
+    }
+
+    pub fn delivery_failed(&mut self, delivery: PtyOutputDelivery) {
+        self.attached = false;
+        self.backlog.buffer(delivery.bytes);
+    }
+
+    fn next_backlog_delivery(&mut self) -> Option<PtyOutputDelivery> {
+        self.backlog.pop_front().map(|bytes| PtyOutputDelivery {
+            kind: PtyOutputDeliveryKind::Backlog,
+            bytes,
+        })
+    }
+}
+
+impl Default for PtyOutputDeliveryState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PtyOutputChunk {
     Data(Vec<u8>),
@@ -225,6 +292,90 @@ mod tests {
 
         assert_eq!(backlog.len_bytes(), 0);
         assert_eq!(backlog.pop_front(), None);
+    }
+
+    #[test]
+    fn delivery_state_buffers_until_attach_then_drains_backlog() {
+        let mut state = PtyOutputDeliveryState::default();
+
+        assert_eq!(state.send(vec![1, 2, 3]), None);
+        assert_eq!(state.send(vec![4, 5, 6]), None);
+
+        let first = state.attach().expect("first backlog delivery");
+        assert_eq!(
+            first,
+            PtyOutputDelivery {
+                kind: PtyOutputDeliveryKind::Backlog,
+                bytes: vec![1, 2, 3],
+            }
+        );
+
+        let second = state.delivery_succeeded(first.kind).expect("second backlog delivery");
+        assert_eq!(
+            second,
+            PtyOutputDelivery {
+                kind: PtyOutputDeliveryKind::Backlog,
+                bytes: vec![4, 5, 6],
+            }
+        );
+        assert_eq!(state.delivery_succeeded(second.kind), None);
+    }
+
+    #[test]
+    fn delivery_state_sends_live_output_when_attached() {
+        let mut state = PtyOutputDeliveryState::default();
+        assert_eq!(state.attach(), None);
+
+        let delivery = state.send(vec![9, 8, 7]).expect("live delivery");
+        assert_eq!(
+            delivery,
+            PtyOutputDelivery {
+                kind: PtyOutputDeliveryKind::Live,
+                bytes: vec![9, 8, 7],
+            }
+        );
+        assert_eq!(state.delivery_succeeded(delivery.kind), None);
+    }
+
+    #[test]
+    fn delivery_state_rebuffers_failed_live_delivery() {
+        let mut state = PtyOutputDeliveryState::default();
+        assert_eq!(state.attach(), None);
+
+        let delivery = state.send(vec![1, 2, 3]).expect("live delivery");
+        state.delivery_failed(delivery);
+
+        let retry = state.attach().expect("retry delivery");
+        assert_eq!(
+            retry,
+            PtyOutputDelivery {
+                kind: PtyOutputDeliveryKind::Backlog,
+                bytes: vec![1, 2, 3],
+            }
+        );
+    }
+
+    #[test]
+    fn delivery_state_rebuffers_failed_backlog_delivery_after_remaining_backlog() {
+        let mut state = PtyOutputDeliveryState::default();
+        assert_eq!(state.send(vec![1]), None);
+        assert_eq!(state.send(vec![2]), None);
+        assert_eq!(state.send(vec![3]), None);
+
+        let first = state.attach().expect("first backlog delivery");
+        assert_eq!(first.bytes, vec![1]);
+        assert_eq!(first.kind, PtyOutputDeliveryKind::Backlog);
+        assert_eq!(state.delivery_succeeded(first.kind).map(|d| d.bytes), Some(vec![2]));
+
+        state.delivery_failed(PtyOutputDelivery {
+            kind: PtyOutputDeliveryKind::Backlog,
+            bytes: vec![2],
+        });
+
+        let next = state.attach().expect("remaining backlog delivery");
+        assert_eq!(next.bytes, vec![3]);
+        let retry = state.delivery_succeeded(next.kind).expect("failed chunk retry");
+        assert_eq!(retry.bytes, vec![2]);
     }
 
     #[test]

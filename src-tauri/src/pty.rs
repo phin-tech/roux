@@ -19,8 +19,8 @@ pub use roux_core::{PtyInfo, PtyRole, PtyStatus};
 pub use roux_runtime::process::cwd_for_pid;
 use roux_runtime::pty_lifecycle::{self, PtyMetadataCommand, PtyMetadataCommandResult};
 use roux_runtime::pty_output::{
-    plan_reader_step, PtyOutputBacklog, PtyOutputChunk, PtyOutputFlushAction, PtyOutputFlusher,
-    PtyReaderPlan, PtyReaderStep,
+    plan_reader_step, PtyOutputChunk, PtyOutputDelivery, PtyOutputDeliveryState,
+    PtyOutputFlushAction, PtyOutputFlusher, PtyReaderPlan, PtyReaderStep,
 };
 #[cfg(test)]
 pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
@@ -105,26 +105,22 @@ fn spawn_gate_ticker(gate: ReadyGate, writer: PtyWriter, session_id: String) {
 
 struct PtyOutputState {
     channel: Option<Channel<Response>>,
-    backlog: PtyOutputBacklog,
+    delivery: PtyOutputDeliveryState,
     logger: Option<Arc<Mutex<crate::pty_logger::PtyLogger>>>,
 }
 
 impl PtyOutputState {
     #[cfg(test)]
     fn new() -> Self {
-        Self { channel: None, backlog: PtyOutputBacklog::default(), logger: None }
+        Self { channel: None, delivery: PtyOutputDeliveryState::default(), logger: None }
     }
 
     fn new_with_logger(logger: Arc<Mutex<crate::pty_logger::PtyLogger>>) -> Self {
         Self {
             channel: None,
-            backlog: PtyOutputBacklog::default(),
+            delivery: PtyOutputDeliveryState::default(),
             logger: Some(logger),
         }
-    }
-
-    fn buffer(&mut self, bytes: Vec<u8>) {
-        self.backlog.buffer(bytes);
     }
 
     fn send_or_buffer(&mut self, bytes: Vec<u8>) {
@@ -134,27 +130,31 @@ impl PtyOutputState {
                 l.write(&bytes);
             }
         }
-        if let Some(channel) = &self.channel {
-            if channel.send(Response::new(bytes.clone())).is_ok() {
-                return;
-            }
-            self.channel = None;
+        if let Some(delivery) = self.delivery.send(bytes) {
+            self.deliver(delivery);
         }
-        self.buffer(bytes);
     }
 
     fn attach(&mut self, channel: Channel<Response>) {
         self.channel = Some(channel);
-        while let Some(bytes) = self.backlog.pop_front() {
-            let Some(channel) = &self.channel else {
-                self.buffer(bytes);
-                break;
-            };
-            if channel.send(Response::new(bytes.clone())).is_err() {
-                self.channel = None;
-                self.buffer(bytes);
-                break;
-            }
+        let mut next = self.delivery.attach();
+        while let Some(delivery) = next {
+            next = self.deliver(delivery);
+        }
+    }
+
+    fn deliver(&mut self, delivery: PtyOutputDelivery) -> Option<PtyOutputDelivery> {
+        let Some(channel) = &self.channel else {
+            self.delivery.delivery_failed(delivery);
+            return None;
+        };
+        let kind = delivery.kind;
+        if channel.send(Response::new(delivery.bytes.clone())).is_ok() {
+            self.delivery.delivery_succeeded(kind)
+        } else {
+            self.channel = None;
+            self.delivery.delivery_failed(delivery);
+            None
         }
     }
 }
