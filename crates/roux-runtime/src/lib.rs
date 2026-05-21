@@ -7,6 +7,7 @@ pub mod pane_service;
 pub mod process;
 pub mod project_service;
 pub mod pty_lifecycle;
+pub mod pty_output;
 pub mod pty_ready_gate;
 pub mod session_service;
 pub mod terminal_env;

@@ -1,5 +1,5 @@
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::Read;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -17,6 +17,9 @@ use crate::pty_ready_gate::ShellReadyGate;
 
 pub use roux_core::{PtyInfo, PtyRole, PtyStatus};
 pub use roux_runtime::process::cwd_for_pid;
+use roux_runtime::pty_output::PtyOutputBacklog;
+#[cfg(test)]
+pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
 pub use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs, SmolvmExec};
 use roux_runtime::terminal_env;
 
@@ -91,39 +94,28 @@ enum PtyChunk {
     Error,
 }
 
-const PTY_BACKLOG_LIMIT_BYTES: usize = 256 * 1024;
-
 struct PtyOutputState {
     channel: Option<Channel<Response>>,
-    backlog: VecDeque<Vec<u8>>,
-    backlog_bytes: usize,
+    backlog: PtyOutputBacklog,
     logger: Option<Arc<Mutex<crate::pty_logger::PtyLogger>>>,
 }
 
 impl PtyOutputState {
     #[cfg(test)]
     fn new() -> Self {
-        Self { channel: None, backlog: VecDeque::new(), backlog_bytes: 0, logger: None }
+        Self { channel: None, backlog: PtyOutputBacklog::default(), logger: None }
     }
 
     fn new_with_logger(logger: Arc<Mutex<crate::pty_logger::PtyLogger>>) -> Self {
         Self {
             channel: None,
-            backlog: VecDeque::new(),
-            backlog_bytes: 0,
+            backlog: PtyOutputBacklog::default(),
             logger: Some(logger),
         }
     }
 
     fn buffer(&mut self, bytes: Vec<u8>) {
-        self.backlog_bytes += bytes.len();
-        self.backlog.push_back(bytes);
-        while self.backlog_bytes > PTY_BACKLOG_LIMIT_BYTES {
-            let Some(removed) = self.backlog.pop_front() else {
-                break;
-            };
-            self.backlog_bytes = self.backlog_bytes.saturating_sub(removed.len());
-        }
+        self.backlog.buffer(bytes);
     }
 
     fn send_or_buffer(&mut self, bytes: Vec<u8>) {
@@ -145,7 +137,6 @@ impl PtyOutputState {
     fn attach(&mut self, channel: Channel<Response>) {
         self.channel = Some(channel);
         while let Some(bytes) = self.backlog.pop_front() {
-            self.backlog_bytes = self.backlog_bytes.saturating_sub(bytes.len());
             let Some(channel) = &self.channel else {
                 self.buffer(bytes);
                 break;
