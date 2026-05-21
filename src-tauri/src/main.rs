@@ -78,8 +78,7 @@ fn main() {
         project_persist_path: paths::roux_config_dir().join("projects.json"),
     }
     .build();
-    let (runtime, _runtime_joins) =
-        runtime_services.spawn_with(|future| tauri::async_runtime::spawn(future));
+    let (runtime, _runtime_joins) = runtime_services.spawn_with(tauri::async_runtime::spawn);
 
     #[cfg(debug_assertions)]
     let builder = Builder::<tauri::Wry>::new().commands(collect_commands![
