@@ -10,7 +10,7 @@
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-pub use roux_runtime::pty_lifecycle::{ExitReason, PtyLifecycleEvent};
+pub use roux_runtime::pty_lifecycle::{ExitReason, PtyLifecycleEvent, PtyMetadataCommand};
 
 pub enum PtyLifecycleCommand {
     Register {
@@ -23,20 +23,7 @@ pub enum PtyLifecycleCommand {
     KillSessionPtys {
         session_id: String,
     },
-    Detach {
-        pty_id: String,
-    },
-    AttachToPane {
-        pty_id: String,
-        pane_id: String,
-    },
-    MarkRead {
-        pty_id: String,
-    },
-    SetName {
-        pty_id: String,
-        name: Option<String>,
-    },
+    Metadata(PtyMetadataCommand),
 }
 
 pub enum PtyLifecycleMessage {
@@ -55,20 +42,7 @@ impl std::fmt::Debug for PtyLifecycleCommand {
                 .debug_struct("KillSessionPtys")
                 .field("session_id", session_id)
                 .finish(),
-            Self::Detach { pty_id } => f.debug_struct("Detach").field("pty_id", pty_id).finish(),
-            Self::AttachToPane { pty_id, pane_id } => f
-                .debug_struct("AttachToPane")
-                .field("pty_id", pty_id)
-                .field("pane_id", pane_id)
-                .finish(),
-            Self::MarkRead { pty_id } => {
-                f.debug_struct("MarkRead").field("pty_id", pty_id).finish()
-            }
-            Self::SetName { pty_id, name } => f
-                .debug_struct("SetName")
-                .field("pty_id", pty_id)
-                .field("name", name)
-                .finish(),
+            Self::Metadata(command) => f.debug_tuple("Metadata").field(command).finish(),
         }
     }
 }
@@ -217,17 +191,8 @@ pub(crate) fn handle_command(pty_manager: &crate::pty::PtyManager, command: PtyL
         PtyLifecycleCommand::KillSessionPtys { session_id } => {
             pty_manager.kill_session_ptys_direct(&session_id);
         }
-        PtyLifecycleCommand::Detach { pty_id } => {
-            pty_manager.detach_direct(&pty_id);
-        }
-        PtyLifecycleCommand::AttachToPane { pty_id, pane_id } => {
-            pty_manager.attach_to_pane_direct(&pty_id, &pane_id);
-        }
-        PtyLifecycleCommand::MarkRead { pty_id } => {
-            pty_manager.mark_read_direct(&pty_id);
-        }
-        PtyLifecycleCommand::SetName { pty_id, name } => {
-            pty_manager.set_name_direct(&pty_id, name.as_deref());
+        PtyLifecycleCommand::Metadata(command) => {
+            pty_manager.apply_metadata_command_direct(&command);
         }
     }
 }

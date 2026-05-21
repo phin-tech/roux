@@ -17,6 +17,7 @@ use crate::pty_ready_gate::ShellReadyGate;
 
 pub use roux_core::{PtyInfo, PtyRole, PtyStatus};
 pub use roux_runtime::process::cwd_for_pid;
+use roux_runtime::pty_lifecycle::{self, PtyMetadataCommand, PtyMetadataCommandResult};
 use roux_runtime::pty_output::PtyOutputBacklog;
 #[cfg(test)]
 pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
@@ -601,6 +602,24 @@ impl PtyManager {
         self.sessions.lock().unwrap().insert(pty_id, session);
     }
 
+    pub(crate) fn apply_metadata_command_direct(
+        &self,
+        command: &PtyMetadataCommand,
+    ) -> PtyMetadataCommandResult {
+        let mut sessions = self.sessions.lock().unwrap();
+        let Some(session) = sessions.get_mut(command.pty_id()) else {
+            return PtyMetadataCommandResult::Missing;
+        };
+        let result =
+            pty_lifecycle::apply_metadata_command(&mut session.metadata, session.generation, command);
+        if matches!(result, PtyMetadataCommandResult::Applied)
+            && matches!(command, PtyMetadataCommand::AttachToPane { .. })
+        {
+            session.last_activity = std::time::Instant::now();
+        }
+        result
+    }
+
     pub(crate) fn kill_direct(&self, session_id: &str) {
         let session = self.sessions.lock().unwrap().remove(session_id);
         self.pending_outputs.lock().unwrap().remove(session_id);
@@ -628,67 +647,34 @@ impl PtyManager {
         }
     }
 
-    pub(crate) fn detach_direct(&self, pty_id: &str) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.metadata.detach(unix_now_ms());
-            rlog!("PtyManager: detached PTY '{}'", pty_id);
-        }
-    }
-
-    pub(crate) fn attach_to_pane_direct(&self, pty_id: &str, pane_id: &str) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.metadata.attach_to_pane(pane_id);
-            session.last_activity = std::time::Instant::now();
-            rlog!("PtyManager: attached PTY '{}' to pane '{}'", pty_id, pane_id);
-        }
-    }
-
     pub(crate) fn mark_exited_if_generation_matches_direct(
         &self,
         pty_id: &str,
         generation: u64,
         code: Option<i32>,
     ) -> bool {
-        let mut sessions = self.sessions.lock().unwrap();
-        let Some(session) = sessions.get_mut(pty_id) else {
-            return false;
+        let command = PtyMetadataCommand::MarkExitedIfGenerationMatches {
+            pty_id: pty_id.to_string(),
+            generation,
+            code,
+            at_ms: unix_now_ms(),
         };
-        if session.generation != generation {
-            return false;
-        }
-
-        session.metadata.mark_exited(code, unix_now_ms());
-        true
-    }
-
-    pub(crate) fn mark_read_direct(&self, pty_id: &str) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.metadata.mark_read();
-        }
+        matches!(
+            self.apply_metadata_command_direct(&command),
+            PtyMetadataCommandResult::Applied
+        )
     }
 
     pub(crate) fn set_unread_output_direct(&self, pty_id: &str, value: bool) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.metadata.set_unread_output(value);
-        }
+        let command =
+            PtyMetadataCommand::SetUnreadOutput { pty_id: pty_id.to_string(), value };
+        self.apply_metadata_command_direct(&command);
     }
 
     pub(crate) fn set_bell_pending_direct(&self, pty_id: &str, value: bool) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.metadata.set_bell_pending(value);
-        }
-    }
-
-    pub(crate) fn set_name_direct(&self, pty_id: &str, name: Option<&str>) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(pty_id) {
-            session.metadata.set_name(name);
-        }
+        let command =
+            PtyMetadataCommand::SetBellPending { pty_id: pty_id.to_string(), value };
+        self.apply_metadata_command_direct(&command);
     }
 
     pub(crate) fn kill_session_ptys_direct(&self, session_id: &str) {
@@ -1163,29 +1149,39 @@ impl PtyManager {
 
     /// Detach a PTY from its pane (PTY keeps running).
     pub fn detach(&self, pty_id: &str) {
-        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Detach {
+        let command = PtyMetadataCommand::Detach {
             pty_id: pty_id.to_string(),
-        }) {
-            self.detach_direct(pty_id);
+            since_ms: unix_now_ms(),
+        };
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Metadata(
+            command.clone(),
+        )) {
+            self.apply_metadata_command_direct(&command);
         }
     }
 
     /// Mark a PTY as attached to a pane.
     pub fn attach_to_pane(&self, pty_id: &str, pane_id: &str) {
-        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::AttachToPane {
+        let command = PtyMetadataCommand::AttachToPane {
             pty_id: pty_id.to_string(),
             pane_id: pane_id.to_string(),
-        }) {
-            self.attach_to_pane_direct(pty_id, pane_id);
+        };
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Metadata(
+            command.clone(),
+        )) {
+            self.apply_metadata_command_direct(&command);
         }
     }
 
     /// Clear unread output and bell flags for a PTY.
     pub fn mark_read(&self, pty_id: &str) {
-        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::MarkRead {
+        let command = PtyMetadataCommand::MarkRead {
             pty_id: pty_id.to_string(),
-        }) {
-            self.mark_read_direct(pty_id);
+        };
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Metadata(
+            command.clone(),
+        )) {
+            self.apply_metadata_command_direct(&command);
         }
     }
 
@@ -1201,11 +1197,14 @@ impl PtyManager {
 
     /// Set the display name for a PTY.
     pub fn set_name(&self, pty_id: &str, name: Option<&str>) {
-        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::SetName {
+        let command = PtyMetadataCommand::SetName {
             pty_id: pty_id.to_string(),
-            name: name.map(|s| s.to_string()),
-        }) {
-            self.set_name_direct(pty_id, name);
+            name: name.map(str::to_string),
+        };
+        if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Metadata(
+            command.clone(),
+        )) {
+            self.apply_metadata_command_direct(&command);
         }
     }
 
