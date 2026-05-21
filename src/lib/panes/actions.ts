@@ -71,6 +71,7 @@ export function initSessionWithProfile(
       providerSessionId: extras?.providerSessionId,
       nonoProfile: extras?.nonoProfile,
       nonoAllowDirs: extras?.nonoAllowDirs,
+      sessionId,
     });
   }
   initSessionLayout(sessionId, mainPaneId);
@@ -83,7 +84,7 @@ export function splitPane(
   direction: SplitDirection,
   opts: CreatePaneOpts
 ): string | null {
-  const newPaneId = createPane(opts);
+  const newPaneId = createPane({ ...opts, sessionId: opts.sessionId ?? sessionId });
 
   let inserted = false;
   sessionLayouts.update((m) => {

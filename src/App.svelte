@@ -47,7 +47,7 @@
     startSubscriptionEventListenerWithCleanup,
   } from "$lib/stores/subscriptions";
   import { initPtyInventoryPolling } from "$lib/stores/ptyInventory";
-  import { initSessionWithProfile, splitPane } from "$lib/panes/actions";
+  import { initSessionWithProfile, splitPane, closeSessionPanes } from "$lib/panes/actions";
   import { hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { getTerminalController } from "$lib/panes/terminalRuntime";
@@ -718,7 +718,10 @@
           break;
         }
         case "session-killed": {
-          if (cmd.sessionId) removeSession(cmd.sessionId);
+          if (cmd.sessionId) {
+            closeSessionPanes(cmd.sessionId);
+            removeSession(cmd.sessionId);
+          }
           break;
         }
         case "focus": {

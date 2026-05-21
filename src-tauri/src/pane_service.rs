@@ -22,6 +22,7 @@ pub struct PaneDescriptor {
     pub nono_allow_dirs: Option<Vec<String>>,
     pub notes_scope: Option<String>,
     pub notes_view_mode: Option<String>,
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -42,6 +43,7 @@ pub struct PaneRecord {
     pub nono_allow_dirs: Option<Vec<String>>,
     pub notes_scope: Option<String>,
     pub notes_view_mode: Option<String>,
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -68,6 +70,7 @@ impl PaneRecord {
             nono_allow_dirs: self.nono_allow_dirs.clone(),
             notes_scope: self.notes_scope.clone(),
             notes_view_mode: self.notes_view_mode.clone(),
+            session_id: self.session_id.clone(),
         }
     }
 }
@@ -167,7 +170,14 @@ async fn service_loop(mut rx: mpsc::UnboundedReceiver<PaneMsg>) {
                 let prefix = format!("{}-", session_id);
                 let records = panes
                     .values()
-                    .filter(|r| r.id.starts_with(&prefix))
+                    .filter(|r| {
+                        // Prefer the explicit session_id field when present (populated by
+                        // the frontend for both socket-created and frontend-created panes);
+                        // fall back to the legacy id-prefix heuristic for older records
+                        // that predate this field.
+                        r.session_id.as_deref() == Some(&session_id)
+                            || (r.session_id.is_none() && r.id.starts_with(&prefix))
+                    })
                     .cloned()
                     .collect();
                 let _ = reply.send(records);
@@ -196,6 +206,7 @@ mod tests {
             nono_allow_dirs: None,
             notes_scope: None,
             notes_view_mode: None,
+            session_id: None,
         }
     }
 

@@ -72,6 +72,10 @@ export interface PaneInstance {
   // Notes-pane state
   notesScope?: NotesScope;
   notesViewMode?: "edit" | "read";
+
+  // Session this pane belongs to — used by the backend's list_by_session
+  // query so --pane-type resolution works for panes with random UUIDs.
+  sessionId?: string;
 }
 
 export interface CreatePaneOpts {
@@ -89,6 +93,7 @@ export interface CreatePaneOpts {
   nonoAllowDirs?: string[];
   notesScope?: NotesScope;
   notesViewMode?: "edit" | "read";
+  sessionId?: string;
 }
 
 // ── Store ──────────────────────────────────────────────────
@@ -117,6 +122,7 @@ function toPaneRecord(instance: PaneInstance): PaneRecordPayload {
     nonoAllowDirs: instance.nonoAllowDirs,
     notesScope: instance.notesScope,
     notesViewMode: instance.notesViewMode,
+    sessionId: instance.sessionId,
   };
 }
 
@@ -153,7 +159,8 @@ function paneRecordChanged(before: PaneInstance, after: PaneInstance): boolean {
     before.nonoProfile !== after.nonoProfile ||
     before.notesScope !== after.notesScope ||
     before.notesViewMode !== after.notesViewMode ||
-    !stringArraysEqual(before.nonoAllowDirs, after.nonoAllowDirs)
+    !stringArraysEqual(before.nonoAllowDirs, after.nonoAllowDirs) ||
+    before.sessionId !== after.sessionId
   );
 }
 
@@ -199,6 +206,7 @@ export function createPane(opts: CreatePaneOpts): string {
     elapsedTimer: null,
     notesScope: opts.notesScope,
     notesViewMode: opts.notesViewMode,
+    sessionId: opts.sessionId,
   };
   paneInstances.update((map) => {
     const next = new Map(map);

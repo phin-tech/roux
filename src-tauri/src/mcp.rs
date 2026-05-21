@@ -80,6 +80,9 @@ pub struct CreateSessionParams {
     pub nono_profile: Option<String>,
     #[serde(default)]
     pub nono_allow_dirs: Vec<String>,
+    /// Text to send to the session's primary PTY immediately after it starts
+    /// (with a trailing Enter). CLI-equivalent: `--prompt`.
+    pub prompt: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1074,6 +1077,9 @@ fn build_create_session_request(params: CreateSessionParams) -> Value {
             "nono_allow_dirs".into(),
             Value::Array(params.nono_allow_dirs.into_iter().map(Value::String).collect()),
         );
+    }
+    if let Some(prompt) = params.prompt {
+        args.insert("prompt".into(), Value::String(prompt));
     }
     json!({ "command": "session-create", "args": args })
 }

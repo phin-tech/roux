@@ -1589,10 +1589,15 @@ fn main() {
                 }));
             }
             SessionAction::Send { text, session, pane, pane_type, no_enter } => {
+                let explicit_pane = pane.is_some();
+                // When --pane-type is given without an explicit --pane, suppress the
+                // env-inherited $ROUX_PANE_ID so the server's pane-type resolver runs.
+                let env_pane =
+                    if pane_type.is_some() && !explicit_pane { None } else { get_pane_id() };
                 let (session_id, pane_id) =
-                    resolve_target(session, pane, get_session_id(), get_pane_id());
+                    resolve_target(session, pane, get_session_id(), env_pane);
                 let mut args = serde_json::json!({ "text": text, "enter": !no_enter });
-                if pane_id.is_none() {
+                if !explicit_pane {
                     if let Some(pt) = pane_type {
                         args["pane_type"] = serde_json::Value::String(pt);
                     }

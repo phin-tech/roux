@@ -2790,6 +2790,7 @@ mod tests {
             nono_allow_dirs: None,
             notes_scope: None,
             notes_view_mode: None,
+            session_id: None,
         }
     }
 
