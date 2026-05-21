@@ -10,23 +10,7 @@
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-/// Events that can occur during a PTY's lifecycle.
-#[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)] // Variants reserved for future detach tracking
-pub enum PtyLifecycleEvent {
-    /// PTY process exited.
-    Exited {
-        pty_id: String,
-        session_id: Option<String>,
-        code: Option<u32>,
-        reason: ExitReason,
-        generation: u64,
-    },
-    /// Output arrived while PTY was detached.
-    OutputWhileDetached { pty_id: String },
-    /// Bell (BEL character) arrived while PTY was detached.
-    BellWhileDetached { pty_id: String },
-}
+pub use roux_runtime::pty_lifecycle::{ExitReason, PtyLifecycleEvent};
 
 pub enum PtyLifecycleCommand {
     Register {
@@ -98,23 +82,6 @@ impl std::fmt::Debug for PtyLifecycleMessage {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ExitReason {
-    Exit,
-    IoError,
-    Killed,
-}
-
-impl From<ExitReason> for roux_core::SessionExitReason {
-    fn from(r: ExitReason) -> Self {
-        match r {
-            ExitReason::Exit => roux_core::SessionExitReason::Exit,
-            ExitReason::IoError => roux_core::SessionExitReason::IoError,
-            ExitReason::Killed => roux_core::SessionExitReason::Killed,
-        }
-    }
-}
-
 /// Sender half of the lifecycle bus. Clone and pass to flusher threads.
 pub type LifecycleTx = mpsc::Sender<PtyLifecycleMessage>;
 
@@ -123,7 +90,7 @@ pub type LifecycleRx = mpsc::Receiver<PtyLifecycleMessage>;
 
 /// Create a new lifecycle bus channel pair.
 pub fn channel() -> (LifecycleTx, LifecycleRx) {
-    mpsc::channel()
+    roux_runtime::pty_lifecycle::channel()
 }
 
 /// Context needed by the lifecycle handler to dispatch events.
@@ -268,22 +235,6 @@ pub(crate) fn handle_command(pty_manager: &crate::pty::PtyManager, command: PtyL
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn exit_reason_converts_to_core_type() {
-        assert_eq!(
-            roux_core::SessionExitReason::from(ExitReason::Exit),
-            roux_core::SessionExitReason::Exit
-        );
-        assert_eq!(
-            roux_core::SessionExitReason::from(ExitReason::IoError),
-            roux_core::SessionExitReason::IoError
-        );
-        assert_eq!(
-            roux_core::SessionExitReason::from(ExitReason::Killed),
-            roux_core::SessionExitReason::Killed
-        );
-    }
 
     #[test]
     fn channel_can_send_and_receive_events() {
