@@ -22,6 +22,7 @@ pub struct PaneDescriptor {
     pub nono_allow_dirs: Option<Vec<String>>,
     pub notes_scope: Option<String>,
     pub notes_view_mode: Option<String>,
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -42,6 +43,7 @@ pub struct PaneRecord {
     pub nono_allow_dirs: Option<Vec<String>>,
     pub notes_scope: Option<String>,
     pub notes_view_mode: Option<String>,
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -68,6 +70,7 @@ impl PaneRecord {
             nono_allow_dirs: self.nono_allow_dirs.clone(),
             notes_scope: self.notes_scope.clone(),
             notes_view_mode: self.notes_view_mode.clone(),
+            session_id: self.session_id.clone(),
         }
     }
 }
@@ -83,6 +86,10 @@ enum PaneMsg {
     },
     ListByIds {
         ids: Vec<String>,
+        reply: oneshot::Sender<Vec<PaneRecord>>,
+    },
+    ListBySession {
+        session_id: String,
         reply: oneshot::Sender<Vec<PaneRecord>>,
     },
 }
@@ -118,6 +125,19 @@ impl PaneHandle {
         self.send(PaneMsg::ListByIds { ids, reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
+
+    /// Return all panes whose id starts with `{session_id}-`.
+    pub async fn list_by_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<PaneRecord>, ServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(PaneMsg::ListBySession {
+            session_id: session_id.to_string(),
+            reply: reply_tx,
+        })?;
+        reply_rx.await.map_err(|_| ServiceError)
+    }
 }
 
 pub fn spawn() -> (PaneHandle, JoinHandle<()>) {
@@ -146,6 +166,22 @@ async fn service_loop(mut rx: mpsc::UnboundedReceiver<PaneMsg>) {
                     .collect();
                 let _ = reply.send(records);
             }
+            PaneMsg::ListBySession { session_id, reply } => {
+                let prefix = format!("{}-", session_id);
+                let records = panes
+                    .values()
+                    .filter(|r| {
+                        // Prefer the explicit session_id field when present (populated by
+                        // the frontend for both socket-created and frontend-created panes);
+                        // fall back to the legacy id-prefix heuristic for older records
+                        // that predate this field.
+                        r.session_id.as_deref() == Some(&session_id)
+                            || (r.session_id.is_none() && r.id.starts_with(&prefix))
+                    })
+                    .cloned()
+                    .collect();
+                let _ = reply.send(records);
+            }
         }
     }
 }
@@ -170,6 +206,7 @@ mod tests {
             nono_allow_dirs: None,
             notes_scope: None,
             notes_view_mode: None,
+            session_id: None,
         }
     }
 

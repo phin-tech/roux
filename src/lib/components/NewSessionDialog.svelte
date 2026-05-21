@@ -74,6 +74,11 @@
   let worktreePickOpen = $state(true);
   let worktreeActiveIndex = $state(0);
   let selectedWorktree = $state<Worktree | null>(null);
+  // Per-session override for the new-worktree start point. Empty = use the
+  // `worktreeDefaultBase` setting. Refs starting with "origin/" trigger
+  // `git fetch origin` before resolving the ref (matches the CLI / socket
+  // behavior).
+  let startPointInput = $state("");
   let error = $state("");
   let creating = $state(false);
   let rootRepoPaths = $state<string[]>([]);
@@ -730,6 +735,10 @@
    * and existing-worktree paths, so passing these unconditionally is safe).
    */
   function resolveDefaultBase(): { base: string | null; fetchFirst: boolean } {
+    const override = startPointInput.trim();
+    if (override) {
+      return { base: override, fetchFirst: override.startsWith("origin/") };
+    }
     switch ($settings.worktreeDefaultBase ?? "currentBranch") {
       case "main":
         return { base: "main", fetchFirst: false };
@@ -966,6 +975,7 @@
     worktreeFilterInput = "";
     worktreePickOpen = true;
     worktreeActiveIndex = 0;
+    startPointInput = "";
     onclose();
   }
 </script>
@@ -1188,6 +1198,23 @@
                   {/if}
                 </div>
               {/if}
+            </div>
+            <div class="flex flex-col gap-1">
+              <label
+                for="new-session-start-point"
+                class="text-[10px] font-semibold uppercase tracking-wider text-text-muted"
+              >
+                Start from <span class="font-normal normal-case text-text-muted/70">(optional)</span>
+              </label>
+              <input
+                id="new-session-start-point"
+                bind:value={startPointInput}
+                placeholder="e.g. origin/main, main, abc123"
+                class={pickerInputClass}
+              />
+              <p class="text-[10px] text-text-muted/80">
+                Only used when creating a new branch. <code>origin/</code> refs trigger a fetch first.
+              </p>
             </div>
           </fieldset>
         {/if}

@@ -1323,6 +1323,7 @@ export interface PaneDescriptorPayload {
   nonoAllowDirs?: string[];
   notesScope?: NotesScope;
   notesViewMode?: "edit" | "read";
+  sessionId?: string;
 }
 
 export type PaneRecordPayload = PaneDescriptorPayload;

@@ -284,16 +284,14 @@ pub(crate) fn get_pty_cwd(id: String, state: tauri::State<AppState>) -> Option<S
     state.pty_manager.get_cwd(&id)
 }
 
-/// Archive a session (soft-delete). The frontend command name is retained
-/// for backward-compat, but the record is kept on disk and shown in the
-/// sessions-history pane until the user permanently deletes it.
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn kill_session(
-    id: String,
-    state: tauri::State<'_, AppState>,
+/// Archive a session (soft-delete) and run the surrounding hook +
+/// watch-cleanup work. Shared by the Tauri command and the CLI/socket
+/// handler so both code paths get identical lifecycle behavior.
+pub(crate) async fn archive_session_with_hooks(
+    state: &AppState,
+    id: &str,
 ) -> Result<(), String> {
-    let session = state.session_handle.get(&id).await.map_err(|e| e.to_string())?;
+    let session = state.session_handle.get(id).await.map_err(|e| e.to_string())?;
     if let Some(session) = session.as_ref() {
         let context = crate::automation_hooks::HookContext {
             repo_path: Some(session.repo_root.clone()),
@@ -313,12 +311,12 @@ pub(crate) async fn kill_session(
             .await
             .map_err(|e| e.to_string())?;
     }
-    svc::kill_session(&state.pty_manager, &state.session_handle, &id)
+    svc::kill_session(&state.pty_manager, &state.session_handle, id)
         .await
         .map_err(|e| e.to_string())?;
     // Stop session-scoped recurring watches (e.g. PR pollers) so they
     // don't outlive the archived session and keep firing forever.
-    state.watch_manager.remove_watches_for_session(&id).await;
+    state.watch_manager.remove_watches_for_session(id).await;
     if let Some(session) = session {
         let context = crate::automation_hooks::HookContext {
             repo_path: Some(session.repo_root.clone()),
@@ -337,6 +335,18 @@ pub(crate) async fn kill_session(
             .spawn_background(crate::automation_hooks::HookEvent::PostSessionClose, context);
     }
     Ok(())
+}
+
+/// Archive a session (soft-delete). The frontend command name is retained
+/// for backward-compat, but the record is kept on disk and shown in the
+/// sessions-history pane until the user permanently deletes it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn kill_session(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    archive_session_with_hooks(&state, &id).await
 }
 
 /// Bring an archived session back to the active list.

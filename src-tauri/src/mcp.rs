@@ -72,10 +72,17 @@ pub struct CreateSessionParams {
     pub name: Option<String>,
     pub working_dir: Option<String>,
     pub worktree_branch: Option<String>,
+    /// Git ref to branch a newly-created worktree from (e.g. "main",
+    /// "origin/main", "abc123"). Refs starting with "origin/" trigger a
+    /// `git fetch origin` first. Ignored when `worktree_branch` is not set.
+    pub start_point: Option<String>,
     pub profile: Option<String>,
     pub nono_profile: Option<String>,
     #[serde(default)]
     pub nono_allow_dirs: Vec<String>,
+    /// Text to send to the session's primary PTY immediately after it starts
+    /// (with a trailing Enter). CLI-equivalent: `--prompt`.
+    pub prompt: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -387,7 +394,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Create a Roux session. workingDir or an existing session context is required by Roux."
+        description = "Create a Roux session. workingDir or an existing session context is required by Roux. Use worktreeBranch + startPoint to spin a fresh worktree (e.g. startPoint=\"origin/main\")."
     )]
     async fn roux_create_session(
         &self,
@@ -1056,6 +1063,9 @@ fn build_create_session_request(params: CreateSessionParams) -> Value {
     if let Some(worktree_branch) = params.worktree_branch {
         args.insert("worktree_branch".into(), Value::String(worktree_branch));
     }
+    if let Some(start_point) = params.start_point {
+        args.insert("start_point".into(), Value::String(start_point));
+    }
     if let Some(profile) = params.profile {
         args.insert("profile".into(), Value::String(profile));
     }
@@ -1067,6 +1077,9 @@ fn build_create_session_request(params: CreateSessionParams) -> Value {
             "nono_allow_dirs".into(),
             Value::Array(params.nono_allow_dirs.into_iter().map(Value::String).collect()),
         );
+    }
+    if let Some(prompt) = params.prompt {
+        args.insert("prompt".into(), Value::String(prompt));
     }
     json!({ "command": "session-create", "args": args })
 }
