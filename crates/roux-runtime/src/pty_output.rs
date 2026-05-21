@@ -72,16 +72,16 @@ pub enum PtyReaderStep<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PtyReaderPlan {
-    pub observer_bytes: Option<Vec<u8>>,
+pub struct PtyReaderPlan<'a> {
+    pub observer_bytes: Option<&'a [u8]>,
     pub output_chunk: PtyOutputChunk,
     pub stop: bool,
 }
 
-pub fn plan_reader_step(step: PtyReaderStep<'_>) -> PtyReaderPlan {
+pub fn plan_reader_step<'a>(step: PtyReaderStep<'a>) -> PtyReaderPlan<'a> {
     match step {
         PtyReaderStep::Data(bytes) => PtyReaderPlan {
-            observer_bytes: Some(bytes.to_vec()),
+            observer_bytes: Some(bytes),
             output_chunk: PtyOutputChunk::Data(bytes.to_vec()),
             stop: false,
         },
@@ -300,7 +300,7 @@ mod tests {
         assert_eq!(
             plan,
             PtyReaderPlan {
-                observer_bytes: Some(b"abc".to_vec()),
+                observer_bytes: Some(&b"abc"[..]),
                 output_chunk: PtyOutputChunk::Data(b"abc".to_vec()),
                 stop: false,
             }

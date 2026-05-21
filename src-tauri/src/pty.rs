@@ -357,7 +357,7 @@ fn apply_reader_plan(
     sniffer: &mut Option<crate::notifications::OscSniffer>,
     gate: &Option<(ReadyGate, PtyWriter, String)>,
 ) -> bool {
-    if let Some(bytes) = plan.observer_bytes.as_deref() {
+    if let Some(bytes) = plan.observer_bytes {
         if let Some(s) = sniffer {
             s.feed(bytes);
         }
