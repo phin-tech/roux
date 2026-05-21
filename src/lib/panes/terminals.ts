@@ -27,6 +27,15 @@ import {
 } from "./terminalRuntime";
 import { log } from "$lib/logging";
 
+function inputPreview(data: string): string {
+  const escaped = data
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\t/g, "\\t")
+    .replace(/\u001b/g, "\\e");
+  return escaped.length > 24 ? `${escaped.slice(0, 24)}...` : escaped;
+}
+
 /**
  * Create a terminal controller for a pane. No-ops if the controller already
  * exists or the pane is markdown-only.
@@ -90,13 +99,23 @@ export function initTerminal(paneId: string): void {
   });
   controller.onInput((data) => {
     const inst = getInstance(paneId);
-    if (!inst) return;
+    if (!inst) {
+      log(`[pane-input] onData pane=${paneId} dropped=no-instance bytes=${data.length} data=${inputPreview(data)}`);
+      return;
+    }
+    log(
+      `[pane-input] onData pane=${paneId} pty=${inst.ptyId} bytes=${data.length} data=${inputPreview(data)}`,
+    );
     writeToSession(inst.ptyId, data).catch((e) => {
       log(`Write failed for ${inst.ptyId}: ${e}`);
     });
   });
 
   const currentFocused = get(focusedPaneId);
+  log(
+    `[pane-input] initTerminal.inputState pane=${paneId} pty=${instance.ptyId} focused=${currentFocused ?? "null"} ` +
+      `enabled=${paneId === currentFocused}`,
+  );
   controller.setInputEnabled(paneId === currentFocused);
 }
 
