@@ -1,7 +1,6 @@
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -17,6 +16,9 @@ use crate::platform;
 use crate::pty_ready_gate::ShellReadyGate;
 
 pub use roux_core::{PtyInfo, PtyRole, PtyStatus};
+pub use roux_runtime::process::cwd_for_pid;
+pub use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs, SmolvmExec};
+use roux_runtime::terminal_env;
 
 type PtyWriter = Arc<Mutex<Box<dyn std::io::Write + Send>>>;
 type ReadyGate = Arc<Mutex<ShellReadyGate>>;
@@ -533,144 +535,6 @@ pub enum PtyError {
         #[source]
         source: anyhow::Error,
     },
-}
-
-/// Look up the current working directory of an OS process by PID.
-///
-/// Used to report live cwd for shell panes at save time so reconnecting a
-/// session restores the user's actual directory (after `cd`s), not just the
-/// directory the shell was originally spawned in. The kernel tracks cwd on
-/// the shell process itself, so this pulls directly from OS-level process
-/// info — no shell integration or OSC 7 cooperation required.
-///
-/// Returns `None` if the PID doesn't exist, the caller lacks permission, or
-/// the OS refuses.
-#[cfg(target_os = "macos")]
-pub fn cwd_for_pid(pid: u32) -> Option<String> {
-    // proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &mut info, sizeof(info))
-    // fills a proc_vnodepathinfo struct; its pvi_cdir.vip_path is the cwd as
-    // a NUL-terminated C string of length MAXPATHLEN (1024 on Darwin).
-    //
-    // We only need the cwd byte range, not the full struct layout, so we
-    // define a minimally-sufficient stand-in whose size matches the real
-    // struct. proc_vnodepathinfo is two vnode_info_path structs back-to-back;
-    // the first is pvi_cdir (what we want). Each vnode_info_path is
-    // sizeof(vnode_info) + MAXPATHLEN; vnode_info is 152 bytes on Darwin.
-    const MAXPATHLEN: usize = 1024;
-    const VNODE_INFO_SIZE: usize = 152;
-    const VNODE_INFO_PATH_SIZE: usize = VNODE_INFO_SIZE + MAXPATHLEN;
-    const PROC_PIDVNODEPATHINFO: libc::c_int = 9;
-
-    #[repr(C)]
-    struct ProcVnodePathInfo {
-        pvi_cdir: [u8; VNODE_INFO_PATH_SIZE],
-        pvi_rdir: [u8; VNODE_INFO_PATH_SIZE],
-    }
-
-    extern "C" {
-        fn proc_pidinfo(
-            pid: libc::c_int,
-            flavor: libc::c_int,
-            arg: u64,
-            buffer: *mut libc::c_void,
-            buffersize: libc::c_int,
-        ) -> libc::c_int;
-    }
-
-    let mut info = ProcVnodePathInfo {
-        pvi_cdir: [0u8; VNODE_INFO_PATH_SIZE],
-        pvi_rdir: [0u8; VNODE_INFO_PATH_SIZE],
-    };
-    let size = std::mem::size_of::<ProcVnodePathInfo>() as libc::c_int;
-
-    let ret = unsafe {
-        proc_pidinfo(
-            pid as libc::c_int,
-            PROC_PIDVNODEPATHINFO,
-            0,
-            &mut info as *mut _ as *mut libc::c_void,
-            size,
-        )
-    };
-    if ret <= 0 {
-        return None;
-    }
-
-    // vip_path starts at offset VNODE_INFO_SIZE within vnode_info_path and is
-    // a C string (MAXPATHLEN bytes, NUL-terminated).
-    let path_bytes = &info.pvi_cdir[VNODE_INFO_SIZE..];
-    let nul = path_bytes.iter().position(|&b| b == 0).unwrap_or(path_bytes.len());
-    if nul == 0 {
-        return None;
-    }
-    std::str::from_utf8(&path_bytes[..nul]).ok().map(|s| s.to_string())
-}
-
-#[cfg(target_os = "linux")]
-pub fn cwd_for_pid(pid: u32) -> Option<String> {
-    std::fs::read_link(format!("/proc/{}/cwd", pid)).ok().map(|p| p.to_string_lossy().into_owned())
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn cwd_for_pid(_pid: u32) -> Option<String> {
-    None
-}
-
-/// Nono sandbox configuration for a shell PTY. When present, the shell
-/// is spawned inside `nono run` with the given profile and directory
-/// allowances.
-#[derive(Debug, Clone)]
-pub struct NonoConfig {
-    pub profile: String,
-    pub allow_dirs: Vec<String>,
-}
-
-/// Smolvm exec configuration for a shell PTY. When present, the shell is
-/// spawned inside `smolvm machine exec --name <machine_name> -it -- <guest_shell>`
-/// instead of directly on the host. Mutually exclusive with `NonoConfig`
-/// — nono is host-side and doesn't exist inside a guest VM unless the
-/// image installs it; the spawn path silently skips nono when smolvm is
-/// set.
-#[derive(Debug, Clone)]
-pub struct SmolvmExec {
-    /// Resolved `smolvm` binary path, from
-    /// [`crate::services::smolvm::resolve_smolvm_binary`]. Owning this
-    /// (rather than re-resolving in the spawn path) means a smolvm
-    /// uninstall after the session was bound surfaces as a clean failure
-    /// at the caller, not a confusing "command not found" mid-spawn.
-    pub binary: PathBuf,
-    pub machine_name: String,
-    /// Guest shell path. v1 hardcodes `/bin/sh` at the call site;
-    /// future Smolfile-derived override will plug in here.
-    pub guest_shell: String,
-}
-
-impl NonoConfig {
-    /// Resolve `~` to the user's home directory and relative paths
-    /// against `working_dir`. Nono receives arguments via CommandBuilder
-    /// (no shell expansion), so tilde must be expanded here.
-    ///
-    /// Uses `Path::is_absolute()` for portability: on Windows this
-    /// correctly treats `C:\foo` as absolute. Falls back to silently
-    /// dropping `~`-prefixed entries when `HOME` is unavailable rather
-    /// than emitting a bogus `--allow-dir` with a relative path.
-    pub fn resolved_allow_dirs(&self, working_dir: &str) -> Vec<String> {
-        let home = dirs::home_dir();
-        self.allow_dirs
-            .iter()
-            .filter_map(|d| {
-                if d == "~" {
-                    home.as_ref().map(|h| h.to_string_lossy().into_owned())
-                } else if let Some(tail) = d.strip_prefix("~/") {
-                    home.as_ref().map(|h| h.join(tail).to_string_lossy().into_owned())
-                } else if std::path::Path::new(d).is_absolute() {
-                    Some(d.clone())
-                } else {
-                    Some(std::path::Path::new(working_dir).join(d).to_string_lossy().into_owned())
-                }
-            })
-            .collect()
-    }
 }
 
 pub struct PtyManager {
@@ -1655,28 +1519,6 @@ fn roux_cli_shim() -> Option<(String, String)> {
         .clone()
 }
 
-/// Build the PATH value to hand to a PTY child. Prepends the roux-cli shim
-/// directory (if available) to the user's login-shell PATH so scripts
-/// running inside any Roux pane can invoke `roux notify`, `roux-cli focus`,
-/// etc. without a separate install step.
-fn build_pty_path(user_path: &str) -> String {
-    let Some((bin_dir, _)) = roux_cli_shim() else {
-        return user_path.to_string();
-    };
-
-    let mut paths: Vec<_> = std::env::split_paths(user_path).collect();
-    let bin_dir_path = std::path::PathBuf::from(&bin_dir);
-    if paths.iter().any(|path| path == &bin_dir_path) {
-        return user_path.to_string();
-    }
-
-    paths.insert(0, bin_dir_path);
-    std::env::join_paths(paths)
-        .ok()
-        .and_then(|value| value.into_string().ok())
-        .unwrap_or_else(|| user_path.to_string())
-}
-
 /// Apply the common Roux env vars to a `CommandBuilder`: PATH with shim dir
 /// prepended, `ROUX_CLI` pointing at the absolute roux-cli path, and the
 /// standard `ROUX_*` markers. Called by every `spawn_*` method so the three
@@ -1686,29 +1528,6 @@ fn build_pty_path(user_path: &str) -> String {
 /// PTY hosts `ROUX_SESSION_ID` and `ROUX_PANE_ID` in its env unconditionally.
 /// Hooks and `roux notify` read them to route events back to the correct
 /// pane without cwd heuristics.
-/// Pre-computed inputs for the `ROUX_*_NOTES_*` env vars. Built by the
-/// session-creation layer (which has access to `NotesService` + settings)
-/// and threaded through the PTY spawn calls. Every string has already been
-/// resolved through `NotesService::resolve_target` so the slugs here are
-/// the same ones the Tauri commands and the frontend panel will see.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct NotesEnvInputs {
-    pub(crate) vault_root: String,
-    pub(crate) session_slug: String,
-    pub(crate) repo_slug: String,
-    pub(crate) project_slug: Option<String>,
-    /// External docs/specs paths attached to this session's project.
-    /// Surfaced to the PTY child as `ROUX_PROJECT_CONTEXT_PATHS` (colon-
-    /// separated like `PATH`), and only when the session is associated
-    /// with a project that has at least one path configured.
-    pub(crate) context_paths: Vec<String>,
-    /// Free-form text exposed as `ROUX_PROJECT_PROMPT`. The frontend
-    /// profile runner additionally splices this into the agent CLI's
-    /// startup command (`--append-system-prompt` for Claude,
-    /// `-c instructions=…` for Codex). Empty string = unset.
-    pub(crate) project_prompt: String,
-}
-
 fn apply_roux_env(
     cmd: &mut CommandBuilder,
     user_path: &str,
@@ -1736,41 +1555,24 @@ fn roux_env_pairs(
     worktree_path: Option<&str>,
     notes: Option<&NotesEnvInputs>,
 ) -> Vec<(String, String)> {
-    let mut pairs: Vec<(String, String)> = vec![
-        ("PATH".to_string(), build_pty_path(user_path)),
-        ("TERM".to_string(), "xterm-256color".to_string()),
-        ("COLORTERM".to_string(), "truecolor".to_string()),
-        ("ROUX_SESSION".to_string(), "1".to_string()),
-        ("ROUX_SOCKET".to_string(), socket_path_str()),
-    ];
-    if let Some((_, cli_path)) = roux_cli_shim() {
-        pairs.push(("ROUX_CLI".to_string(), cli_path));
-    }
-    if let Some(sid) = session_id {
-        pairs.push(("ROUX_SESSION_ID".to_string(), sid.to_string()));
-    }
-    if let Some(pid) = pane_id {
-        pairs.push(("ROUX_PANE_ID".to_string(), pid.to_string()));
-        // Snapshot any alias bound to this pane at spawn time. The lookup
-        // hits the persisted `aliases.json` directly so we don't have to
-        // plumb `AliasManager` through the PtyManager. If the alias is
-        // auto-claimed AFTER spawn (pane rename / auto-claim from name),
-        // the env stays stale until the next respawn — agents should
-        // prefer `roux alias whoami` for live state.
-        if let Some(alias) = lookup_pane_alias(pid) {
-            pairs.push(("ROUX_AGENT_ALIAS".to_string(), alias));
-        }
-    }
-    if let Some(pid) = project_id {
-        pairs.push(("ROUX_PROJECT_ID".to_string(), pid.to_string()));
-    }
-    if let Some(wt) = worktree_path {
-        pairs.push(("ROUX_WORKTREE_PATH".to_string(), wt.to_string()));
-    }
-    if let Some(n) = notes {
-        notes_env_pairs(n, &mut pairs);
-    }
-    pairs
+    let socket_path = socket_path_str();
+    let cli_shim = roux_cli_shim();
+    // Snapshot any alias bound to this pane at spawn time. The lookup hits
+    // persisted `aliases.json`; live alias state remains available through
+    // `roux alias whoami`.
+    let pane_alias = pane_id.and_then(lookup_pane_alias);
+
+    terminal_env::roux_env_pairs(terminal_env::RouxEnvInputs {
+        user_path,
+        socket_path: &socket_path,
+        cli_shim: cli_shim.as_ref().map(|(bin_dir, cli_path)| (bin_dir.as_str(), cli_path.as_str())),
+        session_id,
+        pane_id,
+        pane_alias: pane_alias.as_deref(),
+        project_id,
+        worktree_path,
+        notes,
+    })
 }
 
 /// True for env keys that are meaningful inside a smolvm guest. Host
@@ -1779,16 +1581,7 @@ fn roux_env_pairs(
 /// locations. Forwarding them would mislead shell-rc scripts that test
 /// for them.
 fn is_guest_safe_env_key(key: &str) -> bool {
-    matches!(
-        key,
-        "TERM"
-            | "COLORTERM"
-            | "ROUX_SESSION"
-            | "ROUX_SESSION_ID"
-            | "ROUX_PANE_ID"
-            | "ROUX_PROJECT_ID"
-            | "ROUX_AGENT_ALIAS"
-    )
+    terminal_env::is_guest_safe_env_key(key)
 }
 
 /// Best-effort lookup: which alias is bound to `pane_id` right now?
@@ -1823,73 +1616,6 @@ fn ensure_machine_running(binary: &std::path::Path, name: &str) -> Result<(), St
     }
     rlog!("smol machine '{}' is '{}', auto-starting before exec", name, m.state);
     roux_smolvm::start_machine(binary, name).map_err(|e| e.to_string())
-}
-
-/// Collect notes-related env pairs for forwarding into a child process.
-/// Used by `roux_env_pairs` (host-side `cmd.env`) and the smolvm wrap
-/// (`-e KEY=VAL` flags). Project-context vars are deliberately omitted
-/// when their inputs are empty so shell idioms like
-/// `${ROUX_SESSION_PROJECT:-no-project}` keep working.
-fn notes_env_pairs(n: &NotesEnvInputs, pairs: &mut Vec<(String, String)>) {
-    use std::path::Path;
-    let root = Path::new(&n.vault_root);
-    let global_dir = root.join("global");
-    let repo_dir = root.join("repos").join(&n.repo_slug);
-    let session_dir = root.join("sessions").join(&n.session_slug);
-
-    pairs.push(("ROUX_NOTES_ROOT".to_string(), root.to_string_lossy().to_string()));
-    pairs.push((
-        "ROUX_GLOBAL_NOTES_DIR".to_string(),
-        global_dir.to_string_lossy().to_string(),
-    ));
-    pairs.push((
-        "ROUX_GLOBAL_NOTES_FILE".to_string(),
-        global_dir.join("notes.md").to_string_lossy().to_string(),
-    ));
-    pairs.push(("ROUX_REPO_SLUG".to_string(), n.repo_slug.clone()));
-    pairs.push(("ROUX_REPO_NOTES_DIR".to_string(), repo_dir.to_string_lossy().to_string()));
-    pairs.push((
-        "ROUX_REPO_NOTES_FILE".to_string(),
-        repo_dir.join("notes.md").to_string_lossy().to_string(),
-    ));
-    pairs.push(("ROUX_SESSION_DIR".to_string(), session_dir.to_string_lossy().to_string()));
-    pairs.push((
-        "ROUX_SESSION_NOTES_FILE".to_string(),
-        session_dir.join("notes.md").to_string_lossy().to_string(),
-    ));
-    if let Some(project_slug) = n.project_slug.as_deref() {
-        let project_dir = root.join("projects").join(project_slug);
-        pairs.push(("ROUX_SESSION_PROJECT".to_string(), project_slug.to_string()));
-        pairs.push((
-            "ROUX_SESSION_PROJECT_NOTES_DIR".to_string(),
-            project_dir.to_string_lossy().to_string(),
-        ));
-        pairs.push((
-            "ROUX_SESSION_PROJECT_NOTES_FILE".to_string(),
-            project_dir.join("notes.md").to_string_lossy().to_string(),
-        ));
-    }
-
-    if !n.context_paths.is_empty() {
-        match std::env::join_paths(n.context_paths.iter().map(std::path::Path::new)) {
-            Ok(joined) => {
-                pairs.push((
-                    "ROUX_PROJECT_CONTEXT_PATHS".to_string(),
-                    joined.to_string_lossy().to_string(),
-                ));
-            }
-            Err(e) => {
-                rlog!(
-                    "notes_env_pairs: failed to encode ROUX_PROJECT_CONTEXT_PATHS ({} paths): {}",
-                    n.context_paths.len(),
-                    e
-                );
-            }
-        }
-    }
-    if !n.project_prompt.is_empty() {
-        pairs.push(("ROUX_PROJECT_PROMPT".to_string(), n.project_prompt.clone()));
-    }
 }
 
 /// Get the user's login shell PATH by invoking the same shell Roux would use
@@ -1954,9 +1680,9 @@ fn resolve_default_shell() -> String {
 
     #[cfg(not(windows))]
     {
-        resolve_default_shell_from_sources(
+        terminal_env::resolve_default_shell_from_sources(
             shell_binary_path.as_deref(),
-            login_shell_for_current_user().as_deref(),
+            terminal_env::login_shell_for_current_user().as_deref(),
             std::env::var("SHELL").ok().as_deref(),
         )
     }
@@ -1964,7 +1690,8 @@ fn resolve_default_shell() -> String {
 
 pub(crate) fn set_shell_binary_path_override(path: Option<String>) {
     let cache = shell_binary_path_cache();
-    *cache.lock().unwrap() = Some(path.as_deref().and_then(nonempty_trimmed).map(str::to_string));
+    *cache.lock().unwrap() =
+        Some(path.as_deref().and_then(terminal_env::nonempty_trimmed).map(str::to_string));
 }
 
 fn shell_binary_path_override() -> Option<String> {
@@ -1975,7 +1702,7 @@ fn shell_binary_path_override() -> Option<String> {
             crate::settings::load_settings()
                 .shell_binary_path
                 .as_deref()
-                .and_then(nonempty_trimmed)
+                .and_then(terminal_env::nonempty_trimmed)
                 .map(str::to_string),
         );
     }
@@ -1993,49 +1720,7 @@ fn resolve_default_shell_from_sources(
     login_shell: Option<&str>,
     env_shell: Option<&str>,
 ) -> String {
-    setting_shell
-        .and_then(nonempty_trimmed)
-        .or_else(|| login_shell.and_then(nonempty_trimmed))
-        .or_else(|| env_shell.and_then(nonempty_trimmed))
-        .unwrap_or("/bin/zsh")
-        .to_string()
-}
-
-fn nonempty_trimmed(value: &str) -> Option<&str> {
-    let trimmed = value.trim();
-    (!trimmed.is_empty()).then_some(trimmed)
-}
-
-#[cfg(unix)]
-fn login_shell_for_current_user() -> Option<String> {
-    let uid = unsafe { libc::getuid() };
-    let mut result: *mut libc::passwd = std::ptr::null_mut();
-    let mut buf_size = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
-    if buf_size < 1024 {
-        buf_size = 16 * 1024;
-    }
-    let mut buf = vec![0 as libc::c_char; buf_size as usize];
-
-    loop {
-        let mut passwd = std::mem::MaybeUninit::<libc::passwd>::zeroed();
-        let rc = unsafe {
-            libc::getpwuid_r(uid, passwd.as_mut_ptr(), buf.as_mut_ptr(), buf.len(), &mut result)
-        };
-        if rc == libc::ERANGE {
-            buf.resize(buf.len() * 2, 0);
-            continue;
-        }
-        if rc != 0 || result.is_null() {
-            return None;
-        }
-
-        let passwd = unsafe { passwd.assume_init() };
-        if passwd.pw_shell.is_null() {
-            return None;
-        }
-        let shell = unsafe { std::ffi::CStr::from_ptr(passwd.pw_shell) };
-        return shell.to_str().ok().and_then(nonempty_trimmed).map(str::to_string);
-    }
+    terminal_env::resolve_default_shell_from_sources(setting_shell, login_shell, env_shell)
 }
 
 fn apply_shell_command_flags(cmd: &mut CommandBuilder, shell: &str) {
