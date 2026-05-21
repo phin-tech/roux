@@ -20,6 +20,7 @@ pub use roux_runtime::process::cwd_for_pid;
 use roux_runtime::pty_output::PtyOutputBacklog;
 #[cfg(test)]
 pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
+use roux_runtime::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
 pub use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs, SmolvmExec};
 use roux_runtime::terminal_env;
 
@@ -30,18 +31,20 @@ const GATE_QUIET: Duration = Duration::from_millis(200);
 const GATE_TIMEOUT: Duration = Duration::from_secs(5);
 const GATE_TICK: Duration = Duration::from_millis(75);
 
-/// Fallback PTY size for spawn paths that don't have a measured pane size.
-/// Callers should pass the pane's actual `(cols, rows)` whenever possible
-/// — starting at the real size avoids a post-spawn SIGWINCH, which
-/// otherwise triggers `zle reset-prompt` in zsh and causes async prompt
-/// frameworks (oh-my-zsh git, p10k without instant-prompt, etc.) to
-/// redraw on top of any keystrokes the user has already typed.
-const DEFAULT_PTY_COLS: u16 = 80;
-const DEFAULT_PTY_ROWS: u16 = 24;
+fn pty_size_from_dimensions(size: pty_spawn::PtyDimensions) -> PtySize {
+    PtySize { rows: size.rows, cols: size.cols, pixel_width: 0, pixel_height: 0 }
+}
 
-fn pty_size_from(initial: Option<(u16, u16)>) -> PtySize {
-    let (cols, rows) = initial.unwrap_or((DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS));
-    PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 }
+fn command_builder_from_plan(plan: &pty_spawn::PtyCommandPlan) -> CommandBuilder {
+    let mut cmd = CommandBuilder::new(plan.program.as_os_str());
+    for arg in &plan.args {
+        cmd.arg(arg);
+    }
+    for (key, value) in &plan.env {
+        cmd.env(key, value);
+    }
+    cmd.cwd(&plan.cwd);
+    cmd
 }
 
 /// Best-effort flush of bytes the gate released. Errors are logged but
@@ -757,14 +760,26 @@ impl PtyManager {
                 })?;
         }
 
+        let shell = resolve_default_shell();
+        let user_path = get_user_path();
+        let roux_env =
+            roux_env_pairs(&user_path, session_id, pane_id, project_id, worktree_path, notes);
+        let spawn_plan = pty_spawn::shell_spawn_plan(ShellSpawnPlanInputs {
+            working_dir,
+            shell: &shell,
+            roux_env: &roux_env,
+            worktree_path,
+            nono,
+            smolvm,
+            initial_size,
+        });
+
         let pty_system = native_pty_system();
 
         let pair = pty_system
-            .openpty(pty_size_from(initial_size))
+            .openpty(pty_size_from_dimensions(spawn_plan.size))
             .map_err(|source| PtyError::OpenPty { source })?;
 
-        let shell = resolve_default_shell();
-        let user_path = get_user_path();
         let nono_label = nono.map(|n| format!(" (nono profile={})", n.profile)).unwrap_or_default();
         let smol_label = smolvm.map(|s| format!(" (smol machine={})", s.machine_name)).unwrap_or_default();
         let pane_label = pane_id.map(|p| format!(", pane '{}'", p)).unwrap_or_default();
@@ -780,77 +795,7 @@ impl PtyManager {
             smol_label
         );
 
-        // Wrap precedence: smolvm wins over nono. nono is host-side and
-        // doesn't exist inside a guest VM unless the image installs it.
-        // Treat them as mutually exclusive in v1 and silently skip nono
-        // in the smolvm branch (the caller has already logged a warning
-        // if both were configured).
-        let mut cmd = if let Some(smol) = smolvm {
-            let mut c = CommandBuilder::new(smol.binary.as_os_str());
-            c.arg("machine");
-            c.arg("exec");
-            c.arg("--name");
-            c.arg(&smol.machine_name);
-            c.arg("-i");
-            c.arg("-t");
-            // Phase 2.9: when the session has a worktree path, ask
-            // smolvm to start the guest shell there. The path must be
-            // covered by a [dev].volumes mount in the Smolfile;
-            // otherwise smolvm exits with "workdir not found". The
-            // panel's auto-mount UX (bind-time prompt) prevents that
-            // case for new bindings; pre-existing bindings on
-            // un-mounted machines will surface the smolvm error in the
-            // dead-pane view.
-            if let Some(wt) = worktree_path.filter(|p| !p.is_empty()) {
-                c.arg("--workdir");
-                c.arg(wt);
-            }
-            // Forward the subset of ROUX_* env that's meaningful in the
-            // guest. Host paths (PATH, ROUX_SOCKET, ROUX_CLI, notes paths)
-            // are filtered out — see `is_guest_safe_env_key`.
-            for (k, v) in roux_env_pairs(
-                &user_path,
-                session_id,
-                pane_id,
-                project_id,
-                worktree_path,
-                notes,
-            ) {
-                if is_guest_safe_env_key(&k) {
-                    c.arg("-e");
-                    c.arg(format!("{}={}", k, v));
-                }
-            }
-            c.arg("--");
-            c.arg(&smol.guest_shell);
-            c
-        } else if let Some(nono) = nono {
-            let mut c = CommandBuilder::new("nono");
-            c.arg("run");
-            c.arg("--profile");
-            c.arg(&nono.profile);
-            c.arg("--allow-cwd");
-            for dir in &nono.resolved_allow_dirs(working_dir) {
-                c.arg("--allow-dir");
-                c.arg(dir);
-            }
-            c.arg("--");
-            c.arg(&shell);
-            c
-        } else {
-            CommandBuilder::new(&shell)
-        };
-        // apply_shell_command_flags is a no-op outside Windows. On
-        // Windows + smolvm doesn't combine (smolvm is Linux/macOS-only),
-        // so we keep this unconditional — it's a safe no-op for the
-        // smolvm branch on the platforms smolvm runs on.
-        apply_shell_command_flags(&mut cmd, &shell);
-        // apply_roux_env populates the *outer* CommandBuilder's env.
-        // For the smolvm branch this decorates the host-side smolvm CLI
-        // process (useful for its own logging) but doesn't reach the
-        // guest — the `-e` flags above handle that.
-        apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path, notes);
-        cmd.cwd(working_dir);
+        let cmd = command_builder_from_plan(&spawn_plan.command);
 
         let child = pair.slave.spawn_command(cmd).map_err(|source| {
             rlog!("Failed to spawn shell: {}", source);
@@ -885,7 +830,7 @@ impl PtyManager {
                 PtyStatus::RunningDetached { since_ms }
             }
         };
-        let size = initial_size.unwrap_or((DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS));
+        let size = spawn_plan.size.as_tuple();
         let session = PtySession {
             master: pair.master,
             child,
@@ -1006,58 +951,27 @@ impl PtyManager {
             })?;
         }
 
+        let shell = resolve_default_shell();
+        let user_path = get_user_path();
+        let roux_env =
+            roux_env_pairs(&user_path, session_id, pane_id, project_id, worktree_path, notes);
+        let spawn_plan = pty_spawn::task_spawn_plan(TaskSpawnPlanInputs {
+            command,
+            working_dir,
+            shell: &shell,
+            roux_env: &roux_env,
+            worktree_path,
+            smolvm,
+            initial_size,
+        });
+
         let pty_system = native_pty_system();
 
         let pair = pty_system
-            .openpty(pty_size_from(initial_size))
+            .openpty(pty_size_from_dimensions(spawn_plan.size))
             .map_err(|source| PtyError::OpenPty { source })?;
 
-        let shell = resolve_default_shell();
-        let user_path = get_user_path();
-
-        // When the session is bound to a smol machine, run the command
-        // inside the guest via `smolvm machine exec --name <m> -- /bin/sh
-        // -c <cmd>`. Mirrors the spawn_shell smolvm wrap (env subset
-        // forwarded via `-e KEY=VAL`, optional `--workdir` from the
-        // session's worktree) so `roux run` behaves identically to a
-        // shell pane on a bound session.
-        let mut cmd = if let Some(smol) = smolvm {
-            let mut c = CommandBuilder::new(smol.binary.as_os_str());
-            c.arg("machine");
-            c.arg("exec");
-            c.arg("--name");
-            c.arg(&smol.machine_name);
-            c.arg("-i");
-            c.arg("-t");
-            if let Some(wt) = worktree_path.filter(|p| !p.is_empty()) {
-                c.arg("--workdir");
-                c.arg(wt);
-            }
-            for (k, v) in roux_env_pairs(
-                &user_path,
-                session_id,
-                pane_id,
-                project_id,
-                worktree_path,
-                notes,
-            ) {
-                if is_guest_safe_env_key(&k) {
-                    c.arg("-e");
-                    c.arg(format!("{}={}", k, v));
-                }
-            }
-            c.arg("--");
-            c.arg(&smol.guest_shell);
-            c.arg("-c");
-            c.arg(command);
-            c
-        } else {
-            let mut c = CommandBuilder::new(&shell);
-            apply_task_command_args(&mut c, &shell, command);
-            c
-        };
-        apply_roux_env(&mut cmd, &user_path, session_id, pane_id, project_id, worktree_path, notes);
-        cmd.cwd(working_dir);
+        let cmd = command_builder_from_plan(&spawn_plan.command);
 
         let mut child =
             pair.slave.spawn_command(cmd).map_err(|source| PtyError::SpawnTask { source })?;
@@ -1087,7 +1001,7 @@ impl PtyManager {
                 PtyStatus::RunningDetached { since_ms }
             }
         };
-        let size_task = initial_size.unwrap_or((DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS));
+        let size_task = spawn_plan.size.as_tuple();
         let session = PtySession {
             master: pair.master,
             child: Box::new(WaitedChild),
@@ -1510,34 +1424,9 @@ fn roux_cli_shim() -> Option<(String, String)> {
         .clone()
 }
 
-/// Apply the common Roux env vars to a `CommandBuilder`: PATH with shim dir
-/// prepended, `ROUX_CLI` pointing at the absolute roux-cli path, and the
-/// standard `ROUX_*` markers. Called by every `spawn_*` method so the three
-/// paths stay in sync.
-///
-/// `session_id` and `pane_id` are threaded through so every shell/task/agent
-/// PTY hosts `ROUX_SESSION_ID` and `ROUX_PANE_ID` in its env unconditionally.
-/// Hooks and `roux notify` read them to route events back to the correct
-/// pane without cwd heuristics.
-fn apply_roux_env(
-    cmd: &mut CommandBuilder,
-    user_path: &str,
-    session_id: Option<&str>,
-    pane_id: Option<&str>,
-    project_id: Option<&str>,
-    worktree_path: Option<&str>,
-    notes: Option<&NotesEnvInputs>,
-) {
-    for (k, v) in
-        roux_env_pairs(user_path, session_id, pane_id, project_id, worktree_path, notes)
-    {
-        cmd.env(k, v);
-    }
-}
-
-/// Pure pair-emitting variant of [`apply_roux_env`]. Used by both the
-/// host-side `CommandBuilder` path and the smolvm-wrap branch (which
-/// folds a filtered subset into `-e KEY=VAL` flags).
+/// Build common Roux env vars with the Tauri-owned socket, CLI shim, and
+/// persisted alias lookup. The runtime planner decides whether each pair
+/// becomes process env or a guest-safe smolvm `-e KEY=VAL` flag.
 fn roux_env_pairs(
     user_path: &str,
     session_id: Option<&str>,
@@ -1576,15 +1465,6 @@ fn roux_env_pairs(
         );
     }
     output.pairs
-}
-
-/// True for env keys that are meaningful inside a smolvm guest. Host
-/// paths (PATH, ROUX_SOCKET, ROUX_CLI, ROUX_NOTES_*) are excluded — the
-/// guest has its own filesystem and they'd point at non-existent
-/// locations. Forwarding them would mislead shell-rc scripts that test
-/// for them.
-fn is_guest_safe_env_key(key: &str) -> bool {
-    terminal_env::is_guest_safe_env_key(key)
 }
 
 /// Best-effort lookup: which alias is bound to `pane_id` right now?
@@ -1715,44 +1595,6 @@ fn shell_binary_path_override() -> Option<String> {
 fn shell_binary_path_cache() -> &'static Mutex<Option<Option<String>>> {
     static CACHE: std::sync::OnceLock<Mutex<Option<Option<String>>>> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(None))
-}
-
-fn apply_shell_command_flags(cmd: &mut CommandBuilder, shell: &str) {
-    #[cfg(windows)]
-    {
-        let shell_lower = shell.to_ascii_lowercase();
-        if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
-            cmd.arg("-NoLogo");
-        }
-    }
-
-    #[cfg(not(windows))]
-    {
-        let _ = (cmd, shell);
-    }
-}
-
-fn apply_task_command_args(cmd: &mut CommandBuilder, shell: &str, command: &str) {
-    #[cfg(windows)]
-    {
-        let shell_lower = shell.to_ascii_lowercase();
-        if shell_lower.contains("pwsh") {
-            cmd.args(["-NoLogo", "-NoProfile", "-Command", command]);
-            return;
-        }
-        if shell_lower.contains("powershell") {
-            cmd.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]);
-            return;
-        }
-        cmd.args(["/C", command]);
-        return;
-    }
-
-    #[cfg(not(windows))]
-    {
-        cmd.args(["-c", command]);
-        let _ = shell;
-    }
 }
 
 #[cfg(test)]
