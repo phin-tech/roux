@@ -17,11 +17,12 @@ use crate::pty_ready_gate::ShellReadyGate;
 
 pub use roux_core::{PtyInfo, PtyRole, PtyStatus};
 pub use roux_runtime::process::cwd_for_pid;
-use roux_runtime::pty_lifecycle::{self, PtyMetadataCommand, PtyMetadataCommandResult};
+use roux_runtime::pty_lifecycle::{PtyMetadataCommand, PtyMetadataCommandResult};
 use roux_runtime::pty_output::{
     plan_reader_step, PtyOutputChunk, PtyOutputDelivery, PtyOutputDeliveryState,
     PtyOutputFlushAction, PtyOutputFlusher, PtyReaderPlan, PtyReaderStep,
 };
+use roux_runtime::pty_registry::{PtySessionRegistry, PtySessionRegistryEntry};
 #[cfg(test)]
 pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
 use roux_runtime::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
@@ -454,6 +455,24 @@ pub(crate) struct PtySession {
     pub logger: Option<Arc<Mutex<crate::pty_logger::PtyLogger>>>,
 }
 
+impl PtySessionRegistryEntry for PtySession {
+    fn metadata(&self) -> &PtySessionMetadata {
+        &self.metadata
+    }
+
+    fn metadata_mut(&mut self) -> &mut PtySessionMetadata {
+        &mut self.metadata
+    }
+
+    fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    fn touch_last_activity(&mut self) {
+        self.last_activity = std::time::Instant::now();
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum PtyError {
     #[error("Failed to open PTY: {source}")]
@@ -501,7 +520,7 @@ pub enum PtyError {
 }
 
 pub struct PtyManager {
-    sessions: Mutex<HashMap<String, PtySession>>,
+    sessions: Mutex<PtySessionRegistry<PtySession>>,
     pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
     generation: AtomicU64,
     /// Set once at app startup. When present, PTY exit triggers a
@@ -520,7 +539,7 @@ pub struct PtyManager {
 impl PtyManager {
     pub fn new() -> Self {
         Self {
-            sessions: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(PtySessionRegistry::new()),
             pending_outputs: Mutex::new(HashMap::new()),
             generation: AtomicU64::new(0),
             agent_sender: Mutex::new(None),
@@ -586,15 +605,10 @@ impl PtyManager {
         command: &PtyMetadataCommand,
     ) -> PtyMetadataCommandResult {
         let mut sessions = self.sessions.lock().unwrap();
-        let Some(session) = sessions.get_mut(command.pty_id()) else {
-            return PtyMetadataCommandResult::Missing;
-        };
-        let result =
-            pty_lifecycle::apply_metadata_command(&mut session.metadata, session.generation, command);
+        let result = sessions.apply_metadata_command(command);
         if matches!(result, PtyMetadataCommandResult::Applied) {
             match command {
                 PtyMetadataCommand::AttachToPane { pty_id, pane_id } => {
-                    session.last_activity = std::time::Instant::now();
                     rlog!("PtyManager: attached PTY '{}' to pane '{}'", pty_id, pane_id);
                 }
                 PtyMetadataCommand::Detach { pty_id } => {
@@ -634,14 +648,7 @@ impl PtyManager {
     }
 
     pub(crate) fn kill_session_ptys_direct(&self, session_id: &str) {
-        let ids: Vec<String> = {
-            let sessions = self.sessions.lock().unwrap();
-            sessions
-                .iter()
-                .filter(|(_, s)| s.metadata.belongs_to_session(session_id))
-                .map(|(id, _)| id.clone())
-                .collect()
-        };
+        let ids = self.sessions.lock().unwrap().ids_for_session(session_id);
         for id in ids {
             self.kill_direct(&id);
         }
@@ -1076,31 +1083,21 @@ impl PtyManager {
     }
 
     pub fn get_generation(&self, session_id: &str) -> Option<u64> {
-        self.sessions.lock().unwrap().get(session_id).map(|s| s.generation)
+        self.sessions.lock().unwrap().generation(session_id)
     }
 
     pub(crate) fn get_info_direct(&self, pty_id: &str) -> Option<PtyInfo> {
-        let sessions = self.sessions.lock().unwrap();
-        sessions.get(pty_id).map(|s| s.metadata.to_info(pty_id))
+        self.sessions.lock().unwrap().get_info(pty_id)
     }
 
     /// List PTY info snapshots for a given session (for picker UI).
     pub fn list_for_session(&self, session_id: &str) -> Vec<PtyInfo> {
-        let sessions = self.sessions.lock().unwrap();
-        sessions
-            .iter()
-            .filter(|(_, s)| s.metadata.belongs_to_session(session_id))
-            .map(|(id, s)| s.metadata.to_info(id))
-            .collect()
+        self.sessions.lock().unwrap().list_for_session(session_id)
     }
 
     /// List all PTY info snapshots in one pass.
     pub fn list_all(&self) -> Vec<PtyInfo> {
-        let sessions = self.sessions.lock().unwrap();
-        sessions
-            .iter()
-            .map(|(id, s)| s.metadata.to_info(id))
-            .collect()
+        self.sessions.lock().unwrap().list_all()
     }
 
     /// Detach a PTY from its pane (PTY keeps running).
