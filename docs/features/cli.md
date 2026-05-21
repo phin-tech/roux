@@ -1,22 +1,22 @@
-# CLI bridge (`roux-cli`)
+# CLI bridge (`roux`)
 
-Roux ships with a command-line tool, `roux-cli`, that talks to the running app over a Unix socket. It lets you script Roux from the terminal — open sessions, split panes, send text, and focus panes.
+Roux ships with a command-line tool, `roux`, that talks to the running app over a Unix socket. It lets you script Roux from the terminal — open sessions, split panes, send text, and focus panes.
 
 ## Installing
 
-`roux-cli` is bundled inside `Roux.app`. The easiest way to put it on your `PATH` is to symlink it:
+`roux` is bundled inside `Roux.app`. The easiest way to put it on your `PATH` is to symlink it:
 
 ```sh
-ln -sf /Applications/Roux.app/Contents/MacOS/roux-cli /usr/local/bin/roux
+ln -sf /Applications/Roux.app/Contents/MacOS/roux /usr/local/bin/roux
 ```
 
 Then `roux --help` should work from any terminal.
 
-Inside Roux-managed panes, both `roux` and `roux-cli` are injected automatically, so you can call them without adding your own PATH shim.
+Inside Roux-managed panes, both `roux` and the legacy `roux-cli` alias are injected automatically, so you can call either without adding your own PATH shim.
 
 ## How it talks to Roux
 
-`roux-cli` is a thin client for the running desktop app:
+`roux` is a thin client for the running desktop app:
 
 - on macOS/Linux it talks to Roux over a Unix socket
 - on Windows it talks to the app over a local TCP endpoint plus an auth token
@@ -26,7 +26,7 @@ If the Roux app is not running, socket-backed commands fail with a direct `Roux 
 
 ## Command groups
 
-`roux-cli` currently exposes these top-level commands:
+`roux` currently exposes these top-level commands:
 
 - Open / focus a session for a directory and raise the app window (`roux app .`)
 - Show or clear legacy hook status files (`roux status`, `roux clear`)
@@ -120,13 +120,13 @@ Run Roux's MCP server over stdio.
 roux mcp
 ```
 
-Most people do not run this command by hand. Enable MCP in **Settings → Agent Integrations**, then use the host setup button for a supported MCP client. The host launches `roux-cli mcp` when it needs the server.
+Most people do not run this command by hand. Enable MCP in **Settings → Agent Integrations**, then use the host setup button for a supported MCP client. The host launches `roux mcp` when it needs the server.
 
 The MCP server is a thin adapter over the same socket bridge as the CLI:
 
 - the Roux desktop app must be running
 - **Enable Roux MCP** must be on in Settings
-- the host config uses the installed/current `roux-cli` path
+- the host config uses the installed/current `roux` path
 - session- and pane-targeted tools require explicit ids where mutation is possible, especially `roux_send_text`
 
 The v1 MCP server exposes inspection and safe action tools:

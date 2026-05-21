@@ -1,10 +1,6 @@
 use rmcp::{
-    handler::server::wrapper::Parameters,
-    model::CallToolResult,
-    schemars::JsonSchema,
-    tool, tool_router,
-    transport::stdio,
-    ErrorData, ServiceExt,
+    handler::server::wrapper::Parameters, model::CallToolResult, schemars::JsonSchema, tool,
+    tool_router, transport::stdio, ErrorData, ServiceExt,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -687,13 +683,8 @@ impl RouxMcpServer {
         &self,
         Parameters(params): Parameters<MailboxReadParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let mut args = mailbox_recv_args(
-            params.alias,
-            params.project_id,
-            params.global,
-            None,
-            params.limit,
-        );
+        let mut args =
+            mailbox_recv_args(params.alias, params.project_id, params.global, None, params.limit);
         if params.ack {
             args["ack"] = Value::Bool(true);
         }

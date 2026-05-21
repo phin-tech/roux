@@ -616,7 +616,7 @@
     // Start auto-saving layout changes to localStorage
     initPersistence();
 
-    // Listen for commands from roux-cli via socket server
+    // Listen for commands from the Roux CLI via socket server
     tauriUnlisteners.push(await onRouxCommand(async (cmd: RouxCommand) => {
       log(`roux-command: ${JSON.stringify(cmd)}`);
       switch (cmd.action) {

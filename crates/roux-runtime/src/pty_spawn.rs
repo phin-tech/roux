@@ -206,7 +206,7 @@ mod tests {
             ("PATH".to_string(), "/usr/bin".to_string()),
             ("TERM".to_string(), "xterm-256color".to_string()),
             ("ROUX_SOCKET".to_string(), "/tmp/roux.sock".to_string()),
-            ("ROUX_CLI".to_string(), "/roux/bin/roux-cli".to_string()),
+            ("ROUX_CLI".to_string(), "/roux/bin/roux".to_string()),
             ("ROUX_SESSION_ID".to_string(), "session-a".to_string()),
             ("ROUX_AGENT_ALIAS".to_string(), "builder".to_string()),
         ]

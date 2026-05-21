@@ -23,7 +23,7 @@ import {
 import type { RouxCommand } from "$lib/tauri";
 
 /**
- * Tests for the store operations triggered by roux-cli socket commands.
+ * Tests for the store operations triggered by Roux CLI socket commands.
  * These test the same code paths that App.svelte's onRouxCommand handler calls.
  */
 

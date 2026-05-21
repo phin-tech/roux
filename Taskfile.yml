@@ -15,7 +15,7 @@ includes:
 
 tasks:
   dev:
-    desc: "Run Tauri in development mode (also rebuilds roux-cli)"
+    desc: "Run Tauri in development mode (also rebuilds the Roux CLI)"
     cmds:
       - task: frontend:ensure
       - task: cli:install
@@ -48,11 +48,13 @@ tasks:
       - cmd: |
           TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
           mkdir -p src-tauri/binaries
-          if [ ! -f "src-tauri/binaries/roux-cli-${TARGET}" ]; then
-            touch "src-tauri/binaries/roux-cli-${TARGET}"
-            chmod +x "src-tauri/binaries/roux-cli-${TARGET}"
-            echo "Created placeholder for roux-cli-${TARGET}"
-          fi
+          for NAME in roux roux-cli; do
+            if [ ! -f "src-tauri/binaries/${NAME}-${TARGET}" ]; then
+              touch "src-tauri/binaries/${NAME}-${TARGET}"
+              chmod +x "src-tauri/binaries/${NAME}-${TARGET}"
+              echo "Created placeholder for ${NAME}-${TARGET}"
+            fi
+          done
         platforms: [darwin, linux]
       # Task v3 runs `cmd:` blocks through bundled mvdan/sh on every
       # platform — including Windows — not through `cmd.exe`. Use POSIX
@@ -60,21 +62,23 @@ tasks:
       - cmd: |
           set -eu
           mkdir -p src-tauri/binaries
+          [ -f src-tauri/binaries/roux.exe ] || : > src-tauri/binaries/roux.exe
           [ -f src-tauri/binaries/roux-cli.exe ] || : > src-tauri/binaries/roux-cli.exe
         platforms: [windows]
 
   cli:install:
-    desc: "Build and prepare roux-cli for local development"
+    desc: "Build and prepare the Roux CLI for local development"
     deps: [cli:ensure-placeholder]
     cmds:
-      - cargo build --manifest-path src-tauri/Cargo.toml --bin roux-cli
-      - cmd: echo "Built src-tauri/target/debug/roux-cli.exe for Windows dev use"
+      - cargo build -p roux-cli --bin roux
+      - cmd: echo "Built target/debug/roux.exe for Windows dev use"
         platforms: [windows]
       - cmd: |
           mkdir -p ~/.local/bin
-          cp target/debug/roux-cli ~/.local/bin/roux-cli
-          chmod +x ~/.local/bin/roux-cli
-          echo "Installed roux-cli to ~/.local/bin/roux-cli"
+          cp target/debug/roux ~/.local/bin/roux
+          chmod +x ~/.local/bin/roux
+          ln -sf ~/.local/bin/roux ~/.local/bin/roux-cli
+          echo "Installed roux to ~/.local/bin/roux"
         platforms: [darwin, linux]
 
   frontend:ensure:
@@ -90,16 +94,18 @@ tasks:
         platforms: [windows]
 
   cli:stage-dev-binary:
-    desc: "Stage debug roux-cli for Tauri externalBin in dev"
+    desc: "Stage debug Roux CLI for Tauri externalBin in dev"
     cmds:
       - cmd: |
           set -euo pipefail
           TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
           mkdir -p src-tauri/binaries
-          cp target/debug/roux-cli src-tauri/binaries/roux-cli
-          cp target/debug/roux-cli "src-tauri/binaries/roux-cli-${TARGET}"
-          chmod +x src-tauri/binaries/roux-cli "src-tauri/binaries/roux-cli-${TARGET}"
-          echo "Prepared dev roux-cli binaries for ${TARGET}"
+          cp target/debug/roux src-tauri/binaries/roux
+          cp target/debug/roux "src-tauri/binaries/roux-${TARGET}"
+          cp target/debug/roux src-tauri/binaries/roux-cli
+          cp target/debug/roux "src-tauri/binaries/roux-cli-${TARGET}"
+          chmod +x src-tauri/binaries/roux src-tauri/binaries/roux-cli "src-tauri/binaries/roux-${TARGET}" "src-tauri/binaries/roux-cli-${TARGET}"
+          echo "Prepared dev Roux CLI binaries for ${TARGET}"
         platforms: [darwin, linux]
       # POSIX sh via bundled mvdan/sh — see comment on cli:ensure-placeholder.
       # `rustc --print host-tuple` avoids depending on `sed`, which isn't on
@@ -109,16 +115,18 @@ tasks:
           TARGET="${TAURI_TARGET:-$(rustc --print host-tuple)}"
           : "${TARGET:=x86_64-pc-windows-msvc}"
           mkdir -p src-tauri/binaries
-          cp -f target/debug/roux-cli.exe src-tauri/binaries/roux-cli.exe
-          cp -f target/debug/roux-cli.exe "src-tauri/binaries/roux-cli-${TARGET}.exe"
-          echo "Prepared dev roux-cli binaries for ${TARGET}"
+          cp -f target/debug/roux.exe src-tauri/binaries/roux.exe
+          cp -f target/debug/roux.exe "src-tauri/binaries/roux-${TARGET}.exe"
+          cp -f target/debug/roux.exe src-tauri/binaries/roux-cli.exe
+          cp -f target/debug/roux.exe "src-tauri/binaries/roux-cli-${TARGET}.exe"
+          echo "Prepared dev Roux CLI binaries for ${TARGET}"
         platforms: [windows]
 
   dev:install:
     desc: "Build and install the desktop app and CLI locally (unsigned, no updater artifacts)"
     cmds:
       # Stage a placeholder externalBin so the first `cargo build --bin
-      # roux-cli` (inside prepare-cli) doesn't fail Tauri's build-script
+      # roux` (inside prepare-cli) doesn't fail Tauri's build-script
       # existence check on a clean checkout. See `cli:ensure-placeholder`.
       - task: cli:ensure-placeholder
       - task: macos:prepare-cli
@@ -137,7 +145,7 @@ tasks:
     desc: "Build the app locally (unsigned, no updater artifacts). Use task sign for release builds."
     cmds:
       # See note in `dev:install`: ensure the placeholder before prepare-cli
-      # so a clean checkout can build roux-cli at all.
+      # so a clean checkout can build the CLI crate at all.
       - task: cli:ensure-placeholder
       - task: bundle:prepare-cli
       - npm run tauri build -- -c '{"bundle":{"createUpdaterArtifacts":false}}'
@@ -226,27 +234,29 @@ tasks:
   clean:status:
     desc: "Clear all session status files"
     cmds:
-      - cargo run --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target-task --bin roux-cli -- clear
+      - cargo run -p roux-cli --target-dir src-tauri/target-task --bin roux -- clear
 
   bundle:prepare-cli:
-    desc: "Build roux-cli and stage it for bundling (darwin/linux). For Windows, use `task windows:prepare-cli`."
+    desc: "Build Roux CLI and stage it for bundling (darwin/linux). For Windows, use `task windows:prepare-cli`."
     cmds:
       - cmd: |
           set -euo pipefail
           TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
-          cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli
+          cargo build -p roux-cli --release --bin roux
           mkdir -p src-tauri/binaries
-          cp target/release/roux-cli src-tauri/binaries/roux-cli
-          cp target/release/roux-cli "src-tauri/binaries/roux-cli-${TARGET}"
-          chmod +x src-tauri/binaries/roux-cli "src-tauri/binaries/roux-cli-${TARGET}"
-          echo "Prepared bundled roux-cli for ${TARGET}"
+          cp target/release/roux src-tauri/binaries/roux
+          cp target/release/roux "src-tauri/binaries/roux-${TARGET}"
+          cp target/release/roux src-tauri/binaries/roux-cli
+          cp target/release/roux "src-tauri/binaries/roux-cli-${TARGET}"
+          chmod +x src-tauri/binaries/roux src-tauri/binaries/roux-cli "src-tauri/binaries/roux-${TARGET}" "src-tauri/binaries/roux-cli-${TARGET}"
+          echo "Prepared bundled Roux CLI for ${TARGET}"
         platforms: [darwin, linux]
 
   sign:
     desc: "Build, sign, notarize, and staple the macOS app"
     cmds:
       # See note in `dev:install`: ensure the placeholder before prepare-cli
-      # so a clean checkout can build roux-cli at all.
+      # so a clean checkout can build the CLI crate at all.
       - task: cli:ensure-placeholder
       - task: macos:prepare-cli
       - |

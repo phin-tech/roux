@@ -55,7 +55,7 @@ pub struct NotesEnvInputs {
 pub struct RouxEnvInputs<'a> {
     pub user_path: &'a str,
     pub socket_path: &'a str,
-    /// `(bin-dir-to-prepend-to-PATH, absolute-roux-cli-path)`.
+    /// `(bin-dir-to-prepend-to-PATH, absolute-roux-path)`.
     pub cli_shim: Option<(&'a str, &'a str)>,
     pub session_id: Option<&'a str>,
     pub pane_id: Option<&'a str>,
@@ -287,7 +287,7 @@ mod tests {
         let pairs = roux_env_pairs(RouxEnvInputs {
             user_path: "/usr/bin",
             socket_path: "/tmp/roux.sock",
-            cli_shim: Some(("/roux/bin", "/roux/bin/roux-cli")),
+            cli_shim: Some(("/roux/bin", "/roux/bin/roux")),
             session_id: Some("session-a"),
             pane_id: Some("pane-a"),
             pane_alias: Some("agent-a"),
@@ -297,7 +297,7 @@ mod tests {
         });
 
         assert!(pairs.contains(&("ROUX_SOCKET".to_string(), "/tmp/roux.sock".to_string())));
-        assert!(pairs.contains(&("ROUX_CLI".to_string(), "/roux/bin/roux-cli".to_string())));
+        assert!(pairs.contains(&("ROUX_CLI".to_string(), "/roux/bin/roux".to_string())));
         assert!(pairs.contains(&("ROUX_AGENT_ALIAS".to_string(), "agent-a".to_string())));
         assert!(pairs.contains(&("ROUX_PROJECT_PROMPT".to_string(), "Follow the spec".to_string())));
         assert!(pairs.iter().any(|(k, v)| k == "PATH" && v.starts_with("/roux/bin:")));

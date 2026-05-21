@@ -1,7 +1,7 @@
 //! File-backed hook-status source.
 //!
 //! Watches `~/.config/roux/status/` for JSON files written by the
-//! `roux-cli hook <status>` command that Claude's hook framework runs.
+//! `roux hook <status>` command that Claude's hook framework runs.
 //! Each change is parsed into an `AgentInput` and pushed onto the
 //! registry channel. The Tauri frontend continues to receive
 //! `roux-status-update` events for every change so its existing
@@ -76,7 +76,7 @@ pub fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
     let cwd = parsed.get("cwd").and_then(|s| s.as_str()).unwrap_or("").to_string();
 
     // Prefer the provider-agnostic key, but fall back to the legacy
-    // `claude_session_id` so an older roux-cli shim paired with a newer
+    // `claude_session_id` so an older roux-cli compatibility shim paired with a newer
     // desktop binary keeps routing correctly. `cli.rs`'s hook writer
     // comment documents the contract.
     let provider_session_id = parsed

@@ -20,14 +20,14 @@ Project approvals are keyed by config path, event, command name, and command tex
 A string is one command:
 
 ```toml
-post-watch-success = "roux-cli notify --title 'Watch passed'"
+post-watch-success = "roux notify --title 'Watch passed'"
 ```
 
 A table is multiple named commands in the same step:
 
 ```toml
 [post-watch-failure]
-notify = "roux-cli notify --title '{{ watch.name }} failed' --level error"
+notify = "roux notify --title '{{ watch.name }} failed' --level error"
 log = "printf '%s\n' '{{ watch.name }} failed' >> /tmp/roux-watch.log"
 ```
 
@@ -88,7 +88,7 @@ Add a `when` table to a hook step to run only in matching contexts:
 ```toml
 [[post-worktree-create]]
 when.provider = "worktrunk"
-notify = "roux-cli notify --title 'Worktrunk worktree ready'"
+notify = "roux notify --title 'Worktrunk worktree ready'"
 
 [[post-worktree-create]]
 when.provider = "git"
@@ -141,7 +141,7 @@ Common variables:
 | `watch.name` | Watch name for watch hooks. |
 | `outcome` | Current watch outcome when known. |
 | `previous_outcome` | Previous watch outcome when known. |
-| `args` | Extra tokens passed by `roux-cli hook run ... -- ...`. |
+| `args` | Extra tokens passed by `roux hook run ... -- ...`. |
 
 Roux also provides Worktrunk-inspired helper filters and functions:
 
@@ -203,15 +203,15 @@ Each log file records:
 Show configured hooks:
 
 ```sh
-roux-cli hook show
-roux-cli hook show --repo-path ~/src/my-repo
+roux hook show
+roux hook show --repo-path ~/src/my-repo
 ```
 
 Run a hook manually through the running app:
 
 ```sh
-roux-cli hook run post-watch-success --repo-path ~/src/my-repo
-roux-cli hook run post-worktree-create \
+roux hook run post-watch-success --repo-path ~/src/my-repo
+roux hook run post-worktree-create \
   --repo-path ~/src/my-repo \
   --worktree-path ~/src/my-repo/.worktrees/feat-x \
   --branch feat/x \
@@ -221,17 +221,17 @@ roux-cli hook run post-worktree-create \
 Forward extra tokens into `args`:
 
 ```sh
-roux-cli hook run post-watch-run --repo-path ~/src/my-repo -- --verbose
+roux hook run post-watch-run --repo-path ~/src/my-repo -- --verbose
 ```
 
 The legacy Claude status bridge still uses the same top-level group:
 
 ```sh
-roux-cli hook working
-roux-cli hook idle
-roux-cli hook attention
-roux-cli hook error
-roux-cli hook disconnected
+roux hook working
+roux hook idle
+roux hook attention
+roux hook error
+roux hook disconnected
 ```
 
 ## Worktrunk relationship

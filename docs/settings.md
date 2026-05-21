@@ -50,7 +50,7 @@ See [Notes](features/notes.md) for the panel UX, CLI surface, and env vars.
 
 The **Agent Integrations** section configures Roux for MCP hosts such as Claude Desktop.
 
-- **Enable Roux MCP** (`mcpEnabled`) — allows MCP hosts to launch `roux-cli mcp` and use Roux through the running desktop app. Turning this off makes the MCP server return a disabled error even if a host can start the process.
+- **Enable Roux MCP** (`mcpEnabled`) — allows MCP hosts to launch `roux mcp` and use Roux through the running desktop app. Turning this off makes the MCP server return a disabled error even if a host can start the process.
 - **CLI status** — shows whether Roux's installed CLI is present and current, plus the path that host configs will use.
 - **Host status** — shows supported MCP hosts, whether their config file exists, whether Roux is configured, and any config parse/read error.
 - **Preview** — shows the Roux MCP server entry that would be written for the host before changing the host config.

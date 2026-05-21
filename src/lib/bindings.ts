@@ -1262,7 +1262,7 @@ export type RouxSettings = {
 	autoLookupSessionPr?: boolean,
 	/**
 	 *  User-facing MCP integration switch. The MCP server is still launched
-	 *  by MCP hosts via `roux-cli mcp`; this controls Roux's setup/status UX
+	 *  by MCP hosts via `roux mcp`; this controls Roux's setup/status UX
 	 *  and whether host configuration buttons are presented as enabled.
 	 */
 	mcpEnabled?: boolean,
@@ -1750,4 +1750,3 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
-

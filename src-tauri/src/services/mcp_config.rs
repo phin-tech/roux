@@ -193,9 +193,9 @@ pub(crate) fn plan_codex_config(
     use toml::Value as TomlValue;
 
     let mut doc: TomlValue = match existing {
-        Some(content) if !content.trim().is_empty() => content
-            .parse::<TomlValue>()
-            .map_err(McpConfigError::InvalidToml)?,
+        Some(content) if !content.trim().is_empty() => {
+            content.parse::<TomlValue>().map_err(McpConfigError::InvalidToml)?
+        }
         _ => TomlValue::Table(toml::value::Table::new()),
     };
 
@@ -266,9 +266,9 @@ fn toml_to_json(value: &toml::Value) -> Value {
     match value {
         toml::Value::String(s) => Value::String(s.clone()),
         toml::Value::Integer(i) => Value::Number((*i).into()),
-        toml::Value::Float(f) => serde_json::Number::from_f64(*f)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
+        toml::Value::Float(f) => {
+            serde_json::Number::from_f64(*f).map(Value::Number).unwrap_or(Value::Null)
+        }
         toml::Value::Boolean(b) => Value::Bool(*b),
         toml::Value::Datetime(d) => Value::String(d.to_string()),
         toml::Value::Array(arr) => Value::Array(arr.iter().map(toml_to_json).collect()),
@@ -299,9 +299,9 @@ pub(crate) fn write_codex_config_file(
         Err(e) => return Err(McpConfigError::ReadConfig(e)),
     };
     let mut doc: toml::Value = match existing {
-        Some(content) if !content.trim().is_empty() => content
-            .parse::<toml::Value>()
-            .map_err(McpConfigError::InvalidToml)?,
+        Some(content) if !content.trim().is_empty() => {
+            content.parse::<toml::Value>().map_err(McpConfigError::InvalidToml)?
+        }
         _ => toml::Value::Table(toml::value::Table::new()),
     };
     let root = doc.as_table_mut().ok_or(McpConfigError::InvalidRootObject)?;
@@ -377,11 +377,11 @@ mod tests {
 
     #[test]
     fn plan_config_creates_mcp_servers_when_missing() {
-        let plan = plan_config(Some(r#"{"other": true}"#), "/bin/roux-cli").unwrap();
+        let plan = plan_config(Some(r#"{"other": true}"#), "/bin/roux").unwrap();
 
         assert_eq!(plan.action, ConfigAction::Create);
         assert_eq!(plan.next_config["other"], true);
-        assert_eq!(plan.next_config["mcpServers"]["roux"]["command"], "/bin/roux-cli");
+        assert_eq!(plan.next_config["mcpServers"]["roux"]["command"], "/bin/roux");
         assert_eq!(plan.next_config["mcpServers"]["roux"]["args"][0], "mcp");
     }
 
@@ -393,12 +393,12 @@ mod tests {
                 "roux": { "command": "/old/roux-cli", "args": ["mcp"] }
             }
         }"#;
-        let plan = plan_config(Some(existing), "/new/roux-cli").unwrap();
+        let plan = plan_config(Some(existing), "/new/roux").unwrap();
 
         assert_eq!(plan.action, ConfigAction::Update);
         assert_eq!(plan.next_config["mcpServers"]["other"]["command"], "node");
         assert_eq!(plan.current_entry.unwrap()["command"], "/old/roux-cli");
-        assert_eq!(plan.next_config["mcpServers"]["roux"]["command"], "/new/roux-cli");
+        assert_eq!(plan.next_config["mcpServers"]["roux"]["command"], "/new/roux");
     }
 
     #[test]
@@ -412,10 +412,10 @@ mod tests {
                 }
             }
         }"#;
-        let plan = plan_config(Some(existing), "/new/roux-cli").unwrap();
+        let plan = plan_config(Some(existing), "/new/roux").unwrap();
 
         assert_eq!(plan.action, ConfigAction::Update);
-        assert_eq!(plan.next_config["mcpServers"]["roux"]["command"], "/new/roux-cli");
+        assert_eq!(plan.next_config["mcpServers"]["roux"]["command"], "/new/roux");
         assert_eq!(plan.next_config["mcpServers"]["roux"]["args"][0], "mcp");
         assert_eq!(plan.next_config["mcpServers"]["roux"]["env"]["ROUX_LOG"], "debug");
     }
@@ -424,10 +424,10 @@ mod tests {
     fn plan_config_reports_unchanged_when_entry_matches() {
         let existing = r#"{
             "mcpServers": {
-                "roux": { "command": "/bin/roux-cli", "args": ["mcp"] }
+                "roux": { "command": "/bin/roux", "args": ["mcp"] }
             }
         }"#;
-        let plan = plan_config(Some(existing), "/bin/roux-cli").unwrap();
+        let plan = plan_config(Some(existing), "/bin/roux").unwrap();
 
         assert_eq!(plan.action, ConfigAction::Unchanged);
         assert!(plan.configured);
@@ -437,10 +437,10 @@ mod tests {
     fn write_config_file_skips_unchanged_config() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("claude_desktop_config.json");
-        let existing = r#"{ "mcpServers": { "roux": { "env": { "ROUX_LOG": "debug" }, "command": "/bin/roux-cli", "args": ["mcp"] } } }"#;
+        let existing = r#"{ "mcpServers": { "roux": { "env": { "ROUX_LOG": "debug" }, "command": "/bin/roux", "args": ["mcp"] } } }"#;
         std::fs::write(&path, existing).unwrap();
 
-        let plan = write_config_file(&path, "/bin/roux-cli").unwrap();
+        let plan = write_config_file(&path, "/bin/roux").unwrap();
 
         assert_eq!(plan.action, ConfigAction::Unchanged);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), existing);
@@ -451,12 +451,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Claude").join("claude_desktop_config.json");
 
-        let plan = write_config_file(&path, "/bin/roux-cli").unwrap();
+        let plan = write_config_file(&path, "/bin/roux").unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         let written_json: Value = serde_json::from_str(&written).unwrap();
 
         assert_eq!(plan.action, ConfigAction::Create);
-        assert_eq!(written_json["mcpServers"]["roux"]["command"], "/bin/roux-cli");
+        assert_eq!(written_json["mcpServers"]["roux"]["command"], "/bin/roux");
         assert_eq!(written_json["mcpServers"]["roux"]["args"][0], "mcp");
     }
 
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn plan_config_rejects_malformed_json() {
-        let err = plan_config(Some("{ nope"), "/bin/roux-cli").unwrap_err();
+        let err = plan_config(Some("{ nope"), "/bin/roux").unwrap_err();
         assert!(err.to_string().contains("invalid MCP host config JSON"));
     }
 }

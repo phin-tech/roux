@@ -1,0 +1,29 @@
+[package]
+name = "roux-cli"
+version = "0.5.3"
+description = "Command-line client and daemon entrypoint for Roux"
+authors = ["phin-tech"]
+edition = "2021"
+default-run = "roux"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "roux"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+rmcp = { version = "1.6.0", features = ["server", "transport-io", "schemars"] }
+roux-core = { path = "../roux-core" }
+roux-runtime = { path = "../roux-runtime" }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+
+[dev-dependencies]
+tempfile = "3"

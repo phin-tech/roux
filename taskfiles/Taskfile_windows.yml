@@ -7,17 +7,19 @@ version: "3"
 
 tasks:
   prepare-cli:
-    desc: "Build roux-cli and stage it for Windows bundling"
+    desc: "Build Roux CLI and stage it for Windows bundling"
     cmds:
-      - cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli
+      - cargo build -p roux-cli --release --bin roux
       - cmd: |
           set -eu
           TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
           : "${TARGET:=x86_64-pc-windows-msvc}"
           mkdir -p src-tauri/binaries
-          cp -f target/release/roux-cli.exe src-tauri/binaries/roux-cli.exe
-          cp -f target/release/roux-cli.exe "src-tauri/binaries/roux-cli-${TARGET}.exe"
-          echo "Prepared bundled roux-cli.exe for ${TARGET}"
+          cp -f target/release/roux.exe src-tauri/binaries/roux.exe
+          cp -f target/release/roux.exe "src-tauri/binaries/roux-${TARGET}.exe"
+          cp -f target/release/roux.exe src-tauri/binaries/roux-cli.exe
+          cp -f target/release/roux.exe "src-tauri/binaries/roux-cli-${TARGET}.exe"
+          echo "Prepared bundled Roux CLI for ${TARGET}"
         platforms: [windows]
 
   build:

@@ -20,6 +20,7 @@
 //! 4. The service loop owns all state and uses `tokio::select!` over the receiver + any timers
 //! 5. Include a `Shutdown` variant for graceful cleanup
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -30,28 +31,74 @@ use roux_core::Session;
 enum SessionMsg {
     // `Session` is ~272 bytes; box it so this variant doesn't dominate the
     // enum size (clippy::large_enum_variant). All other variants are tiny.
-    Add { session: Box<Session>, reply: oneshot::Sender<()> },
-    Remove { id: String, reply: oneshot::Sender<()> },
-    Archive { id: String, reply: oneshot::Sender<()> },
-    Restore { id: String, reply: oneshot::Sender<()> },
-    Get { id: String, reply: oneshot::Sender<Option<Session>> },
-    List { reply: oneshot::Sender<Vec<Session>> },
-    UpdateStatus { id: String, status: roux_core::SessionStatus, reply: oneshot::Sender<()> },
-    SetGitRepo { id: String, is_git_repo: bool, reply: oneshot::Sender<()> },
-    SetProject { id: String, project_id: Option<String>, reply: oneshot::Sender<()> },
-    ClearProjectRefs { project_id: String, reply: oneshot::Sender<()> },
-    SetNameOverride { id: String, name_override: Option<String>, reply: oneshot::Sender<()> },
+    Add {
+        session: Box<Session>,
+        reply: oneshot::Sender<()>,
+    },
+    Remove {
+        id: String,
+        reply: oneshot::Sender<()>,
+    },
+    Archive {
+        id: String,
+        reply: oneshot::Sender<()>,
+    },
+    Restore {
+        id: String,
+        reply: oneshot::Sender<()>,
+    },
+    Get {
+        id: String,
+        reply: oneshot::Sender<Option<Session>>,
+    },
+    List {
+        reply: oneshot::Sender<Vec<Session>>,
+    },
+    UpdateStatus {
+        id: String,
+        status: roux_core::SessionStatus,
+        reply: oneshot::Sender<()>,
+    },
+    SetGitRepo {
+        id: String,
+        is_git_repo: bool,
+        reply: oneshot::Sender<()>,
+    },
+    SetProject {
+        id: String,
+        project_id: Option<String>,
+        reply: oneshot::Sender<()>,
+    },
+    ClearProjectRefs {
+        project_id: String,
+        reply: oneshot::Sender<()>,
+    },
+    SetNameOverride {
+        id: String,
+        name_override: Option<String>,
+        reply: oneshot::Sender<()>,
+    },
     /// Update the session's tracked branch. Returns `true` when the branch
     /// actually changed (caller can use this to skip downstream work like
     /// emitting events or kicking PR re-lookup).
-    SetBranch { id: String, branch: String, reply: oneshot::Sender<bool> },
-    SetPinnedPrUrl { id: String, url: Option<String>, reply: oneshot::Sender<()> },
+    SetBranch {
+        id: String,
+        branch: String,
+        reply: oneshot::Sender<bool>,
+    },
+    SetPinnedPrUrl {
+        id: String,
+        url: Option<String>,
+        reply: oneshot::Sender<()>,
+    },
     SetSmolMachineName {
         id: String,
         machine_name: Option<String>,
         reply: oneshot::Sender<()>,
     },
-    Shutdown { reply: oneshot::Sender<()> },
+    Shutdown {
+        reply: oneshot::Sender<()>,
+    },
 }
 
 /// Error returned when the session service is unavailable (task exited or channel closed).
@@ -387,6 +434,49 @@ fn write_to_path(sessions: &[Session], path: &std::path::Path) {
     }
 }
 
+/// Load persisted sessions from `path`.
+///
+/// Active sessions are marked `Disconnected` because the daemon/app that
+/// wrote the file owned the old PTYs. Archived sessions keep their stored
+/// status; UI callers render archive state separately.
+pub fn load_persisted_from(
+    path: &std::path::Path,
+    projects: &[roux_core::Project],
+) -> Vec<Session> {
+    if !path.exists() {
+        return Vec::new();
+    }
+
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    let mut sessions: Vec<Session> = serde_json::from_str(&content).unwrap_or_default();
+    for session in &mut sessions {
+        if !session.archived {
+            session.status = roux_core::SessionStatus::Disconnected;
+        }
+    }
+
+    if clear_stale_project_refs(&mut sessions, projects) {
+        write_to_path(&sessions, path);
+    }
+
+    sessions
+}
+
+pub fn clear_stale_project_refs(sessions: &mut [Session], projects: &[roux_core::Project]) -> bool {
+    let project_ids: HashSet<&str> = projects.iter().map(|p| p.id.as_str()).collect();
+    let mut changed = false;
+    for session in sessions {
+        if let Some(project_id) = session.project_id.as_deref() {
+            if !project_ids.contains(project_id) {
+                session.project_id = None;
+                session.blueprint_id = None;
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -634,10 +724,7 @@ mod tests {
         let (_dir, path) = temp_persist_path();
         let (handle, join) = spawn_with_path(vec![make_session("s1")], path.clone());
 
-        handle
-            .update_status("missing", roux_core::SessionStatus::Generating)
-            .await
-            .unwrap();
+        handle.update_status("missing", roux_core::SessionStatus::Generating).await.unwrap();
         handle.set_git_repo("missing", true).await.unwrap();
         handle.set_project("missing", Some("proj-1".to_string())).await.unwrap();
         handle.set_name_override("missing", Some("Name".to_string())).await.unwrap();
@@ -687,10 +774,7 @@ mod tests {
             .await
             .unwrap();
         let session = handle.get("s1").await.unwrap().unwrap();
-        assert_eq!(
-            session.pinned_pr_url.as_deref(),
-            Some("https://github.com/o/r/pull/1"),
-        );
+        assert_eq!(session.pinned_pr_url.as_deref(), Some("https://github.com/o/r/pull/1"),);
 
         handle.set_pinned_pr_url("s1", None).await.unwrap();
         let cleared = handle.get("s1").await.unwrap().unwrap();

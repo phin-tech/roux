@@ -1,10 +1,10 @@
 [package]
-name = "roux"
+name = "roux-desktop"
 version = "0.5.3"
 description = "A multi-session Claude Code terminal manager"
 authors = ["phin-tech"]
 edition = "2021"
-default-run = "roux"
+default-run = "roux-desktop"
 
 [lints]
 workspace = true
@@ -15,12 +15,8 @@ crate-type = ["lib", "cdylib", "staticlib"]
 path = "src/lib.rs"
 
 [[bin]]
-name = "roux"
+name = "roux-desktop"
 path = "src/main.rs"
-
-[[bin]]
-name = "roux-cli"
-path = "src/cli.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

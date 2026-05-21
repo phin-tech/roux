@@ -22,7 +22,7 @@ shell behavior.
 | Var                 | Meaning                                                            |
 |---------------------|--------------------------------------------------------------------|
 | `ROUX_SESSION=1`    | Marker. You are inside a Roux pane.                                |
-| `ROUX_CLI`          | Absolute path to `roux-cli`. Prefer this over `roux-cli` on PATH.  |
+| `ROUX_CLI`          | Absolute path to `roux`. Prefer this over relying on PATH.         |
 | `ROUX_SOCKET`       | Unix socket / Windows named endpoint Roux listens on.              |
 | `ROUX_SESSION_ID`   | Id of the session this pane belongs to.                            |
 | `ROUX_PANE_ID`      | Id of this pane.                                                   |
@@ -37,7 +37,7 @@ shell behavior.
 | `ROUX_SESSION_PROJECT` | Project slug when the session has a project; unset otherwise.   |
 | `ROUX_SESSION_PROJECT_NOTES_FILE` / `_DIR` | Project-scope notes file and dir, when a project is assigned. |
 
-Several `roux-cli` subcommands default to `$ROUX_SESSION_ID` / `$ROUX_PANE_ID`
+Several `roux` subcommands default to `$ROUX_SESSION_ID` / `$ROUX_PANE_ID`
 when those flags are omitted, so you rarely need to pass them explicitly.
 
 ## Invoking the CLI
@@ -48,7 +48,8 @@ Always call the binary at `$ROUX_CLI`, e.g.:
 "$ROUX_CLI" session list
 ```
 
-This avoids PATH issues and the ambiguity of a `roux` shell alias.
+This avoids PATH issues. `roux-cli` remains a compatibility alias, but new
+automation should use `$ROUX_CLI` / `roux`.
 
 ## CLI surface
 

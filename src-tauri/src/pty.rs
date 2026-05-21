@@ -1001,30 +1001,30 @@ fn socket_path_str() -> String {
         .unwrap_or_else(|| platform::socket_path().to_string_lossy().to_string())
 }
 
-/// Eager trigger for the roux-cli shim. Called from `main.rs` setup so the
+/// Eager trigger for the Roux CLI shim. Called from `main.rs` setup so the
 /// symlink dir is ready before any PTY spawns and so we log the result at
 /// startup for debugging. Safe to call repeatedly — cached behind a OnceLock.
 pub fn ensure_roux_cli_shim() {
     let _ = roux_cli_shim();
 }
 
-/// Cached pair of (bin-dir-to-prepend-to-PATH, full-path-to-roux-cli).
+/// Cached pair of (bin-dir-to-prepend-to-PATH, full-path-to-Roux-CLI).
 /// Set up once at first PTY spawn: creates `~/.config/roux/bin/` and places
-/// `roux-cli` + `roux` symlinks there, both pointing at the roux-cli binary
-/// built next to the currently running `roux` exe. Returning `None` means
-/// we couldn't find the bundled roux-cli (e.g. a dev build where it wasn't
+/// `roux` plus compatibility `roux-cli` symlinks there, both pointing at the
+/// bundled CLI binary built next to the currently running desktop exe. Returning
+/// `None` means we couldn't find the bundled CLI (e.g. a dev build where it wasn't
 /// compiled yet) — callers skip the PATH injection gracefully.
 fn roux_cli_shim() -> Option<(String, String)> {
     use std::sync::OnceLock;
     static CACHE: OnceLock<Option<(String, String)>> = OnceLock::new();
     CACHE
         .get_or_init(|| {
-            // 1. Find the bundled roux-cli next to the currently running exe.
+            // 1. Find the bundled Roux CLI next to the currently running exe.
             let source = std::env::current_exe()
                 .ok()
                 .and_then(|p| p.parent().map(|d| d.join(platform::roux_cli_file_name())))?;
             if !source.exists() {
-                rlog!("roux_cli_shim: bundled roux-cli not found at {}", source.display());
+                rlog!("roux_cli_shim: bundled CLI not found at {}", source.display());
                 return None;
             }
 
@@ -1035,14 +1035,14 @@ fn roux_cli_shim() -> Option<(String, String)> {
                 return None;
             }
 
-            // 3. Install symlinks: `roux-cli` and short alias `roux` both
+            // 3. Install symlinks: `roux` and legacy alias `roux-cli` both
             //    pointing at the bundled source. We re-create the links every
             //    startup so the PTY always sees the freshest binary, even
             //    after a version bump.
             #[cfg(unix)]
             {
                 use std::os::unix::fs as unix_fs;
-                for alias in ["roux-cli", "roux"] {
+                for alias in ["roux", "roux-cli"] {
                     let link = bin_dir.join(alias);
                     // Remove any existing symlink/file so we can re-point it.
                     let _ = std::fs::remove_file(&link);
@@ -1060,7 +1060,7 @@ fn roux_cli_shim() -> Option<(String, String)> {
 
             #[cfg(windows)]
             {
-                for alias in ["roux-cli.exe", "roux.exe"] {
+                for alias in ["roux.exe", "roux-cli.exe"] {
                     let target = bin_dir.join(alias);
                     let should_copy = if target.exists() {
                         let src_modified =
