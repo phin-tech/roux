@@ -1,5 +1,4 @@
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use std::collections::HashMap;
 use std::io::Read;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -22,6 +21,7 @@ use roux_runtime::pty_output::{
     plan_reader_step, PtyOutputChunk, PtyOutputDelivery, PtyOutputDeliveryState,
     PtyOutputFlushAction, PtyOutputFlusher, PtyReaderPlan, PtyReaderStep,
 };
+use roux_runtime::pty_pending_output::PtyPendingOutput;
 use roux_runtime::pty_registry::{PtySessionRegistry, PtySessionRegistryEntry};
 #[cfg(test)]
 pub use roux_runtime::pty_output::PTY_BACKLOG_LIMIT_BYTES;
@@ -521,7 +521,7 @@ pub enum PtyError {
 
 pub struct PtyManager {
     sessions: Mutex<PtySessionRegistry<PtySession>>,
-    pending_outputs: Mutex<HashMap<String, Channel<Response>>>,
+    pending_outputs: Mutex<PtyPendingOutput<Channel<Response>>>,
     generation: AtomicU64,
     /// Set once at app startup. When present, PTY exit triggers a
     /// `RegistryMessage::SessionEnded` broadcast so the agent FSM can
@@ -540,7 +540,7 @@ impl PtyManager {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(PtySessionRegistry::new()),
-            pending_outputs: Mutex::new(HashMap::new()),
+            pending_outputs: Mutex::new(PtyPendingOutput::new()),
             generation: AtomicU64::new(0),
             agent_sender: Mutex::new(None),
             lifecycle_tx: Mutex::new(None),
@@ -1071,7 +1071,7 @@ impl PtyManager {
         // Since we can't timestamp them easily, just check if the session exists.
         let sessions = self.sessions.lock().unwrap();
         let mut pending = self.pending_outputs.lock().unwrap();
-        pending.retain(|id, _| sessions.contains_key(id));
+        pending.retain_existing(|id| sessions.contains_key(id));
     }
 
     pub fn kill(&self, session_id: &str) {
