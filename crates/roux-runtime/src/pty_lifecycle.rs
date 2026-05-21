@@ -1,6 +1,7 @@
 use std::sync::mpsc;
 
 use crate::pty_session::PtySessionMetadata;
+use roux_core::PtyInfo;
 
 /// Events that can occur during a PTY's lifecycle.
 #[derive(Debug, Clone, PartialEq)]
@@ -125,6 +126,133 @@ fn unix_now_ms() -> u64 {
         .as_millis() as u64
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct PtyExitEmit {
+    pub pty_id: String,
+    pub code: Option<u32>,
+    pub generation: u64,
+    pub reason: ExitReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyTaskHookKind {
+    PostTaskSuccess,
+    PostTaskFailure,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtyTaskHookIntent {
+    pub kind: PtyTaskHookKind,
+    pub task_id: String,
+    pub session_id: Option<String>,
+    pub repo_path: Option<String>,
+    pub worktree_path: Option<String>,
+    pub scope: Option<String>,
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PtyExitLog {
+    pub pty_id: String,
+    pub code: Option<u32>,
+    pub reason: ExitReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtyStaleExitLog {
+    pub pty_id: String,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PtyLifecycleEffects {
+    pub emit_exit: Option<PtyExitEmit>,
+    pub registry_session_ended: Option<String>,
+    pub task_hook: Option<PtyTaskHookIntent>,
+    pub exit_log: Option<PtyExitLog>,
+    pub stale_exit_log: Option<PtyStaleExitLog>,
+}
+
+pub fn plan_lifecycle_metadata_command(
+    event: &PtyLifecycleEvent,
+    now_ms: u64,
+) -> PtyMetadataCommand {
+    match event {
+        PtyLifecycleEvent::Exited { pty_id, generation, code, .. } => {
+            PtyMetadataCommand::MarkExitedIfGenerationMatches {
+                pty_id: pty_id.clone(),
+                generation: *generation,
+                code: code.map(|c| c as i32),
+                at_ms: now_ms,
+            }
+        }
+        PtyLifecycleEvent::OutputWhileDetached { pty_id } => PtyMetadataCommand::SetUnreadOutput {
+            pty_id: pty_id.clone(),
+            value: true,
+        },
+        PtyLifecycleEvent::BellWhileDetached { pty_id } => PtyMetadataCommand::SetBellPending {
+            pty_id: pty_id.clone(),
+            value: true,
+        },
+    }
+}
+
+pub fn plan_lifecycle_effects(
+    event: &PtyLifecycleEvent,
+    metadata_result: PtyMetadataCommandResult,
+    pty_info: Option<&PtyInfo>,
+) -> PtyLifecycleEffects {
+    let PtyLifecycleEvent::Exited {
+        pty_id,
+        session_id,
+        code,
+        reason,
+        generation,
+    } = event
+    else {
+        return PtyLifecycleEffects::default();
+    };
+
+    if !matches!(metadata_result, PtyMetadataCommandResult::Applied) {
+        return PtyLifecycleEffects {
+            stale_exit_log: Some(PtyStaleExitLog {
+                pty_id: pty_id.clone(),
+                generation: *generation,
+            }),
+            ..PtyLifecycleEffects::default()
+        };
+    }
+
+    let task_hook = pty_info.and_then(|info| {
+        (info.profile.as_deref() == Some("task")).then(|| PtyTaskHookIntent {
+            kind: if *code == Some(0) {
+                PtyTaskHookKind::PostTaskSuccess
+            } else {
+                PtyTaskHookKind::PostTaskFailure
+            },
+            task_id: pty_id.clone(),
+            session_id: info.session_id.clone(),
+            repo_path: info.working_dir.clone(),
+            worktree_path: info.working_dir.clone(),
+            scope: info.session_id.as_ref().map(|_| "session".to_string()),
+            cwd: info.working_dir.clone(),
+        })
+    });
+
+    PtyLifecycleEffects {
+        emit_exit: Some(PtyExitEmit {
+            pty_id: pty_id.clone(),
+            code: *code,
+            generation: *generation,
+            reason: *reason,
+        }),
+        registry_session_ended: session_id.clone(),
+        task_hook,
+        exit_log: Some(PtyExitLog { pty_id: pty_id.clone(), code: *code, reason: *reason }),
+        stale_exit_log: None,
+    }
+}
+
 impl From<ExitReason> for roux_core::SessionExitReason {
     fn from(r: ExitReason) -> Self {
         match r {
@@ -228,6 +356,20 @@ mod tests {
             profile: Some("plain-shell"),
             last_size: (80, 24),
         })
+    }
+
+    fn task_info(profile: Option<&str>) -> PtyInfo {
+        PtyInfo {
+            id: "pty-task".to_string(),
+            session_id: Some("session-a".to_string()),
+            role: PtyRole::Secondary,
+            status: PtyStatus::RunningDetached { since_ms: 1 },
+            name: None,
+            working_dir: Some("/repo".to_string()),
+            profile: profile.map(str::to_string),
+            unread_output: false,
+            bell_pending: false,
+        }
     }
 
     #[test]
@@ -375,5 +517,169 @@ mod tests {
         assert_eq!(result, PtyMetadataCommandResult::StaleGeneration);
         assert!(matches!(metadata.status, PtyStatus::RunningAttached { .. }));
         assert_eq!(metadata.exit_info, None);
+    }
+
+    #[test]
+    fn plan_metadata_command_for_lifecycle_events() {
+        let exit = PtyLifecycleEvent::Exited {
+            pty_id: "pty-a".to_string(),
+            session_id: Some("session-a".to_string()),
+            code: Some(0),
+            reason: ExitReason::Exit,
+            generation: 7,
+        };
+
+        assert_eq!(
+            plan_lifecycle_metadata_command(&exit, 123),
+            PtyMetadataCommand::MarkExitedIfGenerationMatches {
+                pty_id: "pty-a".to_string(),
+                generation: 7,
+                code: Some(0),
+                at_ms: 123,
+            }
+        );
+
+        assert_eq!(
+            plan_lifecycle_metadata_command(
+                &PtyLifecycleEvent::OutputWhileDetached { pty_id: "pty-b".to_string() },
+                123,
+            ),
+            PtyMetadataCommand::SetUnreadOutput {
+                pty_id: "pty-b".to_string(),
+                value: true,
+            }
+        );
+
+        assert_eq!(
+            plan_lifecycle_metadata_command(
+                &PtyLifecycleEvent::BellWhileDetached { pty_id: "pty-c".to_string() },
+                123,
+            ),
+            PtyMetadataCommand::SetBellPending {
+                pty_id: "pty-c".to_string(),
+                value: true,
+            }
+        );
+    }
+
+    #[test]
+    fn plan_exit_effects_after_successful_metadata_application() {
+        let event = PtyLifecycleEvent::Exited {
+            pty_id: "pty-task".to_string(),
+            session_id: Some("session-a".to_string()),
+            code: Some(0),
+            reason: ExitReason::Exit,
+            generation: 9,
+        };
+        let info = task_info(Some("task"));
+
+        let effects =
+            plan_lifecycle_effects(&event, PtyMetadataCommandResult::Applied, Some(&info));
+
+        assert_eq!(
+            effects.emit_exit,
+            Some(PtyExitEmit {
+                pty_id: "pty-task".to_string(),
+                code: Some(0),
+                generation: 9,
+                reason: ExitReason::Exit,
+            })
+        );
+        assert_eq!(effects.registry_session_ended.as_deref(), Some("session-a"));
+        assert_eq!(
+            effects.task_hook,
+            Some(PtyTaskHookIntent {
+                kind: PtyTaskHookKind::PostTaskSuccess,
+                task_id: "pty-task".to_string(),
+                session_id: Some("session-a".to_string()),
+                repo_path: Some("/repo".to_string()),
+                worktree_path: Some("/repo".to_string()),
+                scope: Some("session".to_string()),
+                cwd: Some("/repo".to_string()),
+            })
+        );
+        assert_eq!(
+            effects.exit_log,
+            Some(PtyExitLog {
+                pty_id: "pty-task".to_string(),
+                code: Some(0),
+                reason: ExitReason::Exit,
+            })
+        );
+        assert_eq!(effects.stale_exit_log, None);
+    }
+
+    #[test]
+    fn plan_exit_effects_marks_nonzero_or_missing_codes_as_task_failure() {
+        let event = PtyLifecycleEvent::Exited {
+            pty_id: "pty-task".to_string(),
+            session_id: None,
+            code: None,
+            reason: ExitReason::IoError,
+            generation: 9,
+        };
+        let info = task_info(Some("task"));
+
+        let effects =
+            plan_lifecycle_effects(&event, PtyMetadataCommandResult::Applied, Some(&info));
+
+        assert_eq!(
+            effects.task_hook.as_ref().map(|intent| intent.kind),
+            Some(PtyTaskHookKind::PostTaskFailure)
+        );
+        assert_eq!(effects.registry_session_ended, None);
+    }
+
+    #[test]
+    fn plan_exit_effects_skips_task_hook_for_non_task_profile() {
+        let event = PtyLifecycleEvent::Exited {
+            pty_id: "pty-shell".to_string(),
+            session_id: Some("session-a".to_string()),
+            code: Some(0),
+            reason: ExitReason::Exit,
+            generation: 9,
+        };
+        let info = task_info(Some("plain-shell"));
+
+        let effects =
+            plan_lifecycle_effects(&event, PtyMetadataCommandResult::Applied, Some(&info));
+
+        assert_eq!(effects.task_hook, None);
+        assert!(effects.emit_exit.is_some());
+        assert_eq!(effects.registry_session_ended.as_deref(), Some("session-a"));
+    }
+
+    #[test]
+    fn plan_exit_effects_drops_stale_or_missing_exits() {
+        let event = PtyLifecycleEvent::Exited {
+            pty_id: "pty-task".to_string(),
+            session_id: Some("session-a".to_string()),
+            code: Some(0),
+            reason: ExitReason::Exit,
+            generation: 9,
+        };
+
+        let effects =
+            plan_lifecycle_effects(&event, PtyMetadataCommandResult::StaleGeneration, None);
+
+        assert_eq!(
+            effects.stale_exit_log,
+            Some(PtyStaleExitLog { pty_id: "pty-task".to_string(), generation: 9 })
+        );
+        assert_eq!(effects.emit_exit, None);
+        assert_eq!(effects.registry_session_ended, None);
+        assert_eq!(effects.task_hook, None);
+        assert_eq!(effects.exit_log, None);
+    }
+
+    #[test]
+    fn plan_non_exit_effects_are_empty() {
+        let effects = plan_lifecycle_effects(
+            &PtyLifecycleEvent::OutputWhileDetached { pty_id: "pty-a".to_string() },
+            PtyMetadataCommandResult::Applied,
+            None,
+        );
+
+        assert_eq!(effects, PtyLifecycleEffects::default());
     }
 }

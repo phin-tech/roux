@@ -11,6 +11,10 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 pub use roux_runtime::pty_lifecycle::{ExitReason, PtyLifecycleEvent, PtyMetadataCommand};
+use roux_runtime::pty_lifecycle as runtime_lifecycle;
+use roux_runtime::pty_lifecycle::{
+    PtyLifecycleEffects, PtyMetadataCommandResult, PtyTaskHookKind,
+};
 
 pub enum PtyLifecycleCommand {
     Register {
@@ -98,86 +102,82 @@ pub fn spawn_handler(ctx: LifecycleHandlerContext) -> LifecycleTx {
 }
 
 fn handle_event(ctx: &LifecycleHandlerContext, event: PtyLifecycleEvent) {
-    match event {
-        PtyLifecycleEvent::Exited {
-            pty_id,
-            session_id,
-            code,
-            reason,
-            generation,
-        } => {
-            // Drop stale exit events from a previous PTY generation before they
-            // mutate state or notify the frontend for a reused PTY id.
-            if !ctx
-                .pty_manager
-                .mark_exited_if_generation_matches_direct(&pty_id, generation, code.map(|c| c as i32))
-            {
-                rlog!(
-                    "PTY lifecycle: dropping stale exit for {} generation {}",
-                    pty_id,
-                    generation
-                );
-                return;
-            }
-            let pty_info = ctx.pty_manager.get_info_direct(&pty_id);
+    let metadata_command =
+        runtime_lifecycle::plan_lifecycle_metadata_command(&event, unix_now_ms());
+    let metadata_result = ctx.pty_manager.apply_metadata_command_direct(&metadata_command);
+    let pty_info = if matches!(metadata_result, PtyMetadataCommandResult::Applied)
+        && matches!(event, PtyLifecycleEvent::Exited { .. })
+    {
+        ctx.pty_manager.get_info_direct(metadata_command.pty_id())
+    } else {
+        None
+    };
+    let effects =
+        runtime_lifecycle::plan_lifecycle_effects(&event, metadata_result, pty_info.as_ref());
+    execute_effects(ctx, effects);
+}
 
-            // 2. Emit frontend event
-            use tauri::Emitter;
-            let event_name = format!("session-exit:{}", pty_id);
-            let _ = ctx.app.emit(
-                &event_name,
-                &roux_core::SessionExitPayload {
-                    code,
-                    generation,
-                    reason: reason.into(),
-                },
-            );
-
-            // 3. Notify agent registry if session_id present
-            if let Some(sid) = session_id {
-                let _ = ctx.agent_registry_tx.send(
-                    crate::agent_registry::RegistryMessage::SessionEnded {
-                        session_id: sid,
-                    },
-                );
-            }
-
-            if let Some(info) = pty_info {
-                if info.profile.as_deref() == Some("task") {
-                    let event = if code == Some(0) {
-                        crate::automation_hooks::HookEvent::PostTaskSuccess
-                    } else {
-                        crate::automation_hooks::HookEvent::PostTaskFailure
-                    };
-                    let context = crate::automation_hooks::HookContext {
-                        repo_path: info.working_dir.clone(),
-                        worktree_path: info.working_dir.clone(),
-                        task_id: Some(pty_id.clone()),
-                        session_id: info.session_id.clone(),
-                        scope: info.session_id.as_ref().map(|_| "session".to_string()),
-                        cwd: info.working_dir,
-                        ..crate::automation_hooks::HookContext::new(event)
-                    };
-                    ctx.automation_hooks.spawn_background(event, context);
-                }
-            }
-
-            rlog!(
-                "PTY lifecycle: {} exited (code={:?}, reason={:?})",
-                pty_id,
-                code,
-                reason
-            );
-        }
-
-        PtyLifecycleEvent::OutputWhileDetached { pty_id } => {
-            ctx.pty_manager.set_unread_output(&pty_id, true);
-        }
-
-        PtyLifecycleEvent::BellWhileDetached { pty_id } => {
-            ctx.pty_manager.set_bell_pending(&pty_id, true);
-        }
+fn execute_effects(ctx: &LifecycleHandlerContext, effects: PtyLifecycleEffects) {
+    if let Some(stale) = effects.stale_exit_log {
+        rlog!(
+            "PTY lifecycle: dropping stale exit for {} generation {}",
+            stale.pty_id,
+            stale.generation
+        );
+        return;
     }
+
+    if let Some(exit) = effects.emit_exit {
+        use tauri::Emitter;
+        let event_name = format!("session-exit:{}", exit.pty_id);
+        let _ = ctx.app.emit(
+            &event_name,
+            &roux_core::SessionExitPayload {
+                code: exit.code,
+                generation: exit.generation,
+                reason: exit.reason.into(),
+            },
+        );
+    }
+
+    if let Some(session_id) = effects.registry_session_ended {
+        let _ = ctx
+            .agent_registry_tx
+            .send(crate::agent_registry::RegistryMessage::SessionEnded { session_id });
+    }
+
+    if let Some(intent) = effects.task_hook {
+        let event = match intent.kind {
+            PtyTaskHookKind::PostTaskSuccess => crate::automation_hooks::HookEvent::PostTaskSuccess,
+            PtyTaskHookKind::PostTaskFailure => crate::automation_hooks::HookEvent::PostTaskFailure,
+        };
+        let context = crate::automation_hooks::HookContext {
+            repo_path: intent.repo_path,
+            worktree_path: intent.worktree_path,
+            task_id: Some(intent.task_id),
+            session_id: intent.session_id,
+            scope: intent.scope,
+            cwd: intent.cwd,
+            ..crate::automation_hooks::HookContext::new(event)
+        };
+        ctx.automation_hooks.spawn_background(event, context);
+    }
+
+    if let Some(exit) = effects.exit_log {
+        rlog!(
+            "PTY lifecycle: {} exited (code={:?}, reason={:?})",
+            exit.pty_id,
+            exit.code,
+            exit.reason
+        );
+    }
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 pub(crate) fn handle_command(pty_manager: &crate::pty::PtyManager, command: PtyLifecycleCommand) {

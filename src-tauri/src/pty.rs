@@ -654,36 +654,6 @@ impl PtyManager {
         }
     }
 
-    pub(crate) fn mark_exited_if_generation_matches_direct(
-        &self,
-        pty_id: &str,
-        generation: u64,
-        code: Option<i32>,
-    ) -> bool {
-        let command = PtyMetadataCommand::MarkExitedIfGenerationMatches {
-            pty_id: pty_id.to_string(),
-            generation,
-            code,
-            at_ms: unix_now_ms(),
-        };
-        matches!(
-            self.apply_metadata_command_direct(&command),
-            PtyMetadataCommandResult::Applied
-        )
-    }
-
-    pub(crate) fn set_unread_output_direct(&self, pty_id: &str, value: bool) {
-        let command =
-            PtyMetadataCommand::SetUnreadOutput { pty_id: pty_id.to_string(), value };
-        self.apply_metadata_command_direct(&command);
-    }
-
-    pub(crate) fn set_bell_pending_direct(&self, pty_id: &str, value: bool) {
-        let command =
-            PtyMetadataCommand::SetBellPending { pty_id: pty_id.to_string(), value };
-        self.apply_metadata_command_direct(&command);
-    }
-
     pub(crate) fn kill_session_ptys_direct(&self, session_id: &str) {
         let ids: Vec<String> = {
             let sessions = self.sessions.lock().unwrap();
@@ -1189,16 +1159,6 @@ impl PtyManager {
         )) {
             self.apply_metadata_command_direct(&command);
         }
-    }
-
-    /// Set the unread output flag for a PTY.
-    pub fn set_unread_output(&self, pty_id: &str, value: bool) {
-        self.set_unread_output_direct(pty_id, value);
-    }
-
-    /// Set the bell pending flag for a PTY.
-    pub fn set_bell_pending(&self, pty_id: &str, value: bool) {
-        self.set_bell_pending_direct(pty_id, value);
     }
 
     /// Set the display name for a PTY.
@@ -1963,8 +1923,20 @@ mod lifecycle_command_tests {
         );
         register_via_bus(&lifecycle_tx, "pty-a", session);
 
-        manager.set_unread_output_direct("pty-a", true);
-        manager.set_bell_pending_direct("pty-a", true);
+        assert_eq!(
+            manager.apply_metadata_command_direct(&PtyMetadataCommand::SetUnreadOutput {
+                pty_id: "pty-a".to_string(),
+                value: true,
+            }),
+            PtyMetadataCommandResult::Applied
+        );
+        assert_eq!(
+            manager.apply_metadata_command_direct(&PtyMetadataCommand::SetBellPending {
+                pty_id: "pty-a".to_string(),
+                value: true,
+            }),
+            PtyMetadataCommandResult::Applied
+        );
         manager.detach("pty-a");
         manager.attach_to_pane("pty-a", "pane-b");
         manager.set_name("pty-a", Some("Renamed"));
@@ -2063,7 +2035,17 @@ mod lifecycle_command_tests {
         );
         register_via_bus(&lifecycle_tx, "pty-a", session);
 
-        assert!(!manager.mark_exited_if_generation_matches_direct("pty-a", 1, Some(1)));
+        assert_eq!(
+            manager.apply_metadata_command_direct(
+                &PtyMetadataCommand::MarkExitedIfGenerationMatches {
+                    pty_id: "pty-a".to_string(),
+                    generation: 1,
+                    code: Some(1),
+                    at_ms: 123,
+                }
+            ),
+            PtyMetadataCommandResult::StaleGeneration
+        );
 
         let snapshot = manager.list_for_session("session-a");
         assert_eq!(snapshot.len(), 1);
@@ -2086,7 +2068,17 @@ mod lifecycle_command_tests {
         );
         register_via_bus(&lifecycle_tx, "pty-a", session);
 
-        assert!(manager.mark_exited_if_generation_matches_direct("pty-a", 2, Some(0)));
+        assert_eq!(
+            manager.apply_metadata_command_direct(
+                &PtyMetadataCommand::MarkExitedIfGenerationMatches {
+                    pty_id: "pty-a".to_string(),
+                    generation: 2,
+                    code: Some(0),
+                    at_ms: 123,
+                }
+            ),
+            PtyMetadataCommandResult::Applied
+        );
 
         let snapshot = manager.list_for_session("session-a");
         assert_eq!(snapshot.len(), 1);
