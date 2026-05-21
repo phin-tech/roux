@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-pub use roux_runtime::project_service::{
-    load_persisted_from, ProjectHandle, ServiceError,
-};
+pub use roux_runtime::project_service::{load_persisted_from, ProjectHandle};
 
 pub fn spawn(
     initial_projects: Vec<roux_core::Project>,

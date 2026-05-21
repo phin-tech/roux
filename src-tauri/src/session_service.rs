@@ -1,4 +1,4 @@
-pub use roux_runtime::session_service::{ServiceError, SessionHandle};
+pub use roux_runtime::session_service::SessionHandle;
 
 pub fn spawn(
     initial_sessions: Vec<crate::session::Session>,

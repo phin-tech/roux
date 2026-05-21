@@ -275,22 +275,22 @@ async fn service_loop(
                     Some(SessionMsg::UpdateStatus { id, status, reply }) => {
                         if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
                             s.status = status;
+                            dirty = true;
                         }
-                        dirty = true;
                         let _ = reply.send(());
                     }
                     Some(SessionMsg::SetGitRepo { id, is_git_repo, reply }) => {
                         if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
                             s.is_git_repo = is_git_repo;
+                            dirty = true;
                         }
-                        dirty = true;
                         let _ = reply.send(());
                     }
                     Some(SessionMsg::SetProject { id, project_id, reply }) => {
                         if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
                             s.project_id = project_id;
+                            dirty = true;
                         }
-                        dirty = true;
                         let _ = reply.send(());
                     }
                     Some(SessionMsg::ClearProjectRefs { project_id, reply }) => {
@@ -308,8 +308,8 @@ async fn service_loop(
                     Some(SessionMsg::SetNameOverride { id, name_override, reply }) => {
                         if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
                             s.name_override = name_override;
+                            dirty = true;
                         }
-                        dirty = true;
                         let _ = reply.send(());
                     }
                     Some(SessionMsg::SetBranch { id, branch, reply }) => {
@@ -627,6 +627,30 @@ mod tests {
         assert!(handle.clear_project_refs("proj-1").await.is_err());
         assert!(handle.set_branch("s1", "main".to_string()).await.is_err());
         assert!(handle.set_pinned_pr_url("s1", None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn missing_targeted_updates_do_not_persist() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, join) = spawn_with_path(vec![make_session("s1")], path.clone());
+
+        handle
+            .update_status("missing", roux_core::SessionStatus::Generating)
+            .await
+            .unwrap();
+        handle.set_git_repo("missing", true).await.unwrap();
+        handle.set_project("missing", Some("proj-1".to_string())).await.unwrap();
+        handle.set_name_override("missing", Some("Name".to_string())).await.unwrap();
+        handle
+            .set_pinned_pr_url("missing", Some("https://github.com/o/r/pull/1".to_string()))
+            .await
+            .unwrap();
+        handle.set_smol_machine_name("missing", Some("vm-a".to_string())).await.unwrap();
+
+        handle.shutdown().await;
+        join.await.unwrap();
+
+        assert!(!path.exists(), "missing-session updates should be no-op writes");
     }
 
     #[tokio::test]

@@ -1,5 +1,5 @@
 pub use roux_runtime::pane_service::{
-    PaneDescriptor, PaneHandle, PaneRecord, PaneSpawnProfileRef, ServiceError,
+    PaneDescriptor, PaneHandle, PaneRecord,
 };
 
 pub fn spawn() -> (PaneHandle, tauri::async_runtime::JoinHandle<()>) {
