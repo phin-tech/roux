@@ -699,6 +699,8 @@ impl PtyManager {
 
         let mut child =
             pair.slave.spawn_command(cmd).map_err(|source| PtyError::SpawnTask { source })?;
+        let waited_child = WaitedChild::new(child.clone_killer());
+        let waited_child_exit = waited_child.exit_state();
 
         let writer = pair.master.take_writer().map_err(|source| PtyError::GetWriter { source })?;
 
@@ -715,7 +717,7 @@ impl PtyManager {
         let size_task = spawn_plan.size.as_tuple();
         let session = PtySession {
             master: pair.master,
-            child: Box::new(WaitedChild),
+            child: Box::new(waited_child),
             writer: Arc::new(Mutex::new(writer)),
             output: output.clone(),
             generation: gen,
@@ -783,7 +785,9 @@ impl PtyManager {
         let exit_pty_id = id.to_string();
         let exit_session_id = session_id.map(|s| s.to_string());
         thread::spawn(move || {
-            let code = child.wait().ok().map(|status| status.exit_code());
+            let wait_result = child.wait();
+            let code = wait_result.as_ref().ok().map(|status| status.exit_code());
+            waited_child_exit.record_wait_result(wait_result);
             if let Some(lifecycle_tx) = lifecycle_tx_clone {
                 let _ = lifecycle_tx.send(crate::pty_lifecycle::PtyLifecycleMessage::Event(
                     crate::pty_lifecycle::PtyLifecycleEvent::Exited {

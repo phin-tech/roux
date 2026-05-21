@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -154,27 +154,83 @@ impl<Sink, Logger> PtySessionRegistryEntry for PtySession<Sink, Logger> {
     }
 }
 
-/// Placeholder for a child process that's already being waited on by another thread.
+#[derive(Debug, Clone)]
+enum WaitedChildCompletion {
+    Exited(portable_pty::ExitStatus),
+    WaitError(String),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct WaitedChildExitState {
+    completion: Arc<Mutex<Option<WaitedChildCompletion>>>,
+}
+
+impl WaitedChildExitState {
+    pub fn record_wait_result(&self, result: io::Result<portable_pty::ExitStatus>) {
+        let completion = match result {
+            Ok(status) => WaitedChildCompletion::Exited(status),
+            Err(err) => WaitedChildCompletion::WaitError(err.to_string()),
+        };
+        if let Ok(mut state) = self.completion.lock() {
+            *state = Some(completion);
+        }
+    }
+
+    fn snapshot(&self) -> io::Result<Option<portable_pty::ExitStatus>> {
+        let state = self
+            .completion
+            .lock()
+            .map_err(|_| io::Error::other("waited child completion lock poisoned"))?;
+        match state.as_ref() {
+            Some(WaitedChildCompletion::Exited(status)) => Ok(Some(status.clone())),
+            Some(WaitedChildCompletion::WaitError(err)) => Err(io::Error::other(err.clone())),
+            None => Ok(None),
+        }
+    }
+}
+
+/// Child handle for a process whose real `wait()` runs on another thread.
 #[derive(Debug)]
-pub struct WaitedChild;
+pub struct WaitedChild {
+    killer: Arc<Mutex<Box<dyn portable_pty::ChildKiller + Send + Sync>>>,
+    exit_state: WaitedChildExitState,
+}
+
+impl WaitedChild {
+    pub fn new(killer: Box<dyn portable_pty::ChildKiller + Send + Sync>) -> Self {
+        Self { killer: Arc::new(Mutex::new(killer)), exit_state: WaitedChildExitState::default() }
+    }
+
+    pub fn exit_state(&self) -> WaitedChildExitState {
+        self.exit_state.clone()
+    }
+}
 
 impl portable_pty::ChildKiller for WaitedChild {
-    fn kill(&mut self) -> std::io::Result<()> {
-        Ok(())
+    fn kill(&mut self) -> io::Result<()> {
+        self.killer
+            .lock()
+            .map_err(|_| io::Error::other("waited child killer lock poisoned"))?
+            .kill()
     }
 
     fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
-        Box::new(WaitedChild)
+        Box::new(Self {
+            killer: Arc::clone(&self.killer),
+            exit_state: self.exit_state.clone(),
+        })
     }
 }
 
 impl portable_pty::Child for WaitedChild {
-    fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
-        Ok(None)
+    fn try_wait(&mut self) -> io::Result<Option<portable_pty::ExitStatus>> {
+        self.exit_state.snapshot()
     }
 
-    fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
-        Err(std::io::Error::other("child already waited"))
+    fn wait(&mut self) -> io::Result<portable_pty::ExitStatus> {
+        self.exit_state
+            .snapshot()?
+            .ok_or_else(|| io::Error::other("child wait is owned by another thread"))
     }
 
     fn process_id(&self) -> Option<u32> {
@@ -237,6 +293,8 @@ pub enum PtyError {
 mod tests {
     use super::*;
     use crate::pty_output::PTY_BACKLOG_LIMIT_BYTES;
+    use portable_pty::{Child, ChildKiller};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[derive(Default)]
     struct TestLogger {
@@ -302,5 +360,37 @@ mod tests {
             *received.lock().unwrap(),
             vec![vec![2; PTY_BACKLOG_LIMIT_BYTES / 2], vec![3; PTY_BACKLOG_LIMIT_BYTES / 2]]
         );
+    }
+
+    #[derive(Debug)]
+    struct TestKiller {
+        kills: Arc<AtomicUsize>,
+    }
+
+    impl ChildKiller for TestKiller {
+        fn kill(&mut self) -> io::Result<()> {
+            self.kills.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
+            Box::new(Self { kills: Arc::clone(&self.kills) })
+        }
+    }
+
+    #[test]
+    fn waited_child_delegates_kill_and_reports_recorded_exit() {
+        let kills = Arc::new(AtomicUsize::new(0));
+        let mut child = WaitedChild::new(Box::new(TestKiller { kills: Arc::clone(&kills) }));
+        let exit_state = child.exit_state();
+
+        assert!(child.try_wait().unwrap().is_none());
+        child.kill().unwrap();
+        assert_eq!(kills.load(Ordering::SeqCst), 1);
+
+        exit_state.record_wait_result(Ok(portable_pty::ExitStatus::with_exit_code(7)));
+
+        assert_eq!(child.try_wait().unwrap().unwrap().exit_code(), 7);
+        assert_eq!(child.wait().unwrap().exit_code(), 7);
     }
 }

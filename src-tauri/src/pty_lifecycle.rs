@@ -176,8 +176,8 @@ fn execute_effects(ctx: &LifecycleHandlerContext, effects: PtyLifecycleEffects) 
 fn unix_now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub(crate) fn handle_command(pty_manager: &crate::pty::PtyManager, command: PtyLifecycleCommand) {

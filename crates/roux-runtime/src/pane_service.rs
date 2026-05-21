@@ -126,7 +126,11 @@ impl PaneHandle {
         reply_rx.await.map_err(|_| ServiceError)
     }
 
-    /// Return all panes whose id starts with `{session_id}-`.
+    /// Return all panes belonging to `session_id`.
+    ///
+    /// `list_by_session` prefers the explicit `PaneRecord::session_id`
+    /// field when present, and falls back to the legacy `{session_id}-`
+    /// id-prefix heuristic for older records that predate that field.
     pub async fn list_by_session(
         &self,
         session_id: &str,

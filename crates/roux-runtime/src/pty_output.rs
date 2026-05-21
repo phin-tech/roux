@@ -30,6 +30,18 @@ impl PtyOutputBacklog {
         }
     }
 
+    pub fn buffer_front(&mut self, bytes: Vec<u8>) {
+        self.bytes += bytes.len();
+        self.chunks.push_front(bytes);
+        while self.bytes > self.limit_bytes {
+            let Some(removed) = self.chunks.pop_back() else {
+                self.bytes = 0;
+                break;
+            };
+            self.bytes = self.bytes.saturating_sub(removed.len());
+        }
+    }
+
     pub fn pop_front(&mut self) -> Option<Vec<u8>> {
         let bytes = self.chunks.pop_front()?;
         self.bytes = self.bytes.saturating_sub(bytes.len());
@@ -101,7 +113,7 @@ impl PtyOutputDeliveryState {
 
     pub fn delivery_failed(&mut self, delivery: PtyOutputDelivery) {
         self.attached = false;
-        self.backlog.buffer(delivery.bytes);
+        self.backlog.buffer_front(delivery.bytes);
     }
 
     fn next_backlog_delivery(&mut self) -> Option<PtyOutputDelivery> {
@@ -356,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn delivery_state_rebuffers_failed_backlog_delivery_after_remaining_backlog() {
+    fn delivery_state_rebuffers_failed_backlog_delivery_before_remaining_backlog() {
         let mut state = PtyOutputDeliveryState::default();
         assert_eq!(state.send(vec![1]), None);
         assert_eq!(state.send(vec![2]), None);
@@ -372,10 +384,10 @@ mod tests {
             bytes: vec![2],
         });
 
-        let next = state.attach().expect("remaining backlog delivery");
-        assert_eq!(next.bytes, vec![3]);
-        let retry = state.delivery_succeeded(next.kind).expect("failed chunk retry");
+        let retry = state.attach().expect("failed chunk retry");
         assert_eq!(retry.bytes, vec![2]);
+        let next = state.delivery_succeeded(retry.kind).expect("remaining backlog delivery");
+        assert_eq!(next.bytes, vec![3]);
     }
 
     #[test]

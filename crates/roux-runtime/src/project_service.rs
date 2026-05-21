@@ -154,7 +154,9 @@ async fn service_loop(
                     }
                     Some(ProjectMsg::Shutdown { reply }) => {
                         if dirty {
-                            write_to_path(&projects, &persist_path);
+                            if let Err(err) = write_to_path(&projects, &persist_path) {
+                                eprintln!("project service: persist on shutdown failed: {err}");
+                            }
                         }
                         let _ = reply.send(());
                         break;
@@ -166,23 +168,31 @@ async fn service_loop(
                 if dirty {
                     let snapshot = projects.clone();
                     let path = persist_path.clone();
-                    let _ = tokio::task::spawn_blocking(move || {
-                        write_to_path(&snapshot, &path);
-                    }).await;
-                    dirty = false;
+                    match tokio::task::spawn_blocking(move || write_to_path(&snapshot, &path)).await {
+                        Ok(Ok(())) => {
+                            dirty = false;
+                        }
+                        Ok(Err(err)) => {
+                            eprintln!("project service: persist failed: {err}");
+                        }
+                        Err(err) => {
+                            eprintln!("project service: persist task failed: {err}");
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-fn write_to_path(projects: &[Project], path: &std::path::Path) {
+fn write_to_path(projects: &[Project], path: &std::path::Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("create {}: {err}", parent.display()))?;
     }
-    if let Ok(json) = serde_json::to_string_pretty(projects) {
-        let _ = std::fs::write(path, json);
-    }
+    let json = serde_json::to_string_pretty(projects)
+        .map_err(|err| format!("serialize projects: {err}"))?;
+    std::fs::write(path, json).map_err(|err| format!("write {}: {err}", path.display()))
 }
 
 pub fn load_persisted_from(path: &std::path::Path) -> Vec<Project> {
