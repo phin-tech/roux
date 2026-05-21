@@ -447,7 +447,7 @@ fn handle_notes_vault_root(app: &tauri::AppHandle) -> Response {
 
 async fn handle_session_list(_req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
-    match state.session_handle.list().await {
+    match state.runtime.session_handle.list().await {
         Ok(sessions) => match serde_json::to_value(&sessions) {
             Ok(v) => Response::success(v),
             Err(e) => Response::err(format!("failed to serialize sessions: {}", e)),
@@ -462,7 +462,7 @@ async fn handle_session_poll(req: Request, app: &tauri::AppHandle) -> Response {
         None => return Response::err("session_id required"),
     };
     let state: tauri::State<AppState> = app.state();
-    match state.session_handle.get(session_id).await {
+    match state.runtime.session_handle.get(session_id).await {
         Ok(Some(s)) => match serde_json::to_value(&s) {
             Ok(v) => Response::success(v),
             Err(e) => Response::err(format!("failed to serialize session: {}", e)),
@@ -487,7 +487,7 @@ async fn handle_session_rename(req: Request, app: &tauri::AppHandle) -> Response
         if raw.trim().is_empty() { None } else { Some(raw.trim().to_string()) };
 
     let state: tauri::State<AppState> = app.state();
-    if let Err(e) = state.session_handle.set_name_override(&session_id, name_override.clone()).await
+    if let Err(e) = state.runtime.session_handle.set_name_override(&session_id, name_override.clone()).await
     {
         return Response::err(format!("{}", e));
     }
@@ -606,7 +606,7 @@ async fn handle_session_panes_list(req: Request, app: &tauri::AppHandle) -> Resp
     // for CLI scripts ("session not found" beats a misleading empty list).
     {
         let state: tauri::State<AppState> = app.state();
-        match state.session_handle.get(&session_id).await {
+        match state.runtime.session_handle.get(&session_id).await {
             Ok(Some(_)) => {}
             Ok(None) => return Response::err("session not found"),
             Err(e) => return Response::err(format!("{}", e)),
@@ -636,7 +636,7 @@ async fn handle_session_panes_create(req: Request, app: &tauri::AppHandle) -> Re
     // Verify session exists before round-tripping to the frontend.
     {
         let state: tauri::State<AppState> = app.state();
-        match state.session_handle.get(&session_id).await {
+        match state.runtime.session_handle.get(&session_id).await {
             Ok(Some(_)) => {}
             Ok(None) => return Response::err("session not found"),
             Err(e) => return Response::err(format!("{}", e)),
@@ -757,7 +757,7 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     let state: tauri::State<AppState> = app.state();
-    let handle = state.session_handle.clone();
+    let handle = state.runtime.session_handle.clone();
 
     let sessions = match handle.list().await {
         Ok(s) => s,
@@ -784,8 +784,8 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
 
     let session = match svc::create_session_shell(
         &state.pty_manager,
-        &state.session_handle,
-        &state.project_handle,
+        &state.runtime.session_handle,
+        &state.runtime.project_handle,
         &settings,
         &path,
         &name,
@@ -850,7 +850,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     use crate::services::sessions::{self as svc, SessionTarget};
 
     let state: tauri::State<AppState> = app.state();
-    let handle = state.session_handle.clone();
+    let handle = state.runtime.session_handle.clone();
 
     let name = req.args.get("name").and_then(|n| n.as_str()).unwrap_or("New Session").to_string();
     let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
@@ -931,8 +931,8 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
 
     let session = match svc::create_session_shell(
         &state.pty_manager,
-        &state.session_handle,
-        &state.project_handle,
+        &state.runtime.session_handle,
+        &state.runtime.project_handle,
         &settings,
         &repo_path,
         &name,
@@ -983,7 +983,7 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     let state: tauri::State<AppState> = app.state();
-    let handle = state.session_handle.clone();
+    let handle = state.runtime.session_handle.clone();
 
     let working_dir_arg =
         req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
@@ -1086,7 +1086,7 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
     };
 
     let state: tauri::State<AppState> = app.state();
-    let handle = state.session_handle.clone();
+    let handle = state.runtime.session_handle.clone();
 
     let working_dir_arg =
         req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
@@ -1319,8 +1319,8 @@ async fn handle_latest_output(req: Request, app: &tauri::AppHandle) -> Response 
     let state: tauri::State<AppState> = app.state();
     let max_bytes = latest_output_max_bytes(&req.args);
     let pty_id = match resolve_latest_output_pty_id(
-        &state.pane_handle,
-        &state.session_handle,
+        &state.runtime.pane_handle,
+        &state.runtime.session_handle,
         req.session_id.as_deref(),
         req.pane_id.as_deref(),
     )
@@ -1403,7 +1403,7 @@ async fn prepare_send(
 
 async fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
-    let (pty_id, bytes) = match prepare_send(&state.pane_handle, &state.session_handle, &req).await
+    let (pty_id, bytes) = match prepare_send(&state.runtime.pane_handle, &state.runtime.session_handle, &req).await
     {
         Ok(pair) => pair,
         Err(e) => return Response::err(e),
@@ -1457,7 +1457,7 @@ async fn handle_notify(req: Request, app: &tauri::AppHandle) -> Response {
     let session_id = if let Some(sid) = payload.get("sessionId").and_then(|s| s.as_str()) {
         Some(sid.to_string())
     } else if let Some(cwd) = req.args.get("cwd").and_then(|c| c.as_str()) {
-        match state.session_handle.list().await {
+        match state.runtime.session_handle.list().await {
             Ok(sessions) => sessions
                 .into_iter()
                 .find(|s| s.worktree_path == cwd || s.repo_root == cwd)

@@ -128,7 +128,7 @@ pub(crate) async fn spawn_shell(
     // the session genuinely doesn't exist yet, e.g. CLI bridge spawning
     // ahead of session creation — falls through with no binding.
     let session_record = match session_id.as_deref() {
-        Some(sid) => state.session_handle.get(sid).await.map_err(|e| e.to_string())?,
+        Some(sid) => state.runtime.session_handle.get(sid).await.map_err(|e| e.to_string())?,
         None => None,
     };
     let smol_name = session_record.as_ref().and_then(|s| s.smol_machine_name.clone());
@@ -212,7 +212,7 @@ pub(crate) async fn spawn_task(
     // in services::sessions). See `commands/sessions.rs::spawn_shell`
     // and `socket.rs::handle_run` for the matching wraps.
     let session_record = match session_id.as_deref() {
-        Some(sid) => state.session_handle.get(sid).await.map_err(|e| e.to_string())?,
+        Some(sid) => state.runtime.session_handle.get(sid).await.map_err(|e| e.to_string())?,
         None => None,
     };
     let smol_name = session_record.as_ref().and_then(|s| s.smol_machine_name.clone());
@@ -291,7 +291,7 @@ pub(crate) async fn archive_session_with_hooks(
     state: &AppState,
     id: &str,
 ) -> Result<(), String> {
-    let session = state.session_handle.get(id).await.map_err(|e| e.to_string())?;
+    let session = state.runtime.session_handle.get(id).await.map_err(|e| e.to_string())?;
     if let Some(session) = session.as_ref() {
         let context = crate::automation_hooks::HookContext {
             repo_path: Some(session.repo_root.clone()),
@@ -311,7 +311,7 @@ pub(crate) async fn archive_session_with_hooks(
             .await
             .map_err(|e| e.to_string())?;
     }
-    svc::kill_session(&state.pty_manager, &state.session_handle, id)
+    svc::kill_session(&state.pty_manager, &state.runtime.session_handle, id)
         .await
         .map_err(|e| e.to_string())?;
     // Stop session-scoped recurring watches (e.g. PR pollers) so they
@@ -356,7 +356,7 @@ pub(crate) async fn restore_session(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    svc::restore_session(&state.session_handle, &id).await.map_err(|e| e.to_string())
+    svc::restore_session(&state.runtime.session_handle, &id).await.map_err(|e| e.to_string())
 }
 
 /// Permanently delete a session record. Irreversible. Does not touch the
@@ -368,7 +368,7 @@ pub(crate) async fn delete_session_permanently(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    svc::delete_session_permanently(&state.pty_manager, &state.session_handle, &id)
+    svc::delete_session_permanently(&state.pty_manager, &state.runtime.session_handle, &id)
         .await
         .map_err(|e| e.to_string())?;
     // Tear down any session-scoped watches that may still be polling
@@ -387,7 +387,7 @@ pub(crate) async fn session_worktree_exists(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
-    let session = state.session_handle.get(&id).await.map_err(|e| e.to_string())?;
+    let session = state.runtime.session_handle.get(&id).await.map_err(|e| e.to_string())?;
     Ok(session.map(|s| std::path::Path::new(&s.worktree_path).exists()).unwrap_or(false))
 }
 
@@ -417,7 +417,7 @@ pub(crate) async fn set_session_name_override(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     state
-        .session_handle
+        .runtime.session_handle
         .set_name_override(&session_id, name_override)
         .await
         .map_err(|e| e.to_string())
@@ -438,7 +438,7 @@ pub(crate) async fn set_session_pinned_pr_url(
         if t.is_empty() { None } else { Some(t.to_string()) }
     });
     state
-        .session_handle
+        .runtime.session_handle
         .set_pinned_pr_url(&session_id, normalized)
         .await
         .map_err(|e| e.to_string())
@@ -458,7 +458,7 @@ pub(crate) async fn set_session_smol_machine(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     state
-        .session_handle
+        .runtime.session_handle
         .set_smol_machine_name(&session_id, machine_name)
         .await
         .map_err(|e| e.to_string())
@@ -475,7 +475,7 @@ pub(crate) async fn refresh_session_branch(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     let session = state
-        .session_handle
+        .runtime.session_handle
         .get(&session_id)
         .await
         .map_err(|e| e.to_string())?;
@@ -493,7 +493,7 @@ pub(crate) async fn refresh_session_branch(
         return Ok(Some(session.branch));
     }
     let _ = state
-        .session_handle
+        .runtime.session_handle
         .set_branch(&session_id, current.clone())
         .await
         .map_err(|e| e.to_string())?;
@@ -545,8 +545,8 @@ pub(crate) async fn create_session_shell(
 
     svc::create_session_shell(
         &state.pty_manager,
-        &state.session_handle,
-        &state.project_handle,
+        &state.runtime.session_handle,
+        &state.runtime.project_handle,
         &settings,
         &repo_path,
         &name,
@@ -585,8 +585,8 @@ pub(crate) async fn reconnect_session_shell(
     let settings = state.settings.lock().map_err(|e| e.to_string())?.clone();
     svc::reconnect_session_shell(
         &state.pty_manager,
-        &state.session_handle,
-        &state.project_handle,
+        &state.runtime.session_handle,
+        &state.runtime.project_handle,
         &settings,
         &id,
         nono.as_ref(),
@@ -606,7 +606,7 @@ pub(crate) async fn list_sessions(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Session>, String> {
     state
-        .session_handle
+        .runtime.session_handle
         .list()
         .await
         .map(|all| all.into_iter().filter(|s| !s.archived).collect())
@@ -621,7 +621,7 @@ pub(crate) async fn list_archived_sessions(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Session>, String> {
     state
-        .session_handle
+        .runtime.session_handle
         .list()
         .await
         .map(|all| {
@@ -638,7 +638,7 @@ pub(crate) async fn refresh_session_git_status(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
-    svc::refresh_git_status(&state.session_handle, &id).await.map_err(|e| e.to_string())
+    svc::refresh_git_status(&state.runtime.session_handle, &id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -127,7 +127,7 @@ async fn active_repo_for_session(
         return Ok(None);
     };
     let session = state
-        .session_handle
+        .runtime.session_handle
         .get(id)
         .await
         .map_err(|e| format!("load session {id}: {e}"))?;

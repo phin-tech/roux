@@ -263,7 +263,7 @@ pub async fn mailbox_deliver_to_pane(
 
     // Resolve pty_id via the pane handle.
     let pane_records =
-        state.pane_handle.list_by_ids(vec![pane_id.clone()]).await.map_err(|e| e.to_string())?;
+        state.runtime.pane_handle.list_by_ids(vec![pane_id.clone()]).await.map_err(|e| e.to_string())?;
     let pane = pane_records
         .first()
         .ok_or_else(|| format!("pane '{pane_id}' not found"))?;

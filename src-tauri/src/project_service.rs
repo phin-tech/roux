@@ -2,12 +2,16 @@ use std::path::PathBuf;
 
 pub use roux_runtime::project_service::{load_persisted_from, ProjectHandle};
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn spawn(
     initial_projects: Vec<roux_core::Project>,
 ) -> (ProjectHandle, tauri::async_runtime::JoinHandle<()>) {
     spawn_with_path(initial_projects, persistence_path())
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn spawn_with_path(
     initial_projects: Vec<roux_core::Project>,
     persist_path: PathBuf,

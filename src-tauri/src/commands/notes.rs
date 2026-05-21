@@ -114,13 +114,13 @@ async fn load_session_context(
     let Some(sid) = session_id else {
         return Ok((None, None, None));
     };
-    let sessions = state.session_handle.list().await.map_err(|e| e.to_string())?;
+    let sessions = state.runtime.session_handle.list().await.map_err(|e| e.to_string())?;
     let Some(session) = sessions.into_iter().find(|s| s.id == sid) else {
         return Ok((None, None, None));
     };
     let project_name = match session.project_id.as_deref() {
         Some(pid) => {
-            let projects = state.project_handle.list().await.map_err(|e| e.to_string())?;
+            let projects = state.runtime.project_handle.list().await.map_err(|e| e.to_string())?;
             projects.into_iter().find(|p| p.id == pid).map(|p| p.name)
         }
         None => None,

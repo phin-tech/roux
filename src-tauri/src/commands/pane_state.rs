@@ -52,7 +52,7 @@ pub(crate) async fn save_live_pane_state(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let records = state
-        .pane_handle
+        .runtime.pane_handle
         .list_by_ids(pane_ids)
         .await
         .map_err(|e| e.to_string())?;

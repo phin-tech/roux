@@ -9,7 +9,7 @@ use serde_json::Value;
 pub(crate) async fn list_projects(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Project>, String> {
-    state.project_handle.list().await.map_err(|e| e.to_string())
+    state.runtime.project_handle.list().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -26,7 +26,7 @@ pub(crate) async fn create_project(
         session_blueprints: Vec::new(),
         project_prompt: String::new(),
     };
-    state.project_handle.add(project.clone()).await.map_err(|e| e.to_string())?;
+    state.runtime.project_handle.add(project.clone()).await.map_err(|e| e.to_string())?;
     Ok(project)
 }
 
@@ -36,11 +36,11 @@ pub(crate) async fn remove_project(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let removed = state.project_handle.get(&id).await.map_err(|e| e.to_string())?;
-    state.project_handle.remove(&id).await.map_err(|e| e.to_string())?;
-    if let Err(e) = state.session_handle.clear_project_refs(&id).await {
+    let removed = state.runtime.project_handle.get(&id).await.map_err(|e| e.to_string())?;
+    state.runtime.project_handle.remove(&id).await.map_err(|e| e.to_string())?;
+    if let Err(e) = state.runtime.session_handle.clear_project_refs(&id).await {
         if let Some(project) = removed {
-            let _ = state.project_handle.add(project).await;
+            let _ = state.runtime.project_handle.add(project).await;
         }
         return Err(e.to_string());
     }
@@ -54,7 +54,7 @@ pub(crate) async fn rename_project(
     name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    state.project_handle.rename(&id, &name).await.map_err(|e| e.to_string())
+    state.runtime.project_handle.rename(&id, &name).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -65,7 +65,7 @@ pub(crate) async fn update_project(
     state: tauri::State<'_, AppState>,
 ) -> Result<Project, String> {
     state
-        .project_handle
+        .runtime.project_handle
         .update(&id, patch)
         .await
         .map_err(|e| e.to_string())?
@@ -79,7 +79,7 @@ pub(crate) async fn set_session_project(
     project_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    svc::set_session_project(&state.session_handle, &session_id, project_id)
+    svc::set_session_project(&state.runtime.session_handle, &session_id, project_id)
         .await
         .map_err(|e| e.to_string())
 }

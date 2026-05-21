@@ -3,6 +3,7 @@
 //! This crate hosts stateful backend services that can be embedded by the
 //! current Tauri app and, later, by a standalone daemon.
 
+pub mod host;
 pub mod pane_service;
 pub mod process;
 pub mod project_service;
