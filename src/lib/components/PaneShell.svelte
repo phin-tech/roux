@@ -263,6 +263,17 @@
     setLogicalFocus(paneId);
   }
 
+  function handleMouseDownCapture() {
+    // xterm owns several nested DOM nodes and may stop pointer events before
+    // they bubble to the pane shell. Claim logical focus in capture phase so
+    // stdin routing follows the pane the user pressed into.
+    if (multiLineEditorOwnsPaneInput()) {
+      focusedPaneId.set(paneId);
+      return;
+    }
+    setLogicalFocus(paneId);
+  }
+
   function handleTerminalClick() {
     if (multiLineEditorOwnsPaneInput()) {
       if (getTerminalController(paneId)?.hasSelection()) return;
@@ -480,6 +491,7 @@
     data-pane-id={paneId}
     data-focused={isFocused}
     data-focus-chrome={(isFocused && hasMultipleVisiblePanes) ? "true" : undefined}
+    onmousedowncapture={handleMouseDownCapture}
     onmousedown={handleMouseDown}
     oncopy={handleCopy}
     ondragenter={handleDragEnter}
