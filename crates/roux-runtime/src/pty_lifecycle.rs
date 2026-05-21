@@ -29,7 +29,7 @@ pub enum ExitReason {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PtyMetadataCommand {
-    Detach { pty_id: String, since_ms: u64 },
+    Detach { pty_id: String },
     AttachToPane { pty_id: String, pane_id: String },
     MarkRead { pty_id: String },
     SetUnreadOutput { pty_id: String, value: bool },
@@ -69,9 +69,18 @@ pub fn apply_metadata_command(
     session_generation: u64,
     command: &PtyMetadataCommand,
 ) -> PtyMetadataCommandResult {
+    apply_metadata_command_at(metadata, session_generation, command, unix_now_ms())
+}
+
+pub fn apply_metadata_command_at(
+    metadata: &mut PtySessionMetadata,
+    session_generation: u64,
+    command: &PtyMetadataCommand,
+    now_ms: u64,
+) -> PtyMetadataCommandResult {
     match command {
-        PtyMetadataCommand::Detach { since_ms, .. } => {
-            metadata.detach(*since_ms);
+        PtyMetadataCommand::Detach { .. } => {
+            metadata.detach(now_ms);
             PtyMetadataCommandResult::Applied
         }
         PtyMetadataCommand::AttachToPane { pane_id, .. } => {
@@ -107,6 +116,13 @@ pub fn apply_metadata_command(
             PtyMetadataCommandResult::Applied
         }
     }
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 impl From<ExitReason> for roux_core::SessionExitReason {
@@ -229,35 +245,38 @@ mod tests {
         let mut metadata = metadata();
 
         assert_eq!(
-            apply_metadata_command(
+            apply_metadata_command_at(
                 &mut metadata,
                 7,
                 &PtyMetadataCommand::SetUnreadOutput {
                     pty_id: "pty-a".to_string(),
                     value: true,
                 },
+                44,
             ),
             PtyMetadataCommandResult::Applied
         );
         assert!(metadata.unread_output);
 
-        apply_metadata_command(
+        apply_metadata_command_at(
             &mut metadata,
             7,
             &PtyMetadataCommand::SetBellPending {
                 pty_id: "pty-a".to_string(),
                 value: true,
             },
+            44,
         );
         assert!(metadata.bell_pending);
 
-        apply_metadata_command(
+        apply_metadata_command_at(
             &mut metadata,
             7,
             &PtyMetadataCommand::AttachToPane {
                 pty_id: "pty-a".to_string(),
                 pane_id: "pane-b".to_string(),
             },
+            44,
         );
         assert!(matches!(
             metadata.status,
@@ -266,19 +285,21 @@ mod tests {
         assert!(!metadata.unread_output);
         assert!(!metadata.bell_pending);
 
-        apply_metadata_command(
+        apply_metadata_command_at(
             &mut metadata,
             7,
-            &PtyMetadataCommand::Detach { pty_id: "pty-a".to_string(), since_ms: 44 },
+            &PtyMetadataCommand::Detach { pty_id: "pty-a".to_string() },
+            44,
         );
         assert!(matches!(metadata.status, PtyStatus::RunningDetached { since_ms: 44 }));
 
         metadata.set_unread_output(true);
         metadata.set_bell_pending(true);
-        apply_metadata_command(
+        apply_metadata_command_at(
             &mut metadata,
             7,
             &PtyMetadataCommand::MarkRead { pty_id: "pty-a".to_string() },
+            44,
         );
         assert!(!metadata.unread_output);
         assert!(!metadata.bell_pending);
@@ -288,20 +309,22 @@ mod tests {
     fn apply_metadata_command_sets_name() {
         let mut metadata = metadata();
 
-        apply_metadata_command(
+        apply_metadata_command_at(
             &mut metadata,
             7,
             &PtyMetadataCommand::SetName {
                 pty_id: "pty-a".to_string(),
                 name: Some("build".to_string()),
             },
+            44,
         );
         assert_eq!(metadata.name.as_deref(), Some("build"));
 
-        apply_metadata_command(
+        apply_metadata_command_at(
             &mut metadata,
             7,
             &PtyMetadataCommand::SetName { pty_id: "pty-a".to_string(), name: None },
+            44,
         );
         assert_eq!(metadata.name, None);
     }
@@ -310,7 +333,7 @@ mod tests {
     fn apply_metadata_command_marks_matching_generation_exited() {
         let mut metadata = metadata();
 
-        let result = apply_metadata_command(
+        let result = apply_metadata_command_at(
             &mut metadata,
             7,
             &PtyMetadataCommand::MarkExitedIfGenerationMatches {
@@ -319,6 +342,7 @@ mod tests {
                 code: Some(2),
                 at_ms: 99,
             },
+            44,
         );
 
         assert_eq!(result, PtyMetadataCommandResult::Applied);
@@ -336,7 +360,7 @@ mod tests {
     fn apply_metadata_command_rejects_stale_exit_generation() {
         let mut metadata = metadata();
 
-        let result = apply_metadata_command(
+        let result = apply_metadata_command_at(
             &mut metadata,
             7,
             &PtyMetadataCommand::MarkExitedIfGenerationMatches {
@@ -345,6 +369,7 @@ mod tests {
                 code: Some(1),
                 at_ms: 99,
             },
+            44,
         );
 
         assert_eq!(result, PtyMetadataCommandResult::StaleGeneration);

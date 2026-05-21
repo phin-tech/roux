@@ -612,10 +612,17 @@ impl PtyManager {
         };
         let result =
             pty_lifecycle::apply_metadata_command(&mut session.metadata, session.generation, command);
-        if matches!(result, PtyMetadataCommandResult::Applied)
-            && matches!(command, PtyMetadataCommand::AttachToPane { .. })
-        {
-            session.last_activity = std::time::Instant::now();
+        if matches!(result, PtyMetadataCommandResult::Applied) {
+            match command {
+                PtyMetadataCommand::AttachToPane { pty_id, pane_id } => {
+                    session.last_activity = std::time::Instant::now();
+                    rlog!("PtyManager: attached PTY '{}' to pane '{}'", pty_id, pane_id);
+                }
+                PtyMetadataCommand::Detach { pty_id } => {
+                    rlog!("PtyManager: detached PTY '{}'", pty_id);
+                }
+                _ => {}
+            }
         }
         result
     }
@@ -1151,7 +1158,6 @@ impl PtyManager {
     pub fn detach(&self, pty_id: &str) {
         let command = PtyMetadataCommand::Detach {
             pty_id: pty_id.to_string(),
-            since_ms: unix_now_ms(),
         };
         if !self.send_lifecycle_command(crate::pty_lifecycle::PtyLifecycleCommand::Metadata(
             command.clone(),
