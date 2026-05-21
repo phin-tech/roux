@@ -67,6 +67,23 @@ describe("focus", () => {
     expect(p1.focus).toHaveBeenCalled();
   });
 
+  it("requestDomFocus updates logical focus and input routing", () => {
+    createPane({ id: "p1", type: "shell", ptyId: "pty-1" });
+    createPane({ id: "p2", type: "shell", ptyId: "pty-2" });
+    const p1 = { setInputEnabled: vi.fn(), focus: vi.fn() };
+    const p2 = { setInputEnabled: vi.fn(), focus: vi.fn() };
+    controllers.set("p1", p1);
+    controllers.set("p2", p2);
+    setLogicalFocus("p2");
+
+    requestDomFocus("p1");
+
+    expect(get(focusedPaneId)).toBe("p1");
+    expect(p1.setInputEnabled).toHaveBeenLastCalledWith(true);
+    expect(p2.setInputEnabled).toHaveBeenLastCalledWith(false);
+    expect(p1.focus).toHaveBeenCalled();
+  });
+
   it("toggleFullscreen sets and clears fullscreenPaneId", () => {
     createPane({ id: "p1", type: "shell", ptyId: "pty-1" });
     setLogicalFocus("p1");

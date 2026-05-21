@@ -6,12 +6,10 @@ use tokio::sync::oneshot;
 use roux_lib::aliases::AliasManager;
 use roux_lib::mailbox::MailboxManager;
 use roux_lib::subscriptions::SubscriptionManager;
+use roux_runtime::host::RuntimeHost;
 
 use crate::notifications::NotificationManager;
-use crate::pane_service::PaneHandle;
-use crate::project_service::ProjectHandle;
 use crate::pty::PtyManager;
-use crate::session_service::SessionHandle;
 
 /// Correlation map for socket-driven request/response round-trips with the
 /// frontend. Used by `session-panes-list` / `session-panes-create` where the
@@ -21,9 +19,7 @@ pub(crate) type PendingReplies = Mutex<HashMap<String, oneshot::Sender<serde_jso
 pub(crate) struct AppState {
     pub(crate) settings: Mutex<crate::settings::RouxSettings>,
     pub(crate) pty_manager: Arc<PtyManager>,
-    pub(crate) pane_handle: PaneHandle,
-    pub(crate) session_handle: SessionHandle,
-    pub(crate) project_handle: ProjectHandle,
+    pub(crate) runtime: RuntimeHost,
     pub(crate) watch_manager: crate::watches::WatchManager,
     pub(crate) automation_hooks: crate::automation_hooks::AutomationHookManager,
     pub(crate) notification_manager: NotificationManager,

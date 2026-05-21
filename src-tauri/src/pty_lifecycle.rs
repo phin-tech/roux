@@ -10,23 +10,11 @@
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-/// Events that can occur during a PTY's lifecycle.
-#[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)] // Variants reserved for future detach tracking
-pub enum PtyLifecycleEvent {
-    /// PTY process exited.
-    Exited {
-        pty_id: String,
-        session_id: Option<String>,
-        code: Option<u32>,
-        reason: ExitReason,
-        generation: u64,
-    },
-    /// Output arrived while PTY was detached.
-    OutputWhileDetached { pty_id: String },
-    /// Bell (BEL character) arrived while PTY was detached.
-    BellWhileDetached { pty_id: String },
-}
+pub use roux_runtime::pty_lifecycle::{ExitReason, PtyLifecycleEvent, PtyMetadataCommand};
+use roux_runtime::pty_lifecycle as runtime_lifecycle;
+use roux_runtime::pty_lifecycle::{
+    PtyLifecycleEffects, PtyMetadataCommandResult, PtyTaskHookKind,
+};
 
 pub enum PtyLifecycleCommand {
     Register {
@@ -39,20 +27,7 @@ pub enum PtyLifecycleCommand {
     KillSessionPtys {
         session_id: String,
     },
-    Detach {
-        pty_id: String,
-    },
-    AttachToPane {
-        pty_id: String,
-        pane_id: String,
-    },
-    MarkRead {
-        pty_id: String,
-    },
-    SetName {
-        pty_id: String,
-        name: Option<String>,
-    },
+    Metadata(PtyMetadataCommand),
 }
 
 pub enum PtyLifecycleMessage {
@@ -71,20 +46,7 @@ impl std::fmt::Debug for PtyLifecycleCommand {
                 .debug_struct("KillSessionPtys")
                 .field("session_id", session_id)
                 .finish(),
-            Self::Detach { pty_id } => f.debug_struct("Detach").field("pty_id", pty_id).finish(),
-            Self::AttachToPane { pty_id, pane_id } => f
-                .debug_struct("AttachToPane")
-                .field("pty_id", pty_id)
-                .field("pane_id", pane_id)
-                .finish(),
-            Self::MarkRead { pty_id } => {
-                f.debug_struct("MarkRead").field("pty_id", pty_id).finish()
-            }
-            Self::SetName { pty_id, name } => f
-                .debug_struct("SetName")
-                .field("pty_id", pty_id)
-                .field("name", name)
-                .finish(),
+            Self::Metadata(command) => f.debug_tuple("Metadata").field(command).finish(),
         }
     }
 }
@@ -98,23 +60,6 @@ impl std::fmt::Debug for PtyLifecycleMessage {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ExitReason {
-    Exit,
-    IoError,
-    Killed,
-}
-
-impl From<ExitReason> for roux_core::SessionExitReason {
-    fn from(r: ExitReason) -> Self {
-        match r {
-            ExitReason::Exit => roux_core::SessionExitReason::Exit,
-            ExitReason::IoError => roux_core::SessionExitReason::IoError,
-            ExitReason::Killed => roux_core::SessionExitReason::Killed,
-        }
-    }
-}
-
 /// Sender half of the lifecycle bus. Clone and pass to flusher threads.
 pub type LifecycleTx = mpsc::Sender<PtyLifecycleMessage>;
 
@@ -123,7 +68,7 @@ pub type LifecycleRx = mpsc::Receiver<PtyLifecycleMessage>;
 
 /// Create a new lifecycle bus channel pair.
 pub fn channel() -> (LifecycleTx, LifecycleRx) {
-    mpsc::channel()
+    roux_runtime::pty_lifecycle::channel()
 }
 
 /// Context needed by the lifecycle handler to dispatch events.
@@ -157,86 +102,82 @@ pub fn spawn_handler(ctx: LifecycleHandlerContext) -> LifecycleTx {
 }
 
 fn handle_event(ctx: &LifecycleHandlerContext, event: PtyLifecycleEvent) {
-    match event {
-        PtyLifecycleEvent::Exited {
-            pty_id,
-            session_id,
-            code,
-            reason,
-            generation,
-        } => {
-            // Drop stale exit events from a previous PTY generation before they
-            // mutate state or notify the frontend for a reused PTY id.
-            if !ctx
-                .pty_manager
-                .mark_exited_if_generation_matches_direct(&pty_id, generation, code.map(|c| c as i32))
-            {
-                rlog!(
-                    "PTY lifecycle: dropping stale exit for {} generation {}",
-                    pty_id,
-                    generation
-                );
-                return;
-            }
-            let pty_info = ctx.pty_manager.get_info_direct(&pty_id);
+    let metadata_command =
+        runtime_lifecycle::plan_lifecycle_metadata_command(&event, unix_now_ms());
+    let metadata_result = ctx.pty_manager.apply_metadata_command_direct(&metadata_command);
+    let pty_info = if matches!(metadata_result, PtyMetadataCommandResult::Applied)
+        && matches!(event, PtyLifecycleEvent::Exited { .. })
+    {
+        ctx.pty_manager.get_info_direct(metadata_command.pty_id())
+    } else {
+        None
+    };
+    let effects =
+        runtime_lifecycle::plan_lifecycle_effects(&event, metadata_result, pty_info.as_ref());
+    execute_effects(ctx, effects);
+}
 
-            // 2. Emit frontend event
-            use tauri::Emitter;
-            let event_name = format!("session-exit:{}", pty_id);
-            let _ = ctx.app.emit(
-                &event_name,
-                &roux_core::SessionExitPayload {
-                    code,
-                    generation,
-                    reason: reason.into(),
-                },
-            );
-
-            // 3. Notify agent registry if session_id present
-            if let Some(sid) = session_id {
-                let _ = ctx.agent_registry_tx.send(
-                    crate::agent_registry::RegistryMessage::SessionEnded {
-                        session_id: sid,
-                    },
-                );
-            }
-
-            if let Some(info) = pty_info {
-                if info.profile.as_deref() == Some("task") {
-                    let event = if code == Some(0) {
-                        crate::automation_hooks::HookEvent::PostTaskSuccess
-                    } else {
-                        crate::automation_hooks::HookEvent::PostTaskFailure
-                    };
-                    let context = crate::automation_hooks::HookContext {
-                        repo_path: info.working_dir.clone(),
-                        worktree_path: info.working_dir.clone(),
-                        task_id: Some(pty_id.clone()),
-                        session_id: info.session_id.clone(),
-                        scope: info.session_id.as_ref().map(|_| "session".to_string()),
-                        cwd: info.working_dir,
-                        ..crate::automation_hooks::HookContext::new(event)
-                    };
-                    ctx.automation_hooks.spawn_background(event, context);
-                }
-            }
-
-            rlog!(
-                "PTY lifecycle: {} exited (code={:?}, reason={:?})",
-                pty_id,
-                code,
-                reason
-            );
-        }
-
-        PtyLifecycleEvent::OutputWhileDetached { pty_id } => {
-            ctx.pty_manager.set_unread_output(&pty_id, true);
-        }
-
-        PtyLifecycleEvent::BellWhileDetached { pty_id } => {
-            ctx.pty_manager.set_bell_pending(&pty_id, true);
-        }
+fn execute_effects(ctx: &LifecycleHandlerContext, effects: PtyLifecycleEffects) {
+    if let Some(stale) = effects.stale_exit_log {
+        rlog!(
+            "PTY lifecycle: dropping stale exit for {} generation {}",
+            stale.pty_id,
+            stale.generation
+        );
+        return;
     }
+
+    if let Some(exit) = effects.emit_exit {
+        use tauri::Emitter;
+        let event_name = format!("session-exit:{}", exit.pty_id);
+        let _ = ctx.app.emit(
+            &event_name,
+            &roux_core::SessionExitPayload {
+                code: exit.code,
+                generation: exit.generation,
+                reason: exit.reason.into(),
+            },
+        );
+    }
+
+    if let Some(session_id) = effects.registry_session_ended {
+        let _ = ctx
+            .agent_registry_tx
+            .send(crate::agent_registry::RegistryMessage::SessionEnded { session_id });
+    }
+
+    if let Some(intent) = effects.task_hook {
+        let event = match intent.kind {
+            PtyTaskHookKind::PostTaskSuccess => crate::automation_hooks::HookEvent::PostTaskSuccess,
+            PtyTaskHookKind::PostTaskFailure => crate::automation_hooks::HookEvent::PostTaskFailure,
+        };
+        let context = crate::automation_hooks::HookContext {
+            repo_path: intent.repo_path,
+            worktree_path: intent.worktree_path,
+            task_id: Some(intent.task_id),
+            session_id: intent.session_id,
+            scope: intent.scope,
+            cwd: intent.cwd,
+            ..crate::automation_hooks::HookContext::new(event)
+        };
+        ctx.automation_hooks.spawn_background(event, context);
+    }
+
+    if let Some(exit) = effects.exit_log {
+        rlog!(
+            "PTY lifecycle: {} exited (code={:?}, reason={:?})",
+            exit.pty_id,
+            exit.code,
+            exit.reason
+        );
+    }
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub(crate) fn handle_command(pty_manager: &crate::pty::PtyManager, command: PtyLifecycleCommand) {
@@ -250,17 +191,8 @@ pub(crate) fn handle_command(pty_manager: &crate::pty::PtyManager, command: PtyL
         PtyLifecycleCommand::KillSessionPtys { session_id } => {
             pty_manager.kill_session_ptys_direct(&session_id);
         }
-        PtyLifecycleCommand::Detach { pty_id } => {
-            pty_manager.detach_direct(&pty_id);
-        }
-        PtyLifecycleCommand::AttachToPane { pty_id, pane_id } => {
-            pty_manager.attach_to_pane_direct(&pty_id, &pane_id);
-        }
-        PtyLifecycleCommand::MarkRead { pty_id } => {
-            pty_manager.mark_read_direct(&pty_id);
-        }
-        PtyLifecycleCommand::SetName { pty_id, name } => {
-            pty_manager.set_name_direct(&pty_id, name.as_deref());
+        PtyLifecycleCommand::Metadata(command) => {
+            pty_manager.apply_metadata_command_direct(&command);
         }
     }
 }
@@ -268,22 +200,6 @@ pub(crate) fn handle_command(pty_manager: &crate::pty::PtyManager, command: PtyL
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn exit_reason_converts_to_core_type() {
-        assert_eq!(
-            roux_core::SessionExitReason::from(ExitReason::Exit),
-            roux_core::SessionExitReason::Exit
-        );
-        assert_eq!(
-            roux_core::SessionExitReason::from(ExitReason::IoError),
-            roux_core::SessionExitReason::IoError
-        );
-        assert_eq!(
-            roux_core::SessionExitReason::from(ExitReason::Killed),
-            roux_core::SessionExitReason::Killed
-        );
-    }
 
     #[test]
     fn channel_can_send_and_receive_events() {

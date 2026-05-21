@@ -58,7 +58,7 @@ impl NotificationSink for NotificationManagerSink {
             // (cwd-only) hooks still produce a meaningful subtitle.
             // cwd matching is ambiguous when two sessions share a
             // worktree, so the id path is strictly better when present.
-            let matched = match state.session_handle.list().await {
+            let matched = match state.runtime.session_handle.list().await {
                 Ok(sessions) => {
                     let by_id = context
                         .roux_session_id

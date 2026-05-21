@@ -100,7 +100,7 @@ pub fn refresh() {
 async fn do_refresh(app: &AppHandle) {
     let sessions = {
         let state = app.state::<AppState>();
-        match state.session_handle.list().await {
+        match state.runtime.session_handle.list().await {
             Ok(list) => list,
             Err(e) => {
                 rlog!("tray: list_sessions failed: {e}");

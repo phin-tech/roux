@@ -27,7 +27,7 @@ export function setLogicalFocus(paneId: string | null) {
  * Only call from pointer event handlers (mousedown, click).
  */
 export function requestDomFocus(paneId: string) {
-  getTerminalController(paneId)?.focus();
+  setLogicalFocus(paneId);
 }
 
 /** Toggle fullscreen for the focused pane. */

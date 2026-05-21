@@ -71,10 +71,14 @@ fn main() {
 
     let persisted_projects = project_service::load_persisted();
     let persisted_sessions = session::load_persisted_sessions(&persisted_projects);
-    let (session_handle, _session_join) = session_service::spawn(persisted_sessions);
-    let (pane_handle, _pane_join) = pane_service::spawn();
-
-    let (project_handle, _project_join) = project_service::spawn(persisted_projects);
+    let runtime_services = roux_runtime::host::RuntimeHostConfig {
+        initial_sessions: persisted_sessions,
+        session_persist_path: session::persistence_path(),
+        initial_projects: persisted_projects,
+        project_persist_path: paths::roux_config_dir().join("projects.json"),
+    }
+    .build();
+    let (runtime, _runtime_joins) = runtime_services.spawn_with(tauri::async_runtime::spawn);
 
     #[cfg(debug_assertions)]
     let builder = Builder::<tauri::Wry>::new().commands(collect_commands![
@@ -247,9 +251,7 @@ fn main() {
         .manage(AppState {
             settings: Mutex::new(initial_settings),
             pty_manager: std::sync::Arc::new(PtyManager::new()),
-            pane_handle,
-            session_handle,
-            project_handle,
+            runtime,
             watch_manager: watches::WatchManager::new(watch_store_handle),
             automation_hooks: automation_hooks::AutomationHookManager::new(),
             notification_manager: notifications::NotificationManager::new(),
@@ -560,8 +562,8 @@ fn main() {
             // Clean up orphaned watches and start active ones
             {
                 let state = app.state::<AppState>();
-                let session_handle = state.session_handle.clone();
-                let project_handle = state.project_handle.clone();
+                let session_handle = state.runtime.session_handle.clone();
+                let project_handle = state.runtime.project_handle.clone();
                 let app_handle = app.handle().clone();
                 let watch_mgr = state.watch_manager.clone();
                 tauri::async_runtime::spawn(async move {
@@ -638,7 +640,7 @@ async fn run_notes_migration(app: tauri::AppHandle) {
         return;
     }
 
-    let projects = match state.project_handle.list().await {
+    let projects = match state.runtime.project_handle.list().await {
         Ok(ps) => ps,
         Err(e) => {
             rlog!("notes migration: project list failed: {e}");

@@ -34,7 +34,7 @@ pub(crate) async fn upsert_pane_record(
     // doesn't need a second round-trip through the pane service to
     // recover what we already had.
     let pty_id = record.pty_id.clone();
-    state.pane_handle.upsert(record).await.map_err(|e| e.to_string())?;
+    state.runtime.pane_handle.upsert(record).await.map_err(|e| e.to_string())?;
 
     // Try to auto-claim an alias from the pane's name. No-op if the
     // name doesn't match the alias format (capitals, spaces, reserved)
@@ -48,7 +48,7 @@ pub(crate) async fn upsert_pane_record(
     // scope.
     let pty_manager = state.pty_manager.clone();
     let project_id = pty_project_scope(
-        &state.session_handle,
+        &state.runtime.session_handle,
         move |pty| pty_manager.get_info_direct(pty).and_then(|info| info.session_id),
         &pty_id,
     )
@@ -69,7 +69,7 @@ pub(crate) async fn remove_pane_record(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    state.pane_handle.remove(&id).await.map_err(|e| e.to_string())?;
+    state.runtime.pane_handle.remove(&id).await.map_err(|e| e.to_string())?;
 
     // Release auto-claimed aliases held by this pane. Manual `roux alias
     // claim` bindings persist — queued mail addressed to them survives
