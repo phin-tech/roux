@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::time::Duration;
 
 use roux_core::{Project, Session};
+use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 
 use crate::platform;
 
@@ -16,10 +17,14 @@ pub(crate) struct DaemonStatus {
     pub(crate) kind: String,
     pub(crate) pid: u32,
     pub(crate) socket: String,
+    #[serde(default)]
+    pub(crate) log_path: Option<String>,
     pub(crate) started_at_ms: u64,
     pub(crate) uptime_ms: u64,
     pub(crate) session_count: usize,
     pub(crate) project_count: usize,
+    #[serde(default)]
+    pub(crate) process_count: usize,
     pub(crate) capabilities: Vec<String>,
 }
 
@@ -69,6 +74,69 @@ impl DaemonClient {
         .await?;
         Ok(())
     }
+
+    pub(crate) async fn start_daemon_process(
+        &self,
+        command: String,
+        working_dir: Option<String>,
+    ) -> Result<ProcessRecord, String> {
+        let value = send_command_async(daemon_process_start_request(command, working_dir)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon process start: {err}"))
+    }
+
+    pub(crate) async fn daemon_process_output(
+        &self,
+        id: String,
+        max_bytes: Option<usize>,
+    ) -> Result<ProcessSnapshot, String> {
+        let value = send_command_async(daemon_process_output_request(id, max_bytes)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon process output: {err}"))
+    }
+
+    pub(crate) async fn list_daemon_processes(&self) -> Result<Vec<ProcessRecord>, String> {
+        let value = send_command_async(daemon_process_list_request()).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon process list: {err}"))
+    }
+
+    pub(crate) async fn kill_daemon_process(&self, id: String) -> Result<ProcessRecord, String> {
+        let value = send_command_async(daemon_process_kill_request(id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon process kill: {err}"))
+    }
+}
+
+fn daemon_process_start_request(command: String, working_dir: Option<String>) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("command".to_string(), Value::String(command));
+    if let Some(working_dir) = working_dir {
+        args.insert("workingDir".to_string(), Value::String(working_dir));
+    }
+    serde_json::json!({
+        "command": "daemon-process-start",
+        "args": args,
+    })
+}
+
+fn daemon_process_output_request(id: String, max_bytes: Option<usize>) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".to_string(), Value::String(id));
+    if let Some(max_bytes) = max_bytes {
+        args.insert("maxBytes".to_string(), serde_json::json!(max_bytes));
+    }
+    serde_json::json!({
+        "command": "daemon-process-output",
+        "args": args,
+    })
+}
+
+fn daemon_process_list_request() -> Value {
+    serde_json::json!({ "command": "daemon-process-list" })
+}
+
+fn daemon_process_kill_request(id: String) -> Value {
+    serde_json::json!({
+        "command": "daemon-process-kill",
+        "args": { "id": id },
+    })
 }
 
 async fn send_command_async(request: Value) -> Result<Value, String> {
@@ -176,5 +244,33 @@ mod tests {
     fn decode_response_returns_error_message() {
         let err = decode_response(r#"{"ok":false,"error":"nope"}"#).unwrap_err();
         assert_eq!(err, "nope");
+    }
+
+    #[test]
+    fn daemon_process_start_request_uses_daemon_command_shape() {
+        let request =
+            daemon_process_start_request("printf hi".to_string(), Some("/tmp".to_string()));
+
+        assert_eq!(request["command"], "daemon-process-start");
+        assert_eq!(request["args"]["command"], "printf hi");
+        assert_eq!(request["args"]["workingDir"], "/tmp");
+    }
+
+    #[test]
+    fn daemon_process_output_request_uses_max_bytes() {
+        let request = daemon_process_output_request("daemon-process-1".to_string(), Some(42));
+
+        assert_eq!(request["command"], "daemon-process-output");
+        assert_eq!(request["args"]["id"], "daemon-process-1");
+        assert_eq!(request["args"]["maxBytes"], 42);
+    }
+
+    #[test]
+    fn daemon_process_list_and_kill_requests_use_daemon_commands() {
+        assert_eq!(daemon_process_list_request()["command"], "daemon-process-list");
+
+        let kill = daemon_process_kill_request("daemon-process-1".to_string());
+        assert_eq!(kill["command"], "daemon-process-kill");
+        assert_eq!(kill["args"]["id"], "daemon-process-1");
     }
 }

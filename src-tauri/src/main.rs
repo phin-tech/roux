@@ -281,6 +281,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::misc::get_log_path,
             commands::misc::frontend_log,
+            commands::daemon::daemon_process_start,
+            commands::daemon::daemon_process_output,
+            commands::daemon::daemon_process_list,
+            commands::daemon::daemon_process_kill,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::mcp::cmd_mcp_status,

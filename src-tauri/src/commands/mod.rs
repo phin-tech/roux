@@ -1,4 +1,5 @@
 pub(crate) mod aliases;
+pub(crate) mod daemon;
 pub(crate) mod docs;
 pub(crate) mod layouts;
 pub(crate) mod mailbox;
