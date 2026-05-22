@@ -30,7 +30,9 @@ pub async fn run() -> Result<(), String> {
     drop(host);
 
     for join in joins {
-        let _ = join.await;
+        if let Err(err) = join.await {
+            return Err(format!("daemon task join failed: {err}"));
+        }
     }
 
     Ok(())

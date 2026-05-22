@@ -34,7 +34,7 @@ This covers ~90% of the use case, but power users running long sessions want tru
 
 A minimal `roux daemon` process that owns PTY sessions and relays bytes to connected clients (the Tauri GUI or a CLI attach command).
 
-```
+```text
 roux daemon                  ← background process, owns all PTYs
   ├── PTY: claude (session 1)
   ├── PTY: claude (session 2)

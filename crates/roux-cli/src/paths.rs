@@ -21,8 +21,16 @@ use std::path::{Path, PathBuf};
 /// Callers append their own subpath, e.g. `roux_config_dir().join("settings.json")`
 /// or `roux_config_dir().join("logs").join("roux.log")`.
 pub fn roux_config_dir() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let home = home_dir_or_temp();
     home.join(".config").join("roux")
+}
+
+fn home_dir_or_temp() -> PathBuf {
+    home_dir_or_temp_from(dirs::home_dir().or_else(|| std::env::var_os("HOME").map(PathBuf::from)))
+}
+
+fn home_dir_or_temp_from(home: Option<PathBuf>) -> PathBuf {
+    home.filter(|path| path.is_absolute()).unwrap_or_else(std::env::temp_dir)
 }
 
 /// Legacy config directory, if it differs from the current one.
@@ -145,6 +153,11 @@ mod tests {
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect();
         assert_eq!(tail, vec!["roux".to_string(), ".config".to_string()]);
+    }
+
+    #[test]
+    fn home_dir_fallback_is_absolute() {
+        assert!(home_dir_or_temp_from(Some(std::path::PathBuf::from("."))).is_absolute());
     }
 
     #[test]

@@ -449,13 +449,19 @@ pub fn load_persisted_from(
 
     let content = std::fs::read_to_string(path).unwrap_or_default();
     let mut sessions: Vec<Session> = serde_json::from_str(&content).unwrap_or_default();
+    let mut changed = false;
     for session in &mut sessions {
-        if !session.archived {
+        if !session.archived && session.status != roux_core::SessionStatus::Disconnected {
             session.status = roux_core::SessionStatus::Disconnected;
+            changed = true;
         }
     }
 
     if clear_stale_project_refs(&mut sessions, projects) {
+        changed = true;
+    }
+
+    if changed {
         write_to_path(&sessions, path);
     }
 
@@ -684,6 +690,21 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         let persisted: Vec<Session> = serde_json::from_str(&content).unwrap();
         assert_eq!(persisted[0].status, roux_core::SessionStatus::Generating);
+    }
+
+    #[test]
+    fn load_persisted_persists_status_normalization() {
+        let (_dir, path) = temp_persist_path();
+        let mut session = make_session("s1");
+        session.status = roux_core::SessionStatus::Generating;
+        std::fs::write(&path, serde_json::to_string_pretty(&vec![session]).unwrap()).unwrap();
+
+        let loaded = load_persisted_from(&path, &[]);
+        assert_eq!(loaded[0].status, roux_core::SessionStatus::Disconnected);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let persisted: Vec<Session> = serde_json::from_str(&content).unwrap();
+        assert_eq!(persisted[0].status, roux_core::SessionStatus::Disconnected);
     }
 
     #[tokio::test]

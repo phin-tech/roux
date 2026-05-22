@@ -182,7 +182,26 @@ pub fn find_executable_in_paths<P: AsRef<std::ffi::OsStr>>(
 
     std::env::split_paths(&paths)
         .flat_map(|dir| candidates.iter().map(move |candidate| dir.join(candidate)))
-        .find(|path| path.is_file())
+        .find(|path| is_executable_file(path))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 #[cfg(test)]
@@ -237,5 +256,25 @@ mod tests {
     fn windows_command_candidates_include_executable_extensions() {
         let candidates = windows_command_candidates("gh");
         assert!(candidates.iter().any(|candidate| candidate.eq_ignore_ascii_case("gh.exe")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn find_executable_in_paths_skips_non_executable_files() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let candidate = dir.path().join("roux");
+        fs::write(&candidate, "").unwrap();
+        let paths = std::env::join_paths([dir.path()]).unwrap();
+
+        assert_eq!(find_executable_in_paths(&paths, "roux"), None);
+
+        let mut permissions = fs::metadata(&candidate).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&candidate, permissions).unwrap();
+
+        assert_eq!(find_executable_in_paths(&paths, "roux"), Some(candidate));
     }
 }
