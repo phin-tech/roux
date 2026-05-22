@@ -4005,11 +4005,13 @@ dependencies = [
  "rmcp",
  "roux-core",
  "roux-runtime",
+ "roux-worktrunk",
  "schemars 1.2.1",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

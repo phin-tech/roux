@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter};
 use roux_core::{Project, Session, SessionExitPayload, SessionExitReason};
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
+use roux_runtime::terminal_env::NotesEnvInputs;
 
 use crate::platform;
 
@@ -40,6 +41,23 @@ pub(crate) struct DaemonStatus {
 #[derive(Debug, Clone)]
 pub(crate) struct DaemonClient {
     status: DaemonStatus,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DaemonCreateSessionShellRequest {
+    pub(crate) id: String,
+    pub(crate) repo_path: String,
+    pub(crate) name: String,
+    pub(crate) worktree_path: Option<String>,
+    pub(crate) branch: Option<String>,
+    pub(crate) base: Option<String>,
+    pub(crate) fetch_first: bool,
+    pub(crate) profile: Option<String>,
+    pub(crate) initial_size: Option<(u16, u16)>,
+    pub(crate) project_id: Option<String>,
+    pub(crate) blueprint_id: Option<String>,
+    pub(crate) smol_machine_name: Option<String>,
+    pub(crate) notes: Option<NotesEnvInputs>,
 }
 
 impl DaemonClient {
@@ -120,6 +138,15 @@ impl DaemonClient {
         }))
         .await?;
         Ok(())
+    }
+
+    pub(crate) async fn create_session_shell(
+        &self,
+        request: DaemonCreateSessionShellRequest,
+    ) -> Result<Session, String> {
+        let value = send_command_async(daemon_session_create_shell_request(request)).await?;
+        serde_json::from_value(value)
+            .map_err(|err| format!("decode daemon session-create-shell: {err}"))
     }
 
     pub(crate) async fn start_daemon_process(
@@ -372,6 +399,57 @@ fn daemon_process_start_request(command: String, working_dir: Option<String>) ->
     }
     serde_json::json!({
         "command": "daemon-process-start",
+        "args": args,
+    })
+}
+
+fn daemon_session_create_shell_request(request: DaemonCreateSessionShellRequest) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".to_string(), Value::String(request.id));
+    args.insert("repoPath".to_string(), Value::String(request.repo_path));
+    args.insert("name".to_string(), Value::String(request.name));
+    if let Some(worktree_path) = request.worktree_path {
+        args.insert("worktreePath".to_string(), Value::String(worktree_path));
+    }
+    if let Some(branch) = request.branch {
+        args.insert("branch".to_string(), Value::String(branch));
+    }
+    if let Some(base) = request.base {
+        args.insert("base".to_string(), Value::String(base));
+    }
+    if request.fetch_first {
+        args.insert("fetchFirst".to_string(), Value::Bool(true));
+    }
+    if let Some(profile) = request.profile {
+        args.insert("profile".to_string(), Value::String(profile));
+    }
+    if let Some((cols, rows)) = request.initial_size {
+        args.insert("initialSize".to_string(), serde_json::json!([cols, rows]));
+    }
+    if let Some(project_id) = request.project_id {
+        args.insert("projectId".to_string(), Value::String(project_id));
+    }
+    if let Some(blueprint_id) = request.blueprint_id {
+        args.insert("blueprintId".to_string(), Value::String(blueprint_id));
+    }
+    if let Some(smol_machine_name) = request.smol_machine_name {
+        args.insert("smolMachineName".to_string(), Value::String(smol_machine_name));
+    }
+    if let Some(notes) = request.notes {
+        args.insert(
+            "notesEnv".to_string(),
+            serde_json::json!({
+                "vaultRoot": notes.vault_root,
+                "sessionSlug": notes.session_slug,
+                "repoSlug": notes.repo_slug,
+                "projectSlug": notes.project_slug,
+                "contextPaths": notes.context_paths,
+                "projectPrompt": notes.project_prompt,
+            }),
+        );
+    }
+    serde_json::json!({
+        "command": "session-create-shell",
         "args": args,
     })
 }
@@ -818,6 +896,44 @@ mod tests {
         assert_eq!(request["command"], "daemon-process-start");
         assert_eq!(request["args"]["command"], "printf hi");
         assert_eq!(request["args"]["workingDir"], "/tmp");
+    }
+
+    #[test]
+    fn daemon_session_create_shell_request_uses_daemon_command_shape() {
+        let request = daemon_session_create_shell_request(DaemonCreateSessionShellRequest {
+            id: "session-a".to_string(),
+            repo_path: "/repo".to_string(),
+            name: "Daemon Session".to_string(),
+            worktree_path: None,
+            branch: Some("feature/demo".to_string()),
+            base: Some("origin/main".to_string()),
+            fetch_first: true,
+            profile: Some("plain-shell".to_string()),
+            initial_size: Some((100, 30)),
+            project_id: Some("project-a".to_string()),
+            blueprint_id: Some("blueprint-a".to_string()),
+            smol_machine_name: None,
+            notes: Some(NotesEnvInputs {
+                vault_root: "/vault".to_string(),
+                session_slug: "feature-demo--sessio".to_string(),
+                repo_slug: "repo-a".to_string(),
+                project_slug: Some("project-a".to_string()),
+                context_paths: vec!["/repo/docs".to_string()],
+                project_prompt: "Use project notes".to_string(),
+            }),
+        });
+
+        assert_eq!(request["command"], "session-create-shell");
+        assert_eq!(request["args"]["id"], "session-a");
+        assert_eq!(request["args"]["repoPath"], "/repo");
+        assert_eq!(request["args"]["branch"], "feature/demo");
+        assert_eq!(request["args"]["base"], "origin/main");
+        assert_eq!(request["args"]["fetchFirst"], true);
+        assert_eq!(request["args"]["profile"], "plain-shell");
+        assert_eq!(request["args"]["initialSize"], serde_json::json!([100, 30]));
+        assert_eq!(request["args"]["projectId"], "project-a");
+        assert_eq!(request["args"]["notesEnv"]["vaultRoot"], "/vault");
+        assert_eq!(request["args"]["notesEnv"]["contextPaths"][0], "/repo/docs");
     }
 
     #[test]

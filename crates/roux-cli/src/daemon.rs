@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(windows)]
 use tokio::net::TcpListener;
@@ -9,7 +10,10 @@ use tokio::net::UnixListener;
 
 use roux_runtime::host::{RuntimeHost, RuntimeHostConfig};
 use roux_runtime::process_service::PROCESS_OUTPUT_DEFAULT_POLL_BYTES;
-use roux_runtime::pty_service::{PtyOutputEvent, PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES};
+use roux_runtime::pty_service::{
+    PtyEnvRequest, PtyOutputEvent, PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES,
+};
+use roux_runtime::terminal_env::NotesEnvInputs;
 
 use crate::{daemon_log::DaemonLog, paths, platform};
 
@@ -357,14 +361,15 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
         "daemon-status" => handle_daemon_status(host, identity).await,
         "session-list" => handle_session_list(host).await,
         "session-poll" => handle_session_poll(req, host).await,
+        "session-create-shell" => handle_session_create_shell(req, host, identity).await,
         "session-rename" => handle_session_rename(req, host).await,
         "project-list" => handle_project_list(host).await,
         "daemon-process-start" => handle_daemon_process_start(req, host).await,
         "daemon-process-output" => handle_daemon_process_output(req, host).await,
         "daemon-process-list" => handle_daemon_process_list(host).await,
         "daemon-process-kill" => handle_daemon_process_kill(req, host).await,
-        "daemon-pty-spawn-shell" => handle_daemon_pty_spawn_shell(req, host).await,
-        "daemon-pty-spawn-task" => handle_daemon_pty_spawn_task(req, host).await,
+        "daemon-pty-spawn-shell" => handle_daemon_pty_spawn_shell(req, host, identity).await,
+        "daemon-pty-spawn-task" => handle_daemon_pty_spawn_task(req, host, identity).await,
         "daemon-pty-output" => handle_daemon_pty_output(req, host).await,
         "daemon-pty-list" => handle_daemon_pty_list(host).await,
         "daemon-pty-write" => handle_daemon_pty_write(req, host).await,
@@ -398,6 +403,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "daemon-status",
             "session-list",
             "session-poll",
+            "session-create-shell",
             "session-rename",
             "project-list",
             "daemon-process-start",
@@ -600,6 +606,126 @@ async fn handle_session_rename(req: Request, host: &RuntimeHost) -> Response {
     }))
 }
 
+async fn handle_session_create_shell(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
+    let Some(repo_path) = req
+        .args
+        .get("repoPath")
+        .or_else(|| req.args.get("repo_path"))
+        .and_then(|repo_path| repo_path.as_str())
+    else {
+        return Response::err("repoPath required");
+    };
+    let name = req.args.get("name").and_then(|name| name.as_str()).unwrap_or("New Session");
+    let id = req
+        .args
+        .get("id")
+        .and_then(|id| id.as_str())
+        .filter(|id| !id.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    match host.session_handle.get(&id).await {
+        Ok(Some(_)) => return Response::err(format!("session {id} already exists")),
+        Ok(None) => {}
+        Err(err) => return Response::err(err.to_string()),
+    }
+
+    let settings = load_daemon_settings();
+    let target = parse_daemon_session_target(&req.args);
+    let (work_dir, actual_branch, owns_worktree) =
+        match resolve_daemon_session_target(repo_path, target, &settings) {
+            Ok(resolved) => resolved,
+            Err(err) => return Response::err(err),
+        };
+
+    let pane_id = format!("{id}-main");
+    let profile = req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string);
+    let initial_size = parse_initial_size(&req.args);
+    let project_id = req
+        .args
+        .get("projectId")
+        .or_else(|| req.args.get("project_id"))
+        .and_then(|project_id| project_id.as_str())
+        .map(str::to_string);
+    let blueprint_id = req
+        .args
+        .get("blueprintId")
+        .or_else(|| req.args.get("blueprint_id"))
+        .and_then(|blueprint_id| blueprint_id.as_str())
+        .map(str::to_string);
+    let smol_machine_name = req
+        .args
+        .get("smolMachineName")
+        .or_else(|| req.args.get("smol_machine_name"))
+        .and_then(|smol| smol.as_str())
+        .map(str::trim)
+        .filter(|smol| !smol.is_empty())
+        .map(str::to_string);
+
+    let spawn = host
+        .pty_handle
+        .spawn_shell(PtySpawnRequest {
+            id: Some(id.clone()),
+            working_dir: Some(PathBuf::from(&work_dir)),
+            session_id: Some(id.clone()),
+            pane_id: Some(pane_id),
+            project_id: project_id.clone(),
+            worktree_path: owns_worktree.then(|| work_dir.clone()),
+            notes: parse_notes_env(&req.args),
+            env: parse_pty_env_request(&req.args, identity),
+            profile: profile.clone(),
+            initial_size,
+            role: roux_core::PtyRole::SessionPrimary,
+            ..PtySpawnRequest::default()
+        })
+        .await;
+    if let Err(err) = spawn {
+        if owns_worktree {
+            let _ = roux_core::remove_worktree(repo_path, &work_dir);
+        }
+        return Response::err(err.to_string());
+    }
+
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let session = roux_core::Session {
+        id: id.clone(),
+        name: name.to_string(),
+        repo_root: repo_path.to_string(),
+        worktree_path: work_dir,
+        branch: actual_branch,
+        is_worktree: owns_worktree,
+        status: roux_core::SessionStatus::Idle,
+        model: None,
+        cost: None,
+        created_at: now,
+        project_id,
+        is_git_repo: is_git_repo(repo_path),
+        name_override: None,
+        primary_pty_id: Some(id.clone()),
+        archived: false,
+        ended_at: None,
+        blueprint_id,
+        pinned_pr_url: None,
+        smol_machine_name,
+    };
+
+    if let Err(err) = host.session_handle.add(session.clone()).await {
+        let _ = host.pty_handle.kill(&id).await;
+        if session.is_worktree {
+            let _ = roux_core::remove_worktree(&session.repo_root, &session.worktree_path);
+        }
+        return Response::err(err.to_string());
+    }
+
+    match serde_json::to_value(session) {
+        Ok(value) => Response::success(value),
+        Err(err) => Response::err(format!("failed to serialize session: {err}")),
+    }
+}
+
 async fn handle_project_list(host: &RuntimeHost) -> Response {
     match host.project_handle.list().await {
         Ok(projects) => match serde_json::to_value(&projects) {
@@ -676,8 +802,12 @@ async fn handle_daemon_process_kill(req: Request, host: &RuntimeHost) -> Respons
     }
 }
 
-async fn handle_daemon_pty_spawn_shell(req: Request, host: &RuntimeHost) -> Response {
-    match host.pty_handle.spawn_shell(parse_pty_spawn_request(&req)).await {
+async fn handle_daemon_pty_spawn_shell(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
+    match host.pty_handle.spawn_shell(parse_pty_spawn_request(&req, identity)).await {
         Ok(record) => match serde_json::to_value(record) {
             Ok(value) => Response::success(value),
             Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
@@ -686,11 +816,19 @@ async fn handle_daemon_pty_spawn_shell(req: Request, host: &RuntimeHost) -> Resp
     }
 }
 
-async fn handle_daemon_pty_spawn_task(req: Request, host: &RuntimeHost) -> Response {
+async fn handle_daemon_pty_spawn_task(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
     let Some(command) = req.args.get("command").and_then(|command| command.as_str()) else {
         return Response::err("command required");
     };
-    match host.pty_handle.spawn_task(command.to_string(), parse_pty_spawn_request(&req)).await {
+    match host
+        .pty_handle
+        .spawn_task(command.to_string(), parse_pty_spawn_request(&req, identity))
+        .await
+    {
         Ok(record) => match serde_json::to_value(record) {
             Ok(value) => Response::success(value),
             Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
@@ -848,7 +986,7 @@ fn serialize_daemon_pty_metadata_result(
     }
 }
 
-fn parse_pty_spawn_request(req: &Request) -> PtySpawnRequest {
+fn parse_pty_spawn_request(req: &Request, identity: &DaemonIdentity) -> PtySpawnRequest {
     let working_dir = req
         .args
         .get("workingDir")
@@ -879,10 +1017,224 @@ fn parse_pty_spawn_request(req: &Request) -> PtySpawnRequest {
         working_dir,
         session_id,
         pane_id,
+        project_id: req
+            .args
+            .get("projectId")
+            .or_else(|| req.args.get("project_id"))
+            .and_then(|project_id| project_id.as_str())
+            .map(str::to_string),
+        worktree_path: req
+            .args
+            .get("worktreePath")
+            .or_else(|| req.args.get("worktree_path"))
+            .and_then(|worktree_path| worktree_path.as_str())
+            .map(str::to_string),
+        notes: parse_notes_env(&req.args),
+        env: parse_pty_env_request(&req.args, identity),
         profile: req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string),
         initial_size: parse_initial_size(&req.args),
         role,
     }
+}
+
+fn parse_pty_env_request(args: &Value, identity: &DaemonIdentity) -> PtyEnvRequest {
+    let current_exe = std::env::current_exe().ok();
+    let cli_path = args
+        .get("cliPath")
+        .or_else(|| args.get("cli_path"))
+        .and_then(|cli_path| cli_path.as_str())
+        .map(str::to_string)
+        .or_else(|| current_exe.as_ref().map(|path| path.to_string_lossy().into_owned()));
+    let cli_bin_dir = args
+        .get("cliBinDir")
+        .or_else(|| args.get("cli_bin_dir"))
+        .and_then(|cli_bin_dir| cli_bin_dir.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            current_exe
+                .as_ref()
+                .and_then(|path| path.parent())
+                .map(|path| path.to_string_lossy().into_owned())
+        });
+
+    PtyEnvRequest {
+        user_path: args
+            .get("userPath")
+            .or_else(|| args.get("user_path"))
+            .and_then(|user_path| user_path.as_str())
+            .map(str::to_string)
+            .or_else(|| std::env::var("PATH").ok()),
+        socket_path: args
+            .get("socketPath")
+            .or_else(|| args.get("socket_path"))
+            .and_then(|socket_path| socket_path.as_str())
+            .map(str::to_string)
+            .or_else(|| Some(identity.socket.to_string_lossy().into_owned())),
+        cli_bin_dir,
+        cli_path,
+        pane_alias: args
+            .get("paneAlias")
+            .or_else(|| args.get("pane_alias"))
+            .and_then(|pane_alias| pane_alias.as_str())
+            .map(str::to_string),
+    }
+}
+
+fn parse_notes_env(args: &Value) -> Option<NotesEnvInputs> {
+    let value = args.get("notesEnv").or_else(|| args.get("notes_env"))?;
+    Some(NotesEnvInputs {
+        vault_root: value
+            .get("vaultRoot")
+            .or_else(|| value.get("vault_root"))
+            .and_then(|root| root.as_str())?
+            .to_string(),
+        session_slug: value
+            .get("sessionSlug")
+            .or_else(|| value.get("session_slug"))
+            .and_then(|slug| slug.as_str())?
+            .to_string(),
+        repo_slug: value
+            .get("repoSlug")
+            .or_else(|| value.get("repo_slug"))
+            .and_then(|slug| slug.as_str())?
+            .to_string(),
+        project_slug: value
+            .get("projectSlug")
+            .or_else(|| value.get("project_slug"))
+            .and_then(|slug| slug.as_str())
+            .map(str::to_string),
+        context_paths: value
+            .get("contextPaths")
+            .or_else(|| value.get("context_paths"))
+            .and_then(|paths| paths.as_array())
+            .map(|paths| {
+                paths.iter().filter_map(|path| path.as_str().map(str::to_string)).collect()
+            })
+            .unwrap_or_default(),
+        project_prompt: value
+            .get("projectPrompt")
+            .or_else(|| value.get("project_prompt"))
+            .and_then(|prompt| prompt.as_str())
+            .unwrap_or_default()
+            .to_string(),
+    })
+}
+
+enum DaemonSessionTarget {
+    Repo,
+    ExistingWorktree { path: String },
+    NewWorktree { branch: String, start_point: Option<String>, fetch_first: bool },
+}
+
+fn parse_daemon_session_target(args: &Value) -> DaemonSessionTarget {
+    if let Some(path) = args
+        .get("worktreePath")
+        .or_else(|| args.get("worktree_path"))
+        .and_then(|path| path.as_str())
+        .filter(|path| !path.trim().is_empty())
+    {
+        return DaemonSessionTarget::ExistingWorktree { path: path.to_string() };
+    }
+    if let Some(branch) = args
+        .get("branch")
+        .or_else(|| args.get("worktreeBranch"))
+        .or_else(|| args.get("worktree_branch"))
+        .and_then(|branch| branch.as_str())
+        .filter(|branch| !branch.trim().is_empty())
+    {
+        let start_point = args
+            .get("base")
+            .or_else(|| args.get("startPoint"))
+            .or_else(|| args.get("start_point"))
+            .and_then(|base| base.as_str())
+            .filter(|base| !base.trim().is_empty())
+            .map(str::to_string);
+        let fetch_first = args
+            .get("fetchFirst")
+            .or_else(|| args.get("fetch_first"))
+            .and_then(|fetch| fetch.as_bool())
+            .unwrap_or(false);
+        return DaemonSessionTarget::NewWorktree {
+            branch: branch.to_string(),
+            start_point,
+            fetch_first,
+        };
+    }
+    DaemonSessionTarget::Repo
+}
+
+fn resolve_daemon_session_target(
+    repo_path: &str,
+    target: DaemonSessionTarget,
+    settings: &roux_core::RouxSettings,
+) -> Result<(String, String, bool), String> {
+    match target {
+        DaemonSessionTarget::Repo => {
+            let branch = get_current_branch(repo_path).unwrap_or_else(|| "main".to_string());
+            Ok((repo_path.to_string(), branch, false))
+        }
+        DaemonSessionTarget::ExistingWorktree { path } => {
+            let branch = get_current_branch(&path).unwrap_or_else(|| "main".to_string());
+            Ok((path, branch, false))
+        }
+        DaemonSessionTarget::NewWorktree { branch, start_point, fetch_first } => {
+            if fetch_first {
+                roux_core::fetch_origin(repo_path).map_err(|err| err.to_string())?;
+            }
+            let wt = resolve_wt_binary(settings);
+            let worktree_path = roux_core::create_worktree_with_provider(
+                repo_path,
+                &branch,
+                settings.worktree_base_path.as_deref(),
+                start_point.as_deref(),
+                settings.worktree_provider,
+                wt.as_ref(),
+            )
+            .map_err(|err| err.to_string())?;
+            Ok((worktree_path, branch, true))
+        }
+    }
+}
+
+fn load_daemon_settings() -> roux_core::RouxSettings {
+    let path = platform::settings_path();
+    if path.exists() {
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        serde_json::from_str::<roux_core::RouxSettings>(&content).unwrap_or_default().normalized()
+    } else {
+        roux_core::RouxSettings::default()
+    }
+}
+
+fn resolve_wt_binary(settings: &roux_core::RouxSettings) -> Option<roux_worktrunk::WtBinary> {
+    let override_path =
+        settings.worktrunk_binary_path.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    match override_path {
+        Some(path) => roux_worktrunk::detect_wt(Some(path)),
+        None => roux_worktrunk::detect_wt(None),
+    }
+}
+
+fn get_current_branch(repo_path: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
+fn is_git_repo(path: &str) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(path)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
 }
 
 fn parse_initial_size(args: &Value) -> Option<(u16, u16)> {
@@ -1060,6 +1412,67 @@ mod tests {
 
     #[cfg(not(windows))]
     #[tokio::test]
+    async fn daemon_session_create_shell_owns_session_and_primary_pty() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let response = handle_request(
+            Request {
+                command: "session-create-shell".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "id": "session-a",
+                    "repoPath": dir.path(),
+                    "name": "Daemon Session",
+                    "profile": "plain-shell",
+                    "initialSize": [100, 30]
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(response.ok, "create failed: {:?}", response.error);
+        let data = response.data.expect("session payload");
+        assert_eq!(data["id"], "session-a");
+        assert_eq!(data["name"], "Daemon Session");
+        assert_eq!(data["primaryPtyId"], "session-a");
+
+        let session = host.session_handle.get("session-a").await.unwrap().unwrap();
+        assert_eq!(session.name, "Daemon Session");
+        assert_eq!(session.primary_pty_id.as_deref(), Some("session-a"));
+
+        let ptys = host.pty_handle.list().await.unwrap();
+        let pty = ptys.iter().find(|pty| pty.id == "session-a").expect("primary pty");
+        assert_eq!(pty.working_dir, dir.path().to_string_lossy());
+        assert_eq!(pty.cols, 100);
+        assert_eq!(pty.rows, 30);
+        assert!(matches!(pty.info.role, roux_core::PtyRole::SessionPrimary));
+        assert_eq!(pty.info.session_id.as_deref(), Some("session-a"));
+
+        let _ = host.pty_handle.kill("session-a").await;
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
     async fn daemon_process_start_and_output_poll_are_daemon_owned() {
         let dir = tempfile::tempdir().unwrap();
         let services = RuntimeHostConfig {
@@ -1190,6 +1603,86 @@ mod tests {
         assert_eq!(output["record"]["running"], false);
         assert_eq!(output["record"]["exitCode"], 0);
         assert_eq!(output["record"]["info"]["session_id"], "session-a");
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_pty_spawn_request_populates_runtime_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux-daemon-test.sock");
+
+        let start = handle_request(
+            Request {
+                command: "daemon-pty-spawn-task".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "command": "printf '%s|%s|%s|%s|%s|%s' \"$ROUX_SESSION_ID\" \"$ROUX_PANE_ID\" \"$ROUX_PROJECT_ID\" \"$ROUX_WORKTREE_PATH\" \"$ROUX_SOCKET\" \"$ROUX_NOTES_ROOT\"",
+                    "workingDir": dir.path(),
+                    "id": "pty-env",
+                    "sessionId": "session-a",
+                    "paneId": "pane-a",
+                    "projectId": "project-a",
+                    "worktreePath": "/worktrees/session-a",
+                    "notesEnv": {
+                        "vaultRoot": "/vault",
+                        "sessionSlug": "session-a",
+                        "repoSlug": "repo-a"
+                    }
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(start.ok, "start failed: {:?}", start.error);
+
+        let mut output = None;
+        for _ in 0..50 {
+            let response = handle_request(
+                Request {
+                    command: "daemon-pty-output".to_string(),
+                    session_id: None,
+                    pane_id: None,
+                    auth_token: None,
+                    args: serde_json::json!({ "id": "pty-env", "maxBytes": 4096 }),
+                },
+                &host,
+                &identity,
+            )
+            .await;
+            assert!(response.ok, "output failed: {:?}", response.error);
+            let data = response.data.expect("output payload");
+            if !data["record"]["running"].as_bool().unwrap_or(true) {
+                output = data["output"].as_str().map(str::to_string);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            output.as_deref(),
+            Some(
+                "session-a|pane-a|project-a|/worktrees/session-a|/tmp/roux-daemon-test.sock|/vault"
+            )
+        );
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;

@@ -14,7 +14,7 @@ use crate::pty_lifecycle::{apply_metadata_command, PtyMetadataCommand, PtyMetada
 use crate::pty_live::WaitedChild;
 use crate::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
 use crate::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
-use crate::terminal_env;
+use crate::terminal_env::{self, NotesEnvInputs};
 
 pub const PTY_OUTPUT_LIMIT_BYTES: usize = 256 * 1024;
 pub const PTY_OUTPUT_DEFAULT_POLL_BYTES: usize = 64 * 1024;
@@ -27,11 +27,36 @@ pub enum PtyKind {
 }
 
 #[derive(Debug, Clone)]
+pub struct PtyEnvRequest {
+    pub user_path: Option<String>,
+    pub socket_path: Option<String>,
+    pub cli_bin_dir: Option<String>,
+    pub cli_path: Option<String>,
+    pub pane_alias: Option<String>,
+}
+
+impl Default for PtyEnvRequest {
+    fn default() -> Self {
+        Self {
+            user_path: None,
+            socket_path: None,
+            cli_bin_dir: None,
+            cli_path: None,
+            pane_alias: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PtySpawnRequest {
     pub id: Option<String>,
     pub working_dir: Option<PathBuf>,
     pub session_id: Option<String>,
     pub pane_id: Option<String>,
+    pub project_id: Option<String>,
+    pub worktree_path: Option<String>,
+    pub notes: Option<NotesEnvInputs>,
+    pub env: PtyEnvRequest,
     pub profile: Option<String>,
     pub initial_size: Option<(u16, u16)>,
     pub role: PtyRole,
@@ -44,6 +69,10 @@ impl Default for PtySpawnRequest {
             working_dir: None,
             session_id: None,
             pane_id: None,
+            project_id: None,
+            worktree_path: None,
+            notes: None,
+            env: PtyEnvRequest::default(),
             profile: None,
             initial_size: None,
             role: PtyRole::Secondary,
@@ -557,10 +586,10 @@ fn spawn_pty(
     request: PtySpawnRequest,
     generation: u64,
 ) -> Result<PtyEntry, String> {
-    let working_dir = resolve_working_dir(request.working_dir)?;
+    let working_dir = resolve_working_dir(request.working_dir.clone())?;
     let working_dir_str = working_dir.to_string_lossy().to_string();
     let shell = resolve_default_shell();
-    let roux_env: Vec<(String, String)> = std::env::vars().collect();
+    let roux_env = roux_env_for_request(&request);
 
     let spawn_plan = match kind {
         PtyKind::Shell => pty_spawn::shell_spawn_plan(ShellSpawnPlanInputs {
@@ -624,6 +653,30 @@ fn spawn_pty(
         metadata,
         generation,
         exit_code: None,
+    })
+}
+
+fn roux_env_for_request(request: &PtySpawnRequest) -> Vec<(String, String)> {
+    let user_path =
+        request.env.user_path.clone().or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
+    let socket_path = request
+        .env
+        .socket_path
+        .clone()
+        .or_else(|| std::env::var("ROUX_SOCKET").ok())
+        .unwrap_or_default();
+    let cli_shim = request.env.cli_bin_dir.as_deref().zip(request.env.cli_path.as_deref());
+
+    terminal_env::roux_env_pairs(terminal_env::RouxEnvInputs {
+        user_path: &user_path,
+        socket_path: &socket_path,
+        cli_shim,
+        session_id: request.session_id.as_deref(),
+        pane_id: request.pane_id.as_deref(),
+        pane_alias: request.env.pane_alias.as_deref(),
+        project_id: request.project_id.as_deref(),
+        worktree_path: request.worktree_path.as_deref(),
+        notes: request.notes.as_ref(),
     })
 }
 
@@ -892,6 +945,61 @@ mod tests {
         assert!(handle.mark_read("missing").await.unwrap().is_none());
 
         let _ = handle.kill("pty-meta").await;
+        handle.shutdown().await;
+        join.await.unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn spawn_request_context_populates_roux_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let (handle, join) = spawn();
+
+        let record = handle
+            .spawn_task(
+                "printf '%s|%s|%s|%s|%s|%s|%s' \"$ROUX_SESSION_ID\" \"$ROUX_PANE_ID\" \"$ROUX_PROJECT_ID\" \"$ROUX_WORKTREE_PATH\" \"$ROUX_SOCKET\" \"$ROUX_CLI\" \"$ROUX_NOTES_ROOT\"".to_string(),
+                PtySpawnRequest {
+                    id: Some("pty-env".to_string()),
+                    working_dir: Some(dir.path().to_path_buf()),
+                    session_id: Some("session-a".to_string()),
+                    pane_id: Some("pane-a".to_string()),
+                    project_id: Some("project-a".to_string()),
+                    worktree_path: Some("/worktrees/session-a".to_string()),
+                    notes: Some(NotesEnvInputs {
+                        vault_root: "/vault".to_string(),
+                        session_slug: "session-a".to_string(),
+                        repo_slug: "repo-a".to_string(),
+                        ..NotesEnvInputs::default()
+                    }),
+                    env: PtyEnvRequest {
+                        user_path: Some("/usr/bin".to_string()),
+                        socket_path: Some("/tmp/roux.sock".to_string()),
+                        cli_bin_dir: Some("/opt/roux/bin".to_string()),
+                        cli_path: Some("/opt/roux/bin/roux".to_string()),
+                        pane_alias: None,
+                    },
+                    ..PtySpawnRequest::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        let mut snapshot = None;
+        for _ in 0..50 {
+            let next = handle.snapshot(&record.id, 4096).await.unwrap().unwrap();
+            if !next.record.running {
+                snapshot = Some(next);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let output = snapshot.expect("PTY should exit").output;
+        assert_eq!(
+            output,
+            "session-a|pane-a|project-a|/worktrees/session-a|/tmp/roux.sock|/opt/roux/bin/roux|/vault"
+        );
+
         handle.shutdown().await;
         join.await.unwrap();
     }
