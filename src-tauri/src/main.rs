@@ -450,7 +450,7 @@ fn main() {
             commands::subscriptions::subscriptions_delete,
         ])
         .setup(|app| {
-            // Install the roux-cli shim dir (~/.config/roux/bin) with
+            // Install the Roux CLI shim dir (~/.config/roux/bin) with
             // `roux` and `roux-cli` symlinks so any PTY child can find them
             // without requiring a system-wide install.
             pty::ensure_roux_cli_shim();

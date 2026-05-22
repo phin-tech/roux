@@ -29,7 +29,7 @@ Run the full local test gate:
 task test
 ```
 
-The Taskfile stages the internal `roux-cli.exe` sidecar before Tauri dev/build runs.
+The Taskfile stages the internal `roux.exe` sidecar before Tauri dev/build runs.
 
 ## Installer
 
@@ -55,8 +55,8 @@ The NSIS installer uses Tauri's `currentUser` install mode, so it installs per u
 
 ## Runtime Notes
 
-- `roux-cli.exe` is bundled internally and is not added to the user's `PATH`.
-- Claude hooks are installed by the app using an absolute quoted path to the bundled `roux-cli.exe`.
+- `roux.exe` is bundled internally and is not added to the user's `PATH`.
+- Claude hooks are installed by the app using an absolute quoted path to the bundled `roux.exe`.
 - Uninstall leaves the user's Claude settings alone in v1.
 - Native Windows Claude is required. Roux does not fall back to WSL Claude in v1.
 - `nono` is checked opportunistically, but Windows `nono` profile support is deferred until a supported `nono.exe` flow is validated.

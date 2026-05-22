@@ -1,22 +1,37 @@
-# CLI bridge (`roux-cli`)
+# CLI bridge (`roux`)
 
-Roux ships with a command-line tool, `roux-cli`, that talks to the running app over a Unix socket. It lets you script Roux from the terminal — open sessions, split panes, send text, and focus panes.
+Roux ships with a command-line tool, `roux`, that talks to the running app over a Unix socket. It lets you script Roux from the terminal — open sessions, split panes, send text, and focus panes.
 
 ## Installing
 
-`roux-cli` is bundled inside `Roux.app`. The easiest way to put it on your `PATH` is to symlink it:
+`roux` is bundled inside `Roux.app`. The easiest way to put it on your `PATH` is to symlink it:
 
 ```sh
-ln -sf /Applications/Roux.app/Contents/MacOS/roux-cli /usr/local/bin/roux
+ln -sf /Applications/Roux.app/Contents/MacOS/roux /usr/local/bin/roux
 ```
 
 Then `roux --help` should work from any terminal.
 
-Inside Roux-managed panes, both `roux` and `roux-cli` are injected automatically, so you can call them without adding your own PATH shim.
+Inside Roux-managed panes, both `roux` and the legacy `roux-cli` alias are injected automatically, so you can call either without adding your own PATH shim.
+
+## Binary layout
+
+The CLI is built from the standalone `crates/roux-cli` workspace crate. That crate produces the `roux` binary and does not link the Tauri desktop app. The desktop package lives separately under `src-tauri` as `roux-desktop` and bundles two sidecars:
+
+- `roux` — the primary CLI binary
+- `roux-cli` — compatibility alias for older hooks, scripts, and spawned panes
+
+For source builds, use:
+
+```sh
+cargo build -p roux-cli --bin roux
+```
+
+For local development, `task cli:install` builds the same binary, installs `~/.local/bin/roux`, and points `~/.local/bin/roux-cli` at it on macOS/Linux.
 
 ## How it talks to Roux
 
-`roux-cli` is a thin client for the running desktop app:
+Most `roux` commands are thin clients for the running desktop app:
 
 - on macOS/Linux it talks to Roux over a Unix socket
 - on Windows it talks to the app over a local TCP endpoint plus an auth token
@@ -24,9 +39,11 @@ Inside Roux-managed panes, both `roux` and `roux-cli` are injected automatically
 
 If the Roux app is not running, socket-backed commands fail with a direct `Roux is not running` error.
 
+`roux daemon` is the exception: it starts an experimental standalone runtime host. It does not yet replace the desktop app for pane-driving commands.
+
 ## Command groups
 
-`roux-cli` currently exposes these top-level commands:
+`roux` currently exposes these top-level commands:
 
 - Open / focus a session for a directory and raise the app window (`roux app .`)
 - Show or clear legacy hook status files (`roux status`, `roux clear`)
@@ -38,6 +55,7 @@ If the Roux app is not running, socket-backed commands fail with a direct `Roux 
 - Focus a pane by id (`roux focus`)
 - Run a shell command in a new pane (`roux run`)
 - Run the Roux MCP stdio server (`roux mcp`)
+- Start the experimental headless runtime host (`roux daemon`)
 - Push notifications (`roux notify`)
 - Emit hook status transitions and run automation hooks (`roux hook`)
 - Read, append, write, or search the multi-scoped notes vault (`roux notes <scope> <verb>` — experimental; see [Notes](notes.md))
@@ -120,13 +138,13 @@ Run Roux's MCP server over stdio.
 roux mcp
 ```
 
-Most people do not run this command by hand. Enable MCP in **Settings → Agent Integrations**, then use the host setup button for a supported MCP client. The host launches `roux-cli mcp` when it needs the server.
+Most people do not run this command by hand. Enable MCP in **Settings → Agent Integrations**, then use the host setup button for a supported MCP client. The host launches `roux mcp` when it needs the server.
 
 The MCP server is a thin adapter over the same socket bridge as the CLI:
 
 - the Roux desktop app must be running
 - **Enable Roux MCP** must be on in Settings
-- the host config uses the installed/current `roux-cli` path
+- the host config uses the installed/current `roux` path
 - session- and pane-targeted tools require explicit ids where mutation is possible, especially `roux_send_text`
 
 The v1 MCP server exposes inspection and safe action tools:
@@ -147,6 +165,24 @@ The v1 MCP server exposes inspection and safe action tools:
 The v1 server intentionally does not expose arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, or broad filesystem mutation.
 
 `roux_get_latest_output` returns the exact PTY replay bytes as `replay_bytes_base64`. It also includes `text` when the replay bytes are valid UTF-8; clients that need byte-for-byte fidelity should decode `replay_bytes_base64`.
+
+### `roux daemon`
+
+Start Roux's experimental headless runtime host.
+
+```sh
+roux daemon
+```
+
+This is a foundation for moving long-lived runtime services out of the Tauri process. Today it loads persisted projects and sessions, starts the shared session/project service host, and runs until Ctrl-C.
+
+Current limits:
+
+- the desktop app still owns interactive terminal rendering and normal PTY attachment
+- socket-backed commands such as `roux split`, `roux session send`, and `roux run` still expect Roux.app to be running
+- there is not yet a `roux attach` command or daemon-owned scrollback replay
+
+Use it for daemon development and validation, not as a replacement for launching Roux.app.
 
 ### `roux session`
 

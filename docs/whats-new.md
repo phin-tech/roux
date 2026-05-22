@@ -90,9 +90,13 @@ This page tracks major shipped features across Roux's full history.
 
 ## May 2, 2026
 
-- **Roux MCP integration**: Roux now ships `roux-cli mcp`, a stdio MCP server that lets supported MCP hosts inspect and safely act on Roux sessions, panes, latest terminal output, and notes through the running desktop app. Settings gained an **Agent Integrations** section with **Enable Roux MCP**, CLI/current status, Claude Desktop host setup, dry-run preview, and scoped config writes that preserve unrelated host config. v1 intentionally excludes arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, and broad filesystem mutation. See [CLI bridge → `roux mcp`](features/cli.md#roux-mcp) and [Settings → Agent Integrations](settings.md#agent-integrations).
+- **Roux MCP integration**: Roux now ships `roux mcp`, a stdio MCP server that lets supported MCP hosts inspect and safely act on Roux sessions, panes, latest terminal output, and notes through the running desktop app. Settings gained an **Agent Integrations** section with **Enable Roux MCP**, CLI/current status, Claude Desktop host setup, dry-run preview, and scoped config writes that preserve unrelated host config. v1 intentionally excludes arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, and broad filesystem mutation. See [CLI bridge → `roux mcp`](features/cli.md#roux-mcp) and [Settings → Agent Integrations](settings.md#agent-integrations).
 
 ## May 3, 2026
 
 - **Warp-style multiline editor refresh**: the prompt editor is now a compact dock at the bottom of each terminal pane. ++ctrl+g++ toggles it for the focused pane, ++cmd+shift+e++ toggles it from anywhere, and ++cmd+shift+v++ opens with clipboard contents. Selecting terminal text and pressing ++ctrl+g++ seeds the editor from that selection. ++cmd+enter++ sends input and keeps the editor open, including an Enter press for the target terminal.
 - **Editor ergonomics**: added shell-like local editing keys, command correction pills for common mistakes (`gti`, `git statsu`, missing `npm run`), and context chips for target, cwd, git branch/state, and spawn profile. See [Multiline Editor](features/editor.md).
+
+## May 22, 2026
+
+- **Standalone CLI crate + daemon foundation**: `roux` now builds from the separate `crates/roux-cli` crate instead of the Tauri desktop package, while `roux-cli` remains as a compatibility alias for older hooks and scripts. The desktop app package/binary is `roux-desktop`, and bundles both CLI sidecar names. The new experimental `roux daemon` command starts the shared runtime service host as a first step toward daemon-owned sessions; Roux.app still owns interactive PTYs today. See [CLI bridge](features/cli.md) and [V2 session daemon](v2/session-daemon.md).

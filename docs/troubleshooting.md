@@ -15,11 +15,11 @@ Shell panes are respawned automatically on launch, but Claude sessions are not r
 
 ## MCP host says Roux is disabled
 
-Open **Settings → Agent Integrations** and turn on **Enable Roux MCP**. MCP hosts may still be able to launch `roux-cli mcp` when this is off, but the server will reject tool calls until Roux MCP is enabled.
+Open **Settings → Agent Integrations** and turn on **Enable Roux MCP**. MCP hosts may still be able to launch `roux mcp` when this is off, but the server will reject tool calls until Roux MCP is enabled.
 
 ## MCP host cannot connect to Roux
 
-`roux-cli mcp` talks to the running Roux app over the local socket bridge. Make sure the Roux desktop app is open, then retry the MCP host action.
+`roux mcp` talks to the running Roux app over the local socket bridge. Make sure the Roux desktop app is open, then retry the MCP host action.
 
 If the host was configured before a Roux update, open **Settings → Agent Integrations** and check the CLI status. If the CLI is missing or stale, update/reinstall the CLI from Roux's setup or Doctor controls, then run **Configure** for the host again.
 

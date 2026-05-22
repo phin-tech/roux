@@ -31,7 +31,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Worktree templates + close policy** -- Use path templates and choose keep/ask/remove behavior on close
 - **Notification center** -- In-app notifications, unread badges, OS notification fan-out, and Claude/Codex setup checks
 - **Multiline editor** -- `ctrl+g` opens a compact editor docked to the active terminal pane, with selected-terminal-text reinput, command corrections, context chips, and shell-style editing keys
-- **CLI** -- `roux-cli` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal via the local Roux command channel
+- **CLI** -- standalone `roux` binary for scripting: split panes, create sessions, run commands, send text, focus panes, and start the experimental `roux daemon`
 
 ## Keybindings
 

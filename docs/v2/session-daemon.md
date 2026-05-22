@@ -1,7 +1,24 @@
 # V2: Session Daemon (Persistent PTY Sessions)
 
-**Status:** Design note — not yet planned
+**Status:** Design note — foundation started, full PTY daemon not yet implemented
 **Goal:** Sessions survive app crashes/restarts with full terminal scrollback preserved
+
+## Current state
+
+Roux now has the first daemon-shaped entrypoint:
+
+```sh
+roux daemon
+```
+
+It lives in the standalone `crates/roux-cli` crate, starts the shared runtime service host, loads persisted projects/sessions from the canonical config paths, and runs until Ctrl-C. This deliberately keeps the command-line binary separate from the Tauri desktop package.
+
+That is not the full design below yet. As of this note:
+
+- Roux.app still owns interactive PTYs and xterm.js rendering
+- socket-backed CLI commands still expect the desktop app to be running
+- there is no `roux attach` command yet
+- the daemon does not yet own scrollback replay or reconnectable PTY lifetimes
 
 ## Problem
 
@@ -15,10 +32,10 @@ This covers ~90% of the use case, but power users running long sessions want tru
 
 ## Architecture: Thin Daemon + Unix Socket
 
-A minimal `roux-cli daemon` process that owns PTY sessions and relays bytes to connected clients (the Tauri GUI or a CLI attach command).
+A minimal `roux daemon` process that owns PTY sessions and relays bytes to connected clients (the Tauri GUI or a CLI attach command).
 
-```
-roux-cli daemon              ← background process, owns all PTYs
+```text
+roux daemon                  ← background process, owns all PTYs
   ├── PTY: claude (session 1)
   ├── PTY: claude (session 2)
   └── PTY: /bin/zsh (shell split)
@@ -26,7 +43,7 @@ roux-cli daemon              ← background process, owns all PTYs
        └── Unix socket: ~/.config/roux/roux.sock
             │
             ├── Roux.app (Tauri GUI) — connects as a client
-            └── roux-cli attach <id> — CLI attach from any terminal
+            └── roux attach <id> — CLI attach from any terminal
 ```
 
 ### Daemon responsibilities
@@ -37,7 +54,7 @@ roux-cli daemon              ← background process, owns all PTYs
 - Accept input from clients and write to PTY
 - Handle resize requests
 - Stay alive when all clients disconnect
-- Auto-start on first `roux-cli` or Roux.app launch
+- Auto-start on first `roux` or Roux.app launch
 - Clean up dead sessions
 
 ### Client responsibilities (Tauri GUI)
@@ -47,7 +64,7 @@ roux-cli daemon              ← background process, owns all PTYs
 - Request session creation/destruction
 - Handle reconnection if daemon restarts
 
-### CLI client (`roux-cli attach`)
+### CLI client (`roux attach`)
 - Connect to daemon socket
 - Run a local terminal emulator (raw mode)
 - Render PTY output directly to stdout
@@ -72,10 +89,11 @@ roux-cli daemon              ← background process, owns all PTYs
 ## Estimated scope
 
 ~500-800 lines of Rust for the daemon:
-- `src-tauri/src/daemon.rs` — PTY management (reuse existing `pty.rs`)
-- `src-tauri/src/socket.rs` — Unix socket server, client connection handling
-- `roux-cli daemon` subcommand — start the daemon
-- `roux-cli attach <id>` — attach from CLI
+- `crates/roux-cli/src/daemon.rs` — daemon entrypoint and process lifetime
+- `crates/roux-runtime` — shared session/project/PTY runtime services used by both daemon and desktop
+- socket server/client handling for daemon-owned PTYs
+- `roux daemon` subcommand — start the daemon (initial version exists)
+- `roux attach <id>` — attach from CLI
 
 ~200 lines of frontend changes:
 - Replace direct PTY IPC with socket client
@@ -103,13 +121,13 @@ Same tradeoffs as Zellij but in C. Less embeddable, more mature. `tmux new-sessi
 
 - Stable V1 with hooks-based status detection
 - Clear session lifecycle management
-- `roux-cli` binary already in place (just add `daemon` and `attach` subcommands)
+- standalone `roux` binary already in place (`daemon` exists; `attach` remains future work)
 
 ## Migration path
 
 1. Build daemon with socket server
 2. Move PTY spawning from Tauri process to daemon
 3. Tauri becomes a socket client
-4. Add `roux-cli attach` for CLI access
-5. Add `roux-cli daemon --start` to launchd/systemd for auto-start
+4. Add `roux attach` for CLI access
+5. Add `roux daemon --start` to launchd/systemd for auto-start
 6. Scrollback buffer in daemon for replay on reconnect

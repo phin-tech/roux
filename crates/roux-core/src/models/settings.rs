@@ -443,7 +443,7 @@ pub struct RouxSettings {
     #[serde(default = "default_true")]
     pub auto_lookup_session_pr: bool,
     /// User-facing MCP integration switch. The MCP server is still launched
-    /// by MCP hosts via `roux-cli mcp`; this controls Roux's setup/status UX
+    /// by MCP hosts via `roux mcp`; this controls Roux's setup/status UX
     /// and whether host configuration buttons are presented as enabled.
     #[serde(default)]
     pub mcp_enabled: bool,
@@ -665,9 +665,9 @@ fn normalize_repo_roots(roots: &[String]) -> Vec<String> {
 fn normalize_theme(theme: &str) -> String {
     match theme {
         "dark" | "deep-blue" => DEFAULT_THEME.to_string(),
-        "midnight-copper" | "steel-amber" | "slate-emerald" | "graphite-rose"
-        | "nordic-night" | "cyber-audit" | "mocha-soft" | "paper-ink" | "github-day"
-        | "warm-burnout-dark" | "warm-burnout-light" => theme.to_string(),
+        "midnight-copper" | "steel-amber" | "slate-emerald" | "graphite-rose" | "nordic-night"
+        | "cyber-audit" | "mocha-soft" | "paper-ink" | "github-day" | "warm-burnout-dark"
+        | "warm-burnout-light" => theme.to_string(),
         _ => DEFAULT_THEME.to_string(),
     }
 }

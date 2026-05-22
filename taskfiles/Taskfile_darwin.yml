@@ -7,23 +7,25 @@ version: "3"
 
 tasks:
   prepare-cli:
-    desc: "Build roux-cli and stage it for macOS bundling"
+    desc: "Build Roux CLI and stage it for macOS bundling"
     cmds:
       - cmd: |
           set -euo pipefail
           TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
           if [ -n "${TAURI_TARGET:-}" ]; then
-            cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli --target "${TAURI_TARGET}"
-            SOURCE="target/${TAURI_TARGET}/release/roux-cli"
+            cargo build -p roux-cli --release --bin roux --target "${TAURI_TARGET}"
+            SOURCE="target/${TAURI_TARGET}/release/roux"
           else
-            cargo build --manifest-path src-tauri/Cargo.toml --release --bin roux-cli
-            SOURCE="target/release/roux-cli"
+            cargo build -p roux-cli --release --bin roux
+            SOURCE="target/release/roux"
           fi
           mkdir -p src-tauri/binaries
+          cp "${SOURCE}" src-tauri/binaries/roux
+          cp "${SOURCE}" "src-tauri/binaries/roux-${TARGET}"
           cp "${SOURCE}" src-tauri/binaries/roux-cli
           cp "${SOURCE}" "src-tauri/binaries/roux-cli-${TARGET}"
-          chmod +x src-tauri/binaries/roux-cli "src-tauri/binaries/roux-cli-${TARGET}"
-          echo "Prepared bundled roux-cli from ${SOURCE}"
+          chmod +x src-tauri/binaries/roux src-tauri/binaries/roux-cli "src-tauri/binaries/roux-${TARGET}" "src-tauri/binaries/roux-cli-${TARGET}"
+          echo "Prepared bundled Roux CLI from ${SOURCE}"
         platforms: [darwin]
 
   verify:

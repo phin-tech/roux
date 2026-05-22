@@ -1055,7 +1055,7 @@
                 {/if}
               </div>
               <div class="mt-0.5 text-[11px] text-text-muted">
-                Lets MCP clients launch <code class="font-mono">roux-cli mcp</code> and use Roux sessions, panes, and notes through the running app.
+                Lets MCP clients launch <code class="font-mono">roux mcp</code> and use Roux sessions, panes, and notes through the running app.
               </div>
               <div class="mt-3 flex items-center justify-between py-1">
                 <div>

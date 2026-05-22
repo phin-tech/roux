@@ -25,24 +25,6 @@ pub fn roux_config_dir() -> PathBuf {
     home.join(".config").join("roux")
 }
 
-/// Default on-disk location for the Obsidian-compatible notes vault.
-///
-/// `~/Documents/Roux` on every platform. Users override this via the
-/// `notes.vaultRoot` setting (wired in Step 3). The helper always returns
-/// an absolute path; callers handle creation lazily on first write.
-pub fn default_notes_vault_root() -> PathBuf {
-    let home = home_dir_or_temp();
-    home.join("Documents").join("Roux")
-}
-
-/// User-level Claude skills directory: `~/.claude/skills`. Library skill
-/// sync writes here for Library sources whose layer is `Global` or
-/// `GitRepo` (project-bound layers route into `<repo>/.claude/skills`).
-pub fn user_claude_skills_dir() -> PathBuf {
-    let home = home_dir_or_temp();
-    home.join(".claude").join("skills")
-}
-
 fn home_dir_or_temp() -> PathBuf {
     home_dir_or_temp_from(dirs::home_dir().or_else(|| std::env::var_os("HOME").map(PathBuf::from)))
 }

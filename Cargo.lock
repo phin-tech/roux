@@ -3996,7 +3996,41 @@ dependencies = [
 ]
 
 [[package]]
-name = "roux"
+name = "roux-cli"
+version = "0.5.3"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dirs",
+ "rmcp",
+ "roux-core",
+ "roux-runtime",
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "roux-core"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "kdl",
+ "plist",
+ "roux-smolvm",
+ "roux-worktrunk",
+ "semver",
+ "serde",
+ "serde_json",
+ "specta",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "roux-desktop"
 version = "0.5.3"
 dependencies = [
  "anyhow",
@@ -4040,23 +4074,6 @@ dependencies = [
  "url",
  "uuid",
  "vte",
-]
-
-[[package]]
-name = "roux-core"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "kdl",
- "plist",
- "roux-smolvm",
- "roux-worktrunk",
- "semver",
- "serde",
- "serde_json",
- "specta",
- "tempfile",
- "thiserror 2.0.18",
 ]
 
 [[package]]

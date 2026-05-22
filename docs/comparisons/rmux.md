@@ -26,8 +26,8 @@ Ordered by value-to-effort. Each item: what RMUX does → why it matters for Rou
 - **Why it matters:** this is the single biggest capability gap. When a Roux agent orchestrates a sibling session it does so *blind* — and the skill itself warns "sending input mid-turn can interrupt the other agent." There is no await/assert primitive, so cross-session driving is fire-and-hope.
 - **Roux today:** `session send` types blind; `session poll` dumps session *metadata*, not the live terminal buffer. No `capture-pane`/`wait` verb exists (verified: absent from `cli.rs`/`socket.rs`). **But** the backend already maintains live pane snapshots internally (`pane_state.rs::save_live_pane_state`), so the hard plumbing partly exists.
 - **Proposed shape:**
-  - `roux-cli pane snapshot [--pane ID]` → JSON of the visible buffer (+ cursor, dims), defaulting to `$ROUX_PANE_ID`.
-  - `roux-cli pane wait [--pane ID] --for "<text|regex>" [--timeout 30s]` → blocks until match or timeout; exit code signals which.
+  - `roux pane snapshot [--pane ID]` → JSON of the visible buffer (+ cursor, dims), defaulting to `$ROUX_PANE_ID`.
+  - `roux pane wait [--pane ID] --for "<text|regex>" [--timeout 30s]` → blocks until match or timeout; exit code signals which.
   - Turns blind `send` + coarse `poll` into reliable **send → wait → read**.
 - **Effort:** medium. **Risk:** low — additive CLI verbs over the existing socket and existing live-snapshot machinery.
 
@@ -36,7 +36,7 @@ Ordered by value-to-effort. Each item: what RMUX does → why it matters for Rou
 - **RMUX:** "streamed output & line events," distinct from tmux's plain-text capture — agents observe state changes as they happen.
 - **Why it matters:** complements #1. An orchestrator should be able to *react* to a sibling's output as it arrives instead of polling on a timer.
 - **Roux today:** poll-only for siblings.
-- **Proposed shape:** `roux-cli pane tail [--pane ID] --follow`, or a socket subscription channel. Roux already has a `subscriptions/` + bus module to model the stream/backpressure on.
+- **Proposed shape:** `roux pane tail [--pane ID] --follow`, or a socket subscription channel. Roux already has a `subscriptions/` + bus module to model the stream/backpressure on.
 - **Effort:** medium. **Risk:** low–medium (PTY buffering, backpressure).
 
 ### 3. Typed SDK over the socket (not just a CLI)

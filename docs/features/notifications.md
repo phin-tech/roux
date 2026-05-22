@@ -23,7 +23,7 @@ Claude Code notifications are delivered through Roux's Claude hooks.
 - **needs update** means the installed Roux CLI is stale.
 - **not configured** means the CLI or hooks are missing.
 
-Use **Configure** or **Reinstall** to run Roux's hook installer. The installer also refreshes the local `roux-cli` used by the hooks.
+Use **Configure** or **Reinstall** to run Roux's hook installer. The installer also refreshes the local `roux` used by the hooks.
 
 ### Codex
 
@@ -46,4 +46,3 @@ Roux preserves unrelated Codex config where possible and only targets `[tui].not
 Use **Settings -> Notifications -> Send test** to send a sample notification through the same service used by agents and automation.
 
 On macOS development builds, Roux may appear under Terminal in System Settings because unsigned dev binaries cannot own the final bundle notification identity. Release builds use Roux's app bundle id.
-

@@ -4,48 +4,78 @@ use std::path::{Path, PathBuf};
 
 use crate::platform;
 
-const ROUX_HOOK_MARKER: &str = "roux-cli hook";
-
 #[cfg(not(windows))]
 fn unix_cli_install_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".local").join("bin").join(platform::roux_cli_file_name()))
+}
+
+#[cfg(not(windows))]
+fn unix_cli_compat_install_path() -> Option<PathBuf> {
+    dirs::home_dir()
+        .map(|h| h.join(".local").join("bin").join(platform::roux_cli_compat_file_name()))
 }
 
 fn cargo_cli_install_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".cargo").join("bin").join(platform::roux_cli_file_name()))
 }
 
+fn cargo_cli_compat_install_path() -> Option<PathBuf> {
+    dirs::home_dir()
+        .map(|h| h.join(".cargo").join("bin").join(platform::roux_cli_compat_file_name()))
+}
+
 fn sibling_cli_path() -> Option<PathBuf> {
     std::env::current_exe().ok().and_then(|p| platform::sibling_roux_cli_path(&p))
+}
+
+fn sibling_cli_compat_path() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|dir| dir.join(platform::roux_cli_compat_file_name())))
 }
 
 fn first_existing_path(candidates: impl IntoIterator<Item = Option<PathBuf>>) -> Option<PathBuf> {
     candidates.into_iter().flatten().find(|path| path.is_file())
 }
 
-fn roux_cli_path() -> Result<PathBuf, String> {
-    #[cfg(windows)]
-    let candidates = [sibling_cli_path(), cargo_cli_install_path()];
-    #[cfg(not(windows))]
-    let candidates = [unix_cli_install_path(), sibling_cli_path(), cargo_cli_install_path()];
-
-    first_existing_path(candidates)
-        .or_else(|| platform::find_executable_on_path(platform::roux_cli_file_name()))
-        .ok_or_else(|| {
-            format!(
-                "{} not found. Build the CLI companion binary before installing hooks.",
-                platform::roux_cli_file_name()
-            )
-        })
+fn find_cli_on_path() -> Option<PathBuf> {
+    platform::find_executable_on_path(platform::roux_cli_file_name())
+        .or_else(|| platform::find_executable_on_path(platform::roux_cli_compat_file_name()))
 }
 
-/// Bundled CLI version — what a freshly-installed `roux-cli` will report.
+fn roux_cli_path() -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    let candidates = [
+        sibling_cli_path(),
+        sibling_cli_compat_path(),
+        cargo_cli_install_path(),
+        cargo_cli_compat_install_path(),
+    ];
+    #[cfg(not(windows))]
+    let candidates = [
+        unix_cli_install_path(),
+        sibling_cli_path(),
+        cargo_cli_install_path(),
+        unix_cli_compat_install_path(),
+        sibling_cli_compat_path(),
+        cargo_cli_compat_install_path(),
+    ];
+
+    first_existing_path(candidates).or_else(find_cli_on_path).ok_or_else(|| {
+        format!(
+            "{} not found. Build the CLI companion binary before installing hooks.",
+            platform::roux_cli_file_name()
+        )
+    })
+}
+
+/// Bundled CLI version — what a freshly-installed `roux` will report.
 pub fn bundled_cli_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// Exec the installed `roux-cli --version` and return the semver segment of
-/// its output. Clap prints `"roux-cli X.Y.Z"`.
+/// Exec the installed `roux --version` and return the semver segment of
+/// its output. Clap prints `"roux X.Y.Z"`.
 pub fn installed_cli_version() -> Option<String> {
     let path = installed_cli_path()?;
     let output = std::process::Command::new(&path).arg("--version").output().ok()?;
@@ -60,12 +90,16 @@ pub fn installed_cli_version() -> Option<String> {
 /// [`cli_is_installed`] but returns the path so callers can exec it.
 fn installed_cli_path() -> Option<PathBuf> {
     #[cfg(windows)]
-    let candidates = [cargo_cli_install_path()];
+    let candidates = [cargo_cli_install_path(), cargo_cli_compat_install_path()];
     #[cfg(not(windows))]
-    let candidates = [unix_cli_install_path(), cargo_cli_install_path()];
+    let candidates = [
+        unix_cli_install_path(),
+        cargo_cli_install_path(),
+        unix_cli_compat_install_path(),
+        cargo_cli_compat_install_path(),
+    ];
 
-    first_existing_path(candidates)
-        .or_else(|| platform::find_executable_on_path(platform::roux_cli_file_name()))
+    first_existing_path(candidates).or_else(find_cli_on_path)
 }
 
 /// `true` when an installed CLI is found *and* its version matches the
@@ -74,18 +108,21 @@ pub fn cli_is_current() -> bool {
     installed_cli_version().as_deref() == Some(bundled_cli_version())
 }
 
-/// Check whether `roux-cli` can be found in any of the supported lookup locations,
+/// Check whether `roux` can be found in any of the supported lookup locations,
 /// including the platform-specific install path, a sibling binary, Cargo's bin
 /// directory, or `PATH`.
 pub fn cli_is_installed() -> bool {
     #[cfg(windows)]
-    let candidates = [cargo_cli_install_path()];
+    let candidates = [cargo_cli_install_path(), cargo_cli_compat_install_path()];
     #[cfg(not(windows))]
-    let candidates = [unix_cli_install_path(), cargo_cli_install_path()];
+    let candidates = [
+        unix_cli_install_path(),
+        cargo_cli_install_path(),
+        unix_cli_compat_install_path(),
+        cargo_cli_compat_install_path(),
+    ];
 
-    first_existing_path(candidates)
-        .or_else(|| platform::find_executable_on_path(platform::roux_cli_file_name()))
-        .is_some()
+    first_existing_path(candidates).or_else(find_cli_on_path).is_some()
 }
 
 #[cfg(windows)]
@@ -100,9 +137,10 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
     fs::create_dir_all(&bin_dir).map_err(|e| format!("Failed to create ~/.local/bin: {}", e))?;
 
     let target = bin_dir.join(platform::roux_cli_file_name());
+    let compat_target = bin_dir.join(platform::roux_cli_compat_file_name());
 
     // Find the source binary (next to the running roux binary)
-    let source = sibling_cli_path().ok_or("Could not find roux-cli next to roux binary")?;
+    let source = sibling_cli_path().ok_or("Could not find roux next to roux desktop binary")?;
 
     if source.exists() {
         // Only copy if source is newer or target doesn't exist
@@ -118,7 +156,7 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
         };
 
         if should_copy {
-            fs::copy(&source, &target).map_err(|e| format!("Failed to copy roux-cli: {}", e))?;
+            fs::copy(&source, &target).map_err(|e| format!("Failed to copy roux: {}", e))?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -126,13 +164,23 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
                 perms.set_mode(0o755);
                 fs::set_permissions(&target, perms).map_err(|e| e.to_string())?;
             }
-            eprintln!("Installed roux-cli to {}", target.display());
+            eprintln!("Installed roux CLI to {}", target.display());
         }
+        install_cli_compat_alias(&target, &compat_target)?;
         return Ok(target);
     }
 
     // Fallback: try to find it anywhere
     roux_cli_path()
+}
+
+#[cfg(not(windows))]
+fn install_cli_compat_alias(target: &Path, compat_target: &Path) -> Result<(), String> {
+    if compat_target.symlink_metadata().is_ok() {
+        let _ = fs::remove_file(compat_target);
+    }
+    std::os::unix::fs::symlink(target, compat_target)
+        .map_err(|e| format!("Failed to link roux-cli compatibility alias: {e}"))
 }
 
 fn claude_settings_path() -> Result<PathBuf, String> {
@@ -147,17 +195,47 @@ fn status_dir() -> Result<(), String> {
 }
 
 fn is_roux_hook_command(command: &str) -> bool {
-    command.contains(ROUX_HOOK_MARKER)
-        || (command.contains("roux-cli")
-            && [
-                " hook working",
-                " hook idle",
-                " hook attention",
-                " hook error",
-                " hook disconnected",
-            ]
-            .iter()
-            .any(|hook| command.contains(hook)))
+    let Some((program, args)) = split_command_program(command) else {
+        return false;
+    };
+    command_program_is_roux_cli(program) && args_start_with_roux_hook_status(args)
+}
+
+fn split_command_program(command: &str) -> Option<(&str, &str)> {
+    let trimmed = command.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        let quote = rest.find('"')?;
+        let (program, remainder) = rest.split_at(quote);
+        return Some((program, remainder[1..].trim_start()));
+    }
+
+    let mut parts = trimmed.splitn(2, char::is_whitespace);
+    let program = parts.next()?;
+    Some((program, parts.next().unwrap_or("").trim_start()))
+}
+
+fn command_program_is_roux_cli(program: &str) -> bool {
+    let file_name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    matches!(
+        file_name.to_ascii_lowercase().as_str(),
+        "roux" | "roux.exe" | "roux-cli" | "roux-cli.exe"
+    )
+}
+
+fn args_start_with_roux_hook_status(args: &str) -> bool {
+    let mut args = args.split_whitespace();
+    let Some(hook) = args.next() else {
+        return false;
+    };
+    if hook != "hook" {
+        return false;
+    }
+
+    matches!(args.next(), Some("working" | "idle" | "attention" | "error" | "disconnected"))
 }
 
 fn is_roux_hook(hook_obj: &Value) -> bool {
@@ -425,21 +503,39 @@ mod tests {
 
     #[test]
     fn roux_hook_detection_matches_quoted_exe_commands() {
+        assert!(is_roux_hook_command("\"C:\\\\Program Files\\\\Roux\\\\roux.exe\" hook working"));
         assert!(is_roux_hook_command(
             "\"C:\\\\Program Files\\\\Roux\\\\roux-cli.exe\" hook working"
         ));
+        assert!(is_roux_hook_command("/Users/sam/.local/bin/roux hook idle"));
         assert!(is_roux_hook_command("/Users/sam/.local/bin/roux-cli hook idle"));
         assert!(!is_roux_hook_command("echo roux-cli"));
+        assert!(!is_roux_hook_command("/home/user/projects/kangaroux/scripts/deploy.sh hook idle"));
     }
 
     #[test]
     fn hook_command_quotes_paths_with_spaces() {
         let command =
-            hook_command(Path::new("C:\\Users\\Sam\\App Data\\Roux\\roux-cli.exe"), "working");
-        assert_eq!(
-            command,
-            "\"C:\\\\Users\\\\Sam\\\\App Data\\\\Roux\\\\roux-cli.exe\" hook working"
-        );
+            hook_command(Path::new("C:\\Users\\Sam\\App Data\\Roux\\roux.exe"), "working");
+        assert_eq!(command, "\"C:\\\\Users\\\\Sam\\\\App Data\\\\Roux\\\\roux.exe\" hook working");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn install_cli_compat_alias_replaces_dangling_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("roux");
+        let missing = dir.path().join("missing-roux");
+        let compat = dir.path().join("roux-cli");
+
+        fs::write(&target, "").unwrap();
+        std::os::unix::fs::symlink(&missing, &compat).unwrap();
+        assert!(!compat.exists());
+        assert!(compat.symlink_metadata().is_ok());
+
+        install_cli_compat_alias(&target, &compat).unwrap();
+
+        assert_eq!(fs::read_link(&compat).unwrap(), target);
     }
 
     #[test]
@@ -467,13 +563,13 @@ mod tests {
             }
         });
 
-        merge_hooks(&mut settings, Path::new("C:\\Program Files\\Roux\\roux-cli.exe")).unwrap();
+        merge_hooks(&mut settings, Path::new("C:\\Program Files\\Roux\\roux.exe")).unwrap();
 
         let entries = settings["hooks"]["UserPromptSubmit"].as_array().unwrap();
         assert_eq!(entries.len(), 2);
         assert!(entries.iter().any(|entry| hook_entry_contains_command(
             entry,
-            "\"C:\\\\Program Files\\\\Roux\\\\roux-cli.exe\" hook working"
+            "\"C:\\\\Program Files\\\\Roux\\\\roux.exe\" hook working"
         )));
         assert!(entries.iter().any(|entry| {
             entry["hooks"].as_array().unwrap()[0]["command"].as_str() == Some("echo keep-me")
@@ -482,26 +578,26 @@ mod tests {
 
     #[test]
     fn setup_validation_requires_all_expected_hooks() {
-        let cli_path = Path::new("C:\\Program Files\\Roux\\roux-cli.exe");
+        let cli_path = Path::new("C:\\Program Files\\Roux\\roux.exe");
         let settings = roux_hooks_config(cli_path);
         assert!(hook_config_contains_expected_entries(&settings, &roux_hooks_config(cli_path)));
     }
 
     #[test]
     fn hook_config_marks_post_tool_use_as_working() {
-        let cli_path = Path::new("/Applications/Roux.app/Contents/MacOS/roux-cli");
+        let cli_path = Path::new("/Applications/Roux.app/Contents/MacOS/roux");
         let settings = roux_hooks_config(cli_path);
         let entries = settings["hooks"]["PostToolUse"].as_array().unwrap();
         assert_eq!(entries.len(), 1);
         assert!(hook_entry_contains_command(
             &entries[0],
-            "/Applications/Roux.app/Contents/MacOS/roux-cli hook working"
+            "/Applications/Roux.app/Contents/MacOS/roux hook working"
         ));
     }
 
     #[test]
     fn setup_validation_rejects_partial_hook_config() {
-        let cli_path = Path::new("C:\\Program Files\\Roux\\roux-cli.exe");
+        let cli_path = Path::new("C:\\Program Files\\Roux\\roux.exe");
         let mut settings = roux_hooks_config(cli_path);
         settings["hooks"].as_object_mut().unwrap().remove("StopFailure");
         assert!(!hook_config_contains_expected_entries(&settings, &roux_hooks_config(cli_path)));
@@ -509,7 +605,7 @@ mod tests {
 
     #[test]
     fn setup_validation_requires_notification_matchers() {
-        let cli_path = Path::new("C:\\Program Files\\Roux\\roux-cli.exe");
+        let cli_path = Path::new("C:\\Program Files\\Roux\\roux.exe");
         let mut settings = roux_hooks_config(cli_path);
         settings["hooks"]["Notification"][0]["matcher"] = json!("wrong_matcher");
         assert!(!hook_config_contains_expected_entries(&settings, &roux_hooks_config(cli_path)));

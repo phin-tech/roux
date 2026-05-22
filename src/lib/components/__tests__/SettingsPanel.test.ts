@@ -54,7 +54,7 @@ vi.mock("$lib/bindings", () => ({
       enabled: true,
       cliInstalled: true,
       cliCurrent: true,
-      cliPath: "/tmp/roux-cli",
+      cliPath: "/tmp/roux",
       lastConfiguredHost: null,
       lastConfiguredAtMs: null,
       hosts: [
@@ -78,7 +78,7 @@ vi.mock("$lib/bindings", () => ({
         action: "create",
         configured: false,
         currentEntryJson: null,
-        nextEntryJson: '{\n  "command": "/tmp/roux-cli",\n  "args": [\n    "mcp"\n  ]\n}',
+        nextEntryJson: '{\n  "command": "/tmp/roux",\n  "args": [\n    "mcp"\n  ]\n}',
       },
     }),
     cmdConfigureMcpHost: vi.fn(),
