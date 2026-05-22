@@ -4,10 +4,76 @@ use crate::daemon_client::DaemonStatus;
 use crate::state::AppState;
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot, PtySpawnRequest};
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum RuntimeMode {
+    Daemon,
+    LocalFallback,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuntimeCounts {
+    pub(crate) session_count: usize,
+    pub(crate) project_count: usize,
+    pub(crate) process_count: usize,
+    pub(crate) pty_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuntimeStatus {
+    pub(crate) mode: RuntimeMode,
+    pub(crate) desktop_pid: u32,
+    pub(crate) started_at_ms: u64,
+    pub(crate) uptime_ms: u64,
+    pub(crate) daemon: Option<DaemonStatus>,
+    pub(crate) local: Option<RuntimeCounts>,
+    pub(crate) status_error: Option<String>,
+}
 
 #[tauri::command]
 pub(crate) fn get_daemon_status(state: tauri::State<'_, AppState>) -> Option<DaemonStatus> {
     state.daemon_client.as_ref().map(|client| client.status().clone())
+}
+
+#[tauri::command]
+pub(crate) async fn get_runtime_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<RuntimeStatus, String> {
+    let daemon_client = state.daemon_client.clone();
+    let runtime_started_at_ms = state.runtime_started_at_ms;
+    let runtime = state.runtime.clone();
+
+    if let Some(client) = daemon_client {
+        let (daemon, status_error) = match client.refresh_status().await {
+            Ok(status) => (status, None),
+            Err(err) => (client.status().clone(), Some(err)),
+        };
+        return Ok(RuntimeStatus {
+            mode: RuntimeMode::Daemon,
+            desktop_pid: std::process::id(),
+            started_at_ms: daemon.started_at_ms,
+            uptime_ms: daemon.uptime_ms,
+            daemon: Some(daemon),
+            local: None,
+            status_error,
+        });
+    }
+
+    let counts = local_runtime_counts(runtime).await;
+    let now = unix_now_ms();
+    Ok(RuntimeStatus {
+        mode: RuntimeMode::LocalFallback,
+        desktop_pid: std::process::id(),
+        started_at_ms: runtime_started_at_ms,
+        uptime_ms: now.saturating_sub(runtime_started_at_ms),
+        daemon: None,
+        local: Some(counts),
+        status_error: None,
+    })
 }
 
 #[tauri::command]
@@ -26,6 +92,22 @@ pub(crate) async fn daemon_process_start(
         .start(command, working_dir.map(PathBuf::from))
         .await
         .map_err(|err| err.to_string())
+}
+
+async fn local_runtime_counts(runtime: roux_runtime::host::RuntimeHost) -> RuntimeCounts {
+    RuntimeCounts {
+        session_count: runtime.session_handle.list().await.map(|items| items.len()).unwrap_or(0),
+        project_count: runtime.project_handle.list().await.map(|items| items.len()).unwrap_or(0),
+        process_count: runtime.process_handle.list().await.map(|items| items.len()).unwrap_or(0),
+        pty_count: runtime.pty_handle.list().await.map(|items| items.len()).unwrap_or(0),
+    }
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 #[tauri::command]

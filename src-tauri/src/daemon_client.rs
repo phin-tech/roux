@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
+use tauri::ipc::{Channel, Response as IpcResponse};
+use tauri::{AppHandle, Emitter};
 
-use roux_core::{Project, Session};
+use roux_core::{Project, Session, SessionExitPayload, SessionExitReason};
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
 
@@ -82,6 +84,17 @@ impl DaemonClient {
 
     pub(crate) fn status(&self) -> &DaemonStatus {
         &self.status
+    }
+
+    pub(crate) async fn refresh_status(&self) -> Result<DaemonStatus, String> {
+        let value = send_command_async(serde_json::json!({ "command": "daemon-status" })).await?;
+        let status: DaemonStatus =
+            serde_json::from_value(value).map_err(|err| format!("decode daemon-status: {err}"))?;
+        if status.kind == "roux-daemon" {
+            Ok(status)
+        } else {
+            Err(format!("unexpected daemon kind: {}", status.kind))
+        }
     }
 
     pub(crate) async fn list_sessions(&self) -> Result<Vec<Session>, String> {
@@ -213,6 +226,19 @@ impl DaemonClient {
     pub(crate) async fn kill_daemon_pty(&self, id: String) -> Result<PtyRecord, String> {
         let value = send_command_async(daemon_pty_kill_request(id)).await?;
         serde_json::from_value(value).map_err(|err| format!("decode daemon pty kill: {err}"))
+    }
+
+    pub(crate) fn spawn_daemon_pty_output_bridge(
+        &self,
+        id: String,
+        channel: Channel<IpcResponse>,
+        app: AppHandle,
+    ) -> tauri::async_runtime::JoinHandle<()> {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(err) = attach_daemon_pty_output_blocking(id.clone(), channel, app) {
+                rlog!("Daemon PTY output bridge for {id} stopped: {err}");
+            }
+        })
     }
 }
 
@@ -419,6 +445,18 @@ fn daemon_pty_output_request(id: String, max_bytes: Option<usize>) -> Value {
     })
 }
 
+fn daemon_pty_attach_request(id: String, max_bytes: Option<usize>) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".to_string(), Value::String(id));
+    if let Some(max_bytes) = max_bytes {
+        args.insert("maxBytes".to_string(), serde_json::json!(max_bytes));
+    }
+    serde_json::json!({
+        "command": "daemon-pty-attach",
+        "args": args,
+    })
+}
+
 fn daemon_pty_list_request() -> Value {
     serde_json::json!({ "command": "daemon-pty-list" })
 }
@@ -535,6 +573,171 @@ fn write_request(stream: &mut impl Write, request: Value) -> Result<(), String> 
         .map_err(|err| format!("write daemon request: {err}"))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum PtyAttachStreamFrame {
+    #[serde(rename = "ready")]
+    Ready {
+        #[allow(dead_code)]
+        id: String,
+        #[allow(dead_code)]
+        record: PtyRecord,
+        #[serde(rename = "replayOffset")]
+        replay_offset: u64,
+        #[serde(rename = "replayBytes")]
+        replay_bytes: Vec<u8>,
+    },
+    #[serde(rename = "output")]
+    Output { offset: u64, bytes: Vec<u8> },
+    #[serde(rename = "exit")]
+    Exit { code: Option<i32>, generation: u64 },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
+fn attach_daemon_pty_output_blocking(
+    id: String,
+    channel: Channel<IpcResponse>,
+    app: AppHandle,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        attach_daemon_pty_output_tcp(id, channel, app)
+    }
+    #[cfg(not(windows))]
+    {
+        attach_daemon_pty_output_unix(id, channel, app)
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_daemon_pty_output_unix(
+    id: String,
+    channel: Channel<IpcResponse>,
+    app: AppHandle,
+) -> Result<(), String> {
+    use std::os::unix::net::UnixStream;
+
+    let path = platform::resolve_socket_endpoint()
+        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
+    let mut stream =
+        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(
+        &mut stream,
+        daemon_pty_attach_request(
+            id.clone(),
+            Some(roux_runtime::pty_service::PTY_OUTPUT_LIMIT_BYTES),
+        ),
+    )?;
+    read_pty_attach_stream(id, stream, channel, app)
+}
+
+#[cfg(windows)]
+fn attach_daemon_pty_output_tcp(
+    id: String,
+    channel: Channel<IpcResponse>,
+    app: AppHandle,
+) -> Result<(), String> {
+    use std::net::TcpStream;
+
+    let auth_token = platform::load_socket_auth_token()
+        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
+    let mut request = daemon_pty_attach_request(
+        id.clone(),
+        Some(roux_runtime::pty_service::PTY_OUTPUT_LIMIT_BYTES),
+    );
+    if let Some(obj) = request.as_object_mut() {
+        obj.insert("auth_token".to_string(), Value::String(auth_token));
+    }
+
+    let endpoint =
+        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
+    let mut stream = TcpStream::connect(&endpoint)
+        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, request)?;
+    read_pty_attach_stream(id, stream, channel, app)
+}
+
+fn read_pty_attach_stream(
+    id: String,
+    stream: impl Read,
+    channel: Channel<IpcResponse>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    let mut sent_until = 0_u64;
+    loop {
+        line.clear();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|err| format!("read daemon pty attach frame: {err}"))?;
+        if read == 0 {
+            return Ok(());
+        }
+        let frame: PtyAttachStreamFrame = serde_json::from_str(line.trim())
+            .map_err(|err| format!("decode daemon pty attach frame: {err}"))?;
+        if !handle_pty_attach_frame(&id, frame, &channel, &app, &mut sent_until)? {
+            return Ok(());
+        }
+    }
+}
+
+fn handle_pty_attach_frame(
+    id: &str,
+    frame: PtyAttachStreamFrame,
+    channel: &Channel<IpcResponse>,
+    app: &AppHandle,
+    sent_until: &mut u64,
+) -> Result<bool, String> {
+    match frame {
+        PtyAttachStreamFrame::Ready { replay_offset, replay_bytes, .. } => {
+            let replay_end = replay_offset.saturating_add(replay_bytes.len() as u64);
+            if !replay_bytes.is_empty() {
+                channel
+                    .send(IpcResponse::new(replay_bytes))
+                    .map_err(|err| format!("send daemon pty replay to frontend: {err}"))?;
+            }
+            *sent_until = (*sent_until).max(replay_end);
+            Ok(true)
+        }
+        PtyAttachStreamFrame::Output { offset, bytes } => {
+            let frame_end = offset.saturating_add(bytes.len() as u64);
+            if frame_end <= *sent_until {
+                return Ok(true);
+            }
+            let start = if offset < *sent_until { (*sent_until - offset) as usize } else { 0 };
+            let bytes = bytes[start..].to_vec();
+            if !bytes.is_empty() {
+                channel
+                    .send(IpcResponse::new(bytes))
+                    .map_err(|err| format!("send daemon pty output to frontend: {err}"))?;
+            }
+            *sent_until = (*sent_until).max(frame_end);
+            Ok(true)
+        }
+        PtyAttachStreamFrame::Exit { code, generation } => {
+            emit_daemon_pty_exit(app, id, code, generation);
+            Ok(false)
+        }
+        PtyAttachStreamFrame::Error { error } => Err(error),
+    }
+}
+
+fn emit_daemon_pty_exit(app: &AppHandle, id: &str, code: Option<i32>, generation: u64) {
+    let code = code.and_then(|code| u32::try_from(code).ok());
+    let _ = app.emit(
+        &format!("session-exit:{id}"),
+        &SessionExitPayload { code, generation, reason: SessionExitReason::Exit },
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -607,6 +810,11 @@ mod tests {
         assert_eq!(output["command"], "daemon-pty-output");
         assert_eq!(output["args"]["id"], "pty-a");
         assert_eq!(output["args"]["maxBytes"], 42);
+
+        let attach = daemon_pty_attach_request("pty-a".to_string(), Some(1024));
+        assert_eq!(attach["command"], "daemon-pty-attach");
+        assert_eq!(attach["args"]["id"], "pty-a");
+        assert_eq!(attach["args"]["maxBytes"], 1024);
 
         assert_eq!(daemon_pty_list_request()["command"], "daemon-pty-list");
 

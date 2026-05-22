@@ -3,19 +3,36 @@ use crate::state::AppState;
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn list_session_ptys(
+pub(crate) async fn list_session_ptys(
     session_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<PtyInfo>, String> {
-    Ok(state.pty_manager.list_for_session(&session_id))
+    let mut ptys = Vec::new();
+    if let Some(client) = state.daemon_client.clone() {
+        ptys.extend(
+            client
+                .list_daemon_ptys()
+                .await?
+                .into_iter()
+                .map(|record| record.info)
+                .filter(|info| info.session_id.as_deref() == Some(session_id.as_str())),
+        );
+    }
+    ptys.extend(state.pty_manager.list_for_session(&session_id));
+    Ok(ptys)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn list_all_ptys(
+pub(crate) async fn list_all_ptys(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<PtyInfo>, String> {
-    Ok(state.pty_manager.list_all())
+    let mut ptys = Vec::new();
+    if let Some(client) = state.daemon_client.clone() {
+        ptys.extend(client.list_daemon_ptys().await?.into_iter().map(|record| record.info));
+    }
+    ptys.extend(state.pty_manager.list_all());
+    Ok(ptys)
 }
 
 #[tauri::command]
@@ -35,13 +52,24 @@ pub struct AttachResult {
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn attach_pty_to_pane(
+pub(crate) async fn attach_pty_to_pane(
     pty_id: String,
     pane_id: String,
     cols: u16,
     rows: u16,
     state: tauri::State<'_, AppState>,
 ) -> Result<AttachResult, String> {
+    if let Some(client) = state.daemon_client.clone() {
+        match client.daemon_pty_output(pty_id.clone(), Some(256 * 1024)).await {
+            Ok(snapshot) => {
+                let _ = client.resize_daemon_pty(pty_id, cols, rows).await?;
+                return Ok(AttachResult { replay_bytes: snapshot.output_bytes });
+            }
+            Err(err) if err.contains("daemon pty not found") => {}
+            Err(err) => return Err(err),
+        }
+    }
+
     let replay_bytes = state.pty_manager.get_replay(&pty_id, 256 * 1024);
     state.pty_manager.attach_to_pane(&pty_id, &pane_id);
     let _ = state.pty_manager.resize(&pty_id, cols, rows);

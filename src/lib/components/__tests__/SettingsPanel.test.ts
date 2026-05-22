@@ -95,6 +95,31 @@ vi.mock("$lib/logging", () => ({
 vi.mock("$lib/tauri", () => ({
   notificationsPush: vi.fn(),
   quitApp: vi.fn(),
+  checkDoctorStatus: vi.fn().mockResolvedValue({
+    items: [],
+  }),
+  installAllMissing: vi.fn().mockResolvedValue(undefined),
+  reinstallCli: vi.fn().mockResolvedValue(undefined),
+  reinstallHooks: vi.fn().mockResolvedValue(undefined),
+  reinstallSkill: vi.fn().mockResolvedValue(undefined),
+  getRuntimeStatus: vi.fn().mockResolvedValue({
+    mode: "daemon",
+    startedAtMs: 1_700_000_000_000,
+    uptimeMs: 12_345,
+    daemon: {
+      kind: "roux-daemon",
+      pid: 4242,
+      socket: "/tmp/roux.sock",
+      logPath: "/tmp/roux-daemon.log",
+      startedAtMs: 1_700_000_000_000,
+      uptimeMs: 12_345,
+      sessionCount: 2,
+      projectCount: 3,
+      processCount: 4,
+      ptyCount: 5,
+      capabilities: ["daemon-status", "daemon-pty-list"],
+    },
+  }),
   getSettings: vi.fn(),
   updateSettings: vi.fn().mockResolvedValue(undefined),
   onSettingsChanged: vi.fn().mockResolvedValue(undefined),
@@ -108,7 +133,7 @@ vi.mock("$lib/stores/updater", () => ({
 import { commands } from "$lib/bindings";
 import SettingsPanel from "../SettingsPanel.svelte";
 import { settings } from "$lib/stores/settings";
-import { updateSettings } from "$lib/tauri";
+import { getRuntimeStatus, updateSettings } from "$lib/tauri";
 
 describe("SettingsPanel MCP integration", () => {
   beforeEach(() => {
@@ -235,5 +260,24 @@ describe("SettingsPanel Experiments tab", () => {
     const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
     expect(lastCall[0].experiments?.exampleVariant).toBe("c");
     expect(lastCall[0].experiments?.exampleFlag).toBe(false);
+  });
+});
+
+describe("SettingsPanel runtime debug", () => {
+  beforeEach(() => {
+    settings.set({ ...DEFAULT_SETTINGS });
+    vi.mocked(getRuntimeStatus).mockClear();
+  });
+
+  it("renders daemon runtime status on the Advanced page", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+
+    expect(await screen.findByText("Runtime")).toBeDefined();
+    expect((await screen.findAllByText("Daemon")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("pid 4242")).toBeDefined();
+    expect(await screen.findByText("/tmp/roux.sock")).toBeDefined();
+    expect(getRuntimeStatus).toHaveBeenCalled();
   });
 });

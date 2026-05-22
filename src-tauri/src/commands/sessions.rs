@@ -45,13 +45,36 @@ pub(crate) struct CreateShellOpts {
     pub smol_machine_name: Option<String>,
 }
 
+fn is_daemon_pty_not_found(err: &str) -> bool {
+    err.contains("daemon pty not found")
+}
+
+fn abort_daemon_attach_task(state: &AppState, id: &str) -> Result<(), String> {
+    let previous = state
+        .daemon_pty_attach_tasks
+        .lock()
+        .map_err(|err| err.to_string())?
+        .remove(id);
+    if let Some(previous) = previous {
+        previous.abort();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn write_to_session(
+pub(crate) async fn write_to_session(
     id: String,
     data: String,
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = state.daemon_client.clone() {
+        match client.write_daemon_pty(id.clone(), data.clone()).await {
+            Ok(()) => return Ok(()),
+            Err(err) if is_daemon_pty_not_found(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
     state.pty_manager.write(&id, data.as_bytes()).map_err(|e| e.to_string())
 }
 
@@ -81,22 +104,49 @@ pub(crate) fn submit_roux_reply(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn resize_session(
+pub(crate) async fn resize_session(
     id: String,
     cols: u16,
     rows: u16,
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = state.daemon_client.clone() {
+        match client.resize_daemon_pty(id.clone(), cols, rows).await {
+            Ok(_) => return Ok(()),
+            Err(err) if is_daemon_pty_not_found(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
     state.pty_manager.resize(&id, cols, rows).map_err(|e| e.to_string())
 }
 
 // No #[specta::specta] — Channel<Response> doesn't implement specta::Type
 #[tauri::command]
-pub(crate) fn attach_pty_output(
+pub(crate) async fn attach_pty_output(
     id: String,
     on_event: tauri::ipc::Channel<tauri::ipc::Response>,
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
+    if let Some(client) = state.daemon_client.clone() {
+        match client.daemon_pty_output(id.clone(), Some(0)).await {
+            Ok(_) => {
+                let handle = client.spawn_daemon_pty_output_bridge(id.clone(), on_event, app);
+                let previous = state
+                    .daemon_pty_attach_tasks
+                    .lock()
+                    .map_err(|err| err.to_string())?
+                    .insert(id, handle);
+                if let Some(previous) = previous {
+                    previous.abort();
+                }
+                return Ok(());
+            }
+            Err(err) if is_daemon_pty_not_found(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
+
     state.pty_manager.attach_output_channel(&id, on_event);
     Ok(())
 }
@@ -149,6 +199,22 @@ pub(crate) async fn spawn_shell(
         }
         _ => None,
     };
+
+    if let Some(client) = state.daemon_client.clone() {
+        if nono.is_none() && smolvm.is_none() {
+            client
+                .spawn_daemon_pty_shell(
+                    Some(id.clone()),
+                    Some(working_dir.clone()),
+                    session_id.clone(),
+                    pane_id.clone(),
+                    profile.clone(),
+                    initial_size,
+                )
+                .await?;
+            return Ok(());
+        }
+    }
 
     // Secondary pane spawn path. Primary session shells already carry
     // ROUX_PROJECT_ID / ROUX_WORKTREE_PATH via services::sessions. Secondary
@@ -233,6 +299,38 @@ pub(crate) async fn spawn_task(
         }
         _ => None,
     };
+
+    if let Some(client) = state.daemon_client.clone() {
+        if smolvm.is_none() {
+            client
+                .spawn_daemon_pty_task(
+                    command.clone(),
+                    Some(id.clone()),
+                    Some(working_dir.clone()),
+                    session_id.clone(),
+                    pane_id.clone(),
+                    profile.clone(),
+                    initial_size,
+                )
+                .await?;
+            let scope = session_id.as_ref().map(|_| "session".to_string());
+            let context = crate::automation_hooks::HookContext {
+                repo_path: Some(working_dir.clone()),
+                worktree_path: Some(working_dir.clone()),
+                task_id: Some(id),
+                session_id,
+                scope,
+                cwd: Some(working_dir),
+                ..crate::automation_hooks::HookContext::new(
+                    crate::automation_hooks::HookEvent::PostTaskRun,
+                )
+            };
+            state
+                .automation_hooks
+                .spawn_background(crate::automation_hooks::HookEvent::PostTaskRun, context);
+            return Ok(());
+        }
+    }
 
     state
         .pty_manager
@@ -404,7 +502,18 @@ pub(crate) async fn session_worktree_exists(
 /// `ptyId == sessionId` matched a real session record and deleted it.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn kill_pty(id: String, state: tauri::State<AppState>) -> Result<(), String> {
+pub(crate) async fn kill_pty(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    if let Some(client) = state.daemon_client.clone() {
+        match client.kill_daemon_pty(id.clone()).await {
+            Ok(_) => {
+                abort_daemon_attach_task(&state, &id)?;
+                return Ok(());
+            }
+            Err(err) if is_daemon_pty_not_found(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
+    abort_daemon_attach_task(&state, &id)?;
     state.pty_manager.kill(&id);
     Ok(())
 }

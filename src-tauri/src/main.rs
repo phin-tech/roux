@@ -90,6 +90,13 @@ fn main() {
     }
     .build();
     let (runtime, _runtime_joins) = runtime_services.spawn_with(tauri::async_runtime::spawn);
+    let runtime_started_at_ms = {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    };
 
     #[cfg(debug_assertions)]
     let builder = Builder::<tauri::Wry>::new().commands(collect_commands![
@@ -262,6 +269,8 @@ fn main() {
         .manage(AppState {
             settings: Mutex::new(initial_settings),
             daemon_client,
+            runtime_started_at_ms,
+            daemon_pty_attach_tasks: Mutex::new(std::collections::HashMap::new()),
             pty_manager: std::sync::Arc::new(PtyManager::new()),
             runtime,
             watch_manager: watches::WatchManager::new(watch_store_handle),
@@ -282,6 +291,7 @@ fn main() {
             commands::misc::get_log_path,
             commands::misc::frontend_log,
             commands::daemon::get_daemon_status,
+            commands::daemon::get_runtime_status,
             commands::daemon::daemon_process_start,
             commands::daemon::daemon_process_output,
             commands::daemon::daemon_process_list,

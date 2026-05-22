@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use roux_core::{PtyInfo, PtyRole, PtyStatus};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::pty_live::WaitedChild;
@@ -73,6 +73,26 @@ pub struct PtyRecord {
 pub struct PtySnapshot {
     pub record: PtyRecord,
     pub output: String,
+    pub output_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PtyOutputFrame {
+    pub offset: u64,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub enum PtyOutputEvent {
+    Output(PtyOutputFrame),
+    Exit { code: Option<i32>, generation: u64 },
+}
+
+pub struct PtyAttach {
+    pub record: PtyRecord,
+    pub replay_offset: u64,
+    pub replay_bytes: Vec<u8>,
+    pub events: broadcast::Receiver<PtyOutputEvent>,
 }
 
 enum PtyMsg {
@@ -89,6 +109,11 @@ enum PtyMsg {
         id: String,
         max_bytes: usize,
         reply: oneshot::Sender<Option<PtySnapshot>>,
+    },
+    Attach {
+        id: String,
+        max_replay_bytes: usize,
+        reply: oneshot::Sender<Option<PtyAttach>>,
     },
     List {
         reply: oneshot::Sender<Vec<PtyRecord>>,
@@ -157,6 +182,16 @@ impl PtyHandle {
     ) -> Result<Option<PtySnapshot>, PtyServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(PtyMsg::Snapshot { id: id.to_string(), max_bytes, reply: reply_tx })?;
+        reply_rx.await.map_err(|_| PtyServiceError::Unavailable)
+    }
+
+    pub async fn attach(
+        &self,
+        id: &str,
+        max_replay_bytes: usize,
+    ) -> Result<Option<PtyAttach>, PtyServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(PtyMsg::Attach { id: id.to_string(), max_replay_bytes, reply: reply_tx })?;
         reply_rx.await.map_err(|_| PtyServiceError::Unavailable)
     }
 
@@ -271,6 +306,10 @@ async fn service_loop(mut rx: mpsc::UnboundedReceiver<PtyMsg>) {
                 });
                 let _ = reply.send(snapshot);
             }
+            PtyMsg::Attach { id, max_replay_bytes, reply } => {
+                let attach = ptys.get_mut(&id).map(|entry| entry.attach(max_replay_bytes));
+                let _ = reply.send(attach);
+            }
             PtyMsg::List { reply } => {
                 let mut records: Vec<_> = ptys
                     .values_mut()
@@ -337,6 +376,7 @@ struct PtyEntry {
     child: Box<dyn portable_pty::Child + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output: Arc<Mutex<PtyOutputBuffer>>,
+    events: broadcast::Sender<PtyOutputEvent>,
     metadata: PtySessionMetadata,
     generation: u64,
     exit_code: Option<i32>,
@@ -429,9 +469,21 @@ impl PtyEntry {
     }
 
     fn snapshot(&self, max_bytes: usize) -> PtySnapshot {
-        let output =
-            self.output.lock().map(|output| output.snapshot_text(max_bytes)).unwrap_or_default();
-        PtySnapshot { record: self.record(), output }
+        let output_bytes =
+            self.output.lock().map(|output| output.snapshot_bytes(max_bytes)).unwrap_or_default();
+        let output = String::from_utf8_lossy(&output_bytes).into_owned();
+        PtySnapshot { record: self.record(), output, output_bytes }
+    }
+
+    fn attach(&mut self, max_replay_bytes: usize) -> PtyAttach {
+        let events = self.events.subscribe();
+        self.refresh_status();
+        let (replay_offset, replay_bytes) = self
+            .output
+            .lock()
+            .map(|output| output.snapshot_bytes_with_offset(max_replay_bytes))
+            .unwrap_or_else(|_| (0, Vec::new()));
+        PtyAttach { record: self.record(), replay_offset, replay_bytes, events }
     }
 }
 
@@ -475,13 +527,14 @@ fn spawn_pty(
     let cmd = command_builder_from_plan(&spawn_plan.command);
     let child =
         pair.slave.spawn_command(cmd).map_err(|err| format!("spawn daemon pty {}: {err}", id))?;
-    let child = wrap_child_for_kind(kind, child);
+    let (events, _) = broadcast::channel(1024);
+    let child = wrap_child_with_waiter(child, events.clone(), generation);
     let writer =
         pair.master.take_writer().map_err(|err| format!("get daemon pty writer: {err}"))?;
     let reader =
         pair.master.try_clone_reader().map_err(|err| format!("get daemon pty reader: {err}"))?;
     let output = Arc::new(Mutex::new(PtyOutputBuffer::new(PTY_OUTPUT_LIMIT_BYTES)));
-    spawn_output_reader(reader, Arc::clone(&output));
+    spawn_output_reader(reader, Arc::clone(&output), events.clone());
 
     let size = spawn_plan.size.as_tuple();
     let metadata = PtySessionMetadata::new(PtySessionMetadataInputs {
@@ -504,27 +557,27 @@ fn spawn_pty(
         child,
         writer: Arc::new(Mutex::new(writer)),
         output,
+        events,
         metadata,
         generation,
         exit_code: None,
     })
 }
 
-fn wrap_child_for_kind(
-    kind: PtyKind,
+fn wrap_child_with_waiter(
     mut child: Box<dyn portable_pty::Child + Send>,
+    events: broadcast::Sender<PtyOutputEvent>,
+    generation: u64,
 ) -> Box<dyn portable_pty::Child + Send> {
-    match kind {
-        PtyKind::Shell => child,
-        PtyKind::Task => {
-            let waited_child = WaitedChild::new(child.clone_killer());
-            let waited_child_exit = waited_child.exit_state();
-            thread::spawn(move || {
-                waited_child_exit.record_wait_result(child.wait());
-            });
-            Box::new(waited_child)
-        }
-    }
+    let waited_child = WaitedChild::new(child.clone_killer());
+    let waited_child_exit = waited_child.exit_state();
+    thread::spawn(move || {
+        let wait_result = child.wait();
+        let code = wait_result.as_ref().ok().map(|status| status.exit_code() as i32);
+        waited_child_exit.record_wait_result(wait_result);
+        let _ = events.send(PtyOutputEvent::Exit { code, generation });
+    });
+    Box::new(waited_child)
 }
 
 fn pty_size_from_dimensions(size: pty_spawn::PtyDimensions) -> PtySize {
@@ -572,19 +625,22 @@ fn resolve_default_shell() -> String {
 struct PtyOutputBuffer {
     chunks: VecDeque<Vec<u8>>,
     bytes: usize,
+    total_bytes: u64,
     limit_bytes: usize,
     truncated: bool,
 }
 
 impl PtyOutputBuffer {
     fn new(limit_bytes: usize) -> Self {
-        Self { chunks: VecDeque::new(), bytes: 0, limit_bytes, truncated: false }
+        Self { chunks: VecDeque::new(), bytes: 0, total_bytes: 0, limit_bytes, truncated: false }
     }
 
-    fn append(&mut self, bytes: &[u8]) {
+    fn append(&mut self, bytes: &[u8]) -> Option<PtyOutputFrame> {
         if bytes.is_empty() {
-            return;
+            return None;
         }
+        let offset = self.total_bytes;
+        self.total_bytes = self.total_bytes.saturating_add(bytes.len() as u64);
         self.bytes += bytes.len();
         self.chunks.push_back(bytes.to_vec());
         while self.bytes > self.limit_bytes {
@@ -595,21 +651,27 @@ impl PtyOutputBuffer {
             self.bytes = self.bytes.saturating_sub(removed.len());
             self.truncated = true;
         }
+        Some(PtyOutputFrame { offset, bytes: bytes.to_vec() })
     }
 
-    fn snapshot_text(&self, max_bytes: usize) -> String {
+    fn snapshot_bytes(&self, max_bytes: usize) -> Vec<u8> {
+        self.snapshot_bytes_with_offset(max_bytes).1
+    }
+
+    fn snapshot_bytes_with_offset(&self, max_bytes: usize) -> (u64, Vec<u8>) {
         if max_bytes == 0 {
-            return String::new();
+            return (self.total_bytes, Vec::new());
         }
         let mut bytes = Vec::with_capacity(self.bytes.min(max_bytes));
         for chunk in &self.chunks {
             bytes.extend_from_slice(chunk);
         }
+        let retained_offset = self.total_bytes.saturating_sub(bytes.len() as u64);
         if bytes.len() > max_bytes {
             let start = bytes.len() - max_bytes;
-            bytes = bytes[start..].to_vec();
+            return (retained_offset.saturating_add(start as u64), bytes[start..].to_vec());
         }
-        String::from_utf8_lossy(&bytes).into_owned()
+        (retained_offset, bytes)
     }
 
     fn len_bytes(&self) -> usize {
@@ -621,7 +683,11 @@ impl PtyOutputBuffer {
     }
 }
 
-fn spawn_output_reader(mut reader: Box<dyn Read + Send>, output: Arc<Mutex<PtyOutputBuffer>>) {
+fn spawn_output_reader(
+    mut reader: Box<dyn Read + Send>,
+    output: Arc<Mutex<PtyOutputBuffer>>,
+    events: broadcast::Sender<PtyOutputEvent>,
+) {
     thread::spawn(move || {
         let mut buf = [0_u8; 4096];
         loop {
@@ -629,7 +695,9 @@ fn spawn_output_reader(mut reader: Box<dyn Read + Send>, output: Arc<Mutex<PtyOu
                 Ok(0) => break,
                 Ok(n) => {
                     if let Ok(mut output) = output.lock() {
-                        output.append(&buf[..n]);
+                        if let Some(frame) = output.append(&buf[..n]) {
+                            let _ = events.send(PtyOutputEvent::Output(frame));
+                        }
                     } else {
                         break;
                     }
@@ -689,6 +757,7 @@ mod tests {
 
         let snapshot = snapshot.expect("PTY output should be retained");
         assert_eq!(snapshot.record.exit_code, Some(0));
+        assert_eq!(snapshot.output_bytes, snapshot.output.as_bytes());
 
         handle.shutdown().await;
         join.await.unwrap();
@@ -714,5 +783,29 @@ mod tests {
 
         handle.shutdown().await;
         join.await.unwrap();
+    }
+
+    #[test]
+    fn output_buffer_reports_offsets_for_retained_bytes() {
+        let mut output = PtyOutputBuffer::new(5);
+
+        let first = output.append(b"abc").unwrap();
+        assert_eq!(first.offset, 0);
+        assert_eq!(first.bytes, b"abc");
+
+        let second = output.append(b"de").unwrap();
+        assert_eq!(second.offset, 3);
+
+        let third = output.append(b"fg").unwrap();
+        assert_eq!(third.offset, 5);
+
+        let (offset, bytes) = output.snapshot_bytes_with_offset(10);
+        assert_eq!(offset, 3);
+        assert_eq!(bytes, b"defg");
+        assert!(output.is_truncated());
+
+        let (offset, bytes) = output.snapshot_bytes_with_offset(2);
+        assert_eq!(offset, 5);
+        assert_eq!(bytes, b"fg");
     }
 }

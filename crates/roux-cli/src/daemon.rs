@@ -9,7 +9,7 @@ use tokio::net::UnixListener;
 
 use roux_runtime::host::{RuntimeHost, RuntimeHostConfig};
 use roux_runtime::process_service::PROCESS_OUTPUT_DEFAULT_POLL_BYTES;
-use roux_runtime::pty_service::{PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES};
+use roux_runtime::pty_service::{PtyOutputEvent, PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES};
 
 use crate::{daemon_log::DaemonLog, paths, platform};
 
@@ -110,6 +110,26 @@ struct Response {
     data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum PtyAttachFrame {
+    #[serde(rename = "ready")]
+    Ready {
+        id: String,
+        record: roux_runtime::pty_service::PtyRecord,
+        #[serde(rename = "replayOffset")]
+        replay_offset: u64,
+        #[serde(rename = "replayBytes")]
+        replay_bytes: Vec<u8>,
+    },
+    #[serde(rename = "output")]
+    Output { offset: u64, bytes: Vec<u8> },
+    #[serde(rename = "exit")]
+    Exit { code: Option<i32>, generation: u64 },
+    #[serde(rename = "error")]
+    Error { error: String },
 }
 
 impl Response {
@@ -293,6 +313,15 @@ async fn handle_connection<R, W>(
         Ok(_) => match serde_json::from_str::<Request>(line.trim()) {
             Ok(req) => {
                 let command = req.command.clone();
+                if command == "daemon-pty-attach" {
+                    let ok = handle_daemon_pty_attach_stream(req, writer, host, identity).await;
+                    if ok {
+                        log.write("Handled socket command: daemon-pty-attach");
+                    } else {
+                        log.write("Socket command failed: daemon-pty-attach");
+                    }
+                    return;
+                }
                 let response = handle_request(req, host, identity).await;
                 if response.ok {
                     log.write(&format!("Handled socket command: {command}"));
@@ -320,8 +349,7 @@ async fn handle_connection<R, W>(
 }
 
 async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdentity) -> Response {
-    #[cfg(windows)]
-    if req.auth_token.as_deref() != identity.auth_token.as_deref() {
+    if !request_authorized(&req, identity) {
         return Response::err("unauthorized");
     }
 
@@ -375,12 +403,149 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "daemon-pty-spawn-shell",
             "daemon-pty-spawn-task",
             "daemon-pty-output",
+            "daemon-pty-attach",
             "daemon-pty-list",
             "daemon-pty-write",
             "daemon-pty-resize",
             "daemon-pty-kill"
         ],
     }))
+}
+
+async fn handle_daemon_pty_attach_stream<W>(
+    req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let result = handle_daemon_pty_attach_stream_inner(req, writer, host, identity).await;
+    let _ = writer.shutdown().await;
+    result
+}
+
+async fn handle_daemon_pty_attach_stream_inner<W>(
+    req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if !request_authorized(&req, identity) {
+        let _ = write_attach_frame(writer, &PtyAttachFrame::Error { error: "unauthorized".into() })
+            .await;
+        return false;
+    }
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        let _ = write_attach_frame(writer, &PtyAttachFrame::Error { error: "id required".into() })
+            .await;
+        return false;
+    };
+    let max_replay_bytes = req
+        .args
+        .get("maxBytes")
+        .or_else(|| req.args.get("max_bytes"))
+        .and_then(|max_bytes| max_bytes.as_u64())
+        .map(|max_bytes| max_bytes as usize)
+        .unwrap_or(PTY_OUTPUT_DEFAULT_POLL_BYTES);
+
+    let mut attach = match host.pty_handle.attach(id, max_replay_bytes).await {
+        Ok(Some(attach)) => attach,
+        Ok(None) => {
+            let _ = write_attach_frame(
+                writer,
+                &PtyAttachFrame::Error { error: "daemon pty not found".into() },
+            )
+            .await;
+            return false;
+        }
+        Err(err) => {
+            let _ =
+                write_attach_frame(writer, &PtyAttachFrame::Error { error: err.to_string() }).await;
+            return false;
+        }
+    };
+
+    let record = attach.record.clone();
+    if !write_attach_frame(
+        writer,
+        &PtyAttachFrame::Ready {
+            id: record.id.clone(),
+            record: record.clone(),
+            replay_offset: attach.replay_offset,
+            replay_bytes: attach.replay_bytes.clone(),
+        },
+    )
+    .await
+    {
+        return false;
+    }
+
+    if !record.running {
+        let _ = write_attach_frame(
+            writer,
+            &PtyAttachFrame::Exit { code: record.exit_code, generation: record.generation },
+        )
+        .await;
+        return true;
+    }
+
+    loop {
+        match attach.events.recv().await {
+            Ok(PtyOutputEvent::Output(frame)) => {
+                if !write_attach_frame(
+                    writer,
+                    &PtyAttachFrame::Output { offset: frame.offset, bytes: frame.bytes },
+                )
+                .await
+                {
+                    return false;
+                }
+            }
+            Ok(PtyOutputEvent::Exit { code, generation }) => {
+                let _ =
+                    write_attach_frame(writer, &PtyAttachFrame::Exit { code, generation }).await;
+                return true;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                let _ = write_attach_frame(
+                    writer,
+                    &PtyAttachFrame::Error {
+                        error: format!("daemon pty output stream lagged by {skipped} frame(s)"),
+                    },
+                )
+                .await;
+                return false;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return true,
+        }
+    }
+}
+
+async fn write_attach_frame<W>(writer: &mut W, frame: &PtyAttachFrame) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let Ok(json) = serde_json::to_string(frame) else {
+        return false;
+    };
+    writer.write_all(json.as_bytes()).await.is_ok() && writer.write_all(b"\n").await.is_ok()
+}
+
+fn request_authorized(req: &Request, identity: &DaemonIdentity) -> bool {
+    #[cfg(windows)]
+    {
+        req.auth_token.as_deref() == identity.auth_token.as_deref()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (req, identity);
+        true
+    }
 }
 
 async fn handle_session_list(host: &RuntimeHost) -> Response {
@@ -767,6 +932,10 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("daemon-status")));
+        assert!(data["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("daemon-pty-attach")));
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
@@ -949,6 +1118,93 @@ mod tests {
         assert_eq!(output["record"]["running"], false);
         assert_eq!(output["record"]["exitCode"], 0);
         assert_eq!(output["record"]["info"]["session_id"], "session-a");
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_pty_attach_stream_replays_output_and_exit() {
+        use tokio::io::AsyncReadExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let start = handle_request(
+            Request {
+                command: "daemon-pty-spawn-task".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "command": "printf daemon-pty-stream",
+                    "workingDir": dir.path(),
+                    "sessionId": "session-a",
+                    "paneId": "pane-a",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(start.ok, "start failed: {:?}", start.error);
+        let pty_id = start.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        for _ in 0..50 {
+            let snapshot = host.pty_handle.snapshot(&pty_id, 1024).await.unwrap().unwrap();
+            if snapshot.output.contains("daemon-pty-stream") && !snapshot.record.running {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let (mut reader, mut writer) = tokio::io::duplex(8192);
+        let ok = handle_daemon_pty_attach_stream(
+            Request {
+                command: "daemon-pty-attach".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": pty_id, "maxBytes": 1024 }),
+            },
+            &mut writer,
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(ok);
+        drop(writer);
+
+        let mut body = String::new();
+        reader.read_to_string(&mut body).await.unwrap();
+        let frames: Vec<serde_json::Value> =
+            body.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(frames[0]["type"], "ready");
+        assert_eq!(frames[0]["id"], pty_id);
+        let replay_bytes: Vec<u8> = frames[0]["replayBytes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|byte| byte.as_u64().unwrap() as u8)
+            .collect();
+        assert!(String::from_utf8_lossy(&replay_bytes).contains("daemon-pty-stream"));
+        assert_eq!(frames[1]["type"], "exit");
+        assert_eq!(frames[1]["code"], 0);
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;

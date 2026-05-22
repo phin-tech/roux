@@ -80,8 +80,29 @@ export interface DaemonStatus {
   capabilities: string[];
 }
 
+export interface RuntimeCounts {
+  sessionCount: number;
+  projectCount: number;
+  processCount: number;
+  ptyCount: number;
+}
+
+export interface RuntimeStatus {
+  mode: "daemon" | "localFallback";
+  desktopPid: number;
+  startedAtMs: number;
+  uptimeMs: number;
+  daemon?: DaemonStatus | null;
+  local?: RuntimeCounts | null;
+  statusError?: string | null;
+}
+
 export async function getDaemonStatus(): Promise<DaemonStatus | null> {
   return invoke("get_daemon_status");
+}
+
+export async function getRuntimeStatus(): Promise<RuntimeStatus> {
+  return invoke("get_runtime_status");
 }
 
 /**
