@@ -86,7 +86,7 @@ pub(crate) fn build_notes_env_for_new_session(
 /// Build `NotesEnvInputs` for an existing session (used on reconnect).
 /// If the session has a `project_id`, the project name is looked up
 /// and the project slug frozen in the vault index.
-async fn build_notes_env_for_existing_session(
+pub(crate) async fn build_notes_env_for_existing_session(
     settings: &RouxSettings,
     project_handle: &crate::project_service::ProjectHandle,
     session: &Session,

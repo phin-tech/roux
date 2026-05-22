@@ -60,6 +60,14 @@ pub(crate) struct DaemonCreateSessionShellRequest {
     pub(crate) notes: Option<NotesEnvInputs>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct DaemonReconnectSessionShellRequest {
+    pub(crate) id: String,
+    pub(crate) profile: Option<String>,
+    pub(crate) initial_size: Option<(u16, u16)>,
+    pub(crate) notes: Option<NotesEnvInputs>,
+}
+
 impl DaemonClient {
     pub(crate) fn detect() -> Option<Self> {
         let data =
@@ -120,6 +128,15 @@ impl DaemonClient {
         serde_json::from_value(value).map_err(|err| format!("decode daemon session-list: {err}"))
     }
 
+    pub(crate) async fn get_session(&self, id: String) -> Result<Session, String> {
+        let value = send_command_async(serde_json::json!({
+            "command": "session-poll",
+            "session_id": id,
+        }))
+        .await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon session-poll: {err}"))
+    }
+
     pub(crate) async fn list_projects(&self) -> Result<Vec<Project>, String> {
         let value = send_command_async(serde_json::json!({ "command": "project-list" })).await?;
         serde_json::from_value(value).map_err(|err| format!("decode daemon project-list: {err}"))
@@ -147,6 +164,48 @@ impl DaemonClient {
         let value = send_command_async(daemon_session_create_shell_request(request)).await?;
         serde_json::from_value(value)
             .map_err(|err| format!("decode daemon session-create-shell: {err}"))
+    }
+
+    pub(crate) async fn reconnect_session_shell(
+        &self,
+        request: DaemonReconnectSessionShellRequest,
+    ) -> Result<Session, String> {
+        let value = send_command_async(daemon_session_reconnect_shell_request(request)).await?;
+        serde_json::from_value(value)
+            .map_err(|err| format!("decode daemon session-reconnect-shell: {err}"))
+    }
+
+    pub(crate) async fn archive_session(&self, id: String) -> Result<Session, String> {
+        let value = send_command_async(daemon_session_id_request("session-archive", id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon session-archive: {err}"))
+    }
+
+    pub(crate) async fn restore_session(&self, id: String) -> Result<Session, String> {
+        let value = send_command_async(daemon_session_id_request("session-restore", id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon session-restore: {err}"))
+    }
+
+    pub(crate) async fn delete_session(&self, id: String) -> Result<(), String> {
+        let _ = send_command_async(daemon_session_id_request("session-delete", id)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn session_worktree_exists(&self, id: String) -> Result<bool, String> {
+        let value =
+            send_command_async(daemon_session_id_request("session-worktree-exists", id)).await?;
+        value
+            .get("exists")
+            .and_then(|exists| exists.as_bool())
+            .ok_or_else(|| "decode daemon session-worktree-exists: missing exists".to_string())
+    }
+
+    pub(crate) async fn refresh_session_branch(
+        &self,
+        id: String,
+    ) -> Result<Option<String>, String> {
+        let value =
+            send_command_async(daemon_session_id_request("session-refresh-branch", id)).await?;
+        Ok(value.get("branch").and_then(|branch| branch.as_str()).map(str::to_string))
     }
 
     pub(crate) async fn start_daemon_process(
@@ -451,6 +510,41 @@ fn daemon_session_create_shell_request(request: DaemonCreateSessionShellRequest)
     serde_json::json!({
         "command": "session-create-shell",
         "args": args,
+    })
+}
+
+fn daemon_session_reconnect_shell_request(request: DaemonReconnectSessionShellRequest) -> Value {
+    let mut args = serde_json::Map::new();
+    if let Some(profile) = request.profile {
+        args.insert("profile".to_string(), Value::String(profile));
+    }
+    if let Some((cols, rows)) = request.initial_size {
+        args.insert("initialSize".to_string(), serde_json::json!([cols, rows]));
+    }
+    if let Some(notes) = request.notes {
+        args.insert(
+            "notesEnv".to_string(),
+            serde_json::json!({
+                "vaultRoot": notes.vault_root,
+                "sessionSlug": notes.session_slug,
+                "repoSlug": notes.repo_slug,
+                "projectSlug": notes.project_slug,
+                "contextPaths": notes.context_paths,
+                "projectPrompt": notes.project_prompt,
+            }),
+        );
+    }
+    serde_json::json!({
+        "command": "session-reconnect-shell",
+        "session_id": request.id,
+        "args": args,
+    })
+}
+
+fn daemon_session_id_request(command: &str, id: String) -> Value {
+    serde_json::json!({
+        "command": command,
+        "session_id": id,
     })
 }
 
@@ -934,6 +1028,37 @@ mod tests {
         assert_eq!(request["args"]["projectId"], "project-a");
         assert_eq!(request["args"]["notesEnv"]["vaultRoot"], "/vault");
         assert_eq!(request["args"]["notesEnv"]["contextPaths"][0], "/repo/docs");
+    }
+
+    #[test]
+    fn daemon_session_lifecycle_requests_use_daemon_command_shape() {
+        let reconnect =
+            daemon_session_reconnect_shell_request(DaemonReconnectSessionShellRequest {
+                id: "session-a".to_string(),
+                profile: Some("plain-shell".to_string()),
+                initial_size: Some((120, 40)),
+                notes: None,
+            });
+        assert_eq!(reconnect["command"], "session-reconnect-shell");
+        assert_eq!(reconnect["session_id"], "session-a");
+        assert_eq!(reconnect["args"]["profile"], "plain-shell");
+        assert_eq!(reconnect["args"]["initialSize"], serde_json::json!([120, 40]));
+
+        let archive = daemon_session_id_request("session-archive", "session-a".to_string());
+        assert_eq!(archive["command"], "session-archive");
+        assert_eq!(archive["session_id"], "session-a");
+
+        let restore = daemon_session_id_request("session-restore", "session-a".to_string());
+        assert_eq!(restore["command"], "session-restore");
+
+        let delete = daemon_session_id_request("session-delete", "session-a".to_string());
+        assert_eq!(delete["command"], "session-delete");
+
+        let exists = daemon_session_id_request("session-worktree-exists", "session-a".to_string());
+        assert_eq!(exists["command"], "session-worktree-exists");
+
+        let refresh = daemon_session_id_request("session-refresh-branch", "session-a".to_string());
+        assert_eq!(refresh["command"], "session-refresh-branch");
     }
 
     #[test]

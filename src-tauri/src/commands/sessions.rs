@@ -380,7 +380,17 @@ pub(crate) fn get_pty_cwd(id: String, state: tauri::State<AppState>) -> Option<S
 /// watch-cleanup work. Shared by the Tauri command and the CLI/socket
 /// handler so both code paths get identical lifecycle behavior.
 pub(crate) async fn archive_session_with_hooks(state: &AppState, id: &str) -> Result<(), String> {
-    let session = state.runtime.session_handle.get(id).await.map_err(|e| e.to_string())?;
+    let session = if let Some(client) = &state.daemon_client {
+        match client.get_session(id.to_string()).await {
+            Ok(session) => Some(session),
+            Err(err) if err.contains("session not found") => {
+                state.runtime.session_handle.get(id).await.map_err(|e| e.to_string())?
+            }
+            Err(err) => return Err(err),
+        }
+    } else {
+        state.runtime.session_handle.get(id).await.map_err(|e| e.to_string())?
+    };
     if let Some(session) = session.as_ref() {
         let context = crate::automation_hooks::HookContext {
             repo_path: Some(session.repo_root.clone()),
@@ -400,9 +410,21 @@ pub(crate) async fn archive_session_with_hooks(state: &AppState, id: &str) -> Re
             .await
             .map_err(|e| e.to_string())?;
     }
-    svc::kill_session(&state.pty_manager, &state.runtime.session_handle, id)
-        .await
-        .map_err(|e| e.to_string())?;
+    if let Some(client) = &state.daemon_client {
+        match client.archive_session(id.to_string()).await {
+            Ok(_) => {}
+            Err(err) if err.contains("session not found") => {
+                svc::kill_session(&state.pty_manager, &state.runtime.session_handle, id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            Err(err) => return Err(err),
+        }
+    } else {
+        svc::kill_session(&state.pty_manager, &state.runtime.session_handle, id)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     // Stop session-scoped recurring watches (e.g. PR pollers) so they
     // don't outlive the archived session and keep firing forever.
     state.watch_manager.remove_watches_for_session(id).await;
@@ -445,6 +467,13 @@ pub(crate) async fn restore_session(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = &state.daemon_client {
+        match client.restore_session(id.clone()).await {
+            Ok(_) => return Ok(()),
+            Err(err) if err.contains("session not found") => {}
+            Err(err) => return Err(err),
+        }
+    }
     svc::restore_session(&state.runtime.session_handle, &id).await.map_err(|e| e.to_string())
 }
 
@@ -457,9 +486,29 @@ pub(crate) async fn delete_session_permanently(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    svc::delete_session_permanently(&state.pty_manager, &state.runtime.session_handle, &id)
-        .await
-        .map_err(|e| e.to_string())?;
+    if let Some(client) = &state.daemon_client {
+        match client.delete_session(id.clone()).await {
+            Ok(()) => {
+                if let Err(e) = crate::pane_state::delete_pane_state(&id) {
+                    rlog!("delete_session_permanently: failed to delete pane state for {id}: {e}");
+                }
+            }
+            Err(err) if err.contains("session not found") => {
+                svc::delete_session_permanently(
+                    &state.pty_manager,
+                    &state.runtime.session_handle,
+                    &id,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+            Err(err) => return Err(err),
+        }
+    } else {
+        svc::delete_session_permanently(&state.pty_manager, &state.runtime.session_handle, &id)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     // Tear down any session-scoped watches that may still be polling
     // (no-op if the session was already archived and watches were
     // cleaned up at archive time).
@@ -476,6 +525,13 @@ pub(crate) async fn session_worktree_exists(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
+    if let Some(client) = &state.daemon_client {
+        match client.session_worktree_exists(id.clone()).await {
+            Ok(exists) => return Ok(exists),
+            Err(err) if err.contains("session not found") => {}
+            Err(err) => return Err(err),
+        }
+    }
     let session = state.runtime.session_handle.get(&id).await.map_err(|e| e.to_string())?;
     Ok(session.map(|s| std::path::Path::new(&s.worktree_path).exists()).unwrap_or(false))
 }
@@ -584,6 +640,13 @@ pub(crate) async fn refresh_session_branch(
     session_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {
+    if let Some(client) = &state.daemon_client {
+        match client.refresh_session_branch(session_id.clone()).await {
+            Ok(branch) => return Ok(branch),
+            Err(err) if err.contains("session not found") => {}
+            Err(err) => return Err(err),
+        }
+    }
     let session = state.runtime.session_handle.get(&session_id).await.map_err(|e| e.to_string())?;
     let Some(session) = session else { return Ok(None) };
     if !session.is_git_repo {
@@ -751,6 +814,35 @@ pub(crate) async fn reconnect_session_shell(
     let nono = nono_profile
         .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
     let settings = state.settings.lock().map_err(|e| e.to_string())?.clone();
+    if let Some(client) = state.daemon_client.clone() {
+        match client.get_session(id.clone()).await {
+            Ok(session) => {
+                if nono.is_some() {
+                    return Err(
+                        "daemon reconnect does not support nono-wrapped sessions yet".to_string()
+                    );
+                }
+                let notes = svc::build_notes_env_for_existing_session(
+                    &settings,
+                    &state.runtime.project_handle,
+                    &session,
+                )
+                .await;
+                return client
+                    .reconnect_session_shell(
+                        crate::daemon_client::DaemonReconnectSessionShellRequest {
+                            id,
+                            profile,
+                            initial_size,
+                            notes: Some(notes),
+                        },
+                    )
+                    .await;
+            }
+            Err(err) if err.contains("session not found") => {}
+            Err(err) => return Err(err),
+        }
+    }
     svc::reconnect_session_shell(
         &state.pty_manager,
         &state.runtime.session_handle,

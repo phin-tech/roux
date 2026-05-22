@@ -362,6 +362,12 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
         "session-list" => handle_session_list(host).await,
         "session-poll" => handle_session_poll(req, host).await,
         "session-create-shell" => handle_session_create_shell(req, host, identity).await,
+        "session-reconnect-shell" => handle_session_reconnect_shell(req, host, identity).await,
+        "session-archive" => handle_session_archive(req, host).await,
+        "session-restore" => handle_session_restore(req, host).await,
+        "session-delete" => handle_session_delete(req, host).await,
+        "session-worktree-exists" => handle_session_worktree_exists(req, host).await,
+        "session-refresh-branch" => handle_session_refresh_branch(req, host).await,
         "session-rename" => handle_session_rename(req, host).await,
         "project-list" => handle_project_list(host).await,
         "daemon-process-start" => handle_daemon_process_start(req, host).await,
@@ -404,6 +410,12 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "session-list",
             "session-poll",
             "session-create-shell",
+            "session-reconnect-shell",
+            "session-archive",
+            "session-restore",
+            "session-delete",
+            "session-worktree-exists",
+            "session-refresh-branch",
             "session-rename",
             "project-list",
             "daemon-process-start",
@@ -720,6 +732,160 @@ async fn handle_session_create_shell(
         return Response::err(err.to_string());
     }
 
+    match serde_json::to_value(session) {
+        Ok(value) => Response::success(value),
+        Err(err) => Response::err(format!("failed to serialize session: {err}")),
+    }
+}
+
+async fn handle_session_reconnect_shell(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
+    let Some(session_id) = request_session_id(&req) else {
+        return Response::err("session_id required");
+    };
+    let session = match host.session_handle.get(session_id).await {
+        Ok(Some(session)) => session,
+        Ok(None) => return Response::err("session not found"),
+        Err(err) => return Response::err(err.to_string()),
+    };
+    if session.smol_machine_name.as_ref().is_some_and(|name| !name.trim().is_empty()) {
+        return Response::err(
+            "daemon reconnect does not support smol-bound sessions yet; unbind or reconnect locally",
+        );
+    }
+
+    let primary_pty_id = session.primary_pty_id.as_deref().unwrap_or(&session.id).to_string();
+    let _ = host.pty_handle.remove(&primary_pty_id).await;
+    let pane_id = format!("{}-main", session.id);
+    let initial_size = parse_initial_size(&req.args);
+    let profile = req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string);
+    let spawn = host
+        .pty_handle
+        .spawn_shell(PtySpawnRequest {
+            id: Some(session.id.clone()),
+            working_dir: Some(PathBuf::from(&session.worktree_path)),
+            session_id: Some(session.id.clone()),
+            pane_id: Some(pane_id),
+            project_id: session.project_id.clone(),
+            worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
+            notes: parse_notes_env(&req.args),
+            env: parse_pty_env_request(&req.args, identity),
+            profile,
+            initial_size,
+            role: roux_core::PtyRole::SessionPrimary,
+            ..PtySpawnRequest::default()
+        })
+        .await;
+    if let Err(err) = spawn {
+        return Response::err(err.to_string());
+    }
+
+    if let Err(err) =
+        host.session_handle.update_status(&session.id, roux_core::SessionStatus::Idle).await
+    {
+        let _ = host.pty_handle.kill(&session.id).await;
+        return Response::err(err.to_string());
+    }
+    match host.session_handle.get(&session.id).await {
+        Ok(Some(updated)) => serialize_session(updated),
+        Ok(None) => Response::err("session not found after reconnect"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_session_archive(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = request_session_id(&req) else {
+        return Response::err("session_id required");
+    };
+    kill_session_ptys(host, session_id).await;
+    if let Err(err) = host.session_handle.archive(session_id).await {
+        return Response::err(err.to_string());
+    }
+    match host.session_handle.get(session_id).await {
+        Ok(Some(session)) => serialize_session(session),
+        Ok(None) => Response::err("session not found"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_session_restore(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = request_session_id(&req) else {
+        return Response::err("session_id required");
+    };
+    if let Err(err) = host.session_handle.restore(session_id).await {
+        return Response::err(err.to_string());
+    }
+    if let Err(err) =
+        host.session_handle.update_status(session_id, roux_core::SessionStatus::Disconnected).await
+    {
+        return Response::err(err.to_string());
+    }
+    match host.session_handle.get(session_id).await {
+        Ok(Some(session)) => serialize_session(session),
+        Ok(None) => Response::err("session not found"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_session_delete(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = request_session_id(&req) else {
+        return Response::err("session_id required");
+    };
+    kill_session_ptys(host, session_id).await;
+    if let Err(err) = host.session_handle.remove(session_id).await {
+        return Response::err(err.to_string());
+    }
+    Response::success(serde_json::json!({ "session_id": session_id }))
+}
+
+async fn handle_session_worktree_exists(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = request_session_id(&req) else {
+        return Response::err("session_id required");
+    };
+    match host.session_handle.get(session_id).await {
+        Ok(Some(session)) => Response::success(serde_json::json!({
+            "session_id": session_id,
+            "exists": Path::new(&session.worktree_path).exists(),
+        })),
+        Ok(None) => Response::err("session not found"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_session_refresh_branch(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = request_session_id(&req) else {
+        return Response::err("session_id required");
+    };
+    let session = match host.session_handle.get(session_id).await {
+        Ok(Some(session)) => session,
+        Ok(None) => return Response::err("session not found"),
+        Err(err) => return Response::err(err.to_string()),
+    };
+    if !session.is_git_repo {
+        return Response::success(serde_json::json!({ "branch": session.branch }));
+    }
+    let branch = get_current_branch(&session.worktree_path)
+        .filter(|branch| !branch.is_empty())
+        .unwrap_or(session.branch);
+    if let Err(err) = host.session_handle.set_branch(session_id, branch.clone()).await {
+        return Response::err(err.to_string());
+    }
+    Response::success(serde_json::json!({ "branch": branch }))
+}
+
+async fn kill_session_ptys(host: &RuntimeHost, session_id: &str) {
+    let ptys = host.pty_handle.list().await.unwrap_or_default();
+    for pty in ptys {
+        if pty.info.session_id.as_deref() == Some(session_id) {
+            let _ = host.pty_handle.remove(&pty.id).await;
+        }
+    }
+}
+
+fn serialize_session(session: roux_core::Session) -> Response {
     match serde_json::to_value(session) {
         Ok(value) => Response::success(value),
         Err(err) => Response::err(format!("failed to serialize session: {err}")),
@@ -1120,6 +1286,12 @@ fn parse_notes_env(args: &Value) -> Option<NotesEnvInputs> {
     })
 }
 
+fn request_session_id(req: &Request) -> Option<&str> {
+    req.session_id
+        .as_deref()
+        .or_else(|| req.args.get("sessionId").or_else(|| req.args.get("session_id"))?.as_str())
+}
+
 enum DaemonSessionTarget {
     Repo,
     ExistingWorktree { path: String },
@@ -1473,6 +1645,138 @@ mod tests {
 
     #[cfg(not(windows))]
     #[tokio::test]
+    async fn daemon_session_lifecycle_commands_mutate_state_and_ptys() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let create = handle_request(
+            Request {
+                command: "session-create-shell".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "id": "session-life",
+                    "repoPath": dir.path(),
+                    "name": "Lifecycle",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(create.ok, "create failed: {:?}", create.error);
+
+        let reconnect = handle_request(
+            Request {
+                command: "session-reconnect-shell".to_string(),
+                session_id: Some("session-life".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "initialSize": [100, 30] }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(reconnect.ok, "reconnect failed: {:?}", reconnect.error);
+        let pty = host
+            .pty_handle
+            .list()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|pty| pty.id == "session-life")
+            .expect("primary pty after reconnect");
+        assert_eq!(pty.cols, 100);
+        assert_eq!(pty.rows, 30);
+
+        let exists = handle_request(
+            Request {
+                command: "session-worktree-exists".to_string(),
+                session_id: Some("session-life".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({}),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(exists.ok, "exists failed: {:?}", exists.error);
+        assert_eq!(exists.data.as_ref().unwrap()["exists"], true);
+
+        let archive = handle_request(
+            Request {
+                command: "session-archive".to_string(),
+                session_id: Some("session-life".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({}),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(archive.ok, "archive failed: {:?}", archive.error);
+        assert_eq!(archive.data.as_ref().unwrap()["archived"], true);
+        assert!(host.pty_handle.list().await.unwrap().iter().all(|pty| pty
+            .info
+            .session_id
+            .as_deref()
+            != Some("session-life")));
+
+        let restore = handle_request(
+            Request {
+                command: "session-restore".to_string(),
+                session_id: Some("session-life".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({}),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(restore.ok, "restore failed: {:?}", restore.error);
+        assert_eq!(restore.data.as_ref().unwrap()["archived"], false);
+        assert_eq!(restore.data.as_ref().unwrap()["status"], "disconnected");
+
+        let delete = handle_request(
+            Request {
+                command: "session-delete".to_string(),
+                session_id: Some("session-life".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({}),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(delete.ok, "delete failed: {:?}", delete.error);
+        assert!(host.session_handle.get("session-life").await.unwrap().is_none());
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
     async fn daemon_process_start_and_output_poll_are_daemon_owned() {
         let dir = tempfile::tempdir().unwrap();
         let services = RuntimeHostConfig {
@@ -1518,11 +1822,13 @@ mod tests {
             .await;
             assert!(poll.ok, "poll failed: {:?}", poll.error);
             let data = poll.data.unwrap();
-            if data["output"].as_str().unwrap_or("").contains("daemon-owned") {
+            if data["output"].as_str().unwrap_or("").contains("daemon-owned")
+                && !data["record"]["running"].as_bool().unwrap_or(true)
+            {
                 output = Some(data);
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
 
         let output = output.expect("daemon-owned output should be pollable");

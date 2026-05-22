@@ -184,6 +184,8 @@ roux daemon status
 
 When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, log path, loaded session/project/process counts, and daemon capabilities. The daemon also answers a small headless metadata surface over the socket: `session-list`, `session-poll`, `session-rename`, and `project-list`.
 
+The implemented socket protocol is documented in [`../v2/daemon-protocol.md`](../v2/daemon-protocol.md).
+
 Daemon runtime logs are written to `~/.config/roux/logs/roux-daemon.log` and mirrored to stderr. Existing daemon logs rotate to `roux-daemon.1.log` through `roux-daemon.5.log` on daemon startup.
 
 The daemon also owns a headless process registry. This is intentionally separate from GUI panes for now:

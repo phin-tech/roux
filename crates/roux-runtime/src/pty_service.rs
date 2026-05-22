@@ -167,6 +167,10 @@ enum PtyMsg {
         id: String,
         reply: oneshot::Sender<Result<Option<PtyRecord>, String>>,
     },
+    Remove {
+        id: String,
+        reply: oneshot::Sender<Result<Option<PtyRecord>, String>>,
+    },
     Shutdown {
         reply: oneshot::Sender<()>,
     },
@@ -289,6 +293,12 @@ impl PtyHandle {
     pub async fn kill(&self, id: &str) -> Result<Option<PtyRecord>, PtyServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(PtyMsg::Kill { id: id.to_string(), reply: reply_tx })?;
+        reply_rx.await.map_err(|_| PtyServiceError::Unavailable)?.map_err(PtyServiceError::Failed)
+    }
+
+    pub async fn remove(&self, id: &str) -> Result<Option<PtyRecord>, PtyServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(PtyMsg::Remove { id: id.to_string(), reply: reply_tx })?;
         reply_rx.await.map_err(|_| PtyServiceError::Unavailable)?.map_err(PtyServiceError::Failed)
     }
 
@@ -416,6 +426,16 @@ async fn service_loop(mut rx: mpsc::UnboundedReceiver<PtyMsg>) {
             PtyMsg::Kill { id, reply } => {
                 let result = match ptys.get_mut(&id) {
                     Some(entry) => entry.kill().map(|_| {
+                        entry.refresh_status();
+                        Some(entry.record())
+                    }),
+                    None => Ok(None),
+                };
+                let _ = reply.send(result);
+            }
+            PtyMsg::Remove { id, reply } => {
+                let result = match ptys.remove(&id) {
+                    Some(mut entry) => entry.kill().map(|_| {
                         entry.refresh_status();
                         Some(entry.record())
                     }),

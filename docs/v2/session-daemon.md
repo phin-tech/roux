@@ -3,6 +3,10 @@
 **Status:** Design note — foundation started, full PTY daemon not yet implemented
 **Goal:** Sessions survive app crashes/restarts with full terminal scrollback preserved
 
+For the currently implemented socket command surface, see
+[`daemon-protocol.md`](./daemon-protocol.md). This file remains the broader
+architecture and migration note.
+
 ## Current state
 
 Roux now has the first daemon-shaped entrypoint:
