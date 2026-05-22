@@ -18,6 +18,7 @@ pub(crate) type PendingReplies = Mutex<HashMap<String, oneshot::Sender<serde_jso
 
 pub(crate) struct AppState {
     pub(crate) settings: Mutex<crate::settings::RouxSettings>,
+    pub(crate) daemon_client: Option<crate::daemon_client::DaemonClient>,
     pub(crate) pty_manager: Arc<PtyManager>,
     pub(crate) runtime: RuntimeHost,
     pub(crate) watch_manager: crate::watches::WatchManager,

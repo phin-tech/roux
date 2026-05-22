@@ -21,7 +21,11 @@ roux daemon status
 
 That endpoint is intentionally not implemented by the GUI socket server. It proves the daemon can own an observable capability independently of Roux.app. The daemon also serves the first headless durable-state commands over the same socket: session list, session poll, session rename, and project list.
 
+The daemon writes its own runtime log to `~/.config/roux/logs/roux-daemon.log`, rotates existing daemon logs on startup, and reports the active log path from `roux daemon status`.
+
 If Roux.app already owns the socket, `roux daemon` refuses to start instead of unlinking or replacing the GUI's live command channel.
+
+If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata reads plus session rename. That makes the GUI a frontend for daemon-owned durable state, while PTY/process ownership remains in the desktop process until the next migration slice.
 
 That is not the full design below yet. As of this note:
 

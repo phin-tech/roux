@@ -416,6 +416,9 @@ pub(crate) async fn set_session_name_override(
     name_override: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = &state.daemon_client {
+        return client.set_session_name_override(session_id, name_override).await;
+    }
     state
         .runtime.session_handle
         .set_name_override(&session_id, name_override)
@@ -605,6 +608,12 @@ pub(crate) async fn reconnect_session_shell(
 pub(crate) async fn list_sessions(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Session>, String> {
+    if let Some(client) = &state.daemon_client {
+        return client
+            .list_sessions()
+            .await
+            .map(|all| all.into_iter().filter(|s| !s.archived).collect());
+    }
     state
         .runtime.session_handle
         .list()
@@ -620,6 +629,16 @@ pub(crate) async fn list_sessions(
 pub(crate) async fn list_archived_sessions(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Session>, String> {
+    if let Some(client) = &state.daemon_client {
+        let mut archived: Vec<Session> = client
+            .list_sessions()
+            .await?
+            .into_iter()
+            .filter(|s| s.archived)
+            .collect();
+        archived.sort_by_key(|s| std::cmp::Reverse(s.ended_at.unwrap_or(0)));
+        return Ok(archived);
+    }
     state
         .runtime.session_handle
         .list()

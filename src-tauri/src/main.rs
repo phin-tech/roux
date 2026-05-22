@@ -7,6 +7,7 @@ mod hooks;
 #[macro_use]
 mod logging;
 mod commands;
+mod daemon_client;
 mod keymap;
 mod layouts;
 mod notifications;
@@ -68,6 +69,16 @@ fn main() {
 
     let persisted_watches = watches::load_persisted_watches();
     let (watch_store_handle, _watch_join) = watches::store::spawn(persisted_watches);
+    let daemon_client = daemon_client::DaemonClient::detect();
+    if let Some(client) = daemon_client.as_ref() {
+        rlog!(
+            "Connected to roux daemon pid={} socket={}",
+            client.status().pid,
+            client.status().socket
+        );
+    } else {
+        rlog!("No roux daemon detected; desktop will self-host runtime state");
+    }
 
     let persisted_projects = project_service::load_persisted();
     let persisted_sessions = session::load_persisted_sessions(&persisted_projects);
@@ -250,6 +261,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             settings: Mutex::new(initial_settings),
+            daemon_client,
             pty_manager: std::sync::Arc::new(PtyManager::new()),
             runtime,
             watch_manager: watches::WatchManager::new(watch_store_handle),
@@ -502,7 +514,14 @@ fn main() {
             {
                 eprintln!("Warning: failed to start file status source: {}", e);
             }
-            socket::start_socket_server(app.handle().clone());
+            {
+                let state = app.state::<AppState>();
+                if state.daemon_client.is_some() {
+                    rlog!("Skipping desktop socket server because roux daemon owns the socket");
+                } else {
+                    socket::start_socket_server(app.handle().clone());
+                }
+            }
 
             // System tray: shows active sessions + status, plus Show/Quit.
             // Failure here is non-fatal (e.g. headless CI); log and continue.

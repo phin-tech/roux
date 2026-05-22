@@ -31,7 +31,8 @@ where
     #[cfg(not(windows))]
     let stream: Box<dyn StreamSocket> = {
         use std::os::unix::net::UnixStream;
-        let path = platform::socket_path();
+        let path =
+            platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
         let s = UnixStream::connect(&path).map_err(map_connect_err)?;
         Box::new(UnixStreamHolder(s, request))
     };
@@ -175,7 +176,8 @@ pub fn send_socket_command(request: Value) -> Result<Value, String> {
         use std::os::unix::net::UnixStream;
         use std::time::Duration;
 
-        let path = platform::socket_path();
+        let path =
+            platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
         let stream = UnixStream::connect(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound
                 || e.kind() == std::io::ErrorKind::ConnectionRefused

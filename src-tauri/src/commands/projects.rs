@@ -9,6 +9,9 @@ use serde_json::Value;
 pub(crate) async fn list_projects(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Project>, String> {
+    if let Some(client) = &state.daemon_client {
+        return client.list_projects().await;
+    }
     state.runtime.project_handle.list().await.map_err(|e| e.to_string())
 }
 

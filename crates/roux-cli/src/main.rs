@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod cli_socket;
 mod daemon;
+mod daemon_log;
 mod mcp;
 mod paths;
 mod platform;

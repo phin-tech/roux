@@ -9,15 +9,23 @@ use tokio::net::UnixListener;
 
 use roux_runtime::host::{RuntimeHost, RuntimeHostConfig};
 
-use crate::{paths, platform};
+use crate::{daemon_log::DaemonLog, paths, platform};
 
 pub async fn run() -> Result<(), String> {
     paths::migrate_legacy_config_dir();
+    let log = DaemonLog::init();
 
     let project_path = platform::projects_path();
     let session_path = platform::sessions_path();
     let projects = roux_runtime::project_service::load_persisted_from(&project_path);
     let sessions = roux_runtime::session_service::load_persisted_from(&session_path, &projects);
+    log.write(&format!(
+        "Loaded {} project(s) from {} and {} session(s) from {}",
+        projects.len(),
+        project_path.display(),
+        sessions.len(),
+        session_path.display()
+    ));
 
     let services = RuntimeHostConfig {
         initial_sessions: sessions,
@@ -28,23 +36,29 @@ pub async fn run() -> Result<(), String> {
     .build();
 
     let (host, joins) = services.spawn_with(tokio::spawn);
-    let identity = DaemonIdentity::new(platform::socket_path(), daemon_auth_token());
-    let socket_server = start_socket_server(host.clone(), identity.clone()).await?;
-    eprintln!("roux daemon started on {}; press Ctrl-C to stop", identity.socket.display());
+    let identity =
+        DaemonIdentity::new(daemon_socket_path(), log.path().clone(), daemon_auth_token());
+    let socket_server = start_socket_server(host.clone(), identity.clone(), log.clone()).await?;
+    log.write(&format!("Started on {}; press Ctrl-C to stop", identity.socket.display()));
 
     wait_for_shutdown_signal().await?;
+    log.write("Shutdown signal received");
 
     socket_server.shutdown();
+    log.write("Socket server stopped");
     host.session_handle.shutdown().await;
     host.project_handle.shutdown().await;
+    log.write("Runtime services stopped");
     drop(host);
 
     for join in joins {
         if let Err(err) = join.await {
+            log.write(&format!("Daemon task join failed: {err}"));
             return Err(format!("daemon task join failed: {err}"));
         }
     }
 
+    log.write("Shutdown complete");
     Ok(())
 }
 
@@ -52,18 +66,24 @@ pub async fn run() -> Result<(), String> {
 struct DaemonIdentity {
     started_at_ms: u64,
     socket: PathBuf,
+    log_path: PathBuf,
     #[cfg_attr(not(windows), allow(dead_code))]
     auth_token: Option<String>,
 }
 
 impl DaemonIdentity {
-    fn new(socket: PathBuf, auth_token: Option<String>) -> Self {
-        Self { started_at_ms: unix_now_ms(), socket, auth_token }
+    fn new(socket: PathBuf, log_path: PathBuf, auth_token: Option<String>) -> Self {
+        Self { started_at_ms: unix_now_ms(), socket, log_path, auth_token }
     }
 
     #[cfg(test)]
     fn new_for_test(socket: impl Into<PathBuf>) -> Self {
-        Self { started_at_ms: 1_000, socket: socket.into(), auth_token: None }
+        Self {
+            started_at_ms: 1_000,
+            socket: socket.into(),
+            log_path: PathBuf::from("/tmp/roux-daemon.log"),
+            auth_token: None,
+        }
     }
 }
 
@@ -136,26 +156,29 @@ impl SocketCleanup {
 async fn start_socket_server(
     host: RuntimeHost,
     identity: DaemonIdentity,
+    log: DaemonLog,
 ) -> Result<SocketServerHandle, String> {
     #[cfg(not(windows))]
     {
         let listener = bind_unix_listener(&identity.socket)?;
+        log.write(&format!("Socket server listening on {}", identity.socket.display()));
         let socket = identity.socket.clone();
         let join = tokio::spawn(async move {
             loop {
                 let (stream, _) = match listener.accept().await {
                     Ok(conn) => conn,
                     Err(err) => {
-                        eprintln!("roux daemon: socket accept failed: {err}");
+                        log.write(&format!("Socket accept failed: {err}"));
                         continue;
                     }
                 };
                 let host = host.clone();
                 let identity = identity.clone();
+                let log = log.clone();
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut reader = BufReader::new(reader);
-                    handle_connection(&mut reader, &mut writer, &host, &identity).await;
+                    handle_connection(&mut reader, &mut writer, &host, &identity, &log).await;
                 });
             }
         });
@@ -165,6 +188,7 @@ async fn start_socket_server(
     #[cfg(windows)]
     {
         let listener = bind_windows_listener(&identity).await?;
+        log.write(&format!("Socket server listening on {}", identity.socket.display()));
         let endpoint_file = platform::socket_addr_file_path();
         let token_file = platform::socket_auth_token_file_path();
         let join = tokio::spawn(async move {
@@ -172,16 +196,17 @@ async fn start_socket_server(
                 let (stream, _) = match listener.accept().await {
                     Ok(conn) => conn,
                     Err(err) => {
-                        eprintln!("roux daemon: socket accept failed: {err}");
+                        log.write(&format!("Socket accept failed: {err}"));
                         continue;
                     }
                 };
                 let host = host.clone();
                 let identity = identity.clone();
+                let log = log.clone();
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut reader = BufReader::new(reader);
-                    handle_connection(&mut reader, &mut writer, &host, &identity).await;
+                    handle_connection(&mut reader, &mut writer, &host, &identity, &log).await;
                 });
             }
         });
@@ -253,6 +278,7 @@ async fn handle_connection<R, W>(
     writer: &mut W,
     host: &RuntimeHost,
     identity: &DaemonIdentity,
+    log: &DaemonLog,
 ) where
     R: tokio::io::AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
@@ -261,10 +287,26 @@ async fn handle_connection<R, W>(
     let response = match reader.read_line(&mut line).await {
         Ok(0) => return,
         Ok(_) => match serde_json::from_str::<Request>(line.trim()) {
-            Ok(req) => handle_request(req, host, identity).await,
-            Err(err) => Response::err(format!("Invalid request: {err}")),
+            Ok(req) => {
+                let command = req.command.clone();
+                let response = handle_request(req, host, identity).await;
+                if response.ok {
+                    log.write(&format!("Handled socket command: {command}"));
+                } else {
+                    let error = response.error.as_deref().unwrap_or("unknown error");
+                    log.write(&format!("Socket command failed: {command}: {error}"));
+                }
+                response
+            }
+            Err(err) => {
+                log.write(&format!("Invalid socket request: {err}"));
+                Response::err(format!("Invalid request: {err}"))
+            }
         },
-        Err(err) => Response::err(format!("Read failed: {err}")),
+        Err(err) => {
+            log.write(&format!("Socket read failed: {err}"));
+            Response::err(format!("Read failed: {err}"))
+        }
     };
 
     let json = serde_json::to_string(&response).unwrap_or_default();
@@ -296,6 +338,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "kind": "roux-daemon",
         "pid": std::process::id(),
         "socket": identity.socket.to_string_lossy(),
+        "logPath": identity.log_path.to_string_lossy(),
         "startedAtMs": identity.started_at_ms,
         "uptimeMs": unix_now_ms().saturating_sub(identity.started_at_ms),
         "sessionCount": session_count,
@@ -382,6 +425,10 @@ fn daemon_auth_token() -> Option<String> {
     }
 }
 
+fn daemon_socket_path() -> PathBuf {
+    platform::resolve_socket_endpoint().map(PathBuf::from).unwrap_or_else(platform::socket_path)
+}
+
 async fn wait_for_shutdown_signal() -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -465,6 +512,7 @@ mod tests {
         let data = response.data.expect("status payload");
         assert_eq!(data["kind"], "roux-daemon");
         assert_eq!(data["socket"], "/tmp/roux.sock");
+        assert_eq!(data["logPath"], "/tmp/roux-daemon.log");
         assert!(data["capabilities"]
             .as_array()
             .unwrap()
@@ -530,9 +578,14 @@ mod tests {
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
-        let server = start_socket_server(host.clone(), DaemonIdentity::new_for_test(&socket_path))
-            .await
-            .unwrap();
+        let log_path = dir.path().join("roux-daemon.log");
+        let server = start_socket_server(
+            host.clone(),
+            DaemonIdentity::new(socket_path.clone(), log_path.clone(), None),
+            DaemonLog::new_for_test(log_path.clone()),
+        )
+        .await
+        .unwrap();
 
         let mut stream = tokio::net::UnixStream::connect(&socket_path).await.unwrap();
         stream.write_all(br#"{"command":"daemon-status"}"#).await.unwrap();
@@ -544,6 +597,8 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(response.trim()).unwrap();
         assert_eq!(value["ok"], true);
         assert_eq!(value["data"]["kind"], "roux-daemon");
+        let expected_log_path = log_path.to_string_lossy().to_string();
+        assert_eq!(value["data"]["logPath"], serde_json::Value::String(expected_log_path));
 
         server.shutdown();
         host.session_handle.shutdown().await;

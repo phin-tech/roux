@@ -182,9 +182,13 @@ The daemon has one daemon-only CLI command:
 roux daemon status
 ```
 
-When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, loaded session/project counts, and daemon capabilities. The daemon also answers a small headless metadata surface over the socket: `session-list`, `session-poll`, `session-rename`, and `project-list`.
+When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, log path, loaded session/project counts, and daemon capabilities. The daemon also answers a small headless metadata surface over the socket: `session-list`, `session-poll`, `session-rename`, and `project-list`.
+
+Daemon runtime logs are written to `~/.config/roux/logs/roux-daemon.log` and mirrored to stderr. Existing daemon logs rotate to `roux-daemon.1.log` through `roux-daemon.5.log` on daemon startup.
 
 If Roux.app already owns the command socket, `roux daemon` refuses to start instead of replacing the live GUI socket.
+
+If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and reads session/project metadata from the daemon. Session rename also writes through the daemon. This is the first "desktop as one frontend" mode; process-backed pane operations are still local to the app for now.
 
 Current limits:
 
