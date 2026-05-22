@@ -1,7 +1,13 @@
 use std::path::PathBuf;
 
+use crate::daemon_client::DaemonStatus;
 use crate::state::AppState;
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
+
+#[tauri::command]
+pub(crate) fn get_daemon_status(state: tauri::State<'_, AppState>) -> Option<DaemonStatus> {
+    state.daemon_client.as_ref().map(|client| client.status().clone())
+}
 
 #[tauri::command]
 pub(crate) async fn daemon_process_start(

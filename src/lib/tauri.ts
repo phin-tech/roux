@@ -66,6 +66,23 @@ export interface CreateSessionShellOpts {
   smolMachineName?: string | null;
 }
 
+export interface DaemonStatus {
+  kind: string;
+  pid: number;
+  socket: string;
+  logPath?: string | null;
+  startedAtMs: number;
+  uptimeMs: number;
+  sessionCount: number;
+  projectCount: number;
+  processCount?: number;
+  capabilities: string[];
+}
+
+export async function getDaemonStatus(): Promise<DaemonStatus | null> {
+  return invoke("get_daemon_status");
+}
+
 /**
  * Spawns a plain shell in the session's primary PTY. Caller then attaches
  * a spawn profile and types its setup / startup commands into the shell.
