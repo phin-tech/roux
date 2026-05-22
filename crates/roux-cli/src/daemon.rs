@@ -369,6 +369,10 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
         "daemon-pty-list" => handle_daemon_pty_list(host).await,
         "daemon-pty-write" => handle_daemon_pty_write(req, host).await,
         "daemon-pty-resize" => handle_daemon_pty_resize(req, host).await,
+        "daemon-pty-detach" => handle_daemon_pty_detach(req, host).await,
+        "daemon-pty-attach-pane" => handle_daemon_pty_attach_pane(req, host).await,
+        "daemon-pty-mark-read" => handle_daemon_pty_mark_read(req, host).await,
+        "daemon-pty-set-name" => handle_daemon_pty_set_name(req, host).await,
         "daemon-pty-kill" => handle_daemon_pty_kill(req, host).await,
         _ => Response::err(format!("unknown daemon command: {}", req.command)),
     }
@@ -407,6 +411,10 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "daemon-pty-list",
             "daemon-pty-write",
             "daemon-pty-resize",
+            "daemon-pty-detach",
+            "daemon-pty-attach-pane",
+            "daemon-pty-mark-read",
+            "daemon-pty-set-name",
             "daemon-pty-kill"
         ],
     }))
@@ -767,6 +775,70 @@ async fn handle_daemon_pty_kill(req: Request, host: &RuntimeHost) -> Response {
         return Response::err("id required");
     };
     match host.pty_handle.kill(id).await {
+        Ok(Some(record)) => match serde_json::to_value(record) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
+        },
+        Ok(None) => Response::err("daemon pty not found"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_pty_detach(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    serialize_daemon_pty_metadata_result(host.pty_handle.detach(id).await)
+}
+
+async fn handle_daemon_pty_attach_pane(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    let Some(pane_id) = req
+        .args
+        .get("paneId")
+        .or_else(|| req.args.get("pane_id"))
+        .and_then(|pane_id| pane_id.as_str())
+    else {
+        return Response::err("paneId required");
+    };
+    serialize_daemon_pty_metadata_result(
+        host.pty_handle.attach_to_pane(id, pane_id.to_string()).await,
+    )
+}
+
+async fn handle_daemon_pty_mark_read(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    serialize_daemon_pty_metadata_result(host.pty_handle.mark_read(id).await)
+}
+
+async fn handle_daemon_pty_set_name(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    let name = req.args.get("name").and_then(|name| {
+        if name.is_null() {
+            Some(None)
+        } else {
+            name.as_str().map(|name| Some(name.to_string()))
+        }
+    });
+    let Some(name) = name else {
+        return Response::err("name required");
+    };
+    serialize_daemon_pty_metadata_result(host.pty_handle.set_name(id, name).await)
+}
+
+fn serialize_daemon_pty_metadata_result(
+    result: Result<
+        Option<roux_runtime::pty_service::PtyRecord>,
+        roux_runtime::pty_service::PtyServiceError,
+    >,
+) -> Response {
+    match result {
         Ok(Some(record)) => match serde_json::to_value(record) {
             Ok(value) => Response::success(value),
             Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
@@ -1206,6 +1278,111 @@ mod tests {
         assert_eq!(frames[1]["type"], "exit");
         assert_eq!(frames[1]["code"], 0);
 
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_pty_metadata_commands_mutate_info() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let start = handle_request(
+            Request {
+                command: "daemon-pty-spawn-task".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "command": "sleep 1",
+                    "workingDir": dir.path(),
+                    "id": "pty-meta",
+                    "sessionId": "session-a",
+                    "paneId": "pane-a",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(start.ok, "start failed: {:?}", start.error);
+
+        let detach = handle_request(
+            Request {
+                command: "daemon-pty-detach".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": "pty-meta" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(detach.ok, "detach failed: {:?}", detach.error);
+        assert_eq!(detach.data.as_ref().unwrap()["info"]["status"]["type"], "RunningDetached");
+
+        let attach = handle_request(
+            Request {
+                command: "daemon-pty-attach-pane".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": "pty-meta", "paneId": "pane-b" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(attach.ok, "attach failed: {:?}", attach.error);
+        assert_eq!(attach.data.as_ref().unwrap()["info"]["status"]["pane_id"], "pane-b");
+
+        let rename = handle_request(
+            Request {
+                command: "daemon-pty-set-name".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": "pty-meta", "name": "Build shell" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(rename.ok, "rename failed: {:?}", rename.error);
+        assert_eq!(rename.data.as_ref().unwrap()["info"]["name"], "Build shell");
+
+        let clear = handle_request(
+            Request {
+                command: "daemon-pty-set-name".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": "pty-meta", "name": null }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(clear.ok, "clear failed: {:?}", clear.error);
+        assert!(clear.data.as_ref().unwrap()["info"]["name"].is_null());
+
+        let _ = host.pty_handle.kill("pty-meta").await;
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
         host.session_handle.shutdown().await;

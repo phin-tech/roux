@@ -228,6 +228,34 @@ impl DaemonClient {
         serde_json::from_value(value).map_err(|err| format!("decode daemon pty kill: {err}"))
     }
 
+    pub(crate) async fn detach_daemon_pty(&self, id: String) -> Result<PtyRecord, String> {
+        let value = send_command_async(daemon_pty_detach_request(id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty detach: {err}"))
+    }
+
+    pub(crate) async fn attach_daemon_pty_to_pane(
+        &self,
+        id: String,
+        pane_id: String,
+    ) -> Result<PtyRecord, String> {
+        let value = send_command_async(daemon_pty_attach_pane_request(id, pane_id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty attach pane: {err}"))
+    }
+
+    pub(crate) async fn mark_daemon_pty_read(&self, id: String) -> Result<PtyRecord, String> {
+        let value = send_command_async(daemon_pty_mark_read_request(id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty mark read: {err}"))
+    }
+
+    pub(crate) async fn set_daemon_pty_name(
+        &self,
+        id: String,
+        name: Option<String>,
+    ) -> Result<PtyRecord, String> {
+        let value = send_command_async(daemon_pty_set_name_request(id, name)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty set name: {err}"))
+    }
+
     pub(crate) fn spawn_daemon_pty_output_bridge(
         &self,
         id: String,
@@ -472,6 +500,34 @@ fn daemon_pty_resize_request(id: String, cols: u16, rows: u16) -> Value {
     serde_json::json!({
         "command": "daemon-pty-resize",
         "args": { "id": id, "cols": cols, "rows": rows },
+    })
+}
+
+fn daemon_pty_detach_request(id: String) -> Value {
+    serde_json::json!({
+        "command": "daemon-pty-detach",
+        "args": { "id": id },
+    })
+}
+
+fn daemon_pty_attach_pane_request(id: String, pane_id: String) -> Value {
+    serde_json::json!({
+        "command": "daemon-pty-attach-pane",
+        "args": { "id": id, "paneId": pane_id },
+    })
+}
+
+fn daemon_pty_mark_read_request(id: String) -> Value {
+    serde_json::json!({
+        "command": "daemon-pty-mark-read",
+        "args": { "id": id },
+    })
+}
+
+fn daemon_pty_set_name_request(id: String, name: Option<String>) -> Value {
+    serde_json::json!({
+        "command": "daemon-pty-set-name",
+        "args": { "id": id, "name": name },
     })
 }
 
@@ -826,6 +882,23 @@ mod tests {
         assert_eq!(resize["command"], "daemon-pty-resize");
         assert_eq!(resize["args"]["cols"], 100);
         assert_eq!(resize["args"]["rows"], 30);
+
+        let detach = daemon_pty_detach_request("pty-a".to_string());
+        assert_eq!(detach["command"], "daemon-pty-detach");
+        assert_eq!(detach["args"]["id"], "pty-a");
+
+        let attach_pane = daemon_pty_attach_pane_request("pty-a".to_string(), "pane-b".to_string());
+        assert_eq!(attach_pane["command"], "daemon-pty-attach-pane");
+        assert_eq!(attach_pane["args"]["paneId"], "pane-b");
+
+        let mark_read = daemon_pty_mark_read_request("pty-a".to_string());
+        assert_eq!(mark_read["command"], "daemon-pty-mark-read");
+
+        let set_name = daemon_pty_set_name_request("pty-a".to_string(), Some("Build".to_string()));
+        assert_eq!(set_name["command"], "daemon-pty-set-name");
+        assert_eq!(set_name["args"]["name"], "Build");
+        let clear_name = daemon_pty_set_name_request("pty-a".to_string(), None);
+        assert!(clear_name["args"]["name"].is_null());
 
         let kill = daemon_pty_kill_request("pty-a".to_string());
         assert_eq!(kill["command"], "daemon-pty-kill");

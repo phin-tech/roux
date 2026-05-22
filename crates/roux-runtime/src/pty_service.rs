@@ -10,6 +10,7 @@ use roux_core::{PtyInfo, PtyRole, PtyStatus};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+use crate::pty_lifecycle::{apply_metadata_command, PtyMetadataCommand, PtyMetadataCommandResult};
 use crate::pty_live::WaitedChild;
 use crate::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
 use crate::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
@@ -115,6 +116,10 @@ enum PtyMsg {
         max_replay_bytes: usize,
         reply: oneshot::Sender<Option<PtyAttach>>,
     },
+    Metadata {
+        command: PtyMetadataCommand,
+        reply: oneshot::Sender<Result<Option<PtyRecord>, String>>,
+    },
     List {
         reply: oneshot::Sender<Vec<PtyRecord>>,
     },
@@ -193,6 +198,40 @@ impl PtyHandle {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(PtyMsg::Attach { id: id.to_string(), max_replay_bytes, reply: reply_tx })?;
         reply_rx.await.map_err(|_| PtyServiceError::Unavailable)
+    }
+
+    pub async fn detach(&self, id: &str) -> Result<Option<PtyRecord>, PtyServiceError> {
+        self.apply_metadata(PtyMetadataCommand::Detach { pty_id: id.to_string() }).await
+    }
+
+    pub async fn attach_to_pane(
+        &self,
+        id: &str,
+        pane_id: String,
+    ) -> Result<Option<PtyRecord>, PtyServiceError> {
+        self.apply_metadata(PtyMetadataCommand::AttachToPane { pty_id: id.to_string(), pane_id })
+            .await
+    }
+
+    pub async fn mark_read(&self, id: &str) -> Result<Option<PtyRecord>, PtyServiceError> {
+        self.apply_metadata(PtyMetadataCommand::MarkRead { pty_id: id.to_string() }).await
+    }
+
+    pub async fn set_name(
+        &self,
+        id: &str,
+        name: Option<String>,
+    ) -> Result<Option<PtyRecord>, PtyServiceError> {
+        self.apply_metadata(PtyMetadataCommand::SetName { pty_id: id.to_string(), name }).await
+    }
+
+    async fn apply_metadata(
+        &self,
+        command: PtyMetadataCommand,
+    ) -> Result<Option<PtyRecord>, PtyServiceError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(PtyMsg::Metadata { command, reply: reply_tx })?;
+        reply_rx.await.map_err(|_| PtyServiceError::Unavailable)?.map_err(PtyServiceError::Failed)
     }
 
     pub async fn list(&self) -> Result<Vec<PtyRecord>, PtyServiceError> {
@@ -309,6 +348,13 @@ async fn service_loop(mut rx: mpsc::UnboundedReceiver<PtyMsg>) {
             PtyMsg::Attach { id, max_replay_bytes, reply } => {
                 let attach = ptys.get_mut(&id).map(|entry| entry.attach(max_replay_bytes));
                 let _ = reply.send(attach);
+            }
+            PtyMsg::Metadata { command, reply } => {
+                let result = match ptys.get_mut(command.pty_id()) {
+                    Some(entry) => entry.apply_metadata(&command),
+                    None => Ok(None),
+                };
+                let _ = reply.send(result);
             }
             PtyMsg::List { reply } => {
                 let mut records: Vec<_> = ptys
@@ -484,6 +530,23 @@ impl PtyEntry {
             .map(|output| output.snapshot_bytes_with_offset(max_replay_bytes))
             .unwrap_or_else(|_| (0, Vec::new()));
         PtyAttach { record: self.record(), replay_offset, replay_bytes, events }
+    }
+
+    fn apply_metadata(
+        &mut self,
+        command: &PtyMetadataCommand,
+    ) -> Result<Option<PtyRecord>, String> {
+        let result = apply_metadata_command(&mut self.metadata, self.generation, command);
+        match result {
+            PtyMetadataCommandResult::Applied => {
+                self.refresh_status();
+                Ok(Some(self.record()))
+            }
+            PtyMetadataCommandResult::StaleGeneration => {
+                Err(format!("stale daemon pty generation for {}", self.id))
+            }
+            PtyMetadataCommandResult::Missing => Ok(None),
+        }
     }
 }
 
@@ -781,6 +844,54 @@ mod tests {
             handle.spawn_task("printf second".to_string(), request).await.unwrap_err().to_string();
         assert!(err.contains("already exists"), "got: {err}");
 
+        handle.shutdown().await;
+        join.await.unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn metadata_commands_update_daemon_pty_info() {
+        let dir = tempfile::tempdir().unwrap();
+        let (handle, join) = spawn();
+
+        let record = handle
+            .spawn_task(
+                "sleep 1".to_string(),
+                PtySpawnRequest {
+                    id: Some("pty-meta".to_string()),
+                    working_dir: Some(dir.path().to_path_buf()),
+                    session_id: Some("session-a".to_string()),
+                    pane_id: Some("pane-a".to_string()),
+                    ..PtySpawnRequest::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            record.info.status,
+            PtyStatus::RunningAttached { ref pane_id } if pane_id == "pane-a"
+        ));
+
+        let detached = handle.detach("pty-meta").await.unwrap().unwrap();
+        assert!(matches!(detached.info.status, PtyStatus::RunningDetached { .. }));
+
+        let attached =
+            handle.attach_to_pane("pty-meta", "pane-b".to_string()).await.unwrap().unwrap();
+        assert!(matches!(
+            attached.info.status,
+            PtyStatus::RunningAttached { ref pane_id } if pane_id == "pane-b"
+        ));
+
+        let named =
+            handle.set_name("pty-meta", Some("Build shell".to_string())).await.unwrap().unwrap();
+        assert_eq!(named.info.name.as_deref(), Some("Build shell"));
+
+        let unnamed = handle.set_name("pty-meta", None).await.unwrap().unwrap();
+        assert_eq!(unnamed.info.name, None);
+
+        assert!(handle.mark_read("missing").await.unwrap().is_none());
+
+        let _ = handle.kill("pty-meta").await;
         handle.shutdown().await;
         join.await.unwrap();
     }

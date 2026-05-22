@@ -37,10 +37,17 @@ pub(crate) async fn list_all_ptys(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn detach_pty(
+pub(crate) async fn detach_pty(
     pty_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = state.daemon_client.clone() {
+        match client.detach_daemon_pty(pty_id.clone()).await {
+            Ok(_) => return Ok(()),
+            Err(err) if is_daemon_pty_not_found(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
     state.pty_manager.detach(&pty_id);
     Ok(())
 }
@@ -62,10 +69,11 @@ pub(crate) async fn attach_pty_to_pane(
     if let Some(client) = state.daemon_client.clone() {
         match client.daemon_pty_output(pty_id.clone(), Some(256 * 1024)).await {
             Ok(snapshot) => {
+                let _ = client.attach_daemon_pty_to_pane(pty_id.clone(), pane_id).await?;
                 let _ = client.resize_daemon_pty(pty_id, cols, rows).await?;
                 return Ok(AttachResult { replay_bytes: snapshot.output_bytes });
             }
-            Err(err) if err.contains("daemon pty not found") => {}
+            Err(err) if is_daemon_pty_not_found(&err) => {}
             Err(err) => return Err(err),
         }
     }
@@ -78,21 +86,39 @@ pub(crate) async fn attach_pty_to_pane(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn mark_pty_read(
+pub(crate) async fn mark_pty_read(
     pty_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = state.daemon_client.clone() {
+        match client.mark_daemon_pty_read(pty_id.clone()).await {
+            Ok(_) => return Ok(()),
+            Err(err) if is_daemon_pty_not_found(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
     state.pty_manager.mark_read(&pty_id);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn set_pty_name(
+pub(crate) async fn set_pty_name(
     pty_id: String,
     name: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = state.daemon_client.clone() {
+        match client.set_daemon_pty_name(pty_id.clone(), name.clone()).await {
+            Ok(_) => return Ok(()),
+            Err(err) if is_daemon_pty_not_found(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
     state.pty_manager.set_name(&pty_id, name.as_deref());
     Ok(())
+}
+
+fn is_daemon_pty_not_found(err: &str) -> bool {
+    err.contains("daemon pty not found")
 }
