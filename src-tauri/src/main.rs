@@ -69,7 +69,7 @@ fn main() {
 
     let persisted_watches = watches::load_persisted_watches();
     let (watch_store_handle, _watch_join) = watches::store::spawn(persisted_watches);
-    let daemon_client = daemon_client::DaemonClient::detect();
+    let daemon_client = daemon_client::DaemonClient::ensure_local();
     if let Some(client) = daemon_client.as_ref() {
         rlog!(
             "Connected to roux daemon pid={} socket={}",
@@ -77,7 +77,7 @@ fn main() {
             client.status().socket
         );
     } else {
-        rlog!("No roux daemon detected; desktop will self-host runtime state");
+        rlog!("No roux daemon available; desktop will self-host runtime state");
     }
 
     let persisted_projects = project_service::load_persisted();

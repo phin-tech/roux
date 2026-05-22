@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use roux_core::{Project, Session};
@@ -11,6 +13,8 @@ use crate::platform;
 
 const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(3);
+const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +50,33 @@ impl DaemonClient {
             Some(Self { status })
         } else {
             None
+        }
+    }
+
+    pub(crate) fn ensure_local() -> Option<Self> {
+        if let Some(client) = Self::detect() {
+            return Some(client);
+        }
+
+        match launch_local_daemon() {
+            Ok(started) => {
+                rlog!("Started roux daemon pid={} from {}", started.pid, started.binary.display());
+            }
+            Err(err) => {
+                rlog!("Unable to start roux daemon; desktop will self-host runtime state: {err}");
+                return None;
+            }
+        }
+
+        match wait_for_daemon(STARTUP_TIMEOUT, STARTUP_POLL_INTERVAL) {
+            Some(client) => Some(client),
+            None => {
+                rlog!(
+                    "Started roux daemon but it did not become ready within {}ms; desktop will self-host runtime state",
+                    STARTUP_TIMEOUT.as_millis()
+                );
+                None
+            }
         }
     }
 
@@ -183,6 +214,100 @@ impl DaemonClient {
         let value = send_command_async(daemon_pty_kill_request(id)).await?;
         serde_json::from_value(value).map_err(|err| format!("decode daemon pty kill: {err}"))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StartedDaemon {
+    binary: PathBuf,
+    pid: u32,
+}
+
+fn launch_local_daemon() -> Result<StartedDaemon, String> {
+    if let Some(reason) = daemon_autostart_disabled_reason() {
+        return Err(reason);
+    }
+    let binary = resolve_daemon_binary()?;
+    let mut child = daemon_spawn_command(&binary)
+        .spawn()
+        .map_err(|err| format!("spawn {} daemon: {err}", binary.display()))?;
+    let pid = child.id();
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(StartedDaemon { binary, pid })
+}
+
+fn wait_for_daemon(timeout: Duration, interval: Duration) -> Option<DaemonClient> {
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(client) = DaemonClient::detect() {
+            return Some(client);
+        }
+        if started.elapsed() >= timeout {
+            return None;
+        }
+        std::thread::sleep(interval);
+    }
+}
+
+fn daemon_autostart_disabled_reason() -> Option<String> {
+    daemon_autostart_disabled_reason_for(
+        std::env::var("ROUX_DAEMON_AUTOSTART").ok().as_deref(),
+        std::env::var("ROUX_SOCKET").ok().as_deref(),
+    )
+}
+
+fn daemon_autostart_disabled_reason_for(
+    autostart: Option<&str>,
+    socket: Option<&str>,
+) -> Option<String> {
+    if autostart.and_then(parse_env_enabled) == Some(false) {
+        return Some("ROUX_DAEMON_AUTOSTART disabled local daemon startup".to_string());
+    }
+    if socket.map(|value| !value.trim().is_empty()).unwrap_or(false) {
+        return Some("ROUX_SOCKET is set, assuming external daemon endpoint".to_string());
+    }
+    None
+}
+
+fn parse_env_enabled(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" => None,
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => Some(true),
+    }
+}
+
+fn resolve_daemon_binary() -> Result<PathBuf, String> {
+    let current_exe = std::env::current_exe().ok();
+    resolve_daemon_binary_from(current_exe.as_deref()).ok_or_else(|| {
+        format!(
+            "{} not found next to the desktop binary or on PATH",
+            platform::roux_cli_file_name()
+        )
+    })
+}
+
+fn resolve_daemon_binary_from(current_exe: Option<&Path>) -> Option<PathBuf> {
+    current_exe
+        .and_then(platform::sibling_roux_cli_path)
+        .filter(|path| path.is_file())
+        .or_else(|| platform::find_executable_on_path(platform::roux_cli_file_name()))
+}
+
+fn daemon_spawn_command(binary: &Path) -> Command {
+    let mut command = Command::new(binary);
+    command.arg("daemon").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
+    }
+
+    command
 }
 
 fn daemon_process_start_request(command: String, working_dir: Option<String>) -> Value {
@@ -497,5 +622,38 @@ mod tests {
         let kill = daemon_pty_kill_request("pty-a".to_string());
         assert_eq!(kill["command"], "daemon-pty-kill");
         assert_eq!(kill["args"]["id"], "pty-a");
+    }
+
+    #[test]
+    fn daemon_autostart_policy_respects_external_endpoint_and_opt_out() {
+        assert_eq!(daemon_autostart_disabled_reason_for(None, None), None);
+        assert_eq!(daemon_autostart_disabled_reason_for(Some("1"), Some("")), None);
+
+        assert!(daemon_autostart_disabled_reason_for(Some("0"), None)
+            .unwrap()
+            .contains("ROUX_DAEMON_AUTOSTART"));
+        assert!(daemon_autostart_disabled_reason_for(None, Some("/tmp/remote.sock"))
+            .unwrap()
+            .contains("ROUX_SOCKET"));
+    }
+
+    #[test]
+    fn parse_env_enabled_accepts_common_false_values() {
+        assert_eq!(parse_env_enabled("0"), Some(false));
+        assert_eq!(parse_env_enabled("false"), Some(false));
+        assert_eq!(parse_env_enabled("off"), Some(false));
+        assert_eq!(parse_env_enabled("yes"), Some(true));
+        assert_eq!(parse_env_enabled(""), None);
+    }
+
+    #[test]
+    fn resolve_daemon_binary_prefers_sibling_cli() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktop = dir.path().join("roux-desktop");
+        let cli = dir.path().join(platform::roux_cli_file_name());
+        std::fs::write(&desktop, "").unwrap();
+        std::fs::write(&cli, "").unwrap();
+
+        assert_eq!(resolve_daemon_binary_from(Some(&desktop)), Some(cli));
     }
 }
