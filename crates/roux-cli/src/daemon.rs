@@ -8,6 +8,7 @@ use tokio::net::TcpListener;
 use tokio::net::UnixListener;
 
 use roux_runtime::host::{RuntimeHost, RuntimeHostConfig};
+use roux_runtime::process_service::PROCESS_OUTPUT_DEFAULT_POLL_BYTES;
 
 use crate::{daemon_log::DaemonLog, paths, platform};
 
@@ -46,6 +47,7 @@ pub async fn run() -> Result<(), String> {
 
     socket_server.shutdown();
     log.write("Socket server stopped");
+    host.process_handle.shutdown().await;
     host.session_handle.shutdown().await;
     host.project_handle.shutdown().await;
     log.write("Runtime services stopped");
@@ -327,6 +329,10 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
         "session-poll" => handle_session_poll(req, host).await,
         "session-rename" => handle_session_rename(req, host).await,
         "project-list" => handle_project_list(host).await,
+        "daemon-process-start" => handle_daemon_process_start(req, host).await,
+        "daemon-process-output" => handle_daemon_process_output(req, host).await,
+        "daemon-process-list" => handle_daemon_process_list(host).await,
+        "daemon-process-kill" => handle_daemon_process_kill(req, host).await,
         _ => Response::err(format!("unknown daemon command: {}", req.command)),
     }
 }
@@ -334,6 +340,7 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
 async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> Response {
     let session_count = host.session_handle.list().await.map(|s| s.len()).unwrap_or(0);
     let project_count = host.project_handle.list().await.map(|p| p.len()).unwrap_or(0);
+    let process_count = host.process_handle.list().await.map(|p| p.len()).unwrap_or(0);
     Response::success(serde_json::json!({
         "kind": "roux-daemon",
         "pid": std::process::id(),
@@ -343,12 +350,17 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "uptimeMs": unix_now_ms().saturating_sub(identity.started_at_ms),
         "sessionCount": session_count,
         "projectCount": project_count,
+        "processCount": process_count,
         "capabilities": [
             "daemon-status",
             "session-list",
             "session-poll",
             "session-rename",
-            "project-list"
+            "project-list",
+            "daemon-process-start",
+            "daemon-process-output",
+            "daemon-process-list",
+            "daemon-process-kill"
         ],
     }))
 }
@@ -403,6 +415,72 @@ async fn handle_project_list(host: &RuntimeHost) -> Response {
             Ok(value) => Response::success(value),
             Err(err) => Response::err(format!("failed to serialize projects: {err}")),
         },
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_process_start(req: Request, host: &RuntimeHost) -> Response {
+    let Some(command) = req.args.get("command").and_then(|command| command.as_str()) else {
+        return Response::err("command required");
+    };
+    let working_dir = req
+        .args
+        .get("workingDir")
+        .or_else(|| req.args.get("working_dir"))
+        .and_then(|working_dir| working_dir.as_str())
+        .map(PathBuf::from);
+
+    match host.process_handle.start(command.to_string(), working_dir).await {
+        Ok(record) => match serde_json::to_value(record) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon process: {err}")),
+        },
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_process_output(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    let max_bytes = req
+        .args
+        .get("maxBytes")
+        .or_else(|| req.args.get("max_bytes"))
+        .and_then(|max_bytes| max_bytes.as_u64())
+        .map(|max_bytes| max_bytes as usize)
+        .unwrap_or(PROCESS_OUTPUT_DEFAULT_POLL_BYTES);
+
+    match host.process_handle.snapshot(id, max_bytes).await {
+        Ok(Some(snapshot)) => match serde_json::to_value(snapshot) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon process output: {err}")),
+        },
+        Ok(None) => Response::err("daemon process not found"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_process_list(host: &RuntimeHost) -> Response {
+    match host.process_handle.list().await {
+        Ok(processes) => match serde_json::to_value(processes) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon processes: {err}")),
+        },
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_process_kill(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    match host.process_handle.kill(id).await {
+        Ok(Some(record)) => match serde_json::to_value(record) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon process: {err}")),
+        },
+        Ok(None) => Response::err("daemon process not found"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -513,11 +591,13 @@ mod tests {
         assert_eq!(data["kind"], "roux-daemon");
         assert_eq!(data["socket"], "/tmp/roux.sock");
         assert_eq!(data["logPath"], "/tmp/roux-daemon.log");
+        assert_eq!(data["processCount"], 0);
         assert!(data["capabilities"]
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("daemon-status")));
 
+        host.process_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -555,6 +635,75 @@ mod tests {
         let session = host.session_handle.get("s1").await.unwrap().unwrap();
         assert_eq!(session.name_override.as_deref(), Some("Daemon owned"));
 
+        host.process_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_process_start_and_output_poll_are_daemon_owned() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+
+        let start = handle_request(
+            Request {
+                command: "daemon-process-start".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "command": "printf daemon-owned",
+                    "workingDir": dir.path(),
+                }),
+            },
+            &host,
+            &DaemonIdentity::new_for_test("/tmp/roux.sock"),
+        )
+        .await;
+        assert!(start.ok, "start failed: {:?}", start.error);
+        let process_id = start.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let mut output = None;
+        for _ in 0..50 {
+            let poll = handle_request(
+                Request {
+                    command: "daemon-process-output".to_string(),
+                    session_id: None,
+                    pane_id: None,
+                    auth_token: None,
+                    args: serde_json::json!({ "id": process_id, "maxBytes": 1024 }),
+                },
+                &host,
+                &DaemonIdentity::new_for_test("/tmp/roux.sock"),
+            )
+            .await;
+            assert!(poll.ok, "poll failed: {:?}", poll.error);
+            let data = poll.data.unwrap();
+            if data["output"].as_str().unwrap_or("").contains("daemon-owned") {
+                output = Some(data);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let output = output.expect("daemon-owned output should be pollable");
+        assert_eq!(output["record"]["id"], process_id);
+        assert_eq!(output["record"]["running"], false);
+        assert_eq!(output["record"]["exitCode"], 0);
+
+        host.process_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -601,6 +750,7 @@ mod tests {
         assert_eq!(value["data"]["logPath"], serde_json::Value::String(expected_log_path));
 
         server.shutdown();
+        host.process_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);

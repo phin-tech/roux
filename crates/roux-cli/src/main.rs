@@ -280,6 +280,29 @@ enum MailboxAction {
 enum DaemonAction {
     /// Query the daemon-only status endpoint
     Status,
+    /// Start a daemon-owned shell command and return its process id
+    Run {
+        /// Shell command to run inside the daemon
+        command: String,
+        /// Working directory for the command
+        #[arg(short, long)]
+        working_dir: Option<String>,
+    },
+    /// Poll retained output for a daemon-owned process
+    Output {
+        /// Daemon process id returned by `roux daemon run`
+        id: String,
+        /// Maximum retained output bytes to return
+        #[arg(long, default_value_t = 65536)]
+        max_bytes: usize,
+    },
+    /// List daemon-owned processes
+    Processes,
+    /// Kill a daemon-owned process
+    Kill {
+        /// Daemon process id
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1123,6 +1146,37 @@ fn main() {
             Some(DaemonAction::Status) => {
                 run_socket_command(serde_json::json!({
                     "command": "daemon-status",
+                }));
+            }
+            Some(DaemonAction::Run { command, working_dir }) => {
+                let mut args = serde_json::Map::new();
+                args.insert("command".into(), Value::String(command));
+                if let Some(working_dir) = working_dir {
+                    args.insert("workingDir".into(), Value::String(resolve_path(&working_dir)));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-process-start",
+                    "args": args,
+                }));
+            }
+            Some(DaemonAction::Output { id, max_bytes }) => {
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-process-output",
+                    "args": {
+                        "id": id,
+                        "maxBytes": max_bytes,
+                    },
+                }));
+            }
+            Some(DaemonAction::Processes) => {
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-process-list",
+                }));
+            }
+            Some(DaemonAction::Kill { id }) => {
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-process-kill",
+                    "args": { "id": id },
                 }));
             }
         },
@@ -2419,6 +2473,52 @@ mod tests {
         match cli.command {
             Commands::Daemon { action: Some(DaemonAction::Status) } => {}
             _ => panic!("expected Daemon::Status"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_daemon_run_command() {
+        let cli =
+            Cli::try_parse_from(["roux", "daemon", "run", "printf hi", "--working-dir", "."])
+                .unwrap();
+        match cli.command {
+            Commands::Daemon {
+                action:
+                    Some(DaemonAction::Run {
+                        command,
+                        working_dir: Some(working_dir),
+                    }),
+            } => {
+                assert_eq!(command, "printf hi");
+                assert_eq!(working_dir, ".");
+            }
+            _ => panic!("expected Daemon::Run"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_daemon_output_command() {
+        let cli = Cli::try_parse_from([
+            "roux",
+            "daemon",
+            "output",
+            "daemon-process-1",
+            "--max-bytes",
+            "42",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Daemon {
+                action:
+                    Some(DaemonAction::Output {
+                        id,
+                        max_bytes,
+                    }),
+            } => {
+                assert_eq!(id, "daemon-process-1");
+                assert_eq!(max_bytes, 42);
+            }
+            _ => panic!("expected Daemon::Output"),
         }
     }
 

@@ -174,17 +174,28 @@ Start Roux's experimental headless runtime host.
 roux daemon
 ```
 
-This is a foundation for moving long-lived runtime services out of the Tauri process. Today it loads persisted projects and sessions, starts the shared session/project service host, binds the Roux command socket, and runs until Ctrl-C.
+This is a foundation for moving long-lived runtime services out of the Tauri process. Today it loads persisted projects and sessions, starts the shared runtime service host, binds the Roux command socket, and runs until Ctrl-C.
 
-The daemon has one daemon-only CLI command:
+The daemon exposes daemon-only CLI commands:
 
 ```sh
 roux daemon status
 ```
 
-When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, log path, loaded session/project counts, and daemon capabilities. The daemon also answers a small headless metadata surface over the socket: `session-list`, `session-poll`, `session-rename`, and `project-list`.
+When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, log path, loaded session/project/process counts, and daemon capabilities. The daemon also answers a small headless metadata surface over the socket: `session-list`, `session-poll`, `session-rename`, and `project-list`.
 
 Daemon runtime logs are written to `~/.config/roux/logs/roux-daemon.log` and mirrored to stderr. Existing daemon logs rotate to `roux-daemon.1.log` through `roux-daemon.5.log` on daemon startup.
+
+The daemon also owns a headless process registry. This is intentionally separate from GUI panes for now:
+
+```sh
+roux daemon run "printf hello-from-daemon"
+roux daemon output daemon-process-1
+roux daemon processes
+roux daemon kill daemon-process-1
+```
+
+`roux daemon run` starts the command inside the daemon process, retains stdout/stderr output in the daemon, and returns a daemon process id. `roux daemon output` polls the retained output and current exit status.
 
 If Roux.app already owns the command socket, `roux daemon` refuses to start instead of replacing the live GUI socket.
 
@@ -193,7 +204,7 @@ If `roux daemon` is already running when Roux.app starts, the desktop app detect
 Current limits:
 
 - the desktop app still owns interactive terminal rendering and normal PTY attachment
-- pane/process commands such as `roux split`, `roux session send`, and `roux run` still expect Roux.app to be running
+- pane commands such as `roux split`, `roux session send`, and top-level `roux run` still expect Roux.app to be running
 - there is not yet a `roux attach` command or daemon-owned scrollback replay
 
 Use it for daemon development and validation, not as a replacement for launching Roux.app.

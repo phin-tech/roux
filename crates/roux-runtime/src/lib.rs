@@ -6,6 +6,7 @@
 pub mod host;
 pub mod pane_service;
 pub mod process;
+pub mod process_service;
 pub mod project_service;
 pub mod pty_lifecycle;
 pub mod pty_live;

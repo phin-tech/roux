@@ -23,14 +23,17 @@ That endpoint is intentionally not implemented by the GUI socket server. It prov
 
 The daemon writes its own runtime log to `~/.config/roux/logs/roux-daemon.log`, rotates existing daemon logs on startup, and reports the active log path from `roux daemon status`.
 
+The daemon now owns a small headless process registry too. `roux daemon run "<command>"` starts a shell command inside the daemon process, `roux daemon output <id>` polls retained stdout/stderr and exit status, `roux daemon processes` lists daemon-owned processes, and `roux daemon kill <id>` stops one. This is the first runtime behavior owned by the daemon that the GUI does not render or spawn.
+
 If Roux.app already owns the socket, `roux daemon` refuses to start instead of unlinking or replacing the GUI's live command channel.
 
-If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata reads plus session rename. That makes the GUI a frontend for daemon-owned durable state, while PTY/process ownership remains in the desktop process until the next migration slice.
+If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata reads plus session rename. That makes the GUI a frontend for daemon-owned durable state. Interactive PTY ownership still remains in the desktop process until the next migration slice.
 
 That is not the full design below yet. As of this note:
 
 - Roux.app still owns interactive PTYs and xterm.js rendering
-- pane/process socket commands such as split, send, run, and attach still expect the desktop app to be running
+- pane socket commands such as split, send, and attach still expect the desktop app to be running
+- top-level `roux run` still creates a GUI pane; daemon-owned processes use `roux daemon run`
 - there is no `roux attach` command yet
 - the daemon does not yet own scrollback replay or reconnectable PTY lifetimes
 

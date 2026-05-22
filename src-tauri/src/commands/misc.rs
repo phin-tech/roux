@@ -30,6 +30,7 @@ pub(crate) async fn quit_app(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     state.pty_manager.shutdown_all();
+    state.runtime.process_handle.shutdown().await;
     state.runtime.session_handle.shutdown().await;
     state.runtime.project_handle.shutdown().await;
     state.watch_manager.store().shutdown().await;
