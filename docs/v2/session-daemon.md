@@ -13,10 +13,20 @@ roux daemon
 
 It lives in the standalone `crates/roux-cli` crate, starts the shared runtime service host, loads persisted projects/sessions from the canonical config paths, and runs until Ctrl-C. This deliberately keeps the command-line binary separate from the Tauri desktop package.
 
+The daemon now binds the Roux command socket itself and exposes a daemon-only status endpoint:
+
+```sh
+roux daemon status
+```
+
+That endpoint is intentionally not implemented by the GUI socket server. It proves the daemon can own an observable capability independently of Roux.app. The daemon also serves the first headless durable-state commands over the same socket: session list, session poll, session rename, and project list.
+
+If Roux.app already owns the socket, `roux daemon` refuses to start instead of unlinking or replacing the GUI's live command channel.
+
 That is not the full design below yet. As of this note:
 
 - Roux.app still owns interactive PTYs and xterm.js rendering
-- socket-backed CLI commands still expect the desktop app to be running
+- pane/process socket commands such as split, send, run, and attach still expect the desktop app to be running
 - there is no `roux attach` command yet
 - the daemon does not yet own scrollback replay or reconnectable PTY lifetimes
 

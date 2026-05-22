@@ -112,8 +112,11 @@ enum Commands {
     },
     /// Start the Roux MCP stdio server
     Mcp,
-    /// Start the headless Roux runtime daemon
-    Daemon,
+    /// Start or inspect the headless Roux runtime daemon
+    Daemon {
+        #[command(subcommand)]
+        action: Option<DaemonAction>,
+    },
     /// Manage agent aliases — stable, restart-durable identity for sessions
     Alias {
         #[command(subcommand)]
@@ -270,6 +273,12 @@ enum MailboxAction {
         #[arg(short = 'a', long)]
         alias: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum DaemonAction {
+    /// Query the daemon-only status endpoint
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -1096,19 +1105,26 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Daemon => {
-            let runtime = match tokio::runtime::Runtime::new() {
-                Ok(runtime) => runtime,
-                Err(e) => {
-                    eprintln!("Error: failed to start daemon runtime: {}", e);
+        Commands::Daemon { action } => match action {
+            None => {
+                let runtime = match tokio::runtime::Runtime::new() {
+                    Ok(runtime) => runtime,
+                    Err(e) => {
+                        eprintln!("Error: failed to start daemon runtime: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                if let Err(e) = runtime.block_on(daemon::run()) {
+                    eprintln!("Error: daemon exited: {}", e);
                     std::process::exit(1);
                 }
-            };
-            if let Err(e) = runtime.block_on(daemon::run()) {
-                eprintln!("Error: daemon exited: {}", e);
-                std::process::exit(1);
             }
-        }
+            Some(DaemonAction::Status) => {
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-status",
+                }));
+            }
+        },
 
         Commands::App { path } => {
             let resolved = resolve_path(&path);
@@ -2391,8 +2407,17 @@ mod tests {
     fn cli_parses_daemon_command() {
         let cli = Cli::try_parse_from(["roux", "daemon"]).unwrap();
         match cli.command {
-            Commands::Daemon => {}
+            Commands::Daemon { action: None } => {}
             _ => panic!("expected Daemon"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_daemon_status_command() {
+        let cli = Cli::try_parse_from(["roux", "daemon", "status"]).unwrap();
+        match cli.command {
+            Commands::Daemon { action: Some(DaemonAction::Status) } => {}
+            _ => panic!("expected Daemon::Status"),
         }
     }
 
