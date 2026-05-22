@@ -21,9 +21,7 @@ pub async fn run() -> Result<(), String> {
     let (host, joins) = services.spawn_with(tokio::spawn);
     eprintln!("roux daemon started; press Ctrl-C to stop");
 
-    tokio::signal::ctrl_c()
-        .await
-        .map_err(|err| format!("failed to wait for shutdown signal: {err}"))?;
+    wait_for_shutdown_signal().await?;
 
     host.session_handle.shutdown().await;
     host.project_handle.shutdown().await;
@@ -36,4 +34,30 @@ pub async fn run() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+async fn wait_for_shutdown_signal() -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sigterm = signal(SignalKind::terminate())
+            .map_err(|err| format!("failed to install SIGTERM handler: {err}"))?;
+
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                result.map_err(|err| format!("failed to wait for SIGINT: {err}"))?;
+            }
+            _ = sigterm.recv() => {}
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c()
+            .await
+            .map_err(|err| format!("failed to wait for shutdown signal: {err}"))
+    }
 }

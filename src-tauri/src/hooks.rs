@@ -176,7 +176,7 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
 
 #[cfg(not(windows))]
 fn install_cli_compat_alias(target: &Path, compat_target: &Path) -> Result<(), String> {
-    if compat_target.exists() {
+    if compat_target.symlink_metadata().is_ok() {
         let _ = fs::remove_file(compat_target);
     }
     std::os::unix::fs::symlink(target, compat_target)
@@ -518,6 +518,24 @@ mod tests {
         let command =
             hook_command(Path::new("C:\\Users\\Sam\\App Data\\Roux\\roux.exe"), "working");
         assert_eq!(command, "\"C:\\\\Users\\\\Sam\\\\App Data\\\\Roux\\\\roux.exe\" hook working");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn install_cli_compat_alias_replaces_dangling_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("roux");
+        let missing = dir.path().join("missing-roux");
+        let compat = dir.path().join("roux-cli");
+
+        fs::write(&target, "").unwrap();
+        std::os::unix::fs::symlink(&missing, &compat).unwrap();
+        assert!(!compat.exists());
+        assert!(compat.symlink_metadata().is_ok());
+
+        install_cli_compat_alias(&target, &compat).unwrap();
+
+        assert_eq!(fs::read_link(&compat).unwrap(), target);
     }
 
     #[test]
