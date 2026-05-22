@@ -7,6 +7,7 @@ use roux_core::{Project, Session};
 use crate::pane_service::{self, PaneHandle};
 use crate::process_service::{self, ProcessHandle};
 use crate::project_service::{self, ProjectHandle};
+use crate::pty_service::{self, PtyHandle};
 use crate::session_service::{self, SessionHandle};
 
 pub type RuntimeServiceFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
@@ -15,6 +16,7 @@ pub type RuntimeServiceFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static
 pub struct RuntimeHost {
     pub pane_handle: PaneHandle,
     pub process_handle: ProcessHandle,
+    pub pty_handle: PtyHandle,
     pub session_handle: SessionHandle,
     pub project_handle: ProjectHandle,
 }
@@ -37,15 +39,23 @@ impl RuntimeHostConfig {
             session_service::service_with_path(self.initial_sessions, self.session_persist_path);
         let (pane_handle, pane_future) = pane_service::service();
         let (process_handle, process_future) = process_service::service();
+        let (pty_handle, pty_future) = pty_service::service();
         let (project_handle, project_future) =
             project_service::service_with_path(self.initial_projects, self.project_persist_path);
 
         RuntimeHostServices {
-            host: RuntimeHost { pane_handle, process_handle, session_handle, project_handle },
+            host: RuntimeHost {
+                pane_handle,
+                process_handle,
+                pty_handle,
+                session_handle,
+                project_handle,
+            },
             services: vec![
                 Box::pin(session_future),
                 Box::pin(pane_future),
                 Box::pin(process_future),
+                Box::pin(pty_future),
                 Box::pin(project_future),
             ],
         }
@@ -67,7 +77,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn host_builds_four_service_futures() {
+    fn host_builds_five_service_futures() {
         let dir = tempfile::tempdir().unwrap();
         let services = RuntimeHostConfig {
             initial_sessions: Vec::new(),
@@ -77,6 +87,6 @@ mod tests {
         }
         .build();
 
-        assert_eq!(services.services.len(), 4);
+        assert_eq!(services.services.len(), 5);
     }
 }

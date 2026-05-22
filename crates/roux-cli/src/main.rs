@@ -303,6 +303,60 @@ enum DaemonAction {
         /// Daemon process id
         id: String,
     },
+    /// Start a daemon-owned PTY task and return its PTY id
+    PtyRun {
+        /// Shell command to run inside the PTY
+        command: String,
+        /// Working directory for the PTY
+        #[arg(short, long)]
+        working_dir: Option<String>,
+        /// Session id metadata for the PTY
+        #[arg(long)]
+        session_id: Option<String>,
+        /// Pane id metadata for the PTY
+        #[arg(long)]
+        pane_id: Option<String>,
+        /// Profile metadata for the PTY
+        #[arg(long)]
+        profile: Option<String>,
+        /// Initial PTY columns
+        #[arg(long)]
+        cols: Option<u16>,
+        /// Initial PTY rows
+        #[arg(long)]
+        rows: Option<u16>,
+    },
+    /// Poll retained output for a daemon-owned PTY
+    PtyOutput {
+        /// Daemon PTY id returned by `roux daemon pty-run`
+        id: String,
+        /// Maximum retained output bytes to return
+        #[arg(long, default_value_t = 65536)]
+        max_bytes: usize,
+    },
+    /// List daemon-owned PTYs
+    Ptys,
+    /// Write text into a daemon-owned PTY
+    PtyWrite {
+        /// Daemon PTY id
+        id: String,
+        /// Text to write
+        data: String,
+    },
+    /// Resize a daemon-owned PTY
+    PtyResize {
+        /// Daemon PTY id
+        id: String,
+        /// PTY columns
+        cols: u16,
+        /// PTY rows
+        rows: u16,
+    },
+    /// Kill a daemon-owned PTY
+    PtyKill {
+        /// Daemon PTY id
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1176,6 +1230,76 @@ fn main() {
             Some(DaemonAction::Kill { id }) => {
                 run_socket_command(serde_json::json!({
                     "command": "daemon-process-kill",
+                    "args": { "id": id },
+                }));
+            }
+            Some(DaemonAction::PtyRun {
+                command,
+                working_dir,
+                session_id,
+                pane_id,
+                profile,
+                cols,
+                rows,
+            }) => {
+                let mut args = serde_json::Map::new();
+                args.insert("command".into(), Value::String(command));
+                if let Some(working_dir) = working_dir {
+                    args.insert("workingDir".into(), Value::String(resolve_path(&working_dir)));
+                }
+                if let Some(session_id) = session_id {
+                    args.insert("sessionId".into(), Value::String(session_id));
+                }
+                if let Some(pane_id) = pane_id {
+                    args.insert("paneId".into(), Value::String(pane_id));
+                }
+                if let Some(profile) = profile {
+                    args.insert("profile".into(), Value::String(profile));
+                }
+                if let (Some(cols), Some(rows)) = (cols, rows) {
+                    args.insert("initialSize".into(), serde_json::json!([cols, rows]));
+                }
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-pty-spawn-task",
+                    "args": args,
+                }));
+            }
+            Some(DaemonAction::PtyOutput { id, max_bytes }) => {
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-pty-output",
+                    "args": {
+                        "id": id,
+                        "maxBytes": max_bytes,
+                    },
+                }));
+            }
+            Some(DaemonAction::Ptys) => {
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-pty-list",
+                }));
+            }
+            Some(DaemonAction::PtyWrite { id, data }) => {
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-pty-write",
+                    "args": {
+                        "id": id,
+                        "data": data,
+                    },
+                }));
+            }
+            Some(DaemonAction::PtyResize { id, cols, rows }) => {
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-pty-resize",
+                    "args": {
+                        "id": id,
+                        "cols": cols,
+                        "rows": rows,
+                    },
+                }));
+            }
+            Some(DaemonAction::PtyKill { id }) => {
+                run_socket_command(serde_json::json!({
+                    "command": "daemon-pty-kill",
                     "args": { "id": id },
                 }));
             }
@@ -2520,6 +2644,105 @@ mod tests {
             }
             _ => panic!("expected Daemon::Output"),
         }
+    }
+
+    #[test]
+    fn cli_parses_daemon_pty_run_command() {
+        let cli = Cli::try_parse_from([
+            "roux",
+            "daemon",
+            "pty-run",
+            "printf hi",
+            "--working-dir",
+            ".",
+            "--session-id",
+            "session-a",
+            "--pane-id",
+            "pane-a",
+            "--profile",
+            "task",
+            "--cols",
+            "120",
+            "--rows",
+            "40",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Daemon {
+                action:
+                    Some(DaemonAction::PtyRun {
+                        command,
+                        working_dir: Some(working_dir),
+                        session_id: Some(session_id),
+                        pane_id: Some(pane_id),
+                        profile: Some(profile),
+                        cols: Some(cols),
+                        rows: Some(rows),
+                    }),
+            } => {
+                assert_eq!(command, "printf hi");
+                assert_eq!(working_dir, ".");
+                assert_eq!(session_id, "session-a");
+                assert_eq!(pane_id, "pane-a");
+                assert_eq!(profile, "task");
+                assert_eq!(cols, 120);
+                assert_eq!(rows, 40);
+            }
+            _ => panic!("expected Daemon::PtyRun"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_daemon_pty_control_commands() {
+        let output = Cli::try_parse_from([
+            "roux",
+            "daemon",
+            "pty-output",
+            "daemon-pty-1",
+            "--max-bytes",
+            "42",
+        ])
+        .unwrap();
+        match output.command {
+            Commands::Daemon {
+                action: Some(DaemonAction::PtyOutput { id, max_bytes }),
+            } => {
+                assert_eq!(id, "daemon-pty-1");
+                assert_eq!(max_bytes, 42);
+            }
+            _ => panic!("expected Daemon::PtyOutput"),
+        }
+
+        let list = Cli::try_parse_from(["roux", "daemon", "ptys"]).unwrap();
+        assert!(matches!(list.command, Commands::Daemon { action: Some(DaemonAction::Ptys) }));
+
+        let write =
+            Cli::try_parse_from(["roux", "daemon", "pty-write", "daemon-pty-1", "hello\n"])
+                .unwrap();
+        assert!(matches!(
+            write.command,
+            Commands::Daemon {
+                action: Some(DaemonAction::PtyWrite { .. })
+            }
+        ));
+
+        let resize =
+            Cli::try_parse_from(["roux", "daemon", "pty-resize", "daemon-pty-1", "100", "30"])
+                .unwrap();
+        assert!(matches!(
+            resize.command,
+            Commands::Daemon {
+                action: Some(DaemonAction::PtyResize { .. })
+            }
+        ));
+
+        let kill = Cli::try_parse_from(["roux", "daemon", "pty-kill", "daemon-pty-1"]).unwrap();
+        assert!(matches!(
+            kill.command,
+            Commands::Daemon {
+                action: Some(DaemonAction::PtyKill { .. })
+            }
+        ));
     }
 
     #[test]

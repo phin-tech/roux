@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use roux_core::{Project, Session};
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
+use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
 
 use crate::platform;
 
@@ -25,6 +26,8 @@ pub(crate) struct DaemonStatus {
     pub(crate) project_count: usize,
     #[serde(default)]
     pub(crate) process_count: usize,
+    #[serde(default)]
+    pub(crate) pty_count: usize,
     pub(crate) capabilities: Vec<String>,
 }
 
@@ -102,6 +105,84 @@ impl DaemonClient {
         let value = send_command_async(daemon_process_kill_request(id)).await?;
         serde_json::from_value(value).map_err(|err| format!("decode daemon process kill: {err}"))
     }
+
+    pub(crate) async fn spawn_daemon_pty_shell(
+        &self,
+        id: Option<String>,
+        working_dir: Option<String>,
+        session_id: Option<String>,
+        pane_id: Option<String>,
+        profile: Option<String>,
+        initial_size: Option<(u16, u16)>,
+    ) -> Result<PtyRecord, String> {
+        let value = send_command_async(daemon_pty_spawn_shell_request(
+            id,
+            working_dir,
+            session_id,
+            pane_id,
+            profile,
+            initial_size,
+        ))
+        .await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty spawn shell: {err}"))
+    }
+
+    pub(crate) async fn spawn_daemon_pty_task(
+        &self,
+        command: String,
+        id: Option<String>,
+        working_dir: Option<String>,
+        session_id: Option<String>,
+        pane_id: Option<String>,
+        profile: Option<String>,
+        initial_size: Option<(u16, u16)>,
+    ) -> Result<PtyRecord, String> {
+        let value = send_command_async(daemon_pty_spawn_task_request(
+            command,
+            id,
+            working_dir,
+            session_id,
+            pane_id,
+            profile,
+            initial_size,
+        ))
+        .await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty spawn task: {err}"))
+    }
+
+    pub(crate) async fn daemon_pty_output(
+        &self,
+        id: String,
+        max_bytes: Option<usize>,
+    ) -> Result<PtySnapshot, String> {
+        let value = send_command_async(daemon_pty_output_request(id, max_bytes)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty output: {err}"))
+    }
+
+    pub(crate) async fn list_daemon_ptys(&self) -> Result<Vec<PtyRecord>, String> {
+        let value = send_command_async(daemon_pty_list_request()).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty list: {err}"))
+    }
+
+    pub(crate) async fn write_daemon_pty(&self, id: String, data: String) -> Result<(), String> {
+        let _ = send_command_async(daemon_pty_write_request(id, data)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn resize_daemon_pty(
+        &self,
+        id: String,
+        cols: u16,
+        rows: u16,
+    ) -> Result<PtyRecord, String> {
+        let value = send_command_async(daemon_pty_resize_request(id, cols, rows)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty resize: {err}"))
+    }
+
+    pub(crate) async fn kill_daemon_pty(&self, id: String) -> Result<PtyRecord, String> {
+        let value = send_command_async(daemon_pty_kill_request(id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon pty kill: {err}"))
+    }
 }
 
 fn daemon_process_start_request(command: String, working_dir: Option<String>) -> Value {
@@ -135,6 +216,105 @@ fn daemon_process_list_request() -> Value {
 fn daemon_process_kill_request(id: String) -> Value {
     serde_json::json!({
         "command": "daemon-process-kill",
+        "args": { "id": id },
+    })
+}
+
+fn daemon_pty_spawn_shell_request(
+    id: Option<String>,
+    working_dir: Option<String>,
+    session_id: Option<String>,
+    pane_id: Option<String>,
+    profile: Option<String>,
+    initial_size: Option<(u16, u16)>,
+) -> Value {
+    serde_json::json!({
+        "command": "daemon-pty-spawn-shell",
+        "args": daemon_pty_spawn_args(id, working_dir, session_id, pane_id, profile, initial_size),
+    })
+}
+
+fn daemon_pty_spawn_task_request(
+    command: String,
+    id: Option<String>,
+    working_dir: Option<String>,
+    session_id: Option<String>,
+    pane_id: Option<String>,
+    profile: Option<String>,
+    initial_size: Option<(u16, u16)>,
+) -> Value {
+    let mut args =
+        daemon_pty_spawn_args(id, working_dir, session_id, pane_id, profile, initial_size);
+    args.insert("command".to_string(), Value::String(command));
+    serde_json::json!({
+        "command": "daemon-pty-spawn-task",
+        "args": args,
+    })
+}
+
+fn daemon_pty_spawn_args(
+    id: Option<String>,
+    working_dir: Option<String>,
+    session_id: Option<String>,
+    pane_id: Option<String>,
+    profile: Option<String>,
+    initial_size: Option<(u16, u16)>,
+) -> serde_json::Map<String, Value> {
+    let mut args = serde_json::Map::new();
+    if let Some(id) = id {
+        args.insert("id".to_string(), Value::String(id));
+    }
+    if let Some(working_dir) = working_dir {
+        args.insert("workingDir".to_string(), Value::String(working_dir));
+    }
+    if let Some(session_id) = session_id {
+        args.insert("sessionId".to_string(), Value::String(session_id));
+    }
+    if let Some(pane_id) = pane_id {
+        args.insert("paneId".to_string(), Value::String(pane_id));
+    }
+    if let Some(profile) = profile {
+        args.insert("profile".to_string(), Value::String(profile));
+    }
+    if let Some((cols, rows)) = initial_size {
+        args.insert("initialSize".to_string(), serde_json::json!([cols, rows]));
+    }
+    args
+}
+
+fn daemon_pty_output_request(id: String, max_bytes: Option<usize>) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".to_string(), Value::String(id));
+    if let Some(max_bytes) = max_bytes {
+        args.insert("maxBytes".to_string(), serde_json::json!(max_bytes));
+    }
+    serde_json::json!({
+        "command": "daemon-pty-output",
+        "args": args,
+    })
+}
+
+fn daemon_pty_list_request() -> Value {
+    serde_json::json!({ "command": "daemon-pty-list" })
+}
+
+fn daemon_pty_write_request(id: String, data: String) -> Value {
+    serde_json::json!({
+        "command": "daemon-pty-write",
+        "args": { "id": id, "data": data },
+    })
+}
+
+fn daemon_pty_resize_request(id: String, cols: u16, rows: u16) -> Value {
+    serde_json::json!({
+        "command": "daemon-pty-resize",
+        "args": { "id": id, "cols": cols, "rows": rows },
+    })
+}
+
+fn daemon_pty_kill_request(id: String) -> Value {
+    serde_json::json!({
+        "command": "daemon-pty-kill",
         "args": { "id": id },
     })
 }
@@ -272,5 +452,50 @@ mod tests {
         let kill = daemon_process_kill_request("daemon-process-1".to_string());
         assert_eq!(kill["command"], "daemon-process-kill");
         assert_eq!(kill["args"]["id"], "daemon-process-1");
+    }
+
+    #[test]
+    fn daemon_pty_spawn_task_request_uses_daemon_command_shape() {
+        let request = daemon_pty_spawn_task_request(
+            "printf hi".to_string(),
+            Some("pty-a".to_string()),
+            Some("/tmp".to_string()),
+            Some("session-a".to_string()),
+            Some("pane-a".to_string()),
+            Some("task".to_string()),
+            Some((120, 40)),
+        );
+
+        assert_eq!(request["command"], "daemon-pty-spawn-task");
+        assert_eq!(request["args"]["command"], "printf hi");
+        assert_eq!(request["args"]["id"], "pty-a");
+        assert_eq!(request["args"]["workingDir"], "/tmp");
+        assert_eq!(request["args"]["sessionId"], "session-a");
+        assert_eq!(request["args"]["paneId"], "pane-a");
+        assert_eq!(request["args"]["profile"], "task");
+        assert_eq!(request["args"]["initialSize"], serde_json::json!([120, 40]));
+    }
+
+    #[test]
+    fn daemon_pty_control_requests_use_daemon_commands() {
+        let output = daemon_pty_output_request("pty-a".to_string(), Some(42));
+        assert_eq!(output["command"], "daemon-pty-output");
+        assert_eq!(output["args"]["id"], "pty-a");
+        assert_eq!(output["args"]["maxBytes"], 42);
+
+        assert_eq!(daemon_pty_list_request()["command"], "daemon-pty-list");
+
+        let write = daemon_pty_write_request("pty-a".to_string(), "input\n".to_string());
+        assert_eq!(write["command"], "daemon-pty-write");
+        assert_eq!(write["args"]["data"], "input\n");
+
+        let resize = daemon_pty_resize_request("pty-a".to_string(), 100, 30);
+        assert_eq!(resize["command"], "daemon-pty-resize");
+        assert_eq!(resize["args"]["cols"], 100);
+        assert_eq!(resize["args"]["rows"], 30);
+
+        let kill = daemon_pty_kill_request("pty-a".to_string());
+        assert_eq!(kill["command"], "daemon-pty-kill");
+        assert_eq!(kill["args"]["id"], "pty-a");
     }
 }

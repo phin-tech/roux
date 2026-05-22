@@ -9,6 +9,7 @@ use tokio::net::UnixListener;
 
 use roux_runtime::host::{RuntimeHost, RuntimeHostConfig};
 use roux_runtime::process_service::PROCESS_OUTPUT_DEFAULT_POLL_BYTES;
+use roux_runtime::pty_service::{PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES};
 
 use crate::{daemon_log::DaemonLog, paths, platform};
 
@@ -48,6 +49,7 @@ pub async fn run() -> Result<(), String> {
     socket_server.shutdown();
     log.write("Socket server stopped");
     host.process_handle.shutdown().await;
+    host.pty_handle.shutdown().await;
     host.session_handle.shutdown().await;
     host.project_handle.shutdown().await;
     log.write("Runtime services stopped");
@@ -333,6 +335,13 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
         "daemon-process-output" => handle_daemon_process_output(req, host).await,
         "daemon-process-list" => handle_daemon_process_list(host).await,
         "daemon-process-kill" => handle_daemon_process_kill(req, host).await,
+        "daemon-pty-spawn-shell" => handle_daemon_pty_spawn_shell(req, host).await,
+        "daemon-pty-spawn-task" => handle_daemon_pty_spawn_task(req, host).await,
+        "daemon-pty-output" => handle_daemon_pty_output(req, host).await,
+        "daemon-pty-list" => handle_daemon_pty_list(host).await,
+        "daemon-pty-write" => handle_daemon_pty_write(req, host).await,
+        "daemon-pty-resize" => handle_daemon_pty_resize(req, host).await,
+        "daemon-pty-kill" => handle_daemon_pty_kill(req, host).await,
         _ => Response::err(format!("unknown daemon command: {}", req.command)),
     }
 }
@@ -341,6 +350,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
     let session_count = host.session_handle.list().await.map(|s| s.len()).unwrap_or(0);
     let project_count = host.project_handle.list().await.map(|p| p.len()).unwrap_or(0);
     let process_count = host.process_handle.list().await.map(|p| p.len()).unwrap_or(0);
+    let pty_count = host.pty_handle.list().await.map(|p| p.len()).unwrap_or(0);
     Response::success(serde_json::json!({
         "kind": "roux-daemon",
         "pid": std::process::id(),
@@ -351,6 +361,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "sessionCount": session_count,
         "projectCount": project_count,
         "processCount": process_count,
+        "ptyCount": pty_count,
         "capabilities": [
             "daemon-status",
             "session-list",
@@ -360,7 +371,14 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "daemon-process-start",
             "daemon-process-output",
             "daemon-process-list",
-            "daemon-process-kill"
+            "daemon-process-kill",
+            "daemon-pty-spawn-shell",
+            "daemon-pty-spawn-task",
+            "daemon-pty-output",
+            "daemon-pty-list",
+            "daemon-pty-write",
+            "daemon-pty-resize",
+            "daemon-pty-kill"
         ],
     }))
 }
@@ -485,6 +503,159 @@ async fn handle_daemon_process_kill(req: Request, host: &RuntimeHost) -> Respons
     }
 }
 
+async fn handle_daemon_pty_spawn_shell(req: Request, host: &RuntimeHost) -> Response {
+    match host.pty_handle.spawn_shell(parse_pty_spawn_request(&req)).await {
+        Ok(record) => match serde_json::to_value(record) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
+        },
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_pty_spawn_task(req: Request, host: &RuntimeHost) -> Response {
+    let Some(command) = req.args.get("command").and_then(|command| command.as_str()) else {
+        return Response::err("command required");
+    };
+    match host.pty_handle.spawn_task(command.to_string(), parse_pty_spawn_request(&req)).await {
+        Ok(record) => match serde_json::to_value(record) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
+        },
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_pty_output(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    let max_bytes = req
+        .args
+        .get("maxBytes")
+        .or_else(|| req.args.get("max_bytes"))
+        .and_then(|max_bytes| max_bytes.as_u64())
+        .map(|max_bytes| max_bytes as usize)
+        .unwrap_or(PTY_OUTPUT_DEFAULT_POLL_BYTES);
+
+    match host.pty_handle.snapshot(id, max_bytes).await {
+        Ok(Some(snapshot)) => match serde_json::to_value(snapshot) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon pty output: {err}")),
+        },
+        Ok(None) => Response::err("daemon pty not found"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_pty_list(host: &RuntimeHost) -> Response {
+    match host.pty_handle.list().await {
+        Ok(ptys) => match serde_json::to_value(ptys) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon ptys: {err}")),
+        },
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_pty_write(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    let Some(data) = req.args.get("data").and_then(|data| data.as_str()) else {
+        return Response::err("data required");
+    };
+    match host.pty_handle.write(id, data.as_bytes().to_vec()).await {
+        Ok(()) => Response::success(serde_json::json!({ "id": id, "bytes": data.len() })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_pty_resize(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    let cols = req
+        .args
+        .get("cols")
+        .and_then(|cols| cols.as_u64())
+        .and_then(|cols| u16::try_from(cols).ok())
+        .unwrap_or(80);
+    let rows = req
+        .args
+        .get("rows")
+        .and_then(|rows| rows.as_u64())
+        .and_then(|rows| u16::try_from(rows).ok())
+        .unwrap_or(24);
+    match host.pty_handle.resize(id, cols, rows).await {
+        Ok(Some(record)) => match serde_json::to_value(record) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
+        },
+        Ok(None) => Response::err("daemon pty not found"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_daemon_pty_kill(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = req.args.get("id").and_then(|id| id.as_str()) else {
+        return Response::err("id required");
+    };
+    match host.pty_handle.kill(id).await {
+        Ok(Some(record)) => match serde_json::to_value(record) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
+        },
+        Ok(None) => Response::err("daemon pty not found"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+fn parse_pty_spawn_request(req: &Request) -> PtySpawnRequest {
+    let working_dir = req
+        .args
+        .get("workingDir")
+        .or_else(|| req.args.get("working_dir"))
+        .and_then(|working_dir| working_dir.as_str())
+        .map(PathBuf::from);
+    let session_id = req
+        .args
+        .get("sessionId")
+        .or_else(|| req.args.get("session_id"))
+        .and_then(|session_id| session_id.as_str())
+        .map(str::to_string)
+        .or_else(|| req.session_id.clone());
+    let pane_id = req
+        .args
+        .get("paneId")
+        .or_else(|| req.args.get("pane_id"))
+        .and_then(|pane_id| pane_id.as_str())
+        .map(str::to_string)
+        .or_else(|| req.pane_id.clone());
+    let role = match req.args.get("role").and_then(|role| role.as_str()) {
+        Some("sessionPrimary") | Some("session_primary") => roux_core::PtyRole::SessionPrimary,
+        _ => roux_core::PtyRole::Secondary,
+    };
+
+    PtySpawnRequest {
+        id: req.args.get("id").and_then(|id| id.as_str()).map(str::to_string),
+        working_dir,
+        session_id,
+        pane_id,
+        profile: req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string),
+        initial_size: parse_initial_size(&req.args),
+        role,
+    }
+}
+
+fn parse_initial_size(args: &Value) -> Option<(u16, u16)> {
+    let value = args.get("initialSize").or_else(|| args.get("initial_size"))?;
+    let array = value.as_array()?;
+    let cols = array.first()?.as_u64().and_then(|cols| u16::try_from(cols).ok())?;
+    let rows = array.get(1)?.as_u64().and_then(|rows| u16::try_from(rows).ok())?;
+    Some((cols, rows))
+}
+
 fn unix_now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -598,6 +769,7 @@ mod tests {
             .contains(&serde_json::json!("daemon-status")));
 
         host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -636,6 +808,7 @@ mod tests {
         assert_eq!(session.name_override.as_deref(), Some("Daemon owned"));
 
         host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -704,6 +877,81 @@ mod tests {
         assert_eq!(output["record"]["exitCode"], 0);
 
         host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_pty_spawn_task_and_output_poll_are_daemon_owned() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+
+        let start = handle_request(
+            Request {
+                command: "daemon-pty-spawn-task".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "command": "printf daemon-pty-owned",
+                    "workingDir": dir.path(),
+                    "initialSize": [80, 24],
+                    "sessionId": "session-a",
+                    "paneId": "pane-a",
+                    "profile": "task",
+                }),
+            },
+            &host,
+            &DaemonIdentity::new_for_test("/tmp/roux.sock"),
+        )
+        .await;
+        assert!(start.ok, "start failed: {:?}", start.error);
+        let pty_id = start.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let mut output = None;
+        for _ in 0..50 {
+            let poll = handle_request(
+                Request {
+                    command: "daemon-pty-output".to_string(),
+                    session_id: None,
+                    pane_id: None,
+                    auth_token: None,
+                    args: serde_json::json!({ "id": pty_id, "maxBytes": 1024 }),
+                },
+                &host,
+                &DaemonIdentity::new_for_test("/tmp/roux.sock"),
+            )
+            .await;
+            assert!(poll.ok, "poll failed: {:?}", poll.error);
+            let data = poll.data.unwrap();
+            if data["output"].as_str().unwrap_or("").contains("daemon-pty-owned") {
+                output = Some(data);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let output = output.expect("daemon-owned PTY output should be pollable");
+        assert_eq!(output["record"]["id"], pty_id);
+        assert_eq!(output["record"]["running"], false);
+        assert_eq!(output["record"]["exitCode"], 0);
+        assert_eq!(output["record"]["info"]["session_id"], "session-a");
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -751,6 +999,7 @@ mod tests {
 
         server.shutdown();
         host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);

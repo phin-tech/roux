@@ -76,6 +76,7 @@ export interface DaemonStatus {
   sessionCount: number;
   projectCount: number;
   processCount?: number;
+  ptyCount?: number;
   capabilities: string[];
 }
 
