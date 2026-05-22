@@ -12,7 +12,7 @@ tasks:
       - cargo build -p roux-cli --release --bin roux
       - cmd: |
           set -eu
-          TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
+          TARGET="${TAURI_TARGET:-$(rustc --print host-tuple)}"
           : "${TARGET:=x86_64-pc-windows-msvc}"
           mkdir -p src-tauri/binaries
           cp -f target/release/roux.exe src-tauri/binaries/roux.exe

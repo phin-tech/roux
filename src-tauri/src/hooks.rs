@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 
 use crate::platform;
 
-const ROUX_HOOK_MARKER: &str = "roux hook";
-
 #[cfg(not(windows))]
 fn unix_cli_install_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".local").join("bin").join(platform::roux_cli_file_name()))
@@ -197,13 +195,47 @@ fn status_dir() -> Result<(), String> {
 }
 
 fn is_roux_hook_command(command: &str) -> bool {
-    let is_hook_status =
-        [" hook working", " hook idle", " hook attention", " hook error", " hook disconnected"]
-            .iter()
-            .any(|hook| command.contains(hook));
-    command.contains(ROUX_HOOK_MARKER)
-        || command.contains("roux hook")
-        || ((command.contains("roux-cli") || command.contains("roux")) && is_hook_status)
+    let Some((program, args)) = split_command_program(command) else {
+        return false;
+    };
+    command_program_is_roux_cli(program) && args_start_with_roux_hook_status(args)
+}
+
+fn split_command_program(command: &str) -> Option<(&str, &str)> {
+    let trimmed = command.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        let quote = rest.find('"')?;
+        let (program, remainder) = rest.split_at(quote);
+        return Some((program, remainder[1..].trim_start()));
+    }
+
+    let mut parts = trimmed.splitn(2, char::is_whitespace);
+    let program = parts.next()?;
+    Some((program, parts.next().unwrap_or("").trim_start()))
+}
+
+fn command_program_is_roux_cli(program: &str) -> bool {
+    let file_name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    matches!(
+        file_name.to_ascii_lowercase().as_str(),
+        "roux" | "roux.exe" | "roux-cli" | "roux-cli.exe"
+    )
+}
+
+fn args_start_with_roux_hook_status(args: &str) -> bool {
+    let mut args = args.split_whitespace();
+    let Some(hook) = args.next() else {
+        return false;
+    };
+    if hook != "hook" {
+        return false;
+    }
+
+    matches!(args.next(), Some("working" | "idle" | "attention" | "error" | "disconnected"))
 }
 
 fn is_roux_hook(hook_obj: &Value) -> bool {
@@ -478,6 +510,7 @@ mod tests {
         assert!(is_roux_hook_command("/Users/sam/.local/bin/roux hook idle"));
         assert!(is_roux_hook_command("/Users/sam/.local/bin/roux-cli hook idle"));
         assert!(!is_roux_hook_command("echo roux-cli"));
+        assert!(!is_roux_hook_command("/home/user/projects/kangaroux/scripts/deploy.sh hook idle"));
     }
 
     #[test]

@@ -1076,6 +1076,8 @@ fn clear_status() {
 }
 
 fn main() {
+    paths::migrate_legacy_config_dir();
+
     let cli = Cli::parse();
     match cli.command {
         Commands::Hook { action } => handle_hook_action(action),

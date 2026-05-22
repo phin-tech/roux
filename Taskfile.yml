@@ -61,9 +61,13 @@ tasks:
       # sh, mirroring `taskfiles/Taskfile_windows.yml::prepare-cli`.
       - cmd: |
           set -eu
+          TARGET="${TAURI_TARGET:-$(rustc --print host-tuple)}"
+          : "${TARGET:=x86_64-pc-windows-msvc}"
           mkdir -p src-tauri/binaries
-          [ -f src-tauri/binaries/roux.exe ] || : > src-tauri/binaries/roux.exe
-          [ -f src-tauri/binaries/roux-cli.exe ] || : > src-tauri/binaries/roux-cli.exe
+          for NAME in roux roux-cli; do
+            [ -f "src-tauri/binaries/${NAME}.exe" ] || : > "src-tauri/binaries/${NAME}.exe"
+            [ -f "src-tauri/binaries/${NAME}-${TARGET}.exe" ] || : > "src-tauri/binaries/${NAME}-${TARGET}.exe"
+          done
         platforms: [windows]
 
   cli:install:
