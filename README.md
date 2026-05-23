@@ -90,6 +90,16 @@ See [docs/windows-build.md](docs/windows-build.md) for prerequisites, installer 
 
 ## Release
 
+Cut a prerelease from the current tip of `main`:
+
+```bash
+task release BUMP=patch PRE=pre
+```
+
+That dispatches the tag-only pre-build flow, which creates the prerelease tag,
+dispatches the release workflow, and publishes current prerelease docs to
+`https://phin-tech.github.io/roux/pre/`.
+
 Version bump, tag, and push:
 
 ```bash
@@ -116,7 +126,7 @@ Or do signing and publishing together:
 task publish:op
 ```
 
-Publish the current prerelease docs alias after a prerelease tag exists:
+Republish the current prerelease docs manually after a prerelease tag exists:
 
 ```bash
 task docs:prerelease VERSION=0.5.4-pre.1

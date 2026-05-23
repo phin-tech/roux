@@ -32,7 +32,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      PRERELEASE_ALIAS: pre-releases
+      PRERELEASE_DOCS_VERSION: pre
     steps:
       - name: Resolve prerelease version
         id: release
@@ -94,7 +94,7 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          mike deploy --branch gh-pages --update-aliases "$VERSION" "$PRERELEASE_ALIAS"
+          mike deploy --branch gh-pages --title "$VERSION" "$PRERELEASE_DOCS_VERSION"
 
       - name: Archive published site
         run: |

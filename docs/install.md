@@ -30,7 +30,7 @@ Roux has a built-in auto-updater. When a new version is published, Roux checks f
 
 You can also switch between **Stable** and **Pre-release (Alpha)** in **Settings** → **Advanced**. The prerelease channel follows the newest published prerelease build; switching back to Stable takes effect on the next stable release at or above your current version.
 
-Docs for the current prerelease channel are published at [phin-tech.github.io/roux/pre-releases/](https://phin-tech.github.io/roux/pre-releases/). Version-specific prerelease docs remain available at paths like `https://phin-tech.github.io/roux/0.5.4-pre.1/`.
+Docs for the current prerelease channel are published at [phin-tech.github.io/roux/pre/](https://phin-tech.github.io/roux/pre/).
 
 Updates are signed and verified on device before they're installed.
 
