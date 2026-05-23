@@ -1,6 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Deserialize, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Worktree {
     pub path: String,
@@ -12,7 +12,7 @@ pub struct Worktree {
     pub worktrunk: Option<WorktrunkMetadata>,
 }
 
-#[derive(Debug, Clone, Serialize, specta::Type, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, specta::Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktrunkMetadata {
     pub dirty: bool,

@@ -192,7 +192,7 @@ pub struct WatchUpdateEvent {
     pub previous_outcome: Option<WatchOutcome>,
 }
 
-#[derive(Debug, Clone, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWatchConfig {
     pub name: String,

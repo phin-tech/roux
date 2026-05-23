@@ -31,7 +31,7 @@ export const commands = {
 	 *  Read a single worktrunk log file, capped at 256 KiB. Returns `None`
 	 *  when the file doesn't exist (was rotated / pruned between listing
 	 *  and read).
-	 * 
+	 *
 	 *  Defense-in-depth: even though the UI only supplies paths it received
 	 *  from `cmd_worktrunk_diagnostics`, we refuse any path whose canonical
 	 *  form does not live under `<repo_path>/.git/wt/logs/`. That way a
@@ -42,7 +42,7 @@ export const commands = {
 	/**
 	 *  Open a terminal at `path`. Used by the Worktrunk panel's
 	 *  right-click context menu.
-	 * 
+	 *
 	 *  macOS: `open -a Terminal <path>` — always Apple Terminal. (The
 	 *  user's "default terminal" preference on macOS is not exposed via a
 	 *  stable API, so we pick Terminal.app deliberately.)
@@ -72,26 +72,87 @@ export const commands = {
 	cmdCheckSmolvmBinary: (machineName: string, binary: string) => typedError<string | null, string>(__TAURI_INVOKE("cmd_check_smolvm_binary", { machineName, binary })),
 	/**
 	 *  Install a known agent inside a smol machine. v1 supports `"claude"`
-	 *  and `"codex"` (case-insensitive). Synchronous from the user's
-	 *  perspective — the panel shows a spinner until the npm install
-	 *  finishes (~30s).
+	 *  and `"codex"` (case-insensitive). The install pipeline reads
+	 *  `~/.config/roux/smolvm-bootstraps.toml` if present so users can
+	 *  customize prereqs / install commands / distro mapping without
+	 *  rebuilding Roux. Missing or malformed file falls back to
+	 *  hardcoded defaults.
+	 *
+	 *  Synchronous from the user's perspective — the panel shows a
+	 *  spinner until the install finishes (typically <60s).
 	 */
 	cmdInstallSmolvmAgent: (machineName: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("cmd_install_smolvm_agent", { machineName, agent })),
+	/**
+	 *  Persist an agent install by writing into the machine's linked
+	 *  Smolfile `[dev].init`. When no Smolfile is linked, returns
+	 *  `NeedsRecreate` so the frontend can prompt the user before any
+	 *  destructive action.
+	 */
 	cmdInstallSmolvmAgentPersist: (machineName: string, agent: string) => typedError<PersistOutcome, string>(__TAURI_INVOKE("cmd_install_smolvm_agent_persist", { machineName, agent })),
+	/**
+	 *  Destructive: regenerate the machine from a Roux-managed Smolfile.
+	 *  Only called after the user confirms the modal that follows
+	 *  `PersistOutcome::NeedsRecreate`. Stops + deletes + recreates +
+	 *  starts the machine; records the new Smolfile link so subsequent
+	 *  "Persist via Smolfile" calls take the in-place append path.
+	 *
+	 *  Best-effort with breadcrumbs: if recreate fails after delete, the
+	 *  generated Smolfile path is in the error message so the user can
+	 *  recover via `smolvm machine create <name> -s <path>`.
+	 */
 	cmdInstallSmolvmAgentRecreate: (machineName: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("cmd_install_smolvm_agent_recreate", { machineName, agent })),
-	cmdListSmolMachineSmolfiles: () => typedError<{ [key: string]: string }, string>(__TAURI_INVOKE("cmd_list_smol_machine_smolfiles")),
+	/**
+	 *  Returns the Smolfile path for each machine that has one linked
+	 *  (via Roux's create form or the recreate flow). The frontend uses
+	 *  this to show whether "Persist via Smolfile" will take the append
+	 *  path or the recreate path before the user clicks.
+	 */
+	cmdListSmolMachineSmolfiles: () => typedError<{ [key in string]: string }, string>(__TAURI_INVOKE("cmd_list_smol_machine_smolfiles")),
+	/**
+	 *  Open the smolvm bootstrap config file in the user's default
+	 *  editor. Creates the file (with current built-in defaults as a
+	 *  pre-populated starter) if it doesn't exist yet, so the user has
+	 *  something concrete to edit.
+	 */
 	cmdOpenSmolvmBootstrapConfig: () => typedError<string, string>(__TAURI_INVOKE("cmd_open_smolvm_bootstrap_config")),
+	/**
+	 *  Start the user-configured managed HTTP proxy. No-op if already
+	 *  running. Returns the live status so the UI can update without a
+	 *  follow-up `cmd_managed_proxy_status` round-trip.
+	 *
+	 *  `RouxSettings.managed_proxy` must be set; otherwise returns a
+	 *  typed error pointing the user at Settings → Smol Machines.
+	 */
 	cmdStartManagedProxy: () => typedError<ManagedProxyStatus, string>(__TAURI_INVOKE("cmd_start_managed_proxy")),
 	cmdStopManagedProxy: () => typedError<ManagedProxyStatus, string>(__TAURI_INVOKE("cmd_stop_managed_proxy")),
 	cmdManagedProxyStatus: () => __TAURI_INVOKE<ManagedProxyStatus>("cmd_managed_proxy_status"),
+	/**
+	 *  Check whether `worktree_path` is reachable inside `machine_name`'s
+	 *  guest. "Reachable" means: the linked Smolfile contains a
+	 *  `[dev].volumes` entry whose host side is a path-prefix of
+	 *  `worktree_path`. Same-path mapping (host == guest) is the common
+	 *  case, which makes `--workdir <host_path>` resolve identically
+	 *  inside the guest.
+	 */
 	cmdCheckWorktreeMount: (machineName: string, worktreePath: string) => typedError<WorktreeMountCheck, string>(__TAURI_INVOKE("cmd_check_worktree_mount", { machineName, worktreePath })),
+	/**
+	 *  Append a `host:guest[:ro]` spec to the linked Smolfile's
+	 *  `[dev].volumes`. Idempotent — `AlreadyPresent` when the exact spec
+	 *  is already there. Errors when the machine has no linked Smolfile
+	 *  (frontend should skip the mount UX in that case).
+	 *
+	 *  The spec takes effect on the next `smolvm machine create` for the
+	 *  machine — smolvm volumes are baked at create time. The caller is
+	 *  expected to inform the user that a recreate (or the existing
+	 *  recreate flow) is required to apply it.
+	 */
 	cmdAppendWorktreeMount: (machineName: string, spec: string) => typedError<MountAppendOutcome, string>(__TAURI_INVOKE("cmd_append_worktree_mount", { machineName, spec })),
 	cmdListAutomationHooks: (repoPath: string | null) => typedError<HookListItem[], string>(__TAURI_INVOKE("cmd_list_automation_hooks", { repoPath })),
 	cmdPreviewAutomationHooks: (request: HookRunRequest) => typedError<HookPreviewItem[], string>(__TAURI_INVOKE("cmd_preview_automation_hooks", { request })),
 	cmdRunAutomationHook: (request: HookRunRequest) => typedError<HookRunSummary, string>(__TAURI_INVOKE("cmd_run_automation_hook", { request })),
 	cmdApproveAutomationHook: (approvalId: string) => typedError<null, string>(__TAURI_INVOKE("cmd_approve_automation_hook", { approvalId })),
 	cmdClearAutomationHookApprovals: () => typedError<null, string>(__TAURI_INVOKE("cmd_clear_automation_hook_approvals")),
-	cmdListAutomationHookLogs: () => __TAURI_INVOKE<HookLogEntry[]>("cmd_list_automation_hook_logs"),
+	cmdListAutomationHookLogs: () => typedError<HookLogEntry[], string>(__TAURI_INVOKE("cmd_list_automation_hook_logs")),
 	cmdReadAutomationHookLog: (path: string) => typedError<string, string>(__TAURI_INVOKE("cmd_read_automation_hook_log", { path })),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
@@ -123,7 +184,7 @@ export const commands = {
 	 *  closing a pane never accidentally destroys its session — even when the
 	 *  pane's `ptyId === sessionId` (the session-owned PTY spawned by
 	 *  `create_session` / `create_session_shell`).
-	 * 
+	 *
 	 *  Prior to this command, `disposePane` called `kill_session`, which tore
 	 *  down `session_handle` and `pane_state` as a side effect. That was fine
 	 *  for non-primary shells whose ptyId was a random UUID (not in
@@ -612,13 +673,13 @@ export type IntegrationDetection = {
 export type KeepOpen = "always" | "on-error" | "never";
 
 // How a bound key is matched against a `KeyboardEvent`.
-export type KeyRef = 
+export type KeyRef =
 /**
  *  Match `event.code` — survives keyboard-layout quirks (macOS Option
  *  producing `∆` for `j`, etc.). Used for any binding with a modifier
  *  prefix: `Alt+KeyH`, `Cmd+Digit1`, `Ctrl+KeyB`.
  */
-{ kind: "physical"; mods: Modifier[]; code: string } | 
+{ kind: "physical"; mods: Modifier[]; code: string } |
 /**
  *  Match `event.key` — the logical character after Shift/dead-keys.
  *  Used for bare bindings inside trees: `"h"`, `"%"`, `"Escape"`.
@@ -626,9 +687,9 @@ export type KeyRef =
 { kind: "character"; mods: Modifier[]; key: string };
 
 // What a bind fires.
-export type KeymapAction = 
+export type KeymapAction =
 // Execute a registered command by id.
-{ kind: "command"; id: string } | 
+{ kind: "command"; id: string } |
 // Promote to a named tree (drill-down within a chord sequence).
 { kind: "enterTree"; tree: string };
 
@@ -655,14 +716,14 @@ export type KeymapWarning = {
  *  profile; splits hold ordered children and a direction. The `size` field is
  *  a raw proportional weight in `[0, 100]`; normalization to pane-tree
  *  fractions happens later in the frontend walker, not here.
- * 
+ *
  *  `Eq` is deliberately omitted: `size` is an `Option<f32>` and `f32` does
  *  not implement `Eq`. Tests use `PartialEq` with exact float values, which
  *  is fine because sizes come directly from literal tokens in the KDL source.
  */
-export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null; 
+export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null;
 // Optional nono sandbox profile name (e.g. "default", "permissive").
-nono_profile?: string | null; 
+nono_profile?: string | null;
 // Optional allow_dir entries from a `nono_flags` child block.
 nono_allow_dirs?: string[] | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
 
@@ -684,7 +745,7 @@ export type LayoutSource = "builtin" | "user";
  *  A parsed layout. `id` is derived by the loader from the filename stem
  *  (Phase 2) and passed in to [`parse_layout_kdl`] — it is intentionally not
  *  read from the KDL source itself so renaming a file renames the layout.
- * 
+ *
  *  `Eq` is omitted because the embedded [`LayoutPaneNode`] carries
  *  `Option<f32>` sizes; see the note on [`LayoutPaneNode`].
  */
@@ -720,6 +781,53 @@ export type LibrarySource = {
 };
 
 export type LibrarySourceKind = "localRepo" | "gitRepo";
+
+/**
+ *  Optional host-side HTTP proxy that Roux can start/stop on behalf
+ *  of the user. Roux does **not** ship or bundle a proxy — `command`
+ *  is whatever the user has installed (tinyproxy, mitmproxy, squid,
+ *  custom). Lifecycle is managed by `services::managed_proxy`.
+ */
+export type ManagedProxyConfig = {
+	/**
+	 *  Shell command Roux runs to start the proxy. Spawned via the
+	 *  user's login shell so PATH / aliases / `~/.config/...` refs
+	 *  resolve. Example: `tinyproxy -d -c ~/.config/roux/tinyproxy.conf`.
+	 */
+	command: string,
+	/**
+	 *  Port the proxy listens on. Roux polls this to verify start
+	 *  success and uses it to construct the auto-fill URL.
+	 */
+	port: number,
+	/**
+	 *  Bind address the proxy listens on. Defaults to `127.0.0.1`
+	 *  when unset. Use `192.168.x.x` only if the proxy must accept
+	 *  connections from the smolvm guest's NAT subnet.
+	 */
+	bind?: string | null,
+};
+
+/**
+ *  Snapshot of the managed proxy's runtime state. Surfaced to the
+ *  frontend via `cmd_managed_proxy_status`.
+ */
+export type ManagedProxyStatus = {
+	/**
+	 *  `true` when a managed proxy child is alive and the listen
+	 *  socket has accepted at least one probe connection. `false`
+	 *  includes both "never started" and "started then crashed".
+	 */
+	running: boolean,
+	port: number | null,
+	bind: string | null,
+	pid: number | null,
+	/**
+	 *  stderr tail captured when the child failed to start or
+	 *  exited unexpectedly. Cleared on successful start.
+	 */
+	lastError: string | null,
+};
 
 export type McpHostConfigPreview = {
 	host: McpHostId,
@@ -759,6 +867,16 @@ export type McpStatus = {
  *  compare against at match time; the stored form is platform-neutral.
  */
 export type Modifier = "cmd" | "ctrl" | "alt" | "shift";
+
+export type MountAppendOutcome = {
+	/**
+	 *  `"appended"` when a new line was added; `"alreadyPresent"` when
+	 *  the exact spec was already in `[dev].volumes`.
+	 */
+	kind: string,
+	// Absolute path to the Smolfile that was (or wasn't) modified.
+	smolfilePath: string,
+};
 
 export type NotesRead = {
 	path: string,
@@ -855,7 +973,7 @@ export type NotifyConfig = {
 
 /**
  *  What happens to a PTY when its pane is closed.
- * 
+ *
  *  - `Kill` — the PTY process is killed immediately.
  *  - `Detach` — the PTY keeps running in the background; it can be
  *    re-attached to another pane later.
@@ -885,6 +1003,24 @@ export type ParsedKeymap = {
 	prefixes: Prefix[],
 	warnings: KeymapWarning[],
 };
+
+/**
+ *  Outcome of `cmd_install_smolvm_agent_persist`. Mirrors
+ *  `roux_smolvm::AppendOutcome` plus a `NeedsRecreate` variant the
+ *  frontend uses to render the "create Smolfile + recreate machine"
+ *  confirm modal.
+ */
+export type PersistOutcome =
+// Line was appended to an existing Smolfile.
+{ kind: "appended"; smolfile_path: string } |
+// An identical line was already present; file untouched.
+{ kind: "alreadyPresent"; smolfile_path: string } |
+/**
+ *  The machine has no linked Smolfile. The frontend should show a
+ *  confirm modal explaining the create + recreate flow, then call
+ *  `cmd_install_smolvm_agent_recreate` if the user confirms.
+ */
+{ kind: "needsRecreate"; proposed_smolfile_path: string; image: string | null; script: string };
 
 export type PrCheckDetails = {
 	name: string,
@@ -1004,7 +1140,7 @@ export type ProjectUpdate = {
 
 /**
  *  Agent providers that Roux knows how to light up first-class UI for.
- * 
+ *
  *  User-defined profiles may omit `provider` entirely (→ plain shell with
  *  agent UI dark) or piggyback on an existing variant (→ misleading if the
  *  agent does not actually speak the same hook protocol). A truly new agent
@@ -1026,18 +1162,18 @@ export type PtyInfo = {
 };
 
 // Role of a PTY within its session.
-export type PtyRole = 
+export type PtyRole =
 // Main Claude/shell for the session.
-"sessionPrimary" | 
+"sessionPrimary" |
 // Additional shells, e.g. spawned from a split pane.
 "secondary";
 
 // Lifecycle status of a PTY.
-export type PtyStatus = 
+export type PtyStatus =
 // PTY is running and attached to a pane.
-{ type: "RunningAttached"; pane_id: string } | 
+{ type: "RunningAttached"; pane_id: string } |
 // PTY is running but not currently attached to any pane.
-{ type: "RunningDetached"; since_ms: number } | 
+{ type: "RunningDetached"; since_ms: number } |
 // PTY process has exited.
 { type: "Exited"; code: number | null; at_ms: number };
 
@@ -1111,6 +1247,12 @@ export type RouxSettings = {
 	 *  installed" (the activity rail icon and integration UI hide entirely).
 	 */
 	smolvmBinaryPath?: string | null,
+	/**
+	 *  Optional managed HTTP proxy. Lets Roux start/stop a user-
+	 *  installed proxy (tinyproxy, mitmproxy, etc.) and point smol
+	 *  VMs at it for outbound network. None = feature off; the smol
+	 *  machines panel hides the start/stop toggle.
+	 */
 	managedProxy?: ManagedProxyConfig | null,
 	/**
 	 *  Absolute path to the shell binary for terminal panes and login-shell
@@ -1325,11 +1467,11 @@ export type Session = {
 	/**
 	 *  When set, every PTY spawned for this session runs via
 	 *  `smolvm machine exec --name <smol_machine_name> ...` inside the
-	 *  named smol VM instead of on the host. Cleared by calling
-	 *  `setSessionSmolMachine(id, null)` (Tauri command
-	 *  `set_session_smol_machine`). Field outlives a smolvm uninstall —
-	 *  spawn-time defense in `pty.rs` falls back to a clear "smolvm not
-	 *  installed" error rather than silently running on host.
+	 *  named smol VM instead of on the host. Cleared by invoking the
+	 *  `set_session_smol_machine` Tauri command with a `None` machine
+	 *  name. Field outlives a smolvm uninstall — spawn-time defense in
+	 *  `pty.rs` falls back to a clear "smolvm not installed" error
+	 *  rather than silently running on host.
 	 */
 	smolMachineName?: string | null,
 };
@@ -1363,7 +1505,7 @@ export type SetupStatus = {
 /**
  *  Whether and how a Library source's skills are written into a
  *  Claude-readable `.claude/skills/<name>/SKILL.md` directory.
- * 
+ *
  *  - `Off`: Roux does not write skill files outside the Library.
  *  - `Copy`: Roux writes a copy of each skill on sync; subsequent edits
  *    to the synced file are detected via a content-hash manifest.
@@ -1387,6 +1529,7 @@ export type SmolMachine = {
 	createdAt: string | null,
 	ephemeral: boolean,
 	network: boolean,
+	// `true` when the host's SSH agent is forwarded into the guest.
 	sshAgent: boolean,
 };
 
@@ -1400,56 +1543,32 @@ export type SmolMachineCreateRequest = {
 	smolfilePath: string | null,
 	image: string | null,
 	network: boolean,
-	sshAgent: boolean,
+	/**
+	 *  Forward the host's SSH agent into the guest so `git clone
+	 *  git@…` works inside the VM. Private keys never leave the
+	 *  host — the hypervisor enforces it. Default `false`; the create
+	 *  form has a checkbox.
+	 */
+	sshAgent?: boolean,
+	/**
+	 *  HTTP(S) proxy URL the guest should route outbound requests
+	 *  through. When set and no Smolfile is provided, Roux generates
+	 *  a managed Smolfile that exports `HTTP_PROXY` / `HTTPS_PROXY`
+	 *  in the guest. When the user provides their own Smolfile, this
+	 *  field is silently ignored — their Smolfile is authoritative
+	 *  and they're expected to wire the proxy env themselves.
+	 */
 	hostProxyUrl?: string | null,
+	/**
+	 *  Host paths to mount into the guest as `host:guest[:ro]` specs.
+	 *  Each entry is forwarded verbatim to `smolvm machine create -v`.
+	 *  Defaults to empty. The panel UI uses this for Phase 2.9
+	 *  worktree mounts; same-path mounting (`/Users/me/code/foo:
+	 *  /Users/me/code/foo`) lets `--workdir <host_worktree>` resolve
+	 *  inside the VM.
+	 */
 	volumes?: string[],
 };
-
-/**
- * Optional host-side HTTP proxy Roux can start/stop on behalf of
- * the user. Roux doesn't bundle a proxy — `command` is whatever
- * the user has installed (tinyproxy, mitmproxy, custom).
- */
-export type ManagedProxyConfig = {
-	command: string,
-	port: number,
-	bind?: string | null,
-};
-
-/** Snapshot of the managed-proxy lifecycle state. */
-export type ManagedProxyStatus = {
-	running: boolean,
-	port?: number | null,
-	bind?: string | null,
-	pid?: number | null,
-	lastError?: string | null,
-};
-
-/**
- * Result of `cmdCheckWorktreeMount`. The frontend renders an
- * auto-mount banner only on the `notMounted` variant.
- */
-export type WorktreeMountCheck =
-	| { kind: "mounted", host: string }
-	| { kind: "notMounted", smolfilePath: string, proposedSpec: string }
-	| { kind: "noLinkedSmolfile" };
-
-/** Result of `cmdAppendWorktreeMount`. */
-export type MountAppendOutcome = {
-	kind: "appended" | "alreadyPresent",
-	smolfilePath: string,
-};
-
-/**
- * Result of `cmdInstallSmolvmAgentPersist`. Either the line was
- * appended to a linked Smolfile (or was already there), or there's
- * no linked Smolfile and the frontend should prompt the user to
- * confirm a destructive create-and-recreate flow.
- */
-export type PersistOutcome =
-	| { kind: "appended", smolfilePath: string }
-	| { kind: "alreadyPresent", smolfilePath: string }
-	| { kind: "needsRecreate", proposedSmolfilePath: string, image: string | null, script: string };
 
 /**
  *  Return-shape for the activity-rail detection probe. Mirrors
@@ -1465,7 +1584,7 @@ export type SmolvmDetection = {
  *  A named recipe for launching something inside a shell pane. Orthogonal to
  *  pane type: every launched pane is a shell, and a profile is just optional
  *  metadata attached at creation describing how the shell was seeded.
- * 
+ *
  *  Provider-specific UI (Claude Allow/Deny, resume picker) is gated on
  *  observed [`crate::...`]-style runtime agent state, not on this `provider`
  *  field — the field is a UX hint saying "panes launched from this profile
@@ -1600,7 +1719,7 @@ export type Worktree = {
 
 /**
  *  Behavior when a session that owns a worktree is closed.
- * 
+ *
  *  - `Never` — leave the worktree on disk
  *  - `Prompt` — ask the user via a confirm dialog (current default, matches
  *    the legacy `cleanupWorktreesOnClose: false` behavior)
@@ -1613,7 +1732,7 @@ export type WorktreeCleanupMode = "never" | "prompt" | "always";
  *  clicks the primary action directly (as opposed to hovering to pick a
  *  specific base from the flyout). Only affects the default — the three
  *  options remain available via the submenu / command palette either way.
- * 
+ *
  *  - `CurrentBranch` — the session's current branch (matches legacy behavior)
  *  - `Main` — the local `main` branch
  *  - `OriginMain` — the remote `origin/main`, with a `git fetch origin` first
@@ -1621,8 +1740,36 @@ export type WorktreeCleanupMode = "never" | "prompt" | "always";
 export type WorktreeDefaultBase = "currentBranch" | "main" | "originMain";
 
 /**
+ *  Result of [`cmd_check_worktree_mount`]. Tells the panel whether
+ *  the session's worktree is reachable from inside the VM via an
+ *  existing `[dev].volumes` mount in the linked Smolfile.
+ *
+ *  `Mounted` and `NoLinkedSmolfile` mean "no action surfaced" — the
+ *  frontend won't show a banner. `NotMounted` is the only case that
+ *  triggers the auto-mount UX.
+ */
+export type WorktreeMountCheck =
+/**
+ *  Worktree path is covered by an existing volume spec. The
+ *  matching host side is returned for diagnostic display.
+ */
+{ kind: "mounted"; host: string } |
+/**
+ *  The Smolfile exists, but no volume spec covers the worktree.
+ *  `proposedSpec` is the same-path mount Roux would append if the
+ *  user accepts the auto-mount.
+ */
+{ kind: "notMounted"; smolfile_path: string; proposed_spec: string } |
+/**
+ *  The machine has no linked Smolfile — Roux can't auto-mount
+ *  without one. The frontend should keep quiet in this case;
+ *  users with a manually-managed machine know what they're doing.
+ */
+{ kind: "noLinkedSmolfile" };
+
+/**
  *  Which backend Roux uses to create worktrees.
- * 
+ *
  *  - `Auto` (default) — use `wt` when it is detected on the system;
  *    otherwise fall back to native `git worktree add`. This is the
  *    recommended setting: users without worktrunk see no change, users

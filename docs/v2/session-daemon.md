@@ -1,7 +1,11 @@
 # V2: Session Daemon (Persistent PTY Sessions)
 
-**Status:** Design note — foundation started, full PTY daemon not yet implemented
+**Status:** Design note — daemon PTY/socket foundation implemented, broader migration in progress
 **Goal:** Sessions survive app crashes/restarts with full terminal scrollback preserved
+
+For the currently implemented socket command surface, see
+[`daemon-protocol.md`](./daemon-protocol.md). This file remains the broader
+architecture and migration note.
 
 ## Current state
 
@@ -13,12 +17,52 @@ roux daemon
 
 It lives in the standalone `crates/roux-cli` crate, starts the shared runtime service host, loads persisted projects/sessions from the canonical config paths, and runs until Ctrl-C. This deliberately keeps the command-line binary separate from the Tauri desktop package.
 
+The daemon now binds the Roux command endpoint itself and exposes a daemon-only status endpoint:
+
+```sh
+roux daemon status
+```
+
+That endpoint is intentionally not implemented by the GUI socket server. It proves the daemon can own an observable capability independently of Roux.app. The daemon also serves headless durable-state and runtime commands over the same socket: session lifecycle, project list/mutation, PTYs, process registry, and core worktree filesystem operations.
+
+By default the endpoint is the local Unix socket `~/.config/roux/roux.sock` on Unix/macOS. For remote-development experiments, `ROUX_DAEMON_BIND=tcp://HOST:PORT roux daemon` binds a TCP endpoint, and clients connect with `ROUX_SOCKET=tcp://HOST:PORT`. TCP clients authenticate with `ROUX_DAEMON_TOKEN` or `ROUX_AUTH_TOKEN`; Unix/macOS TCP binds require an explicit token.
+
+The daemon writes its own runtime log to `~/.config/roux/logs/roux-daemon.log`, rotates existing daemon logs on startup, and reports the active log path from `roux daemon status`.
+
+The daemon now owns a small headless process registry too. `roux daemon run "<command>"` starts a shell command inside the daemon process, `roux daemon output <id>` polls retained stdout/stderr and exit status, `roux daemon processes` lists daemon-owned processes, and `roux daemon kill <id>` stops one. This is the first runtime behavior owned by the daemon that the GUI does not render or spawn.
+
+Roux.app has thin Tauri command wrappers for the same process registry, PTY registry, session lifecycle, worktree command surface, durable watch state, alias state, mailbox state, bus subscription state, notes vault commands, and automation hook commands. On startup, Roux.app connects to an existing local daemon or starts one managed daemon subprocess. Those wrappers forward durable/runtime actions to the daemon socket. The embedded runtime host and local filesystem helpers remain an explicit development fallback when `ROUX_DAEMON_AUTOSTART=0`; ordinary daemon startup failures are treated as startup errors instead of silently making the desktop the owner. Worktree create/remove automation hooks run wherever the worktree operation runs. The desktop-side boundary is now "frontend command adapter" instead of direct process ownership for these paths.
+
+If Roux.app already owns the socket, `roux daemon` refuses to start instead of unlinking or replacing the GUI's live command channel.
+
+If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata, daemon-backed PTYs, session lifecycle, process registry, worktree filesystem operations, durable watch state, watch execution, aliases, mailbox events, read state, bus subscriptions, notes vault filesystem operations, and automation hook list/preview/run/approval/log operations. If no local daemon is running, Roux.app starts one and waits briefly for readiness before continuing. The GUI subscribes to daemon watch, alias, mailbox, and subscription event streams, keeps in-memory mirrors for rendering, and routes notification UX client-side. The Mailbox panel reads/mutates daemon state but still owns rendering and the deliver-to-pane UX. That makes the GUI a frontend for daemon-owned durable state and process lifetimes.
+
+The CLI also has an initial non-GUI PTY frontend:
+
+```sh
+roux attach <pty-id>
+roux attach --session <session-id>
+```
+
+`roux attach` replays retained daemon output, streams live output from `daemon-pty-attach`, forwards local stdin with `daemon-pty-write`, and sets the daemon PTY to the current terminal size on attach.
+
 That is not the full design below yet. As of this note:
 
-- Roux.app still owns interactive PTYs and xterm.js rendering
-- socket-backed CLI commands still expect the desktop app to be running
-- there is no `roux attach` command yet
-- the daemon does not yet own scrollback replay or reconnectable PTY lifetimes
+- Roux.app still owns xterm.js rendering and pane layout
+- daemon-owned processes are not yet attached to terminal panes
+- pane layout socket commands such as focus still expect the desktop app to be running
+- top-level `roux session create` creates a daemon-owned session and primary PTY when the daemon owns the socket; nono options are applied by the daemon host, while prompt and legacy flag options are still rejected
+- top-level `roux run` starts a daemon-owned process when the daemon owns the socket; it still creates a GUI pane when Roux.app owns the socket
+- `roux split`, `roux shell`, and `roux session panes list|create` work against daemon-owned PTYs when the daemon owns the socket, but create does not mutate GUI layout
+- top-level `roux session send` and `roux session kill` work against daemon-owned sessions when the daemon owns the socket
+- MCP/desktop latest-output reads return retained daemon PTY replay when the daemon owns the socket
+- `roux alias ...` uses daemon-owned durable alias state when the daemon owns the socket
+- `roux mailbox ...` and `roux bus ...` use daemon-owned durable mailbox, read-state, and subscription state when the daemon owns the socket
+- Roux.app forwards daemon `alias-events`, `mailbox-events`, and `subscription-events` streams into the existing frontend event channels when a daemon is connected
+- `roux notes ...` and the GUI notes panel use the daemon host's configured notes vault when the daemon owns the socket
+- `roux hook show|run` and the GUI automation hook management commands use the daemon host's hook config, approvals, execution, and hook logs when the daemon owns the socket
+- `roux attach` is initial and does not yet handle SIGWINCH resize events after attach
+- watch notification presentation and pane-state cleanup still run in the desktop process
 
 ## Problem
 
@@ -121,13 +165,13 @@ Same tradeoffs as Zellij but in C. Less embeddable, more mature. `tmux new-sessi
 
 - Stable V1 with hooks-based status detection
 - Clear session lifecycle management
-- standalone `roux` binary already in place (`daemon` exists; `attach` remains future work)
+- standalone `roux` binary already in place (`daemon` and initial `attach` exist)
 
 ## Migration path
 
 1. Build daemon with socket server
 2. Move PTY spawning from Tauri process to daemon
 3. Tauri becomes a socket client
-4. Add `roux attach` for CLI access
+4. Add `roux attach` for CLI access (initial implementation exists)
 5. Add `roux daemon --start` to launchd/systemd for auto-start
 6. Scrollback buffer in daemon for replay on reconnect

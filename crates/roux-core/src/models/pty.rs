@@ -1,5 +1,5 @@
 /// Role of a PTY within its session.
-#[derive(Clone, PartialEq, Debug, serde::Serialize, specta::Type)]
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum PtyRole {
     /// Main Claude/shell for the session.
@@ -9,7 +9,7 @@ pub enum PtyRole {
 }
 
 /// Lifecycle status of a PTY.
-#[derive(Clone, Debug, serde::Serialize, specta::Type)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(tag = "type")]
 pub enum PtyStatus {
     /// PTY is running and attached to a pane.
@@ -21,7 +21,7 @@ pub enum PtyStatus {
 }
 
 /// Serializable PTY snapshot for frontend consumption.
-#[derive(Clone, Debug, serde::Serialize, specta::Type)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct PtyInfo {
     pub id: String,
     pub session_id: Option<String>,

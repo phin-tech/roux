@@ -29,9 +29,13 @@ pub(crate) struct NotesChangedEvent {
 /// when a CLI / socket / Tauri write touches a file it's currently
 /// displaying. Swallow errors — failing to emit must not fail the write.
 fn emit_notes_changed(app: &tauri::AppHandle, path: &std::path::Path) {
+    emit_notes_changed_path(app, path.to_string_lossy().into_owned());
+}
+
+fn emit_notes_changed_path(app: &tauri::AppHandle, path: String) {
     let _ = app.emit(
         "notes-changed",
-        NotesChangedEvent { path: path.to_string_lossy().into_owned() },
+        NotesChangedEvent { path },
     );
 }
 
@@ -161,6 +165,7 @@ pub(crate) async fn do_notes_read(
         .map_err(|e| e.to_string())?;
     let path = svc
         .file_path(&scope, topic.as_deref(), &session_slug)
+        .map_err(|e| e.to_string())?
         .to_string_lossy()
         .into_owned();
     Ok(NotesRead { path, content })
@@ -172,6 +177,10 @@ pub(crate) async fn notes_read(
     target: NotesTarget,
     state: tauri::State<'_, AppState>,
 ) -> Result<NotesRead, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("notes-read"))
+    {
+        return client.read_notes(target).await;
+    }
     do_notes_read(target, &state).await
 }
 
@@ -194,10 +203,8 @@ pub(crate) async fn do_notes_write(
         &tags,
     )
     .map_err(|e| e.to_string())?;
-    emit_notes_changed(
-        app,
-        &svc.file_path(&scope, topic.as_deref(), &session_slug),
-    );
+    let path = svc.file_path(&scope, topic.as_deref(), &session_slug).map_err(|e| e.to_string())?;
+    emit_notes_changed(app, &path);
     Ok(())
 }
 
@@ -210,6 +217,18 @@ pub(crate) async fn notes_write(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("notes-write"))
+    {
+        let path_target = target.clone();
+        client.write_notes(target, content, tags).await?;
+        if client.supports("notes-path") {
+            if let Ok(path) = client.notes_path(path_target, false).await {
+                emit_notes_changed_path(&app, path);
+            }
+        }
+        return Ok(());
+    }
     do_notes_write(target, content, tags, &state, &app).await
 }
 
@@ -254,10 +273,8 @@ pub(crate) async fn do_notes_append(
         &tags,
     )
     .map_err(|e| e.to_string())?;
-    emit_notes_changed(
-        app,
-        &svc.file_path(&scope, topic.as_deref(), &session_slug),
-    );
+    let path = svc.file_path(&scope, topic.as_deref(), &session_slug).map_err(|e| e.to_string())?;
+    emit_notes_changed(app, &path);
     Ok(())
 }
 
@@ -271,6 +288,18 @@ pub(crate) async fn notes_append(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("notes-append"))
+    {
+        let path_target = target.clone();
+        client.append_notes(target, content, timestamped, tags).await?;
+        if client.supports("notes-path") {
+            if let Ok(path) = client.notes_path(path_target, false).await {
+                emit_notes_changed_path(&app, path);
+            }
+        }
+        return Ok(());
+    }
     do_notes_append(target, content, timestamped, tags, &state, &app).await
 }
 
@@ -284,7 +313,7 @@ pub(crate) async fn do_notes_path(
     let p = if dir {
         svc.dir_path(&scope, &session_slug)
     } else {
-        svc.file_path(&scope, topic.as_deref(), &session_slug)
+        svc.file_path(&scope, topic.as_deref(), &session_slug).map_err(|e| e.to_string())?
     };
     Ok(p.to_string_lossy().into_owned())
 }
@@ -296,6 +325,10 @@ pub(crate) async fn notes_path(
     dir: bool,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("notes-path"))
+    {
+        return client.notes_path(target, dir).await;
+    }
     do_notes_path(target, dir, &state).await
 }
 
@@ -317,6 +350,11 @@ pub(crate) async fn notes_search(
     query: NotesSearchQuery,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("notes-search"))
+    {
+        return client.search_notes(query).await;
+    }
     do_notes_search(query, &state)
 }
 
@@ -326,7 +364,12 @@ pub(crate) fn do_notes_vault_root(state: &AppState) -> String {
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn notes_vault_root(state: tauri::State<'_, AppState>) -> Result<String, String> {
+pub(crate) async fn notes_vault_root(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("notes-vault-root"))
+    {
+        return client.notes_vault_root().await;
+    }
     Ok(do_notes_vault_root(&state))
 }
 

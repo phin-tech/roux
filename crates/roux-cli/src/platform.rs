@@ -46,21 +46,64 @@ pub fn socket_path() -> PathBuf {
     app_config_dir().join("roux.sock")
 }
 
-#[cfg(windows)]
 pub fn socket_addr_file_path() -> PathBuf {
     app_config_dir().join("roux-socket-addr")
 }
 
-#[cfg(windows)]
 pub fn socket_auth_token_file_path() -> PathBuf {
     app_config_dir().join("roux-socket-token")
 }
 
-pub fn resolve_socket_endpoint() -> Option<String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocketEndpoint {
+    Unix(PathBuf),
+    Tcp(String),
+}
+
+impl SocketEndpoint {
+    pub fn display_value(&self) -> String {
+        match self {
+            SocketEndpoint::Unix(path) => path.to_string_lossy().into_owned(),
+            SocketEndpoint::Tcp(addr) => format!("tcp://{addr}"),
+        }
+    }
+
+    pub fn tcp_addr(&self) -> Option<&str> {
+        match self {
+            SocketEndpoint::Tcp(addr) => Some(addr.as_str()),
+            SocketEndpoint::Unix(_) => None,
+        }
+    }
+}
+
+pub fn parse_socket_endpoint(raw: &str) -> Option<SocketEndpoint> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(addr) = trimmed.strip_prefix("tcp://") {
+        let addr = addr.trim();
+        return (!addr.is_empty()).then(|| SocketEndpoint::Tcp(addr.to_string()));
+    }
+    if let Some(path) = trimmed.strip_prefix("unix://") {
+        let path = path.trim();
+        return (!path.is_empty()).then(|| SocketEndpoint::Unix(PathBuf::from(path)));
+    }
+
+    #[cfg(windows)]
+    {
+        Some(SocketEndpoint::Tcp(trimmed.to_string()))
+    }
+    #[cfg(not(windows))]
+    {
+        Some(SocketEndpoint::Unix(PathBuf::from(trimmed)))
+    }
+}
+
+pub fn resolve_socket_endpoint_spec() -> Option<SocketEndpoint> {
     if let Ok(endpoint) = std::env::var("ROUX_SOCKET") {
-        let endpoint = endpoint.trim();
-        if !endpoint.is_empty() {
-            return Some(endpoint.to_string());
+        if let Some(endpoint) = parse_socket_endpoint(&endpoint) {
+            return Some(endpoint);
         }
     }
 
@@ -68,18 +111,47 @@ pub fn resolve_socket_endpoint() -> Option<String> {
     {
         return std::fs::read_to_string(socket_addr_file_path())
             .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
+            .and_then(|value| parse_socket_endpoint(&value));
     }
 
     #[cfg(not(windows))]
     {
-        Some(socket_path().to_string_lossy().to_string())
+        Some(SocketEndpoint::Unix(socket_path()))
     }
 }
 
-#[cfg(windows)]
+pub fn resolve_socket_endpoint() -> Option<String> {
+    resolve_socket_endpoint_spec().map(|endpoint| endpoint.display_value())
+}
+
+pub fn daemon_bind_endpoint() -> SocketEndpoint {
+    std::env::var("ROUX_DAEMON_BIND")
+        .ok()
+        .and_then(|value| parse_socket_endpoint(&value))
+        .unwrap_or_else(default_daemon_bind_endpoint)
+}
+
+fn default_daemon_bind_endpoint() -> SocketEndpoint {
+    #[cfg(windows)]
+    {
+        SocketEndpoint::Tcp("127.0.0.1:0".to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        SocketEndpoint::Unix(socket_path())
+    }
+}
+
 pub fn load_socket_auth_token() -> Option<String> {
+    for key in ["ROUX_DAEMON_TOKEN", "ROUX_AUTH_TOKEN"] {
+        if let Ok(value) = std::env::var(key) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+
     std::fs::read_to_string(socket_auth_token_file_path())
         .ok()
         .map(|value| value.trim().to_string())
@@ -207,7 +279,7 @@ fn is_executable_file(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn app_config_dir_ends_with_roux() {
@@ -217,6 +289,41 @@ mod tests {
     #[test]
     fn status_dir_lives_under_app_config_dir() {
         assert_eq!(status_dir(), app_config_dir().join("status"));
+    }
+
+    #[test]
+    fn parse_socket_endpoint_accepts_tcp_scheme() {
+        assert_eq!(
+            parse_socket_endpoint(" tcp://127.0.0.1:7777 "),
+            Some(SocketEndpoint::Tcp("127.0.0.1:7777".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_socket_endpoint_accepts_unix_scheme() {
+        assert_eq!(
+            parse_socket_endpoint("unix:///tmp/roux.sock"),
+            Some(SocketEndpoint::Unix(PathBuf::from("/tmp/roux.sock")))
+        );
+        assert_eq!(parse_socket_endpoint(""), None);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn parse_socket_endpoint_treats_plain_value_as_unix_path_on_unix() {
+        assert_eq!(
+            parse_socket_endpoint("/tmp/roux.sock"),
+            Some(SocketEndpoint::Unix(PathBuf::from("/tmp/roux.sock")))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn parse_socket_endpoint_treats_plain_value_as_tcp_addr_on_windows() {
+        assert_eq!(
+            parse_socket_endpoint("127.0.0.1:7777"),
+            Some(SocketEndpoint::Tcp("127.0.0.1:7777".to_string()))
+        );
     }
 
     #[test]

@@ -66,6 +66,47 @@ export interface CreateSessionShellOpts {
   smolMachineName?: string | null;
 }
 
+export interface DaemonStatus {
+  kind: string;
+  pid: number;
+  socket: string;
+  logPath?: string | null;
+  startedAtMs: number;
+  uptimeMs: number;
+  sessionCount: number;
+  projectCount: number;
+  watchCount?: number;
+  processCount?: number;
+  ptyCount?: number;
+  capabilities: string[];
+}
+
+export interface RuntimeCounts {
+  sessionCount: number;
+  projectCount: number;
+  watchCount: number;
+  processCount: number;
+  ptyCount: number;
+}
+
+export interface RuntimeStatus {
+  mode: "daemon" | "localFallback";
+  desktopPid: number;
+  startedAtMs: number;
+  uptimeMs: number;
+  daemon?: DaemonStatus | null;
+  local?: RuntimeCounts | null;
+  statusError?: string | null;
+}
+
+export async function getDaemonStatus(): Promise<DaemonStatus | null> {
+  return invoke("get_daemon_status");
+}
+
+export async function getRuntimeStatus(): Promise<RuntimeStatus> {
+  return invoke("get_runtime_status");
+}
+
 /**
  * Spawns a plain shell in the session's primary PTY. Caller then attaches
  * a spawn profile and types its setup / startup commands into the shell.

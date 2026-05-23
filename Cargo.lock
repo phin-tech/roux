@@ -4000,16 +4000,20 @@ name = "roux-cli"
 version = "0.5.3"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "clap",
  "dirs",
+ "libc",
  "rmcp",
  "roux-core",
  "roux-runtime",
+ "roux-worktrunk",
  "schemars 1.2.1",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4101,13 +4105,22 @@ dependencies = [
  "anyhow",
  "dirs",
  "libc",
+ "minijinja",
+ "octocrab",
  "portable-pty",
+ "reqwest 0.12.28",
  "roux-core",
  "serde",
  "serde_json",
+ "serde_yaml",
+ "sha2",
+ "specta",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
+ "toml 0.8.2",
+ "uuid",
 ]
 
 [[package]]

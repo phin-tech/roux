@@ -24,6 +24,14 @@ broadcasts (build done, tests went red, deploy started).
 All three live in one append-only event log. "Mailbox" and "bus" are usage
 patterns over the same store, not separate systems.
 
+When `roux daemon` owns the socket, aliases, mailbox events, read/ack state,
+and bus subscriptions are loaded and mutated by the daemon. Roux.app renders
+the Mailbox panel and handles notification/deliver-to-pane UX as a client of
+that daemon state, using daemon `alias-events`, `mailbox-events`, and
+`subscription-events` streams to keep the existing frontend event channels
+live. Without a daemon, the desktop falls back to the same local runtime
+managers.
+
 ## Aliases
 
 An **alias** is a human-meaningful name (lowercase letters, digits, hyphens;
@@ -275,6 +283,10 @@ Subscribed events appear in the subscriber's `mailbox read` output and
 update their unread count via the same `mailbox-event` Tauri channel —
 the UI's per-alias badge increments on every match.
 
+When the daemon owns the socket, `roux bus subscribe`, `roux bus unsubscribe`,
+`roux bus subscriptions`, and the Mailbox panel's Subscriptions tab all mutate
+the daemon's `subscriptions.json` state.
+
 ## The Mailbox panel (UI)
 
 Click the inbox icon in the activity rail (or use the keybinding for
@@ -363,9 +375,10 @@ CLI uses; you get parity with the CLI surface, just typed.
 | `events.jsonl` | Append-only NDJSON, one event per line, with `schemaVersion: 1` | Audit log; never compacted |
 | `read_state.json` | Versioned envelope | Full rewrite on mark-read / ack / clear-read |
 
-All three live under `roux_config_dir()` (`~/.config/roux/` on
-macOS/Linux). Future-version rows are preserved on disk but skipped at
-load time, so a downgrade doesn't lose data.
+All four live under `roux_config_dir()` (`~/.config/roux/` on macOS/Linux).
+When a daemon is running, those files are owned by the daemon process; GUI and
+CLI clients reach them through socket commands. Future-version rows are
+preserved on disk but skipped at load time, so a downgrade doesn't lose data.
 
 ## Retention
 

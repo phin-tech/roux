@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import Server from "@lucide/svelte/icons/server";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 
+  import { getDaemonStatus, type DaemonStatus } from "$lib/tauri";
   import { activeSession } from "$lib/stores/sessions";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
   import {
@@ -18,6 +21,8 @@
     position?: StatusBarPosition;
   }
   let { position = "bottom" }: Props = $props();
+
+  let daemonStatus = $state<DaemonStatus | null>(null);
 
   const statusDotClass: Record<string, string> = {
     idle: "bg-green",
@@ -80,6 +85,20 @@
     if ((!$activeSession || !hasPrPopover) && $prStatusDetailsOpen) {
       closePrStatusDetails();
     }
+  });
+
+  onMount(() => {
+    let cancelled = false;
+    void getDaemonStatus()
+      .then((status) => {
+        if (!cancelled) daemonStatus = status;
+      })
+      .catch(() => {
+        if (!cancelled) daemonStatus = null;
+      });
+    return () => {
+      cancelled = true;
+    };
   });
 
   /** Extract a PR-style label from a GitHub/GitLab URL (e.g. "PR #42"). */
@@ -189,5 +208,19 @@
     </span>
   {:else}
     <span>No active session</span>
+  {/if}
+  {#if daemonStatus}
+    <span
+      data-testid="status-bar-daemon-indicator"
+      class="ml-auto inline-flex items-center gap-1.5 text-green"
+      title={`Connected to roux daemon pid=${daemonStatus.pid} socket=${daemonStatus.socket}`}
+      aria-label={`Connected to roux daemon pid ${daemonStatus.pid}`}
+    >
+      <Server size={13} />
+      <span class="font-medium">Daemon</span>
+      {#if daemonStatus.processCount != null}
+        <span class="text-text-muted">{daemonStatus.processCount} proc</span>
+      {/if}
+    </span>
   {/if}
 </div>

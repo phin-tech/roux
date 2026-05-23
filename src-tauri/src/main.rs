@@ -7,6 +7,7 @@ mod hooks;
 #[macro_use]
 mod logging;
 mod commands;
+mod daemon_client;
 mod keymap;
 mod layouts;
 mod notifications;
@@ -66,8 +67,40 @@ fn main() {
         rlog!("Claude binary path: (default, resolved via PATH)");
     }
 
-    let persisted_watches = watches::load_persisted_watches();
-    let (watch_store_handle, _watch_join) = watches::store::spawn(persisted_watches);
+    let mut daemon_startup_error = None;
+    let daemon_client = match daemon_client::DaemonClient::ensure_local() {
+        daemon_client::DaemonStartup::Connected(client) => Some(client),
+        daemon_client::DaemonStartup::LocalFallbackDisabled(reason) => {
+            rlog!("Daemon autostart disabled; desktop will self-host runtime state: {reason}");
+            None
+        }
+        daemon_client::DaemonStartup::Failed(err) => {
+            let message = format!(
+                "Roux daemon startup failed; desktop will self-host runtime state. Set ROUX_DAEMON_AUTOSTART=0 to make local fallback explicit. {err}"
+            );
+            rlog!("{message}");
+            daemon_startup_error = Some(message);
+            None
+        }
+    };
+    if let Some(client) = daemon_client.as_ref() {
+        rlog!(
+            "Connected to roux daemon pid={} socket={}",
+            client.status().pid,
+            client.status().socket
+        );
+    } else {
+        rlog!("No roux daemon available; desktop will self-host runtime state");
+    }
+    let daemon_owns_watches =
+        daemon_client.as_ref().map(|client| client.supports("watch-list")).unwrap_or(false);
+    let persisted_watches = if daemon_owns_watches {
+        rlog!("Roux daemon owns watch state; desktop watch store will mirror in memory");
+        Vec::new()
+    } else {
+        watches::load_persisted_watches()
+    };
+    let watch_persist_path = (!daemon_owns_watches).then(watches::store::persistence_path);
 
     let persisted_projects = project_service::load_persisted();
     let persisted_sessions = session::load_persisted_sessions(&persisted_projects);
@@ -76,9 +109,17 @@ fn main() {
         session_persist_path: session::persistence_path(),
         initial_projects: persisted_projects,
         project_persist_path: paths::roux_config_dir().join("projects.json"),
+        initial_watches: persisted_watches,
+        watch_persist_path,
     }
     .build();
     let (runtime, _runtime_joins) = runtime_services.spawn_with(tauri::async_runtime::spawn);
+    let watch_manager =
+        watches::WatchManager::new(runtime.watch_handle.clone(), daemon_client.clone());
+    let runtime_started_at_ms = {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+    };
 
     #[cfg(debug_assertions)]
     let builder = Builder::<tauri::Wry>::new().commands(collect_commands![
@@ -250,9 +291,13 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             settings: Mutex::new(initial_settings),
+            daemon_client,
+            daemon_startup_error,
+            runtime_started_at_ms,
+            daemon_pty_attach_tasks: Mutex::new(std::collections::HashMap::new()),
             pty_manager: std::sync::Arc::new(PtyManager::new()),
             runtime,
-            watch_manager: watches::WatchManager::new(watch_store_handle),
+            watch_manager,
             automation_hooks: automation_hooks::AutomationHookManager::new(),
             notification_manager: notifications::NotificationManager::new(),
             alias_manager: roux_lib::aliases::AliasManager::load(),
@@ -269,6 +314,19 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::misc::get_log_path,
             commands::misc::frontend_log,
+            commands::daemon::get_daemon_status,
+            commands::daemon::get_runtime_status,
+            commands::daemon::daemon_process_start,
+            commands::daemon::daemon_process_output,
+            commands::daemon::daemon_process_list,
+            commands::daemon::daemon_process_kill,
+            commands::daemon::daemon_pty_spawn_shell,
+            commands::daemon::daemon_pty_spawn_task,
+            commands::daemon::daemon_pty_output,
+            commands::daemon::daemon_pty_list,
+            commands::daemon::daemon_pty_write,
+            commands::daemon::daemon_pty_resize,
+            commands::daemon::daemon_pty_kill,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::mcp::cmd_mcp_status,
@@ -502,7 +560,14 @@ fn main() {
             {
                 eprintln!("Warning: failed to start file status source: {}", e);
             }
-            socket::start_socket_server(app.handle().clone());
+            {
+                let state = app.state::<AppState>();
+                if state.daemon_client.is_some() {
+                    rlog!("Skipping desktop socket server because roux daemon owns the socket");
+                } else {
+                    socket::start_socket_server(app.handle().clone());
+                }
+            }
 
             // System tray: shows active sessions + status, plus Show/Quit.
             // Failure here is non-fatal (e.g. headless CI); log and continue.
@@ -562,11 +627,35 @@ fn main() {
             // Clean up orphaned watches and start active ones
             {
                 let state = app.state::<AppState>();
-                let session_handle = state.runtime.session_handle.clone();
-                let project_handle = state.runtime.project_handle.clone();
                 let app_handle = app.handle().clone();
                 let watch_mgr = state.watch_manager.clone();
+                let daemon_client = state.daemon_client.clone();
+                let session_handle = state.runtime.session_handle.clone();
+                let project_handle = state.runtime.project_handle.clone();
                 tauri::async_runtime::spawn(async move {
+                    if let Some(client) =
+                        daemon_client.filter(|client| client.supports("watch-list"))
+                    {
+                        if client.supports("watch-cleanup-orphans") {
+                            if let Err(err) = client.cleanup_watch_orphans().await {
+                                rlog!("daemon watch orphan cleanup failed: {err}");
+                            }
+                        }
+                        if client.supports("watch-events") {
+                            client.spawn_watch_event_bridge(app_handle.clone(), watch_mgr);
+                            return;
+                        }
+                        match client.list_watches().await {
+                            Ok(watches) => {
+                                watch_mgr.sync_watches(watches, app_handle).await;
+                            }
+                            Err(err) => {
+                                rlog!("daemon watch sync failed: {err}");
+                            }
+                        }
+                        return;
+                    }
+
                     let session_ids = session_handle
                         .list()
                         .await
@@ -588,6 +677,25 @@ fn main() {
                     }
                     watch_mgr.start_all(app_handle);
                 });
+            }
+
+            // Forward daemon-owned alias/mailbox/bus subscription events into the
+            // existing Tauri event channels. The frontend remains responsible
+            // for rendering, badges, and notifications.
+            {
+                let state = app.state::<AppState>();
+                if let Some(client) = state.daemon_client.clone() {
+                    let app_handle = app.handle().clone();
+                    if client.supports("alias-events") {
+                        client.spawn_alias_event_bridge(app_handle.clone());
+                    }
+                    if client.supports("mailbox-events") {
+                        client.spawn_mailbox_event_bridge(app_handle.clone());
+                    }
+                    if client.supports("subscription-events") {
+                        client.spawn_subscription_event_bridge(app_handle);
+                    }
+                }
             }
 
             Ok(())

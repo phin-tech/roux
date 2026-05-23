@@ -15,6 +15,7 @@ use roux_core::{
 use super::checks;
 use super::flap::FlapTracker;
 use super::store::WatchStoreHandle;
+use crate::daemon_client::DaemonClient;
 use crate::state::AppState;
 
 #[allow(dead_code)]
@@ -36,15 +37,17 @@ pub struct WatchManager {
     /// only ever compared per-watch_id, so wrap-around in a 64-bit
     /// counter is not a concern.
     next_generation: Arc<AtomicU64>,
+    daemon_client: Option<DaemonClient>,
 }
 
 impl WatchManager {
-    pub fn new(store: WatchStoreHandle) -> Self {
+    pub fn new(store: WatchStoreHandle, daemon_client: Option<DaemonClient>) -> Self {
         Self {
             store,
             handles: Arc::new(Mutex::new(HashMap::new())),
             flap_trackers: Arc::new(Mutex::new(HashMap::new())),
             next_generation: Arc::new(AtomicU64::new(1)),
+            daemon_client,
         }
     }
 
@@ -72,6 +75,55 @@ impl WatchManager {
         let _ = self.store.add(watch.clone()).await;
         self.spawn_watch(watch.id.clone(), None, app);
         watch
+    }
+
+    /// Mirror a daemon-owned watch into the desktop's in-memory executor.
+    /// Durable state remains daemon-owned; this local copy exists so the
+    /// current Tauri client can run checks and surface UX notifications.
+    pub async fn adopt_watch(&self, watch: Watch, app: tauri::AppHandle) {
+        let id = watch.id.clone();
+        let runnable = !matches!(watch.runtime_state, RuntimeState::Stopped | RuntimeState::Paused);
+        let _ = self.store.replace(watch).await;
+        if self.daemon_client.is_some() {
+            self.cancel_watch(&id);
+            return;
+        }
+        if runnable {
+            self.spawn_watch(id, None, app);
+        } else {
+            self.cancel_watch(&id);
+        }
+    }
+
+    /// Replace the local mirror with daemon state, cancelling pollers for
+    /// watches that disappeared and starting active watches from the daemon
+    /// snapshot.
+    pub async fn sync_watches(&self, watches: Vec<Watch>, app: tauri::AppHandle) {
+        let next_ids: std::collections::HashSet<String> =
+            watches.iter().map(|watch| watch.id.clone()).collect();
+        if let Ok(existing) = self.store.list().await {
+            for watch in existing {
+                if !next_ids.contains(&watch.id) {
+                    self.cancel_watch(&watch.id);
+                }
+            }
+        }
+        let _ = self.store.replace_all(watches).await;
+        if self.daemon_client.is_some() {
+            self.cancel_all();
+            return;
+        }
+        self.start_all(app);
+    }
+
+    pub async fn apply_daemon_watch_update(&self, event: WatchUpdateEvent, app: tauri::AppHandle) {
+        let id = event.watch.id.clone();
+        let _ = self.store.replace(event.watch.clone()).await;
+        if matches!(event.watch.runtime_state, RuntimeState::Stopped | RuntimeState::Paused) {
+            self.cancel_watch(&id);
+        }
+        let _ = app.emit("watch-update", &event);
+        self.route_watch_notification(&event, &app);
     }
 
     /// Atomic find-or-create for `GithubPr` watches keyed on
@@ -155,6 +207,129 @@ impl WatchManager {
         }
     }
 
+    fn cancel_all(&self) {
+        let mut handles = self.handles.lock().unwrap();
+        for (_, handle) in handles.drain() {
+            handle.cancel.cancel();
+        }
+    }
+
+    fn route_watch_notification(&self, event: &WatchUpdateEvent, app: &tauri::AppHandle) {
+        if !event.changed {
+            return;
+        }
+
+        let updated_watch = &event.watch;
+        let outcome = updated_watch.last_result.as_ref().map(|result| result.outcome());
+        let now = updated_watch.last_checked.unwrap_or_else(unix_now_ms);
+
+        let suppress = {
+            let mut trackers = self.flap_trackers.lock().unwrap();
+            let tracker = trackers.entry(updated_watch.id.clone()).or_insert_with(FlapTracker::new);
+            if let Some(outcome) = outcome {
+                tracker.record(outcome.clone(), now);
+            }
+            tracker.is_flapping()
+        };
+
+        let should_notify = !suppress
+            && match outcome {
+                Some(WatchOutcome::Failure) => {
+                    updated_watch.notify.desktop_notification && updated_watch.notify.on_failure
+                }
+                Some(WatchOutcome::Success) => {
+                    updated_watch.notify.desktop_notification && updated_watch.notify.on_success
+                }
+                _ => false,
+            };
+        if !should_notify {
+            return;
+        }
+
+        let title = match outcome {
+            Some(WatchOutcome::Failure) => format!("❌ {}", updated_watch.name),
+            Some(WatchOutcome::Success) => format!("✅ {}", updated_watch.name),
+            _ => updated_watch.name.clone(),
+        };
+        let body = match &updated_watch.last_result {
+            Some(WatchResult::GithubRun { conclusion, url, .. }) => {
+                format!("{} — {}", conclusion.as_deref().unwrap_or("unknown"), url)
+            }
+            Some(WatchResult::HttpCheck { status_code, response_time_ms, .. }) => {
+                format!("HTTP {} ({}ms)", status_code, response_time_ms)
+            }
+            Some(WatchResult::CommandRun { exit_code, .. }) => {
+                format!("Exit code: {}", exit_code)
+            }
+            Some(WatchResult::GithubPr { state, checks, reviews, .. }) => {
+                let passed =
+                    checks.iter().filter(|c| c.conclusion.as_deref() == Some("success")).count();
+                let approvals = reviews.iter().filter(|r| r.state == "approved").count();
+                format!(
+                    "{} — {}/{} checks passed, {} approval(s)",
+                    state,
+                    passed,
+                    checks.len(),
+                    approvals
+                )
+            }
+            None => String::new(),
+        };
+        let state = app.state::<AppState>();
+        let session_id = match &updated_watch.scope {
+            WatchScope::Session { session_id } => Some(session_id.clone()),
+            _ => None,
+        };
+        let level = match outcome {
+            Some(WatchOutcome::Failure) => NotificationLevel::Error,
+            Some(WatchOutcome::Success) => NotificationLevel::Success,
+            _ => NotificationLevel::Info,
+        };
+        let mut actions: Vec<NotificationAction> = Vec::new();
+        if let Some(ref sid) = session_id {
+            actions.push(NotificationAction {
+                id: "focus".into(),
+                label: "Focus session".into(),
+                kind: ActionKind::FocusSession { session_id: sid.clone() },
+                primary: true,
+            });
+        }
+        if matches!(outcome, Some(WatchOutcome::Failure)) {
+            actions.push(NotificationAction {
+                id: "retry".into(),
+                label: "Retry".into(),
+                kind: ActionKind::RetryWatch { watch_id: updated_watch.id.clone() },
+                primary: actions.is_empty(),
+            });
+            actions.push(NotificationAction {
+                id: "dismiss_source".into(),
+                label: "Dismiss all from source".into(),
+                kind: ActionKind::DismissSource,
+                primary: false,
+            });
+        } else {
+            actions.push(NotificationAction {
+                id: "dismiss".into(),
+                label: "Dismiss".into(),
+                kind: ActionKind::Dismiss,
+                primary: false,
+            });
+        }
+        state.notification_manager.push(
+            NotificationRequest {
+                level,
+                source: NotificationSource::Watch { watch_id: updated_watch.id.clone() },
+                title,
+                subtitle: None,
+                body: Some(body),
+                session_id,
+                actions,
+                dedup_key: None,
+            },
+            Some(app),
+        );
+    }
+
     fn spawn_watch(
         &self,
         watch_id: String,
@@ -171,6 +346,7 @@ impl WatchManager {
         let watch_id_for_handles = watch_id.clone();
         let watch_id_for_cleanup = watch_id.clone();
         let handles_for_cleanup = Arc::clone(&self.handles);
+        let daemon_client = self.daemon_client.clone();
         // Generation tag so the cleanup at task end can tell "I'm still
         // the live entry" from "a later spawn_watch replaced me". Without
         // this, an old cancelled task that races past `cancel_watch` and
@@ -259,6 +435,11 @@ impl WatchManager {
                     .await;
 
                 if let Ok(Some(updated_watch)) = store.get(&watch_id).await {
+                    if let Some(client) = daemon_client.as_ref() {
+                        if let Err(err) = client.replace_watch(updated_watch.clone()).await {
+                            rlog!("daemon watch sync failed for {}: {err}", updated_watch.id);
+                        }
+                    }
                     let event = WatchUpdateEvent {
                         watch: updated_watch.clone(),
                         changed,
@@ -485,11 +666,7 @@ impl WatchManager {
             // Only remove the entry if it's still ours. A later spawn
             // for the same watch_id may have replaced us, in which case
             // its handle must stay in the map.
-            if handles_guard
-                .get(&watch_id_for_cleanup)
-                .map(|h| h.generation)
-                == Some(generation)
-            {
+            if handles_guard.get(&watch_id_for_cleanup).map(|h| h.generation) == Some(generation) {
                 handles_guard.remove(&watch_id_for_cleanup);
             }
         });
@@ -505,4 +682,11 @@ fn rand_jitter() -> u64 {
         .unwrap_or_default()
         .subsec_nanos();
     (nanos % 5000) as u64
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }

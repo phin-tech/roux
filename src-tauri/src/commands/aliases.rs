@@ -25,6 +25,16 @@ pub async fn aliases_list(
     only_unbound: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<AgentAlias>, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("alias-list"))
+    {
+        return client
+            .list_aliases(
+                project_id.clone(),
+                global.unwrap_or(false),
+                only_unbound.unwrap_or(false),
+            )
+            .await;
+    }
     Ok(state.alias_manager.list(
         project_filter(project_id.as_deref(), global.unwrap_or(false)),
         only_unbound.unwrap_or(false),
@@ -37,6 +47,10 @@ pub async fn aliases_get(
     project_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<AgentAlias>, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("alias-get"))
+    {
+        return client.get_alias(alias.clone(), project_id.clone()).await;
+    }
     Ok(state.alias_manager.get(&alias, project_id.as_deref()))
 }
 
@@ -45,6 +59,11 @@ pub async fn aliases_whoami(
     session_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<AgentAlias>, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("alias-whoami"))
+    {
+        return client.whoami_aliases(session_id.clone()).await;
+    }
     Ok(state.alias_manager.whoami(&session_id))
 }
 
@@ -57,6 +76,13 @@ pub async fn aliases_add_member(
     app: tauri::AppHandle,
 ) -> Result<AgentAlias, String> {
     let canonical = validate_user_alias_name(&alias).map_err(|e| e.to_string())?;
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("alias-add-member"))
+    {
+        return client
+            .add_alias_member(canonical.clone(), pane_id.clone(), project_id.clone())
+            .await;
+    }
     state
         .alias_manager
         .add_member(&canonical, project_id.as_deref(), &pane_id, Some(&app))
@@ -72,6 +98,13 @@ pub async fn aliases_remove_member(
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
     let canonical = validate_user_alias_name(&alias).map_err(|e| e.to_string())?;
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("alias-remove-member"))
+    {
+        return client
+            .remove_alias_member(canonical.clone(), pane_id.clone(), project_id.clone())
+            .await;
+    }
     state
         .alias_manager
         .remove_member(&canonical, project_id.as_deref(), &pane_id, Some(&app))
@@ -93,11 +126,13 @@ pub async fn aliases_set_mode(
         }
         "broadcast" => ConsumptionMode::Broadcast,
         other => {
-            return Err(format!(
-                "invalid mode '{other}'; expected 'competing' or 'broadcast'"
-            ))
+            return Err(format!("invalid mode '{other}'; expected 'competing' or 'broadcast'"))
         }
     };
+    if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("alias-mode"))
+    {
+        return client.set_alias_mode(canonical.clone(), mode, project_id.clone()).await;
+    }
     state
         .alias_manager
         .set_consumption_mode(&canonical, project_id.as_deref(), parsed, Some(&app))

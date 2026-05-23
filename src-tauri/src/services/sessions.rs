@@ -49,7 +49,7 @@ fn build_smolvm_exec_for_session(
 /// are baked in on the very first PTY spawn so the child shell sees the
 /// env vars immediately. Otherwise project_slug stays `None` until the
 /// user assigns one (at which point a reconnect refreshes the env).
-fn build_notes_env_for_new_session(
+pub(crate) fn build_notes_env_for_new_session(
     settings: &RouxSettings,
     session_id: &str,
     branch: &str,
@@ -86,7 +86,7 @@ fn build_notes_env_for_new_session(
 /// Build `NotesEnvInputs` for an existing session (used on reconnect).
 /// If the session has a `project_id`, the project name is looked up
 /// and the project slug frozen in the vault index.
-async fn build_notes_env_for_existing_session(
+pub(crate) async fn build_notes_env_for_existing_session(
     settings: &RouxSettings,
     project_handle: &crate::project_service::ProjectHandle,
     session: &Session,
@@ -104,11 +104,9 @@ async fn build_notes_env_for_existing_session(
     let (project_slug, context_paths, project_prompt) = match session.project_id.as_deref() {
         Some(pid) => match project_handle.list().await.ok() {
             Some(projects) => match projects.into_iter().find(|p| p.id == pid) {
-                Some(p) => (
-                    Some(svc.freeze_project_slug(pid, &p.name)),
-                    p.context_paths,
-                    p.project_prompt,
-                ),
+                Some(p) => {
+                    (Some(svc.freeze_project_slug(pid, &p.name)), p.context_paths, p.project_prompt)
+                }
                 None => (None, Vec::new(), String::new()),
             },
             None => (None, Vec::new(), String::new()),

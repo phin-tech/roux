@@ -6,9 +6,11 @@ import type { PrInfo } from "$lib/tauri";
 
 const tauriMock = vi.hoisted(() => ({
   nextPrLookupResult: null as unknown,
+  daemonStatus: null as unknown,
 }));
 
 vi.mock("$lib/tauri", () => ({
+  getDaemonStatus: vi.fn(async () => tauriMock.daemonStatus),
   listWorktrees: vi.fn(),
   lookupPr: vi.fn(async () => tauriMock.nextPrLookupResult),
   lookupPrForBranch: vi.fn(async () => tauriMock.nextPrLookupResult),
@@ -105,6 +107,7 @@ describe("StatusBar worktrunk integration", () => {
     _resetWorktreeMetadataForTests();
     _resetSessionPrLookupForTests();
     tauriMock.nextPrLookupResult = null;
+    tauriMock.daemonStatus = null;
     closePrStatusDetails();
   });
 
@@ -113,12 +116,35 @@ describe("StatusBar worktrunk integration", () => {
     _resetWorktreeMetadataForTests();
     _resetSessionPrLookupForTests();
     tauriMock.nextPrLookupResult = null;
+    tauriMock.daemonStatus = null;
     closePrStatusDetails();
   });
 
   it("renders no PR link when no session is active", () => {
     const { queryByTestId } = render(StatusBar);
     expect(queryByTestId("status-bar-pr-link")).toBeNull();
+  });
+
+  it("renders daemon indicator when connected to an external daemon", async () => {
+    tauriMock.daemonStatus = {
+      kind: "roux-daemon",
+      pid: 1234,
+      socket: "/tmp/roux.sock",
+      logPath: "/tmp/roux-daemon.log",
+      startedAtMs: 1,
+      uptimeMs: 2,
+      sessionCount: 3,
+      projectCount: 4,
+      processCount: 5,
+      capabilities: ["daemon-status"],
+    };
+
+    const { findByTestId, findByText } = render(StatusBar);
+    const indicator = await findByTestId("status-bar-daemon-indicator");
+
+    expect(indicator.getAttribute("aria-label")).toContain("pid 1234");
+    expect(await findByText("Daemon")).toBeTruthy();
+    expect(await findByText("5 proc")).toBeTruthy();
   });
 
   it("renders a PR link when the active session's worktree has ciUrl", () => {
