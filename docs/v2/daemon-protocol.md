@@ -414,6 +414,61 @@ optional `args.exact` disables hierarchical prefix matching.
 
 Returns the daemon host's notes vault root path.
 
+## Automation Hook Commands
+
+The daemon handles automation hook management and execution for connected
+clients:
+
+- `hook-show`
+- `hook-preview`
+- `hook-run`
+- `hook-approve`
+- `hook-clear-approvals`
+- `hook-log-list`
+- `hook-log-read`
+
+These commands use the daemon host's hook config root, project hook files,
+approval file, and hook log directory. Roux.app forwards its automation hook
+panel commands to these endpoints when connected to a daemon; the desktop still
+owns hook-install/setup UI.
+
+`hook-show`
+
+Optional `args.repoPath` includes project hooks from
+`<repoPath>/.config/roux/hooks.toml`. Returns hook definitions with approval
+metadata.
+
+`hook-preview`
+
+`args` is a hook run request with `event` and optional `repoPath`,
+`worktreePath`, `branch`, `sessionId`, `projectId`, `taskId`, `scope`,
+`provider`, and `args`. Returns rendered hook previews and match/approval
+metadata.
+
+`hook-run`
+
+Uses the same request shape as `hook-preview`. Blocking `pre-*` hooks are run
+synchronously; non-blocking hooks run in the daemon background. Returns
+`{ "event": "...", "ran": N }`.
+
+`hook-approve`
+
+Requires `args.approvalId`. Records approval in the daemon host's hook approval
+store.
+
+`hook-clear-approvals`
+
+Clears the daemon host's hook approval store.
+
+`hook-log-list`
+
+Returns hook log metadata from the daemon host.
+
+`hook-log-read`
+
+Requires `args.path`. Returns the hook log content after validating that the
+path belongs to the daemon hook log directory.
+
 ## Worktree Commands
 
 `worktree-list`
@@ -646,6 +701,8 @@ Daemon-owned:
 - Worktree create/remove automation hooks for daemon-owned worktree commands.
 - Durable watch definitions, check execution, watch hooks, and runtime state.
 - Durable alias, mailbox event, read-state, and bus subscription state.
+- Notes vault operations.
+- Automation hook list/preview/run/approval state and hook logs.
 
 Desktop-owned:
 
@@ -655,6 +712,5 @@ Desktop-owned:
 - Mailbox panel rendering, notification presentation from daemon
   `mailbox-events`, subscription UI updates from `subscription-events`, and
   last-mile deliver-to-pane UX.
-- Pane-state cleanup and manual hook preview/run/list UX until those services
-  move.
+- Pane-state cleanup and frontend-owned pane layout restore files.
 - Local fallback runtime when no daemon is connected.

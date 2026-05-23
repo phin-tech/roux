@@ -237,7 +237,7 @@ fn insert_opt_string_alias(map: &mut Map<String, Value>, key: &str, value: Optio
     }
 }
 
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HookListItem {
     pub event: String,
@@ -249,7 +249,7 @@ pub struct HookListItem {
     pub approved: bool,
 }
 
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HookPreviewItem {
     pub event: String,
@@ -263,7 +263,7 @@ pub struct HookPreviewItem {
     pub matched: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HookRunRequest {
     pub event: String,
@@ -278,14 +278,14 @@ pub struct HookRunRequest {
     pub args: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HookRunSummary {
     pub event: String,
     pub ran: usize,
 }
 
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HookLogEntry {
     pub file: String,

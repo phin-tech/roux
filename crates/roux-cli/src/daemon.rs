@@ -16,7 +16,8 @@ use roux_core::{
 use roux_runtime::alias_service::AliasManager;
 use roux_runtime::alias_store::{BindRequest, ProjectFilter};
 use roux_runtime::automation_hooks::{
-    worktree_provider_hooks, AutomationHookManager, HookContext, HookEvent,
+    context_from_run_request, hook_list_to_value, hook_run_to_value, request_from_socket_args,
+    worktree_provider_hooks, AutomationHookManager, HookContext, HookEvent, HookRunSummary,
 };
 use roux_runtime::host::{RuntimeHost, RuntimeHostConfig};
 use roux_runtime::mailbox_service::MailboxManager;
@@ -716,6 +717,13 @@ async fn handle_request_with_watch_runner(
         "notes-path" => handle_notes_path(req, host).await,
         "notes-search" => handle_notes_search(req).await,
         "notes-vault-root" => handle_notes_vault_root(req).await,
+        "hook-show" => handle_hook_show(req).await,
+        "hook-preview" => handle_hook_preview(req).await,
+        "hook-run" => handle_hook_run(req).await,
+        "hook-approve" => handle_hook_approve(req).await,
+        "hook-clear-approvals" => handle_hook_clear_approvals().await,
+        "hook-log-list" => handle_hook_log_list().await,
+        "hook-log-read" => handle_hook_log_read(req).await,
         "run" => handle_daemon_process_start(req, host).await,
         "shell" => handle_session_panes_create(req, host, identity).await,
         "split" => handle_session_panes_create(req, host, identity).await,
@@ -814,6 +822,13 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "notes-path",
         "notes-search",
         "notes-vault-root",
+        "hook-show",
+        "hook-preview",
+        "hook-run",
+        "hook-approve",
+        "hook-clear-approvals",
+        "hook-log-list",
+        "hook-log-read",
         "run",
         "shell",
         "split",
@@ -2377,6 +2392,138 @@ fn serialize_session(session: roux_core::Session) -> Response {
 
 fn daemon_hook_manager() -> AutomationHookManager {
     AutomationHookManager::from_config_root(platform::app_config_dir())
+}
+
+async fn handle_hook_show(req: Request) -> Response {
+    handle_hook_show_with_hooks(req, daemon_hook_manager()).await
+}
+
+async fn handle_hook_show_with_hooks(req: Request, hooks: AutomationHookManager) -> Response {
+    let repo_path = req
+        .args
+        .get("repoPath")
+        .or_else(|| req.args.get("repo_path"))
+        .and_then(|value| value.as_str());
+    match hooks.list_hooks(repo_path) {
+        Ok(items) => Response::success(hook_list_to_value(items)),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_hook_preview(req: Request) -> Response {
+    handle_hook_preview_with_hooks(req, daemon_hook_manager()).await
+}
+
+async fn handle_hook_preview_with_hooks(req: Request, hooks: AutomationHookManager) -> Response {
+    let request = match request_from_socket_args(req.args) {
+        Ok(request) => request,
+        Err(err) => return Response::err(err),
+    };
+    let settings = load_daemon_settings();
+    let wt_available = resolve_wt_binary(&settings).is_some();
+    let (event, context) =
+        match context_from_run_request(request, Some(settings.worktree_provider), wt_available) {
+            Ok(parts) => parts,
+            Err(err) => return Response::err(err.to_string()),
+        };
+    match hooks.preview(event, &context) {
+        Ok(items) => match serde_json::to_value(items) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize hook preview: {err}")),
+        },
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_hook_run(req: Request) -> Response {
+    handle_hook_run_with_hooks(req, daemon_hook_manager()).await
+}
+
+async fn handle_hook_run_with_hooks(req: Request, hooks: AutomationHookManager) -> Response {
+    let request = match request_from_socket_args(req.args) {
+        Ok(request) => request,
+        Err(err) => return Response::err(err),
+    };
+    let settings = load_daemon_settings();
+    let wt_available = resolve_wt_binary(&settings).is_some();
+    let (event, context) =
+        match context_from_run_request(request, Some(settings.worktree_provider), wt_available) {
+            Ok(parts) => parts,
+            Err(err) => return Response::err(err.to_string()),
+        };
+    let result = if event.is_blocking() {
+        hooks.run_blocking(event, context).await
+    } else {
+        hooks.run_background(event, context).await
+    };
+    match result {
+        Ok(ran) => Response::success(hook_run_to_value(HookRunSummary {
+            event: event.as_str().into(),
+            ran,
+        })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_hook_approve(req: Request) -> Response {
+    handle_hook_approve_with_hooks(req, daemon_hook_manager()).await
+}
+
+async fn handle_hook_approve_with_hooks(req: Request, hooks: AutomationHookManager) -> Response {
+    let Some(approval_id) = req
+        .args
+        .get("approvalId")
+        .or_else(|| req.args.get("approval_id"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Response::err("approvalId required");
+    };
+    match hooks.approve(approval_id) {
+        Ok(()) => Response::success(Value::Null),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_hook_clear_approvals() -> Response {
+    handle_hook_clear_approvals_with_hooks(daemon_hook_manager()).await
+}
+
+async fn handle_hook_clear_approvals_with_hooks(hooks: AutomationHookManager) -> Response {
+    match hooks.clear_approvals() {
+        Ok(()) => Response::success(Value::Null),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_hook_log_list() -> Response {
+    handle_hook_log_list_with_hooks(daemon_hook_manager()).await
+}
+
+async fn handle_hook_log_list_with_hooks(hooks: AutomationHookManager) -> Response {
+    match serde_json::to_value(hooks.list_logs()) {
+        Ok(value) => Response::success(value),
+        Err(err) => Response::err(format!("failed to serialize hook logs: {err}")),
+    }
+}
+
+async fn handle_hook_log_read(req: Request) -> Response {
+    handle_hook_log_read_with_hooks(req, daemon_hook_manager()).await
+}
+
+async fn handle_hook_log_read_with_hooks(req: Request, hooks: AutomationHookManager) -> Response {
+    let Some(path) = req
+        .args
+        .get("path")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Response::err("path required");
+    };
+    match hooks.read_log(path) {
+        Ok(content) => Response::success(Value::String(content)),
+        Err(err) => Response::err(err.to_string()),
+    }
 }
 
 fn build_daemon_post_worktree_create_context(
@@ -4550,6 +4697,125 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         panic!("marker {} did not contain {expected:?}", path.display());
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_hook_commands_use_daemon_hook_manager() {
+        let dir = tempfile::tempdir().unwrap();
+        let hook_root = dir.path().join("hook-root");
+        std::fs::create_dir_all(&hook_root).unwrap();
+        std::fs::write(hook_root.join("hooks.toml"), r#"post-task-run = "true""#).unwrap();
+
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join(".config").join("roux")).unwrap();
+        std::fs::write(
+            repo.join(".config").join("roux").join("hooks.toml"),
+            r#"pre-watch-run = "cat >/dev/null""#,
+        )
+        .unwrap();
+
+        let hooks = AutomationHookManager::from_config_root(&hook_root);
+        let show = handle_hook_show_with_hooks(
+            Request {
+                command: "hook-show".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "repoPath": repo }),
+            },
+            hooks.clone(),
+        )
+        .await;
+        assert!(show.ok, "hook-show failed: {:?}", show.error);
+        let shown = show.data.as_ref().unwrap().as_array().unwrap();
+        assert!(shown.iter().any(|item| item["source"] == "user"));
+        assert!(shown.iter().any(|item| item["source"] == "project"));
+
+        let preview_args = serde_json::json!({
+            "event": "pre-watch-run",
+            "repoPath": repo,
+        });
+        let preview = handle_hook_preview_with_hooks(
+            Request {
+                command: "hook-preview".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: preview_args.clone(),
+            },
+            hooks.clone(),
+        )
+        .await;
+        assert!(preview.ok, "hook-preview failed: {:?}", preview.error);
+        let preview_items = preview.data.as_ref().unwrap().as_array().unwrap();
+        let approval_id =
+            preview_items[0]["approvalId"].as_str().expect("project hook approval id").to_string();
+        assert_eq!(preview_items[0]["approved"], false);
+
+        let rejected = handle_hook_run_with_hooks(
+            Request {
+                command: "hook-run".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: preview_args.clone(),
+            },
+            hooks.clone(),
+        )
+        .await;
+        assert!(!rejected.ok);
+        assert!(rejected.error.as_deref().unwrap_or_default().contains("approval"));
+
+        let approved = handle_hook_approve_with_hooks(
+            Request {
+                command: "hook-approve".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "approvalId": approval_id }),
+            },
+            hooks.clone(),
+        )
+        .await;
+        assert!(approved.ok, "hook-approve failed: {:?}", approved.error);
+
+        let run = handle_hook_run_with_hooks(
+            Request {
+                command: "hook-run".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: preview_args,
+            },
+            hooks.clone(),
+        )
+        .await;
+        assert!(run.ok, "hook-run failed: {:?}", run.error);
+        assert_eq!(run.data.as_ref().unwrap()["event"], "pre-watch-run");
+        assert_eq!(run.data.as_ref().unwrap()["ran"], 1);
+
+        let logs = handle_hook_log_list_with_hooks(hooks.clone()).await;
+        assert!(logs.ok, "hook-log-list failed: {:?}", logs.error);
+        let log_items = logs.data.as_ref().unwrap().as_array().unwrap();
+        assert_eq!(log_items.len(), 1);
+        let log_path = log_items[0]["path"].as_str().expect("hook log path").to_string();
+        let log = handle_hook_log_read_with_hooks(
+            Request {
+                command: "hook-log-read".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "path": log_path }),
+            },
+            hooks.clone(),
+        )
+        .await;
+        assert!(log.ok, "hook-log-read failed: {:?}", log.error);
+        assert!(log.data.as_ref().unwrap().as_str().unwrap().contains("pre-watch-run"));
+
+        let cleared = handle_hook_clear_approvals_with_hooks(hooks).await;
+        assert!(cleared.ok, "hook-clear-approvals failed: {:?}", cleared.error);
     }
 
     #[cfg(not(windows))]

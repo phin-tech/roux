@@ -13,6 +13,9 @@ use roux_core::{
     MailboxEvent, Project, ReadState, Session, SessionExitPayload, SessionExitReason, Watch,
     WatchUpdateEvent, Worktree,
 };
+use roux_runtime::automation_hooks::{
+    HookListItem, HookLogEntry, HookPreviewItem, HookRunRequest, HookRunSummary,
+};
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
@@ -491,6 +494,50 @@ impl DaemonClient {
         let value = send_command_async(daemon_notes_vault_root_request()).await?;
         serde_json::from_value(value)
             .map_err(|err| format!("decode daemon notes-vault-root: {err}"))
+    }
+
+    pub(crate) async fn list_automation_hooks(
+        &self,
+        repo_path: Option<String>,
+    ) -> Result<Vec<HookListItem>, String> {
+        let value = send_command_async(daemon_hook_show_request(repo_path)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-show: {err}"))
+    }
+
+    pub(crate) async fn preview_automation_hooks(
+        &self,
+        request: HookRunRequest,
+    ) -> Result<Vec<HookPreviewItem>, String> {
+        let value = send_command_async(daemon_hook_run_request("hook-preview", request)?).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-preview: {err}"))
+    }
+
+    pub(crate) async fn run_automation_hook(
+        &self,
+        request: HookRunRequest,
+    ) -> Result<HookRunSummary, String> {
+        let value = send_command_async(daemon_hook_run_request("hook-run", request)?).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-run: {err}"))
+    }
+
+    pub(crate) async fn approve_automation_hook(&self, approval_id: String) -> Result<(), String> {
+        let _ = send_command_async(daemon_hook_approve_request(approval_id)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn clear_automation_hook_approvals(&self) -> Result<(), String> {
+        let _ = send_command_async(daemon_hook_clear_approvals_request()).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn list_automation_hook_logs(&self) -> Result<Vec<HookLogEntry>, String> {
+        let value = send_command_async(daemon_hook_log_list_request()).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-log-list: {err}"))
+    }
+
+    pub(crate) async fn read_automation_hook_log(&self, path: String) -> Result<String, String> {
+        let value = send_command_async(daemon_hook_log_read_request(path)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-log-read: {err}"))
     }
 
     pub(crate) async fn set_session_name_override(
@@ -1372,6 +1419,47 @@ fn daemon_notes_search_request(query: NotesSearchQuery) -> Value {
 
 fn daemon_notes_vault_root_request() -> Value {
     serde_json::json!({ "command": "notes-vault-root" })
+}
+
+fn daemon_hook_show_request(repo_path: Option<String>) -> Value {
+    let mut args = serde_json::Map::new();
+    if let Some(repo_path) = repo_path {
+        args.insert("repoPath".to_string(), Value::String(repo_path));
+    }
+    serde_json::json!({
+        "command": "hook-show",
+        "args": args,
+    })
+}
+
+fn daemon_hook_run_request(command: &str, request: HookRunRequest) -> Result<Value, String> {
+    Ok(serde_json::json!({
+        "command": command,
+        "args": serde_json::to_value(request)
+            .map_err(|err| format!("encode daemon {command} request: {err}"))?,
+    }))
+}
+
+fn daemon_hook_approve_request(approval_id: String) -> Value {
+    serde_json::json!({
+        "command": "hook-approve",
+        "args": { "approvalId": approval_id },
+    })
+}
+
+fn daemon_hook_clear_approvals_request() -> Value {
+    serde_json::json!({ "command": "hook-clear-approvals" })
+}
+
+fn daemon_hook_log_list_request() -> Value {
+    serde_json::json!({ "command": "hook-log-list" })
+}
+
+fn daemon_hook_log_read_request(path: String) -> Value {
+    serde_json::json!({
+        "command": "hook-log-read",
+        "args": { "path": path },
+    })
 }
 
 fn insert_project_filter_args(
@@ -2416,6 +2504,47 @@ mod tests {
         assert_eq!(search["args"]["exact"], true);
 
         assert_eq!(daemon_notes_vault_root_request()["command"], "notes-vault-root");
+    }
+
+    #[test]
+    fn daemon_hook_requests_use_daemon_command_shape() {
+        let show = daemon_hook_show_request(Some("/repo".to_string()));
+        assert_eq!(show["command"], "hook-show");
+        assert_eq!(show["args"]["repoPath"], "/repo");
+
+        let request = HookRunRequest {
+            event: "pre-watch-run".to_string(),
+            repo_path: Some("/repo".to_string()),
+            worktree_path: Some("/repo/wt".to_string()),
+            branch: Some("feature/demo".to_string()),
+            session_id: Some("session-a".to_string()),
+            project_id: Some("project-a".to_string()),
+            task_id: Some("task-a".to_string()),
+            scope: Some("project".to_string()),
+            provider: Some("git".to_string()),
+            args: Some(vec!["one".to_string(), "two".to_string()]),
+        };
+        let preview = daemon_hook_run_request("hook-preview", request.clone()).unwrap();
+        assert_eq!(preview["command"], "hook-preview");
+        assert_eq!(preview["args"]["event"], "pre-watch-run");
+        assert_eq!(preview["args"]["repoPath"], "/repo");
+        assert_eq!(preview["args"]["worktreePath"], "/repo/wt");
+        assert_eq!(preview["args"]["sessionId"], "session-a");
+        assert_eq!(preview["args"]["args"][0], "one");
+
+        let run = daemon_hook_run_request("hook-run", request).unwrap();
+        assert_eq!(run["command"], "hook-run");
+
+        let approve = daemon_hook_approve_request("approval-a".to_string());
+        assert_eq!(approve["command"], "hook-approve");
+        assert_eq!(approve["args"]["approvalId"], "approval-a");
+
+        assert_eq!(daemon_hook_clear_approvals_request()["command"], "hook-clear-approvals");
+        assert_eq!(daemon_hook_log_list_request()["command"], "hook-log-list");
+
+        let read = daemon_hook_log_read_request("/tmp/hook.json".to_string());
+        assert_eq!(read["command"], "hook-log-read");
+        assert_eq!(read["args"]["path"], "/tmp/hook.json");
     }
 
     #[test]
