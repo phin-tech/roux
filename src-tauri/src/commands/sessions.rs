@@ -53,7 +53,7 @@ fn is_daemon_pty_not_found(err: &str) -> bool {
     err.contains("daemon pty not found")
 }
 
-fn abort_daemon_attach_task(state: &AppState, id: &str) -> Result<(), String> {
+pub(crate) fn abort_daemon_attach_task(state: &AppState, id: &str) -> Result<(), String> {
     let previous = state.daemon_pty_attach_tasks.lock().map_err(|err| err.to_string())?.remove(id);
     if let Some(previous) = previous {
         previous.handle.abort();

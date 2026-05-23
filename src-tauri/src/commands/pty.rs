@@ -43,7 +43,10 @@ pub(crate) async fn detach_pty(
 ) -> Result<(), String> {
     if let Some(client) = state.daemon_client.clone() {
         match client.detach_daemon_pty(pty_id.clone()).await {
-            Ok(_) => return Ok(()),
+            Ok(_) => {
+                super::sessions::abort_daemon_attach_task(&state, &pty_id)?;
+                return Ok(());
+            }
             Err(err) if is_daemon_pty_not_found(&err) => {}
             Err(err) => return Err(err),
         }
