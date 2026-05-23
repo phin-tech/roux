@@ -164,6 +164,13 @@ Creates a secondary daemon-owned PTY and returns
 `{ "pane_id": "...", "pty_id": "..." }`. It does not mutate GUI layout; a
 client can render it or attach with `roux attach <pty_id>`.
 
+`shell`
+
+Compatibility alias for top-level `roux shell` when the daemon owns the socket.
+Requires `session_id`. Accepts optional `args.workingDir` / `args.working_dir`
+and otherwise behaves like `session-panes-create` with `profile:
+plain-shell`. Returns `{ "pane_id": "...", "pty_id": "..." }`.
+
 ## Project Commands
 
 `project-list`

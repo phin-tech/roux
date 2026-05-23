@@ -483,6 +483,7 @@ async fn handle_request_with_watch_runner(
         "worktree-list-branches" => handle_worktree_list_branches(req).await,
         "git-init" => handle_git_init(req).await,
         "run" => handle_daemon_process_start(req, host).await,
+        "shell" => handle_session_panes_create(req, host, identity).await,
         "send" => handle_cli_send(req, host).await,
         "daemon-process-start" => handle_daemon_process_start(req, host).await,
         "daemon-process-output" => handle_daemon_process_output(req, host).await,
@@ -554,6 +555,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "worktree-list-branches",
             "git-init",
             "run",
+            "shell",
             "send",
             "daemon-process-start",
             "daemon-process-output",
@@ -3296,6 +3298,84 @@ post-worktree-remove = "{post_remove}"
             .any(|descriptor| descriptor["id"] == pane_id && descriptor["ptyId"] == pty_id));
 
         let _ = host.pty_handle.kill("session-panes").await;
+        let _ = host.pty_handle.kill(&pty_id).await;
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_top_level_shell_spawns_secondary_pty() {
+        let dir = tempfile::tempdir().unwrap();
+        let alternate_dir = dir.path().join("alternate");
+        std::fs::create_dir_all(&alternate_dir).unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let create_session = handle_request(
+            Request {
+                command: "session-create-shell".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "id": "session-shell",
+                    "repoPath": dir.path(),
+                    "name": "Shell Session",
+                    "profile": "plain-shell",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(create_session.ok, "session create failed: {:?}", create_session.error);
+
+        let shell = handle_request(
+            Request {
+                command: "shell".to_string(),
+                session_id: Some("session-shell".to_string()),
+                pane_id: Some("session-shell-main".to_string()),
+                auth_token: None,
+                args: serde_json::json!({ "working_dir": alternate_dir }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(shell.ok, "shell failed: {:?}", shell.error);
+        let pty_id = shell.data.as_ref().unwrap()["pty_id"].as_str().unwrap().to_string();
+
+        let pty = host
+            .pty_handle
+            .list()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|pty| pty.id == pty_id)
+            .expect("shell pty");
+        assert_eq!(pty.info.session_id.as_deref(), Some("session-shell"));
+        assert!(matches!(pty.info.role, roux_core::PtyRole::Secondary));
+        assert_eq!(pty.info.profile.as_deref(), Some("plain-shell"));
+        assert_eq!(pty.working_dir, alternate_dir.to_string_lossy());
+
+        let _ = host.pty_handle.kill("session-shell").await;
         let _ = host.pty_handle.kill(&pty_id).await;
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
