@@ -139,7 +139,13 @@
   // Reflects the live state of the user-configured host proxy. Polled
   // when the panel is visible so the chip + start/stop button stay in
   // sync if the proxy crashes externally.
-  let proxyStatus = $state<ManagedProxyStatus>({ running: false });
+  let proxyStatus = $state<ManagedProxyStatus>({
+    running: false,
+    port: null,
+    bind: null,
+    pid: null,
+    lastError: null,
+  });
   let proxyBusy = $state(false);
   let proxyError = $state<string | null>(null);
 
@@ -487,8 +493,8 @@
             pendingMountPrompt = {
               machineName: name,
               worktreePath: session.worktreePath,
-              smolfilePath: check.smolfilePath,
-              proposedSpec: check.proposedSpec,
+              smolfilePath: check.smolfile_path,
+              proposedSpec: check.proposed_spec,
             };
           }
           // mounted / noLinkedSmolfile → leave pendingMountPrompt at
