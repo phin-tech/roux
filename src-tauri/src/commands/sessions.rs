@@ -427,6 +427,13 @@ pub(crate) async fn archive_session_with_hooks(state: &AppState, id: &str) -> Re
     }
     // Stop session-scoped recurring watches (e.g. PR pollers) so they
     // don't outlive the archived session and keep firing forever.
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("watch-remove-for-session"))
+    {
+        if let Err(err) = client.remove_watches_for_session(id.to_string()).await {
+            rlog!("archive_session: daemon watch cleanup failed for {id}: {err}");
+        }
+    }
     state.watch_manager.remove_watches_for_session(id).await;
     if let Some(session) = session {
         let context = crate::automation_hooks::HookContext {
@@ -512,6 +519,13 @@ pub(crate) async fn delete_session_permanently(
     // Tear down any session-scoped watches that may still be polling
     // (no-op if the session was already archived and watches were
     // cleaned up at archive time).
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("watch-remove-for-session"))
+    {
+        if let Err(err) = client.remove_watches_for_session(id.clone()).await {
+            rlog!("delete_session_permanently: daemon watch cleanup failed for {id}: {err}");
+        }
+    }
     state.watch_manager.remove_watches_for_session(&id).await;
     Ok(())
 }

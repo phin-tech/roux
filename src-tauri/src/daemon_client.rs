@@ -7,7 +7,9 @@ use std::time::Duration;
 use tauri::ipc::{Channel, Response as IpcResponse};
 use tauri::{AppHandle, Emitter};
 
-use roux_core::{Project, Session, SessionExitPayload, SessionExitReason, Worktree};
+use roux_core::{
+    CreateWatchConfig, Project, Session, SessionExitPayload, SessionExitReason, Watch, Worktree,
+};
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
@@ -31,6 +33,8 @@ pub(crate) struct DaemonStatus {
     pub(crate) uptime_ms: u64,
     pub(crate) session_count: usize,
     pub(crate) project_count: usize,
+    #[serde(default)]
+    pub(crate) watch_count: usize,
     #[serde(default)]
     pub(crate) process_count: usize,
     #[serde(default)]
@@ -266,6 +270,59 @@ impl DaemonClient {
 
     pub(crate) async fn git_init(&self, path: String) -> Result<(), String> {
         let _ = send_command_async(daemon_path_request("git-init", path)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn list_watches(&self) -> Result<Vec<Watch>, String> {
+        let value = send_command_async(daemon_watch_list_request()).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon watch-list: {err}"))
+    }
+
+    pub(crate) async fn create_watch(&self, config: CreateWatchConfig) -> Result<Watch, String> {
+        let value = send_command_async(daemon_watch_config_request("watch-create", config)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon watch-create: {err}"))
+    }
+
+    pub(crate) async fn find_or_create_watch(
+        &self,
+        config: CreateWatchConfig,
+    ) -> Result<Watch, String> {
+        let value =
+            send_command_async(daemon_watch_config_request("watch-find-or-create", config)).await?;
+        serde_json::from_value(value)
+            .map_err(|err| format!("decode daemon watch-find-or-create: {err}"))
+    }
+
+    pub(crate) async fn remove_watch(&self, id: String) -> Result<(), String> {
+        let _ = send_command_async(daemon_watch_id_request("watch-remove", id)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn pause_watch(&self, id: String) -> Result<Watch, String> {
+        let value = send_command_async(daemon_watch_id_request("watch-pause", id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon watch-pause: {err}"))
+    }
+
+    pub(crate) async fn resume_watch(&self, id: String) -> Result<Watch, String> {
+        let value = send_command_async(daemon_watch_id_request("watch-resume", id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon watch-resume: {err}"))
+    }
+
+    pub(crate) async fn replace_watch(&self, watch: Watch) -> Result<(), String> {
+        let _ = send_command_async(daemon_watch_replace_request(watch)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn remove_watches_for_session(
+        &self,
+        session_id: String,
+    ) -> Result<(), String> {
+        let _ = send_command_async(daemon_watch_session_request(session_id)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn cleanup_watch_orphans(&self) -> Result<(), String> {
+        let _ = send_command_async(daemon_watch_cleanup_orphans_request()).await?;
         Ok(())
     }
 
@@ -621,6 +678,42 @@ fn daemon_path_request(command: &str, path: String) -> Value {
         "command": command,
         "args": { "path": path },
     })
+}
+
+fn daemon_watch_list_request() -> Value {
+    serde_json::json!({ "command": "watch-list" })
+}
+
+fn daemon_watch_config_request(command: &str, config: CreateWatchConfig) -> Value {
+    serde_json::json!({
+        "command": command,
+        "args": { "config": config },
+    })
+}
+
+fn daemon_watch_id_request(command: &str, id: String) -> Value {
+    serde_json::json!({
+        "command": command,
+        "args": { "id": id },
+    })
+}
+
+fn daemon_watch_replace_request(watch: Watch) -> Value {
+    serde_json::json!({
+        "command": "watch-replace",
+        "args": { "watch": watch },
+    })
+}
+
+fn daemon_watch_session_request(session_id: String) -> Value {
+    serde_json::json!({
+        "command": "watch-remove-for-session",
+        "args": { "sessionId": session_id },
+    })
+}
+
+fn daemon_watch_cleanup_orphans_request() -> Value {
+    serde_json::json!({ "command": "watch-cleanup-orphans" })
 }
 
 fn daemon_worktree_create_request(
@@ -1210,6 +1303,59 @@ mod tests {
         let init = daemon_path_request("git-init", "/new-repo".to_string());
         assert_eq!(init["command"], "git-init");
         assert_eq!(init["args"]["path"], "/new-repo");
+    }
+
+    #[test]
+    fn daemon_watch_requests_use_daemon_command_shape() {
+        let config = CreateWatchConfig {
+            name: "HTTP".to_string(),
+            kind: roux_core::WatchKind::HttpHealth {
+                url: "http://localhost".to_string(),
+                expected_status: 200,
+            },
+            mode: roux_core::WatchMode::Recurring { interval_secs: 30 },
+            scope: roux_core::WatchScope::Global,
+            notify: None,
+        };
+
+        assert_eq!(daemon_watch_list_request()["command"], "watch-list");
+
+        let create = daemon_watch_config_request("watch-create", config.clone());
+        assert_eq!(create["command"], "watch-create");
+        assert_eq!(create["args"]["config"]["name"], "HTTP");
+        assert_eq!(create["args"]["config"]["kind"]["type"], "httpHealth");
+
+        let find_or_create = daemon_watch_config_request("watch-find-or-create", config);
+        assert_eq!(find_or_create["command"], "watch-find-or-create");
+
+        let remove = daemon_watch_id_request("watch-remove", "watch-a".to_string());
+        assert_eq!(remove["command"], "watch-remove");
+        assert_eq!(remove["args"]["id"], "watch-a");
+
+        let watch = Watch {
+            id: "watch-a".to_string(),
+            name: "HTTP".to_string(),
+            kind: roux_core::WatchKind::HttpHealth {
+                url: "http://localhost".to_string(),
+                expected_status: 200,
+            },
+            mode: roux_core::WatchMode::Recurring { interval_secs: 30 },
+            scope: roux_core::WatchScope::Global,
+            runtime_state: roux_core::RuntimeState::Active,
+            last_result: None,
+            last_checked: None,
+            notify: roux_core::NotifyConfig::default(),
+            created_at: 0,
+        };
+        let replace = daemon_watch_replace_request(watch);
+        assert_eq!(replace["command"], "watch-replace");
+        assert_eq!(replace["args"]["watch"]["id"], "watch-a");
+
+        let session_cleanup = daemon_watch_session_request("session-a".to_string());
+        assert_eq!(session_cleanup["command"], "watch-remove-for-session");
+        assert_eq!(session_cleanup["args"]["sessionId"], "session-a");
+
+        assert_eq!(daemon_watch_cleanup_orphans_request()["command"], "watch-cleanup-orphans");
     }
 
     #[test]

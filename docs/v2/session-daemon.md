@@ -29,11 +29,11 @@ The daemon writes its own runtime log to `~/.config/roux/logs/roux-daemon.log`, 
 
 The daemon now owns a small headless process registry too. `roux daemon run "<command>"` starts a shell command inside the daemon process, `roux daemon output <id>` polls retained stdout/stderr and exit status, `roux daemon processes` lists daemon-owned processes, and `roux daemon kill <id>` stops one. This is the first runtime behavior owned by the daemon that the GUI does not render or spawn.
 
-Roux.app has thin Tauri command wrappers for the same process registry, PTY registry, session lifecycle, and worktree command surface. When an external daemon is connected, those wrappers forward to the daemon socket; when the desktop is self-hosting, they use the embedded runtime host or local filesystem helpers. Worktree create/remove automation hooks run wherever the worktree operation runs. The desktop-side boundary is now "frontend command adapter" instead of direct process ownership for these paths.
+Roux.app has thin Tauri command wrappers for the same process registry, PTY registry, session lifecycle, worktree command surface, and durable watch state. When an external daemon is connected, those wrappers forward to the daemon socket; when the desktop is self-hosting, they use the embedded runtime host or local filesystem helpers. Worktree create/remove automation hooks run wherever the worktree operation runs. The desktop-side boundary is now "frontend command adapter" instead of direct process ownership for these paths.
 
 If Roux.app already owns the socket, `roux daemon` refuses to start instead of unlinking or replacing the GUI's live command channel.
 
-If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata, daemon-backed PTYs, session lifecycle, process registry, and worktree filesystem operations. That makes the GUI a frontend for daemon-owned durable state and process lifetimes.
+If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata, daemon-backed PTYs, session lifecycle, process registry, worktree filesystem operations, and durable watch state. The GUI keeps an in-memory watch mirror for check execution and notification UX until daemon watch events are streamed to clients. That makes the GUI a frontend for daemon-owned durable state and process lifetimes.
 
 That is not the full design below yet. As of this note:
 
@@ -42,7 +42,7 @@ That is not the full design below yet. As of this note:
 - pane socket commands such as split, send, and attach still expect the desktop app to be running
 - top-level `roux run` still creates a GUI pane; daemon-owned processes use `roux daemon run`
 - there is no `roux attach` command yet
-- watches, pane-state cleanup, and manual hook-management UX still run in the desktop process
+- watch check execution/notification presentation, pane-state cleanup, and manual hook-management UX still run in the desktop process
 
 ## Problem
 

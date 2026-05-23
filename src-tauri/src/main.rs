@@ -67,8 +67,6 @@ fn main() {
         rlog!("Claude binary path: (default, resolved via PATH)");
     }
 
-    let persisted_watches = watches::load_persisted_watches();
-    let (watch_store_handle, _watch_join) = watches::store::spawn(persisted_watches);
     let daemon_client = daemon_client::DaemonClient::ensure_local();
     if let Some(client) = daemon_client.as_ref() {
         rlog!(
@@ -79,6 +77,15 @@ fn main() {
     } else {
         rlog!("No roux daemon available; desktop will self-host runtime state");
     }
+    let daemon_owns_watches =
+        daemon_client.as_ref().map(|client| client.supports("watch-list")).unwrap_or(false);
+    let persisted_watches = if daemon_owns_watches {
+        rlog!("Roux daemon owns watch state; desktop watch store will mirror in memory");
+        Vec::new()
+    } else {
+        watches::load_persisted_watches()
+    };
+    let watch_persist_path = (!daemon_owns_watches).then(watches::store::persistence_path);
 
     let persisted_projects = project_service::load_persisted();
     let persisted_sessions = session::load_persisted_sessions(&persisted_projects);
@@ -87,15 +94,16 @@ fn main() {
         session_persist_path: session::persistence_path(),
         initial_projects: persisted_projects,
         project_persist_path: paths::roux_config_dir().join("projects.json"),
+        initial_watches: persisted_watches,
+        watch_persist_path,
     }
     .build();
     let (runtime, _runtime_joins) = runtime_services.spawn_with(tauri::async_runtime::spawn);
+    let watch_manager =
+        watches::WatchManager::new(runtime.watch_handle.clone(), daemon_client.clone());
     let runtime_started_at_ms = {
         use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
     };
 
     #[cfg(debug_assertions)]
@@ -273,7 +281,7 @@ fn main() {
             daemon_pty_attach_tasks: Mutex::new(std::collections::HashMap::new()),
             pty_manager: std::sync::Arc::new(PtyManager::new()),
             runtime,
-            watch_manager: watches::WatchManager::new(watch_store_handle),
+            watch_manager,
             automation_hooks: automation_hooks::AutomationHookManager::new(),
             notification_manager: notifications::NotificationManager::new(),
             alias_manager: roux_lib::aliases::AliasManager::load(),
@@ -603,11 +611,31 @@ fn main() {
             // Clean up orphaned watches and start active ones
             {
                 let state = app.state::<AppState>();
-                let session_handle = state.runtime.session_handle.clone();
-                let project_handle = state.runtime.project_handle.clone();
                 let app_handle = app.handle().clone();
                 let watch_mgr = state.watch_manager.clone();
+                let daemon_client = state.daemon_client.clone();
+                let session_handle = state.runtime.session_handle.clone();
+                let project_handle = state.runtime.project_handle.clone();
                 tauri::async_runtime::spawn(async move {
+                    if let Some(client) =
+                        daemon_client.filter(|client| client.supports("watch-list"))
+                    {
+                        if client.supports("watch-cleanup-orphans") {
+                            if let Err(err) = client.cleanup_watch_orphans().await {
+                                rlog!("daemon watch orphan cleanup failed: {err}");
+                            }
+                        }
+                        match client.list_watches().await {
+                            Ok(watches) => {
+                                watch_mgr.sync_watches(watches, app_handle).await;
+                            }
+                            Err(err) => {
+                                rlog!("daemon watch sync failed: {err}");
+                            }
+                        }
+                        return;
+                    }
+
                     let session_ids = session_handle
                         .list()
                         .await

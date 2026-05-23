@@ -115,6 +115,7 @@ vi.mock("$lib/tauri", () => ({
       uptimeMs: 12_345,
       sessionCount: 2,
       projectCount: 3,
+      watchCount: 6,
       processCount: 4,
       ptyCount: 5,
       capabilities: ["daemon-status", "daemon-pty-list"],
@@ -278,6 +279,7 @@ describe("SettingsPanel runtime debug", () => {
     expect((await screen.findAllByText("Daemon")).length).toBeGreaterThan(0);
     expect(await screen.findByText("pid 4242")).toBeDefined();
     expect(await screen.findByText("/tmp/roux.sock")).toBeDefined();
+    expect(await screen.findByText(/6 watches/)).toBeDefined();
     expect(getRuntimeStatus).toHaveBeenCalled();
   });
 });

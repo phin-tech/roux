@@ -1876,6 +1876,7 @@
                     <div class="text-text-secondary">
                       {runtimeStatus.daemon.sessionCount} sessions,
                       {runtimeStatus.daemon.projectCount} projects,
+                      {runtimeStatus.daemon.watchCount ?? 0} watches,
                       {runtimeStatus.daemon.processCount ?? 0} processes,
                       {runtimeStatus.daemon.ptyCount ?? 0} PTYs
                     </div>
@@ -1884,6 +1885,7 @@
                     <div class="text-text-secondary">
                       {runtimeStatus.local.sessionCount} sessions,
                       {runtimeStatus.local.projectCount} projects,
+                      {runtimeStatus.local.watchCount} watches,
                       {runtimeStatus.local.processCount} processes,
                       {runtimeStatus.local.ptyCount} PTYs
                     </div>

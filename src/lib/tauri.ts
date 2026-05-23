@@ -75,6 +75,7 @@ export interface DaemonStatus {
   uptimeMs: number;
   sessionCount: number;
   projectCount: number;
+  watchCount?: number;
   processCount?: number;
   ptyCount?: number;
   capabilities: string[];
@@ -83,6 +84,7 @@ export interface DaemonStatus {
 export interface RuntimeCounts {
   sessionCount: number;
   projectCount: number;
+  watchCount: number;
   processCount: number;
   ptyCount: number;
 }

@@ -357,6 +357,8 @@ enum DaemonAction {
         /// Daemon PTY id
         id: String,
     },
+    /// List daemon-owned watches
+    Watches,
 }
 
 #[derive(Subcommand)]
@@ -1301,6 +1303,11 @@ fn main() {
                 run_socket_command(serde_json::json!({
                     "command": "daemon-pty-kill",
                     "args": { "id": id },
+                }));
+            }
+            Some(DaemonAction::Watches) => {
+                run_socket_command(serde_json::json!({
+                    "command": "watch-list",
                 }));
             }
         },
@@ -2602,16 +2609,11 @@ mod tests {
 
     #[test]
     fn cli_parses_daemon_run_command() {
-        let cli =
-            Cli::try_parse_from(["roux", "daemon", "run", "printf hi", "--working-dir", "."])
-                .unwrap();
+        let cli = Cli::try_parse_from(["roux", "daemon", "run", "printf hi", "--working-dir", "."])
+            .unwrap();
         match cli.command {
             Commands::Daemon {
-                action:
-                    Some(DaemonAction::Run {
-                        command,
-                        working_dir: Some(working_dir),
-                    }),
+                action: Some(DaemonAction::Run { command, working_dir: Some(working_dir) }),
             } => {
                 assert_eq!(command, "printf hi");
                 assert_eq!(working_dir, ".");
@@ -2632,13 +2634,7 @@ mod tests {
         ])
         .unwrap();
         match cli.command {
-            Commands::Daemon {
-                action:
-                    Some(DaemonAction::Output {
-                        id,
-                        max_bytes,
-                    }),
-            } => {
+            Commands::Daemon { action: Some(DaemonAction::Output { id, max_bytes }) } => {
                 assert_eq!(id, "daemon-process-1");
                 assert_eq!(max_bytes, 42);
             }
@@ -2704,9 +2700,7 @@ mod tests {
         ])
         .unwrap();
         match output.command {
-            Commands::Daemon {
-                action: Some(DaemonAction::PtyOutput { id, max_bytes }),
-            } => {
+            Commands::Daemon { action: Some(DaemonAction::PtyOutput { id, max_bytes }) } => {
                 assert_eq!(id, "daemon-pty-1");
                 assert_eq!(max_bytes, 42);
             }
@@ -2716,14 +2710,11 @@ mod tests {
         let list = Cli::try_parse_from(["roux", "daemon", "ptys"]).unwrap();
         assert!(matches!(list.command, Commands::Daemon { action: Some(DaemonAction::Ptys) }));
 
-        let write =
-            Cli::try_parse_from(["roux", "daemon", "pty-write", "daemon-pty-1", "hello\n"])
-                .unwrap();
+        let write = Cli::try_parse_from(["roux", "daemon", "pty-write", "daemon-pty-1", "hello\n"])
+            .unwrap();
         assert!(matches!(
             write.command,
-            Commands::Daemon {
-                action: Some(DaemonAction::PtyWrite { .. })
-            }
+            Commands::Daemon { action: Some(DaemonAction::PtyWrite { .. }) }
         ));
 
         let resize =
@@ -2731,17 +2722,19 @@ mod tests {
                 .unwrap();
         assert!(matches!(
             resize.command,
-            Commands::Daemon {
-                action: Some(DaemonAction::PtyResize { .. })
-            }
+            Commands::Daemon { action: Some(DaemonAction::PtyResize { .. }) }
         ));
 
         let kill = Cli::try_parse_from(["roux", "daemon", "pty-kill", "daemon-pty-1"]).unwrap();
         assert!(matches!(
             kill.command,
-            Commands::Daemon {
-                action: Some(DaemonAction::PtyKill { .. })
-            }
+            Commands::Daemon { action: Some(DaemonAction::PtyKill { .. }) }
+        ));
+
+        let watches = Cli::try_parse_from(["roux", "daemon", "watches"]).unwrap();
+        assert!(matches!(
+            watches.command,
+            Commands::Daemon { action: Some(DaemonAction::Watches) }
         ));
     }
 

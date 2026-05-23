@@ -8,6 +8,7 @@ use tokio::net::TcpListener;
 #[cfg(not(windows))]
 use tokio::net::UnixListener;
 
+use roux_core::{CreateWatchConfig, RuntimeState, Watch, WatchKind};
 use roux_runtime::automation_hooks::{
     worktree_provider_hooks, AutomationHookManager, HookContext, HookEvent,
 };
@@ -26,14 +27,18 @@ pub async fn run() -> Result<(), String> {
 
     let project_path = platform::projects_path();
     let session_path = platform::sessions_path();
+    let watch_path = platform::watches_path();
     let projects = roux_runtime::project_service::load_persisted_from(&project_path);
     let sessions = roux_runtime::session_service::load_persisted_from(&session_path, &projects);
+    let watches = roux_runtime::watch_service::load_persisted_from(&watch_path);
     log.write(&format!(
-        "Loaded {} project(s) from {} and {} session(s) from {}",
+        "Loaded {} project(s) from {}, {} session(s) from {}, and {} watch(es) from {}",
         projects.len(),
         project_path.display(),
         sessions.len(),
-        session_path.display()
+        session_path.display(),
+        watches.len(),
+        watch_path.display()
     ));
 
     let services = RuntimeHostConfig {
@@ -41,6 +46,8 @@ pub async fn run() -> Result<(), String> {
         session_persist_path: session_path,
         initial_projects: projects,
         project_persist_path: project_path,
+        initial_watches: watches,
+        watch_persist_path: Some(watch_path),
     }
     .build();
 
@@ -57,6 +64,7 @@ pub async fn run() -> Result<(), String> {
     log.write("Socket server stopped");
     host.process_handle.shutdown().await;
     host.pty_handle.shutdown().await;
+    host.watch_handle.shutdown().await;
     host.session_handle.shutdown().await;
     host.project_handle.shutdown().await;
     log.write("Runtime services stopped");
@@ -373,6 +381,15 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
         "session-refresh-branch" => handle_session_refresh_branch(req, host).await,
         "session-rename" => handle_session_rename(req, host).await,
         "project-list" => handle_project_list(host).await,
+        "watch-list" => handle_watch_list(host).await,
+        "watch-create" => handle_watch_create(req, host).await,
+        "watch-find-or-create" => handle_watch_find_or_create(req, host).await,
+        "watch-remove" => handle_watch_remove(req, host).await,
+        "watch-pause" => handle_watch_pause(req, host).await,
+        "watch-resume" => handle_watch_resume(req, host).await,
+        "watch-replace" => handle_watch_replace(req, host).await,
+        "watch-remove-for-session" => handle_watch_remove_for_session(req, host).await,
+        "watch-cleanup-orphans" => handle_watch_cleanup_orphans(host).await,
         "worktree-list" => handle_worktree_list(req).await,
         "worktree-create" => handle_worktree_create(req).await,
         "worktree-remove" => handle_worktree_remove(req).await,
@@ -400,6 +417,7 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
 async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> Response {
     let session_count = host.session_handle.list().await.map(|s| s.len()).unwrap_or(0);
     let project_count = host.project_handle.list().await.map(|p| p.len()).unwrap_or(0);
+    let watch_count = host.watch_handle.list().await.map(|w| w.len()).unwrap_or(0);
     let process_count = host.process_handle.list().await.map(|p| p.len()).unwrap_or(0);
     let pty_count = host.pty_handle.list().await.map(|p| p.len()).unwrap_or(0);
     Response::success(serde_json::json!({
@@ -411,6 +429,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "uptimeMs": unix_now_ms().saturating_sub(identity.started_at_ms),
         "sessionCount": session_count,
         "projectCount": project_count,
+        "watchCount": watch_count,
         "processCount": process_count,
         "ptyCount": pty_count,
         "capabilities": [
@@ -426,6 +445,15 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "session-refresh-branch",
             "session-rename",
             "project-list",
+            "watch-list",
+            "watch-create",
+            "watch-find-or-create",
+            "watch-remove",
+            "watch-pause",
+            "watch-resume",
+            "watch-replace",
+            "watch-remove-for-session",
+            "watch-cleanup-orphans",
             "worktree-list",
             "worktree-create",
             "worktree-remove",
@@ -950,6 +978,177 @@ async fn handle_project_list(host: &RuntimeHost) -> Response {
             Err(err) => Response::err(format!("failed to serialize projects: {err}")),
         },
         Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_watch_list(host: &RuntimeHost) -> Response {
+    match host.watch_handle.list().await {
+        Ok(watches) => match serde_json::to_value(watches) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize watches: {err}")),
+        },
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_watch_create(req: Request, host: &RuntimeHost) -> Response {
+    let config = match parse_watch_config(&req) {
+        Ok(config) => config,
+        Err(err) => return Response::err(err),
+    };
+    let watch = watch_from_config(config);
+    match host.watch_handle.add(watch.clone()).await {
+        Ok(()) => serialize_watch(watch),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_watch_find_or_create(req: Request, host: &RuntimeHost) -> Response {
+    let config = match parse_watch_config(&req) {
+        Ok(config) => config,
+        Err(err) => return Response::err(err),
+    };
+    let watch = watch_from_config(config);
+    if matches!(watch.kind, WatchKind::GithubPr { .. }) {
+        match host.watch_handle.find_or_add_github_pr(watch.clone()).await {
+            Ok((watch, _was_new)) => serialize_watch(watch),
+            Err(err) => Response::err(err.to_string()),
+        }
+    } else {
+        match host.watch_handle.add(watch.clone()).await {
+            Ok(()) => serialize_watch(watch),
+            Err(err) => Response::err(err.to_string()),
+        }
+    }
+}
+
+async fn handle_watch_remove(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = request_watch_id(&req) else {
+        return Response::err("id required");
+    };
+    let id = id.to_string();
+    match host.watch_handle.remove(&id).await {
+        Ok(()) => Response::success(serde_json::json!({ "id": id })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_watch_pause(req: Request, host: &RuntimeHost) -> Response {
+    update_watch_runtime_state(req, host, RuntimeState::Paused).await
+}
+
+async fn handle_watch_resume(req: Request, host: &RuntimeHost) -> Response {
+    update_watch_runtime_state(req, host, RuntimeState::Active).await
+}
+
+async fn update_watch_runtime_state(
+    req: Request,
+    host: &RuntimeHost,
+    runtime_state: RuntimeState,
+) -> Response {
+    let Some(id) = request_watch_id(&req) else {
+        return Response::err("id required");
+    };
+    let id = id.to_string();
+    match host.watch_handle.get(&id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return Response::err("watch not found"),
+        Err(err) => return Response::err(err.to_string()),
+    }
+    let state_for_update = runtime_state.clone();
+    if let Err(err) = host
+        .watch_handle
+        .update(&id, move |watch| {
+            watch.runtime_state = state_for_update;
+        })
+        .await
+    {
+        return Response::err(err.to_string());
+    }
+    match host.watch_handle.get(&id).await {
+        Ok(Some(watch)) => serialize_watch(watch),
+        Ok(None) => Response::err("watch not found"),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_watch_replace(req: Request, host: &RuntimeHost) -> Response {
+    let Some(value) = req.args.get("watch").cloned() else {
+        return Response::err("watch required");
+    };
+    let watch: Watch = match serde_json::from_value(value) {
+        Ok(watch) => watch,
+        Err(err) => return Response::err(format!("invalid watch: {err}")),
+    };
+    match host.watch_handle.replace(watch.clone()).await {
+        Ok(()) => serialize_watch(watch),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_watch_remove_for_session(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = req
+        .args
+        .get("sessionId")
+        .or_else(|| req.args.get("session_id"))
+        .and_then(|session_id| session_id.as_str())
+    else {
+        return Response::err("sessionId required");
+    };
+    match host.watch_handle.remove_for_session(session_id).await {
+        Ok(removed) => Response::success(serde_json::json!({
+            "sessionId": session_id,
+            "removed": removed,
+        })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_watch_cleanup_orphans(host: &RuntimeHost) -> Response {
+    let sessions = match host.session_handle.list().await {
+        Ok(sessions) => sessions,
+        Err(err) => return Response::err(err.to_string()),
+    };
+    let projects = match host.project_handle.list().await {
+        Ok(projects) => projects,
+        Err(err) => return Response::err(err.to_string()),
+    };
+    let session_ids = sessions.into_iter().map(|session| session.id).collect();
+    let project_ids = projects.into_iter().map(|project| project.id).collect();
+    match host.watch_handle.cleanup_orphans(session_ids, project_ids).await {
+        Ok(removed) => Response::success(serde_json::json!({ "removed": removed })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+fn parse_watch_config(req: &Request) -> Result<CreateWatchConfig, String> {
+    let value = req.args.get("config").cloned().unwrap_or_else(|| req.args.clone());
+    serde_json::from_value(value).map_err(|err| format!("invalid watch config: {err}"))
+}
+
+fn watch_from_config(config: CreateWatchConfig) -> Watch {
+    Watch {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: config.name,
+        kind: config.kind,
+        mode: config.mode,
+        scope: config.scope,
+        runtime_state: RuntimeState::Active,
+        last_result: None,
+        last_checked: None,
+        notify: config.notify.unwrap_or_default(),
+        created_at: unix_now_ms(),
+    }
+}
+
+fn request_watch_id(req: &Request) -> Option<&str> {
+    req.args.get("id").and_then(|id| id.as_str())
+}
+
+fn serialize_watch(watch: Watch) -> Response {
+    match serde_json::to_value(watch) {
+        Ok(value) => Response::success(value),
+        Err(err) => Response::err(format!("failed to serialize watch: {err}")),
     }
 }
 
@@ -1778,6 +1977,19 @@ mod tests {
         }
     }
 
+    fn make_watch_config() -> roux_core::CreateWatchConfig {
+        roux_core::CreateWatchConfig {
+            name: "HTTP".to_string(),
+            kind: roux_core::WatchKind::HttpHealth {
+                url: "http://localhost".to_string(),
+                expected_status: 200,
+            },
+            mode: roux_core::WatchMode::Recurring { interval_secs: 30 },
+            scope: roux_core::WatchScope::Global,
+            notify: None,
+        }
+    }
+
     #[tokio::test]
     async fn daemon_status_is_daemon_only_socket_command() {
         let dir = tempfile::tempdir().unwrap();
@@ -1786,6 +1998,8 @@ mod tests {
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1821,9 +2035,135 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("worktree-list")));
+        assert!(data["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("watch-list")));
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn daemon_watch_commands_mutate_runtime_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let create = handle_request(
+            Request {
+                command: "watch-create".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "config": make_watch_config() }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(create.ok, "create failed: {:?}", create.error);
+        let created: roux_core::Watch =
+            serde_json::from_value(create.data.clone().expect("created watch")).unwrap();
+        assert!(matches!(created.runtime_state, roux_core::RuntimeState::Active));
+
+        let list = handle_request(
+            Request {
+                command: "watch-list".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::Value::Null,
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(list.ok, "list failed: {:?}", list.error);
+        assert_eq!(list.data.as_ref().unwrap().as_array().unwrap().len(), 1);
+
+        let pause = handle_request(
+            Request {
+                command: "watch-pause".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": created.id }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(pause.ok, "pause failed: {:?}", pause.error);
+        assert_eq!(pause.data.as_ref().unwrap()["runtimeState"]["type"], "paused");
+
+        let mut replacement: roux_core::Watch =
+            serde_json::from_value(pause.data.clone().expect("paused watch")).unwrap();
+        replacement.name = "Updated by client".to_string();
+        let replace = handle_request(
+            Request {
+                command: "watch-replace".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "watch": replacement }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(replace.ok, "replace failed: {:?}", replace.error);
+        assert_eq!(replace.data.as_ref().unwrap()["name"], "Updated by client");
+
+        let resume = handle_request(
+            Request {
+                command: "watch-resume".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": replace.data.as_ref().unwrap()["id"] }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resume.ok, "resume failed: {:?}", resume.error);
+        assert_eq!(resume.data.as_ref().unwrap()["runtimeState"]["type"], "active");
+
+        let remove = handle_request(
+            Request {
+                command: "watch-remove".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": resume.data.as_ref().unwrap()["id"] }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(remove.ok, "remove failed: {:?}", remove.error);
+        assert!(host.watch_handle.list().await.unwrap().is_empty());
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -1840,6 +2180,8 @@ mod tests {
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1863,6 +2205,7 @@ mod tests {
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -1927,6 +2270,8 @@ mod tests {
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2029,6 +2374,7 @@ mod tests {
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -2067,6 +2413,8 @@ post-worktree-remove = "{post_remove}"
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2114,6 +2462,7 @@ post-worktree-remove = "{post_remove}"
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -2131,6 +2480,8 @@ post-worktree-remove = "{post_remove}"
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2175,6 +2526,7 @@ post-worktree-remove = "{post_remove}"
         let _ = host.pty_handle.kill("session-a").await;
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -2192,6 +2544,8 @@ post-worktree-remove = "{post_remove}"
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2307,6 +2661,7 @@ post-worktree-remove = "{post_remove}"
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -2324,6 +2679,8 @@ post-worktree-remove = "{post_remove}"
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2378,6 +2735,7 @@ post-worktree-remove = "{post_remove}"
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -2395,6 +2753,8 @@ post-worktree-remove = "{post_remove}"
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2452,6 +2812,7 @@ post-worktree-remove = "{post_remove}"
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -2469,6 +2830,8 @@ post-worktree-remove = "{post_remove}"
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2532,6 +2895,7 @@ post-worktree-remove = "{post_remove}"
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -2551,6 +2915,8 @@ post-worktree-remove = "{post_remove}"
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2619,6 +2985,7 @@ post-worktree-remove = "{post_remove}"
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -2636,6 +3003,8 @@ post-worktree-remove = "{post_remove}"
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2724,6 +3093,7 @@ post-worktree-remove = "{post_remove}"
         let _ = host.pty_handle.kill("pty-meta").await;
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);
@@ -2744,6 +3114,8 @@ post-worktree-remove = "{post_remove}"
             session_persist_path: dir.path().join("sessions.json"),
             initial_projects: Vec::new(),
             project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2772,6 +3144,7 @@ post-worktree-remove = "{post_remove}"
         server.shutdown();
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
         host.session_handle.shutdown().await;
         host.project_handle.shutdown().await;
         drop(host);

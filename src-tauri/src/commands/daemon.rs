@@ -18,6 +18,7 @@ pub(crate) enum RuntimeMode {
 pub(crate) struct RuntimeCounts {
     pub(crate) session_count: usize,
     pub(crate) project_count: usize,
+    pub(crate) watch_count: usize,
     pub(crate) process_count: usize,
     pub(crate) pty_count: usize,
 }
@@ -98,6 +99,7 @@ async fn local_runtime_counts(runtime: roux_runtime::host::RuntimeHost) -> Runti
     RuntimeCounts {
         session_count: runtime.session_handle.list().await.map(|items| items.len()).unwrap_or(0),
         project_count: runtime.project_handle.list().await.map(|items| items.len()).unwrap_or(0),
+        watch_count: runtime.watch_handle.list().await.map(|items| items.len()).unwrap_or(0),
         process_count: runtime.process_handle.list().await.map(|items| items.len()).unwrap_or(0),
         pty_count: runtime.pty_handle.list().await.map(|items| items.len()).unwrap_or(0),
     }

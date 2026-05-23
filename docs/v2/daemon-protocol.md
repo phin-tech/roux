@@ -175,6 +175,54 @@ Returns daemon process records.
 
 Requires `args.id`. Stops the process and returns its record.
 
+## Watch Commands
+
+The daemon owns durable watch definitions and state. A GUI client may still
+execute checks locally and sync the resulting `Watch` snapshot back through
+`watch-replace`; desktop notifications remain client-routed UX. The daemon
+does not call Tauri notification APIs.
+
+`watch-list`
+
+Returns all daemon watch records.
+
+`watch-create`
+
+Requires `args.config`, matching `CreateWatchConfig`. Creates an active watch
+record in daemon state and returns it.
+
+`watch-find-or-create`
+
+Requires `args.config`. For `GithubPr` watches, atomically returns an existing
+watch matching `(scope, repo, prNumber)` or inserts a new active watch. Other
+watch kinds create a new active watch.
+
+`watch-remove`
+
+Requires `args.id`. Removes the watch and returns `{ "id": "..." }`.
+
+`watch-pause`
+
+Requires `args.id`. Sets `runtimeState` to `Paused` and returns the watch.
+
+`watch-resume`
+
+Requires `args.id`. Sets `runtimeState` to `Active` and returns the watch.
+
+`watch-replace`
+
+Requires `args.watch`. Replaces or inserts the full watch record. This is used
+by clients that execute watch checks while the daemon owns durable state.
+
+`watch-remove-for-session`
+
+Requires `args.sessionId`. Removes all session-scoped watches for that session.
+
+`watch-cleanup-orphans`
+
+Removes session/project scoped watches whose owning session/project is no
+longer present in the daemon runtime host.
+
 ## PTY Commands
 
 `daemon-pty-spawn-shell`
@@ -259,10 +307,13 @@ Daemon-owned:
 - Worktree create/list/remove, branch listing, and git init filesystem
   operations.
 - Worktree create/remove automation hooks for daemon-owned worktree commands.
+- Durable watch definitions and runtime state.
 
 Desktop-owned:
 
 - Rendering, pane layout, xterm instances, and UX-only state.
-- Watches, pane-state cleanup, and manual hook preview/run/list UX until those
-  services move.
+- Watch check execution and notification presentation while daemon watch events
+  are still being split into a client event stream.
+- Pane-state cleanup and manual hook preview/run/list UX until those services
+  move.
 - Local fallback runtime when no daemon is connected.

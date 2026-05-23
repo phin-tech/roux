@@ -15,6 +15,7 @@ use roux_core::{
 use super::checks;
 use super::flap::FlapTracker;
 use super::store::WatchStoreHandle;
+use crate::daemon_client::DaemonClient;
 use crate::state::AppState;
 
 #[allow(dead_code)]
@@ -36,15 +37,17 @@ pub struct WatchManager {
     /// only ever compared per-watch_id, so wrap-around in a 64-bit
     /// counter is not a concern.
     next_generation: Arc<AtomicU64>,
+    daemon_client: Option<DaemonClient>,
 }
 
 impl WatchManager {
-    pub fn new(store: WatchStoreHandle) -> Self {
+    pub fn new(store: WatchStoreHandle, daemon_client: Option<DaemonClient>) -> Self {
         Self {
             store,
             handles: Arc::new(Mutex::new(HashMap::new())),
             flap_trackers: Arc::new(Mutex::new(HashMap::new())),
             next_generation: Arc::new(AtomicU64::new(1)),
+            daemon_client,
         }
     }
 
@@ -72,6 +75,37 @@ impl WatchManager {
         let _ = self.store.add(watch.clone()).await;
         self.spawn_watch(watch.id.clone(), None, app);
         watch
+    }
+
+    /// Mirror a daemon-owned watch into the desktop's in-memory executor.
+    /// Durable state remains daemon-owned; this local copy exists so the
+    /// current Tauri client can run checks and surface UX notifications.
+    pub async fn adopt_watch(&self, watch: Watch, app: tauri::AppHandle) {
+        let id = watch.id.clone();
+        let runnable = !matches!(watch.runtime_state, RuntimeState::Stopped | RuntimeState::Paused);
+        let _ = self.store.replace(watch).await;
+        if runnable {
+            self.spawn_watch(id, None, app);
+        } else {
+            self.cancel_watch(&id);
+        }
+    }
+
+    /// Replace the local mirror with daemon state, cancelling pollers for
+    /// watches that disappeared and starting active watches from the daemon
+    /// snapshot.
+    pub async fn sync_watches(&self, watches: Vec<Watch>, app: tauri::AppHandle) {
+        let next_ids: std::collections::HashSet<String> =
+            watches.iter().map(|watch| watch.id.clone()).collect();
+        if let Ok(existing) = self.store.list().await {
+            for watch in existing {
+                if !next_ids.contains(&watch.id) {
+                    self.cancel_watch(&watch.id);
+                }
+            }
+        }
+        let _ = self.store.replace_all(watches).await;
+        self.start_all(app);
     }
 
     /// Atomic find-or-create for `GithubPr` watches keyed on
@@ -171,6 +205,7 @@ impl WatchManager {
         let watch_id_for_handles = watch_id.clone();
         let watch_id_for_cleanup = watch_id.clone();
         let handles_for_cleanup = Arc::clone(&self.handles);
+        let daemon_client = self.daemon_client.clone();
         // Generation tag so the cleanup at task end can tell "I'm still
         // the live entry" from "a later spawn_watch replaced me". Without
         // this, an old cancelled task that races past `cancel_watch` and
@@ -259,6 +294,11 @@ impl WatchManager {
                     .await;
 
                 if let Ok(Some(updated_watch)) = store.get(&watch_id).await {
+                    if let Some(client) = daemon_client.as_ref() {
+                        if let Err(err) = client.replace_watch(updated_watch.clone()).await {
+                            rlog!("daemon watch sync failed for {}: {err}", updated_watch.id);
+                        }
+                    }
                     let event = WatchUpdateEvent {
                         watch: updated_watch.clone(),
                         changed,
@@ -485,11 +525,7 @@ impl WatchManager {
             // Only remove the entry if it's still ours. A later spawn
             // for the same watch_id may have replaced us, in which case
             // its handle must stay in the map.
-            if handles_guard
-                .get(&watch_id_for_cleanup)
-                .map(|h| h.generation)
-                == Some(generation)
-            {
+            if handles_guard.get(&watch_id_for_cleanup).map(|h| h.generation) == Some(generation) {
                 handles_guard.remove(&watch_id_for_cleanup);
             }
         });
