@@ -8,8 +8,9 @@ use tauri::ipc::{Channel, Response as IpcResponse};
 use tauri::{AppHandle, Emitter};
 
 use roux_core::{
-    AgentAlias, BusSubscription, CreateWatchConfig, Event, Project, ReadState, Session,
-    SessionExitPayload, SessionExitReason, Watch, WatchUpdateEvent, Worktree,
+    AgentAlias, BusSubscription, BusSubscriptionEvent, CreateWatchConfig, Event, MailboxEvent,
+    Project, ReadState, Session, SessionExitPayload, SessionExitReason, Watch, WatchUpdateEvent,
+    Worktree,
 };
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
@@ -775,6 +776,28 @@ impl DaemonClient {
             }
         })
     }
+
+    pub(crate) fn spawn_mailbox_event_bridge(
+        &self,
+        app: AppHandle,
+    ) -> tauri::async_runtime::JoinHandle<()> {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(err) = read_mailbox_events_blocking(app) {
+                rlog!("Daemon mailbox event bridge stopped: {err}");
+            }
+        })
+    }
+
+    pub(crate) fn spawn_subscription_event_bridge(
+        &self,
+        app: AppHandle,
+    ) -> tauri::async_runtime::JoinHandle<()> {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(err) = read_subscription_events_blocking(app) {
+                rlog!("Daemon subscription event bridge stopped: {err}");
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1289,6 +1312,14 @@ fn daemon_watch_events_request(backlog: bool) -> Value {
     })
 }
 
+fn daemon_mailbox_events_request() -> Value {
+    serde_json::json!({ "command": "mailbox-events" })
+}
+
+fn daemon_subscription_events_request() -> Value {
+    serde_json::json!({ "command": "subscription-events" })
+}
+
 fn daemon_worktree_create_request(
     repo_path: String,
     branch: String,
@@ -1615,6 +1646,32 @@ enum WatchEventStreamFrame {
     Error { error: String },
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum MailboxEventStreamFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "event")]
+    Event { event: MailboxEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum SubscriptionEventStreamFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "event")]
+    Event { event: BusSubscriptionEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
 fn read_watch_events_blocking(app: AppHandle, watch_manager: WatchManager) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -1704,6 +1761,170 @@ fn handle_watch_event_frame(
             Ok(())
         }
         WatchEventStreamFrame::Error { error } => Err(error),
+    }
+}
+
+fn read_mailbox_events_blocking(app: AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        read_mailbox_events_tcp(app)
+    }
+    #[cfg(not(windows))]
+    {
+        read_mailbox_events_unix(app)
+    }
+}
+
+#[cfg(not(windows))]
+fn read_mailbox_events_unix(app: AppHandle) -> Result<(), String> {
+    use std::os::unix::net::UnixStream;
+
+    let path = platform::resolve_socket_endpoint()
+        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
+    let mut stream =
+        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, daemon_mailbox_events_request())?;
+    read_mailbox_event_stream(stream, app)
+}
+
+#[cfg(windows)]
+fn read_mailbox_events_tcp(app: AppHandle) -> Result<(), String> {
+    use std::net::TcpStream;
+
+    let auth_token = platform::load_socket_auth_token()
+        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
+    let mut request = daemon_mailbox_events_request();
+    if let Some(obj) = request.as_object_mut() {
+        obj.insert("auth_token".to_string(), Value::String(auth_token));
+    }
+
+    let endpoint =
+        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
+    let mut stream = TcpStream::connect(&endpoint)
+        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, request)?;
+    read_mailbox_event_stream(stream, app)
+}
+
+fn read_mailbox_event_stream(stream: impl Read, app: AppHandle) -> Result<(), String> {
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|err| format!("read daemon mailbox event frame: {err}"))?;
+        if read == 0 {
+            return Ok(());
+        }
+        let frame: MailboxEventStreamFrame = serde_json::from_str(line.trim())
+            .map_err(|err| format!("decode daemon mailbox event frame: {err}"))?;
+        handle_mailbox_event_frame(frame, &app)?;
+    }
+}
+
+fn handle_mailbox_event_frame(
+    frame: MailboxEventStreamFrame,
+    app: &AppHandle,
+) -> Result<(), String> {
+    match frame {
+        MailboxEventStreamFrame::Ready => Ok(()),
+        MailboxEventStreamFrame::Event { event } => app
+            .emit(roux_lib::mailbox::MAILBOX_EVENT, &event)
+            .map_err(|err| format!("emit daemon mailbox event: {err}")),
+        MailboxEventStreamFrame::Warning { message } => {
+            rlog!("Daemon mailbox event stream warning: {message}");
+            Ok(())
+        }
+        MailboxEventStreamFrame::Error { error } => Err(error),
+    }
+}
+
+fn read_subscription_events_blocking(app: AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        read_subscription_events_tcp(app)
+    }
+    #[cfg(not(windows))]
+    {
+        read_subscription_events_unix(app)
+    }
+}
+
+#[cfg(not(windows))]
+fn read_subscription_events_unix(app: AppHandle) -> Result<(), String> {
+    use std::os::unix::net::UnixStream;
+
+    let path = platform::resolve_socket_endpoint()
+        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
+    let mut stream =
+        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, daemon_subscription_events_request())?;
+    read_subscription_event_stream(stream, app)
+}
+
+#[cfg(windows)]
+fn read_subscription_events_tcp(app: AppHandle) -> Result<(), String> {
+    use std::net::TcpStream;
+
+    let auth_token = platform::load_socket_auth_token()
+        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
+    let mut request = daemon_subscription_events_request();
+    if let Some(obj) = request.as_object_mut() {
+        obj.insert("auth_token".to_string(), Value::String(auth_token));
+    }
+
+    let endpoint =
+        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
+    let mut stream = TcpStream::connect(&endpoint)
+        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, request)?;
+    read_subscription_event_stream(stream, app)
+}
+
+fn read_subscription_event_stream(stream: impl Read, app: AppHandle) -> Result<(), String> {
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|err| format!("read daemon subscription event frame: {err}"))?;
+        if read == 0 {
+            return Ok(());
+        }
+        let frame: SubscriptionEventStreamFrame = serde_json::from_str(line.trim())
+            .map_err(|err| format!("decode daemon subscription event frame: {err}"))?;
+        handle_subscription_event_frame(frame, &app)?;
+    }
+}
+
+fn handle_subscription_event_frame(
+    frame: SubscriptionEventStreamFrame,
+    app: &AppHandle,
+) -> Result<(), String> {
+    match frame {
+        SubscriptionEventStreamFrame::Ready => Ok(()),
+        SubscriptionEventStreamFrame::Event { event } => app
+            .emit(roux_lib::subscriptions::SUBSCRIPTION_EVENT, &event)
+            .map_err(|err| format!("emit daemon subscription event: {err}")),
+        SubscriptionEventStreamFrame::Warning { message } => {
+            rlog!("Daemon subscription event stream warning: {message}");
+            Ok(())
+        }
+        SubscriptionEventStreamFrame::Error { error } => Err(error),
     }
 }
 
@@ -2180,6 +2401,9 @@ mod tests {
         let events = daemon_watch_events_request(true);
         assert_eq!(events["command"], "watch-events");
         assert_eq!(events["args"]["backlog"], true);
+
+        assert_eq!(daemon_mailbox_events_request()["command"], "mailbox-events");
+        assert_eq!(daemon_subscription_events_request()["command"], "subscription-events");
 
         assert_eq!(daemon_watch_cleanup_orphans_request()["command"], "watch-cleanup-orphans");
     }

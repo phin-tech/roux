@@ -33,7 +33,7 @@ Roux.app has thin Tauri command wrappers for the same process registry, PTY regi
 
 If Roux.app already owns the socket, `roux daemon` refuses to start instead of unlinking or replacing the GUI's live command channel.
 
-If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata, daemon-backed PTYs, session lifecycle, process registry, worktree filesystem operations, durable watch state, watch execution, aliases, mailbox events, read state, and bus subscriptions. The GUI subscribes to daemon watch events, keeps an in-memory watch mirror for rendering, and routes notification UX client-side. The Mailbox panel reads/mutates daemon state but still owns rendering and the deliver-to-pane UX. That makes the GUI a frontend for daemon-owned durable state and process lifetimes.
+If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata, daemon-backed PTYs, session lifecycle, process registry, worktree filesystem operations, durable watch state, watch execution, aliases, mailbox events, read state, and bus subscriptions. The GUI subscribes to daemon watch, mailbox, and subscription event streams, keeps in-memory mirrors for rendering, and routes notification UX client-side. The Mailbox panel reads/mutates daemon state but still owns rendering and the deliver-to-pane UX. That makes the GUI a frontend for daemon-owned durable state and process lifetimes.
 
 The CLI also has an initial non-GUI PTY frontend:
 
@@ -56,6 +56,7 @@ That is not the full design below yet. As of this note:
 - MCP/desktop latest-output reads return retained daemon PTY replay when the daemon owns the socket
 - `roux alias ...` uses daemon-owned durable alias state when the daemon owns the socket
 - `roux mailbox ...` and `roux bus ...` use daemon-owned durable mailbox, read-state, and subscription state when the daemon owns the socket
+- Roux.app forwards daemon `mailbox-events` and `subscription-events` streams into the existing frontend event channels when a daemon is connected
 - `roux notes ...` uses the daemon host's configured notes vault when the daemon owns the socket
 - `roux attach` is initial and does not yet handle SIGWINCH resize events after attach
 - watch notification presentation, pane-state cleanup, and manual hook-management UX still run in the desktop process

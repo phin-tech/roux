@@ -275,6 +275,21 @@ thread correlation id.
 Resolves the sender from `args.sender` or request context. Optional `args.to`
 and `args.limit`. Returns `{ "event": ..., "state": ... }` rows.
 
+`mailbox-events`
+
+Streaming command. Sends live mailbox mutation frames from daemon-owned
+mailbox state. The daemon does not turn these into desktop notifications; each
+client decides how to render or notify.
+
+Frames:
+
+```json
+{ "type": "ready" }
+{ "type": "event", "event": { "kind": "posted", "event": {} } }
+{ "type": "warning", "message": "dropped 2 buffered mailbox event(s)" }
+{ "type": "error", "error": "message" }
+```
+
 `bus-publish`
 
 Requires `args.topic` and either non-empty `args.body` or non-null
@@ -300,6 +315,22 @@ present.
 
 Optional `args.alias`, `args.project_id`, and `args.global`. Returns durable
 subscriptions, filtered when requested.
+
+`subscription-events`
+
+Streaming command. Sends live bus subscription create/remove frames from
+daemon-owned subscription state. Desktop clients forward these into the
+existing `subscription-event` Tauri channel.
+
+Frames:
+
+```json
+{ "type": "ready" }
+{ "type": "event", "event": { "kind": "created", "subscription": {} } }
+{ "type": "event", "event": { "kind": "removed", "id": "subscription-id" } }
+{ "type": "warning", "message": "dropped 2 buffered subscription event(s)" }
+{ "type": "error", "error": "message" }
+```
 
 ## Project Commands
 
@@ -591,8 +622,9 @@ Desktop-owned:
 
 - Rendering, pane layout, xterm instances, and UX-only state.
 - Watch notification presentation from daemon `watch-events`.
-- Mailbox panel rendering, notification presentation, and last-mile
-  deliver-to-pane UX.
+- Mailbox panel rendering, notification presentation from daemon
+  `mailbox-events`, subscription UI updates from `subscription-events`, and
+  last-mile deliver-to-pane UX.
 - Pane-state cleanup and manual hook preview/run/list UX until those services
   move.
 - Local fallback runtime when no daemon is connected.

@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use roux_core::{validate_topic_pattern, BusSubscription};
+use roux_core::{validate_topic_pattern, BusSubscription, BusSubscriptionEvent};
+use tokio::sync::broadcast;
 
 use crate::alias_store::ProjectFilter;
 use crate::subscription_persistence::{load_from_path, persistence_path, save_to_path};
@@ -36,6 +37,7 @@ pub enum UnsubscribeError {
 pub struct SubscriptionManager {
     inner: Arc<Mutex<SubscriptionStore>>,
     persistence_path: Option<Arc<PathBuf>>,
+    broadcast_tx: broadcast::Sender<BusSubscriptionEvent>,
 }
 
 impl SubscriptionManager {
@@ -48,12 +50,25 @@ impl SubscriptionManager {
         Self {
             inner: Arc::new(Mutex::new(SubscriptionStore::from_entries(entries))),
             persistence_path: Some(Arc::new(path)),
+            broadcast_tx: broadcast_channel(),
         }
     }
 
     /// In-memory variant. No load, no persist on mutations. For tests.
     pub fn in_memory() -> Self {
-        Self { inner: Arc::new(Mutex::new(SubscriptionStore::new())), persistence_path: None }
+        Self {
+            inner: Arc::new(Mutex::new(SubscriptionStore::new())),
+            persistence_path: None,
+            broadcast_tx: broadcast_channel(),
+        }
+    }
+
+    pub fn subscribe_events(&self) -> broadcast::Receiver<BusSubscriptionEvent> {
+        self.broadcast_tx.subscribe()
+    }
+
+    fn broadcast(&self, event: &BusSubscriptionEvent) {
+        let _ = self.broadcast_tx.send(event.clone());
     }
 
     /// Add a subscription. Validates the pattern (and alias format)
@@ -91,6 +106,7 @@ impl SubscriptionManager {
             store.remove(&inserted.id);
             return Err(SubscribeError::Persist(e.to_string()));
         }
+        self.broadcast(&BusSubscriptionEvent::Created { subscription: inserted.clone() });
         Ok(inserted)
     }
 
@@ -118,6 +134,7 @@ impl SubscriptionManager {
             let _ = store.add(removed);
             return Err(UnsubscribeError::Persist(e.to_string()));
         }
+        self.broadcast(&BusSubscriptionEvent::Removed { id: id.to_string() });
         Ok(true)
     }
 
@@ -178,6 +195,11 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+fn broadcast_channel() -> broadcast::Sender<BusSubscriptionEvent> {
+    let (tx, _) = broadcast::channel(256);
+    tx
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,6 +244,36 @@ mod tests {
         mgr.subscribe("auditor", "*.completed", None).unwrap();
         let err = mgr.subscribe("auditor", "*.completed", None).unwrap_err();
         assert!(matches!(err, SubscribeError::Store(AddError::Duplicate { .. })));
+    }
+
+    #[tokio::test]
+    async fn subscribe_broadcasts_created_event() {
+        let mgr = SubscriptionManager::in_memory();
+        let mut rx = mgr.subscribe_events();
+
+        let sub = mgr.subscribe("auditor", "*", None).unwrap();
+
+        match rx.recv().await.unwrap() {
+            BusSubscriptionEvent::Created { subscription } => {
+                assert_eq!(subscription.id, sub.id);
+                assert_eq!(subscription.alias, "auditor");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn unsubscribe_broadcasts_removed_event() {
+        let mgr = SubscriptionManager::in_memory();
+        let sub = mgr.subscribe("auditor", "*", None).unwrap();
+        let mut rx = mgr.subscribe_events();
+
+        assert!(mgr.unsubscribe(&sub.id).unwrap());
+
+        match rx.recv().await.unwrap() {
+            BusSubscriptionEvent::Removed { id } => assert_eq!(id, sub.id),
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 
     #[test]

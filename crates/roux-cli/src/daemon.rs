@@ -11,8 +11,8 @@ use tokio::net::TcpListener;
 use tokio::net::UnixListener;
 
 use roux_core::{
-    ConsumptionMode, CreateWatchConfig, EventBuilder, EventKind, PtyRole, PtyStatus, RuntimeState,
-    Watch,
+    BusSubscriptionEvent, ConsumptionMode, CreateWatchConfig, EventBuilder, EventKind,
+    MailboxEvent, PtyRole, PtyStatus, RuntimeState, Watch,
 };
 use roux_runtime::alias_service::AliasManager;
 use roux_runtime::alias_store::{BindRequest, ProjectFilter};
@@ -232,6 +232,32 @@ enum WatchEventFrame {
     Ready,
     #[serde(rename = "update")]
     Update { event: roux_core::WatchUpdateEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum MailboxEventFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "event")]
+    Event { event: MailboxEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum SubscriptionEventFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "event")]
+    Event { event: BusSubscriptionEvent },
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
@@ -458,6 +484,24 @@ async fn handle_connection<R, W>(
                     }
                     return;
                 }
+                if command == "mailbox-events" {
+                    let ok = handle_mailbox_events_stream(req, writer, identity).await;
+                    if ok {
+                        log.write("Handled socket command: mailbox-events");
+                    } else {
+                        log.write("Socket command failed: mailbox-events");
+                    }
+                    return;
+                }
+                if command == "subscription-events" {
+                    let ok = handle_subscription_events_stream(req, writer, identity).await;
+                    if ok {
+                        log.write("Handled socket command: subscription-events");
+                    } else {
+                        log.write("Socket command failed: subscription-events");
+                    }
+                    return;
+                }
                 let response =
                     handle_request_with_watch_runner(req, host, Some(watch_runner), identity).await;
                 if response.ok {
@@ -617,6 +661,95 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
     let watch_count = host.watch_handle.list().await.map(|w| w.len()).unwrap_or(0);
     let process_count = host.process_handle.list().await.map(|p| p.len()).unwrap_or(0);
     let pty_count = host.pty_handle.list().await.map(|p| p.len()).unwrap_or(0);
+    let capabilities = vec![
+        "daemon-status",
+        "session-list",
+        "session-poll",
+        "session-create",
+        "session-create-shell",
+        "session-reconnect-shell",
+        "session-panes-list",
+        "session-panes-create",
+        "session-archive",
+        "session-kill",
+        "session-restore",
+        "session-delete",
+        "session-worktree-exists",
+        "session-refresh-branch",
+        "session-rename",
+        "alias-set",
+        "alias-unset",
+        "alias-claim",
+        "alias-list",
+        "alias-get",
+        "alias-whoami",
+        "alias-add-member",
+        "alias-remove-member",
+        "alias-mode",
+        "mailbox-post",
+        "mailbox-peek",
+        "mailbox-read",
+        "mailbox-get",
+        "mailbox-read-state",
+        "mailbox-mark-read",
+        "mailbox-ack",
+        "mailbox-retract",
+        "mailbox-dismiss",
+        "mailbox-count",
+        "mailbox-clear",
+        "mailbox-reply",
+        "mailbox-sent",
+        "mailbox-events",
+        "bus-publish",
+        "bus-tail",
+        "bus-subscribe",
+        "bus-unsubscribe",
+        "bus-subscriptions",
+        "subscription-events",
+        "project-list",
+        "watch-list",
+        "watch-create",
+        "watch-find-or-create",
+        "watch-remove",
+        "watch-pause",
+        "watch-resume",
+        "watch-replace",
+        "watch-events",
+        "watch-remove-for-session",
+        "watch-cleanup-orphans",
+        "worktree-list",
+        "worktree-create",
+        "worktree-remove",
+        "worktree-list-branches",
+        "git-init",
+        "notes-read",
+        "notes-write",
+        "notes-append",
+        "notes-path",
+        "notes-search",
+        "notes-vault-root",
+        "run",
+        "shell",
+        "split",
+        "send",
+        "latest-output",
+        "daemon-process-start",
+        "daemon-process-output",
+        "daemon-process-list",
+        "daemon-process-kill",
+        "daemon-pty-spawn-shell",
+        "daemon-pty-spawn-task",
+        "daemon-pty-output",
+        "daemon-pty-attach",
+        "daemon-pty-list",
+        "daemon-pty-write",
+        "daemon-pty-resize",
+        "daemon-pty-detach",
+        "daemon-pty-attach-pane",
+        "daemon-pty-mark-read",
+        "daemon-pty-set-name",
+        "daemon-pty-kill",
+    ];
     Response::success(serde_json::json!({
         "kind": "roux-daemon",
         "pid": std::process::id(),
@@ -629,93 +762,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "watchCount": watch_count,
         "processCount": process_count,
         "ptyCount": pty_count,
-        "capabilities": [
-            "daemon-status",
-            "session-list",
-            "session-poll",
-            "session-create",
-            "session-create-shell",
-            "session-reconnect-shell",
-            "session-panes-list",
-            "session-panes-create",
-            "session-archive",
-            "session-kill",
-            "session-restore",
-            "session-delete",
-            "session-worktree-exists",
-            "session-refresh-branch",
-            "session-rename",
-            "alias-set",
-            "alias-unset",
-            "alias-claim",
-            "alias-list",
-            "alias-get",
-            "alias-whoami",
-            "alias-add-member",
-            "alias-remove-member",
-            "alias-mode",
-            "mailbox-post",
-            "mailbox-peek",
-            "mailbox-read",
-            "mailbox-get",
-            "mailbox-read-state",
-            "mailbox-mark-read",
-            "mailbox-ack",
-            "mailbox-retract",
-            "mailbox-dismiss",
-            "mailbox-count",
-            "mailbox-clear",
-            "mailbox-reply",
-            "mailbox-sent",
-            "bus-publish",
-            "bus-tail",
-            "bus-subscribe",
-            "bus-unsubscribe",
-            "bus-subscriptions",
-            "project-list",
-            "watch-list",
-            "watch-create",
-            "watch-find-or-create",
-            "watch-remove",
-            "watch-pause",
-            "watch-resume",
-            "watch-replace",
-            "watch-events",
-            "watch-remove-for-session",
-            "watch-cleanup-orphans",
-            "worktree-list",
-            "worktree-create",
-            "worktree-remove",
-            "worktree-list-branches",
-            "git-init",
-            "notes-read",
-            "notes-write",
-            "notes-append",
-            "notes-path",
-            "notes-search",
-            "notes-vault-root",
-            "run",
-            "shell",
-            "split",
-            "send",
-            "latest-output",
-            "daemon-process-start",
-            "daemon-process-output",
-            "daemon-process-list",
-            "daemon-process-kill",
-            "daemon-pty-spawn-shell",
-            "daemon-pty-spawn-task",
-            "daemon-pty-output",
-            "daemon-pty-attach",
-            "daemon-pty-list",
-            "daemon-pty-write",
-            "daemon-pty-resize",
-            "daemon-pty-detach",
-            "daemon-pty-attach-pane",
-            "daemon-pty-mark-read",
-            "daemon-pty-set-name",
-            "daemon-pty-kill"
-        ],
+        "capabilities": capabilities,
     }))
 }
 
@@ -926,6 +973,138 @@ where
 }
 
 async fn write_watch_event_frame<W>(writer: &mut W, frame: &WatchEventFrame) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let Ok(json) = serde_json::to_string(frame) else {
+        return false;
+    };
+    writer.write_all(json.as_bytes()).await.is_ok() && writer.write_all(b"\n").await.is_ok()
+}
+
+async fn handle_mailbox_events_stream<W>(
+    req: Request,
+    writer: &mut W,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let result = handle_mailbox_events_stream_inner(req, writer, identity).await;
+    let _ = writer.shutdown().await;
+    result
+}
+
+async fn handle_mailbox_events_stream_inner<W>(
+    req: Request,
+    writer: &mut W,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if !request_authorized(&req, identity) {
+        let _ = write_mailbox_event_frame(
+            writer,
+            &MailboxEventFrame::Error { error: "unauthorized".into() },
+        )
+        .await;
+        return false;
+    }
+
+    let mut rx = identity.mailbox_manager.subscribe_events();
+    if !write_mailbox_event_frame(writer, &MailboxEventFrame::Ready).await {
+        return false;
+    }
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                if !write_mailbox_event_frame(writer, &MailboxEventFrame::Event { event }).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                let warning = MailboxEventFrame::Warning {
+                    message: format!("dropped {skipped} buffered mailbox event(s)"),
+                };
+                if !write_mailbox_event_frame(writer, &warning).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return true,
+        }
+    }
+}
+
+async fn write_mailbox_event_frame<W>(writer: &mut W, frame: &MailboxEventFrame) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let Ok(json) = serde_json::to_string(frame) else {
+        return false;
+    };
+    writer.write_all(json.as_bytes()).await.is_ok() && writer.write_all(b"\n").await.is_ok()
+}
+
+async fn handle_subscription_events_stream<W>(
+    req: Request,
+    writer: &mut W,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let result = handle_subscription_events_stream_inner(req, writer, identity).await;
+    let _ = writer.shutdown().await;
+    result
+}
+
+async fn handle_subscription_events_stream_inner<W>(
+    req: Request,
+    writer: &mut W,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if !request_authorized(&req, identity) {
+        let _ = write_subscription_event_frame(
+            writer,
+            &SubscriptionEventFrame::Error { error: "unauthorized".into() },
+        )
+        .await;
+        return false;
+    }
+
+    let mut rx = identity.subscription_manager.subscribe_events();
+    if !write_subscription_event_frame(writer, &SubscriptionEventFrame::Ready).await {
+        return false;
+    }
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                if !write_subscription_event_frame(writer, &SubscriptionEventFrame::Event { event })
+                    .await
+                {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                let warning = SubscriptionEventFrame::Warning {
+                    message: format!("dropped {skipped} buffered subscription event(s)"),
+                };
+                if !write_subscription_event_frame(writer, &warning).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return true,
+        }
+    }
+}
+
+async fn write_subscription_event_frame<W>(writer: &mut W, frame: &SubscriptionEventFrame) -> bool
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
@@ -3758,6 +3937,14 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("watch-events")));
+        assert!(data["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("mailbox-events")));
+        assert!(data["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("subscription-events")));
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
@@ -3898,6 +4085,88 @@ mod tests {
         for join in joins {
             join.await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn daemon_mailbox_events_streams_live_mailbox_events() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+        let (mut server, client) = tokio::io::duplex(4096);
+        let identity_for_stream = identity.clone();
+        let stream_task = tokio::spawn(async move {
+            handle_mailbox_events_stream(
+                Request {
+                    command: "mailbox-events".to_string(),
+                    session_id: None,
+                    pane_id: None,
+                    auth_token: None,
+                    args: serde_json::Value::Null,
+                },
+                &mut server,
+                &identity_for_stream,
+            )
+            .await
+        });
+
+        let mut reader = BufReader::new(client);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(ready["type"], "ready");
+
+        identity.mailbox_manager.post(EventBuilder::new("hello").to("auditor")).unwrap();
+
+        line.clear();
+        reader.read_line(&mut line).await.unwrap();
+        let frame: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(frame["type"], "event");
+        assert_eq!(frame["event"]["kind"], "posted");
+        assert_eq!(frame["event"]["event"]["body"], "hello");
+        assert_eq!(frame["event"]["event"]["to"], "auditor");
+
+        stream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn daemon_subscription_events_streams_live_subscription_events() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+        let (mut server, client) = tokio::io::duplex(4096);
+        let identity_for_stream = identity.clone();
+        let stream_task = tokio::spawn(async move {
+            handle_subscription_events_stream(
+                Request {
+                    command: "subscription-events".to_string(),
+                    session_id: None,
+                    pane_id: None,
+                    auth_token: None,
+                    args: serde_json::Value::Null,
+                },
+                &mut server,
+                &identity_for_stream,
+            )
+            .await
+        });
+
+        let mut reader = BufReader::new(client);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(ready["type"], "ready");
+
+        identity.subscription_manager.subscribe("auditor", "build.**", None).unwrap();
+
+        line.clear();
+        reader.read_line(&mut line).await.unwrap();
+        let frame: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(frame["type"], "event");
+        assert_eq!(frame["event"]["kind"], "created");
+        assert_eq!(frame["event"]["subscription"]["alias"], "auditor");
+        assert_eq!(frame["event"]["subscription"]["pattern"], "build.**");
+
+        stream_task.abort();
     }
 
     #[tokio::test]

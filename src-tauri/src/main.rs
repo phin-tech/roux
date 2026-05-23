@@ -663,6 +663,22 @@ fn main() {
                 });
             }
 
+            // Forward daemon-owned mailbox/bus subscription events into the
+            // existing Tauri event channels. The frontend remains responsible
+            // for rendering, badges, and notifications.
+            {
+                let state = app.state::<AppState>();
+                if let Some(client) = state.daemon_client.clone() {
+                    let app_handle = app.handle().clone();
+                    if client.supports("mailbox-events") {
+                        client.spawn_mailbox_event_bridge(app_handle.clone());
+                    }
+                    if client.supports("subscription-events") {
+                        client.spawn_subscription_event_bridge(app_handle);
+                    }
+                }
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
