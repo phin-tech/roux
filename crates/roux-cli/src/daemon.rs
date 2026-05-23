@@ -8,7 +8,7 @@ use tokio::net::TcpListener;
 #[cfg(not(windows))]
 use tokio::net::UnixListener;
 
-use roux_core::{CreateWatchConfig, RuntimeState, Watch};
+use roux_core::{CreateWatchConfig, PtyRole, PtyStatus, RuntimeState, Watch};
 use roux_runtime::automation_hooks::{
     worktree_provider_hooks, AutomationHookManager, HookContext, HookEvent,
 };
@@ -434,6 +434,7 @@ async fn handle_request_with_watch_runner(
         "session-create-shell" => handle_session_create_shell(req, host, identity).await,
         "session-reconnect-shell" => handle_session_reconnect_shell(req, host, identity).await,
         "session-archive" => handle_session_archive(req, host).await,
+        "session-kill" => handle_session_archive(req, host).await,
         "session-restore" => handle_session_restore(req, host).await,
         "session-delete" => handle_session_delete(req, host).await,
         "session-worktree-exists" => handle_session_worktree_exists(req, host).await,
@@ -478,6 +479,8 @@ async fn handle_request_with_watch_runner(
         "worktree-remove" => handle_worktree_remove(req).await,
         "worktree-list-branches" => handle_worktree_list_branches(req).await,
         "git-init" => handle_git_init(req).await,
+        "run" => handle_daemon_process_start(req, host).await,
+        "send" => handle_cli_send(req, host).await,
         "daemon-process-start" => handle_daemon_process_start(req, host).await,
         "daemon-process-output" => handle_daemon_process_output(req, host).await,
         "daemon-process-list" => handle_daemon_process_list(host).await,
@@ -522,6 +525,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "session-create-shell",
             "session-reconnect-shell",
             "session-archive",
+            "session-kill",
             "session-restore",
             "session-delete",
             "session-worktree-exists",
@@ -543,6 +547,8 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "worktree-remove",
             "worktree-list-branches",
             "git-init",
+            "run",
+            "send",
             "daemon-process-start",
             "daemon-process-output",
             "daemon-process-list",
@@ -1483,6 +1489,97 @@ async fn handle_git_init(req: Request) -> Response {
         Ok(Err(err)) => Response::err(err),
         Err(err) => Response::err(format!("git-init task failed: {err}")),
     }
+}
+
+async fn handle_cli_send(req: Request, host: &RuntimeHost) -> Response {
+    let Some(text) = req.args.get("text").and_then(|text| text.as_str()) else {
+        return Response::err("text required");
+    };
+    let enter = req.args.get("enter").and_then(|enter| enter.as_bool()).unwrap_or(true);
+    let mut data = text.as_bytes().to_vec();
+    if enter {
+        data.push(b'\r');
+    }
+
+    let pty_id = match resolve_cli_send_pty_id(&req, host).await {
+        Ok(pty_id) => pty_id,
+        Err(response) => return response,
+    };
+    match host.pty_handle.write(&pty_id, data.clone()).await {
+        Ok(()) => Response::success(serde_json::json!({ "id": pty_id, "bytes": data.len() })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn resolve_cli_send_pty_id(req: &Request, host: &RuntimeHost) -> Result<String, Response> {
+    let ptys = host.pty_handle.list().await.map_err(|err| Response::err(err.to_string()))?;
+
+    if let Some(pane_id) = req.pane_id.as_deref().filter(|pane_id| !pane_id.trim().is_empty()) {
+        return ptys
+            .iter()
+            .find(|pty| {
+                pty_matches_pane(pty, pane_id)
+                    && req
+                        .session_id
+                        .as_deref()
+                        .is_none_or(|session_id| pty.info.session_id.as_deref() == Some(session_id))
+            })
+            .map(|pty| pty.id.clone())
+            .ok_or_else(|| Response::err(format!("daemon PTY not found for pane {pane_id}")));
+    }
+
+    if let Some(pane_type) = req
+        .args
+        .get("pane_type")
+        .and_then(|pane_type| pane_type.as_str())
+        .filter(|pane_type| !pane_type.trim().is_empty())
+    {
+        let Some(session_id) = req.session_id.as_deref() else {
+            return Err(Response::err("session_id required when using pane_type"));
+        };
+        return ptys
+            .iter()
+            .find(|pty| {
+                pty.info.session_id.as_deref() == Some(session_id)
+                    && pty.info.profile.as_deref() == Some(pane_type)
+            })
+            .map(|pty| pty.id.clone())
+            .ok_or_else(|| {
+                Response::err(format!(
+                    "daemon PTY with profile {pane_type} not found for session {session_id}"
+                ))
+            });
+    }
+
+    let Some(session_id) = req.session_id.as_deref() else {
+        return Err(Response::err("session_id or pane_id required"));
+    };
+
+    if let Some(primary_pty_id) = host
+        .session_handle
+        .get(session_id)
+        .await
+        .map_err(|err| Response::err(err.to_string()))?
+        .and_then(|session| session.primary_pty_id)
+    {
+        return Ok(primary_pty_id);
+    }
+
+    ptys.iter()
+        .find(|pty| {
+            pty.info.session_id.as_deref() == Some(session_id)
+                && matches!(pty.info.role, PtyRole::SessionPrimary)
+        })
+        .map(|pty| pty.id.clone())
+        .ok_or_else(|| {
+            Response::err(format!("primary daemon PTY not found for session {session_id}"))
+        })
+}
+
+fn pty_matches_pane(pty: &roux_runtime::pty_service::PtyRecord, pane_id: &str) -> bool {
+    pty.id == pane_id
+        || pty.info.id == pane_id
+        || matches!(&pty.info.status, PtyStatus::RunningAttached { pane_id: attached } if attached == pane_id)
 }
 
 async fn handle_daemon_process_start(req: Request, host: &RuntimeHost) -> Response {
@@ -2915,6 +3012,47 @@ post-worktree-remove = "{post_remove}"
         }
     }
 
+    #[tokio::test]
+    async fn daemon_session_kill_alias_archives_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: vec![make_session("session-kill")],
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let kill = handle_request(
+            Request {
+                command: "session-kill".to_string(),
+                session_id: Some("session-kill".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({}),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(kill.ok, "session-kill alias failed: {:?}", kill.error);
+        assert_eq!(kill.data.as_ref().unwrap()["archived"], true);
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
     #[cfg(not(windows))]
     #[tokio::test]
     async fn daemon_process_start_and_output_poll_are_daemon_owned() {
@@ -2976,6 +3114,79 @@ post-worktree-remove = "{post_remove}"
         let output = output.expect("daemon-owned output should be pollable");
         assert_eq!(output["record"]["id"], process_id);
         assert_eq!(output["record"]["running"], false);
+        assert_eq!(output["record"]["exitCode"], 0);
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_top_level_run_alias_starts_daemon_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let start = handle_request(
+            Request {
+                command: "run".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "command": "printf daemon-run-alias",
+                    "working_dir": dir.path(),
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(start.ok, "run alias failed: {:?}", start.error);
+        let process_id = start.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let mut output = None;
+        for _ in 0..50 {
+            let poll = handle_request(
+                Request {
+                    command: "daemon-process-output".to_string(),
+                    session_id: None,
+                    pane_id: None,
+                    auth_token: None,
+                    args: serde_json::json!({ "id": process_id, "maxBytes": 1024 }),
+                },
+                &host,
+                &identity,
+            )
+            .await;
+            assert!(poll.ok, "poll failed: {:?}", poll.error);
+            let data = poll.data.unwrap();
+            if data["output"].as_str().unwrap_or("").contains("daemon-run-alias")
+                && !data["record"]["running"].as_bool().unwrap_or(true)
+            {
+                output = Some(data);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let output = output.expect("top-level run output should be daemon-owned");
         assert_eq!(output["record"]["exitCode"], 0);
 
         host.process_handle.shutdown().await;
@@ -3057,6 +3268,98 @@ post-worktree-remove = "{post_remove}"
         assert_eq!(output["record"]["exitCode"], 0);
         assert_eq!(output["record"]["info"]["session_id"], "session-a");
 
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_top_level_send_writes_to_session_primary_pty() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = make_session("session-send");
+        session.primary_pty_id = Some("primary-pty".to_string());
+        let services = RuntimeHostConfig {
+            initial_sessions: vec![session],
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let start = handle_request(
+            Request {
+                command: "daemon-pty-spawn-task".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "id": "primary-pty",
+                    "command": "cat",
+                    "workingDir": dir.path(),
+                    "sessionId": "session-send",
+                    "paneId": "pane-send",
+                    "role": "sessionPrimary",
+                    "profile": "shell",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(start.ok, "pty start failed: {:?}", start.error);
+
+        let send = handle_request(
+            Request {
+                command: "send".to_string(),
+                session_id: Some("session-send".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "text": "daemon-send-alias", "enter": true }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(send.ok, "send alias failed: {:?}", send.error);
+        assert_eq!(send.data.as_ref().unwrap()["id"], "primary-pty");
+
+        let mut output = None;
+        for _ in 0..50 {
+            let poll = handle_request(
+                Request {
+                    command: "daemon-pty-output".to_string(),
+                    session_id: None,
+                    pane_id: None,
+                    auth_token: None,
+                    args: serde_json::json!({ "id": "primary-pty", "maxBytes": 2048 }),
+                },
+                &host,
+                &identity,
+            )
+            .await;
+            assert!(poll.ok, "poll failed: {:?}", poll.error);
+            let data = poll.data.unwrap();
+            if data["output"].as_str().unwrap_or("").contains("daemon-send-alias") {
+                output = Some(data);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        output.expect("sent text should appear in daemon PTY output");
+
+        let _ = host.pty_handle.kill("primary-pty").await;
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
         host.watch_handle.shutdown().await;

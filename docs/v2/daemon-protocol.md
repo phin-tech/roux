@@ -89,6 +89,11 @@ record and returns the updated session. Supported `args`: `profile`,
 Requires `session_id`. Removes daemon PTYs for the session and soft-archives
 the session record. Returns the archived session.
 
+`session-kill`
+
+Compatibility alias for the CLI's existing `roux session kill` command. Same
+behavior as `session-archive`.
+
 `session-restore`
 
 Requires `session_id`. Restores the archived session and marks it
@@ -156,6 +161,11 @@ daemon host.
 Requires `args.path`. Runs `git init` in that directory on the daemon host.
 
 ## Process Commands
+
+`run`
+
+Compatibility alias for top-level `roux run` when the daemon owns the socket.
+Same behavior as `daemon-process-start`.
 
 `daemon-process-start`
 
@@ -267,6 +277,13 @@ Returns all daemon PTY records.
 `daemon-pty-write`
 
 Requires `args.id` and `args.data`. Writes UTF-8 text into the PTY.
+
+`send`
+
+Compatibility alias for `roux session send` when the daemon owns the socket.
+Requires `args.text`; `args.enter` defaults to `true` and appends carriage
+return. Targets `pane_id` when present, otherwise `args.pane_type` within the
+session, otherwise the session's primary daemon PTY.
 
 `daemon-pty-resize`
 
