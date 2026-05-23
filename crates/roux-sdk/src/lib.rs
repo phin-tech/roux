@@ -476,7 +476,7 @@ impl Pty {
                     }
                 },
             );
-            result.and_then(|_| match parse_error {
+            result.and(match parse_error {
                 Some(err) => Err(err),
                 None => Ok(()),
             })

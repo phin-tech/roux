@@ -58,7 +58,7 @@ pub(crate) struct DaemonClient {
 
 #[derive(Debug, Clone)]
 pub(crate) enum DaemonStartup {
-    Connected(DaemonClient),
+    Connected(Box<DaemonClient>),
     LocalFallbackDisabled(String),
     Failed(String),
 }
@@ -121,7 +121,7 @@ impl DaemonClient {
 
     pub(crate) fn ensure_local() -> DaemonStartup {
         if let Some(client) = Self::detect() {
-            return DaemonStartup::Connected(client);
+            return DaemonStartup::Connected(Box::new(client));
         }
 
         if let Some(endpoint) = configured_socket_endpoint_that_blocks_autostart() {
@@ -144,7 +144,7 @@ impl DaemonClient {
         }
 
         match wait_for_daemon(STARTUP_TIMEOUT, STARTUP_POLL_INTERVAL) {
-            Some(client) => DaemonStartup::Connected(client),
+            Some(client) => DaemonStartup::Connected(Box::new(client)),
             None => DaemonStartup::Failed(format!(
                 "started roux daemon but it did not become ready within {}ms",
                 STARTUP_TIMEOUT.as_millis()
@@ -154,10 +154,6 @@ impl DaemonClient {
 
     pub(crate) fn status(&self) -> &DaemonStatus {
         &self.status
-    }
-
-    pub(crate) fn sdk(&self) -> roux_sdk::Roux {
-        self.sdk.clone()
     }
 
     pub(crate) fn supports(&self, capability: &str) -> bool {
@@ -1246,6 +1242,7 @@ fn daemon_process_start_request(command: String, working_dir: Option<String>) ->
     })
 }
 
+#[cfg(test)]
 fn daemon_session_create_shell_request(request: DaemonCreateSessionShellRequest) -> Value {
     let mut args = serde_json::Map::new();
     args.insert("id".to_string(), Value::String(request.id));
@@ -1303,6 +1300,7 @@ fn daemon_session_create_shell_request(request: DaemonCreateSessionShellRequest)
     })
 }
 
+#[cfg(test)]
 fn daemon_session_reconnect_shell_request(request: DaemonReconnectSessionShellRequest) -> Value {
     let mut args = serde_json::Map::new();
     if let Some(profile) = request.profile {
@@ -1873,6 +1871,7 @@ fn daemon_process_kill_request(id: String) -> Value {
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_spawn_shell_request(
     id: Option<String>,
     working_dir: Option<String>,
@@ -1898,6 +1897,7 @@ fn daemon_pty_spawn_shell_request(
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_spawn_task_request(
     command: String,
     id: Option<String>,
@@ -1924,6 +1924,7 @@ fn daemon_pty_spawn_task_request(
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_spawn_args(
     id: Option<String>,
     working_dir: Option<String>,
@@ -1962,6 +1963,7 @@ fn daemon_pty_spawn_args(
     args
 }
 
+#[cfg(test)]
 fn daemon_pty_output_request(id: String, max_bytes: Option<usize>) -> Value {
     let mut args = serde_json::Map::new();
     args.insert("id".to_string(), Value::String(id));
@@ -1974,6 +1976,7 @@ fn daemon_pty_output_request(id: String, max_bytes: Option<usize>) -> Value {
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_attach_request(id: String, max_bytes: Option<usize>) -> Value {
     let mut args = serde_json::Map::new();
     args.insert("id".to_string(), Value::String(id));
@@ -1986,10 +1989,12 @@ fn daemon_pty_attach_request(id: String, max_bytes: Option<usize>) -> Value {
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_list_request() -> Value {
     serde_json::json!({ "command": "daemon-pty-list" })
 }
 
+#[cfg(test)]
 fn daemon_pty_write_request(id: String, data: String) -> Value {
     serde_json::json!({
         "command": "daemon-pty-write",
@@ -1997,6 +2002,7 @@ fn daemon_pty_write_request(id: String, data: String) -> Value {
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_resize_request(id: String, cols: u16, rows: u16) -> Value {
     serde_json::json!({
         "command": "daemon-pty-resize",
@@ -2004,6 +2010,7 @@ fn daemon_pty_resize_request(id: String, cols: u16, rows: u16) -> Value {
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_detach_request(id: String) -> Value {
     serde_json::json!({
         "command": "daemon-pty-detach",
@@ -2011,6 +2018,7 @@ fn daemon_pty_detach_request(id: String) -> Value {
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_attach_pane_request(id: String, pane_id: String) -> Value {
     serde_json::json!({
         "command": "daemon-pty-attach-pane",
@@ -2018,6 +2026,7 @@ fn daemon_pty_attach_pane_request(id: String, pane_id: String) -> Value {
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_mark_read_request(id: String) -> Value {
     serde_json::json!({
         "command": "daemon-pty-mark-read",
@@ -2025,6 +2034,7 @@ fn daemon_pty_mark_read_request(id: String) -> Value {
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_set_name_request(id: String, name: Option<String>) -> Value {
     serde_json::json!({
         "command": "daemon-pty-set-name",
@@ -2032,6 +2042,7 @@ fn daemon_pty_set_name_request(id: String, name: Option<String>) -> Value {
     })
 }
 
+#[cfg(test)]
 fn daemon_pty_kill_request(id: String) -> Value {
     serde_json::json!({
         "command": "daemon-pty-kill",
@@ -2170,28 +2181,6 @@ fn connect_daemon_stream_tcp(addr: String, request: Value) -> Result<Box<dyn Rea
         .map_err(|err| format!("set daemon write timeout: {err}"))?;
     write_request(&mut stream, request)?;
     Ok(Box::new(stream))
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum PtyAttachStreamFrame {
-    #[serde(rename = "ready")]
-    Ready {
-        #[allow(dead_code)]
-        id: String,
-        #[allow(dead_code)]
-        record: Box<PtyRecord>,
-        #[serde(rename = "replayOffset")]
-        replay_offset: u64,
-        #[serde(rename = "replayBytes")]
-        replay_bytes: Vec<u8>,
-    },
-    #[serde(rename = "output")]
-    Output { offset: u64, bytes: Vec<u8> },
-    #[serde(rename = "exit")]
-    Exit { code: Option<i32>, generation: u64 },
-    #[serde(rename = "error")]
-    Error { error: String },
 }
 
 #[derive(Debug, Deserialize)]
@@ -2406,84 +2395,6 @@ fn handle_subscription_event_frame(
             Ok(())
         }
         SubscriptionEventStreamFrame::Error { error } => Err(error),
-    }
-}
-
-fn attach_daemon_pty_output_blocking(
-    id: String,
-    channel: Channel<IpcResponse>,
-    app: AppHandle,
-) -> Result<(), String> {
-    let stream = connect_daemon_stream(daemon_pty_attach_request(
-        id.clone(),
-        Some(roux_runtime::pty_service::PTY_OUTPUT_LIMIT_BYTES),
-    ))?;
-    read_pty_attach_stream(id, stream, channel, app)
-}
-
-fn read_pty_attach_stream(
-    id: String,
-    stream: impl Read,
-    channel: Channel<IpcResponse>,
-    app: AppHandle,
-) -> Result<(), String> {
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    let mut sent_until = 0_u64;
-    loop {
-        line.clear();
-        let read = reader
-            .read_line(&mut line)
-            .map_err(|err| format!("read daemon pty attach frame: {err}"))?;
-        if read == 0 {
-            return Ok(());
-        }
-        let frame: PtyAttachStreamFrame = serde_json::from_str(line.trim())
-            .map_err(|err| format!("decode daemon pty attach frame: {err}"))?;
-        if !handle_pty_attach_frame(&id, frame, &channel, &app, &mut sent_until)? {
-            return Ok(());
-        }
-    }
-}
-
-fn handle_pty_attach_frame(
-    id: &str,
-    frame: PtyAttachStreamFrame,
-    channel: &Channel<IpcResponse>,
-    app: &AppHandle,
-    sent_until: &mut u64,
-) -> Result<bool, String> {
-    match frame {
-        PtyAttachStreamFrame::Ready { replay_offset, replay_bytes, .. } => {
-            let replay_end = replay_offset.saturating_add(replay_bytes.len() as u64);
-            if !replay_bytes.is_empty() {
-                channel
-                    .send(IpcResponse::new(replay_bytes))
-                    .map_err(|err| format!("send daemon pty replay to frontend: {err}"))?;
-            }
-            *sent_until = (*sent_until).max(replay_end);
-            Ok(true)
-        }
-        PtyAttachStreamFrame::Output { offset, bytes } => {
-            let frame_end = offset.saturating_add(bytes.len() as u64);
-            if frame_end <= *sent_until {
-                return Ok(true);
-            }
-            let start = if offset < *sent_until { (*sent_until - offset) as usize } else { 0 };
-            let bytes = bytes[start..].to_vec();
-            if !bytes.is_empty() {
-                channel
-                    .send(IpcResponse::new(bytes))
-                    .map_err(|err| format!("send daemon pty output to frontend: {err}"))?;
-            }
-            *sent_until = (*sent_until).max(frame_end);
-            Ok(true)
-        }
-        PtyAttachStreamFrame::Exit { code, generation } => {
-            emit_daemon_pty_exit(app, id, code, generation);
-            Ok(false)
-        }
-        PtyAttachStreamFrame::Error { error } => Err(error),
     }
 }
 

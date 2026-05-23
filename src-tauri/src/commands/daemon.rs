@@ -77,13 +77,6 @@ pub(crate) async fn daemon_process_start(
         .map_err(|err| err.to_string())
 }
 
-fn unix_now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 #[tauri::command]
 pub(crate) async fn daemon_process_output(
     id: String,
