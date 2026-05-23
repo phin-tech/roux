@@ -47,6 +47,69 @@ fn build_post_worktree_remove_context(
     context
 }
 
+fn daemon_command_unsupported(err: &str) -> bool {
+    err.contains("unknown daemon command")
+}
+
+async fn create_worktree_local(
+    repo_path: String,
+    branch: String,
+    base_path: Option<String>,
+    start_point: Option<String>,
+    fetch_first: bool,
+    provider: WorktreeProvider,
+    wt: Option<roux_worktrunk::WtBinary>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if fetch_first {
+            roux_core::fetch_origin(&repo_path).map_err(|e| e.to_string())?;
+        }
+        roux_core::create_worktree_with_provider(
+            &repo_path,
+            &branch,
+            base_path.as_deref(),
+            start_point.as_deref(),
+            provider,
+            wt.as_ref(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("create_worktree task panicked: {e}"))?
+}
+
+async fn remove_worktree_local(
+    repo_path: String,
+    worktree_path: String,
+    also_branch: bool,
+    force: bool,
+    provider: WorktreeProvider,
+    wt: Option<roux_worktrunk::WtBinary>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        roux_core::remove_worktree_with_provider(
+            &repo_path,
+            &worktree_path,
+            also_branch,
+            force,
+            provider,
+            wt.as_ref(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("remove_worktree task panicked: {e}"))?
+}
+
+async fn list_worktrees_local(repo_path: String) -> Result<Vec<crate::worktree::Worktree>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let wt = crate::services::setup::resolve_wt_binary();
+        roux_core::list_worktrees_enriched(&repo_path, wt.as_ref()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("list_worktrees task panicked: {e}"))?
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_create_worktree(
@@ -82,23 +145,33 @@ pub(crate) async fn cmd_create_worktree(
     let post_provider = provider;
     let post_repo_path = repo_path.clone();
     let post_branch = branch.clone();
-    let worktree_path = tauri::async_runtime::spawn_blocking(move || {
-        if fetch_first {
-            roux_core::fetch_origin(&repo_path).map_err(|e| e.to_string())?;
+    let daemon_client = state.daemon_client.clone();
+    let worktree_path = if let Some(client) =
+        daemon_client.filter(|client| client.supports("worktree-create"))
+    {
+        match client
+            .create_worktree(repo_path.clone(), branch.clone(), start_point.clone(), fetch_first)
+            .await
+        {
+            Ok(path) => path,
+            Err(err) if daemon_command_unsupported(&err) => {
+                create_worktree_local(
+                    repo_path,
+                    branch,
+                    base_path,
+                    start_point,
+                    fetch_first,
+                    provider,
+                    wt,
+                )
+                .await?
+            }
+            Err(err) => return Err(err),
         }
-        roux_core::create_worktree_with_provider(
-            &repo_path,
-            &branch,
-            base_path.as_deref(),
-            start_point.as_deref(),
-            provider,
-            wt.as_ref(),
-        )
-        .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("create_worktree task panicked: {e}"))?
-    .map_err(|e| e.to_string())?;
+    } else {
+        create_worktree_local(repo_path, branch, base_path, start_point, fetch_first, provider, wt)
+            .await?
+    };
     let context = build_post_worktree_create_context(
         post_provider,
         wt_available,
@@ -138,20 +211,23 @@ pub(crate) async fn cmd_remove_worktree(
     let post_hooks = state.automation_hooks.clone();
     let post_repo_path = repo_path.clone();
     let post_worktree_path = worktree_path.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        roux_core::remove_worktree_with_provider(
-            &repo_path,
-            &worktree_path,
-            also_branch,
-            force,
-            provider,
-            wt.as_ref(),
-        )
-        .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("remove_worktree task panicked: {e}"))?
-    .map_err(|e| e.to_string())?;
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("worktree-remove"))
+    {
+        match client
+            .remove_worktree(repo_path.clone(), worktree_path.clone(), also_branch, force)
+            .await
+        {
+            Ok(()) => {}
+            Err(err) if daemon_command_unsupported(&err) => {
+                remove_worktree_local(repo_path, worktree_path, also_branch, force, provider, wt)
+                    .await?
+            }
+            Err(err) => return Err(err),
+        }
+    } else {
+        remove_worktree_local(repo_path, worktree_path, also_branch, force, provider, wt).await?;
+    }
     let context = build_post_worktree_remove_context(
         provider,
         wt_available,
@@ -166,18 +242,35 @@ pub(crate) async fn cmd_remove_worktree(
 #[specta::specta]
 pub(crate) async fn cmd_list_worktrees(
     repo_path: String,
+    state: tauri::State<'_, AppState>,
 ) -> Result<Vec<crate::worktree::Worktree>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let wt = crate::services::setup::resolve_wt_binary();
-        roux_core::list_worktrees_enriched(&repo_path, wt.as_ref()).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("list_worktrees task panicked: {e}"))?
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("worktree-list"))
+    {
+        match client.list_worktrees(repo_path.clone()).await {
+            Ok(worktrees) => return Ok(worktrees),
+            Err(err) if daemon_command_unsupported(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
+    list_worktrees_local(repo_path).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_list_branches(repo_path: String) -> Result<Vec<String>, String> {
+pub(crate) async fn cmd_list_branches(
+    repo_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("worktree-list-branches"))
+    {
+        match client.list_branches(repo_path.clone()).await {
+            Ok(branches) => return Ok(branches),
+            Err(err) if daemon_command_unsupported(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
     tauri::async_runtime::spawn_blocking(move || {
         svc::list_branches(&repo_path).map_err(|e| e.to_string())
     })
@@ -187,7 +280,17 @@ pub(crate) async fn cmd_list_branches(repo_path: String) -> Result<Vec<String>, 
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_init(path: String) -> Result<(), String> {
+pub(crate) async fn git_init(
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("git-init")) {
+        match client.git_init(path.clone()).await {
+            Ok(()) => return Ok(()),
+            Err(err) if daemon_command_unsupported(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
     tauri::async_runtime::spawn_blocking(move || svc::git_init(&path).map_err(|e| e.to_string()))
         .await
         .map_err(|e| format!("git_init task panicked: {e}"))?
@@ -501,13 +604,15 @@ pub(crate) async fn cmd_open_path_in_finder(path: String) -> Result<(), String> 
                 .arg(&path)
                 .status()
                 .map_err(|e| format!("open failed: {e}"))
-                .and_then(|s| {
-                    if s.success() {
-                        Ok(())
-                    } else {
-                        Err(format!("open exited with {s}"))
-                    }
-                })
+                .and_then(
+                    |s| {
+                        if s.success() {
+                            Ok(())
+                        } else {
+                            Err(format!("open exited with {s}"))
+                        }
+                    },
+                )
         }
 
         #[cfg(target_os = "linux")]

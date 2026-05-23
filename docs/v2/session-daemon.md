@@ -23,26 +23,26 @@ The daemon now binds the Roux command socket itself and exposes a daemon-only st
 roux daemon status
 ```
 
-That endpoint is intentionally not implemented by the GUI socket server. It proves the daemon can own an observable capability independently of Roux.app. The daemon also serves the first headless durable-state commands over the same socket: session list, session poll, session rename, and project list.
+That endpoint is intentionally not implemented by the GUI socket server. It proves the daemon can own an observable capability independently of Roux.app. The daemon also serves headless durable-state and runtime commands over the same socket: session lifecycle, project list, PTYs, process registry, and core worktree filesystem operations.
 
 The daemon writes its own runtime log to `~/.config/roux/logs/roux-daemon.log`, rotates existing daemon logs on startup, and reports the active log path from `roux daemon status`.
 
 The daemon now owns a small headless process registry too. `roux daemon run "<command>"` starts a shell command inside the daemon process, `roux daemon output <id>` polls retained stdout/stderr and exit status, `roux daemon processes` lists daemon-owned processes, and `roux daemon kill <id>` stops one. This is the first runtime behavior owned by the daemon that the GUI does not render or spawn.
 
-Roux.app has thin Tauri command wrappers for the same process registry. When an external daemon is connected, those wrappers forward to the daemon socket; when the desktop is self-hosting, they use the embedded runtime host. No pane UI consumes that surface yet, but the desktop-side boundary is now "frontend command adapter" instead of direct process ownership for this process-registry path.
+Roux.app has thin Tauri command wrappers for the same process registry, PTY registry, session lifecycle, and worktree command surface. When an external daemon is connected, those wrappers forward to the daemon socket; when the desktop is self-hosting, they use the embedded runtime host or local filesystem helpers. The desktop-side boundary is now "frontend command adapter" instead of direct process ownership for these paths.
 
 If Roux.app already owns the socket, `roux daemon` refuses to start instead of unlinking or replacing the GUI's live command channel.
 
-If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata reads plus session rename. That makes the GUI a frontend for daemon-owned durable state. Interactive PTY ownership still remains in the desktop process until the next migration slice.
+If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata, daemon-backed PTYs, session lifecycle, process registry, and worktree filesystem operations. That makes the GUI a frontend for daemon-owned durable state and process lifetimes.
 
 That is not the full design below yet. As of this note:
 
-- Roux.app still owns interactive PTYs and xterm.js rendering
+- Roux.app still owns xterm.js rendering and pane layout
 - daemon-owned processes are not yet attached to terminal panes
 - pane socket commands such as split, send, and attach still expect the desktop app to be running
 - top-level `roux run` still creates a GUI pane; daemon-owned processes use `roux daemon run`
 - there is no `roux attach` command yet
-- the daemon does not yet own scrollback replay or reconnectable PTY lifetimes
+- automation hooks, watches, and pane-state cleanup still run in the desktop process
 
 ## Problem
 

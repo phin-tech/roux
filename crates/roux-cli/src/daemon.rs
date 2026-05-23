@@ -370,6 +370,11 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
         "session-refresh-branch" => handle_session_refresh_branch(req, host).await,
         "session-rename" => handle_session_rename(req, host).await,
         "project-list" => handle_project_list(host).await,
+        "worktree-list" => handle_worktree_list(req).await,
+        "worktree-create" => handle_worktree_create(req).await,
+        "worktree-remove" => handle_worktree_remove(req).await,
+        "worktree-list-branches" => handle_worktree_list_branches(req).await,
+        "git-init" => handle_git_init(req).await,
         "daemon-process-start" => handle_daemon_process_start(req, host).await,
         "daemon-process-output" => handle_daemon_process_output(req, host).await,
         "daemon-process-list" => handle_daemon_process_list(host).await,
@@ -418,6 +423,11 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "session-refresh-branch",
             "session-rename",
             "project-list",
+            "worktree-list",
+            "worktree-create",
+            "worktree-remove",
+            "worktree-list-branches",
+            "git-init",
             "daemon-process-start",
             "daemon-process-output",
             "daemon-process-list",
@@ -902,6 +912,136 @@ async fn handle_project_list(host: &RuntimeHost) -> Response {
     }
 }
 
+async fn handle_worktree_list(req: Request) -> Response {
+    let Some(repo_path) = request_repo_path(&req) else {
+        return Response::err("repoPath required");
+    };
+    let repo_path = repo_path.to_string();
+    let settings = load_daemon_settings();
+    match tokio::task::spawn_blocking(move || {
+        let wt = resolve_wt_binary(&settings);
+        roux_core::list_worktrees_enriched(&repo_path, wt.as_ref()).map_err(|err| err.to_string())
+    })
+    .await
+    {
+        Ok(Ok(worktrees)) => match serde_json::to_value(worktrees) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize worktrees: {err}")),
+        },
+        Ok(Err(err)) => Response::err(err),
+        Err(err) => Response::err(format!("worktree-list task failed: {err}")),
+    }
+}
+
+async fn handle_worktree_create(req: Request) -> Response {
+    let Some(repo_path) = request_repo_path(&req) else {
+        return Response::err("repoPath required");
+    };
+    let Some(branch) = req.args.get("branch").and_then(|branch| branch.as_str()) else {
+        return Response::err("branch required");
+    };
+    let repo_path = repo_path.to_string();
+    let branch = branch.to_string();
+    let start_point = optional_string_arg(&req.args, &["startPoint", "start_point", "base"]);
+    let base_path = optional_string_arg(&req.args, &["basePath", "base_path"]);
+    let fetch_first = bool_arg(&req.args, &["fetchFirst", "fetch_first"]).unwrap_or(false);
+    let settings = load_daemon_settings();
+
+    match tokio::task::spawn_blocking(move || {
+        if fetch_first {
+            roux_core::fetch_origin(&repo_path).map_err(|err| err.to_string())?;
+        }
+        let wt = resolve_wt_binary(&settings);
+        let base_path = base_path.as_deref().or(settings.worktree_base_path.as_deref());
+        roux_core::create_worktree_with_provider(
+            &repo_path,
+            &branch,
+            base_path,
+            start_point.as_deref(),
+            settings.worktree_provider,
+            wt.as_ref(),
+        )
+        .map_err(|err| err.to_string())
+    })
+    .await
+    {
+        Ok(Ok(path)) => Response::success(serde_json::json!({ "path": path })),
+        Ok(Err(err)) => Response::err(err),
+        Err(err) => Response::err(format!("worktree-create task failed: {err}")),
+    }
+}
+
+async fn handle_worktree_remove(req: Request) -> Response {
+    let Some(repo_path) = request_repo_path(&req) else {
+        return Response::err("repoPath required");
+    };
+    let Some(worktree_path) = req
+        .args
+        .get("worktreePath")
+        .or_else(|| req.args.get("worktree_path"))
+        .and_then(|path| path.as_str())
+    else {
+        return Response::err("worktreePath required");
+    };
+    let repo_path = repo_path.to_string();
+    let worktree_path = worktree_path.to_string();
+    let response_repo_path = repo_path.clone();
+    let response_worktree_path = worktree_path.clone();
+    let also_branch = bool_arg(&req.args, &["alsoBranch", "also_branch"]).unwrap_or(false);
+    let force = bool_arg(&req.args, &["force"]).unwrap_or(false);
+    let settings = load_daemon_settings();
+
+    match tokio::task::spawn_blocking(move || {
+        let wt = resolve_wt_binary(&settings);
+        roux_core::remove_worktree_with_provider(
+            &repo_path,
+            &worktree_path,
+            also_branch,
+            force,
+            settings.worktree_provider,
+            wt.as_ref(),
+        )
+        .map_err(|err| err.to_string())
+    })
+    .await
+    {
+        Ok(Ok(())) => Response::success(serde_json::json!({
+            "repoPath": response_repo_path,
+            "worktreePath": response_worktree_path,
+        })),
+        Ok(Err(err)) => Response::err(err),
+        Err(err) => Response::err(format!("worktree-remove task failed: {err}")),
+    }
+}
+
+async fn handle_worktree_list_branches(req: Request) -> Response {
+    let Some(repo_path) = request_repo_path(&req) else {
+        return Response::err("repoPath required");
+    };
+    let repo_path = repo_path.to_string();
+    match tokio::task::spawn_blocking(move || list_branches(&repo_path)).await {
+        Ok(Ok(branches)) => match serde_json::to_value(branches) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize branches: {err}")),
+        },
+        Ok(Err(err)) => Response::err(err),
+        Err(err) => Response::err(format!("worktree-list-branches task failed: {err}")),
+    }
+}
+
+async fn handle_git_init(req: Request) -> Response {
+    let Some(path) = req.args.get("path").and_then(|path| path.as_str()) else {
+        return Response::err("path required");
+    };
+    let path = path.to_string();
+    let response_path = path.clone();
+    match tokio::task::spawn_blocking(move || git_init(&path)).await {
+        Ok(Ok(())) => Response::success(serde_json::json!({ "path": response_path })),
+        Ok(Err(err)) => Response::err(err),
+        Err(err) => Response::err(format!("git-init task failed: {err}")),
+    }
+}
+
 async fn handle_daemon_process_start(req: Request, host: &RuntimeHost) -> Response {
     let Some(command) = req.args.get("command").and_then(|command| command.as_str()) else {
         return Response::err("command required");
@@ -1292,6 +1432,27 @@ fn request_session_id(req: &Request) -> Option<&str> {
         .or_else(|| req.args.get("sessionId").or_else(|| req.args.get("session_id"))?.as_str())
 }
 
+fn request_repo_path(req: &Request) -> Option<&str> {
+    req.args
+        .get("repoPath")
+        .or_else(|| req.args.get("repo_path"))
+        .and_then(|repo_path| repo_path.as_str())
+}
+
+fn optional_string_arg(args: &Value, names: &[&str]) -> Option<String> {
+    names
+        .iter()
+        .find_map(|name| args.get(*name))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn bool_arg(args: &Value, names: &[&str]) -> Option<bool> {
+    names.iter().find_map(|name| args.get(*name)).and_then(|value| value.as_bool())
+}
+
 enum DaemonSessionTarget {
     Repo,
     ExistingWorktree { path: String },
@@ -1397,6 +1558,36 @@ fn get_current_branch(repo_path: &str) -> Option<String> {
         Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
         None
+    }
+}
+
+fn list_branches(repo_path: &str) -> Result<Vec<String>, String> {
+    let output = Command::new("git")
+        .args(["branch", "--format=%(refname:short)"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|err| format!("Failed to list branches: {err}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+fn git_init(path: &str) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["init"])
+        .current_dir(path)
+        .output()
+        .map_err(|err| format!("Failed to run git init: {err}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
     }
 }
 
@@ -1532,6 +1723,10 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("daemon-pty-attach")));
+        assert!(data["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("worktree-list")));
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
@@ -1571,6 +1766,153 @@ mod tests {
         assert!(response.ok);
         let session = host.session_handle.get("s1").await.unwrap().unwrap();
         assert_eq!(session.name_override.as_deref(), Some("Daemon owned"));
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    fn git(repo: &std::path::Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .expect("failed to invoke git");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn init_repo(repo: &std::path::Path) {
+        std::fs::create_dir_all(repo).unwrap();
+        git(repo, &["init", "-q", "-b", "main"]);
+        git(repo, &["config", "user.email", "t@t.test"]);
+        git(repo, &["config", "user.name", "Test"]);
+        git(repo, &["commit", "--allow-empty", "-m", "init"]);
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_worktree_commands_mutate_git_worktrees() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let worktree_base = dir.path().join("worktrees");
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let before = handle_request(
+            Request {
+                command: "worktree-list".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "repoPath": repo }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(before.ok, "list failed: {:?}", before.error);
+        assert_eq!(before.data.as_ref().unwrap().as_array().unwrap().len(), 1);
+
+        let create = handle_request(
+            Request {
+                command: "worktree-create".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "repoPath": repo,
+                    "branch": "feature/daemon-worktree",
+                    "startPoint": "main",
+                    "basePath": worktree_base,
+                    "fetchFirst": false,
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(create.ok, "create failed: {:?}", create.error);
+        let worktree_path = create.data.as_ref().unwrap()["path"].as_str().unwrap().to_string();
+        assert!(std::path::Path::new(&worktree_path).exists());
+
+        let branches = handle_request(
+            Request {
+                command: "worktree-list-branches".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "repoPath": repo }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(branches.ok, "branches failed: {:?}", branches.error);
+        assert!(branches
+            .data
+            .as_ref()
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("feature/daemon-worktree")));
+
+        let after_create = handle_request(
+            Request {
+                command: "worktree-list".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "repoPath": repo }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(after_create.ok, "list after create failed: {:?}", after_create.error);
+        assert!(after_create.data.as_ref().unwrap().as_array().unwrap().iter().any(|entry| {
+            entry["branch"] == "feature/daemon-worktree" && entry["path"] == worktree_path
+        }));
+
+        let remove = handle_request(
+            Request {
+                command: "worktree-remove".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "repoPath": repo,
+                    "worktreePath": worktree_path,
+                    "alsoBranch": true,
+                    "force": true,
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(remove.ok, "remove failed: {:?}", remove.error);
+        assert!(!std::path::Path::new(&worktree_path).exists());
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;

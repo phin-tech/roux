@@ -118,6 +118,38 @@ Requires `session_id`, with `args.name`. Sets or clears `name_override`.
 
 Returns all daemon projects.
 
+## Worktree Commands
+
+`worktree-list`
+
+Requires `args.repoPath`. Lists worktrees for that repository on the daemon
+host, enriched with worktrunk metadata when `wt` is available to the daemon.
+Returns an array of worktree records.
+
+`worktree-create`
+
+Requires `args.repoPath` and `args.branch`. Creates or reuses a worktree for
+the branch on the daemon host. Optional `args.startPoint` selects the branch
+start point, `args.fetchFirst` runs `git fetch origin` before creation, and
+`args.basePath` overrides the daemon setting for the worktree base directory.
+Returns `{ "path": "..." }`.
+
+`worktree-remove`
+
+Requires `args.repoPath` and `args.worktreePath`. Optional `args.alsoBranch`
+also deletes the checked-out branch after removing the worktree. Optional
+`args.force` passes the force-delete intent through the selected provider.
+Returns `{ "repoPath": "...", "worktreePath": "..." }`.
+
+`worktree-list-branches`
+
+Requires `args.repoPath`. Lists local branches for that repository on the
+daemon host.
+
+`git-init`
+
+Requires `args.path`. Runs `git init` in that directory on the daemon host.
+
 ## Process Commands
 
 `daemon-process-start`
@@ -219,11 +251,13 @@ Daemon-owned:
 - Session and project service state loaded from canonical config paths.
 - Process and PTY lifetimes.
 - Session create/reconnect/archive/restore/delete state transitions.
-- Worktree creation for daemon-created sessions.
+- Worktree create/list/remove, branch listing, and git init filesystem
+  operations.
 
 Desktop-owned:
 
 - Rendering, pane layout, xterm instances, and UX-only state.
 - Automation hooks, watches, and pane-state cleanup until those services move.
+  The desktop currently runs worktree pre/post hooks around daemon worktree
+  operations.
 - Local fallback runtime when no daemon is connected.
-

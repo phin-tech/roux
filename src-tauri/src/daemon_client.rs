@@ -7,7 +7,7 @@ use std::time::Duration;
 use tauri::ipc::{Channel, Response as IpcResponse};
 use tauri::{AppHandle, Emitter};
 
-use roux_core::{Project, Session, SessionExitPayload, SessionExitReason};
+use roux_core::{Project, Session, SessionExitPayload, SessionExitReason, Worktree};
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
@@ -112,6 +112,10 @@ impl DaemonClient {
         &self.status
     }
 
+    pub(crate) fn supports(&self, capability: &str) -> bool {
+        self.status.capabilities.iter().any(|candidate| candidate == capability)
+    }
+
     pub(crate) async fn refresh_status(&self) -> Result<DaemonStatus, String> {
         let value = send_command_async(serde_json::json!({ "command": "daemon-status" })).await?;
         let status: DaemonStatus =
@@ -206,6 +210,63 @@ impl DaemonClient {
         let value =
             send_command_async(daemon_session_id_request("session-refresh-branch", id)).await?;
         Ok(value.get("branch").and_then(|branch| branch.as_str()).map(str::to_string))
+    }
+
+    pub(crate) async fn list_worktrees(&self, repo_path: String) -> Result<Vec<Worktree>, String> {
+        let value =
+            send_command_async(daemon_repo_path_request("worktree-list", repo_path)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon worktree-list: {err}"))
+    }
+
+    pub(crate) async fn create_worktree(
+        &self,
+        repo_path: String,
+        branch: String,
+        start_point: Option<String>,
+        fetch_first: bool,
+    ) -> Result<String, String> {
+        let value = send_command_async(daemon_worktree_create_request(
+            repo_path,
+            branch,
+            start_point,
+            fetch_first,
+        ))
+        .await?;
+        value
+            .get("path")
+            .and_then(|path| path.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| "decode daemon worktree-create: missing path".to_string())
+    }
+
+    pub(crate) async fn remove_worktree(
+        &self,
+        repo_path: String,
+        worktree_path: String,
+        also_branch: bool,
+        force: bool,
+    ) -> Result<(), String> {
+        let _ = send_command_async(daemon_worktree_remove_request(
+            repo_path,
+            worktree_path,
+            also_branch,
+            force,
+        ))
+        .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn list_branches(&self, repo_path: String) -> Result<Vec<String>, String> {
+        let value =
+            send_command_async(daemon_repo_path_request("worktree-list-branches", repo_path))
+                .await?;
+        serde_json::from_value(value)
+            .map_err(|err| format!("decode daemon worktree-list-branches: {err}"))
+    }
+
+    pub(crate) async fn git_init(&self, path: String) -> Result<(), String> {
+        let _ = send_command_async(daemon_path_request("git-init", path)).await?;
+        Ok(())
     }
 
     pub(crate) async fn start_daemon_process(
@@ -545,6 +606,58 @@ fn daemon_session_id_request(command: &str, id: String) -> Value {
     serde_json::json!({
         "command": command,
         "session_id": id,
+    })
+}
+
+fn daemon_repo_path_request(command: &str, repo_path: String) -> Value {
+    serde_json::json!({
+        "command": command,
+        "args": { "repoPath": repo_path },
+    })
+}
+
+fn daemon_path_request(command: &str, path: String) -> Value {
+    serde_json::json!({
+        "command": command,
+        "args": { "path": path },
+    })
+}
+
+fn daemon_worktree_create_request(
+    repo_path: String,
+    branch: String,
+    start_point: Option<String>,
+    fetch_first: bool,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("repoPath".to_string(), Value::String(repo_path));
+    args.insert("branch".to_string(), Value::String(branch));
+    if let Some(start_point) = start_point {
+        args.insert("startPoint".to_string(), Value::String(start_point));
+    }
+    if fetch_first {
+        args.insert("fetchFirst".to_string(), Value::Bool(true));
+    }
+    serde_json::json!({
+        "command": "worktree-create",
+        "args": args,
+    })
+}
+
+fn daemon_worktree_remove_request(
+    repo_path: String,
+    worktree_path: String,
+    also_branch: bool,
+    force: bool,
+) -> Value {
+    serde_json::json!({
+        "command": "worktree-remove",
+        "args": {
+            "repoPath": repo_path,
+            "worktreePath": worktree_path,
+            "alsoBranch": also_branch,
+            "force": force,
+        },
     })
 }
 
@@ -1059,6 +1172,44 @@ mod tests {
 
         let refresh = daemon_session_id_request("session-refresh-branch", "session-a".to_string());
         assert_eq!(refresh["command"], "session-refresh-branch");
+    }
+
+    #[test]
+    fn daemon_worktree_requests_use_daemon_command_shape() {
+        let create = daemon_worktree_create_request(
+            "/repo".to_string(),
+            "feature/demo".to_string(),
+            Some("origin/main".to_string()),
+            true,
+        );
+        assert_eq!(create["command"], "worktree-create");
+        assert_eq!(create["args"]["repoPath"], "/repo");
+        assert_eq!(create["args"]["branch"], "feature/demo");
+        assert_eq!(create["args"]["startPoint"], "origin/main");
+        assert_eq!(create["args"]["fetchFirst"], true);
+
+        let remove = daemon_worktree_remove_request(
+            "/repo".to_string(),
+            "/repo-feature".to_string(),
+            true,
+            false,
+        );
+        assert_eq!(remove["command"], "worktree-remove");
+        assert_eq!(remove["args"]["repoPath"], "/repo");
+        assert_eq!(remove["args"]["worktreePath"], "/repo-feature");
+        assert_eq!(remove["args"]["alsoBranch"], true);
+        assert_eq!(remove["args"]["force"], false);
+
+        let list = daemon_repo_path_request("worktree-list", "/repo".to_string());
+        assert_eq!(list["command"], "worktree-list");
+        assert_eq!(list["args"]["repoPath"], "/repo");
+
+        let branches = daemon_repo_path_request("worktree-list-branches", "/repo".to_string());
+        assert_eq!(branches["command"], "worktree-list-branches");
+
+        let init = daemon_path_request("git-init", "/new-repo".to_string());
+        assert_eq!(init["command"], "git-init");
+        assert_eq!(init["args"]["path"], "/new-repo");
     }
 
     #[test]

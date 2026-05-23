@@ -182,7 +182,7 @@ The daemon exposes daemon-only CLI commands:
 roux daemon status
 ```
 
-When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, log path, loaded session/project/process counts, and daemon capabilities. The daemon also answers a small headless metadata surface over the socket: `session-list`, `session-poll`, `session-rename`, and `project-list`.
+When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, log path, loaded session/project/process counts, and daemon capabilities. The daemon also answers headless session, project, PTY, process, and worktree commands over the socket.
 
 The implemented socket protocol is documented in [`../v2/daemon-protocol.md`](../v2/daemon-protocol.md).
 
@@ -201,13 +201,13 @@ roux daemon kill daemon-process-1
 
 If Roux.app already owns the command socket, `roux daemon` refuses to start instead of replacing the live GUI socket.
 
-If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and reads session/project metadata from the daemon. Session rename also writes through the daemon. This is the first "desktop as one frontend" mode; process-backed pane operations are still local to the app for now.
+If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and routes daemon-backed sessions, PTYs, project/session metadata, process commands, and core worktree filesystem operations through the daemon. This is the first "desktop as one frontend" mode; automation hooks and watches still run in the desktop process for now.
 
 Current limits:
 
 - the desktop app still owns interactive terminal rendering and normal PTY attachment
 - pane commands such as `roux split`, `roux session send`, and top-level `roux run` still expect Roux.app to be running
-- there is not yet a `roux attach` command or daemon-owned scrollback replay
+- there is not yet a `roux attach` command
 
 Use it for daemon development and validation, not as a replacement for launching Roux.app.
 
