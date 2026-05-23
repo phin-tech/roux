@@ -1666,24 +1666,20 @@ fn decode_response(raw: &str) -> Result<Value, String> {
 }
 
 fn send_command_blocking(request: Value, timeout: Duration) -> Result<Value, String> {
-    #[cfg(windows)]
-    {
-        send_tcp_command(request, timeout)
-    }
-    #[cfg(not(windows))]
-    {
-        send_unix_command(request, timeout)
+    let endpoint = platform::resolve_socket_endpoint_spec()
+        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
+    match endpoint {
+        platform::SocketEndpoint::Unix(path) => send_unix_command(path, request, timeout),
+        platform::SocketEndpoint::Tcp(addr) => send_tcp_command(addr, request, timeout),
     }
 }
 
 #[cfg(not(windows))]
-fn send_unix_command(request: Value, timeout: Duration) -> Result<Value, String> {
+fn send_unix_command(path: PathBuf, request: Value, timeout: Duration) -> Result<Value, String> {
     use std::os::unix::net::UnixStream;
 
-    let path = platform::resolve_socket_endpoint()
-        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
-    let mut stream =
-        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
+    let mut stream = UnixStream::connect(&path)
+        .map_err(|err| format!("connect daemon socket {}: {err}", path.display()))?;
     stream
         .set_read_timeout(Some(timeout))
         .map_err(|err| format!("set daemon read timeout: {err}"))?;
@@ -1698,19 +1694,16 @@ fn send_unix_command(request: Value, timeout: Duration) -> Result<Value, String>
 }
 
 #[cfg(windows)]
-fn send_tcp_command(mut request: Value, timeout: Duration) -> Result<Value, String> {
+fn send_unix_command(_path: PathBuf, _request: Value, _timeout: Duration) -> Result<Value, String> {
+    Err("Unix socket endpoints are not supported on Windows".to_string())
+}
+
+fn send_tcp_command(addr: String, request: Value, timeout: Duration) -> Result<Value, String> {
     use std::net::{Shutdown, TcpStream};
 
-    let auth_token = platform::load_socket_auth_token()
-        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
-    if let Some(obj) = request.as_object_mut() {
-        obj.insert("auth_token".to_string(), Value::String(auth_token));
-    }
-
-    let endpoint =
-        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
-    let mut stream = TcpStream::connect(&endpoint)
-        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
+    let request = add_socket_auth_token(request)?;
+    let mut stream =
+        TcpStream::connect(&addr).map_err(|err| format!("connect daemon socket {addr}: {err}"))?;
     stream
         .set_read_timeout(Some(timeout))
         .map_err(|err| format!("set daemon read timeout: {err}"))?;
@@ -1725,12 +1718,61 @@ fn send_tcp_command(mut request: Value, timeout: Duration) -> Result<Value, Stri
     decode_response(&raw)
 }
 
+fn add_socket_auth_token(mut request: Value) -> Result<Value, String> {
+    let auth_token = platform::load_socket_auth_token()
+        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
+    if let Some(obj) = request.as_object_mut() {
+        obj.insert("auth_token".to_string(), Value::String(auth_token));
+    }
+    Ok(request)
+}
+
 fn write_request(stream: &mut impl Write, request: Value) -> Result<(), String> {
     let json = serde_json::to_string(&request).map_err(|err| format!("encode request: {err}"))?;
     stream
         .write_all(json.as_bytes())
         .and_then(|_| stream.write_all(b"\n"))
         .map_err(|err| format!("write daemon request: {err}"))
+}
+
+fn connect_daemon_stream(request: Value) -> Result<Box<dyn Read>, String> {
+    let endpoint = platform::resolve_socket_endpoint_spec()
+        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
+    match endpoint {
+        platform::SocketEndpoint::Unix(path) => connect_daemon_stream_unix(path, request),
+        platform::SocketEndpoint::Tcp(addr) => connect_daemon_stream_tcp(addr, request),
+    }
+}
+
+#[cfg(not(windows))]
+fn connect_daemon_stream_unix(path: PathBuf, request: Value) -> Result<Box<dyn Read>, String> {
+    use std::os::unix::net::UnixStream;
+
+    let mut stream = UnixStream::connect(&path)
+        .map_err(|err| format!("connect daemon socket {}: {err}", path.display()))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, request)?;
+    Ok(Box::new(stream))
+}
+
+#[cfg(windows)]
+fn connect_daemon_stream_unix(_path: PathBuf, _request: Value) -> Result<Box<dyn Read>, String> {
+    Err("Unix socket endpoints are not supported on Windows".to_string())
+}
+
+fn connect_daemon_stream_tcp(addr: String, request: Value) -> Result<Box<dyn Read>, String> {
+    use std::net::TcpStream;
+
+    let request = add_socket_auth_token(request)?;
+    let mut stream =
+        TcpStream::connect(&addr).map_err(|err| format!("connect daemon socket {addr}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, request)?;
+    Ok(Box::new(stream))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1808,50 +1850,7 @@ enum SubscriptionEventStreamFrame {
 }
 
 fn read_watch_events_blocking(app: AppHandle, watch_manager: WatchManager) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        read_watch_events_tcp(app, watch_manager)
-    }
-    #[cfg(not(windows))]
-    {
-        read_watch_events_unix(app, watch_manager)
-    }
-}
-
-#[cfg(not(windows))]
-fn read_watch_events_unix(app: AppHandle, watch_manager: WatchManager) -> Result<(), String> {
-    use std::os::unix::net::UnixStream;
-
-    let path = platform::resolve_socket_endpoint()
-        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
-    let mut stream =
-        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, daemon_watch_events_request(true))?;
-    read_watch_event_stream(stream, app, watch_manager)
-}
-
-#[cfg(windows)]
-fn read_watch_events_tcp(app: AppHandle, watch_manager: WatchManager) -> Result<(), String> {
-    use std::net::TcpStream;
-
-    let auth_token = platform::load_socket_auth_token()
-        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
-    let mut request = daemon_watch_events_request(true);
-    if let Some(obj) = request.as_object_mut() {
-        obj.insert("auth_token".to_string(), Value::String(auth_token));
-    }
-
-    let endpoint =
-        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
-    let mut stream = TcpStream::connect(&endpoint)
-        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, request)?;
+    let stream = connect_daemon_stream(daemon_watch_events_request(true))?;
     read_watch_event_stream(stream, app, watch_manager)
 }
 
@@ -1900,50 +1899,7 @@ fn handle_watch_event_frame(
 }
 
 fn read_mailbox_events_blocking(app: AppHandle) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        read_mailbox_events_tcp(app)
-    }
-    #[cfg(not(windows))]
-    {
-        read_mailbox_events_unix(app)
-    }
-}
-
-#[cfg(not(windows))]
-fn read_mailbox_events_unix(app: AppHandle) -> Result<(), String> {
-    use std::os::unix::net::UnixStream;
-
-    let path = platform::resolve_socket_endpoint()
-        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
-    let mut stream =
-        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, daemon_mailbox_events_request())?;
-    read_mailbox_event_stream(stream, app)
-}
-
-#[cfg(windows)]
-fn read_mailbox_events_tcp(app: AppHandle) -> Result<(), String> {
-    use std::net::TcpStream;
-
-    let auth_token = platform::load_socket_auth_token()
-        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
-    let mut request = daemon_mailbox_events_request();
-    if let Some(obj) = request.as_object_mut() {
-        obj.insert("auth_token".to_string(), Value::String(auth_token));
-    }
-
-    let endpoint =
-        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
-    let mut stream = TcpStream::connect(&endpoint)
-        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, request)?;
+    let stream = connect_daemon_stream(daemon_mailbox_events_request())?;
     read_mailbox_event_stream(stream, app)
 }
 
@@ -1982,50 +1938,7 @@ fn handle_mailbox_event_frame(
 }
 
 fn read_alias_events_blocking(app: AppHandle) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        read_alias_events_tcp(app)
-    }
-    #[cfg(not(windows))]
-    {
-        read_alias_events_unix(app)
-    }
-}
-
-#[cfg(not(windows))]
-fn read_alias_events_unix(app: AppHandle) -> Result<(), String> {
-    use std::os::unix::net::UnixStream;
-
-    let path = platform::resolve_socket_endpoint()
-        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
-    let mut stream =
-        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, daemon_alias_events_request())?;
-    read_alias_event_stream(stream, app)
-}
-
-#[cfg(windows)]
-fn read_alias_events_tcp(app: AppHandle) -> Result<(), String> {
-    use std::net::TcpStream;
-
-    let auth_token = platform::load_socket_auth_token()
-        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
-    let mut request = daemon_alias_events_request();
-    if let Some(obj) = request.as_object_mut() {
-        obj.insert("auth_token".to_string(), Value::String(auth_token));
-    }
-
-    let endpoint =
-        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
-    let mut stream = TcpStream::connect(&endpoint)
-        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, request)?;
+    let stream = connect_daemon_stream(daemon_alias_events_request())?;
     read_alias_event_stream(stream, app)
 }
 
@@ -2061,50 +1974,7 @@ fn handle_alias_event_frame(frame: AliasEventStreamFrame, app: &AppHandle) -> Re
 }
 
 fn read_subscription_events_blocking(app: AppHandle) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        read_subscription_events_tcp(app)
-    }
-    #[cfg(not(windows))]
-    {
-        read_subscription_events_unix(app)
-    }
-}
-
-#[cfg(not(windows))]
-fn read_subscription_events_unix(app: AppHandle) -> Result<(), String> {
-    use std::os::unix::net::UnixStream;
-
-    let path = platform::resolve_socket_endpoint()
-        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
-    let mut stream =
-        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, daemon_subscription_events_request())?;
-    read_subscription_event_stream(stream, app)
-}
-
-#[cfg(windows)]
-fn read_subscription_events_tcp(app: AppHandle) -> Result<(), String> {
-    use std::net::TcpStream;
-
-    let auth_token = platform::load_socket_auth_token()
-        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
-    let mut request = daemon_subscription_events_request();
-    if let Some(obj) = request.as_object_mut() {
-        obj.insert("auth_token".to_string(), Value::String(auth_token));
-    }
-
-    let endpoint =
-        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
-    let mut stream = TcpStream::connect(&endpoint)
-        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, request)?;
+    let stream = connect_daemon_stream(daemon_subscription_events_request())?;
     read_subscription_event_stream(stream, app)
 }
 
@@ -2147,67 +2017,10 @@ fn attach_daemon_pty_output_blocking(
     channel: Channel<IpcResponse>,
     app: AppHandle,
 ) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        attach_daemon_pty_output_tcp(id, channel, app)
-    }
-    #[cfg(not(windows))]
-    {
-        attach_daemon_pty_output_unix(id, channel, app)
-    }
-}
-
-#[cfg(not(windows))]
-fn attach_daemon_pty_output_unix(
-    id: String,
-    channel: Channel<IpcResponse>,
-    app: AppHandle,
-) -> Result<(), String> {
-    use std::os::unix::net::UnixStream;
-
-    let path = platform::resolve_socket_endpoint()
-        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
-    let mut stream =
-        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(
-        &mut stream,
-        daemon_pty_attach_request(
-            id.clone(),
-            Some(roux_runtime::pty_service::PTY_OUTPUT_LIMIT_BYTES),
-        ),
-    )?;
-    read_pty_attach_stream(id, stream, channel, app)
-}
-
-#[cfg(windows)]
-fn attach_daemon_pty_output_tcp(
-    id: String,
-    channel: Channel<IpcResponse>,
-    app: AppHandle,
-) -> Result<(), String> {
-    use std::net::TcpStream;
-
-    let auth_token = platform::load_socket_auth_token()
-        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
-    let mut request = daemon_pty_attach_request(
+    let stream = connect_daemon_stream(daemon_pty_attach_request(
         id.clone(),
         Some(roux_runtime::pty_service::PTY_OUTPUT_LIMIT_BYTES),
-    );
-    if let Some(obj) = request.as_object_mut() {
-        obj.insert("auth_token".to_string(), Value::String(auth_token));
-    }
-
-    let endpoint =
-        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
-    let mut stream = TcpStream::connect(&endpoint)
-        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, request)?;
+    ))?;
     read_pty_attach_stream(id, stream, channel, app)
 }
 

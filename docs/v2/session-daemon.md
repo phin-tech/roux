@@ -17,13 +17,15 @@ roux daemon
 
 It lives in the standalone `crates/roux-cli` crate, starts the shared runtime service host, loads persisted projects/sessions from the canonical config paths, and runs until Ctrl-C. This deliberately keeps the command-line binary separate from the Tauri desktop package.
 
-The daemon now binds the Roux command socket itself and exposes a daemon-only status endpoint:
+The daemon now binds the Roux command endpoint itself and exposes a daemon-only status endpoint:
 
 ```sh
 roux daemon status
 ```
 
 That endpoint is intentionally not implemented by the GUI socket server. It proves the daemon can own an observable capability independently of Roux.app. The daemon also serves headless durable-state and runtime commands over the same socket: session lifecycle, project list, PTYs, process registry, and core worktree filesystem operations.
+
+By default the endpoint is the local Unix socket `~/.config/roux/roux.sock` on Unix/macOS. For remote-development experiments, `ROUX_DAEMON_BIND=tcp://HOST:PORT roux daemon` binds a TCP endpoint, and clients connect with `ROUX_SOCKET=tcp://HOST:PORT`. TCP clients authenticate with `ROUX_DAEMON_TOKEN` or `ROUX_AUTH_TOKEN`; Unix/macOS TCP binds require an explicit token.
 
 The daemon writes its own runtime log to `~/.config/roux/logs/roux-daemon.log`, rotates existing daemon logs on startup, and reports the active log path from `roux daemon status`.
 

@@ -9,11 +9,20 @@ input over the socket when a daemon is connected.
 
 ## Transport
 
-Requests are JSON objects written to the Roux command socket.
+Requests are JSON objects written to the Roux command endpoint.
 
-- Unix/macOS: Unix socket at `~/.config/roux/roux.sock`.
-- Windows: localhost TCP endpoint recorded in daemon status files; requests
-  include `auth_token`.
+- Unix/macOS default: Unix socket at `~/.config/roux/roux.sock`.
+- TCP: start the daemon with `ROUX_DAEMON_BIND=tcp://HOST:PORT`. Use port
+  `0` to let the OS choose a local port; `daemon-status.socket` reports the
+  actual `tcp://HOST:PORT` endpoint.
+- Clients override discovery with `ROUX_SOCKET=tcp://HOST:PORT` or
+  `ROUX_SOCKET=unix:///path/to/roux.sock`. Plain `ROUX_SOCKET` values remain
+  platform-native: Unix paths on Unix/macOS, TCP addresses on Windows.
+- TCP requests include `auth_token`. Clients load it from `ROUX_DAEMON_TOKEN`,
+  `ROUX_AUTH_TOKEN`, or the local token file written by a locally-started TCP
+  daemon. On Unix/macOS, explicit TCP daemon binds require
+  `ROUX_DAEMON_TOKEN`; Windows local TCP binds generate and write a token when
+  one is not supplied.
 - Normal commands return one JSON response and close the connection.
 - `daemon-pty-attach` switches to a line-delimited JSON streaming response.
 
@@ -24,7 +33,7 @@ Requests are JSON objects written to the Roux command socket.
   "command": "session-list",
   "session_id": "optional-session-id",
   "pane_id": "optional-pane-id",
-  "auth_token": "windows-only-token",
+  "auth_token": "required-for-tcp",
   "args": {}
 }
 ```

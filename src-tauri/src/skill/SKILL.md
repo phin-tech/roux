@@ -23,7 +23,7 @@ shell behavior.
 |---------------------|--------------------------------------------------------------------|
 | `ROUX_SESSION=1`    | Marker. You are inside a Roux pane.                                |
 | `ROUX_CLI`          | Absolute path to `roux`. Prefer this over relying on PATH.         |
-| `ROUX_SOCKET`       | Unix socket / Windows named endpoint Roux listens on.              |
+| `ROUX_SOCKET`       | Roux command endpoint (`unix:///...`, `tcp://host:port`, or native default). |
 | `ROUX_SESSION_ID`   | Id of the session this pane belongs to.                            |
 | `ROUX_PANE_ID`      | Id of this pane.                                                   |
 | `ROUX_PROJECT_ID`   | Id of the project this session belongs to, if any.                 |

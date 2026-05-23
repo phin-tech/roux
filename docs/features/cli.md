@@ -196,7 +196,7 @@ Start Roux's experimental headless runtime host.
 roux daemon
 ```
 
-This is a foundation for moving long-lived runtime services out of the Tauri process. Today it loads persisted projects and sessions, starts the shared runtime service host, binds the Roux command socket, and runs until Ctrl-C.
+This is a foundation for moving long-lived runtime services out of the Tauri process. Today it loads persisted projects and sessions, starts the shared runtime service host, binds the Roux command endpoint, and runs until Ctrl-C.
 
 The daemon exposes daemon-only CLI commands:
 
@@ -204,7 +204,9 @@ The daemon exposes daemon-only CLI commands:
 roux daemon status
 ```
 
-When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, log path, loaded session/project/process counts, and daemon capabilities. The daemon also answers headless session, project, PTY, process, worktree, alias, mailbox, and bus commands over the socket.
+When `roux daemon` owns the endpoint, `roux daemon status` returns the daemon PID, uptime, socket endpoint, log path, loaded session/project/process counts, and daemon capabilities. The daemon also answers headless session, project, PTY, process, worktree, alias, mailbox, and bus commands over the socket.
+
+The default endpoint is the local Unix socket on Unix/macOS. For remote-development experiments, start a TCP daemon with `ROUX_DAEMON_TOKEN=... ROUX_DAEMON_BIND=tcp://127.0.0.1:7777 roux daemon`, then point a client at it with `ROUX_SOCKET=tcp://127.0.0.1:7777 ROUX_AUTH_TOKEN=... roux daemon status`.
 
 The implemented socket protocol is documented in [`../v2/daemon-protocol.md`](../v2/daemon-protocol.md).
 

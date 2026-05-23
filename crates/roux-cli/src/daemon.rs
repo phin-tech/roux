@@ -5,7 +5,6 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-#[cfg(windows)]
 use tokio::net::TcpListener;
 #[cfg(not(windows))]
 use tokio::net::UnixListener;
@@ -67,12 +66,16 @@ pub async fn run() -> Result<(), String> {
     let (host, joins) = services.spawn_with(tokio::spawn);
     let watch_runner = WatchRunner::new(host.watch_handle.clone(), daemon_hook_manager());
     watch_runner.start_all().await;
-    let identity =
-        DaemonIdentity::new(daemon_socket_path(), log.path().clone(), daemon_auth_token());
+    let endpoint = platform::daemon_bind_endpoint();
+    let auth_token = daemon_auth_token(&endpoint)?;
+    let identity = DaemonIdentity::new(endpoint, log.path().clone(), auth_token);
     let socket_server =
         start_socket_server(host.clone(), watch_runner.clone(), identity.clone(), log.clone())
             .await?;
-    log.write(&format!("Started on {}; press Ctrl-C to stop", identity.socket.display()));
+    log.write(&format!(
+        "Started on {}; press Ctrl-C to stop",
+        socket_server.endpoint.display_value()
+    ));
 
     wait_for_shutdown_signal().await?;
     log.write("Shutdown signal received");
@@ -106,13 +109,18 @@ struct DaemonIdentity {
     log_path: PathBuf,
     #[cfg_attr(not(windows), allow(dead_code))]
     auth_token: Option<String>,
+    endpoint: platform::SocketEndpoint,
     alias_manager: AliasManager,
     subscription_manager: SubscriptionManager,
     mailbox_manager: MailboxManager,
 }
 
 impl DaemonIdentity {
-    fn new(socket: PathBuf, log_path: PathBuf, auth_token: Option<String>) -> Self {
+    fn new(
+        endpoint: platform::SocketEndpoint,
+        log_path: PathBuf,
+        auth_token: Option<String>,
+    ) -> Self {
         let subscription_manager =
             SubscriptionManager::load_from(paths::roux_config_dir().join("subscriptions.json"));
         let mailbox_manager = MailboxManager::load_from(
@@ -122,23 +130,48 @@ impl DaemonIdentity {
         .with_subscriptions(subscription_manager.clone());
         Self {
             started_at_ms: unix_now_ms(),
-            socket,
+            socket: endpoint_path(&endpoint),
             log_path,
             auth_token,
+            endpoint,
             alias_manager: AliasManager::load_from(paths::roux_config_dir().join("aliases.json")),
             subscription_manager,
             mailbox_manager,
         }
     }
 
+    fn endpoint_display(&self) -> String {
+        self.endpoint.display_value()
+    }
+
     #[cfg(test)]
     fn new_for_test(socket: impl Into<PathBuf>) -> Self {
         let subscription_manager = SubscriptionManager::in_memory();
+        let socket = socket.into();
         Self {
             started_at_ms: 1_000,
-            socket: socket.into(),
+            socket: socket.clone(),
             log_path: PathBuf::from("/tmp/roux-daemon.log"),
             auth_token: None,
+            endpoint: platform::SocketEndpoint::Unix(socket),
+            alias_manager: AliasManager::in_memory(),
+            subscription_manager: subscription_manager.clone(),
+            mailbox_manager: MailboxManager::in_memory().with_subscriptions(subscription_manager),
+        }
+    }
+
+    #[cfg(test)]
+    fn new_for_test_with_endpoint(
+        endpoint: platform::SocketEndpoint,
+        auth_token: Option<String>,
+    ) -> Self {
+        let subscription_manager = SubscriptionManager::in_memory();
+        Self {
+            started_at_ms: 1_000,
+            socket: endpoint_path(&endpoint),
+            log_path: PathBuf::from("/tmp/roux-daemon.log"),
+            auth_token,
+            endpoint,
             alias_manager: AliasManager::in_memory(),
             subscription_manager: subscription_manager.clone(),
             mailbox_manager: MailboxManager::in_memory().with_subscriptions(subscription_manager),
@@ -148,11 +181,13 @@ impl DaemonIdentity {
     #[cfg(test)]
     fn new_for_test_with_alias_path(socket: impl Into<PathBuf>, alias_path: PathBuf) -> Self {
         let subscription_manager = SubscriptionManager::in_memory();
+        let socket = socket.into();
         Self {
             started_at_ms: 1_000,
-            socket: socket.into(),
+            socket: socket.clone(),
             log_path: PathBuf::from("/tmp/roux-daemon.log"),
             auth_token: None,
+            endpoint: platform::SocketEndpoint::Unix(socket),
             alias_manager: AliasManager::load_from(alias_path),
             subscription_manager: subscription_manager.clone(),
             mailbox_manager: MailboxManager::in_memory().with_subscriptions(subscription_manager),
@@ -168,11 +203,13 @@ impl DaemonIdentity {
         mailbox_read_state_path: PathBuf,
     ) -> Self {
         let subscription_manager = SubscriptionManager::load_from(subscription_path);
+        let socket = socket.into();
         Self {
             started_at_ms: 1_000,
-            socket: socket.into(),
+            socket: socket.clone(),
             log_path: PathBuf::from("/tmp/roux-daemon.log"),
             auth_token: None,
+            endpoint: platform::SocketEndpoint::Unix(socket),
             alias_manager: AliasManager::load_from(alias_path),
             subscription_manager: subscription_manager.clone(),
             mailbox_manager: MailboxManager::load_from(
@@ -181,6 +218,13 @@ impl DaemonIdentity {
             )
             .with_subscriptions(subscription_manager),
         }
+    }
+}
+
+fn endpoint_path(endpoint: &platform::SocketEndpoint) -> PathBuf {
+    match endpoint {
+        platform::SocketEndpoint::Unix(path) => path.clone(),
+        platform::SocketEndpoint::Tcp(_) => PathBuf::from(endpoint.display_value()),
     }
 }
 
@@ -290,6 +334,7 @@ impl Response {
 struct SocketServerHandle {
     join: tokio::task::JoinHandle<()>,
     cleanup: SocketCleanup,
+    endpoint: platform::SocketEndpoint,
 }
 
 impl SocketServerHandle {
@@ -300,24 +345,13 @@ impl SocketServerHandle {
 }
 
 struct SocketCleanup {
-    #[cfg(not(windows))]
-    socket: PathBuf,
-    #[cfg(windows)]
-    endpoint_file: PathBuf,
-    #[cfg(windows)]
-    token_file: PathBuf,
+    paths: Vec<PathBuf>,
 }
 
 impl SocketCleanup {
     fn remove(self) {
-        #[cfg(not(windows))]
-        {
-            let _ = std::fs::remove_file(self.socket);
-        }
-        #[cfg(windows)]
-        {
-            let _ = std::fs::remove_file(self.endpoint_file);
-            let _ = std::fs::remove_file(self.token_file);
+        for path in self.paths {
+            let _ = std::fs::remove_file(path);
         }
     }
 }
@@ -325,80 +359,106 @@ impl SocketCleanup {
 async fn start_socket_server(
     host: RuntimeHost,
     watch_runner: WatchRunner,
-    identity: DaemonIdentity,
+    mut identity: DaemonIdentity,
     log: DaemonLog,
 ) -> Result<SocketServerHandle, String> {
-    #[cfg(not(windows))]
-    {
-        let listener = bind_unix_listener(&identity.socket)?;
-        log.write(&format!("Socket server listening on {}", identity.socket.display()));
-        let socket = identity.socket.clone();
-        let join = tokio::spawn(async move {
-            loop {
-                let (stream, _) = match listener.accept().await {
-                    Ok(conn) => conn,
-                    Err(err) => {
-                        log.write(&format!("Socket accept failed: {err}"));
-                        continue;
+    match identity.endpoint.clone() {
+        platform::SocketEndpoint::Unix(path) => {
+            #[cfg(not(windows))]
+            {
+                let listener = bind_unix_listener(&path)?;
+                log.write(&format!("Socket server listening on {}", path.display()));
+                let cleanup_paths = vec![path.clone()];
+                let endpoint = platform::SocketEndpoint::Unix(path);
+                let join = tokio::spawn(async move {
+                    loop {
+                        let (stream, _) = match listener.accept().await {
+                            Ok(conn) => conn,
+                            Err(err) => {
+                                log.write(&format!("Socket accept failed: {err}"));
+                                continue;
+                            }
+                        };
+                        let host = host.clone();
+                        let watch_runner = watch_runner.clone();
+                        let identity = identity.clone();
+                        let log = log.clone();
+                        tokio::spawn(async move {
+                            let (reader, mut writer) = stream.into_split();
+                            let mut reader = BufReader::new(reader);
+                            handle_connection(
+                                &mut reader,
+                                &mut writer,
+                                &host,
+                                &watch_runner,
+                                &identity,
+                                &log,
+                            )
+                            .await;
+                        });
                     }
-                };
-                let host = host.clone();
-                let watch_runner = watch_runner.clone();
-                let identity = identity.clone();
-                let log = log.clone();
-                tokio::spawn(async move {
-                    let (reader, mut writer) = stream.into_split();
-                    let mut reader = BufReader::new(reader);
-                    handle_connection(
-                        &mut reader,
-                        &mut writer,
-                        &host,
-                        &watch_runner,
-                        &identity,
-                        &log,
-                    )
-                    .await;
                 });
+                Ok(SocketServerHandle {
+                    join,
+                    cleanup: SocketCleanup { paths: cleanup_paths },
+                    endpoint,
+                })
             }
-        });
-        Ok(SocketServerHandle { join, cleanup: SocketCleanup { socket } })
-    }
 
-    #[cfg(windows)]
-    {
-        let listener = bind_windows_listener(&identity).await?;
-        log.write(&format!("Socket server listening on {}", identity.socket.display()));
-        let endpoint_file = platform::socket_addr_file_path();
-        let token_file = platform::socket_auth_token_file_path();
-        let join = tokio::spawn(async move {
-            loop {
-                let (stream, _) = match listener.accept().await {
-                    Ok(conn) => conn,
-                    Err(err) => {
-                        log.write(&format!("Socket accept failed: {err}"));
-                        continue;
-                    }
-                };
-                let host = host.clone();
-                let watch_runner = watch_runner.clone();
-                let identity = identity.clone();
-                let log = log.clone();
-                tokio::spawn(async move {
-                    let (reader, mut writer) = stream.into_split();
-                    let mut reader = BufReader::new(reader);
-                    handle_connection(
-                        &mut reader,
-                        &mut writer,
-                        &host,
-                        &watch_runner,
-                        &identity,
-                        &log,
-                    )
-                    .await;
-                });
+            #[cfg(windows)]
+            {
+                Err(format!(
+                    "Unix socket endpoints are not supported on Windows: {}",
+                    path.display()
+                ))
             }
-        });
-        Ok(SocketServerHandle { join, cleanup: SocketCleanup { endpoint_file, token_file } })
+        }
+        platform::SocketEndpoint::Tcp(addr) => {
+            let listener = bind_tcp_listener(&addr, &identity).await?;
+            let local_addr = listener
+                .local_addr()
+                .map_err(|err| format!("resolve daemon socket address: {err}"))?
+                .to_string();
+            identity.endpoint = platform::SocketEndpoint::Tcp(local_addr.clone());
+            identity.socket = endpoint_path(&identity.endpoint);
+            log.write(&format!("Socket server listening on tcp://{local_addr}"));
+            let endpoint = identity.endpoint.clone();
+            let cleanup_paths =
+                vec![platform::socket_addr_file_path(), platform::socket_auth_token_file_path()];
+            let join = tokio::spawn(async move {
+                loop {
+                    let (stream, _) = match listener.accept().await {
+                        Ok(conn) => conn,
+                        Err(err) => {
+                            log.write(&format!("Socket accept failed: {err}"));
+                            continue;
+                        }
+                    };
+                    let host = host.clone();
+                    let watch_runner = watch_runner.clone();
+                    let identity = identity.clone();
+                    let log = log.clone();
+                    tokio::spawn(async move {
+                        let (reader, mut writer) = stream.into_split();
+                        let mut reader = BufReader::new(reader);
+                        handle_connection(
+                            &mut reader,
+                            &mut writer,
+                            &host,
+                            &watch_runner,
+                            &identity,
+                            &log,
+                        )
+                        .await;
+                    });
+                }
+            });
+            Ok(SocketServerHandle {
+                join,
+                cleanup: SocketCleanup { paths: cleanup_paths },
+                endpoint,
+            })
+        }
     }
 }
 
@@ -439,21 +499,24 @@ fn bind_unix_listener(path: &Path) -> Result<UnixListener, String> {
     Ok(listener)
 }
 
-#[cfg(windows)]
-async fn bind_windows_listener(identity: &DaemonIdentity) -> Result<TcpListener, String> {
+async fn bind_tcp_listener(addr: &str, identity: &DaemonIdentity) -> Result<TcpListener, String> {
+    if identity.auth_token.as_deref().unwrap_or_default().is_empty() {
+        return Err("TCP daemon bind requires ROUX_DAEMON_TOKEN".to_string());
+    }
+
     if let Some(parent) = platform::socket_addr_file_path().parent() {
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("create socket directory {}: {err}", parent.display()))?;
     }
 
-    let listener = TcpListener::bind("127.0.0.1:0")
+    let listener = TcpListener::bind(addr)
         .await
-        .map_err(|err| format!("bind daemon socket on localhost: {err}"))?;
-    let addr = listener
+        .map_err(|err| format!("bind daemon TCP socket {addr}: {err}"))?;
+    let local_addr = listener
         .local_addr()
         .map_err(|err| format!("resolve daemon socket address: {err}"))?
         .to_string();
-    std::fs::write(platform::socket_addr_file_path(), &addr)
+    std::fs::write(platform::socket_addr_file_path(), &local_addr)
         .map_err(|err| format!("write daemon socket endpoint: {err}"))?;
     let token = identity.auth_token.as_deref().unwrap_or_default();
     std::fs::write(platform::socket_auth_token_file_path(), token)
@@ -776,7 +839,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
     Response::success(serde_json::json!({
         "kind": "roux-daemon",
         "pid": std::process::id(),
-        "socket": identity.socket.to_string_lossy(),
+        "socket": identity.endpoint_display(),
         "logPath": identity.log_path.to_string_lossy(),
         "startedAtMs": identity.started_at_ms,
         "uptimeMs": unix_now_ms().saturating_sub(identity.started_at_ms),
@@ -1203,14 +1266,9 @@ where
 }
 
 fn request_authorized(req: &Request, identity: &DaemonIdentity) -> bool {
-    #[cfg(windows)]
-    {
-        req.auth_token.as_deref() == identity.auth_token.as_deref()
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (req, identity);
-        true
+    match identity.auth_token.as_deref() {
+        Some(expected) if !expected.is_empty() => req.auth_token.as_deref() == Some(expected),
+        _ => true,
     }
 }
 
@@ -3650,7 +3708,7 @@ fn parse_pty_env_request(args: &Value, identity: &DaemonIdentity) -> PtyEnvReque
             .or_else(|| args.get("socket_path"))
             .and_then(|socket_path| socket_path.as_str())
             .map(str::to_string)
-            .or_else(|| Some(identity.socket.to_string_lossy().into_owned())),
+            .or_else(|| Some(identity.endpoint_display())),
         cli_bin_dir,
         cli_path,
         pane_alias: args
@@ -3890,19 +3948,37 @@ fn unix_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn daemon_auth_token() -> Option<String> {
-    #[cfg(windows)]
-    {
-        Some(format!("{}-{}", std::process::id(), unix_now_ms()))
-    }
-    #[cfg(not(windows))]
-    {
-        None
+fn daemon_auth_token(endpoint: &platform::SocketEndpoint) -> Result<Option<String>, String> {
+    match endpoint {
+        platform::SocketEndpoint::Unix(_) => Ok(None),
+        platform::SocketEndpoint::Tcp(addr) => {
+            if let Some(token) = daemon_env_auth_token() {
+                return Ok(Some(token));
+            }
+
+            #[cfg(windows)]
+            {
+                Ok(Some(format!("{}-{}", std::process::id(), unix_now_ms())))
+            }
+
+            #[cfg(not(windows))]
+            {
+                Err(format!("TCP daemon bind tcp://{addr} requires ROUX_DAEMON_TOKEN"))
+            }
+        }
     }
 }
 
-fn daemon_socket_path() -> PathBuf {
-    platform::resolve_socket_endpoint().map(PathBuf::from).unwrap_or_else(platform::socket_path)
+fn daemon_env_auth_token() -> Option<String> {
+    for key in ["ROUX_DAEMON_TOKEN", "ROUX_AUTH_TOKEN"] {
+        if let Ok(value) = std::env::var(key) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
 }
 
 async fn wait_for_shutdown_signal() -> Result<(), String> {
@@ -6327,7 +6403,11 @@ post-worktree-remove = "{post_remove}"
         let server = start_socket_server(
             host.clone(),
             watch_runner,
-            DaemonIdentity::new(socket_path.clone(), log_path.clone(), None),
+            DaemonIdentity::new(
+                platform::SocketEndpoint::Unix(socket_path.clone()),
+                log_path.clone(),
+                None,
+            ),
             DaemonLog::new_for_test(log_path.clone()),
         )
         .await
@@ -6356,5 +6436,24 @@ post-worktree-remove = "{post_remove}"
         for join in joins {
             join.await.unwrap();
         }
+    }
+
+    #[test]
+    fn request_authorized_requires_identity_token() {
+        let identity = DaemonIdentity::new_for_test_with_endpoint(
+            platform::SocketEndpoint::Tcp("127.0.0.1:7777".to_string()),
+            Some("secret-token".to_string()),
+        );
+        let request = |auth_token: Option<&str>| Request {
+            command: "daemon-status".to_string(),
+            session_id: None,
+            pane_id: None,
+            auth_token: auth_token.map(str::to_string),
+            args: serde_json::json!({}),
+        };
+
+        assert!(!request_authorized(&request(None), &identity));
+        assert!(!request_authorized(&request(Some("wrong-token")), &identity));
+        assert!(request_authorized(&request(Some("secret-token")), &identity));
     }
 }

@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::platform;
+use crate::platform::{self, SocketEndpoint};
 
 /// Connect to Roux and stream a long-lived command (e.g. `mailbox-watch`).
 /// Each newline-delimited JSON line the server emits is passed to
@@ -13,29 +13,9 @@ where
 {
     use std::io::BufRead;
 
-    #[cfg(windows)]
-    let stream: Box<dyn StreamSocket> = {
-        use std::net::TcpStream;
-        let mut request = request;
-        let auth_token = platform::load_socket_auth_token()
-            .ok_or_else(|| "Roux command channel token not found".to_string())?;
-        if let Some(obj) = request.as_object_mut() {
-            obj.insert("auth_token".to_string(), Value::String(auth_token));
-        }
-        let endpoint =
-            platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
-        let s = TcpStream::connect(&endpoint).map_err(map_connect_err)?;
-        Box::new(WindowsStream(s, request))
-    };
-
-    #[cfg(not(windows))]
-    let stream: Box<dyn StreamSocket> = {
-        use std::os::unix::net::UnixStream;
-        let path =
-            platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
-        let s = UnixStream::connect(&path).map_err(map_connect_err)?;
-        Box::new(UnixStreamHolder(s, request))
-    };
+    let endpoint = platform::resolve_socket_endpoint_spec()
+        .ok_or_else(|| "Roux is not running".to_string())?;
+    let stream = connect_stream_socket(endpoint, request)?;
 
     stream.send_request()?;
 
@@ -100,11 +80,9 @@ impl StreamSocket for UnixStreamHolder {
     }
 }
 
-#[cfg(windows)]
-struct WindowsStream(std::net::TcpStream, Value);
+struct TcpStreamHolder(std::net::TcpStream, Value);
 
-#[cfg(windows)]
-impl StreamSocket for WindowsStream {
+impl StreamSocket for TcpStreamHolder {
     fn send_request(&self) -> Result<(), String> {
         use std::io::Write;
         let json = serde_json::to_string(&self.1).unwrap();
@@ -118,99 +96,115 @@ impl StreamSocket for WindowsStream {
     }
 }
 
-pub fn send_socket_command(request: Value) -> Result<Value, String> {
-    #[cfg(windows)]
-    {
-        use std::io::{Read, Write};
-        use std::net::TcpStream;
-        use std::time::Duration;
-
-        let mut request = request;
-        let auth_token = platform::load_socket_auth_token()
-            .ok_or_else(|| "Roux command channel token not found".to_string())?;
-        if let Some(request_obj) = request.as_object_mut() {
-            request_obj.insert("auth_token".to_string(), Value::String(auth_token));
+fn connect_stream_socket(
+    endpoint: SocketEndpoint,
+    request: Value,
+) -> Result<Box<dyn StreamSocket>, String> {
+    match endpoint {
+        SocketEndpoint::Unix(path) => connect_unix_stream_socket(path, request),
+        SocketEndpoint::Tcp(addr) => {
+            let request = add_auth_token(request)?;
+            let s = std::net::TcpStream::connect(&addr).map_err(map_connect_err)?;
+            Ok(Box::new(TcpStreamHolder(s, request)))
         }
-
-        let endpoint =
-            platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
-        let mut stream = TcpStream::connect(&endpoint).map_err(|e| {
-            if matches!(
-                e.kind(),
-                std::io::ErrorKind::NotFound
-                    | std::io::ErrorKind::ConnectionRefused
-                    | std::io::ErrorKind::AddrNotAvailable
-            ) {
-                "Roux is not running".to_string()
-            } else {
-                format!("Failed to connect to Roux: {}", e)
-            }
-        })?;
-
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .map_err(|e| format!("Failed to set timeout: {}", e))?;
-        stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
-            .map_err(|e| format!("Failed to set timeout: {}", e))?;
-
-        let json = serde_json::to_string(&request).unwrap();
-        stream.write_all(json.as_bytes()).map_err(|e| format!("Failed to send command: {}", e))?;
-        stream.write_all(b"\n").map_err(|e| format!("Failed to send command: {}", e))?;
-        stream
-            .shutdown(std::net::Shutdown::Write)
-            .map_err(|e| format!("Failed to shutdown write: {}", e))?;
-
-        let mut response = String::new();
-        let mut reader = std::io::BufReader::new(stream);
-        reader
-            .read_to_string(&mut response)
-            .map_err(|e| format!("Failed to read response: {}", e))?;
-
-        return serde_json::from_str(&response).map_err(|e| format!("Invalid response: {}", e));
     }
+}
 
-    #[cfg(not(windows))]
-    {
-        use std::io::{Read, Write};
-        use std::os::unix::net::UnixStream;
-        use std::time::Duration;
+#[cfg(not(windows))]
+fn connect_unix_stream_socket(
+    path: std::path::PathBuf,
+    request: Value,
+) -> Result<Box<dyn StreamSocket>, String> {
+    let s = std::os::unix::net::UnixStream::connect(&path).map_err(map_connect_err)?;
+    Ok(Box::new(UnixStreamHolder(s, request)))
+}
 
-        let path =
-            platform::resolve_socket_endpoint().ok_or_else(|| "Roux is not running".to_string())?;
-        let stream = UnixStream::connect(&path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound
-                || e.kind() == std::io::ErrorKind::ConnectionRefused
-            {
-                "Roux is not running".to_string()
-            } else {
-                format!("Failed to connect to Roux: {}", e)
-            }
-        })?;
+#[cfg(windows)]
+fn connect_unix_stream_socket(
+    _path: std::path::PathBuf,
+    _request: Value,
+) -> Result<Box<dyn StreamSocket>, String> {
+    Err("Unix socket endpoints are not supported on Windows".to_string())
+}
 
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .map_err(|e| format!("Failed to set timeout: {}", e))?;
-        stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
-            .map_err(|e| format!("Failed to set timeout: {}", e))?;
-
-        let json = serde_json::to_string(&request).unwrap();
-        let mut stream_ref = &stream;
-        stream_ref
-            .write_all(json.as_bytes())
-            .map_err(|e| format!("Failed to send command: {}", e))?;
-        stream_ref.write_all(b"\n").map_err(|e| format!("Failed to send command: {}", e))?;
-        stream
-            .shutdown(std::net::Shutdown::Write)
-            .map_err(|e| format!("Failed to shutdown write: {}", e))?;
-
-        let mut response = String::new();
-        let mut reader = std::io::BufReader::new(&stream);
-        reader
-            .read_to_string(&mut response)
-            .map_err(|e| format!("Failed to read response: {}", e))?;
-
-        serde_json::from_str(&response).map_err(|e| format!("Invalid response: {}", e))
+pub fn send_socket_command(request: Value) -> Result<Value, String> {
+    let endpoint = platform::resolve_socket_endpoint_spec()
+        .ok_or_else(|| "Roux is not running".to_string())?;
+    match endpoint {
+        SocketEndpoint::Unix(path) => send_unix_socket_command(path, request),
+        SocketEndpoint::Tcp(addr) => send_tcp_socket_command(addr, request),
     }
+}
+
+fn add_auth_token(mut request: Value) -> Result<Value, String> {
+    let auth_token = platform::load_socket_auth_token()
+        .ok_or_else(|| "Roux command channel token not found".to_string())?;
+    if let Some(request_obj) = request.as_object_mut() {
+        request_obj.insert("auth_token".to_string(), Value::String(auth_token));
+    }
+    Ok(request)
+}
+
+fn send_tcp_socket_command(addr: String, request: Value) -> Result<Value, String> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let request = add_auth_token(request)?;
+    let mut stream = TcpStream::connect(&addr).map_err(map_connect_err)?;
+
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| format!("Failed to set timeout: {}", e))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| format!("Failed to set timeout: {}", e))?;
+
+    let json = serde_json::to_string(&request).unwrap();
+    stream.write_all(json.as_bytes()).map_err(|e| format!("Failed to send command: {}", e))?;
+    stream.write_all(b"\n").map_err(|e| format!("Failed to send command: {}", e))?;
+    stream
+        .shutdown(std::net::Shutdown::Write)
+        .map_err(|e| format!("Failed to shutdown write: {}", e))?;
+
+    let mut response = String::new();
+    let mut reader = std::io::BufReader::new(stream);
+    reader.read_to_string(&mut response).map_err(|e| format!("Failed to read response: {}", e))?;
+
+    serde_json::from_str(&response).map_err(|e| format!("Invalid response: {}", e))
+}
+
+#[cfg(not(windows))]
+fn send_unix_socket_command(path: std::path::PathBuf, request: Value) -> Result<Value, String> {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
+    let stream = UnixStream::connect(&path).map_err(map_connect_err)?;
+
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| format!("Failed to set timeout: {}", e))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| format!("Failed to set timeout: {}", e))?;
+
+    let json = serde_json::to_string(&request).unwrap();
+    let mut stream_ref = &stream;
+    stream_ref.write_all(json.as_bytes()).map_err(|e| format!("Failed to send command: {}", e))?;
+    stream_ref.write_all(b"\n").map_err(|e| format!("Failed to send command: {}", e))?;
+    stream
+        .shutdown(std::net::Shutdown::Write)
+        .map_err(|e| format!("Failed to shutdown write: {}", e))?;
+
+    let mut response = String::new();
+    let mut reader = std::io::BufReader::new(&stream);
+    reader.read_to_string(&mut response).map_err(|e| format!("Failed to read response: {}", e))?;
+
+    serde_json::from_str(&response).map_err(|e| format!("Invalid response: {}", e))
+}
+
+#[cfg(windows)]
+fn send_unix_socket_command(_path: std::path::PathBuf, _request: Value) -> Result<Value, String> {
+    Err("Unix socket endpoints are not supported on Windows".to_string())
 }
