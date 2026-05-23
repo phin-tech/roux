@@ -194,9 +194,15 @@ Start Roux's experimental headless runtime host.
 
 ```sh
 roux daemon
+roux daemon start
+roux daemon status
+roux daemon stop
+roux daemon restart
+roux daemon logs
+roux daemon logs --follow
 ```
 
-This is a foundation for moving long-lived runtime services out of the Tauri process. Today it loads persisted projects and sessions, starts the shared runtime service host, binds the Roux command endpoint, and runs until Ctrl-C.
+This is a foundation for moving long-lived runtime services out of the Tauri process. `roux daemon` runs the daemon in the foreground for development, logs, and process supervisors. `roux daemon start` starts the same daemon as a detached background process, waits briefly for readiness, and prints the PID, socket, and log path. `roux daemon stop` asks the daemon to shut down gracefully over the socket. `restart` composes stop/start, and `logs` prints the daemon log.
 
 The daemon exposes daemon-only CLI commands:
 
@@ -223,7 +229,7 @@ roux daemon kill daemon-process-1
 
 `roux daemon run` starts the command inside the daemon process, retains stdout/stderr output in the daemon, and returns a daemon process id. `roux daemon output` polls the retained output and current exit status.
 
-If Roux.app already owns the command socket, `roux daemon` refuses to start instead of replacing the live GUI socket.
+If Roux.app already owns the command socket, foreground `roux daemon` refuses to start instead of replacing the live GUI socket. `roux daemon start` is idempotent: if a daemon is already running, it prints the existing PID/socket/log path and exits successfully.
 
 If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and routes daemon-backed sessions, PTYs, project/session metadata, process commands, core worktree filesystem operations, durable alias state, durable notes vault commands, durable watch state, watch execution, and automation hook list/preview/run/approval/log operations through the daemon. If no local daemon is running, Roux.app starts one managed daemon subprocess and connects to it; set `ROUX_DAEMON_AUTOSTART=0` only when you explicitly want the desktop to self-host runtime state for development. Worktree create/remove automation hooks run on the daemon host for daemon-owned worktree operations. `roux run`, `roux split`, `roux shell`, `roux session create`, `roux session panes list|create`, `roux session send`, `roux session kill`, `roux alias ...`, MCP latest-output reads, `roux notes ...`, and `roux hook show|run` also work against the daemon socket owner. Watch notification presentation still runs in the desktop process.
 

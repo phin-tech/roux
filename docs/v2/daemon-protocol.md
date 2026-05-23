@@ -57,6 +57,11 @@ compatibility.
 should prefer capability checks over hardcoded assumptions while this protocol
 is experimental.
 
+`daemon-stop` requests graceful daemon shutdown and returns
+`{ "stopping": true, "pid": ..., "socket": "...", "logPath": "..." }` before
+the daemon closes its socket and runtime services. It is used by
+`roux daemon stop` and `roux daemon restart`.
+
 ## Session Commands
 
 `session-list`

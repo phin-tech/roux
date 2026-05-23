@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod attach;
 mod cli_socket;
@@ -294,8 +294,23 @@ enum MailboxAction {
 
 #[derive(Subcommand)]
 enum DaemonAction {
+    /// Start the daemon in the background
+    Start,
+    /// Ask the daemon to stop gracefully
+    Stop,
+    /// Stop the daemon if running, then start it in the background
+    Restart,
     /// Query the daemon-only status endpoint
     Status,
+    /// Show daemon runtime logs
+    Logs {
+        /// Number of lines to print before exiting
+        #[arg(short = 'n', long, default_value_t = 200)]
+        lines: usize,
+        /// Follow the log file with `tail -f`
+        #[arg(short, long)]
+        follow: bool,
+    },
     /// Start a daemon-owned shell command and return its process id
     Run {
         /// Shell command to run inside the daemon
@@ -899,24 +914,195 @@ fn extract_transcript_summary(path: &str) -> Option<(Option<String>, Option<Stri
 }
 
 fn run_socket_command(request: Value) {
-    match send_socket_command(request) {
-        Ok(response) => {
-            let ok = response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-            if ok {
-                if let Some(data) = response.get("data") {
-                    println!("{}", serde_json::to_string_pretty(data).unwrap());
-                }
-            } else {
-                let error =
-                    response.get("error").and_then(|e| e.as_str()).unwrap_or("unknown error");
-                eprintln!("Error: {}", error);
-                std::process::exit(1);
-            }
-        }
+    match socket_command_data(request) {
+        Ok(Some(data)) => println!("{}", serde_json::to_string_pretty(&data).unwrap()),
+        Ok(None) => {}
         Err(e) => {
             eprintln!("{}", e);
             std::process::exit(1);
         }
+    }
+}
+
+fn socket_command_data(request: Value) -> Result<Option<Value>, String> {
+    let response = send_socket_command(request)?;
+    let ok = response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+    if ok {
+        Ok(response.get("data").cloned())
+    } else {
+        let error = response.get("error").and_then(|e| e.as_str()).unwrap_or("unknown error");
+        Err(error.to_string())
+    }
+}
+
+fn daemon_status_data() -> Result<Value, String> {
+    socket_command_data(serde_json::json!({ "command": "daemon-status" }))?
+        .ok_or_else(|| "daemon-status returned no data".to_string())
+}
+
+fn is_not_running_error(error: &str) -> bool {
+    error == "Roux is not running"
+}
+
+fn start_daemon_background() -> Result<(), String> {
+    match daemon_status_data() {
+        Ok(status) => {
+            print_daemon_lifecycle_line("Roux daemon already running", &status);
+            return Ok(());
+        }
+        Err(error) if is_not_running_error(&error) => {}
+        Err(error) => return Err(error),
+    }
+
+    let pid = spawn_detached_daemon()?;
+    let started = Instant::now();
+    let timeout = Duration::from_secs(3);
+    let poll_interval = Duration::from_millis(100);
+
+    loop {
+        match daemon_status_data() {
+            Ok(status) => {
+                print_daemon_lifecycle_line("Started roux daemon", &status);
+                return Ok(());
+            }
+            Err(error) if is_not_running_error(&error) && started.elapsed() < timeout => {
+                std::thread::sleep(poll_interval);
+            }
+            Err(error) if is_not_running_error(&error) => {
+                return Err(format!(
+                    "started roux daemon pid={pid}, but it did not become ready within {}ms",
+                    timeout.as_millis()
+                ));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn stop_daemon_background(ignore_not_running: bool) -> Result<(), String> {
+    let status = match daemon_status_data() {
+        Ok(status) => status,
+        Err(error) if is_not_running_error(&error) && ignore_not_running => return Ok(()),
+        Err(error) if is_not_running_error(&error) => {
+            println!("Roux daemon is not running");
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
+
+    let _ = socket_command_data(serde_json::json!({ "command": "daemon-stop" }))?;
+    let timeout = Duration::from_secs(3);
+    let poll_interval = Duration::from_millis(100);
+    let started = Instant::now();
+
+    loop {
+        match daemon_status_data() {
+            Ok(_) if started.elapsed() < timeout => std::thread::sleep(poll_interval),
+            Ok(_) => {
+                return Err(format!(
+                    "daemon-stop was acknowledged, but the daemon still responds after {}ms",
+                    timeout.as_millis()
+                ));
+            }
+            Err(_) => {
+                print_daemon_lifecycle_line("Stopped roux daemon", &status);
+                return Ok(());
+            }
+        }
+    }
+}
+
+fn spawn_detached_daemon() -> Result<u32, String> {
+    use std::process::Stdio;
+
+    let exe =
+        std::env::current_exe().map_err(|err| format!("resolve current roux binary: {err}"))?;
+    let mut command = std::process::Command::new(exe);
+    command.arg("daemon").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+
+    #[cfg(unix)]
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
+    }
+
+    let child = command.spawn().map_err(|err| format!("spawn roux daemon: {err}"))?;
+    Ok(child.id())
+}
+
+fn print_daemon_lifecycle_line(prefix: &str, status: &Value) {
+    let pid = status.get("pid").and_then(|pid| pid.as_u64());
+    let socket = status.get("socket").and_then(|socket| socket.as_str());
+    let log_path = status.get("logPath").and_then(|log_path| log_path.as_str());
+
+    let mut parts = vec![prefix.to_string()];
+    if let Some(pid) = pid {
+        parts.push(format!("pid={pid}"));
+    }
+    if let Some(socket) = socket {
+        parts.push(format!("socket={socket}"));
+    }
+    if let Some(log_path) = log_path {
+        parts.push(format!("log={log_path}"));
+    }
+    println!("{}", parts.join(" "));
+}
+
+fn show_daemon_logs(lines: usize, follow: bool) -> Result<(), String> {
+    let path = platform::log_dir().join("roux-daemon.log");
+    if follow {
+        return follow_daemon_log(&path, lines);
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|err| format!("read daemon log {}: {err}", path.display()))?;
+    let lines = tail_lines(&content, lines);
+    if !lines.is_empty() {
+        println!("{}", lines.join("\n"));
+    }
+    Ok(())
+}
+
+fn tail_lines(content: &str, count: usize) -> Vec<&str> {
+    let lines: Vec<&str> = content.lines().collect();
+    let start = lines.len().saturating_sub(count);
+    lines[start..].to_vec()
+}
+
+fn follow_daemon_log(path: &std::path::Path, lines: usize) -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        let status = std::process::Command::new("tail")
+            .arg("-n")
+            .arg(lines.to_string())
+            .arg("-f")
+            .arg(path)
+            .status()
+            .map_err(|err| format!("run tail for {}: {err}", path.display()))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("tail exited with status {status}"))
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = (path, lines);
+        Err("roux daemon logs --follow is not supported on Windows".to_string())
     }
 }
 
@@ -1219,6 +1405,34 @@ fn main() {
                 run_socket_command(serde_json::json!({
                     "command": "daemon-status",
                 }));
+            }
+            Some(DaemonAction::Start) => {
+                if let Err(e) = start_daemon_background() {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Some(DaemonAction::Stop) => {
+                if let Err(e) = stop_daemon_background(false) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Some(DaemonAction::Restart) => {
+                if let Err(e) = stop_daemon_background(true) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+                if let Err(e) = start_daemon_background() {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Some(DaemonAction::Logs { lines, follow }) => {
+                if let Err(e) = show_daemon_logs(lines, follow) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
             }
             Some(DaemonAction::Run { command, working_dir }) => {
                 let mut args = serde_json::Map::new();
@@ -2661,6 +2875,34 @@ mod tests {
         match cli.command {
             Commands::Daemon { action: Some(DaemonAction::Status) } => {}
             _ => panic!("expected Daemon::Status"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_daemon_lifecycle_commands() {
+        let start = Cli::try_parse_from(["roux", "daemon", "start"]).unwrap();
+        assert!(matches!(start.command, Commands::Daemon { action: Some(DaemonAction::Start) }));
+
+        let stop = Cli::try_parse_from(["roux", "daemon", "stop"]).unwrap();
+        assert!(matches!(stop.command, Commands::Daemon { action: Some(DaemonAction::Stop) }));
+
+        let restart = Cli::try_parse_from(["roux", "daemon", "restart"]).unwrap();
+        assert!(matches!(
+            restart.command,
+            Commands::Daemon { action: Some(DaemonAction::Restart) }
+        ));
+    }
+
+    #[test]
+    fn cli_parses_daemon_logs_command() {
+        let cli =
+            Cli::try_parse_from(["roux", "daemon", "logs", "--lines", "25", "--follow"]).unwrap();
+        match cli.command {
+            Commands::Daemon { action: Some(DaemonAction::Logs { lines, follow }) } => {
+                assert_eq!(lines, 25);
+                assert!(follow);
+            }
+            _ => panic!("expected Daemon::Logs"),
         }
     }
 

@@ -8,6 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 #[cfg(not(windows))]
 use tokio::net::UnixListener;
+use tokio::sync::watch;
 
 use roux_core::{
     AliasEvent, BusSubscriptionEvent, ConsumptionMode, CreateWatchConfig, EventBuilder, EventKind,
@@ -69,7 +70,9 @@ pub async fn run() -> Result<(), String> {
     watch_runner.start_all().await;
     let endpoint = platform::daemon_bind_endpoint();
     let auth_token = daemon_auth_token(&endpoint)?;
-    let identity = DaemonIdentity::new(endpoint, log.path().clone(), auth_token);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let identity =
+        DaemonIdentity::new(endpoint, log.path().clone(), auth_token).with_shutdown(shutdown_tx);
     let socket_server =
         start_socket_server(host.clone(), watch_runner.clone(), identity.clone(), log.clone())
             .await?;
@@ -78,7 +81,7 @@ pub async fn run() -> Result<(), String> {
         socket_server.endpoint.display_value()
     ));
 
-    wait_for_shutdown_signal().await?;
+    wait_for_shutdown_signal(shutdown_rx).await?;
     log.write("Shutdown signal received");
 
     socket_server.shutdown();
@@ -114,6 +117,7 @@ struct DaemonIdentity {
     alias_manager: AliasManager,
     subscription_manager: SubscriptionManager,
     mailbox_manager: MailboxManager,
+    shutdown_tx: Option<watch::Sender<bool>>,
 }
 
 impl DaemonIdentity {
@@ -138,11 +142,21 @@ impl DaemonIdentity {
             alias_manager: AliasManager::load_from(paths::roux_config_dir().join("aliases.json")),
             subscription_manager,
             mailbox_manager,
+            shutdown_tx: None,
         }
+    }
+
+    fn with_shutdown(mut self, shutdown_tx: watch::Sender<bool>) -> Self {
+        self.shutdown_tx = Some(shutdown_tx);
+        self
     }
 
     fn endpoint_display(&self) -> String {
         self.endpoint.display_value()
+    }
+
+    fn request_shutdown(&self) -> bool {
+        self.shutdown_tx.as_ref().map(|tx| tx.send(true).is_ok()).unwrap_or(false)
     }
 
     #[cfg(test)]
@@ -158,6 +172,7 @@ impl DaemonIdentity {
             alias_manager: AliasManager::in_memory(),
             subscription_manager: subscription_manager.clone(),
             mailbox_manager: MailboxManager::in_memory().with_subscriptions(subscription_manager),
+            shutdown_tx: None,
         }
     }
 
@@ -176,6 +191,7 @@ impl DaemonIdentity {
             alias_manager: AliasManager::in_memory(),
             subscription_manager: subscription_manager.clone(),
             mailbox_manager: MailboxManager::in_memory().with_subscriptions(subscription_manager),
+            shutdown_tx: None,
         }
     }
 
@@ -192,6 +208,7 @@ impl DaemonIdentity {
             alias_manager: AliasManager::load_from(alias_path),
             subscription_manager: subscription_manager.clone(),
             mailbox_manager: MailboxManager::in_memory().with_subscriptions(subscription_manager),
+            shutdown_tx: None,
         }
     }
 
@@ -218,6 +235,7 @@ impl DaemonIdentity {
                 mailbox_read_state_path,
             )
             .with_subscriptions(subscription_manager),
+            shutdown_tx: None,
         }
     }
 }
@@ -537,6 +555,7 @@ async fn handle_connection<R, W>(
     W: tokio::io::AsyncWrite + Unpin,
 {
     let mut line = String::new();
+    let mut shutdown_after_response = false;
     let response = match reader.read_line(&mut line).await {
         Ok(0) => return,
         Ok(_) => match serde_json::from_str::<Request>(line.trim()) {
@@ -590,6 +609,7 @@ async fn handle_connection<R, W>(
                 }
                 let response =
                     handle_request_with_watch_runner(req, host, Some(watch_runner), identity).await;
+                shutdown_after_response = command == "daemon-stop" && response.ok;
                 if response.ok {
                     log.write(&format!("Handled socket command: {command}"));
                 } else {
@@ -613,6 +633,14 @@ async fn handle_connection<R, W>(
     let _ = writer.write_all(json.as_bytes()).await;
     let _ = writer.write_all(b"\n").await;
     let _ = writer.shutdown().await;
+
+    if shutdown_after_response {
+        if identity.request_shutdown() {
+            log.write("Shutdown requested by daemon-stop");
+        } else {
+            log.write("daemon-stop requested but shutdown channel is unavailable");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -632,6 +660,7 @@ async fn handle_request_with_watch_runner(
 
     match req.command.as_str() {
         "daemon-status" => handle_daemon_status(host, identity).await,
+        "daemon-stop" => handle_daemon_stop(identity).await,
         "session-list" => handle_session_list(host).await,
         "session-poll" => handle_session_poll(req, host).await,
         "session-create" => handle_cli_session_create(req, host, identity).await,
@@ -764,6 +793,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
     let pty_count = host.pty_handle.list().await.map(|p| p.len()).unwrap_or(0);
     let capabilities = vec![
         "daemon-status",
+        "daemon-stop",
         "session-list",
         "session-poll",
         "session-create",
@@ -879,6 +909,19 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "processCount": process_count,
         "ptyCount": pty_count,
         "capabilities": capabilities,
+    }))
+}
+
+async fn handle_daemon_stop(identity: &DaemonIdentity) -> Response {
+    if identity.shutdown_tx.is_none() {
+        return Response::err("daemon shutdown channel unavailable");
+    }
+
+    Response::success(serde_json::json!({
+        "stopping": true,
+        "pid": std::process::id(),
+        "socket": identity.endpoint_display(),
+        "logPath": identity.log_path.to_string_lossy(),
     }))
 }
 
@@ -4373,7 +4416,7 @@ fn daemon_env_auth_token() -> Option<String> {
     None
 }
 
-async fn wait_for_shutdown_signal() -> Result<(), String> {
+async fn wait_for_shutdown_signal(mut daemon_stop_rx: watch::Receiver<bool>) -> Result<(), String> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
@@ -4386,6 +4429,7 @@ async fn wait_for_shutdown_signal() -> Result<(), String> {
                 result.map_err(|err| format!("failed to wait for SIGINT: {err}"))?;
             }
             _ = sigterm.recv() => {}
+            _ = wait_for_daemon_stop(&mut daemon_stop_rx) => {}
         }
 
         Ok(())
@@ -4393,9 +4437,23 @@ async fn wait_for_shutdown_signal() -> Result<(), String> {
 
     #[cfg(not(unix))]
     {
-        tokio::signal::ctrl_c()
-            .await
-            .map_err(|err| format!("failed to wait for shutdown signal: {err}"))
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                result.map_err(|err| format!("failed to wait for shutdown signal: {err}"))
+            }
+            _ = wait_for_daemon_stop(&mut daemon_stop_rx) => Ok(()),
+        }
+    }
+}
+
+async fn wait_for_daemon_stop(rx: &mut watch::Receiver<bool>) {
+    loop {
+        if *rx.borrow_and_update() {
+            return;
+        }
+        if rx.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
     }
 }
 
@@ -4477,6 +4535,10 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("daemon-status")));
+        assert!(data["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("daemon-stop")));
         assert!(data["capabilities"]
             .as_array()
             .unwrap()
@@ -7103,6 +7165,74 @@ post-worktree-create = "{post_create}"
         assert_eq!(value["data"]["kind"], "roux-daemon");
         let expected_log_path = log_path.to_string_lossy().to_string();
         assert_eq!(value["data"]["logPath"], serde_json::Value::String(expected_log_path));
+
+        server.shutdown();
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_socket_stop_requests_shutdown_after_response() {
+        use tokio::io::AsyncReadExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let socket_path = dir.path().join("roux.sock");
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let watch_runner = WatchRunner::new(
+            host.watch_handle.clone(),
+            AutomationHookManager::from_config_root(dir.path()),
+        );
+        let log_path = dir.path().join("roux-daemon.log");
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let server = start_socket_server(
+            host.clone(),
+            watch_runner,
+            DaemonIdentity::new(
+                platform::SocketEndpoint::Unix(socket_path.clone()),
+                log_path.clone(),
+                None,
+            )
+            .with_shutdown(shutdown_tx),
+            DaemonLog::new_for_test(log_path),
+        )
+        .await
+        .unwrap();
+
+        let mut stream = tokio::net::UnixStream::connect(&socket_path).await.unwrap();
+        stream.write_all(br#"{"command":"daemon-stop"}"#).await.unwrap();
+        stream.write_all(b"\n").await.unwrap();
+        stream.shutdown().await.unwrap();
+
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        let value: serde_json::Value = serde_json::from_str(response.trim()).unwrap();
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["data"]["stopping"], true);
+
+        for _ in 0..10 {
+            if *shutdown_rx.borrow_and_update() {
+                break;
+            }
+            let _ = shutdown_rx.changed().await;
+        }
+        assert!(*shutdown_rx.borrow(), "daemon-stop should signal shutdown");
 
         server.shutdown();
         host.process_handle.shutdown().await;
