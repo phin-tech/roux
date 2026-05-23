@@ -713,4 +713,4 @@ Desktop-owned:
   `mailbox-events`, subscription UI updates from `subscription-events`, and
   last-mile deliver-to-pane UX.
 - Pane-state cleanup and frontend-owned pane layout restore files.
-- Local fallback runtime when no daemon is connected.
+- Explicit development fallback runtime when `ROUX_DAEMON_AUTOSTART=0`.

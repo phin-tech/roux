@@ -55,6 +55,13 @@ pub(crate) struct DaemonClient {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) enum DaemonStartup {
+    Connected(DaemonClient),
+    LocalFallbackDisabled(String),
+    Failed(String),
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct DaemonCreateSessionShellRequest {
     pub(crate) id: String,
     pub(crate) repo_path: String,
@@ -105,9 +112,19 @@ impl DaemonClient {
         }
     }
 
-    pub(crate) fn ensure_local() -> Option<Self> {
+    pub(crate) fn ensure_local() -> DaemonStartup {
         if let Some(client) = Self::detect() {
-            return Some(client);
+            return DaemonStartup::Connected(client);
+        }
+
+        if let Some(endpoint) = configured_socket_endpoint() {
+            return DaemonStartup::Failed(format!(
+                "ROUX_SOCKET is set to {endpoint}, but no daemon responded"
+            ));
+        }
+
+        if let Some(reason) = daemon_autostart_disabled_reason() {
+            return DaemonStartup::LocalFallbackDisabled(reason);
         }
 
         match launch_local_daemon() {
@@ -115,20 +132,16 @@ impl DaemonClient {
                 rlog!("Started roux daemon pid={} from {}", started.pid, started.binary.display());
             }
             Err(err) => {
-                rlog!("Unable to start roux daemon; desktop will self-host runtime state: {err}");
-                return None;
+                return DaemonStartup::Failed(format!("unable to start roux daemon: {err}"));
             }
         }
 
         match wait_for_daemon(STARTUP_TIMEOUT, STARTUP_POLL_INTERVAL) {
-            Some(client) => Some(client),
-            None => {
-                rlog!(
-                    "Started roux daemon but it did not become ready within {}ms; desktop will self-host runtime state",
-                    STARTUP_TIMEOUT.as_millis()
-                );
-                None
-            }
+            Some(client) => DaemonStartup::Connected(client),
+            None => DaemonStartup::Failed(format!(
+                "started roux daemon but it did not become ready within {}ms",
+                STARTUP_TIMEOUT.as_millis()
+            )),
         }
     }
 
@@ -916,9 +929,6 @@ struct StartedDaemon {
 }
 
 fn launch_local_daemon() -> Result<StartedDaemon, String> {
-    if let Some(reason) = daemon_autostart_disabled_reason() {
-        return Err(reason);
-    }
     let binary = resolve_daemon_binary()?;
     let mut child = daemon_spawn_command(&binary)
         .spawn()
@@ -944,23 +954,21 @@ fn wait_for_daemon(timeout: Duration, interval: Duration) -> Option<DaemonClient
 }
 
 fn daemon_autostart_disabled_reason() -> Option<String> {
-    daemon_autostart_disabled_reason_for(
-        std::env::var("ROUX_DAEMON_AUTOSTART").ok().as_deref(),
-        std::env::var("ROUX_SOCKET").ok().as_deref(),
-    )
+    daemon_autostart_disabled_reason_for(std::env::var("ROUX_DAEMON_AUTOSTART").ok().as_deref())
 }
 
-fn daemon_autostart_disabled_reason_for(
-    autostart: Option<&str>,
-    socket: Option<&str>,
-) -> Option<String> {
+fn daemon_autostart_disabled_reason_for(autostart: Option<&str>) -> Option<String> {
     if autostart.and_then(parse_env_enabled) == Some(false) {
         return Some("ROUX_DAEMON_AUTOSTART disabled local daemon startup".to_string());
     }
-    if socket.map(|value| !value.trim().is_empty()).unwrap_or(false) {
-        return Some("ROUX_SOCKET is set, assuming external daemon endpoint".to_string());
-    }
     None
+}
+
+fn configured_socket_endpoint() -> Option<String> {
+    std::env::var("ROUX_SOCKET")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn parse_env_enabled(value: &str) -> Option<bool> {
@@ -2694,16 +2702,13 @@ mod tests {
     }
 
     #[test]
-    fn daemon_autostart_policy_respects_external_endpoint_and_opt_out() {
-        assert_eq!(daemon_autostart_disabled_reason_for(None, None), None);
-        assert_eq!(daemon_autostart_disabled_reason_for(Some("1"), Some("")), None);
+    fn daemon_autostart_policy_requires_explicit_opt_out() {
+        assert_eq!(daemon_autostart_disabled_reason_for(None), None);
+        assert_eq!(daemon_autostart_disabled_reason_for(Some("1")), None);
 
-        assert!(daemon_autostart_disabled_reason_for(Some("0"), None)
+        assert!(daemon_autostart_disabled_reason_for(Some("0"))
             .unwrap()
             .contains("ROUX_DAEMON_AUTOSTART"));
-        assert!(daemon_autostart_disabled_reason_for(None, Some("/tmp/remote.sock"))
-            .unwrap()
-            .contains("ROUX_SOCKET"));
     }
 
     #[test]

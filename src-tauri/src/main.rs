@@ -67,7 +67,18 @@ fn main() {
         rlog!("Claude binary path: (default, resolved via PATH)");
     }
 
-    let daemon_client = daemon_client::DaemonClient::ensure_local();
+    let daemon_client = match daemon_client::DaemonClient::ensure_local() {
+        daemon_client::DaemonStartup::Connected(client) => Some(client),
+        daemon_client::DaemonStartup::LocalFallbackDisabled(reason) => {
+            rlog!("Daemon autostart disabled; desktop will self-host runtime state: {reason}");
+            None
+        }
+        daemon_client::DaemonStartup::Failed(err) => {
+            panic!(
+                "Roux daemon is required for runtime state. Set ROUX_DAEMON_AUTOSTART=0 for explicit local fallback. {err}"
+            );
+        }
+    };
     if let Some(client) = daemon_client.as_ref() {
         rlog!(
             "Connected to roux daemon pid={} socket={}",
