@@ -479,7 +479,7 @@ tasks:
         echo "Released v${NEW}"
 
   release:
-    desc: "Cut a release. Stable: bump main locally + dispatch release.yml. Pre-release (PRE set): dispatch pre-build.yml (tag-only, no main commit). Usage: task release BUMP=patch|minor|major [PRE=pre|alpha|beta|dev|rc]"
+    desc: "Cut a release. Stable: bump main locally + dispatch release.yml. Pre-release (PRE set): dispatch pre-build.yml (tag-only, no main commit; triggers release + /pre docs). Usage: task release BUMP=patch|minor|major [PRE=pre|alpha|beta|dev|rc]"
     requires:
       vars: [BUMP]
     cmds:
@@ -500,7 +500,7 @@ tasks:
       - task: ci:trigger
 
   prerelease:dispatch:
-    desc: "Dispatch the pre-build workflow (tag-only pre-release). Usage: task prerelease:dispatch BUMP=patch [PRE=pre]"
+    desc: "Dispatch the pre-build workflow (tag-only pre-release; triggers release + /pre docs). Usage: task prerelease:dispatch BUMP=patch [PRE=pre]"
     preconditions:
       - sh: "command -v gh >/dev/null 2>&1"
         msg: "GitHub CLI 'gh' is required"
@@ -580,7 +580,7 @@ tasks:
       - uv run --project docs mkdocs build --strict
 
   docs:prerelease:
-    desc: "Publish prerelease docs to https://phin-tech.github.io/roux/pre-releases/. Usage: task docs:prerelease VERSION=0.5.4-pre.1 [SOURCE_REF=v0.5.4-pre.1]"
+    desc: "Republish prerelease docs to https://phin-tech.github.io/roux/pre/. Usage: task docs:prerelease VERSION=0.5.4-pre.1 [SOURCE_REF=v0.5.4-pre.1]"
     requires:
       vars: [VERSION]
     vars:

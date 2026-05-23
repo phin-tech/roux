@@ -1,7 +1,9 @@
 name: Pre-build
 
 # Cuts a pre-release tag (e.g. v0.5.4-pre.3) from the current tip of main
-# and dispatches release.yml against it. Triggered by either:
+# and dispatches release.yml against it. The tag push also triggers
+# docs-prerelease.yml so https://phin-tech.github.io/roux/pre/ tracks the
+# newest prerelease docs. Triggered by either:
 #   - merging a PR labeled `pre-build` into main (BUMP=patch, PRE=pre)
 #   - manual workflow_dispatch (any BUMP/PRE)
 #
