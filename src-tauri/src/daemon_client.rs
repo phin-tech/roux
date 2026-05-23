@@ -27,6 +27,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(3);
 const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const EVENT_BRIDGE_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -959,9 +960,12 @@ impl DaemonClient {
         watch_manager: WatchManager,
     ) -> tauri::async_runtime::JoinHandle<()> {
         tauri::async_runtime::spawn_blocking(move || {
-            if let Err(err) = read_watch_events_blocking(app, watch_manager) {
-                rlog!("Daemon watch event bridge stopped: {err}");
-            }
+            run_reconnecting_event_bridge(
+                "watch",
+                move || read_watch_events_blocking(app.clone(), watch_manager.clone()),
+                std::thread::sleep,
+                None,
+            );
         })
     }
 
@@ -970,9 +974,12 @@ impl DaemonClient {
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
         tauri::async_runtime::spawn_blocking(move || {
-            if let Err(err) = read_mailbox_events_blocking(app) {
-                rlog!("Daemon mailbox event bridge stopped: {err}");
-            }
+            run_reconnecting_event_bridge(
+                "mailbox",
+                move || read_mailbox_events_blocking(app.clone()),
+                std::thread::sleep,
+                None,
+            );
         })
     }
 
@@ -981,9 +988,12 @@ impl DaemonClient {
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
         tauri::async_runtime::spawn_blocking(move || {
-            if let Err(err) = read_alias_events_blocking(app) {
-                rlog!("Daemon alias event bridge stopped: {err}");
-            }
+            run_reconnecting_event_bridge(
+                "alias",
+                move || read_alias_events_blocking(app.clone()),
+                std::thread::sleep,
+                None,
+            );
         })
     }
 
@@ -992,10 +1002,36 @@ impl DaemonClient {
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
         tauri::async_runtime::spawn_blocking(move || {
-            if let Err(err) = read_subscription_events_blocking(app) {
-                rlog!("Daemon subscription event bridge stopped: {err}");
-            }
+            run_reconnecting_event_bridge(
+                "subscription",
+                move || read_subscription_events_blocking(app.clone()),
+                std::thread::sleep,
+                None,
+            );
         })
+    }
+}
+
+fn run_reconnecting_event_bridge<F, S>(
+    label: &'static str,
+    mut read_once: F,
+    mut sleep: S,
+    max_attempts: Option<usize>,
+) where
+    F: FnMut() -> Result<(), String>,
+    S: FnMut(Duration),
+{
+    let mut attempts = 0_usize;
+    loop {
+        attempts += 1;
+        match read_once() {
+            Ok(()) => rlog!("Daemon {label} event bridge disconnected; reconnecting"),
+            Err(err) => rlog!("Daemon {label} event bridge stopped: {err}; reconnecting"),
+        }
+        if max_attempts.is_some_and(|max| attempts >= max) {
+            break;
+        }
+        sleep(EVENT_BRIDGE_RECONNECT_DELAY);
     }
 }
 
@@ -2366,6 +2402,7 @@ fn emit_daemon_pty_exit(app: &AppHandle, id: &str, code: Option<i32>, generation
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn decode_response_returns_data_on_success() {
@@ -2377,6 +2414,26 @@ mod tests {
     fn decode_response_returns_error_message() {
         let err = decode_response(r#"{"ok":false,"error":"nope"}"#).unwrap_err();
         assert_eq!(err, "nope");
+    }
+
+    #[test]
+    fn event_bridge_reconnects_after_eof_and_error() {
+        let calls = Cell::new(0);
+        let sleeps = Cell::new(0);
+        let mut results = vec![Ok(()), Err("socket closed".to_string()), Ok(())].into_iter();
+
+        run_reconnecting_event_bridge(
+            "test",
+            || {
+                calls.set(calls.get() + 1);
+                results.next().unwrap()
+            },
+            |_| sleeps.set(sleeps.get() + 1),
+            Some(3),
+        );
+
+        assert_eq!(calls.get(), 3);
+        assert_eq!(sleeps.get(), 2);
     }
 
     #[test]
