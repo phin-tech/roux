@@ -126,6 +126,44 @@ daemon session record when it changed. Returns `{ "branch": "..." }`.
 
 Requires `session_id`, with `args.name`. Sets or clears `name_override`.
 
+`session-panes-list`
+
+Requires `session_id`. Returns the same snapshot shape as the desktop socket
+handler:
+
+```json
+{
+  "sessionId": "session-id",
+  "layout": null,
+  "descriptors": [
+    {
+      "id": "pane-id",
+      "type": "shell",
+      "ptyId": "pty-id",
+      "workingDir": "/repo",
+      "profileId": "plain-shell"
+    }
+  ]
+}
+```
+
+The daemon currently returns `layout: null` because GUI pane layout is a client
+responsibility. `descriptors` is derived from daemon-owned PTY metadata.
+
+`session-panes-create`
+
+Compatibility command for `roux session panes create` and MCP clients when the
+daemon owns the socket. Requires `session_id`. Supported `args`:
+
+- `profile`: spawn profile id; defaults to `plain-shell`.
+- `direction`: accepted for compatibility; must be `horizontal` or `vertical`.
+- `workingDir`: override working directory; defaults to the session worktree.
+- `initialSize`: `[cols, rows]`.
+
+Creates a secondary daemon-owned PTY and returns
+`{ "pane_id": "...", "pty_id": "..." }`. It does not mutate GUI layout; a
+client can render it or attach with `roux attach <pty_id>`.
+
 ## Project Commands
 
 `project-list`

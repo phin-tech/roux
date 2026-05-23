@@ -434,6 +434,8 @@ async fn handle_request_with_watch_runner(
         "session-create" => handle_cli_session_create(req, host, identity).await,
         "session-create-shell" => handle_session_create_shell(req, host, identity).await,
         "session-reconnect-shell" => handle_session_reconnect_shell(req, host, identity).await,
+        "session-panes-list" => handle_session_panes_list(req, host).await,
+        "session-panes-create" => handle_session_panes_create(req, host, identity).await,
         "session-archive" => handle_session_archive(req, host).await,
         "session-kill" => handle_session_archive(req, host).await,
         "session-restore" => handle_session_restore(req, host).await,
@@ -526,6 +528,8 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "session-create",
             "session-create-shell",
             "session-reconnect-shell",
+            "session-panes-list",
+            "session-panes-create",
             "session-archive",
             "session-kill",
             "session-restore",
@@ -1686,6 +1690,138 @@ fn pty_matches_pane(pty: &roux_runtime::pty_service::PtyRecord, pane_id: &str) -
     pty.id == pane_id
         || pty.info.id == pane_id
         || matches!(&pty.info.status, PtyStatus::RunningAttached { pane_id: attached } if attached == pane_id)
+}
+
+async fn handle_session_panes_list(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = req.session_id.as_deref().filter(|session_id| !session_id.is_empty())
+    else {
+        return Response::err("session_id required");
+    };
+    match host.session_handle.get(session_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return Response::err("session not found"),
+        Err(err) => return Response::err(err.to_string()),
+    }
+
+    let mut ptys: Vec<_> = match host.pty_handle.list().await {
+        Ok(ptys) => ptys
+            .into_iter()
+            .filter(|pty| pty.info.session_id.as_deref() == Some(session_id))
+            .collect(),
+        Err(err) => return Response::err(err.to_string()),
+    };
+    ptys.sort_by(|a, b| {
+        let a_primary = matches!(a.info.role, PtyRole::SessionPrimary);
+        let b_primary = matches!(b.info.role, PtyRole::SessionPrimary);
+        b_primary.cmp(&a_primary).then_with(|| daemon_pane_id(a).cmp(&daemon_pane_id(b)))
+    });
+
+    let descriptors: Vec<Value> = ptys.iter().map(daemon_pane_descriptor).collect();
+    Response::success(serde_json::json!({
+        "sessionId": session_id,
+        "layout": Value::Null,
+        "descriptors": descriptors,
+    }))
+}
+
+async fn handle_session_panes_create(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
+    let Some(session_id) = req.session_id.as_deref().filter(|session_id| !session_id.is_empty())
+    else {
+        return Response::err("session_id required");
+    };
+    let session = match host.session_handle.get(session_id).await {
+        Ok(Some(session)) => session,
+        Ok(None) => return Response::err("session not found"),
+        Err(err) => return Response::err(err.to_string()),
+    };
+
+    let direction =
+        req.args.get("direction").and_then(|direction| direction.as_str()).unwrap_or("horizontal");
+    if direction != "horizontal" && direction != "vertical" {
+        return Response::err("direction must be horizontal or vertical");
+    }
+
+    let profile =
+        req.args.get("profile").and_then(|profile| profile.as_str()).unwrap_or("plain-shell");
+    let working_dir = req
+        .args
+        .get("workingDir")
+        .or_else(|| req.args.get("working_dir"))
+        .and_then(|working_dir| working_dir.as_str())
+        .unwrap_or(&session.worktree_path)
+        .to_string();
+    let pty_id = req
+        .args
+        .get("id")
+        .and_then(|id| id.as_str())
+        .filter(|id| !id.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let pane_id = req
+        .args
+        .get("paneId")
+        .or_else(|| req.args.get("pane_id"))
+        .and_then(|pane_id| pane_id.as_str())
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    match host
+        .pty_handle
+        .spawn_shell(PtySpawnRequest {
+            id: Some(pty_id.clone()),
+            working_dir: Some(PathBuf::from(&working_dir)),
+            session_id: Some(session_id.to_string()),
+            pane_id: Some(pane_id.clone()),
+            project_id: session.project_id.clone(),
+            worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
+            notes: parse_notes_env(&req.args),
+            env: parse_pty_env_request(&req.args, identity),
+            profile: Some(profile.to_string()),
+            initial_size: parse_initial_size(&req.args),
+            role: PtyRole::Secondary,
+            ..PtySpawnRequest::default()
+        })
+        .await
+    {
+        Ok(_) => Response::success(serde_json::json!({
+            "pane_id": pane_id,
+            "pty_id": pty_id,
+        })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+fn daemon_pane_id(pty: &roux_runtime::pty_service::PtyRecord) -> String {
+    match &pty.info.status {
+        PtyStatus::RunningAttached { pane_id } => pane_id.clone(),
+        _ => pty.info.id.clone(),
+    }
+}
+
+fn daemon_pane_descriptor(pty: &roux_runtime::pty_service::PtyRecord) -> Value {
+    let mut descriptor = serde_json::Map::new();
+    descriptor.insert("id".to_string(), Value::String(daemon_pane_id(pty)));
+    descriptor.insert(
+        "type".to_string(),
+        Value::String(if pty.command.is_some() { "command" } else { "shell" }.to_string()),
+    );
+    descriptor.insert("ptyId".to_string(), Value::String(pty.id.clone()));
+    descriptor.insert("workingDir".to_string(), Value::String(pty.working_dir.clone()));
+    if let Some(name) = &pty.info.name {
+        descriptor.insert("name".to_string(), Value::String(name.clone()));
+    }
+    if let Some(command) = &pty.command {
+        descriptor.insert("command".to_string(), Value::String(command.clone()));
+    }
+    if let Some(profile) = &pty.info.profile {
+        descriptor.insert("profileId".to_string(), Value::String(profile.clone()));
+    }
+    Value::Object(descriptor)
 }
 
 async fn handle_daemon_process_start(req: Request, host: &RuntimeHost) -> Response {
@@ -3065,6 +3201,102 @@ post-worktree-remove = "{post_remove}"
         assert!(!create.ok);
         assert!(create.error.as_deref().unwrap_or("").contains("--prompt"));
 
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_session_panes_create_spawns_secondary_pty_and_list_reports_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let create_session = handle_request(
+            Request {
+                command: "session-create-shell".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "id": "session-panes",
+                    "repoPath": dir.path(),
+                    "name": "Pane Session",
+                    "profile": "plain-shell",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(create_session.ok, "session create failed: {:?}", create_session.error);
+
+        let create_pane = handle_request(
+            Request {
+                command: "session-panes-create".to_string(),
+                session_id: Some("session-panes".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "profile": "plain-shell",
+                    "direction": "vertical",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(create_pane.ok, "pane create failed: {:?}", create_pane.error);
+        let pane_id = create_pane.data.as_ref().unwrap()["pane_id"].as_str().unwrap().to_string();
+        let pty_id = create_pane.data.as_ref().unwrap()["pty_id"].as_str().unwrap().to_string();
+
+        let ptys = host.pty_handle.list().await.unwrap();
+        let pty = ptys.iter().find(|pty| pty.id == pty_id).expect("secondary pty");
+        assert_eq!(pty.info.session_id.as_deref(), Some("session-panes"));
+        assert!(matches!(pty.info.role, roux_core::PtyRole::Secondary));
+        assert_eq!(pty.info.profile.as_deref(), Some("plain-shell"));
+        assert!(pty_matches_pane(pty, &pane_id));
+
+        let list = handle_request(
+            Request {
+                command: "session-panes-list".to_string(),
+                session_id: Some("session-panes".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({}),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(list.ok, "pane list failed: {:?}", list.error);
+        let data = list.data.as_ref().unwrap();
+        assert_eq!(data["sessionId"], "session-panes");
+        assert!(data["layout"].is_null());
+        assert!(data["descriptors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|descriptor| descriptor["id"] == pane_id && descriptor["ptyId"] == pty_id));
+
+        let _ = host.pty_handle.kill("session-panes").await;
+        let _ = host.pty_handle.kill(&pty_id).await;
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
         host.watch_handle.shutdown().await;
