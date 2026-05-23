@@ -1,3 +1,5 @@
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -21,6 +23,9 @@ use roux_runtime::terminal_env::NotesEnvInputs;
 use roux_runtime::watch_runner::WatchRunner;
 
 use crate::{daemon_log::DaemonLog, paths, platform};
+
+const DEFAULT_LATEST_OUTPUT_BYTES: usize = 8 * 1024;
+const MAX_LATEST_OUTPUT_BYTES: usize = 64 * 1024;
 
 pub async fn run() -> Result<(), String> {
     paths::migrate_legacy_config_dir();
@@ -492,6 +497,7 @@ async fn handle_request_with_watch_runner(
         "shell" => handle_session_panes_create(req, host, identity).await,
         "split" => handle_session_panes_create(req, host, identity).await,
         "send" => handle_cli_send(req, host).await,
+        "latest-output" => handle_latest_output(req, host).await,
         "daemon-process-start" => handle_daemon_process_start(req, host).await,
         "daemon-process-output" => handle_daemon_process_output(req, host).await,
         "daemon-process-list" => handle_daemon_process_list(host).await,
@@ -571,6 +577,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "shell",
             "split",
             "send",
+            "latest-output",
             "daemon-process-start",
             "daemon-process-output",
             "daemon-process-list",
@@ -1954,6 +1961,83 @@ async fn handle_cli_send(req: Request, host: &RuntimeHost) -> Response {
     }
 }
 
+async fn handle_latest_output(req: Request, host: &RuntimeHost) -> Response {
+    let max_bytes = latest_output_max_bytes(&req.args);
+    let pty_id = match resolve_latest_output_pty_id(&req, host).await {
+        Ok(pty_id) => pty_id,
+        Err(response) => return response,
+    };
+    match host.pty_handle.snapshot(&pty_id, max_bytes).await {
+        Ok(Some(snapshot)) => {
+            let pane_id = req.pane_id.clone().or_else(|| daemon_record_pane_id(&snapshot.record));
+            Response::success(latest_output_payload(
+                snapshot.record.info.session_id,
+                pane_id,
+                snapshot.record.id,
+                max_bytes,
+                &snapshot.output_bytes,
+            ))
+        }
+        Ok(None) => Response::err(format!("pty not found: {pty_id}")),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn resolve_latest_output_pty_id(
+    req: &Request,
+    host: &RuntimeHost,
+) -> Result<String, Response> {
+    let ptys = host.pty_handle.list().await.map_err(|err| Response::err(err.to_string()))?;
+
+    if let Some(pane_id) = req.pane_id.as_deref().filter(|pane_id| !pane_id.trim().is_empty()) {
+        return ptys
+            .iter()
+            .find(|pty| {
+                pty_matches_pane(pty, pane_id)
+                    && req
+                        .session_id
+                        .as_deref()
+                        .is_none_or(|session_id| pty.info.session_id.as_deref() == Some(session_id))
+            })
+            .map(|pty| pty.id.clone())
+            .ok_or_else(|| Response::err(format!("daemon PTY not found for pane {pane_id}")));
+    }
+
+    resolve_cli_send_pty_id(req, host).await
+}
+
+fn latest_output_max_bytes(args: &Value) -> usize {
+    args.get("max_bytes")
+        .or_else(|| args.get("maxBytes"))
+        .and_then(|value| value.as_u64())
+        .map(|bytes| (bytes as usize).clamp(1, MAX_LATEST_OUTPUT_BYTES))
+        .unwrap_or(DEFAULT_LATEST_OUTPUT_BYTES)
+}
+
+fn latest_output_payload(
+    session_id: Option<String>,
+    pane_id: Option<String>,
+    pty_id: String,
+    max_bytes: usize,
+    bytes: &[u8],
+) -> Value {
+    let mut data = serde_json::Map::new();
+    data.insert("session_id".into(), optional_string_value(session_id));
+    data.insert("pane_id".into(), optional_string_value(pane_id));
+    data.insert("pty_id".into(), Value::String(pty_id));
+    data.insert("max_bytes".into(), Value::Number(max_bytes.into()));
+    data.insert("byte_count".into(), Value::Number(bytes.len().into()));
+    data.insert("replay_bytes_base64".into(), Value::String(BASE64_STANDARD.encode(bytes)));
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        data.insert("text".into(), Value::String(text.to_string()));
+    }
+    Value::Object(data)
+}
+
+fn optional_string_value(value: Option<String>) -> Value {
+    value.map_or(Value::Null, Value::String)
+}
+
 async fn resolve_cli_send_pty_id(req: &Request, host: &RuntimeHost) -> Result<String, Response> {
     let ptys = host.pty_handle.list().await.map_err(|err| Response::err(err.to_string()))?;
 
@@ -2023,6 +2107,13 @@ fn pty_matches_pane(pty: &roux_runtime::pty_service::PtyRecord, pane_id: &str) -
     pty.id == pane_id
         || pty.info.id == pane_id
         || matches!(&pty.info.status, PtyStatus::RunningAttached { pane_id: attached } if attached == pane_id)
+}
+
+fn daemon_record_pane_id(pty: &roux_runtime::pty_service::PtyRecord) -> Option<String> {
+    match &pty.info.status {
+        PtyStatus::RunningAttached { pane_id } => Some(pane_id.clone()),
+        _ => None,
+    }
 }
 
 async fn handle_session_panes_list(req: Request, host: &RuntimeHost) -> Response {
@@ -3878,6 +3969,107 @@ post-worktree-remove = "{post_remove}"
         assert!(search.ok, "search failed: {:?}", search.error);
         assert_eq!(search.data.as_ref().unwrap().as_array().unwrap().len(), 1);
 
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_latest_output_alias_reads_daemon_pty_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let start = handle_request(
+            Request {
+                command: "daemon-pty-spawn-task".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "id": "latest-pty",
+                    "command": "cat",
+                    "workingDir": dir.path(),
+                    "sessionId": "session-latest",
+                    "paneId": "pane-latest",
+                    "profile": "task",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(start.ok, "spawn task failed: {:?}", start.error);
+        let pty_id = start.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let write = handle_request(
+            Request {
+                command: "daemon-pty-write".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": pty_id, "data": "daemon-latest\n" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(write.ok, "write failed: {:?}", write.error);
+
+        let mut latest = None;
+        for _ in 0..50 {
+            let response = handle_request(
+                Request {
+                    command: "latest-output".to_string(),
+                    session_id: None,
+                    pane_id: Some("pane-latest".to_string()),
+                    auth_token: None,
+                    args: serde_json::json!({ "max_bytes": 1024 }),
+                },
+                &host,
+                &identity,
+            )
+            .await;
+            if !response.ok {
+                assert!(
+                    response.error.as_deref().unwrap_or("").contains("daemon PTY not found"),
+                    "latest-output failed: {:?}",
+                    response.error
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                continue;
+            }
+            let data = response.data.unwrap();
+            if data["text"].as_str().unwrap_or("").contains("daemon-latest") {
+                latest = Some(data);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let latest = latest.expect("latest output should include task output");
+        assert_eq!(latest["pty_id"], pty_id);
+        assert_eq!(latest["pane_id"], "pane-latest");
+        assert!(latest["byte_count"].as_u64().unwrap() >= "daemon-latest".len() as u64);
+        assert!(!latest["replay_bytes_base64"].as_str().unwrap().is_empty());
+
+        let _ = host.pty_handle.kill(&pty_id).await;
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
         host.watch_handle.shutdown().await;

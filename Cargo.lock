@@ -4000,6 +4000,7 @@ name = "roux-cli"
 version = "0.5.3"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "clap",
  "dirs",
  "libc",

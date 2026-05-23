@@ -394,6 +394,15 @@ Requires `args.text`; `args.enter` defaults to `true` and appends carriage
 return. Targets `pane_id` when present, otherwise `args.pane_type` within the
 session, otherwise the session's primary daemon PTY.
 
+`latest-output`
+
+Compatibility alias for MCP/desktop latest-output reads when the daemon owns
+the socket. Targets `pane_id` when present, otherwise resolves the same daemon
+PTY target shape as `send`. Optional `args.max_bytes` / `args.maxBytes` controls
+retained replay size, capped by the daemon. Returns `session_id`, `pane_id`,
+`pty_id`, `max_bytes`, `byte_count`, `replay_bytes_base64`, and `text` when the
+replay bytes are valid UTF-8.
+
 `daemon-pty-resize`
 
 Requires `args.id`; accepts `args.cols` and `args.rows`. Returns the resized
