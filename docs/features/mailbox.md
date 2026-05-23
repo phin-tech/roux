@@ -27,9 +27,10 @@ patterns over the same store, not separate systems.
 When `roux daemon` owns the socket, aliases, mailbox events, read/ack state,
 and bus subscriptions are loaded and mutated by the daemon. Roux.app renders
 the Mailbox panel and handles notification/deliver-to-pane UX as a client of
-that daemon state, using daemon `mailbox-events` and `subscription-events`
-streams to keep the existing frontend event channels live. Without a daemon,
-the desktop falls back to the same local runtime managers.
+that daemon state, using daemon `alias-events`, `mailbox-events`, and
+`subscription-events` streams to keep the existing frontend event channels
+live. Without a daemon, the desktop falls back to the same local runtime
+managers.
 
 ## Aliases
 

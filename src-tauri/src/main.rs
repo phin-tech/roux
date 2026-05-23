@@ -663,13 +663,16 @@ fn main() {
                 });
             }
 
-            // Forward daemon-owned mailbox/bus subscription events into the
+            // Forward daemon-owned alias/mailbox/bus subscription events into the
             // existing Tauri event channels. The frontend remains responsible
             // for rendering, badges, and notifications.
             {
                 let state = app.state::<AppState>();
                 if let Some(client) = state.daemon_client.clone() {
                     let app_handle = app.handle().clone();
+                    if client.supports("alias-events") {
+                        client.spawn_alias_event_bridge(app_handle.clone());
+                    }
                     if client.supports("mailbox-events") {
                         client.spawn_mailbox_event_bridge(app_handle.clone());
                     }

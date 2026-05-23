@@ -194,12 +194,30 @@ owns the socket. Alias state is loaded from and persisted to
 - `alias-add-member`
 - `alias-remove-member`
 - `alias-mode`
+- `alias-events`
 
 The command payloads match the CLI/MCP adapter fields. `alias-set` and
 `alias-claim` bind aliases to the calling or explicit session/pane. `alias-get`
 keeps bare-name ambiguity behavior for aliases that exist in multiple project
 scopes. Group membership and consumption mode commands mutate the same durable
 alias records.
+
+`alias-events`
+
+Streaming command. Sends live alias mutation frames from daemon-owned alias
+state. Desktop clients forward these into the existing `alias-event` Tauri
+channel so the frontend alias mirror stays live when aliases change from CLI,
+MCP, mailbox materialization, or another GUI client.
+
+Frames:
+
+```json
+{ "type": "ready" }
+{ "type": "event", "event": { "kind": "set", "alias": {} } }
+{ "type": "event", "event": { "kind": "unset", "canonical": "reviewer", "projectId": null } }
+{ "type": "warning", "message": "dropped 2 buffered alias event(s)" }
+{ "type": "error", "error": "message" }
+```
 
 ## Mailbox And Bus Commands
 
@@ -622,6 +640,7 @@ Desktop-owned:
 
 - Rendering, pane layout, xterm instances, and UX-only state.
 - Watch notification presentation from daemon `watch-events`.
+- Alias mirror updates from daemon `alias-events`.
 - Mailbox panel rendering, notification presentation from daemon
   `mailbox-events`, subscription UI updates from `subscription-events`, and
   last-mile deliver-to-pane UX.

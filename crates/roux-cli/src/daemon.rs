@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 use tokio::net::UnixListener;
 
 use roux_core::{
-    BusSubscriptionEvent, ConsumptionMode, CreateWatchConfig, EventBuilder, EventKind,
+    AliasEvent, BusSubscriptionEvent, ConsumptionMode, CreateWatchConfig, EventBuilder, EventKind,
     MailboxEvent, PtyRole, PtyStatus, RuntimeState, Watch,
 };
 use roux_runtime::alias_service::AliasManager;
@@ -232,6 +232,19 @@ enum WatchEventFrame {
     Ready,
     #[serde(rename = "update")]
     Update { event: roux_core::WatchUpdateEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum AliasEventFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "event")]
+    Event { event: AliasEvent },
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
@@ -493,6 +506,15 @@ async fn handle_connection<R, W>(
                     }
                     return;
                 }
+                if command == "alias-events" {
+                    let ok = handle_alias_events_stream(req, writer, identity).await;
+                    if ok {
+                        log.write("Handled socket command: alias-events");
+                    } else {
+                        log.write("Socket command failed: alias-events");
+                    }
+                    return;
+                }
                 if command == "subscription-events" {
                     let ok = handle_subscription_events_stream(req, writer, identity).await;
                     if ok {
@@ -686,6 +708,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "alias-add-member",
         "alias-remove-member",
         "alias-mode",
+        "alias-events",
         "mailbox-post",
         "mailbox-peek",
         "mailbox-read",
@@ -973,6 +996,71 @@ where
 }
 
 async fn write_watch_event_frame<W>(writer: &mut W, frame: &WatchEventFrame) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let Ok(json) = serde_json::to_string(frame) else {
+        return false;
+    };
+    writer.write_all(json.as_bytes()).await.is_ok() && writer.write_all(b"\n").await.is_ok()
+}
+
+async fn handle_alias_events_stream<W>(
+    req: Request,
+    writer: &mut W,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let result = handle_alias_events_stream_inner(req, writer, identity).await;
+    let _ = writer.shutdown().await;
+    result
+}
+
+async fn handle_alias_events_stream_inner<W>(
+    req: Request,
+    writer: &mut W,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if !request_authorized(&req, identity) {
+        let _ = write_alias_event_frame(
+            writer,
+            &AliasEventFrame::Error { error: "unauthorized".into() },
+        )
+        .await;
+        return false;
+    }
+
+    let mut rx = identity.alias_manager.subscribe_events();
+    if !write_alias_event_frame(writer, &AliasEventFrame::Ready).await {
+        return false;
+    }
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                if !write_alias_event_frame(writer, &AliasEventFrame::Event { event }).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                let warning = AliasEventFrame::Warning {
+                    message: format!("dropped {skipped} buffered alias event(s)"),
+                };
+                if !write_alias_event_frame(writer, &warning).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return true,
+        }
+    }
+}
+
+async fn write_alias_event_frame<W>(writer: &mut W, frame: &AliasEventFrame) -> bool
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
@@ -3944,6 +4032,10 @@ mod tests {
         assert!(data["capabilities"]
             .as_array()
             .unwrap()
+            .contains(&serde_json::json!("alias-events")));
+        assert!(data["capabilities"]
+            .as_array()
+            .unwrap()
             .contains(&serde_json::json!("subscription-events")));
 
         host.process_handle.shutdown().await;
@@ -4165,6 +4257,53 @@ mod tests {
         assert_eq!(frame["event"]["kind"], "created");
         assert_eq!(frame["event"]["subscription"]["alias"], "auditor");
         assert_eq!(frame["event"]["subscription"]["pattern"], "build.**");
+
+        stream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn daemon_alias_events_streams_live_alias_events() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+        let (mut server, client) = tokio::io::duplex(4096);
+        let identity_for_stream = identity.clone();
+        let stream_task = tokio::spawn(async move {
+            handle_alias_events_stream(
+                Request {
+                    command: "alias-events".to_string(),
+                    session_id: None,
+                    pane_id: None,
+                    auth_token: None,
+                    args: serde_json::Value::Null,
+                },
+                &mut server,
+                &identity_for_stream,
+            )
+            .await
+        });
+
+        let mut reader = BufReader::new(client);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(ready["type"], "ready");
+
+        identity
+            .alias_manager
+            .bind(
+                "reviewer",
+                BindRequest { session_id: Some("session-1".into()), ..Default::default() },
+            )
+            .unwrap();
+
+        line.clear();
+        reader.read_line(&mut line).await.unwrap();
+        let frame: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(frame["type"], "event");
+        assert_eq!(frame["event"]["kind"], "set");
+        assert_eq!(frame["event"]["alias"]["alias"], "reviewer");
+        assert_eq!(frame["event"]["alias"]["sessionId"], "session-1");
 
         stream_task.abort();
     }

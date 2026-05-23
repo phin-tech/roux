@@ -8,9 +8,9 @@ use tauri::ipc::{Channel, Response as IpcResponse};
 use tauri::{AppHandle, Emitter};
 
 use roux_core::{
-    AgentAlias, BusSubscription, BusSubscriptionEvent, CreateWatchConfig, Event, MailboxEvent,
-    Project, ReadState, Session, SessionExitPayload, SessionExitReason, Watch, WatchUpdateEvent,
-    Worktree,
+    AgentAlias, AliasEvent, BusSubscription, BusSubscriptionEvent, CreateWatchConfig, Event,
+    MailboxEvent, Project, ReadState, Session, SessionExitPayload, SessionExitReason, Watch,
+    WatchUpdateEvent, Worktree,
 };
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
@@ -788,6 +788,17 @@ impl DaemonClient {
         })
     }
 
+    pub(crate) fn spawn_alias_event_bridge(
+        &self,
+        app: AppHandle,
+    ) -> tauri::async_runtime::JoinHandle<()> {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(err) = read_alias_events_blocking(app) {
+                rlog!("Daemon alias event bridge stopped: {err}");
+            }
+        })
+    }
+
     pub(crate) fn spawn_subscription_event_bridge(
         &self,
         app: AppHandle,
@@ -1316,6 +1327,10 @@ fn daemon_mailbox_events_request() -> Value {
     serde_json::json!({ "command": "mailbox-events" })
 }
 
+fn daemon_alias_events_request() -> Value {
+    serde_json::json!({ "command": "alias-events" })
+}
+
 fn daemon_subscription_events_request() -> Value {
     serde_json::json!({ "command": "subscription-events" })
 }
@@ -1661,6 +1676,19 @@ enum MailboxEventStreamFrame {
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
+enum AliasEventStreamFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "event")]
+    Event { event: AliasEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
 enum SubscriptionEventStreamFrame {
     #[serde(rename = "ready")]
     Ready,
@@ -1843,6 +1871,85 @@ fn handle_mailbox_event_frame(
             Ok(())
         }
         MailboxEventStreamFrame::Error { error } => Err(error),
+    }
+}
+
+fn read_alias_events_blocking(app: AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        read_alias_events_tcp(app)
+    }
+    #[cfg(not(windows))]
+    {
+        read_alias_events_unix(app)
+    }
+}
+
+#[cfg(not(windows))]
+fn read_alias_events_unix(app: AppHandle) -> Result<(), String> {
+    use std::os::unix::net::UnixStream;
+
+    let path = platform::resolve_socket_endpoint()
+        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
+    let mut stream =
+        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, daemon_alias_events_request())?;
+    read_alias_event_stream(stream, app)
+}
+
+#[cfg(windows)]
+fn read_alias_events_tcp(app: AppHandle) -> Result<(), String> {
+    use std::net::TcpStream;
+
+    let auth_token = platform::load_socket_auth_token()
+        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
+    let mut request = daemon_alias_events_request();
+    if let Some(obj) = request.as_object_mut() {
+        obj.insert("auth_token".to_string(), Value::String(auth_token));
+    }
+
+    let endpoint =
+        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
+    let mut stream = TcpStream::connect(&endpoint)
+        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, request)?;
+    read_alias_event_stream(stream, app)
+}
+
+fn read_alias_event_stream(stream: impl Read, app: AppHandle) -> Result<(), String> {
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|err| format!("read daemon alias event frame: {err}"))?;
+        if read == 0 {
+            return Ok(());
+        }
+        let frame: AliasEventStreamFrame = serde_json::from_str(line.trim())
+            .map_err(|err| format!("decode daemon alias event frame: {err}"))?;
+        handle_alias_event_frame(frame, &app)?;
+    }
+}
+
+fn handle_alias_event_frame(frame: AliasEventStreamFrame, app: &AppHandle) -> Result<(), String> {
+    match frame {
+        AliasEventStreamFrame::Ready => Ok(()),
+        AliasEventStreamFrame::Event { event } => app
+            .emit(roux_lib::aliases::ALIAS_EVENT, &event)
+            .map_err(|err| format!("emit daemon alias event: {err}")),
+        AliasEventStreamFrame::Warning { message } => {
+            rlog!("Daemon alias event stream warning: {message}");
+            Ok(())
+        }
+        AliasEventStreamFrame::Error { error } => Err(error),
     }
 }
 
@@ -2403,6 +2510,7 @@ mod tests {
         assert_eq!(events["args"]["backlog"], true);
 
         assert_eq!(daemon_mailbox_events_request()["command"], "mailbox-events");
+        assert_eq!(daemon_alias_events_request()["command"], "alias-events");
         assert_eq!(daemon_subscription_events_request()["command"], "subscription-events");
 
         assert_eq!(daemon_watch_cleanup_orphans_request()["command"], "watch-cleanup-orphans");

@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use roux_core::{AgentAlias, ConsumptionMode};
+use roux_core::{AgentAlias, AliasEvent, ConsumptionMode};
+use tokio::sync::broadcast;
 
 use crate::alias_persistence::{self, load_from_path, save_to_path};
 use crate::alias_store::{
@@ -12,6 +13,7 @@ use crate::alias_store::{
 pub struct AliasManager {
     inner: Arc<Mutex<AliasStore>>,
     persistence_path: Option<Arc<PathBuf>>,
+    broadcast_tx: broadcast::Sender<AliasEvent>,
 }
 
 impl AliasManager {
@@ -26,8 +28,11 @@ impl AliasManager {
         if !had_me {
             store.ensure("me", None);
         }
-        let manager =
-            Self { inner: Arc::new(Mutex::new(store)), persistence_path: Some(Arc::new(path)) };
+        let manager = Self {
+            inner: Arc::new(Mutex::new(store)),
+            persistence_path: Some(Arc::new(path)),
+            broadcast_tx: broadcast_channel(),
+        };
         if !had_me {
             manager.persist();
         }
@@ -37,7 +42,19 @@ impl AliasManager {
     pub fn in_memory() -> Self {
         let mut store = AliasStore::new();
         store.ensure("me", None);
-        Self { inner: Arc::new(Mutex::new(store)), persistence_path: None }
+        Self {
+            inner: Arc::new(Mutex::new(store)),
+            persistence_path: None,
+            broadcast_tx: broadcast_channel(),
+        }
+    }
+
+    pub fn subscribe_events(&self) -> broadcast::Receiver<AliasEvent> {
+        self.broadcast_tx.subscribe()
+    }
+
+    fn broadcast(&self, event: &AliasEvent) {
+        let _ = self.broadcast_tx.send(event.clone());
     }
 
     pub fn bind(&self, canonical: &str, req: BindRequest) -> Result<AgentAlias, BindError> {
@@ -46,6 +63,7 @@ impl AliasManager {
             store.bind(canonical, req)?
         };
         self.persist();
+        self.broadcast(&AliasEvent::Set { alias: alias.clone() });
         Ok(alias)
     }
 
@@ -56,6 +74,10 @@ impl AliasManager {
         };
         if changed {
             self.persist();
+            self.broadcast(&AliasEvent::Unset {
+                canonical: canonical.to_string(),
+                project_id: project_id.map(String::from),
+            });
         }
         changed
     }
@@ -70,6 +92,7 @@ impl AliasManager {
         };
         if was_new {
             self.persist();
+            self.broadcast(&AliasEvent::Set { alias: alias.clone() });
         }
         alias
     }
@@ -106,6 +129,17 @@ impl AliasManager {
         };
         if !released.is_empty() {
             self.persist();
+            for result in &released {
+                if result.membership_changed {
+                    self.broadcast(&AliasEvent::Set { alias: result.alias.clone() });
+                }
+                if result.binding_cleared {
+                    self.broadcast(&AliasEvent::Unset {
+                        canonical: result.alias.alias.clone(),
+                        project_id: result.alias.project_id.clone(),
+                    });
+                }
+            }
         }
         released
     }
@@ -130,6 +164,7 @@ impl AliasManager {
         };
         if changed {
             self.persist();
+            self.broadcast(&AliasEvent::Set { alias: alias.clone() });
         }
         Ok(alias)
     }
@@ -140,12 +175,17 @@ impl AliasManager {
         project_id: Option<&str>,
         pane_id: &str,
     ) -> Result<bool, GroupError> {
-        let changed = {
+        let (changed, alias) = {
             let mut store = self.inner.lock().expect("alias store poisoned");
-            store.remove_member(canonical, project_id, pane_id)?
+            let changed = store.remove_member(canonical, project_id, pane_id)?;
+            let alias = store.get(canonical, project_id).cloned();
+            (changed, alias)
         };
         if changed {
             self.persist();
+            if let Some(alias) = alias {
+                self.broadcast(&AliasEvent::Set { alias });
+            }
         }
         Ok(changed)
     }
@@ -165,6 +205,7 @@ impl AliasManager {
         };
         if changed {
             self.persist();
+            self.broadcast(&AliasEvent::Set { alias: alias.clone() });
         }
         Ok(alias)
     }
@@ -178,6 +219,11 @@ impl AliasManager {
             eprintln!("[roux] alias persistence failed at {}: {err}", path.display());
         }
     }
+}
+
+fn broadcast_channel() -> broadcast::Sender<AliasEvent> {
+    let (tx, _) = broadcast::channel(256);
+    tx
 }
 
 #[cfg(test)]
@@ -211,5 +257,26 @@ mod tests {
             reloaded.get("reviewer", None).unwrap().session_id.as_deref(),
             Some("session-1")
         );
+    }
+
+    #[tokio::test]
+    async fn bind_broadcasts_set_event() {
+        let manager = AliasManager::in_memory();
+        let mut rx = manager.subscribe_events();
+
+        let alias = manager
+            .bind(
+                "reviewer",
+                BindRequest { session_id: Some("session-1".into()), ..Default::default() },
+            )
+            .unwrap();
+
+        match rx.recv().await.unwrap() {
+            roux_core::AliasEvent::Set { alias: event_alias } => {
+                assert_eq!(event_alias.alias, alias.alias);
+                assert_eq!(event_alias.session_id.as_deref(), Some("session-1"));
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 }
