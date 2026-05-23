@@ -72,7 +72,8 @@ fn resolve_attach_pty_id(
     let response = send_socket_command(serde_json::json!({
         "command": "session-poll",
         "session_id": session_id,
-    }))?;
+    }))
+    .map_err(|err| err.to_string())?;
     let data = response_data(response)?;
     if let Some(primary_pty_id) = primary_pty_id_from_session(&data) {
         return Ok(primary_pty_id);
@@ -80,7 +81,8 @@ fn resolve_attach_pty_id(
 
     let response = send_socket_command(serde_json::json!({
         "command": "daemon-pty-list",
-    }))?;
+    }))
+    .map_err(|err| err.to_string())?;
     let data = response_data(response)?;
     let ptys =
         data.as_array().ok_or_else(|| "daemon-pty-list returned non-array data".to_string())?;
@@ -150,11 +152,15 @@ fn pty_resize_request(id: &str, cols: u16, rows: u16) -> Value {
 }
 
 fn send_pty_resize(id: &str, cols: u16, rows: u16) -> Result<(), String> {
-    response_data(send_socket_command(pty_resize_request(id, cols, rows))?).map(|_| ())
+    response_data(
+        send_socket_command(pty_resize_request(id, cols, rows)).map_err(|err| err.to_string())?,
+    )
+    .map(|_| ())
 }
 
 fn send_pty_write(id: &str, data: String) -> Result<(), String> {
-    response_data(send_socket_command(pty_write_request(id, data))?).map(|_| ())
+    response_data(send_socket_command(pty_write_request(id, data)).map_err(|err| err.to_string())?)
+        .map(|_| ())
 }
 
 fn spawn_input_forwarder(pty_id: String, running: Arc<AtomicBool>) {
@@ -213,7 +219,8 @@ fn stream_attach_output(pty_id: &str, max_bytes: usize) -> Result<i32, String> {
                 false
             }
         }
-    })?;
+    })
+    .map_err(|err| err.to_string())?;
 
     Ok(exit_code.load(Ordering::SeqCst))
 }

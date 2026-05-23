@@ -7,7 +7,17 @@ use std::time::Duration;
 pub fn send_socket_command(request: Value) -> RouxResult<Value> {
     let client = RouxBuilder::default().connect()?;
     let request: CommandRequest = serde_json::from_value(request).map_err(RouxError::Decode)?;
-    client.command_blocking(request)
+    send_raw_request(&client.endpoint, client.auth_token.as_deref(), client.timeout, request)
+}
+
+pub(crate) fn send_raw_request(
+    endpoint: &SocketEndpoint,
+    auth_token: Option<&str>,
+    timeout: Duration,
+    request: CommandRequest,
+) -> RouxResult<Value> {
+    let response = send_request(endpoint, auth_token, timeout, request)?;
+    serde_json::to_value(response).map_err(RouxError::Decode)
 }
 
 pub fn stream_socket_command<F>(request: Value, on_line: F) -> RouxResult<()>

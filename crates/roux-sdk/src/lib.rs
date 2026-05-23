@@ -247,7 +247,7 @@ impl Pty {
         self.client
             .command(
                 CommandRequest::new("daemon-pty-output")
-                    .args(serde_json::json!({ "id": self.id, "maxBytes": max_bytes })),
+                    .args(serde_json::json!({ "id": self.id(), "maxBytes": max_bytes })),
             )
             .await
     }
@@ -256,7 +256,7 @@ impl Pty {
         self.client
             .command(
                 CommandRequest::new("daemon-pty-write")
-                    .args(serde_json::json!({ "id": self.id, "data": data.into() })),
+                    .args(serde_json::json!({ "id": self.id(), "data": data.into() })),
             )
             .await
     }
@@ -265,7 +265,7 @@ impl Pty {
         self.client
             .command(
                 CommandRequest::new("daemon-pty-resize")
-                    .args(serde_json::json!({ "id": self.id, "cols": cols, "rows": rows })),
+                    .args(serde_json::json!({ "id": self.id(), "cols": cols, "rows": rows })),
             )
             .await
     }
@@ -273,7 +273,7 @@ impl Pty {
     pub async fn kill(&self) -> RouxResult<Option<PtyRecord>> {
         self.client
             .command(
-                CommandRequest::new("daemon-pty-kill").args(serde_json::json!({ "id": self.id })),
+                CommandRequest::new("daemon-pty-kill").args(serde_json::json!({ "id": self.id() })),
             )
             .await
     }
@@ -281,7 +281,8 @@ impl Pty {
     pub async fn detach(&self) -> RouxResult<Option<PtyRecord>> {
         self.client
             .command(
-                CommandRequest::new("daemon-pty-detach").args(serde_json::json!({ "id": self.id })),
+                CommandRequest::new("daemon-pty-detach")
+                    .args(serde_json::json!({ "id": self.id() })),
             )
             .await
     }
@@ -293,7 +294,7 @@ impl Pty {
         self.client
             .command(
                 CommandRequest::new("daemon-pty-attach-pane")
-                    .args(serde_json::json!({ "id": self.id, "paneId": pane_id.into() })),
+                    .args(serde_json::json!({ "id": self.id(), "paneId": pane_id.into() })),
             )
             .await
     }
@@ -302,7 +303,7 @@ impl Pty {
         self.client
             .command(
                 CommandRequest::new("daemon-pty-mark-read")
-                    .args(serde_json::json!({ "id": self.id })),
+                    .args(serde_json::json!({ "id": self.id() })),
             )
             .await
     }
@@ -311,7 +312,7 @@ impl Pty {
         self.client
             .command(
                 CommandRequest::new("daemon-pty-set-name")
-                    .args(serde_json::json!({ "id": self.id, "name": name })),
+                    .args(serde_json::json!({ "id": self.id(), "name": name })),
             )
             .await
     }
@@ -558,16 +559,18 @@ mod tests {
             request
         });
 
-        let client = Roux::builder()
-            .endpoint(SocketEndpoint::Tcp(addr))
-            .auth_token("secret")
-            .connect()
-            .unwrap();
-        let status = client.command_blocking(CommandRequest::new("daemon-status")).unwrap();
+        let status = blocking::send_raw_request(
+            &SocketEndpoint::Tcp(addr),
+            Some("secret"),
+            Duration::from_secs(5),
+            CommandRequest::new("daemon-status"),
+        )
+        .unwrap();
         let request = handle.join().unwrap();
 
         assert_eq!(request["auth_token"], "secret");
-        assert_eq!(status["kind"], "roux-daemon");
+        assert_eq!(status["ok"], true);
+        assert_eq!(status["data"]["kind"], "roux-daemon");
     }
 
     #[cfg(not(windows))]
