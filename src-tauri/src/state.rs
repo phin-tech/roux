@@ -24,8 +24,6 @@ pub(crate) struct DaemonPtyAttachTask {
 pub(crate) struct AppState {
     pub(crate) settings: Mutex<crate::settings::RouxSettings>,
     pub(crate) daemon_client: Option<crate::daemon_client::DaemonClient>,
-    pub(crate) daemon_startup_error: Option<String>,
-    pub(crate) runtime_started_at_ms: u64,
     pub(crate) daemon_pty_attach_tasks: Mutex<HashMap<String, DaemonPtyAttachTask>>,
     pub(crate) pty_manager: Arc<PtyManager>,
     pub(crate) runtime: RuntimeHost,
@@ -37,4 +35,22 @@ pub(crate) struct AppState {
     pub(crate) subscription_manager: SubscriptionManager,
     pub(crate) pending_replies: PendingReplies,
     pub(crate) managed_proxy: Arc<crate::services::managed_proxy::ManagedProxyState>,
+}
+
+pub(crate) fn required_daemon_client(
+    state: &AppState,
+) -> Result<crate::daemon_client::DaemonClient, String> {
+    state
+        .daemon_client
+        .clone()
+        .ok_or_else(|| "Roux daemon is required but not connected".to_string())
+}
+
+pub(crate) fn required_daemon_client_ref(
+    state: &AppState,
+) -> Result<&crate::daemon_client::DaemonClient, String> {
+    state
+        .daemon_client
+        .as_ref()
+        .ok_or_else(|| "Roux daemon is required but not connected".to_string())
 }

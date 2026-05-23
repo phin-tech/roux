@@ -18,8 +18,12 @@ mod pr;
 mod project_service;
 mod projects;
 mod providers;
+// Local PTY runtime is retained while desktop session/PTTY access routes through the daemon.
+#[allow(dead_code)]
 mod pty;
+#[allow(dead_code)]
 mod pty_lifecycle;
+#[allow(dead_code)]
 mod pty_logger;
 mod pty_ready_gate;
 mod services;
@@ -27,6 +31,8 @@ mod session;
 mod session_service;
 mod settings;
 mod skill;
+// Desktop no longer starts this socket server, but the implementation stays until the CLI bridge is fully migrated.
+#[allow(dead_code)]
 mod socket;
 mod state;
 mod tasks;
@@ -67,31 +73,30 @@ fn main() {
         rlog!("Claude binary path: (default, resolved via PATH)");
     }
 
-    let mut daemon_startup_error = None;
     let daemon_client = match daemon_client::DaemonClient::ensure_local() {
-        daemon_client::DaemonStartup::Connected(client) => Some(client),
+        daemon_client::DaemonStartup::Connected(client) => *client,
         daemon_client::DaemonStartup::LocalFallbackDisabled(reason) => {
-            rlog!("Daemon autostart disabled; desktop will self-host runtime state: {reason}");
-            None
-        }
-        daemon_client::DaemonStartup::Failed(err) => {
             let message = format!(
-                "Roux daemon startup failed; desktop will self-host runtime state. Set ROUX_DAEMON_AUTOSTART=0 to make local fallback explicit. {err}"
+                "Roux daemon startup is required, but daemon autostart is disabled. {reason}"
             );
             rlog!("{message}");
-            daemon_startup_error = Some(message);
-            None
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+        daemon_client::DaemonStartup::Failed(err) => {
+            let message =
+                format!("Roux daemon startup failed and desktop local fallback is disabled. {err}");
+            rlog!("{message}");
+            eprintln!("{message}");
+            std::process::exit(1);
         }
     };
-    if let Some(client) = daemon_client.as_ref() {
-        rlog!(
-            "Connected to roux daemon pid={} socket={}",
-            client.status().pid,
-            client.status().socket
-        );
-    } else {
-        rlog!("No roux daemon available; desktop will self-host runtime state");
-    }
+    rlog!(
+        "Connected to roux daemon pid={} socket={}",
+        daemon_client.status().pid,
+        daemon_client.status().socket
+    );
+    let daemon_client = Some(daemon_client);
     let daemon_owns_watches =
         daemon_client.as_ref().map(|client| client.supports("watch-list")).unwrap_or(false);
     let persisted_watches = if daemon_owns_watches {
@@ -116,11 +121,6 @@ fn main() {
     let (runtime, _runtime_joins) = runtime_services.spawn_with(tauri::async_runtime::spawn);
     let watch_manager =
         watches::WatchManager::new(runtime.watch_handle.clone(), daemon_client.clone());
-    let runtime_started_at_ms = {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
-    };
-
     #[cfg(debug_assertions)]
     let builder = Builder::<tauri::Wry>::new().commands(collect_commands![
         commands::misc::get_log_path,
@@ -292,8 +292,6 @@ fn main() {
         .manage(AppState {
             settings: Mutex::new(initial_settings),
             daemon_client,
-            daemon_startup_error,
-            runtime_started_at_ms,
             daemon_pty_attach_tasks: Mutex::new(std::collections::HashMap::new()),
             pty_manager: std::sync::Arc::new(PtyManager::new()),
             runtime,
@@ -561,12 +559,7 @@ fn main() {
                 eprintln!("Warning: failed to start file status source: {}", e);
             }
             {
-                let state = app.state::<AppState>();
-                if state.daemon_client.is_some() {
-                    rlog!("Skipping desktop socket server because roux daemon owns the socket");
-                } else {
-                    socket::start_socket_server(app.handle().clone());
-                }
+                rlog!("Skipping desktop socket server because roux daemon owns the socket");
             }
 
             // System tray: shows active sessions + status, plus Show/Quit.

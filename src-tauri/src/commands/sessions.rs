@@ -1,6 +1,8 @@
 use crate::services::sessions as svc;
 use crate::session::Session;
-use crate::state::{AppState, DaemonPtyAttachTask};
+use crate::state::{
+    required_daemon_client, required_daemon_client_ref, AppState, DaemonPtyAttachTask,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Manager;
@@ -49,10 +51,6 @@ pub(crate) struct CreateShellOpts {
     pub smol_machine_name: Option<String>,
 }
 
-fn is_daemon_pty_not_found(err: &str) -> bool {
-    err.contains("daemon pty not found")
-}
-
 pub(crate) fn abort_daemon_attach_task(state: &AppState, id: &str) -> Result<(), String> {
     let previous = state.daemon_pty_attach_tasks.lock().map_err(|err| err.to_string())?.remove(id);
     if let Some(previous) = previous {
@@ -68,14 +66,8 @@ pub(crate) async fn write_to_session(
     data: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    if let Some(client) = state.daemon_client.clone() {
-        match client.write_daemon_pty(id.clone(), data.clone()).await {
-            Ok(()) => return Ok(()),
-            Err(err) if is_daemon_pty_not_found(&err) => {}
-            Err(err) => return Err(err),
-        }
-    }
-    state.pty_manager.write(&id, data.as_bytes()).map_err(|e| e.to_string())
+    let client = required_daemon_client(&state)?;
+    client.write_daemon_pty(id, data).await
 }
 
 /// Frontend reply for a socket-initiated round-trip (e.g. panes list / create).
@@ -110,14 +102,9 @@ pub(crate) async fn resize_session(
     rows: u16,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    if let Some(client) = state.daemon_client.clone() {
-        match client.resize_daemon_pty(id.clone(), cols, rows).await {
-            Ok(_) => return Ok(()),
-            Err(err) if is_daemon_pty_not_found(&err) => {}
-            Err(err) => return Err(err),
-        }
-    }
-    state.pty_manager.resize(&id, cols, rows).map_err(|e| e.to_string())
+    let client = required_daemon_client(&state)?;
+    let _ = client.resize_daemon_pty(id, cols, rows).await?;
+    Ok(())
 }
 
 // No #[specta::specta] — Channel<Response> doesn't implement specta::Type
@@ -128,44 +115,32 @@ pub(crate) async fn attach_pty_output(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    if let Some(client) = state.daemon_client.clone() {
-        match client.daemon_pty_output(id.clone(), Some(0)).await {
-            Ok(_) => {
-                let token = NEXT_DAEMON_ATTACH_TASK_TOKEN.fetch_add(1, Ordering::Relaxed);
-                let bridge =
-                    client.spawn_daemon_pty_output_bridge(id.clone(), on_event, app.clone());
-                let cleanup_id = id.clone();
-                let cleanup_app = app.clone();
-                let handle = tauri::async_runtime::spawn(async move {
-                    let _ = bridge.await;
-                    if let Some(state) = cleanup_app.try_state::<AppState>() {
-                        if let Ok(mut tasks) = state.daemon_pty_attach_tasks.lock() {
-                            let should_remove = tasks
-                                .get(&cleanup_id)
-                                .map(|task| task.token == token)
-                                .unwrap_or(false);
-                            if should_remove {
-                                tasks.remove(&cleanup_id);
-                            }
-                        }
-                    }
-                });
-                let previous = state
-                    .daemon_pty_attach_tasks
-                    .lock()
-                    .map_err(|err| err.to_string())?
-                    .insert(id, DaemonPtyAttachTask { token, handle });
-                if let Some(previous) = previous {
-                    previous.handle.abort();
+    let client = required_daemon_client(&state)?;
+    let _ = client.daemon_pty_output(id.clone(), Some(0)).await?;
+    let token = NEXT_DAEMON_ATTACH_TASK_TOKEN.fetch_add(1, Ordering::Relaxed);
+    let bridge = client.spawn_daemon_pty_output_bridge(id.clone(), on_event, app.clone());
+    let cleanup_id = id.clone();
+    let cleanup_app = app.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        let _ = bridge.await;
+        if let Some(state) = cleanup_app.try_state::<AppState>() {
+            if let Ok(mut tasks) = state.daemon_pty_attach_tasks.lock() {
+                let should_remove =
+                    tasks.get(&cleanup_id).map(|task| task.token == token).unwrap_or(false);
+                if should_remove {
+                    tasks.remove(&cleanup_id);
                 }
-                return Ok(());
             }
-            Err(err) if is_daemon_pty_not_found(&err) => {}
-            Err(err) => return Err(err),
         }
+    });
+    let previous = state
+        .daemon_pty_attach_tasks
+        .lock()
+        .map_err(|err| err.to_string())?
+        .insert(id, DaemonPtyAttachTask { token, handle });
+    if let Some(previous) = previous {
+        previous.handle.abort();
     }
-
-    state.pty_manager.attach_output_channel(&id, on_event);
     Ok(())
 }
 
@@ -181,82 +156,25 @@ pub(crate) async fn spawn_shell(
     profile: Option<String>,
     initial_size: Option<(u16, u16)>,
     state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<(), String> {
-    use crate::pty::{NonoConfig, SmolvmExec};
     let daemon_nono_profile = nono_profile.clone();
     let daemon_nono_allow_dirs = nono_allow_dirs.clone().unwrap_or_default();
-    let nono = nono_profile
-        .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
 
-    if let Some(client) = state.daemon_client.clone() {
-        client
-            .spawn_daemon_pty_shell(
-                Some(id.clone()),
-                Some(working_dir.clone()),
-                session_id.clone(),
-                pane_id.clone(),
-                profile.clone(),
-                daemon_nono_profile,
-                daemon_nono_allow_dirs,
-                initial_size,
-            )
-            .await?;
-        return Ok(());
-    }
-
-    // Look up the session record so secondary panes inherit its
-    // smol-machine binding. Promoted to async (was sync) so the lookup
-    // can happen here rather than forcing the frontend to thread
-    // smol_machine_name through every spawn call site. Lookup failures
-    // (DB read error, IO error) propagate so we never silently bypass
-    // VM isolation by treating an error as "no binding". `Ok(None)` —
-    // the session genuinely doesn't exist yet, e.g. CLI bridge spawning
-    // ahead of session creation — falls through with no binding.
-    let session_record = match session_id.as_deref() {
-        Some(sid) => state.runtime.session_handle.get(sid).await.map_err(|e| e.to_string())?,
-        None => None,
-    };
-    let smol_name = session_record.as_ref().and_then(|s| s.smol_machine_name.clone());
-    let smolvm = match smol_name {
-        Some(name) if !name.trim().is_empty() => {
-            let install = crate::services::smolvm::resolve_smolvm_binary().ok_or_else(|| {
-                format!(
-                    "session is bound to smol machine '{name}', but smolvm is not installed; \
-                         unbind via the panel or install smolvm to continue"
-                )
-            })?;
-            Some(SmolvmExec {
-                binary: install.path,
-                machine_name: name.trim().to_string(),
-                guest_shell: "/bin/sh".to_string(),
-            })
-        }
-        _ => None,
-    };
-
-    // Secondary pane spawn path. Primary session shells already carry
-    // ROUX_PROJECT_ID / ROUX_WORKTREE_PATH via services::sessions. Secondary
-    // panes could resolve the same from `session_record` above; left as
-    // None until callers actually need them downstream.
-    state
-        .pty_manager
-        .spawn_shell(
-            &id,
-            &working_dir,
-            session_id.as_deref(),
-            pane_id.as_deref(),
-            None,
-            None,
-            None, // notes env snapshot — session-creation path only
-            nono.as_ref(),
-            smolvm.as_ref(),
+    let client = required_daemon_client(&state)?;
+    client
+        .spawn_daemon_pty_shell(
+            Some(id),
+            Some(working_dir),
+            session_id,
+            pane_id,
+            profile,
+            daemon_nono_profile,
+            daemon_nono_allow_dirs,
             initial_size,
-            crate::pty::PtyRole::Secondary,
-            profile.as_deref(),
-            app.clone(),
         )
-        .map_err(|e| e.to_string())
+        .await?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -270,10 +188,8 @@ pub(crate) async fn spawn_task(
     profile: Option<String>,
     initial_size: Option<(u16, u16)>,
     state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<(), String> {
-    use crate::pty::SmolvmExec;
-
     // See spawn_shell above: project/worktree env is deferred for the
     // secondary-pane path until this command goes async.
     let context = crate::automation_hooks::HookContext {
@@ -291,81 +207,18 @@ pub(crate) async fn spawn_task(
         .await
         .map_err(|e| e.to_string())?;
 
-    if let Some(client) = state.daemon_client.clone() {
-        client
-            .spawn_daemon_pty_task(
-                command.clone(),
-                Some(id.clone()),
-                Some(working_dir.clone()),
-                session_id.clone(),
-                pane_id.clone(),
-                profile.clone(),
-                initial_size,
-            )
-            .await?;
-        let scope = session_id.as_ref().map(|_| "session".to_string());
-        let context = crate::automation_hooks::HookContext {
-            repo_path: Some(working_dir.clone()),
-            worktree_path: Some(working_dir.clone()),
-            task_id: Some(id),
-            session_id,
-            scope,
-            cwd: Some(working_dir),
-            ..crate::automation_hooks::HookContext::new(
-                crate::automation_hooks::HookEvent::PostTaskRun,
-            )
-        };
-        state
-            .automation_hooks
-            .spawn_background(crate::automation_hooks::HookEvent::PostTaskRun, context);
-        return Ok(());
-    }
-
-    // Inherit the session's smol-machine binding so a `roux run`-style
-    // task lands inside the same VM as the rest of the session. Mirrors
-    // the spawn_shell flow above (via build_smolvm_exec_for_session
-    // in services::sessions). See `commands/sessions.rs::spawn_shell`
-    // and `socket.rs::handle_run` for the matching wraps.
-    let session_record = match session_id.as_deref() {
-        Some(sid) => state.runtime.session_handle.get(sid).await.map_err(|e| e.to_string())?,
-        None => None,
-    };
-    let smol_name = session_record.as_ref().and_then(|s| s.smol_machine_name.clone());
-    let smolvm = match smol_name {
-        Some(name) if !name.trim().is_empty() => {
-            let install = crate::services::smolvm::resolve_smolvm_binary().ok_or_else(|| {
-                format!(
-                    "session is bound to smol machine '{name}', but smolvm is not installed; \
-                         unbind via the panel or install smolvm to continue"
-                )
-            })?;
-            Some(SmolvmExec {
-                binary: install.path,
-                machine_name: name.trim().to_string(),
-                guest_shell: "/bin/sh".to_string(),
-            })
-        }
-        _ => None,
-    };
-
-    state
-        .pty_manager
-        .spawn_task(
-            &id,
-            &command,
-            &working_dir,
-            session_id.as_deref(),
-            pane_id.as_deref(),
-            None,
-            None,
-            None, // notes env snapshot — session-creation path only
-            smolvm.as_ref(),
+    let client = required_daemon_client(&state)?;
+    client
+        .spawn_daemon_pty_task(
+            command.clone(),
+            Some(id.clone()),
+            Some(working_dir.clone()),
+            session_id.clone(),
+            pane_id,
+            profile,
             initial_size,
-            crate::pty::PtyRole::Secondary,
-            profile.as_deref(),
-            app.clone(),
         )
-        .map_err(|e| e.to_string())?;
+        .await?;
     let scope = session_id.as_ref().map(|_| "session".to_string());
     let context = crate::automation_hooks::HookContext {
         repo_path: Some(working_dir.clone()),
@@ -402,51 +255,26 @@ pub(crate) fn get_pty_cwd(id: String, state: tauri::State<AppState>) -> Option<S
 /// watch-cleanup work. Shared by the Tauri command and the CLI/socket
 /// handler so both code paths get identical lifecycle behavior.
 pub(crate) async fn archive_session_with_hooks(state: &AppState, id: &str) -> Result<(), String> {
-    let session = if let Some(client) = &state.daemon_client {
-        match client.get_session(id.to_string()).await {
-            Ok(session) => Some(session),
-            Err(err) if err.contains("session not found") => {
-                state.runtime.session_handle.get(id).await.map_err(|e| e.to_string())?
-            }
-            Err(err) => return Err(err),
-        }
-    } else {
-        state.runtime.session_handle.get(id).await.map_err(|e| e.to_string())?
+    let client = required_daemon_client_ref(state)?;
+    let session = client.get_session(id.to_string()).await?;
+    let context = crate::automation_hooks::HookContext {
+        repo_path: Some(session.repo_root.clone()),
+        worktree_path: Some(session.worktree_path.clone()),
+        branch: Some(session.branch.clone()),
+        session_id: Some(session.id.clone()),
+        project_id: session.project_id.clone(),
+        scope: Some("session".into()),
+        cwd: Some(session.worktree_path.clone()),
+        ..crate::automation_hooks::HookContext::new(
+            crate::automation_hooks::HookEvent::PreSessionClose,
+        )
     };
-    if let Some(session) = session.as_ref() {
-        let context = crate::automation_hooks::HookContext {
-            repo_path: Some(session.repo_root.clone()),
-            worktree_path: Some(session.worktree_path.clone()),
-            branch: Some(session.branch.clone()),
-            session_id: Some(session.id.clone()),
-            project_id: session.project_id.clone(),
-            scope: Some("session".into()),
-            cwd: Some(session.worktree_path.clone()),
-            ..crate::automation_hooks::HookContext::new(
-                crate::automation_hooks::HookEvent::PreSessionClose,
-            )
-        };
-        state
-            .automation_hooks
-            .run_blocking(crate::automation_hooks::HookEvent::PreSessionClose, context)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    if let Some(client) = &state.daemon_client {
-        match client.archive_session(id.to_string()).await {
-            Ok(_) => {}
-            Err(err) if err.contains("session not found") => {
-                svc::kill_session(&state.pty_manager, &state.runtime.session_handle, id)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
-            Err(err) => return Err(err),
-        }
-    } else {
-        svc::kill_session(&state.pty_manager, &state.runtime.session_handle, id)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
+    state
+        .automation_hooks
+        .run_blocking(crate::automation_hooks::HookEvent::PreSessionClose, context)
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = client.archive_session(id.to_string()).await?;
     // Stop session-scoped recurring watches (e.g. PR pollers) so they
     // don't outlive the archived session and keep firing forever.
     if let Some(client) =
@@ -457,23 +285,21 @@ pub(crate) async fn archive_session_with_hooks(state: &AppState, id: &str) -> Re
         }
     }
     state.watch_manager.remove_watches_for_session(id).await;
-    if let Some(session) = session {
-        let context = crate::automation_hooks::HookContext {
-            repo_path: Some(session.repo_root.clone()),
-            worktree_path: Some(session.worktree_path.clone()),
-            branch: Some(session.branch.clone()),
-            session_id: Some(session.id.clone()),
-            project_id: session.project_id.clone(),
-            scope: Some("session".into()),
-            cwd: Some(session.worktree_path.clone()),
-            ..crate::automation_hooks::HookContext::new(
-                crate::automation_hooks::HookEvent::PostSessionClose,
-            )
-        };
-        state
-            .automation_hooks
-            .spawn_background(crate::automation_hooks::HookEvent::PostSessionClose, context);
-    }
+    let context = crate::automation_hooks::HookContext {
+        repo_path: Some(session.repo_root.clone()),
+        worktree_path: Some(session.worktree_path.clone()),
+        branch: Some(session.branch.clone()),
+        session_id: Some(session.id.clone()),
+        project_id: session.project_id.clone(),
+        scope: Some("session".into()),
+        cwd: Some(session.worktree_path.clone()),
+        ..crate::automation_hooks::HookContext::new(
+            crate::automation_hooks::HookEvent::PostSessionClose,
+        )
+    };
+    state
+        .automation_hooks
+        .spawn_background(crate::automation_hooks::HookEvent::PostSessionClose, context);
     Ok(())
 }
 
@@ -496,14 +322,9 @@ pub(crate) async fn restore_session(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    if let Some(client) = &state.daemon_client {
-        match client.restore_session(id.clone()).await {
-            Ok(_) => return Ok(()),
-            Err(err) if err.contains("session not found") => {}
-            Err(err) => return Err(err),
-        }
-    }
-    svc::restore_session(&state.runtime.session_handle, &id).await.map_err(|e| e.to_string())
+    let client = required_daemon_client_ref(&state)?;
+    let _ = client.restore_session(id).await?;
+    Ok(())
 }
 
 /// Permanently delete a session record. Irreversible. Does not touch the
@@ -515,28 +336,10 @@ pub(crate) async fn delete_session_permanently(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    if let Some(client) = &state.daemon_client {
-        match client.delete_session(id.clone()).await {
-            Ok(()) => {
-                if let Err(e) = crate::pane_state::delete_pane_state(&id) {
-                    rlog!("delete_session_permanently: failed to delete pane state for {id}: {e}");
-                }
-            }
-            Err(err) if err.contains("session not found") => {
-                svc::delete_session_permanently(
-                    &state.pty_manager,
-                    &state.runtime.session_handle,
-                    &id,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-            }
-            Err(err) => return Err(err),
-        }
-    } else {
-        svc::delete_session_permanently(&state.pty_manager, &state.runtime.session_handle, &id)
-            .await
-            .map_err(|e| e.to_string())?;
+    let client = required_daemon_client_ref(&state)?;
+    client.delete_session(id.clone()).await?;
+    if let Err(e) = crate::pane_state::delete_pane_state(&id) {
+        rlog!("delete_session_permanently: failed to delete pane state for {id}: {e}");
     }
     // Tear down any session-scoped watches that may still be polling
     // (no-op if the session was already archived and watches were
@@ -561,15 +364,8 @@ pub(crate) async fn session_worktree_exists(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
-    if let Some(client) = &state.daemon_client {
-        match client.session_worktree_exists(id.clone()).await {
-            Ok(exists) => return Ok(exists),
-            Err(err) if err.contains("session not found") => {}
-            Err(err) => return Err(err),
-        }
-    }
-    let session = state.runtime.session_handle.get(&id).await.map_err(|e| e.to_string())?;
-    Ok(session.map(|s| std::path::Path::new(&s.worktree_path).exists()).unwrap_or(false))
+    let client = required_daemon_client_ref(&state)?;
+    client.session_worktree_exists(id).await
 }
 
 /// Kill only the PTY for `id`, leaving session state, pane-state files, and
@@ -586,18 +382,9 @@ pub(crate) async fn session_worktree_exists(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn kill_pty(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    if let Some(client) = state.daemon_client.clone() {
-        match client.kill_daemon_pty(id.clone()).await {
-            Ok(_) => {
-                abort_daemon_attach_task(&state, &id)?;
-                return Ok(());
-            }
-            Err(err) if is_daemon_pty_not_found(&err) => {}
-            Err(err) => return Err(err),
-        }
-    }
+    let client = required_daemon_client(&state)?;
+    let _ = client.kill_daemon_pty(id.clone()).await?;
     abort_daemon_attach_task(&state, &id)?;
-    state.pty_manager.kill(&id);
     Ok(())
 }
 
@@ -608,15 +395,8 @@ pub(crate) async fn set_session_name_override(
     name_override: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    if let Some(client) = &state.daemon_client {
-        return client.set_session_name_override(session_id, name_override).await;
-    }
-    state
-        .runtime
-        .session_handle
-        .set_name_override(&session_id, name_override)
-        .await
-        .map_err(|e| e.to_string())
+    let client = required_daemon_client_ref(&state)?;
+    client.set_session_name_override(session_id, name_override).await
 }
 
 /// Pin (or clear) a PR for a session. The status bar uses this when set
@@ -637,15 +417,8 @@ pub(crate) async fn set_session_pinned_pr_url(
             Some(t.to_string())
         }
     });
-    if let Some(client) = &state.daemon_client {
-        return client.set_session_pinned_pr_url(session_id, normalized).await;
-    }
-    state
-        .runtime
-        .session_handle
-        .set_pinned_pr_url(&session_id, normalized)
-        .await
-        .map_err(|e| e.to_string())
+    let client = required_daemon_client_ref(&state)?;
+    client.set_session_pinned_pr_url(session_id, normalized).await
 }
 
 /// Bind (or clear) a smol machine for a session. When set, every PTY
@@ -661,15 +434,8 @@ pub(crate) async fn set_session_smol_machine(
     machine_name: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    if let Some(client) = &state.daemon_client {
-        return client.set_session_smol_machine(session_id, machine_name).await;
-    }
-    state
-        .runtime
-        .session_handle
-        .set_smol_machine_name(&session_id, machine_name)
-        .await
-        .map_err(|e| e.to_string())
+    let client = required_daemon_client_ref(&state)?;
+    client.set_session_smol_machine(session_id, machine_name).await
 }
 
 /// Re-read the session's worktree branch via `git rev-parse` and update the
@@ -682,34 +448,8 @@ pub(crate) async fn refresh_session_branch(
     session_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    if let Some(client) = &state.daemon_client {
-        match client.refresh_session_branch(session_id.clone()).await {
-            Ok(branch) => return Ok(branch),
-            Err(err) if err.contains("session not found") => {}
-            Err(err) => return Err(err),
-        }
-    }
-    let session = state.runtime.session_handle.get(&session_id).await.map_err(|e| e.to_string())?;
-    let Some(session) = session else { return Ok(None) };
-    if !session.is_git_repo {
-        return Ok(Some(session.branch));
-    }
-    // `git branch --show-current` returns empty on detached HEAD; in that
-    // case keep whatever the session already has rather than overwriting
-    // with "" — the chip would otherwise vanish during a transient rebase.
-    let Some(current) = svc::get_current_branch(&session.worktree_path) else {
-        return Ok(Some(session.branch));
-    };
-    if current.is_empty() {
-        return Ok(Some(session.branch));
-    }
-    let _ = state
-        .runtime
-        .session_handle
-        .set_branch(&session_id, current.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(Some(current))
+    let client = required_daemon_client_ref(&state)?;
+    client.refresh_session_branch(session_id).await
 }
 
 /// Spawns a plain shell in the session's
@@ -726,7 +466,7 @@ pub(crate) async fn create_session_shell(
     branch: Option<String>,
     opts: Option<CreateShellOpts>,
     state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<Session, String> {
     use crate::pty::NonoConfig;
     let opts = opts.unwrap_or_default();
@@ -753,86 +493,65 @@ pub(crate) async fn create_session_shell(
     let smol_machine_name =
         opts.smol_machine_name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
 
-    if let Some(client) = state.daemon_client.clone() {
-        let session_id = uuid::Uuid::new_v4().to_string();
-        let branch_for_notes = match &target {
-            svc::SessionTarget::Repo => {
-                svc::get_current_branch(&repo_path).unwrap_or_else(|| "main".to_string())
-            }
-            svc::SessionTarget::ExistingWorktree { path } => {
-                svc::get_current_branch(path).unwrap_or_else(|| "main".to_string())
-            }
-            svc::SessionTarget::NewWorktree { branch, .. } => branch.to_string(),
-        };
-        let project_record = match opts.project_id.as_deref() {
-            Some(pid) => client
-                .list_projects()
-                .await
-                .ok()
-                .and_then(|projects| projects.into_iter().find(|project| project.id == pid)),
-            None => None,
-        };
-        let notes = svc::build_notes_env_for_new_session(
-            &settings,
-            &session_id,
-            &branch_for_notes,
-            &repo_path,
-            project_record.as_ref(),
-        );
-        let (daemon_worktree_path, daemon_branch, daemon_base, daemon_fetch_first) = match &target {
-            svc::SessionTarget::Repo => (None, None, None, false),
-            svc::SessionTarget::ExistingWorktree { path } => {
-                (Some(path.to_string()), None, None, false)
-            }
-            svc::SessionTarget::NewWorktree { branch, start_point, fetch_first } => {
-                (None, Some(branch.to_string()), start_point.map(str::to_string), *fetch_first)
-            }
-        };
-
-        return client
-            .create_session_shell(crate::daemon_client::DaemonCreateSessionShellRequest {
-                id: session_id,
-                repo_path,
-                name,
-                worktree_path: daemon_worktree_path,
-                branch: daemon_branch,
-                base: daemon_base,
-                fetch_first: daemon_fetch_first,
-                profile: opts.profile,
-                nono_profile: nono.as_ref().map(|config| config.profile.clone()),
-                nono_allow_dirs: nono
-                    .as_ref()
-                    .map(|config| config.allow_dirs.clone())
-                    .unwrap_or_default(),
-                initial_size,
-                project_id: opts.project_id,
-                blueprint_id: opts.blueprint_id,
-                smol_machine_name,
-                notes: Some(notes),
-            })
+    let client = required_daemon_client(&state)?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let branch_for_notes = match &target {
+        svc::SessionTarget::Repo => {
+            svc::get_current_branch(&repo_path).unwrap_or_else(|| "main".to_string())
+        }
+        svc::SessionTarget::ExistingWorktree { path } => {
+            svc::get_current_branch(path).unwrap_or_else(|| "main".to_string())
+        }
+        svc::SessionTarget::NewWorktree { branch, .. } => branch.to_string(),
+    };
+    let project_record = match opts.project_id.as_deref() {
+        Some(pid) => client
+            .list_projects()
             .await
-            .map_err(|e| e.to_string());
-    }
-
-    svc::create_session_shell(
-        &state.pty_manager,
-        &state.runtime.session_handle,
-        &state.runtime.project_handle,
+            .ok()
+            .and_then(|projects| projects.into_iter().find(|project| project.id == pid)),
+        None => None,
+    };
+    let notes = svc::build_notes_env_for_new_session(
         &settings,
+        &session_id,
+        &branch_for_notes,
         &repo_path,
-        &name,
-        target,
-        nono.as_ref(),
-        opts.profile.as_deref(),
-        initial_size,
-        opts.project_id.as_deref(),
-        opts.blueprint_id.as_deref(),
-        smol_machine_name.as_deref(),
-        Some(&state.automation_hooks),
-        &app,
-    )
-    .await
-    .map_err(|e| e.to_string())
+        project_record.as_ref(),
+    );
+    let (daemon_worktree_path, daemon_branch, daemon_base, daemon_fetch_first) = match &target {
+        svc::SessionTarget::Repo => (None, None, None, false),
+        svc::SessionTarget::ExistingWorktree { path } => {
+            (Some(path.to_string()), None, None, false)
+        }
+        svc::SessionTarget::NewWorktree { branch, start_point, fetch_first } => {
+            (None, Some(branch.to_string()), start_point.map(str::to_string), *fetch_first)
+        }
+    };
+
+    client
+        .create_session_shell(crate::daemon_client::DaemonCreateSessionShellRequest {
+            id: session_id,
+            repo_path,
+            name,
+            worktree_path: daemon_worktree_path,
+            branch: daemon_branch,
+            base: daemon_base,
+            fetch_first: daemon_fetch_first,
+            profile: opts.profile,
+            nono_profile: nono.as_ref().map(|config| config.profile.clone()),
+            nono_allow_dirs: nono
+                .as_ref()
+                .map(|config| config.allow_dirs.clone())
+                .unwrap_or_default(),
+            initial_size,
+            project_id: opts.project_id,
+            blueprint_id: opts.blueprint_id,
+            smol_machine_name,
+            notes: Some(notes),
+        })
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Respawns a plain shell in the session's primary PTY. The frontend
@@ -848,61 +567,42 @@ pub(crate) async fn reconnect_session_shell(
     profile: Option<String>,
     initial_size: Option<(u16, u16)>,
     state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<Session, String> {
     use crate::pty::NonoConfig;
     let nono = nono_profile
         .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
     let settings = state.settings.lock().map_err(|e| e.to_string())?.clone();
-    if let Some(client) = state.daemon_client.clone() {
-        match client.get_session(id.clone()).await {
-            Ok(session) => {
-                let project_record = match session.project_id.as_deref() {
-                    Some(pid) => client.list_projects().await.ok().and_then(|projects| {
-                        projects.into_iter().find(|project| project.id == pid)
-                    }),
-                    None => None,
-                };
-                let notes = svc::build_notes_env_for_new_session(
-                    &settings,
-                    &session.id,
-                    &session.branch,
-                    &session.repo_root,
-                    project_record.as_ref(),
-                );
-                return client
-                    .reconnect_session_shell(
-                        crate::daemon_client::DaemonReconnectSessionShellRequest {
-                            id,
-                            profile,
-                            nono_profile: nono.as_ref().map(|config| config.profile.clone()),
-                            nono_allow_dirs: nono
-                                .as_ref()
-                                .map(|config| config.allow_dirs.clone())
-                                .unwrap_or_default(),
-                            initial_size,
-                            notes: Some(notes),
-                        },
-                    )
-                    .await;
-            }
-            Err(err) if err.contains("session not found") => {}
-            Err(err) => return Err(err),
-        }
-    }
-    svc::reconnect_session_shell(
-        &state.pty_manager,
-        &state.runtime.session_handle,
-        &state.runtime.project_handle,
+    let client = required_daemon_client(&state)?;
+    let session = client.get_session(id.clone()).await?;
+    let project_record = match session.project_id.as_deref() {
+        Some(pid) => client
+            .list_projects()
+            .await
+            .ok()
+            .and_then(|projects| projects.into_iter().find(|project| project.id == pid)),
+        None => None,
+    };
+    let notes = svc::build_notes_env_for_new_session(
         &settings,
-        &id,
-        nono.as_ref(),
-        profile.as_deref(),
-        initial_size,
-        &app,
-    )
-    .await
-    .map_err(|e| e.to_string())
+        &session.id,
+        &session.branch,
+        &session.repo_root,
+        project_record.as_ref(),
+    );
+    client
+        .reconnect_session_shell(crate::daemon_client::DaemonReconnectSessionShellRequest {
+            id,
+            profile,
+            nono_profile: nono.as_ref().map(|config| config.profile.clone()),
+            nono_allow_dirs: nono
+                .as_ref()
+                .map(|config| config.allow_dirs.clone())
+                .unwrap_or_default(),
+            initial_size,
+            notes: Some(notes),
+        })
+        .await
 }
 
 /// Active sessions only — archived rows are excluded. The history view
@@ -912,19 +612,8 @@ pub(crate) async fn reconnect_session_shell(
 pub(crate) async fn list_sessions(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Session>, String> {
-    if let Some(client) = &state.daemon_client {
-        return client
-            .list_sessions()
-            .await
-            .map(|all| all.into_iter().filter(|s| !s.archived).collect());
-    }
-    state
-        .runtime
-        .session_handle
-        .list()
-        .await
-        .map(|all| all.into_iter().filter(|s| !s.archived).collect())
-        .map_err(|e| e.to_string())
+    let client = required_daemon_client_ref(&state)?;
+    client.list_sessions().await.map(|all| all.into_iter().filter(|s| !s.archived).collect())
 }
 
 /// Archived sessions, sorted newest-first by `ended_at` so the history
@@ -934,23 +623,11 @@ pub(crate) async fn list_sessions(
 pub(crate) async fn list_archived_sessions(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Session>, String> {
-    if let Some(client) = &state.daemon_client {
-        let mut archived: Vec<Session> =
-            client.list_sessions().await?.into_iter().filter(|s| s.archived).collect();
-        archived.sort_by_key(|s| std::cmp::Reverse(s.ended_at.unwrap_or(0)));
-        return Ok(archived);
-    }
-    state
-        .runtime
-        .session_handle
-        .list()
-        .await
-        .map(|all| {
-            let mut archived: Vec<Session> = all.into_iter().filter(|s| s.archived).collect();
-            archived.sort_by_key(|s| std::cmp::Reverse(s.ended_at.unwrap_or(0)));
-            archived
-        })
-        .map_err(|e| e.to_string())
+    let client = required_daemon_client_ref(&state)?;
+    let mut archived: Vec<Session> =
+        client.list_sessions().await?.into_iter().filter(|s| s.archived).collect();
+    archived.sort_by_key(|s| std::cmp::Reverse(s.ended_at.unwrap_or(0)));
+    Ok(archived)
 }
 
 #[tauri::command]
@@ -959,7 +636,10 @@ pub(crate) async fn refresh_session_git_status(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
-    svc::refresh_git_status(&state.runtime.session_handle, &id).await.map_err(|e| e.to_string())
+    let client = required_daemon_client_ref(&state)?;
+    let _ = client.refresh_session_branch(id.clone()).await?;
+    let session = client.get_session(id).await?;
+    Ok(session.is_git_repo)
 }
 
 #[tauri::command]

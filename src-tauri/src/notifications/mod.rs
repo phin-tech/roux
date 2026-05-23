@@ -7,6 +7,8 @@
 //! OS notification center when focus policy allows.
 
 pub mod manager;
+// OSC sniffing belongs to the retained local PTY path.
+#[allow(dead_code)]
 pub mod osc_parser;
 pub mod policy;
 pub mod store;

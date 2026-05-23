@@ -2473,7 +2473,13 @@ async fn handle_session_refresh_branch(req: Request, host: &RuntimeHost) -> Resp
         Ok(None) => return Response::err("session not found"),
         Err(err) => return Response::err(err.to_string()),
     };
-    if !session.is_git_repo {
+    let is_git_repo = is_git_repo(&session.worktree_path);
+    if is_git_repo != session.is_git_repo {
+        if let Err(err) = host.session_handle.set_git_repo(session_id, is_git_repo).await {
+            return Response::err(err.to_string());
+        }
+    }
+    if !is_git_repo {
         return Response::success(serde_json::json!({ "branch": session.branch }));
     }
     let branch = get_current_branch(&session.worktree_path)
@@ -6359,6 +6365,61 @@ post-worktree-create = "{post_create}"
         .await;
         assert!(delete.ok, "delete failed: {:?}", delete.error);
         assert!(host.session_handle.get("session-life").await.unwrap().is_none());
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn daemon_session_refresh_branch_updates_git_status_when_repo_is_initialized() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = make_session("s1");
+        session.repo_root = dir.path().to_string_lossy().into_owned();
+        session.worktree_path = session.repo_root.clone();
+        session.is_git_repo = false;
+
+        let services = RuntimeHostConfig {
+            initial_sessions: vec![session],
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let init = Command::new("git").arg("init").current_dir(dir.path()).output().unwrap();
+        assert!(
+            init.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+
+        let refresh = handle_request(
+            Request {
+                command: "session-refresh-branch".to_string(),
+                session_id: Some("s1".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({}),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(refresh.ok, "refresh failed: {:?}", refresh.error);
+
+        let refreshed = host.session_handle.get("s1").await.unwrap().unwrap();
+        assert!(refreshed.is_git_repo);
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
