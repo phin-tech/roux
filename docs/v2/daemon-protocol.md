@@ -300,6 +300,11 @@ can remain available for output polling until removed by session lifecycle.
 `daemon-pty-attach` is the streaming command. It requires `args.id`; optional
 `args.maxBytes` controls replay size.
 
+The `roux attach` CLI command is a terminal frontend for this stream. It
+resolves either a direct PTY id or a session's primary PTY, writes replay/live
+bytes to stdout, and forwards stdin through separate `daemon-pty-write`
+requests.
+
 After the request, the daemon writes newline-delimited frames:
 
 ```json

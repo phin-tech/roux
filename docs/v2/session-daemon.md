@@ -1,6 +1,6 @@
 # V2: Session Daemon (Persistent PTY Sessions)
 
-**Status:** Design note — foundation started, full PTY daemon not yet implemented
+**Status:** Design note — daemon PTY/socket foundation implemented, broader migration in progress
 **Goal:** Sessions survive app crashes/restarts with full terminal scrollback preserved
 
 For the currently implemented socket command surface, see
@@ -35,13 +35,22 @@ If Roux.app already owns the socket, `roux daemon` refuses to start instead of u
 
 If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata, daemon-backed PTYs, session lifecycle, process registry, worktree filesystem operations, durable watch state, and watch execution. The GUI subscribes to daemon watch events, keeps an in-memory watch mirror for rendering, and routes notification UX client-side. That makes the GUI a frontend for daemon-owned durable state and process lifetimes.
 
+The CLI also has an initial non-GUI PTY frontend:
+
+```sh
+roux attach <pty-id>
+roux attach --session <session-id>
+```
+
+`roux attach` replays retained daemon output, streams live output from `daemon-pty-attach`, forwards local stdin with `daemon-pty-write`, and sets the daemon PTY to the current terminal size on attach.
+
 That is not the full design below yet. As of this note:
 
 - Roux.app still owns xterm.js rendering and pane layout
 - daemon-owned processes are not yet attached to terminal panes
 - pane socket commands such as split, send, and attach still expect the desktop app to be running
 - top-level `roux run` still creates a GUI pane; daemon-owned processes use `roux daemon run`
-- there is no `roux attach` command yet
+- `roux attach` is initial and does not yet handle SIGWINCH resize events after attach
 - watch notification presentation, pane-state cleanup, and manual hook-management UX still run in the desktop process
 
 ## Problem
@@ -145,13 +154,13 @@ Same tradeoffs as Zellij but in C. Less embeddable, more mature. `tmux new-sessi
 
 - Stable V1 with hooks-based status detection
 - Clear session lifecycle management
-- standalone `roux` binary already in place (`daemon` exists; `attach` remains future work)
+- standalone `roux` binary already in place (`daemon` and initial `attach` exist)
 
 ## Migration path
 
 1. Build daemon with socket server
 2. Move PTY spawning from Tauri process to daemon
 3. Tauri becomes a socket client
-4. Add `roux attach` for CLI access
+4. Add `roux attach` for CLI access (initial implementation exists)
 5. Add `roux daemon --start` to launchd/systemd for auto-start
 6. Scrollback buffer in daemon for replay on reconnect

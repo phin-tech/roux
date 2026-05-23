@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod attach;
 mod cli_socket;
 mod daemon;
 mod daemon_log;
@@ -73,6 +74,21 @@ enum Commands {
         /// Working directory
         #[arg(short, long)]
         working_dir: Option<String>,
+    },
+    /// Attach this terminal to a daemon-owned PTY
+    Attach {
+        /// Daemon PTY id. When omitted, --session or $ROUX_SESSION_ID is used.
+        #[arg(value_name = "PTY_ID", conflicts_with = "session")]
+        target: Option<String>,
+        /// Session id whose primary daemon PTY should be attached
+        #[arg(short, long)]
+        session: Option<String>,
+        /// Maximum retained output bytes to replay on attach
+        #[arg(long, default_value_t = 65536)]
+        max_bytes: usize,
+        /// Do not forward stdin into the daemon PTY
+        #[arg(long)]
+        no_input: bool,
     },
     /// Multi-scoped notes vault (experimental).
     ///
@@ -1906,6 +1922,17 @@ fn main() {
             }));
         }
 
+        Commands::Attach { target, session, max_bytes, no_input } => {
+            match attach::run(attach::AttachOptions { target, session, max_bytes, no_input }) {
+                Ok(0) => {}
+                Ok(code) => std::process::exit(code),
+                Err(err) => {
+                    eprintln!("Error: {err}");
+                    std::process::exit(1);
+                }
+            }
+        }
+
         Commands::Notify { title, body, subtitle, level, session, cwd, source, json } => {
             let mut payload = if json {
                 let mut input = String::new();
@@ -2577,6 +2604,36 @@ mod tests {
         match cli.command {
             Commands::Split { direction } => assert_eq!(direction, "vertical"),
             _ => panic!("expected Split"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_attach_with_pty_id() {
+        let cli =
+            Cli::try_parse_from(["roux", "attach", "pty-1", "--max-bytes", "4096", "--no-input"])
+                .unwrap();
+        match cli.command {
+            Commands::Attach { target, session, max_bytes, no_input } => {
+                assert_eq!(target.as_deref(), Some("pty-1"));
+                assert!(session.is_none());
+                assert_eq!(max_bytes, 4096);
+                assert!(no_input);
+            }
+            _ => panic!("expected Attach"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_attach_with_session() {
+        let cli = Cli::try_parse_from(["roux", "attach", "--session", "session-1"]).unwrap();
+        match cli.command {
+            Commands::Attach { target, session, max_bytes, no_input } => {
+                assert!(target.is_none());
+                assert_eq!(session.as_deref(), Some("session-1"));
+                assert_eq!(max_bytes, 65536);
+                assert!(!no_input);
+            }
+            _ => panic!("expected Attach"),
         }
     }
 

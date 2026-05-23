@@ -39,7 +39,7 @@ Most `roux` commands are thin clients for the running desktop app:
 
 If the Roux app is not running, socket-backed commands fail with a direct `Roux is not running` error.
 
-`roux daemon` is the exception: it starts an experimental standalone runtime host. It does not yet replace the desktop app for pane-driving commands.
+`roux daemon` is the main exception: it starts an experimental standalone runtime host. `roux attach` can connect a terminal directly to a daemon-owned PTY, while pane-driving commands still expect the desktop app.
 
 ## Command groups
 
@@ -54,6 +54,7 @@ If the Roux app is not running, socket-backed commands fail with a direct `Roux 
 - Open a plain shell (`roux shell`)
 - Focus a pane by id (`roux focus`)
 - Run a shell command in a new pane (`roux run`)
+- Attach this terminal to a daemon-owned PTY (`roux attach`)
 - Run the Roux MCP stdio server (`roux mcp`)
 - Start the experimental headless runtime host (`roux daemon`)
 - Push notifications (`roux notify`)
@@ -130,6 +131,17 @@ roux run "npm run test"
 roux run "cargo test" --working-dir ~/src/my-repo
 ```
 
+### `roux attach`
+
+Attach the current terminal to a daemon-owned PTY.
+
+```sh
+roux attach daemon-pty-1
+roux attach --session "$ROUX_SESSION_ID"
+```
+
+`roux attach` replays retained daemon output, streams live output, forwards stdin through `daemon-pty-write`, and resizes the PTY to the current terminal size on attach. When a PTY id is omitted, `--session` or `$ROUX_SESSION_ID` resolves to that session's primary daemon PTY.
+
 ### `roux mcp`
 
 Run Roux's MCP server over stdio.
@@ -201,13 +213,13 @@ roux daemon kill daemon-process-1
 
 If Roux.app already owns the command socket, `roux daemon` refuses to start instead of replacing the live GUI socket.
 
-If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and routes daemon-backed sessions, PTYs, project/session metadata, process commands, and core worktree filesystem operations through the daemon. Worktree create/remove automation hooks run on the daemon host for daemon-owned worktree operations. Watches and the manual hook-management UX still run in the desktop process for now.
+If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and routes daemon-backed sessions, PTYs, project/session metadata, process commands, core worktree filesystem operations, durable watch state, and watch execution through the daemon. Worktree create/remove automation hooks run on the daemon host for daemon-owned worktree operations. Watch notification presentation and manual hook-management UX still run in the desktop process for now.
 
 Current limits:
 
-- the desktop app still owns interactive terminal rendering and normal PTY attachment
+- the desktop app still owns pane layout, xterm.js rendering, and GUI PTY attachment
 - pane commands such as `roux split`, `roux session send`, and top-level `roux run` still expect Roux.app to be running
-- there is not yet a `roux attach` command
+- `roux attach` is an initial single-terminal daemon client; resize-on-SIGWINCH and richer reconnect UX remain future work
 
 Use it for daemon development and validation, not as a replacement for launching Roux.app.
 
