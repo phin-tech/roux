@@ -4007,6 +4007,7 @@ dependencies = [
  "rmcp",
  "roux-core",
  "roux-runtime",
+ "roux-sdk",
  "roux-worktrunk",
  "schemars 1.2.1",
  "serde",
@@ -4121,6 +4122,19 @@ dependencies = [
  "tokio-util",
  "toml 0.8.2",
  "uuid",
+]
+
+[[package]]
+name = "roux-sdk"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "roux-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

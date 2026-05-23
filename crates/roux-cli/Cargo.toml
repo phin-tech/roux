@@ -21,6 +21,7 @@ dirs = "6"
 rmcp = { version = "1.6.0", features = ["server", "transport-io", "schemars"] }
 roux-core = { path = "../roux-core" }
 roux-runtime = { path = "../roux-runtime" }
+roux-sdk = { path = "../roux-sdk" }
 roux-worktrunk = { path = "../roux-worktrunk" }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }

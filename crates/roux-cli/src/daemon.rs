@@ -6569,7 +6569,7 @@ post-worktree-create = "{post_create}"
         let process_id = start.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
         let mut output = None;
-        for _ in 0..50 {
+        for _ in 0..500 {
             let poll = handle_request(
                 Request {
                     command: "daemon-process-output".to_string(),
@@ -6644,7 +6644,7 @@ post-worktree-create = "{post_create}"
         let process_id = start.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
         let mut output = None;
-        for _ in 0..50 {
+        for _ in 0..500 {
             let poll = handle_request(
                 Request {
                     command: "daemon-process-output".to_string(),

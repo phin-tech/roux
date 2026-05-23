@@ -925,7 +925,7 @@ fn run_socket_command(request: Value) {
 }
 
 fn socket_command_data(request: Value) -> Result<Option<Value>, String> {
-    let response = send_socket_command(request)?;
+    let response = send_socket_command(request).map_err(|err| err.to_string())?;
     let ok = response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
     if ok {
         Ok(response.get("data").cloned())
