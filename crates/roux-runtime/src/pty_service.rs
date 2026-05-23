@@ -14,7 +14,7 @@ use crate::pty_lifecycle::{apply_metadata_command, PtyMetadataCommand, PtyMetada
 use crate::pty_live::WaitedChild;
 use crate::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
 use crate::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
-use crate::terminal_env::{self, NotesEnvInputs};
+use crate::terminal_env::{self, NonoConfig, NotesEnvInputs, SmolvmExec};
 
 pub const PTY_OUTPUT_LIMIT_BYTES: usize = 256 * 1024;
 pub const PTY_OUTPUT_DEFAULT_POLL_BYTES: usize = 64 * 1024;
@@ -56,6 +56,8 @@ pub struct PtySpawnRequest {
     pub project_id: Option<String>,
     pub worktree_path: Option<String>,
     pub notes: Option<NotesEnvInputs>,
+    pub nono: Option<NonoConfig>,
+    pub smolvm: Option<SmolvmExec>,
     pub env: PtyEnvRequest,
     pub profile: Option<String>,
     pub initial_size: Option<(u16, u16)>,
@@ -72,6 +74,8 @@ impl Default for PtySpawnRequest {
             project_id: None,
             worktree_path: None,
             notes: None,
+            nono: None,
+            smolvm: None,
             env: PtyEnvRequest::default(),
             profile: None,
             initial_size: None,
@@ -616,9 +620,9 @@ fn spawn_pty(
             working_dir: &working_dir_str,
             shell: &shell,
             roux_env: &roux_env,
-            worktree_path: None,
-            nono: None,
-            smolvm: None,
+            worktree_path: request.worktree_path.as_deref(),
+            nono: request.nono.as_ref(),
+            smolvm: request.smolvm.as_ref(),
             initial_size: request.initial_size,
         }),
         PtyKind::Task => pty_spawn::task_spawn_plan(TaskSpawnPlanInputs {
@@ -626,8 +630,8 @@ fn spawn_pty(
             working_dir: &working_dir_str,
             shell: &shell,
             roux_env: &roux_env,
-            worktree_path: None,
-            smolvm: None,
+            worktree_path: request.worktree_path.as_deref(),
+            smolvm: request.smolvm.as_ref(),
             initial_size: request.initial_size,
         }),
     };

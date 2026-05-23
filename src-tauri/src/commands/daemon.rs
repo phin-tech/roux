@@ -175,7 +175,16 @@ pub(crate) async fn daemon_pty_spawn_shell(
 ) -> Result<PtyRecord, String> {
     if let Some(client) = &state.daemon_client {
         return client
-            .spawn_daemon_pty_shell(id, working_dir, session_id, pane_id, profile, initial_size)
+            .spawn_daemon_pty_shell(
+                id,
+                working_dir,
+                session_id,
+                pane_id,
+                profile,
+                None,
+                Vec::new(),
+                initial_size,
+            )
             .await;
     }
 

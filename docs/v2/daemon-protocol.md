@@ -73,8 +73,7 @@ Compatibility alias for top-level `roux session create` when the daemon owns
 the socket. Accepts the existing CLI arg names such as `working_dir`,
 `worktree_branch`, and `start_point`, normalizes them into
 `session-create-shell`, and returns `{ "session_id": "..." }`. Daemon session
-creation currently rejects `prompt`, `flags`, `nono_profile`, and
-`nono_allow_dirs`.
+creation currently rejects `prompt` and `flags`.
 
 `session-create-shell`
 
@@ -91,6 +90,7 @@ Supported `args`:
 - `profile`: spawn profile id.
 - `initialSize`: `[cols, rows]`.
 - `projectId`, `blueprintId`, `smolMachineName`.
+- `nonoProfile`, `nonoAllowDirs`.
 - `notesEnv`: notes env snapshot for the primary PTY.
 
 Returns the created session. If daemon PTY spawn fails after creating a new
@@ -100,7 +100,7 @@ worktree, the daemon attempts to remove the worktree before returning an error.
 
 Requires `session_id`. Respawns the primary PTY using the existing session
 record and returns the updated session. Supported `args`: `profile`,
-`initialSize`, `notesEnv`.
+`nonoProfile`, `nonoAllowDirs`, `initialSize`, `notesEnv`.
 
 `session-archive`
 
@@ -134,6 +134,22 @@ daemon session record when it changed. Returns `{ "branch": "..." }`.
 `session-rename`
 
 Requires `session_id`, with `args.name`. Sets or clears `name_override`.
+
+`session-set-project`
+
+Requires `session_id`, with nullable `args.projectId`. Sets or clears the
+session's project id in daemon-owned session metadata.
+
+`session-set-pinned-pr-url`
+
+Requires `session_id`, with nullable `args.url`. Sets or clears the session's
+pinned PR URL in daemon-owned session metadata.
+
+`session-set-smol-machine`
+
+Requires `session_id`, with nullable `args.machineName`. Sets or clears the
+session's smol-machine binding in daemon-owned session metadata. Future PTY
+spawns for that session inherit the binding from the daemon session record.
 
 `session-panes-list`
 
@@ -364,6 +380,25 @@ Frames:
 `project-list`
 
 Returns all daemon projects.
+
+`project-create`
+
+Requires `args.name`; optional `args.id`. Creates a daemon-owned project and
+returns it.
+
+`project-remove`
+
+Requires `args.id`. Removes the daemon-owned project and clears matching
+session project references.
+
+`project-rename`
+
+Requires `args.id` and `args.name`. Renames a daemon-owned project.
+
+`project-update`
+
+Requires `args.id` and `args.patch`. Applies a `ProjectUpdate` patch and
+returns the updated daemon-owned project.
 
 ## Notes Commands
 

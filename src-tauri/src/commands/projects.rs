@@ -21,6 +21,9 @@ pub(crate) async fn create_project(
     name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Project, String> {
+    if let Some(client) = &state.daemon_client {
+        return client.create_project(name).await;
+    }
     let project = Project {
         id: uuid::Uuid::new_v4().to_string(),
         name,
@@ -39,6 +42,9 @@ pub(crate) async fn remove_project(
     id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = &state.daemon_client {
+        return client.remove_project(id).await;
+    }
     let removed = state.runtime.project_handle.get(&id).await.map_err(|e| e.to_string())?;
     state.runtime.project_handle.remove(&id).await.map_err(|e| e.to_string())?;
     if let Err(e) = state.runtime.session_handle.clear_project_refs(&id).await {
@@ -57,6 +63,9 @@ pub(crate) async fn rename_project(
     name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = &state.daemon_client {
+        return client.rename_project(id, name).await;
+    }
     state.runtime.project_handle.rename(&id, &name).await.map_err(|e| e.to_string())
 }
 
@@ -67,8 +76,12 @@ pub(crate) async fn update_project(
     patch: ProjectUpdate,
     state: tauri::State<'_, AppState>,
 ) -> Result<Project, String> {
+    if let Some(client) = &state.daemon_client {
+        return client.update_project(id, patch).await;
+    }
     state
-        .runtime.project_handle
+        .runtime
+        .project_handle
         .update(&id, patch)
         .await
         .map_err(|e| e.to_string())?
@@ -82,6 +95,9 @@ pub(crate) async fn set_session_project(
     project_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = &state.daemon_client {
+        return client.set_session_project(session_id, project_id).await;
+    }
     svc::set_session_project(&state.runtime.session_handle, &session_id, project_id)
         .await
         .map_err(|e| e.to_string())

@@ -261,7 +261,7 @@ Useful flags:
 - `--flag` / `-f` — repeatable extra flags passed to the agent profile
 - `--nono-profile` and `--nono-allow-dir` — sandbox controls
 
-When the daemon owns the socket, `roux session create` creates a daemon-owned session and primary PTY. `--prompt`, `--flag`, `--nono-profile`, and `--nono-allow-dir` are currently rejected by daemon session creation instead of being silently ignored.
+When the daemon owns the socket, `roux session create` creates a daemon-owned session and primary PTY. `--nono-profile` and `--nono-allow-dir` are applied by the daemon host. `--prompt` and `--flag` are currently rejected by daemon session creation instead of being silently ignored.
 
 #### `roux session send`
 

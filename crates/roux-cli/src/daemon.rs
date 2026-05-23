@@ -11,7 +11,7 @@ use tokio::net::UnixListener;
 
 use roux_core::{
     AliasEvent, BusSubscriptionEvent, ConsumptionMode, CreateWatchConfig, EventBuilder, EventKind,
-    MailboxEvent, PtyRole, PtyStatus, RuntimeState, Watch,
+    MailboxEvent, Project, ProjectUpdate, PtyRole, PtyStatus, RuntimeState, Watch,
 };
 use roux_runtime::alias_service::AliasManager;
 use roux_runtime::alias_store::{BindRequest, ProjectFilter};
@@ -26,7 +26,7 @@ use roux_runtime::pty_service::{
     PtyEnvRequest, PtyOutputEvent, PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES,
 };
 use roux_runtime::subscription_service::SubscriptionManager;
-use roux_runtime::terminal_env::NotesEnvInputs;
+use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs, SmolvmExec};
 use roux_runtime::watch_runner::WatchRunner;
 
 use crate::{daemon_log::DaemonLog, paths, platform};
@@ -615,6 +615,7 @@ async fn handle_connection<R, W>(
     let _ = writer.shutdown().await;
 }
 
+#[cfg(test)]
 async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdentity) -> Response {
     handle_request_with_watch_runner(req, host, None, identity).await
 }
@@ -645,6 +646,9 @@ async fn handle_request_with_watch_runner(
         "session-worktree-exists" => handle_session_worktree_exists(req, host).await,
         "session-refresh-branch" => handle_session_refresh_branch(req, host).await,
         "session-rename" => handle_session_rename(req, host).await,
+        "session-set-project" => handle_session_set_project(req, host).await,
+        "session-set-pinned-pr-url" => handle_session_set_pinned_pr_url(req, host).await,
+        "session-set-smol-machine" => handle_session_set_smol_machine(req, host).await,
         "alias-set" => handle_alias_set(req, identity).await,
         "alias-unset" => handle_alias_unset(req, identity).await,
         "alias-claim" => handle_alias_claim(req, identity).await,
@@ -673,6 +677,10 @@ async fn handle_request_with_watch_runner(
         "bus-unsubscribe" => handle_bus_unsubscribe(req, identity).await,
         "bus-subscriptions" => handle_bus_subscriptions(req, identity).await,
         "project-list" => handle_project_list(host).await,
+        "project-create" => handle_project_create(req, host).await,
+        "project-remove" => handle_project_remove(req, host).await,
+        "project-rename" => handle_project_rename(req, host).await,
+        "project-update" => handle_project_update(req, host).await,
         "watch-list" => handle_watch_list(host).await,
         "watch-create" => match watch_runner {
             Some(runner) => handle_watch_create(req, runner).await,
@@ -770,6 +778,9 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "session-worktree-exists",
         "session-refresh-branch",
         "session-rename",
+        "session-set-project",
+        "session-set-pinned-pr-url",
+        "session-set-smol-machine",
         "alias-set",
         "alias-unset",
         "alias-claim",
@@ -801,6 +812,10 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "bus-subscriptions",
         "subscription-events",
         "project-list",
+        "project-create",
+        "project-remove",
+        "project-rename",
+        "project-update",
         "watch-list",
         "watch-create",
         "watch-find-or-create",
@@ -1329,6 +1344,48 @@ async fn handle_session_rename(req: Request, host: &RuntimeHost) -> Response {
         "session_id": session_id,
         "name_override": name_override,
     }))
+}
+
+async fn handle_session_set_project(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = request_session_id(&req) else {
+        return Response::err("session_id required");
+    };
+    let project_id = optional_nullable_string_arg(&req.args, &["projectId", "project_id"]);
+    match host.session_handle.set_project(session_id, project_id.clone()).await {
+        Ok(()) => Response::success(serde_json::json!({
+            "session_id": session_id,
+            "project_id": project_id,
+        })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_session_set_pinned_pr_url(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = request_session_id(&req) else {
+        return Response::err("session_id required");
+    };
+    let url = optional_nullable_string_arg(&req.args, &["url", "pinnedPrUrl", "pinned_pr_url"]);
+    match host.session_handle.set_pinned_pr_url(session_id, url.clone()).await {
+        Ok(()) => Response::success(serde_json::json!({
+            "session_id": session_id,
+            "url": url,
+        })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_session_set_smol_machine(req: Request, host: &RuntimeHost) -> Response {
+    let Some(session_id) = request_session_id(&req) else {
+        return Response::err("session_id required");
+    };
+    let machine_name = optional_nullable_string_arg(&req.args, &["machineName", "machine_name"]);
+    match host.session_handle.set_smol_machine_name(session_id, machine_name.clone()).await {
+        Ok(()) => Response::success(serde_json::json!({
+            "session_id": session_id,
+            "machine_name": machine_name,
+        })),
+        Err(err) => Response::err(err.to_string()),
+    }
 }
 
 async fn handle_alias_set(req: Request, identity: &DaemonIdentity) -> Response {
@@ -2059,18 +2116,6 @@ async fn normalize_cli_session_create_request(
             "--flag/-f is not supported by daemon session create; bake flags into a spawn profile's startup command instead",
         ));
     }
-    if req.args.get("nono_profile").is_some()
-        || req
-            .args
-            .get("nono_allow_dirs")
-            .and_then(|dirs| dirs.as_array())
-            .is_some_and(|dirs| !dirs.is_empty())
-    {
-        return Err(Response::err(
-            "daemon session create does not support nono options yet; create the session from Roux.app or a profile instead",
-        ));
-    }
-
     let mut args = req.args.as_object().cloned().unwrap_or_default();
     let working_dir = args
         .get("working_dir")
@@ -2146,7 +2191,9 @@ async fn handle_session_create_shell(
     let settings = load_daemon_settings();
     let target = parse_daemon_session_target(&req.args);
     let (work_dir, actual_branch, owns_worktree) =
-        match resolve_daemon_session_target(repo_path, target, &settings) {
+        match resolve_daemon_session_target(repo_path, target, &settings, daemon_hook_manager())
+            .await
+        {
             Ok(resolved) => resolved,
             Err(err) => return Response::err(err),
         };
@@ -2174,6 +2221,12 @@ async fn handle_session_create_shell(
         .map(str::trim)
         .filter(|smol| !smol.is_empty())
         .map(str::to_string);
+    let nono = parse_nono_config(&req.args);
+    let smolvm = match build_daemon_smolvm_exec_for_session(&settings, smol_machine_name.as_deref())
+    {
+        Ok(smolvm) => smolvm,
+        Err(err) => return Response::err(err),
+    };
 
     let spawn = host
         .pty_handle
@@ -2185,6 +2238,8 @@ async fn handle_session_create_shell(
             project_id: project_id.clone(),
             worktree_path: owns_worktree.then(|| work_dir.clone()),
             notes: parse_notes_env(&req.args),
+            nono,
+            smolvm,
             env: parse_pty_env_request(&req.args, identity),
             profile: profile.clone(),
             initial_size,
@@ -2249,12 +2304,13 @@ async fn handle_session_reconnect_shell(
         Ok(None) => return Response::err("session not found"),
         Err(err) => return Response::err(err.to_string()),
     };
-    if session.smol_machine_name.as_ref().is_some_and(|name| !name.trim().is_empty()) {
-        return Response::err(
-            "daemon reconnect does not support smol-bound sessions yet; unbind or reconnect locally",
-        );
-    }
-
+    let settings = load_daemon_settings();
+    let smolvm =
+        match build_daemon_smolvm_exec_for_session(&settings, session.smol_machine_name.as_deref())
+        {
+            Ok(smolvm) => smolvm,
+            Err(err) => return Response::err(err),
+        };
     let primary_pty_id = session.primary_pty_id.as_deref().unwrap_or(&session.id).to_string();
     let _ = host.pty_handle.remove(&primary_pty_id).await;
     let pane_id = format!("{}-main", session.id);
@@ -2270,6 +2326,8 @@ async fn handle_session_reconnect_shell(
             project_id: session.project_id.clone(),
             worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
             notes: parse_notes_env(&req.args),
+            nono: parse_nono_config(&req.args),
+            smolvm,
             env: parse_pty_env_request(&req.args, identity),
             profile,
             initial_size,
@@ -2567,6 +2625,82 @@ async fn handle_project_list(host: &RuntimeHost) -> Response {
             Err(err) => Response::err(format!("failed to serialize projects: {err}")),
         },
         Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_project_create(req: Request, host: &RuntimeHost) -> Response {
+    let Some(name) = optional_string_arg(&req.args, &["name"]) else {
+        return Response::err("name required");
+    };
+    let id =
+        optional_string_arg(&req.args, &["id"]).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let project = Project {
+        id,
+        name,
+        repo_roots: Vec::new(),
+        context_paths: Vec::new(),
+        session_blueprints: Vec::new(),
+        project_prompt: String::new(),
+    };
+    match host.project_handle.add(project.clone()).await {
+        Ok(()) => serialize_project(project),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_project_remove(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id", "projectId", "project_id"]) else {
+        return Response::err("id required");
+    };
+    let removed = match host.project_handle.get(&id).await {
+        Ok(project) => project,
+        Err(err) => return Response::err(err.to_string()),
+    };
+    if let Err(err) = host.project_handle.remove(&id).await {
+        return Response::err(err.to_string());
+    }
+    if let Err(err) = host.session_handle.clear_project_refs(&id).await {
+        if let Some(project) = removed {
+            let _ = host.project_handle.add(project).await;
+        }
+        return Response::err(err.to_string());
+    }
+    Response::success(serde_json::json!({ "id": id }))
+}
+
+async fn handle_project_rename(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id", "projectId", "project_id"]) else {
+        return Response::err("id required");
+    };
+    let Some(name) = optional_string_arg(&req.args, &["name"]) else {
+        return Response::err("name required");
+    };
+    match host.project_handle.rename(&id, &name).await {
+        Ok(()) => Response::success(serde_json::json!({ "id": id, "name": name })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_project_update(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id", "projectId", "project_id"]) else {
+        return Response::err("id required");
+    };
+    let patch_value = req.args.get("patch").cloned().unwrap_or_else(|| req.args.clone());
+    let patch: ProjectUpdate = match serde_json::from_value(patch_value) {
+        Ok(patch) => patch,
+        Err(err) => return Response::err(format!("invalid project patch: {err}")),
+    };
+    match host.project_handle.update(&id, patch).await {
+        Ok(Some(project)) => serialize_project(project),
+        Ok(None) => Response::err(format!("project {id} not found")),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+fn serialize_project(project: Project) -> Response {
+    match serde_json::to_value(project) {
+        Ok(value) => Response::success(value),
+        Err(err) => Response::err(format!("failed to serialize project: {err}")),
     }
 }
 
@@ -3478,6 +3612,14 @@ async fn handle_session_panes_create(
             project_id: session.project_id.clone(),
             worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
             notes: parse_notes_env(&req.args),
+            nono: parse_nono_config(&req.args),
+            smolvm: match build_daemon_smolvm_exec_for_session(
+                &load_daemon_settings(),
+                session.smol_machine_name.as_deref(),
+            ) {
+                Ok(smolvm) => smolvm,
+                Err(err) => return Response::err(err),
+            },
             env: parse_pty_env_request(&req.args, identity),
             profile: Some(profile.to_string()),
             initial_size: parse_initial_size(&req.args),
@@ -3593,7 +3735,11 @@ async fn handle_daemon_pty_spawn_shell(
     host: &RuntimeHost,
     identity: &DaemonIdentity,
 ) -> Response {
-    match host.pty_handle.spawn_shell(parse_pty_spawn_request(&req, identity)).await {
+    let request = match parse_pty_spawn_request(&req, host, identity).await {
+        Ok(request) => request,
+        Err(err) => return Response::err(err),
+    };
+    match host.pty_handle.spawn_shell(request).await {
         Ok(record) => match serde_json::to_value(record) {
             Ok(value) => Response::success(value),
             Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
@@ -3610,11 +3756,11 @@ async fn handle_daemon_pty_spawn_task(
     let Some(command) = req.args.get("command").and_then(|command| command.as_str()) else {
         return Response::err("command required");
     };
-    match host
-        .pty_handle
-        .spawn_task(command.to_string(), parse_pty_spawn_request(&req, identity))
-        .await
-    {
+    let request = match parse_pty_spawn_request(&req, host, identity).await {
+        Ok(request) => request,
+        Err(err) => return Response::err(err),
+    };
+    match host.pty_handle.spawn_task(command.to_string(), request).await {
         Ok(record) => match serde_json::to_value(record) {
             Ok(value) => Response::success(value),
             Err(err) => Response::err(format!("failed to serialize daemon pty: {err}")),
@@ -3772,7 +3918,11 @@ fn serialize_daemon_pty_metadata_result(
     }
 }
 
-fn parse_pty_spawn_request(req: &Request, identity: &DaemonIdentity) -> PtySpawnRequest {
+async fn parse_pty_spawn_request(
+    req: &Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Result<PtySpawnRequest, String> {
     let working_dir = req
         .args
         .get("workingDir")
@@ -3798,7 +3948,7 @@ fn parse_pty_spawn_request(req: &Request, identity: &DaemonIdentity) -> PtySpawn
         _ => roux_core::PtyRole::Secondary,
     };
 
-    PtySpawnRequest {
+    let mut request = PtySpawnRequest {
         id: req.args.get("id").and_then(|id| id.as_str()).map(str::to_string),
         working_dir,
         session_id,
@@ -3816,11 +3966,74 @@ fn parse_pty_spawn_request(req: &Request, identity: &DaemonIdentity) -> PtySpawn
             .and_then(|worktree_path| worktree_path.as_str())
             .map(str::to_string),
         notes: parse_notes_env(&req.args),
+        nono: parse_nono_config(&req.args),
+        smolvm: None,
         env: parse_pty_env_request(&req.args, identity),
         profile: req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string),
         initial_size: parse_initial_size(&req.args),
         role,
+    };
+    apply_session_spawn_bindings(&mut request, host).await?;
+    Ok(request)
+}
+
+async fn apply_session_spawn_bindings(
+    request: &mut PtySpawnRequest,
+    host: &RuntimeHost,
+) -> Result<(), String> {
+    let Some(session_id) = request.session_id.as_deref() else {
+        return Ok(());
+    };
+    let Some(session) = host.session_handle.get(session_id).await.map_err(|err| err.to_string())?
+    else {
+        return Ok(());
+    };
+    if request.project_id.is_none() {
+        request.project_id = session.project_id.clone();
     }
+    if request.worktree_path.is_none() && session.is_worktree {
+        request.worktree_path = Some(session.worktree_path.clone());
+    }
+    request.smolvm = build_daemon_smolvm_exec_for_session(
+        &load_daemon_settings(),
+        session.smol_machine_name.as_deref(),
+    )?;
+    Ok(())
+}
+
+fn parse_nono_config(args: &Value) -> Option<NonoConfig> {
+    let profile = optional_string_arg(args, &["nonoProfile", "nono_profile"])?;
+    let allow_dirs = args
+        .get("nonoAllowDirs")
+        .or_else(|| args.get("nono_allow_dirs"))
+        .and_then(|dirs| dirs.as_array())
+        .map(|dirs| {
+            dirs.iter().filter_map(|dir| dir.as_str()).map(str::to_string).collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Some(NonoConfig { profile, allow_dirs })
+}
+
+fn build_daemon_smolvm_exec_for_session(
+    settings: &roux_core::RouxSettings,
+    smol_machine_name: Option<&str>,
+) -> Result<Option<SmolvmExec>, String> {
+    let Some(name) = smol_machine_name.map(str::trim).filter(|name| !name.is_empty()) else {
+        return Ok(None);
+    };
+    let override_path =
+        settings.smolvm_binary_path.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    let detection = roux_core::smolvm::detect(override_path);
+    let Some(binary_path) = detection.binary_path else {
+        return Err(format!(
+            "session is bound to smol machine '{name}', but smolvm is not installed; unbind or install smolvm to continue"
+        ));
+    };
+    Ok(Some(SmolvmExec {
+        binary: PathBuf::from(binary_path),
+        machine_name: name.to_string(),
+        guest_shell: "/bin/sh".to_string(),
+    }))
 }
 
 fn parse_pty_env_request(args: &Value, identity: &DaemonIdentity) -> PtyEnvRequest {
@@ -3929,6 +4142,16 @@ fn optional_string_arg(args: &Value, names: &[&str]) -> Option<String> {
         .map(str::to_string)
 }
 
+fn optional_nullable_string_arg(args: &Value, names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| args.get(*name)).and_then(|value| {
+        if value.is_null() {
+            None
+        } else {
+            value.as_str().map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+        }
+    })
+}
+
 fn bool_arg(args: &Value, names: &[&str]) -> Option<bool> {
     names.iter().find_map(|name| args.get(*name)).and_then(|value| value.as_bool())
 }
@@ -3976,10 +4199,11 @@ fn parse_daemon_session_target(args: &Value) -> DaemonSessionTarget {
     DaemonSessionTarget::Repo
 }
 
-fn resolve_daemon_session_target(
+async fn resolve_daemon_session_target(
     repo_path: &str,
     target: DaemonSessionTarget,
     settings: &roux_core::RouxSettings,
+    hooks: AutomationHookManager,
 ) -> Result<(String, String, bool), String> {
     match target {
         DaemonSessionTarget::Repo => {
@@ -3991,19 +4215,40 @@ fn resolve_daemon_session_target(
             Ok((path, branch, false))
         }
         DaemonSessionTarget::NewWorktree { branch, start_point, fetch_first } => {
+            let wt = resolve_wt_binary(settings);
+            let provider = settings.worktree_provider;
+            let wt_available = wt.is_some();
+            let pre_context = HookContext {
+                repo_path: Some(repo_path.to_string()),
+                branch: Some(branch.clone()),
+                cwd: Some(repo_path.to_string()),
+                ..HookContext::new(HookEvent::PreWorktreeCreate)
+                    .with_provider(provider, wt_available)
+            };
+            hooks
+                .run_blocking(HookEvent::PreWorktreeCreate, pre_context)
+                .await
+                .map_err(|err| err.to_string())?;
             if fetch_first {
                 roux_core::fetch_origin(repo_path).map_err(|err| err.to_string())?;
             }
-            let wt = resolve_wt_binary(settings);
             let worktree_path = roux_core::create_worktree_with_provider(
                 repo_path,
                 &branch,
                 settings.worktree_base_path.as_deref(),
                 start_point.as_deref(),
-                settings.worktree_provider,
+                provider,
                 wt.as_ref(),
             )
             .map_err(|err| err.to_string())?;
+            let context = build_daemon_post_worktree_create_context(
+                provider,
+                wt_available,
+                repo_path,
+                &branch,
+                &worktree_path,
+            );
+            hooks.spawn_background(HookEvent::PostWorktreeCreate, context);
             Ok((worktree_path, branch, true))
         }
     }
@@ -5033,6 +5278,50 @@ post-worktree-remove = "{post_remove}"
 
     #[cfg(not(windows))]
     #[tokio::test]
+    async fn daemon_session_worktree_target_runs_hooks_server_side() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let worktree_base = dir.path().join("worktrees");
+        let hook_root = dir.path().join("hook-root");
+        std::fs::create_dir_all(&hook_root).unwrap();
+        let marker = dir.path().join("session-worktree-hook-events.txt");
+        let marker_arg = shell_quote(&marker);
+        let hooks_toml = format!(
+            r#"
+pre-worktree-create = "{pre_create}"
+post-worktree-create = "{post_create}"
+"#,
+            pre_create = toml_escape(&format!("printf pre-create >> {marker_arg}")),
+            post_create = toml_escape(&format!("printf post-create >> {marker_arg}")),
+        );
+        std::fs::write(hook_root.join("hooks.toml"), hooks_toml).unwrap();
+        let hooks = AutomationHookManager::from_config_root(&hook_root);
+        let mut settings = roux_core::RouxSettings::default();
+        settings.worktree_base_path = Some(worktree_base.to_string_lossy().into_owned());
+
+        let (worktree_path, branch, owns_worktree) = resolve_daemon_session_target(
+            &repo.to_string_lossy(),
+            DaemonSessionTarget::NewWorktree {
+                branch: "feature/session-hooked-worktree".to_string(),
+                start_point: Some("main".to_string()),
+                fetch_first: false,
+            },
+            &settings,
+            hooks,
+        )
+        .await
+        .expect("session target should create worktree");
+
+        assert_eq!(branch, "feature/session-hooked-worktree");
+        assert!(owns_worktree);
+        assert!(std::path::Path::new(&worktree_path).exists());
+        wait_for_marker(&marker, "pre-create").await;
+        wait_for_marker(&marker, "post-create").await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
     async fn daemon_session_create_shell_owns_session_and_primary_pty() {
         let dir = tempfile::tempdir().unwrap();
         let services = RuntimeHostConfig {
@@ -5992,6 +6281,129 @@ post-worktree-remove = "{post_remove}"
         .await;
         assert!(delete.ok, "delete failed: {:?}", delete.error);
         assert!(host.session_handle.get("session-life").await.unwrap().is_none());
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn daemon_project_and_session_metadata_commands_mutate_runtime_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: vec![make_session("s1")],
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let create = handle_request(
+            Request {
+                command: "project-create".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "name": "Alpha" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(create.ok, "project-create failed: {:?}", create.error);
+        let project_id = create.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let update = handle_request(
+            Request {
+                command: "project-update".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "id": project_id,
+                    "patch": { "name": "Beta", "contextPaths": ["/docs"] },
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(update.ok, "project-update failed: {:?}", update.error);
+        assert_eq!(update.data.as_ref().unwrap()["name"], "Beta");
+        assert_eq!(update.data.as_ref().unwrap()["contextPaths"][0], "/docs");
+
+        let set_project = handle_request(
+            Request {
+                command: "session-set-project".to_string(),
+                session_id: Some("s1".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "projectId": project_id }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(set_project.ok, "session-set-project failed: {:?}", set_project.error);
+
+        let set_pinned = handle_request(
+            Request {
+                command: "session-set-pinned-pr-url".to_string(),
+                session_id: Some("s1".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "url": "https://github.com/o/r/pull/1" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(set_pinned.ok, "session-set-pinned-pr-url failed: {:?}", set_pinned.error);
+
+        let set_smol = handle_request(
+            Request {
+                command: "session-set-smol-machine".to_string(),
+                session_id: Some("s1".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "machineName": "vm-a" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(set_smol.ok, "session-set-smol-machine failed: {:?}", set_smol.error);
+
+        let session = host.session_handle.get("s1").await.unwrap().unwrap();
+        assert_eq!(session.project_id.as_deref(), Some(project_id.as_str()));
+        assert_eq!(session.pinned_pr_url.as_deref(), Some("https://github.com/o/r/pull/1"));
+        assert_eq!(session.smol_machine_name.as_deref(), Some("vm-a"));
+
+        let remove_project = handle_request(
+            Request {
+                command: "project-remove".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": project_id }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(remove_project.ok, "project-remove failed: {:?}", remove_project.error);
+        let session = host.session_handle.get("s1").await.unwrap().unwrap();
+        assert!(session.project_id.is_none());
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;

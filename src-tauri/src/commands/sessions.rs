@@ -162,8 +162,26 @@ pub(crate) async fn spawn_shell(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     use crate::pty::{NonoConfig, SmolvmExec};
+    let daemon_nono_profile = nono_profile.clone();
+    let daemon_nono_allow_dirs = nono_allow_dirs.clone().unwrap_or_default();
     let nono = nono_profile
         .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
+
+    if let Some(client) = state.daemon_client.clone() {
+        client
+            .spawn_daemon_pty_shell(
+                Some(id.clone()),
+                Some(working_dir.clone()),
+                session_id.clone(),
+                pane_id.clone(),
+                profile.clone(),
+                daemon_nono_profile,
+                daemon_nono_allow_dirs,
+                initial_size,
+            )
+            .await?;
+        return Ok(());
+    }
 
     // Look up the session record so secondary panes inherit its
     // smol-machine binding. Promoted to async (was sync) so the lookup
@@ -194,22 +212,6 @@ pub(crate) async fn spawn_shell(
         }
         _ => None,
     };
-
-    if let Some(client) = state.daemon_client.clone() {
-        if nono.is_none() && smolvm.is_none() {
-            client
-                .spawn_daemon_pty_shell(
-                    Some(id.clone()),
-                    Some(working_dir.clone()),
-                    session_id.clone(),
-                    pane_id.clone(),
-                    profile.clone(),
-                    initial_size,
-                )
-                .await?;
-            return Ok(());
-        }
-    }
 
     // Secondary pane spawn path. Primary session shells already carry
     // ROUX_PROJECT_ID / ROUX_WORKTREE_PATH via services::sessions. Secondary
@@ -267,6 +269,36 @@ pub(crate) async fn spawn_task(
         .await
         .map_err(|e| e.to_string())?;
 
+    if let Some(client) = state.daemon_client.clone() {
+        client
+            .spawn_daemon_pty_task(
+                command.clone(),
+                Some(id.clone()),
+                Some(working_dir.clone()),
+                session_id.clone(),
+                pane_id.clone(),
+                profile.clone(),
+                initial_size,
+            )
+            .await?;
+        let scope = session_id.as_ref().map(|_| "session".to_string());
+        let context = crate::automation_hooks::HookContext {
+            repo_path: Some(working_dir.clone()),
+            worktree_path: Some(working_dir.clone()),
+            task_id: Some(id),
+            session_id,
+            scope,
+            cwd: Some(working_dir),
+            ..crate::automation_hooks::HookContext::new(
+                crate::automation_hooks::HookEvent::PostTaskRun,
+            )
+        };
+        state
+            .automation_hooks
+            .spawn_background(crate::automation_hooks::HookEvent::PostTaskRun, context);
+        return Ok(());
+    }
+
     // Inherit the session's smol-machine binding so a `roux run`-style
     // task lands inside the same VM as the rest of the session. Mirrors
     // the spawn_shell flow above (via build_smolvm_exec_for_session
@@ -293,38 +325,6 @@ pub(crate) async fn spawn_task(
         }
         _ => None,
     };
-
-    if let Some(client) = state.daemon_client.clone() {
-        if smolvm.is_none() {
-            client
-                .spawn_daemon_pty_task(
-                    command.clone(),
-                    Some(id.clone()),
-                    Some(working_dir.clone()),
-                    session_id.clone(),
-                    pane_id.clone(),
-                    profile.clone(),
-                    initial_size,
-                )
-                .await?;
-            let scope = session_id.as_ref().map(|_| "session".to_string());
-            let context = crate::automation_hooks::HookContext {
-                repo_path: Some(working_dir.clone()),
-                worktree_path: Some(working_dir.clone()),
-                task_id: Some(id),
-                session_id,
-                scope,
-                cwd: Some(working_dir),
-                ..crate::automation_hooks::HookContext::new(
-                    crate::automation_hooks::HookEvent::PostTaskRun,
-                )
-            };
-            state
-                .automation_hooks
-                .spawn_background(crate::automation_hooks::HookEvent::PostTaskRun, context);
-            return Ok(());
-        }
-    }
 
     state
         .pty_manager
@@ -615,6 +615,9 @@ pub(crate) async fn set_session_pinned_pr_url(
             Some(t.to_string())
         }
     });
+    if let Some(client) = &state.daemon_client {
+        return client.set_session_pinned_pr_url(session_id, normalized).await;
+    }
     state
         .runtime
         .session_handle
@@ -636,6 +639,9 @@ pub(crate) async fn set_session_smol_machine(
     machine_name: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    if let Some(client) = &state.daemon_client {
+        return client.set_session_smol_machine(session_id, machine_name).await;
+    }
     state
         .runtime
         .session_handle
@@ -726,66 +732,64 @@ pub(crate) async fn create_session_shell(
         opts.smol_machine_name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
 
     if let Some(client) = state.daemon_client.clone() {
-        let hooks_empty = state
-            .automation_hooks
-            .list_hooks(Some(&repo_path))
-            .map(|hooks| hooks.is_empty())
-            .unwrap_or(false);
-        if nono.is_none() && smol_machine_name.is_none() && hooks_empty {
-            let session_id = uuid::Uuid::new_v4().to_string();
-            let branch_for_notes = match &target {
-                svc::SessionTarget::Repo => {
-                    svc::get_current_branch(&repo_path).unwrap_or_else(|| "main".to_string())
-                }
-                svc::SessionTarget::ExistingWorktree { path } => {
-                    svc::get_current_branch(path).unwrap_or_else(|| "main".to_string())
-                }
-                svc::SessionTarget::NewWorktree { branch, .. } => branch.to_string(),
-            };
-            let project_record = match opts.project_id.as_deref() {
-                Some(pid) => state.runtime.project_handle.get(pid).await.ok().flatten(),
-                None => None,
-            };
-            let notes = svc::build_notes_env_for_new_session(
-                &settings,
-                &session_id,
-                &branch_for_notes,
-                &repo_path,
-                project_record.as_ref(),
-            );
-            let (daemon_worktree_path, daemon_branch, daemon_base, daemon_fetch_first) =
-                match &target {
-                    svc::SessionTarget::Repo => (None, None, None, false),
-                    svc::SessionTarget::ExistingWorktree { path } => {
-                        (Some(path.to_string()), None, None, false)
-                    }
-                    svc::SessionTarget::NewWorktree { branch, start_point, fetch_first } => (
-                        None,
-                        Some(branch.to_string()),
-                        start_point.map(str::to_string),
-                        *fetch_first,
-                    ),
-                };
-
-            return client
-                .create_session_shell(crate::daemon_client::DaemonCreateSessionShellRequest {
-                    id: session_id,
-                    repo_path,
-                    name,
-                    worktree_path: daemon_worktree_path,
-                    branch: daemon_branch,
-                    base: daemon_base,
-                    fetch_first: daemon_fetch_first,
-                    profile: opts.profile,
-                    initial_size,
-                    project_id: opts.project_id,
-                    blueprint_id: opts.blueprint_id,
-                    smol_machine_name: None,
-                    notes: Some(notes),
-                })
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let branch_for_notes = match &target {
+            svc::SessionTarget::Repo => {
+                svc::get_current_branch(&repo_path).unwrap_or_else(|| "main".to_string())
+            }
+            svc::SessionTarget::ExistingWorktree { path } => {
+                svc::get_current_branch(path).unwrap_or_else(|| "main".to_string())
+            }
+            svc::SessionTarget::NewWorktree { branch, .. } => branch.to_string(),
+        };
+        let project_record = match opts.project_id.as_deref() {
+            Some(pid) => client
+                .list_projects()
                 .await
-                .map_err(|e| e.to_string());
-        }
+                .ok()
+                .and_then(|projects| projects.into_iter().find(|project| project.id == pid)),
+            None => None,
+        };
+        let notes = svc::build_notes_env_for_new_session(
+            &settings,
+            &session_id,
+            &branch_for_notes,
+            &repo_path,
+            project_record.as_ref(),
+        );
+        let (daemon_worktree_path, daemon_branch, daemon_base, daemon_fetch_first) = match &target {
+            svc::SessionTarget::Repo => (None, None, None, false),
+            svc::SessionTarget::ExistingWorktree { path } => {
+                (Some(path.to_string()), None, None, false)
+            }
+            svc::SessionTarget::NewWorktree { branch, start_point, fetch_first } => {
+                (None, Some(branch.to_string()), start_point.map(str::to_string), *fetch_first)
+            }
+        };
+
+        return client
+            .create_session_shell(crate::daemon_client::DaemonCreateSessionShellRequest {
+                id: session_id,
+                repo_path,
+                name,
+                worktree_path: daemon_worktree_path,
+                branch: daemon_branch,
+                base: daemon_base,
+                fetch_first: daemon_fetch_first,
+                profile: opts.profile,
+                nono_profile: nono.as_ref().map(|config| config.profile.clone()),
+                nono_allow_dirs: nono
+                    .as_ref()
+                    .map(|config| config.allow_dirs.clone())
+                    .unwrap_or_default(),
+                initial_size,
+                project_id: opts.project_id,
+                blueprint_id: opts.blueprint_id,
+                smol_machine_name,
+                notes: Some(notes),
+            })
+            .await
+            .map_err(|e| e.to_string());
     }
 
     svc::create_session_shell(
@@ -831,22 +835,29 @@ pub(crate) async fn reconnect_session_shell(
     if let Some(client) = state.daemon_client.clone() {
         match client.get_session(id.clone()).await {
             Ok(session) => {
-                if nono.is_some() {
-                    return Err(
-                        "daemon reconnect does not support nono-wrapped sessions yet".to_string()
-                    );
-                }
-                let notes = svc::build_notes_env_for_existing_session(
+                let project_record = match session.project_id.as_deref() {
+                    Some(pid) => client.list_projects().await.ok().and_then(|projects| {
+                        projects.into_iter().find(|project| project.id == pid)
+                    }),
+                    None => None,
+                };
+                let notes = svc::build_notes_env_for_new_session(
                     &settings,
-                    &state.runtime.project_handle,
-                    &session,
-                )
-                .await;
+                    &session.id,
+                    &session.branch,
+                    &session.repo_root,
+                    project_record.as_ref(),
+                );
                 return client
                     .reconnect_session_shell(
                         crate::daemon_client::DaemonReconnectSessionShellRequest {
                             id,
                             profile,
+                            nono_profile: nono.as_ref().map(|config| config.profile.clone()),
+                            nono_allow_dirs: nono
+                                .as_ref()
+                                .map(|config| config.allow_dirs.clone())
+                                .unwrap_or_default(),
                             initial_size,
                             notes: Some(notes),
                         },

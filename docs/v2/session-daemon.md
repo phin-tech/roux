@@ -23,7 +23,7 @@ The daemon now binds the Roux command endpoint itself and exposes a daemon-only 
 roux daemon status
 ```
 
-That endpoint is intentionally not implemented by the GUI socket server. It proves the daemon can own an observable capability independently of Roux.app. The daemon also serves headless durable-state and runtime commands over the same socket: session lifecycle, project list, PTYs, process registry, and core worktree filesystem operations.
+That endpoint is intentionally not implemented by the GUI socket server. It proves the daemon can own an observable capability independently of Roux.app. The daemon also serves headless durable-state and runtime commands over the same socket: session lifecycle, project list/mutation, PTYs, process registry, and core worktree filesystem operations.
 
 By default the endpoint is the local Unix socket `~/.config/roux/roux.sock` on Unix/macOS. For remote-development experiments, `ROUX_DAEMON_BIND=tcp://HOST:PORT roux daemon` binds a TCP endpoint, and clients connect with `ROUX_SOCKET=tcp://HOST:PORT`. TCP clients authenticate with `ROUX_DAEMON_TOKEN` or `ROUX_AUTH_TOKEN`; Unix/macOS TCP binds require an explicit token.
 
@@ -51,7 +51,7 @@ That is not the full design below yet. As of this note:
 - Roux.app still owns xterm.js rendering and pane layout
 - daemon-owned processes are not yet attached to terminal panes
 - pane layout socket commands such as focus still expect the desktop app to be running
-- top-level `roux session create` creates a daemon-owned session and primary PTY when the daemon owns the socket, but prompt/nono/legacy flag options still require the desktop path
+- top-level `roux session create` creates a daemon-owned session and primary PTY when the daemon owns the socket; nono options are applied by the daemon host, while prompt and legacy flag options are still rejected
 - top-level `roux run` starts a daemon-owned process when the daemon owns the socket; it still creates a GUI pane when Roux.app owns the socket
 - `roux split`, `roux shell`, and `roux session panes list|create` work against daemon-owned PTYs when the daemon owns the socket, but create does not mutate GUI layout
 - top-level `roux session send` and `roux session kill` work against daemon-owned sessions when the daemon owns the socket

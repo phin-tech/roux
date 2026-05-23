@@ -10,8 +10,8 @@ use tauri::{AppHandle, Emitter};
 use crate::commands::notes::{NotesRead, NotesSearchQuery, NotesTarget};
 use roux_core::{
     AgentAlias, AliasEvent, BusSubscription, BusSubscriptionEvent, CreateWatchConfig, Event,
-    MailboxEvent, Project, ReadState, Session, SessionExitPayload, SessionExitReason, Watch,
-    WatchUpdateEvent, Worktree,
+    MailboxEvent, Project, ProjectUpdate, ReadState, Session, SessionExitPayload,
+    SessionExitReason, Watch, WatchUpdateEvent, Worktree,
 };
 use roux_runtime::automation_hooks::{
     HookListItem, HookLogEntry, HookPreviewItem, HookRunRequest, HookRunSummary,
@@ -71,6 +71,8 @@ pub(crate) struct DaemonCreateSessionShellRequest {
     pub(crate) base: Option<String>,
     pub(crate) fetch_first: bool,
     pub(crate) profile: Option<String>,
+    pub(crate) nono_profile: Option<String>,
+    pub(crate) nono_allow_dirs: Vec<String>,
     pub(crate) initial_size: Option<(u16, u16)>,
     pub(crate) project_id: Option<String>,
     pub(crate) blueprint_id: Option<String>,
@@ -82,6 +84,8 @@ pub(crate) struct DaemonCreateSessionShellRequest {
 pub(crate) struct DaemonReconnectSessionShellRequest {
     pub(crate) id: String,
     pub(crate) profile: Option<String>,
+    pub(crate) nono_profile: Option<String>,
+    pub(crate) nono_allow_dirs: Vec<String>,
     pub(crate) initial_size: Option<(u16, u16)>,
     pub(crate) notes: Option<NotesEnvInputs>,
 }
@@ -117,7 +121,7 @@ impl DaemonClient {
             return DaemonStartup::Connected(client);
         }
 
-        if let Some(endpoint) = configured_socket_endpoint() {
+        if let Some(endpoint) = configured_socket_endpoint_that_blocks_autostart() {
             return DaemonStartup::Failed(format!(
                 "ROUX_SOCKET is set to {endpoint}, but no daemon responded"
             ));
@@ -181,6 +185,30 @@ impl DaemonClient {
     pub(crate) async fn list_projects(&self) -> Result<Vec<Project>, String> {
         let value = send_command_async(serde_json::json!({ "command": "project-list" })).await?;
         serde_json::from_value(value).map_err(|err| format!("decode daemon project-list: {err}"))
+    }
+
+    pub(crate) async fn create_project(&self, name: String) -> Result<Project, String> {
+        let value = send_command_async(daemon_project_create_request(name)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon project-create: {err}"))
+    }
+
+    pub(crate) async fn remove_project(&self, id: String) -> Result<(), String> {
+        let _ = send_command_async(daemon_project_id_request("project-remove", id)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn rename_project(&self, id: String, name: String) -> Result<(), String> {
+        let _ = send_command_async(daemon_project_rename_request(id, name)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn update_project(
+        &self,
+        id: String,
+        patch: ProjectUpdate,
+    ) -> Result<Project, String> {
+        let value = send_command_async(daemon_project_update_request(id, patch)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon project-update: {err}"))
     }
 
     pub(crate) async fn list_aliases(
@@ -568,6 +596,51 @@ impl DaemonClient {
         Ok(())
     }
 
+    pub(crate) async fn set_session_project(
+        &self,
+        session_id: String,
+        project_id: Option<String>,
+    ) -> Result<(), String> {
+        let _ = send_command_async(daemon_session_optional_value_request(
+            "session-set-project",
+            session_id,
+            "projectId",
+            project_id,
+        ))
+        .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn set_session_pinned_pr_url(
+        &self,
+        session_id: String,
+        url: Option<String>,
+    ) -> Result<(), String> {
+        let _ = send_command_async(daemon_session_optional_value_request(
+            "session-set-pinned-pr-url",
+            session_id,
+            "url",
+            url,
+        ))
+        .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn set_session_smol_machine(
+        &self,
+        session_id: String,
+        machine_name: Option<String>,
+    ) -> Result<(), String> {
+        let _ = send_command_async(daemon_session_optional_value_request(
+            "session-set-smol-machine",
+            session_id,
+            "machineName",
+            machine_name,
+        ))
+        .await?;
+        Ok(())
+    }
+
     pub(crate) async fn create_session_shell(
         &self,
         request: DaemonCreateSessionShellRequest,
@@ -764,6 +837,8 @@ impl DaemonClient {
         session_id: Option<String>,
         pane_id: Option<String>,
         profile: Option<String>,
+        nono_profile: Option<String>,
+        nono_allow_dirs: Vec<String>,
         initial_size: Option<(u16, u16)>,
     ) -> Result<PtyRecord, String> {
         let value = send_command_async(daemon_pty_spawn_shell_request(
@@ -772,6 +847,8 @@ impl DaemonClient {
             session_id,
             pane_id,
             profile,
+            nono_profile,
+            nono_allow_dirs,
             initial_size,
         ))
         .await?;
@@ -964,11 +1041,21 @@ fn daemon_autostart_disabled_reason_for(autostart: Option<&str>) -> Option<Strin
     None
 }
 
-fn configured_socket_endpoint() -> Option<String> {
-    std::env::var("ROUX_SOCKET")
-        .ok()
-        .map(|value| value.trim().to_string())
+fn configured_socket_endpoint_that_blocks_autostart() -> Option<String> {
+    configured_socket_endpoint_that_blocks_autostart_for(
+        std::env::var("ROUX_SOCKET").ok().as_deref(),
+    )
+}
+
+fn configured_socket_endpoint_that_blocks_autostart_for(raw: Option<&str>) -> Option<String> {
+    let endpoint = raw
+        .map(str::trim)
         .filter(|value| !value.is_empty())
+        .and_then(platform::parse_socket_endpoint)?;
+    match &endpoint {
+        platform::SocketEndpoint::Unix(path) if path == &platform::socket_path() => None,
+        _ => Some(endpoint.display_value()),
+    }
 }
 
 fn parse_env_enabled(value: &str) -> Option<bool> {
@@ -1047,6 +1134,12 @@ fn daemon_session_create_shell_request(request: DaemonCreateSessionShellRequest)
     if let Some(profile) = request.profile {
         args.insert("profile".to_string(), Value::String(profile));
     }
+    if let Some(nono_profile) = request.nono_profile {
+        args.insert("nonoProfile".to_string(), Value::String(nono_profile));
+    }
+    if !request.nono_allow_dirs.is_empty() {
+        args.insert("nonoAllowDirs".to_string(), serde_json::json!(request.nono_allow_dirs));
+    }
     if let Some((cols, rows)) = request.initial_size {
         args.insert("initialSize".to_string(), serde_json::json!([cols, rows]));
     }
@@ -1083,6 +1176,12 @@ fn daemon_session_reconnect_shell_request(request: DaemonReconnectSessionShellRe
     if let Some(profile) = request.profile {
         args.insert("profile".to_string(), Value::String(profile));
     }
+    if let Some(nono_profile) = request.nono_profile {
+        args.insert("nonoProfile".to_string(), Value::String(nono_profile));
+    }
+    if !request.nono_allow_dirs.is_empty() {
+        args.insert("nonoAllowDirs".to_string(), serde_json::json!(request.nono_allow_dirs));
+    }
     if let Some((cols, rows)) = request.initial_size {
         args.insert("initialSize".to_string(), serde_json::json!([cols, rows]));
     }
@@ -1110,6 +1209,49 @@ fn daemon_session_id_request(command: &str, id: String) -> Value {
     serde_json::json!({
         "command": command,
         "session_id": id,
+    })
+}
+
+fn daemon_session_optional_value_request(
+    command: &str,
+    session_id: String,
+    key: &str,
+    value: Option<String>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert(key.to_string(), value.map(Value::String).unwrap_or(Value::Null));
+    serde_json::json!({
+        "command": command,
+        "session_id": session_id,
+        "args": args,
+    })
+}
+
+fn daemon_project_create_request(name: String) -> Value {
+    serde_json::json!({
+        "command": "project-create",
+        "args": { "name": name },
+    })
+}
+
+fn daemon_project_id_request(command: &str, id: String) -> Value {
+    serde_json::json!({
+        "command": command,
+        "args": { "id": id },
+    })
+}
+
+fn daemon_project_rename_request(id: String, name: String) -> Value {
+    serde_json::json!({
+        "command": "project-rename",
+        "args": { "id": id, "name": name },
+    })
+}
+
+fn daemon_project_update_request(id: String, patch: ProjectUpdate) -> Value {
+    serde_json::json!({
+        "command": "project-update",
+        "args": { "id": id, "patch": patch },
     })
 }
 
@@ -1605,11 +1747,22 @@ fn daemon_pty_spawn_shell_request(
     session_id: Option<String>,
     pane_id: Option<String>,
     profile: Option<String>,
+    nono_profile: Option<String>,
+    nono_allow_dirs: Vec<String>,
     initial_size: Option<(u16, u16)>,
 ) -> Value {
     serde_json::json!({
         "command": "daemon-pty-spawn-shell",
-        "args": daemon_pty_spawn_args(id, working_dir, session_id, pane_id, profile, initial_size),
+        "args": daemon_pty_spawn_args(
+            id,
+            working_dir,
+            session_id,
+            pane_id,
+            profile,
+            nono_profile,
+            nono_allow_dirs,
+            initial_size,
+        ),
     })
 }
 
@@ -1622,8 +1775,16 @@ fn daemon_pty_spawn_task_request(
     profile: Option<String>,
     initial_size: Option<(u16, u16)>,
 ) -> Value {
-    let mut args =
-        daemon_pty_spawn_args(id, working_dir, session_id, pane_id, profile, initial_size);
+    let mut args = daemon_pty_spawn_args(
+        id,
+        working_dir,
+        session_id,
+        pane_id,
+        profile,
+        None,
+        Vec::new(),
+        initial_size,
+    );
     args.insert("command".to_string(), Value::String(command));
     serde_json::json!({
         "command": "daemon-pty-spawn-task",
@@ -1637,6 +1798,8 @@ fn daemon_pty_spawn_args(
     session_id: Option<String>,
     pane_id: Option<String>,
     profile: Option<String>,
+    nono_profile: Option<String>,
+    nono_allow_dirs: Vec<String>,
     initial_size: Option<(u16, u16)>,
 ) -> serde_json::Map<String, Value> {
     let mut args = serde_json::Map::new();
@@ -1654,6 +1817,12 @@ fn daemon_pty_spawn_args(
     }
     if let Some(profile) = profile {
         args.insert("profile".to_string(), Value::String(profile));
+    }
+    if let Some(nono_profile) = nono_profile {
+        args.insert("nonoProfile".to_string(), Value::String(nono_profile));
+    }
+    if !nono_allow_dirs.is_empty() {
+        args.insert("nonoAllowDirs".to_string(), serde_json::json!(nono_allow_dirs));
     }
     if let Some((cols, rows)) = initial_size {
         args.insert("initialSize".to_string(), serde_json::json!([cols, rows]));
@@ -2231,10 +2400,12 @@ mod tests {
             base: Some("origin/main".to_string()),
             fetch_first: true,
             profile: Some("plain-shell".to_string()),
+            nono_profile: Some("strict".to_string()),
+            nono_allow_dirs: vec!["/tmp".to_string()],
             initial_size: Some((100, 30)),
             project_id: Some("project-a".to_string()),
             blueprint_id: Some("blueprint-a".to_string()),
-            smol_machine_name: None,
+            smol_machine_name: Some("vm-a".to_string()),
             notes: Some(NotesEnvInputs {
                 vault_root: "/vault".to_string(),
                 session_slug: "feature-demo--sessio".to_string(),
@@ -2252,8 +2423,11 @@ mod tests {
         assert_eq!(request["args"]["base"], "origin/main");
         assert_eq!(request["args"]["fetchFirst"], true);
         assert_eq!(request["args"]["profile"], "plain-shell");
+        assert_eq!(request["args"]["nonoProfile"], "strict");
+        assert_eq!(request["args"]["nonoAllowDirs"][0], "/tmp");
         assert_eq!(request["args"]["initialSize"], serde_json::json!([100, 30]));
         assert_eq!(request["args"]["projectId"], "project-a");
+        assert_eq!(request["args"]["smolMachineName"], "vm-a");
         assert_eq!(request["args"]["notesEnv"]["vaultRoot"], "/vault");
         assert_eq!(request["args"]["notesEnv"]["contextPaths"][0], "/repo/docs");
     }
@@ -2264,12 +2438,16 @@ mod tests {
             daemon_session_reconnect_shell_request(DaemonReconnectSessionShellRequest {
                 id: "session-a".to_string(),
                 profile: Some("plain-shell".to_string()),
+                nono_profile: Some("strict".to_string()),
+                nono_allow_dirs: vec!["/tmp".to_string()],
                 initial_size: Some((120, 40)),
                 notes: None,
             });
         assert_eq!(reconnect["command"], "session-reconnect-shell");
         assert_eq!(reconnect["session_id"], "session-a");
         assert_eq!(reconnect["args"]["profile"], "plain-shell");
+        assert_eq!(reconnect["args"]["nonoProfile"], "strict");
+        assert_eq!(reconnect["args"]["nonoAllowDirs"][0], "/tmp");
         assert_eq!(reconnect["args"]["initialSize"], serde_json::json!([120, 40]));
 
         let archive = daemon_session_id_request("session-archive", "session-a".to_string());
@@ -2287,6 +2465,55 @@ mod tests {
 
         let refresh = daemon_session_id_request("session-refresh-branch", "session-a".to_string());
         assert_eq!(refresh["command"], "session-refresh-branch");
+
+        let project = daemon_session_optional_value_request(
+            "session-set-project",
+            "session-a".to_string(),
+            "projectId",
+            Some("project-a".to_string()),
+        );
+        assert_eq!(project["command"], "session-set-project");
+        assert_eq!(project["session_id"], "session-a");
+        assert_eq!(project["args"]["projectId"], "project-a");
+
+        let clear_smol = daemon_session_optional_value_request(
+            "session-set-smol-machine",
+            "session-a".to_string(),
+            "machineName",
+            None,
+        );
+        assert_eq!(clear_smol["command"], "session-set-smol-machine");
+        assert!(clear_smol["args"]["machineName"].is_null());
+    }
+
+    #[test]
+    fn daemon_project_requests_use_daemon_command_shape() {
+        let create = daemon_project_create_request("Alpha".to_string());
+        assert_eq!(create["command"], "project-create");
+        assert_eq!(create["args"]["name"], "Alpha");
+
+        let remove = daemon_project_id_request("project-remove", "project-a".to_string());
+        assert_eq!(remove["command"], "project-remove");
+        assert_eq!(remove["args"]["id"], "project-a");
+
+        let rename = daemon_project_rename_request("project-a".to_string(), "Beta".to_string());
+        assert_eq!(rename["command"], "project-rename");
+        assert_eq!(rename["args"]["name"], "Beta");
+
+        let update = daemon_project_update_request(
+            "project-a".to_string(),
+            ProjectUpdate {
+                name: Some("Gamma".to_string()),
+                repo_roots: None,
+                context_paths: Some(vec!["/docs".to_string()]),
+                session_blueprints: None,
+                project_prompt: None,
+            },
+        );
+        assert_eq!(update["command"], "project-update");
+        assert_eq!(update["args"]["id"], "project-a");
+        assert_eq!(update["args"]["patch"]["name"], "Gamma");
+        assert_eq!(update["args"]["patch"]["contextPaths"][0], "/docs");
     }
 
     #[test]
@@ -2635,6 +2862,24 @@ mod tests {
     }
 
     #[test]
+    fn daemon_pty_spawn_shell_request_includes_nono_config() {
+        let request = daemon_pty_spawn_shell_request(
+            Some("pty-a".to_string()),
+            Some("/tmp".to_string()),
+            Some("session-a".to_string()),
+            Some("pane-a".to_string()),
+            Some("plain-shell".to_string()),
+            Some("strict".to_string()),
+            vec!["/tmp".to_string()],
+            Some((120, 40)),
+        );
+
+        assert_eq!(request["command"], "daemon-pty-spawn-shell");
+        assert_eq!(request["args"]["nonoProfile"], "strict");
+        assert_eq!(request["args"]["nonoAllowDirs"][0], "/tmp");
+    }
+
+    #[test]
     fn daemon_pty_spawn_task_request_uses_daemon_command_shape() {
         let request = daemon_pty_spawn_task_request(
             "printf hi".to_string(),
@@ -2709,6 +2954,31 @@ mod tests {
         assert!(daemon_autostart_disabled_reason_for(Some("0"))
             .unwrap()
             .contains("ROUX_DAEMON_AUTOSTART"));
+    }
+
+    #[test]
+    fn daemon_autostart_allows_default_socket_env() {
+        let default_socket = platform::socket_path().to_string_lossy().into_owned();
+        assert_eq!(configured_socket_endpoint_that_blocks_autostart_for(None), None);
+        assert_eq!(
+            configured_socket_endpoint_that_blocks_autostart_for(Some(&default_socket)),
+            None
+        );
+        assert_eq!(
+            configured_socket_endpoint_that_blocks_autostart_for(Some(&format!(
+                "unix://{default_socket}"
+            ))),
+            None
+        );
+
+        assert_eq!(
+            configured_socket_endpoint_that_blocks_autostart_for(Some("tcp://127.0.0.1:7777")),
+            Some("tcp://127.0.0.1:7777".to_string())
+        );
+        assert_eq!(
+            configured_socket_endpoint_that_blocks_autostart_for(Some("/tmp/roux-other.sock")),
+            Some("/tmp/roux-other.sock".to_string())
+        );
     }
 
     #[test]
