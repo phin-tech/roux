@@ -1,7 +1,11 @@
 use crate::services::sessions as svc;
 use crate::session::Session;
-use crate::state::AppState;
+use crate::state::{AppState, DaemonPtyAttachTask};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::Manager;
+
+static NEXT_DAEMON_ATTACH_TASK_TOKEN: AtomicU64 = AtomicU64::new(1);
 
 /// Options bag for `create_session_shell`. Bundled because Specta caps command
 /// signatures at 10 params, and the Claude/Codex/worktree spawn paths all
@@ -52,7 +56,7 @@ fn is_daemon_pty_not_found(err: &str) -> bool {
 fn abort_daemon_attach_task(state: &AppState, id: &str) -> Result<(), String> {
     let previous = state.daemon_pty_attach_tasks.lock().map_err(|err| err.to_string())?.remove(id);
     if let Some(previous) = previous {
-        previous.abort();
+        previous.handle.abort();
     }
     Ok(())
 }
@@ -127,14 +131,32 @@ pub(crate) async fn attach_pty_output(
     if let Some(client) = state.daemon_client.clone() {
         match client.daemon_pty_output(id.clone(), Some(0)).await {
             Ok(_) => {
-                let handle = client.spawn_daemon_pty_output_bridge(id.clone(), on_event, app);
+                let token = NEXT_DAEMON_ATTACH_TASK_TOKEN.fetch_add(1, Ordering::Relaxed);
+                let bridge =
+                    client.spawn_daemon_pty_output_bridge(id.clone(), on_event, app.clone());
+                let cleanup_id = id.clone();
+                let cleanup_app = app.clone();
+                let handle = tauri::async_runtime::spawn(async move {
+                    let _ = bridge.await;
+                    if let Some(state) = cleanup_app.try_state::<AppState>() {
+                        if let Ok(mut tasks) = state.daemon_pty_attach_tasks.lock() {
+                            let should_remove = tasks
+                                .get(&cleanup_id)
+                                .map(|task| task.token == token)
+                                .unwrap_or(false);
+                            if should_remove {
+                                tasks.remove(&cleanup_id);
+                            }
+                        }
+                    }
+                });
                 let previous = state
                     .daemon_pty_attach_tasks
                     .lock()
                     .map_err(|err| err.to_string())?
-                    .insert(id, handle);
+                    .insert(id, DaemonPtyAttachTask { token, handle });
                 if let Some(previous) = previous {
-                    previous.abort();
+                    previous.handle.abort();
                 }
                 return Ok(());
             }

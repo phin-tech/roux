@@ -67,6 +67,7 @@ fn main() {
         rlog!("Claude binary path: (default, resolved via PATH)");
     }
 
+    let mut daemon_startup_error = None;
     let daemon_client = match daemon_client::DaemonClient::ensure_local() {
         daemon_client::DaemonStartup::Connected(client) => Some(client),
         daemon_client::DaemonStartup::LocalFallbackDisabled(reason) => {
@@ -74,9 +75,12 @@ fn main() {
             None
         }
         daemon_client::DaemonStartup::Failed(err) => {
-            panic!(
-                "Roux daemon is required for runtime state. Set ROUX_DAEMON_AUTOSTART=0 for explicit local fallback. {err}"
+            let message = format!(
+                "Roux daemon startup failed; desktop will self-host runtime state. Set ROUX_DAEMON_AUTOSTART=0 to make local fallback explicit. {err}"
             );
+            rlog!("{message}");
+            daemon_startup_error = Some(message);
+            None
         }
     };
     if let Some(client) = daemon_client.as_ref() {
@@ -288,6 +292,7 @@ fn main() {
         .manage(AppState {
             settings: Mutex::new(initial_settings),
             daemon_client,
+            daemon_startup_error,
             runtime_started_at_ms,
             daemon_pty_attach_tasks: Mutex::new(std::collections::HashMap::new()),
             pty_manager: std::sync::Arc::new(PtyManager::new()),

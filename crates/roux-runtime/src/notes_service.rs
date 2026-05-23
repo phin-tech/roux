@@ -81,12 +81,16 @@ impl VaultPath {
 
     /// Path to the scope's anchor `notes.md` (or a named topic file).
     pub fn notes_file(&self, scope: &Scope, topic: Option<&str>, session_slug: &str) -> PathBuf {
-        let filename = match topic {
-            Some(name) => format!("{name}.md"),
-            None => "notes.md".to_string(),
-        };
+        let filename = safe_topic_filename(topic);
         self.scope_dir(scope, session_slug).join(filename)
     }
+}
+
+fn safe_topic_filename(topic: Option<&str>) -> String {
+    topic
+        .and_then(|name| topic::slugify(name).ok())
+        .map(|slug| format!("{slug}.md"))
+        .unwrap_or_else(|| "notes.md".to_string())
 }
 
 /// On-disk index mapping canonical `repo_path` and `project_id` values to
@@ -265,6 +269,13 @@ impl NotesService {
         remote: Option<&str>,
         topic: Option<String>,
     ) -> Result<(Scope, Option<String>, String), String> {
+        let topic = match topic {
+            Some(topic) => {
+                Some(topic::slugify(&topic).map_err(|_| "invalid topic name".to_string())?)
+            }
+            None => None,
+        };
+
         let session_slug_str = match session {
             Some(s) => session_slug(&s.branch, &s.id),
             None => "no-session".to_string(),
@@ -1471,6 +1482,14 @@ mod tests {
             v.notes_file(&repo, Some("api-gotchas"), "irrelevant"),
             Path::new("/vault/repos/r/api-gotchas.md")
         );
+        assert_eq!(
+            v.notes_file(&repo, Some("API Gotchas"), "irrelevant"),
+            Path::new("/vault/repos/r/api-gotchas.md")
+        );
+        assert_eq!(
+            v.notes_file(&repo, Some("../outside"), "irrelevant"),
+            Path::new("/vault/repos/r/notes.md")
+        );
         let session = Scope::Session {
             session_id: "id".to_string(),
             repo_slug: "r".to_string(),
@@ -1493,6 +1512,16 @@ mod tests {
         // Even if the project's name changes later, the slug stays frozen.
         let s2 = idx.resolve_project("proj-1", "Something Completely Different");
         assert_eq!(s2, "marketing-site-revamp");
+    }
+
+    #[test]
+    fn resolve_target_rejects_invalid_topic_paths() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut svc = NotesService::new(tmp.path());
+        let err = svc
+            .resolve_target("global", None, None, None, Some("../outside".to_string()))
+            .expect_err("path topic should be rejected");
+        assert_eq!(err, "invalid topic name");
     }
 
     #[test]

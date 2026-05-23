@@ -45,6 +45,7 @@ pub(crate) async fn get_runtime_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<RuntimeStatus, String> {
     let daemon_client = state.daemon_client.clone();
+    let daemon_startup_error = state.daemon_startup_error.clone();
     let runtime_started_at_ms = state.runtime_started_at_ms;
     let runtime = state.runtime.clone();
 
@@ -73,7 +74,7 @@ pub(crate) async fn get_runtime_status(
         uptime_ms: now.saturating_sub(runtime_started_at_ms),
         daemon: None,
         local: Some(counts),
-        status_error: None,
+        status_error: daemon_startup_error,
     })
 }
 
