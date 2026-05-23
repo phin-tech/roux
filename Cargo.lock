@@ -4104,7 +4104,9 @@ dependencies = [
  "dirs",
  "libc",
  "minijinja",
+ "octocrab",
  "portable-pty",
+ "reqwest 0.12.28",
  "roux-core",
  "serde",
  "serde_json",
@@ -4113,6 +4115,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "toml 0.8.2",
 ]
 

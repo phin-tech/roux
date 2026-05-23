@@ -8,7 +8,7 @@ use tokio::net::TcpListener;
 #[cfg(not(windows))]
 use tokio::net::UnixListener;
 
-use roux_core::{CreateWatchConfig, RuntimeState, Watch, WatchKind};
+use roux_core::{CreateWatchConfig, RuntimeState, Watch};
 use roux_runtime::automation_hooks::{
     worktree_provider_hooks, AutomationHookManager, HookContext, HookEvent,
 };
@@ -18,6 +18,7 @@ use roux_runtime::pty_service::{
     PtyEnvRequest, PtyOutputEvent, PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES,
 };
 use roux_runtime::terminal_env::NotesEnvInputs;
+use roux_runtime::watch_runner::WatchRunner;
 
 use crate::{daemon_log::DaemonLog, paths, platform};
 
@@ -52,9 +53,13 @@ pub async fn run() -> Result<(), String> {
     .build();
 
     let (host, joins) = services.spawn_with(tokio::spawn);
+    let watch_runner = WatchRunner::new(host.watch_handle.clone(), daemon_hook_manager());
+    watch_runner.start_all().await;
     let identity =
         DaemonIdentity::new(daemon_socket_path(), log.path().clone(), daemon_auth_token());
-    let socket_server = start_socket_server(host.clone(), identity.clone(), log.clone()).await?;
+    let socket_server =
+        start_socket_server(host.clone(), watch_runner.clone(), identity.clone(), log.clone())
+            .await?;
     log.write(&format!("Started on {}; press Ctrl-C to stop", identity.socket.display()));
 
     wait_for_shutdown_signal().await?;
@@ -64,6 +69,7 @@ pub async fn run() -> Result<(), String> {
     log.write("Socket server stopped");
     host.process_handle.shutdown().await;
     host.pty_handle.shutdown().await;
+    watch_runner.shutdown();
     host.watch_handle.shutdown().await;
     host.session_handle.shutdown().await;
     host.project_handle.shutdown().await;
@@ -147,6 +153,19 @@ enum PtyAttachFrame {
     Error { error: String },
 }
 
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum WatchEventFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "update")]
+    Update { event: roux_core::WatchUpdateEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
 impl Response {
     fn success(data: Value) -> Self {
         Self { ok: true, data: Some(data), error: None }
@@ -194,6 +213,7 @@ impl SocketCleanup {
 
 async fn start_socket_server(
     host: RuntimeHost,
+    watch_runner: WatchRunner,
     identity: DaemonIdentity,
     log: DaemonLog,
 ) -> Result<SocketServerHandle, String> {
@@ -212,12 +232,21 @@ async fn start_socket_server(
                     }
                 };
                 let host = host.clone();
+                let watch_runner = watch_runner.clone();
                 let identity = identity.clone();
                 let log = log.clone();
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut reader = BufReader::new(reader);
-                    handle_connection(&mut reader, &mut writer, &host, &identity, &log).await;
+                    handle_connection(
+                        &mut reader,
+                        &mut writer,
+                        &host,
+                        &watch_runner,
+                        &identity,
+                        &log,
+                    )
+                    .await;
                 });
             }
         });
@@ -240,12 +269,21 @@ async fn start_socket_server(
                     }
                 };
                 let host = host.clone();
+                let watch_runner = watch_runner.clone();
                 let identity = identity.clone();
                 let log = log.clone();
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut reader = BufReader::new(reader);
-                    handle_connection(&mut reader, &mut writer, &host, &identity, &log).await;
+                    handle_connection(
+                        &mut reader,
+                        &mut writer,
+                        &host,
+                        &watch_runner,
+                        &identity,
+                        &log,
+                    )
+                    .await;
                 });
             }
         });
@@ -316,6 +354,7 @@ async fn handle_connection<R, W>(
     reader: &mut BufReader<R>,
     writer: &mut W,
     host: &RuntimeHost,
+    watch_runner: &WatchRunner,
     identity: &DaemonIdentity,
     log: &DaemonLog,
 ) where
@@ -337,7 +376,18 @@ async fn handle_connection<R, W>(
                     }
                     return;
                 }
-                let response = handle_request(req, host, identity).await;
+                if command == "watch-events" {
+                    let ok =
+                        handle_watch_events_stream(req, writer, host, watch_runner, identity).await;
+                    if ok {
+                        log.write("Handled socket command: watch-events");
+                    } else {
+                        log.write("Socket command failed: watch-events");
+                    }
+                    return;
+                }
+                let response =
+                    handle_request_with_watch_runner(req, host, Some(watch_runner), identity).await;
                 if response.ok {
                     log.write(&format!("Handled socket command: {command}"));
                 } else {
@@ -364,6 +414,15 @@ async fn handle_connection<R, W>(
 }
 
 async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdentity) -> Response {
+    handle_request_with_watch_runner(req, host, None, identity).await
+}
+
+async fn handle_request_with_watch_runner(
+    req: Request,
+    host: &RuntimeHost,
+    watch_runner: Option<&WatchRunner>,
+    identity: &DaemonIdentity,
+) -> Response {
     if !request_authorized(&req, identity) {
         return Response::err("unauthorized");
     }
@@ -382,14 +441,38 @@ async fn handle_request(req: Request, host: &RuntimeHost, identity: &DaemonIdent
         "session-rename" => handle_session_rename(req, host).await,
         "project-list" => handle_project_list(host).await,
         "watch-list" => handle_watch_list(host).await,
-        "watch-create" => handle_watch_create(req, host).await,
-        "watch-find-or-create" => handle_watch_find_or_create(req, host).await,
-        "watch-remove" => handle_watch_remove(req, host).await,
-        "watch-pause" => handle_watch_pause(req, host).await,
-        "watch-resume" => handle_watch_resume(req, host).await,
-        "watch-replace" => handle_watch_replace(req, host).await,
-        "watch-remove-for-session" => handle_watch_remove_for_session(req, host).await,
-        "watch-cleanup-orphans" => handle_watch_cleanup_orphans(host).await,
+        "watch-create" => match watch_runner {
+            Some(runner) => handle_watch_create(req, runner).await,
+            None => Response::err("watch runner unavailable"),
+        },
+        "watch-find-or-create" => match watch_runner {
+            Some(runner) => handle_watch_find_or_create(req, runner).await,
+            None => Response::err("watch runner unavailable"),
+        },
+        "watch-remove" => match watch_runner {
+            Some(runner) => handle_watch_remove(req, runner).await,
+            None => Response::err("watch runner unavailable"),
+        },
+        "watch-pause" => match watch_runner {
+            Some(runner) => handle_watch_pause(req, runner).await,
+            None => Response::err("watch runner unavailable"),
+        },
+        "watch-resume" => match watch_runner {
+            Some(runner) => handle_watch_resume(req, runner).await,
+            None => Response::err("watch runner unavailable"),
+        },
+        "watch-replace" => match watch_runner {
+            Some(runner) => handle_watch_replace(req, runner).await,
+            None => Response::err("watch runner unavailable"),
+        },
+        "watch-remove-for-session" => match watch_runner {
+            Some(runner) => handle_watch_remove_for_session(req, runner).await,
+            None => Response::err("watch runner unavailable"),
+        },
+        "watch-cleanup-orphans" => match watch_runner {
+            Some(runner) => handle_watch_cleanup_orphans(host, runner).await,
+            None => Response::err("watch runner unavailable"),
+        },
         "worktree-list" => handle_worktree_list(req).await,
         "worktree-create" => handle_worktree_create(req).await,
         "worktree-remove" => handle_worktree_remove(req).await,
@@ -452,6 +535,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "watch-pause",
             "watch-resume",
             "watch-replace",
+            "watch-events",
             "watch-remove-for-session",
             "watch-cleanup-orphans",
             "worktree-list",
@@ -594,6 +678,98 @@ where
 }
 
 async fn write_attach_frame<W>(writer: &mut W, frame: &PtyAttachFrame) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let Ok(json) = serde_json::to_string(frame) else {
+        return false;
+    };
+    writer.write_all(json.as_bytes()).await.is_ok() && writer.write_all(b"\n").await.is_ok()
+}
+
+async fn handle_watch_events_stream<W>(
+    req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+    watch_runner: &WatchRunner,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let result = handle_watch_events_stream_inner(req, writer, host, watch_runner, identity).await;
+    let _ = writer.shutdown().await;
+    result
+}
+
+async fn handle_watch_events_stream_inner<W>(
+    req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+    watch_runner: &WatchRunner,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if !request_authorized(&req, identity) {
+        let _ = write_watch_event_frame(
+            writer,
+            &WatchEventFrame::Error { error: "unauthorized".into() },
+        )
+        .await;
+        return false;
+    }
+
+    let send_backlog = req.args.get("backlog").and_then(|value| value.as_bool()).unwrap_or(true);
+    let mut rx = watch_runner.subscribe();
+
+    if !write_watch_event_frame(writer, &WatchEventFrame::Ready).await {
+        return false;
+    }
+
+    if send_backlog {
+        let watches = match host.watch_handle.list().await {
+            Ok(watches) => watches,
+            Err(err) => {
+                let _ = write_watch_event_frame(
+                    writer,
+                    &WatchEventFrame::Error { error: err.to_string() },
+                )
+                .await;
+                return false;
+            }
+        };
+        for watch in watches {
+            let event =
+                roux_core::WatchUpdateEvent { watch, changed: false, previous_outcome: None };
+            if !write_watch_event_frame(writer, &WatchEventFrame::Update { event }).await {
+                return false;
+            }
+        }
+    }
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                if !write_watch_event_frame(writer, &WatchEventFrame::Update { event }).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                let warning = WatchEventFrame::Warning {
+                    message: format!("dropped {skipped} buffered watch event(s)"),
+                };
+                if !write_watch_event_frame(writer, &warning).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return true,
+        }
+    }
+}
+
+async fn write_watch_event_frame<W>(writer: &mut W, frame: &WatchEventFrame) -> bool
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
@@ -991,88 +1167,62 @@ async fn handle_watch_list(host: &RuntimeHost) -> Response {
     }
 }
 
-async fn handle_watch_create(req: Request, host: &RuntimeHost) -> Response {
+async fn handle_watch_create(req: Request, watch_runner: &WatchRunner) -> Response {
     let config = match parse_watch_config(&req) {
         Ok(config) => config,
         Err(err) => return Response::err(err),
     };
     let watch = watch_from_config(config);
-    match host.watch_handle.add(watch.clone()).await {
-        Ok(()) => serialize_watch(watch),
+    match watch_runner.add_watch(watch).await {
+        Ok(watch) => serialize_watch(watch),
         Err(err) => Response::err(err.to_string()),
     }
 }
 
-async fn handle_watch_find_or_create(req: Request, host: &RuntimeHost) -> Response {
+async fn handle_watch_find_or_create(req: Request, watch_runner: &WatchRunner) -> Response {
     let config = match parse_watch_config(&req) {
         Ok(config) => config,
         Err(err) => return Response::err(err),
     };
     let watch = watch_from_config(config);
-    if matches!(watch.kind, WatchKind::GithubPr { .. }) {
-        match host.watch_handle.find_or_add_github_pr(watch.clone()).await {
-            Ok((watch, _was_new)) => serialize_watch(watch),
-            Err(err) => Response::err(err.to_string()),
-        }
-    } else {
-        match host.watch_handle.add(watch.clone()).await {
-            Ok(()) => serialize_watch(watch),
-            Err(err) => Response::err(err.to_string()),
-        }
+    match watch_runner.find_or_add_github_pr(watch).await {
+        Ok(watch) => serialize_watch(watch),
+        Err(err) => Response::err(err.to_string()),
     }
 }
 
-async fn handle_watch_remove(req: Request, host: &RuntimeHost) -> Response {
+async fn handle_watch_remove(req: Request, watch_runner: &WatchRunner) -> Response {
     let Some(id) = request_watch_id(&req) else {
         return Response::err("id required");
     };
     let id = id.to_string();
-    match host.watch_handle.remove(&id).await {
+    match watch_runner.remove_watch(&id).await {
         Ok(()) => Response::success(serde_json::json!({ "id": id })),
         Err(err) => Response::err(err.to_string()),
     }
 }
 
-async fn handle_watch_pause(req: Request, host: &RuntimeHost) -> Response {
-    update_watch_runtime_state(req, host, RuntimeState::Paused).await
-}
-
-async fn handle_watch_resume(req: Request, host: &RuntimeHost) -> Response {
-    update_watch_runtime_state(req, host, RuntimeState::Active).await
-}
-
-async fn update_watch_runtime_state(
-    req: Request,
-    host: &RuntimeHost,
-    runtime_state: RuntimeState,
-) -> Response {
+async fn handle_watch_pause(req: Request, watch_runner: &WatchRunner) -> Response {
     let Some(id) = request_watch_id(&req) else {
         return Response::err("id required");
     };
-    let id = id.to_string();
-    match host.watch_handle.get(&id).await {
-        Ok(Some(_)) => {}
-        Ok(None) => return Response::err("watch not found"),
-        Err(err) => return Response::err(err.to_string()),
-    }
-    let state_for_update = runtime_state.clone();
-    if let Err(err) = host
-        .watch_handle
-        .update(&id, move |watch| {
-            watch.runtime_state = state_for_update;
-        })
-        .await
-    {
-        return Response::err(err.to_string());
-    }
-    match host.watch_handle.get(&id).await {
-        Ok(Some(watch)) => serialize_watch(watch),
-        Ok(None) => Response::err("watch not found"),
-        Err(err) => Response::err(err.to_string()),
+    match watch_runner.pause_watch(id).await {
+        Ok(watch) => serialize_watch(watch),
+        Err(err) => Response::err(err),
     }
 }
 
-async fn handle_watch_replace(req: Request, host: &RuntimeHost) -> Response {
+async fn handle_watch_resume(req: Request, watch_runner: &WatchRunner) -> Response {
+    let Some(id) = request_watch_id(&req) else {
+        return Response::err("id required");
+    };
+    match watch_runner.resume_watch(id).await {
+        Ok(watch) => serialize_watch(watch),
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_watch_replace(req: Request, watch_runner: &WatchRunner) -> Response {
     let Some(value) = req.args.get("watch").cloned() else {
         return Response::err("watch required");
     };
@@ -1080,13 +1230,13 @@ async fn handle_watch_replace(req: Request, host: &RuntimeHost) -> Response {
         Ok(watch) => watch,
         Err(err) => return Response::err(format!("invalid watch: {err}")),
     };
-    match host.watch_handle.replace(watch.clone()).await {
-        Ok(()) => serialize_watch(watch),
-        Err(err) => Response::err(err.to_string()),
+    match watch_runner.replace_watch(watch).await {
+        Ok(watch) => serialize_watch(watch),
+        Err(err) => Response::err(err),
     }
 }
 
-async fn handle_watch_remove_for_session(req: Request, host: &RuntimeHost) -> Response {
+async fn handle_watch_remove_for_session(req: Request, watch_runner: &WatchRunner) -> Response {
     let Some(session_id) = req
         .args
         .get("sessionId")
@@ -1095,7 +1245,7 @@ async fn handle_watch_remove_for_session(req: Request, host: &RuntimeHost) -> Re
     else {
         return Response::err("sessionId required");
     };
-    match host.watch_handle.remove_for_session(session_id).await {
+    match watch_runner.remove_watches_for_session(session_id).await {
         Ok(removed) => Response::success(serde_json::json!({
             "sessionId": session_id,
             "removed": removed,
@@ -1104,7 +1254,7 @@ async fn handle_watch_remove_for_session(req: Request, host: &RuntimeHost) -> Re
     }
 }
 
-async fn handle_watch_cleanup_orphans(host: &RuntimeHost) -> Response {
+async fn handle_watch_cleanup_orphans(host: &RuntimeHost, watch_runner: &WatchRunner) -> Response {
     let sessions = match host.session_handle.list().await {
         Ok(sessions) => sessions,
         Err(err) => return Response::err(err.to_string()),
@@ -1115,9 +1265,9 @@ async fn handle_watch_cleanup_orphans(host: &RuntimeHost) -> Response {
     };
     let session_ids = sessions.into_iter().map(|session| session.id).collect();
     let project_ids = projects.into_iter().map(|project| project.id).collect();
-    match host.watch_handle.cleanup_orphans(session_ids, project_ids).await {
+    match watch_runner.cleanup_orphans(session_ids, project_ids).await {
         Ok(removed) => Response::success(serde_json::json!({ "removed": removed })),
-        Err(err) => Response::err(err.to_string()),
+        Err(err) => Response::err(err),
     }
 }
 
@@ -2039,6 +2189,10 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("watch-list")));
+        assert!(data["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("watch-events")));
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
@@ -2064,9 +2218,13 @@ mod tests {
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
+        let watch_runner = WatchRunner::new(
+            host.watch_handle.clone(),
+            AutomationHookManager::from_config_root(dir.path()),
+        );
         let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
 
-        let create = handle_request(
+        let create = handle_request_with_watch_runner(
             Request {
                 command: "watch-create".to_string(),
                 session_id: None,
@@ -2075,6 +2233,7 @@ mod tests {
                 args: serde_json::json!({ "config": make_watch_config() }),
             },
             &host,
+            Some(&watch_runner),
             &identity,
         )
         .await;
@@ -2098,7 +2257,7 @@ mod tests {
         assert!(list.ok, "list failed: {:?}", list.error);
         assert_eq!(list.data.as_ref().unwrap().as_array().unwrap().len(), 1);
 
-        let pause = handle_request(
+        let pause = handle_request_with_watch_runner(
             Request {
                 command: "watch-pause".to_string(),
                 session_id: None,
@@ -2107,6 +2266,7 @@ mod tests {
                 args: serde_json::json!({ "id": created.id }),
             },
             &host,
+            Some(&watch_runner),
             &identity,
         )
         .await;
@@ -2116,7 +2276,7 @@ mod tests {
         let mut replacement: roux_core::Watch =
             serde_json::from_value(pause.data.clone().expect("paused watch")).unwrap();
         replacement.name = "Updated by client".to_string();
-        let replace = handle_request(
+        let replace = handle_request_with_watch_runner(
             Request {
                 command: "watch-replace".to_string(),
                 session_id: None,
@@ -2125,13 +2285,14 @@ mod tests {
                 args: serde_json::json!({ "watch": replacement }),
             },
             &host,
+            Some(&watch_runner),
             &identity,
         )
         .await;
         assert!(replace.ok, "replace failed: {:?}", replace.error);
         assert_eq!(replace.data.as_ref().unwrap()["name"], "Updated by client");
 
-        let resume = handle_request(
+        let resume = handle_request_with_watch_runner(
             Request {
                 command: "watch-resume".to_string(),
                 session_id: None,
@@ -2140,13 +2301,14 @@ mod tests {
                 args: serde_json::json!({ "id": replace.data.as_ref().unwrap()["id"] }),
             },
             &host,
+            Some(&watch_runner),
             &identity,
         )
         .await;
         assert!(resume.ok, "resume failed: {:?}", resume.error);
         assert_eq!(resume.data.as_ref().unwrap()["runtimeState"]["type"], "active");
 
-        let remove = handle_request(
+        let remove = handle_request_with_watch_runner(
             Request {
                 command: "watch-remove".to_string(),
                 session_id: None,
@@ -2155,12 +2317,95 @@ mod tests {
                 args: serde_json::json!({ "id": resume.data.as_ref().unwrap()["id"] }),
             },
             &host,
+            Some(&watch_runner),
             &identity,
         )
         .await;
         assert!(remove.ok, "remove failed: {:?}", remove.error);
         assert!(host.watch_handle.list().await.unwrap().is_empty());
 
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn daemon_watch_events_stream_sends_ready_and_backlog() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut watch = roux_core::Watch {
+            id: "watch-a".to_string(),
+            name: "HTTP".to_string(),
+            kind: roux_core::WatchKind::HttpHealth {
+                url: "http://localhost".to_string(),
+                expected_status: 200,
+            },
+            mode: roux_core::WatchMode::Recurring { interval_secs: 30 },
+            scope: roux_core::WatchScope::Global,
+            runtime_state: roux_core::RuntimeState::Paused,
+            last_result: None,
+            last_checked: None,
+            notify: roux_core::NotifyConfig::default(),
+            created_at: 0,
+        };
+        watch.last_checked = Some(1);
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: vec![watch],
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let watch_runner = WatchRunner::new(
+            host.watch_handle.clone(),
+            AutomationHookManager::from_config_root(dir.path()),
+        );
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+        let (mut server, client) = tokio::io::duplex(4096);
+        let host_for_stream = host.clone();
+        let runner_for_stream = watch_runner.clone();
+        let identity_for_stream = identity.clone();
+        let stream_task = tokio::spawn(async move {
+            handle_watch_events_stream(
+                Request {
+                    command: "watch-events".to_string(),
+                    session_id: None,
+                    pane_id: None,
+                    auth_token: None,
+                    args: serde_json::json!({ "backlog": true }),
+                },
+                &mut server,
+                &host_for_stream,
+                &runner_for_stream,
+                &identity_for_stream,
+            )
+            .await
+        });
+
+        let mut reader = BufReader::new(client);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(ready["type"], "ready");
+
+        line.clear();
+        reader.read_line(&mut line).await.unwrap();
+        let update: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(update["type"], "update");
+        assert_eq!(update["event"]["watch"]["id"], "watch-a");
+        assert_eq!(update["event"]["changed"], false);
+
+        stream_task.abort();
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
         host.watch_handle.shutdown().await;
@@ -2797,7 +3042,9 @@ post-worktree-remove = "{post_remove}"
             .await;
             assert!(poll.ok, "poll failed: {:?}", poll.error);
             let data = poll.data.unwrap();
-            if data["output"].as_str().unwrap_or("").contains("daemon-pty-owned") {
+            if data["output"].as_str().unwrap_or("").contains("daemon-pty-owned")
+                && data["record"]["running"] == false
+            {
                 output = Some(data);
                 break;
             }
@@ -3119,9 +3366,14 @@ post-worktree-remove = "{post_remove}"
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
+        let watch_runner = WatchRunner::new(
+            host.watch_handle.clone(),
+            AutomationHookManager::from_config_root(dir.path()),
+        );
         let log_path = dir.path().join("roux-daemon.log");
         let server = start_socket_server(
             host.clone(),
+            watch_runner,
             DaemonIdentity::new(socket_path.clone(), log_path.clone(), None),
             DaemonLog::new_for_test(log_path.clone()),
         )

@@ -8,13 +8,15 @@ use tauri::ipc::{Channel, Response as IpcResponse};
 use tauri::{AppHandle, Emitter};
 
 use roux_core::{
-    CreateWatchConfig, Project, Session, SessionExitPayload, SessionExitReason, Watch, Worktree,
+    CreateWatchConfig, Project, Session, SessionExitPayload, SessionExitReason, Watch,
+    WatchUpdateEvent, Worktree,
 };
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
 
 use crate::platform;
+use crate::watches::WatchManager;
 
 const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -472,6 +474,18 @@ impl DaemonClient {
             }
         })
     }
+
+    pub(crate) fn spawn_watch_event_bridge(
+        &self,
+        app: AppHandle,
+        watch_manager: WatchManager,
+    ) -> tauri::async_runtime::JoinHandle<()> {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(err) = read_watch_events_blocking(app, watch_manager) {
+                rlog!("Daemon watch event bridge stopped: {err}");
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -563,6 +577,10 @@ fn daemon_spawn_command(binary: &Path) -> Command {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
+    }
+    #[cfg(not(windows))]
+    {
+        command.env("PATH", crate::pty::get_user_path());
     }
 
     command
@@ -714,6 +732,13 @@ fn daemon_watch_session_request(session_id: String) -> Value {
 
 fn daemon_watch_cleanup_orphans_request() -> Value {
     serde_json::json!({ "command": "watch-cleanup-orphans" })
+}
+
+fn daemon_watch_events_request(backlog: bool) -> Value {
+    serde_json::json!({
+        "command": "watch-events",
+        "args": { "backlog": backlog },
+    })
 }
 
 fn daemon_worktree_create_request(
@@ -1027,6 +1052,111 @@ enum PtyAttachStreamFrame {
     Exit { code: Option<i32>, generation: u64 },
     #[serde(rename = "error")]
     Error { error: String },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum WatchEventStreamFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "update")]
+    Update { event: WatchUpdateEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
+fn read_watch_events_blocking(app: AppHandle, watch_manager: WatchManager) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        read_watch_events_tcp(app, watch_manager)
+    }
+    #[cfg(not(windows))]
+    {
+        read_watch_events_unix(app, watch_manager)
+    }
+}
+
+#[cfg(not(windows))]
+fn read_watch_events_unix(app: AppHandle, watch_manager: WatchManager) -> Result<(), String> {
+    use std::os::unix::net::UnixStream;
+
+    let path = platform::resolve_socket_endpoint()
+        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
+    let mut stream =
+        UnixStream::connect(&path).map_err(|err| format!("connect daemon socket {path}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, daemon_watch_events_request(true))?;
+    read_watch_event_stream(stream, app, watch_manager)
+}
+
+#[cfg(windows)]
+fn read_watch_events_tcp(app: AppHandle, watch_manager: WatchManager) -> Result<(), String> {
+    use std::net::TcpStream;
+
+    let auth_token = platform::load_socket_auth_token()
+        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
+    let mut request = daemon_watch_events_request(true);
+    if let Some(obj) = request.as_object_mut() {
+        obj.insert("auth_token".to_string(), Value::String(auth_token));
+    }
+
+    let endpoint =
+        platform::resolve_socket_endpoint().ok_or_else(|| "daemon socket endpoint not found")?;
+    let mut stream = TcpStream::connect(&endpoint)
+        .map_err(|err| format!("connect daemon socket {endpoint}: {err}"))?;
+    stream
+        .set_write_timeout(Some(COMMAND_TIMEOUT))
+        .map_err(|err| format!("set daemon write timeout: {err}"))?;
+    write_request(&mut stream, request)?;
+    read_watch_event_stream(stream, app, watch_manager)
+}
+
+fn read_watch_event_stream(
+    stream: impl Read,
+    app: AppHandle,
+    watch_manager: WatchManager,
+) -> Result<(), String> {
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|err| format!("read daemon watch event frame: {err}"))?;
+        if read == 0 {
+            return Ok(());
+        }
+        let frame: WatchEventStreamFrame = serde_json::from_str(line.trim())
+            .map_err(|err| format!("decode daemon watch event frame: {err}"))?;
+        handle_watch_event_frame(frame, &app, &watch_manager)?;
+    }
+}
+
+fn handle_watch_event_frame(
+    frame: WatchEventStreamFrame,
+    app: &AppHandle,
+    watch_manager: &WatchManager,
+) -> Result<(), String> {
+    match frame {
+        WatchEventStreamFrame::Ready => Ok(()),
+        WatchEventStreamFrame::Update { event } => {
+            let app = app.clone();
+            let watch_manager = watch_manager.clone();
+            tauri::async_runtime::spawn(async move {
+                watch_manager.apply_daemon_watch_update(event, app).await;
+            });
+            Ok(())
+        }
+        WatchEventStreamFrame::Warning { message } => {
+            rlog!("Daemon watch event stream warning: {message}");
+            Ok(())
+        }
+        WatchEventStreamFrame::Error { error } => Err(error),
+    }
 }
 
 fn attach_daemon_pty_output_blocking(
@@ -1354,6 +1484,10 @@ mod tests {
         let session_cleanup = daemon_watch_session_request("session-a".to_string());
         assert_eq!(session_cleanup["command"], "watch-remove-for-session");
         assert_eq!(session_cleanup["args"]["sessionId"], "session-a");
+
+        let events = daemon_watch_events_request(true);
+        assert_eq!(events["command"], "watch-events");
+        assert_eq!(events["args"]["backlog"], true);
 
         assert_eq!(daemon_watch_cleanup_orphans_request()["command"], "watch-cleanup-orphans");
     }

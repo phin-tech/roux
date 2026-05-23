@@ -20,4 +20,6 @@ pub mod pty_session;
 pub mod pty_spawn;
 pub mod session_service;
 pub mod terminal_env;
+pub mod watch_checks;
+pub mod watch_runner;
 pub mod watch_service;

@@ -33,7 +33,7 @@ Roux.app has thin Tauri command wrappers for the same process registry, PTY regi
 
 If Roux.app already owns the socket, `roux daemon` refuses to start instead of unlinking or replacing the GUI's live command channel.
 
-If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata, daemon-backed PTYs, session lifecycle, process registry, worktree filesystem operations, and durable watch state. The GUI keeps an in-memory watch mirror for check execution and notification UX until daemon watch events are streamed to clients. That makes the GUI a frontend for daemon-owned durable state and process lifetimes.
+If the daemon is already running when Roux.app starts, the desktop detects it, skips its own socket server, and uses the daemon for session/project metadata, daemon-backed PTYs, session lifecycle, process registry, worktree filesystem operations, durable watch state, and watch execution. The GUI subscribes to daemon watch events, keeps an in-memory watch mirror for rendering, and routes notification UX client-side. That makes the GUI a frontend for daemon-owned durable state and process lifetimes.
 
 That is not the full design below yet. As of this note:
 
@@ -42,7 +42,7 @@ That is not the full design below yet. As of this note:
 - pane socket commands such as split, send, and attach still expect the desktop app to be running
 - top-level `roux run` still creates a GUI pane; daemon-owned processes use `roux daemon run`
 - there is no `roux attach` command yet
-- watch check execution/notification presentation, pane-state cleanup, and manual hook-management UX still run in the desktop process
+- watch notification presentation, pane-state cleanup, and manual hook-management UX still run in the desktop process
 
 ## Problem
 

@@ -177,10 +177,10 @@ Requires `args.id`. Stops the process and returns its record.
 
 ## Watch Commands
 
-The daemon owns durable watch definitions and state. A GUI client may still
-execute checks locally and sync the resulting `Watch` snapshot back through
-`watch-replace`; desktop notifications remain client-routed UX. The daemon
-does not call Tauri notification APIs.
+The daemon owns durable watch definitions, check execution, watch hooks, and
+runtime state. Clients subscribe to watch updates and decide how those events
+become desktop notifications, badges, logs, or no visible UX. The daemon does
+not call Tauri notification APIs.
 
 `watch-list`
 
@@ -211,8 +211,8 @@ Requires `args.id`. Sets `runtimeState` to `Active` and returns the watch.
 
 `watch-replace`
 
-Requires `args.watch`. Replaces or inserts the full watch record. This is used
-by clients that execute watch checks while the daemon owns durable state.
+Requires `args.watch`. Replaces or inserts the full watch record. This is
+primarily for external/admin clients that need to sync a full watch snapshot.
 
 `watch-remove-for-session`
 
@@ -222,6 +222,21 @@ Requires `args.sessionId`. Removes all session-scoped watches for that session.
 
 Removes session/project scoped watches whose owning session/project is no
 longer present in the daemon runtime host.
+
+`watch-events`
+
+Streaming command. Optional `args.backlog` defaults to `true`; when enabled,
+the daemon sends the current watch list as `changed: false` update frames after
+the ready frame.
+
+Frames:
+
+```json
+{ "type": "ready" }
+{ "type": "update", "event": { "watch": {}, "changed": true, "previousOutcome": null } }
+{ "type": "warning", "message": "dropped 2 buffered watch event(s)" }
+{ "type": "error", "error": "message" }
+```
 
 ## PTY Commands
 
@@ -307,13 +322,12 @@ Daemon-owned:
 - Worktree create/list/remove, branch listing, and git init filesystem
   operations.
 - Worktree create/remove automation hooks for daemon-owned worktree commands.
-- Durable watch definitions and runtime state.
+- Durable watch definitions, check execution, watch hooks, and runtime state.
 
 Desktop-owned:
 
 - Rendering, pane layout, xterm instances, and UX-only state.
-- Watch check execution and notification presentation while daemon watch events
-  are still being split into a client event stream.
+- Watch notification presentation from daemon `watch-events`.
 - Pane-state cleanup and manual hook preview/run/list UX until those services
   move.
 - Local fallback runtime when no daemon is connected.

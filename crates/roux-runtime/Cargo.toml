@@ -18,7 +18,10 @@ sha2 = "0.10"
 specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7"
 dirs = "6"
+octocrab = "0.44"
+reqwest = { version = "0.12", features = ["json"] }
 toml = "0.8"
 
 [dev-dependencies]

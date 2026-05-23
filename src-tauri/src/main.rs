@@ -625,6 +625,10 @@ fn main() {
                                 rlog!("daemon watch orphan cleanup failed: {err}");
                             }
                         }
+                        if client.supports("watch-events") {
+                            client.spawn_watch_event_bridge(app_handle.clone(), watch_mgr);
+                            return;
+                        }
                         match client.list_watches().await {
                             Ok(watches) => {
                                 watch_mgr.sync_watches(watches, app_handle).await;

@@ -84,6 +84,10 @@ impl WatchManager {
         let id = watch.id.clone();
         let runnable = !matches!(watch.runtime_state, RuntimeState::Stopped | RuntimeState::Paused);
         let _ = self.store.replace(watch).await;
+        if self.daemon_client.is_some() {
+            self.cancel_watch(&id);
+            return;
+        }
         if runnable {
             self.spawn_watch(id, None, app);
         } else {
@@ -105,7 +109,21 @@ impl WatchManager {
             }
         }
         let _ = self.store.replace_all(watches).await;
+        if self.daemon_client.is_some() {
+            self.cancel_all();
+            return;
+        }
         self.start_all(app);
+    }
+
+    pub async fn apply_daemon_watch_update(&self, event: WatchUpdateEvent, app: tauri::AppHandle) {
+        let id = event.watch.id.clone();
+        let _ = self.store.replace(event.watch.clone()).await;
+        if matches!(event.watch.runtime_state, RuntimeState::Stopped | RuntimeState::Paused) {
+            self.cancel_watch(&id);
+        }
+        let _ = app.emit("watch-update", &event);
+        self.route_watch_notification(&event, &app);
     }
 
     /// Atomic find-or-create for `GithubPr` watches keyed on
@@ -187,6 +205,129 @@ impl WatchManager {
         if let Some(handle) = handles.remove(id) {
             handle.cancel.cancel();
         }
+    }
+
+    fn cancel_all(&self) {
+        let mut handles = self.handles.lock().unwrap();
+        for (_, handle) in handles.drain() {
+            handle.cancel.cancel();
+        }
+    }
+
+    fn route_watch_notification(&self, event: &WatchUpdateEvent, app: &tauri::AppHandle) {
+        if !event.changed {
+            return;
+        }
+
+        let updated_watch = &event.watch;
+        let outcome = updated_watch.last_result.as_ref().map(|result| result.outcome());
+        let now = updated_watch.last_checked.unwrap_or_else(unix_now_ms);
+
+        let suppress = {
+            let mut trackers = self.flap_trackers.lock().unwrap();
+            let tracker = trackers.entry(updated_watch.id.clone()).or_insert_with(FlapTracker::new);
+            if let Some(outcome) = outcome {
+                tracker.record(outcome.clone(), now);
+            }
+            tracker.is_flapping()
+        };
+
+        let should_notify = !suppress
+            && match outcome {
+                Some(WatchOutcome::Failure) => {
+                    updated_watch.notify.desktop_notification && updated_watch.notify.on_failure
+                }
+                Some(WatchOutcome::Success) => {
+                    updated_watch.notify.desktop_notification && updated_watch.notify.on_success
+                }
+                _ => false,
+            };
+        if !should_notify {
+            return;
+        }
+
+        let title = match outcome {
+            Some(WatchOutcome::Failure) => format!("❌ {}", updated_watch.name),
+            Some(WatchOutcome::Success) => format!("✅ {}", updated_watch.name),
+            _ => updated_watch.name.clone(),
+        };
+        let body = match &updated_watch.last_result {
+            Some(WatchResult::GithubRun { conclusion, url, .. }) => {
+                format!("{} — {}", conclusion.as_deref().unwrap_or("unknown"), url)
+            }
+            Some(WatchResult::HttpCheck { status_code, response_time_ms, .. }) => {
+                format!("HTTP {} ({}ms)", status_code, response_time_ms)
+            }
+            Some(WatchResult::CommandRun { exit_code, .. }) => {
+                format!("Exit code: {}", exit_code)
+            }
+            Some(WatchResult::GithubPr { state, checks, reviews, .. }) => {
+                let passed =
+                    checks.iter().filter(|c| c.conclusion.as_deref() == Some("success")).count();
+                let approvals = reviews.iter().filter(|r| r.state == "approved").count();
+                format!(
+                    "{} — {}/{} checks passed, {} approval(s)",
+                    state,
+                    passed,
+                    checks.len(),
+                    approvals
+                )
+            }
+            None => String::new(),
+        };
+        let state = app.state::<AppState>();
+        let session_id = match &updated_watch.scope {
+            WatchScope::Session { session_id } => Some(session_id.clone()),
+            _ => None,
+        };
+        let level = match outcome {
+            Some(WatchOutcome::Failure) => NotificationLevel::Error,
+            Some(WatchOutcome::Success) => NotificationLevel::Success,
+            _ => NotificationLevel::Info,
+        };
+        let mut actions: Vec<NotificationAction> = Vec::new();
+        if let Some(ref sid) = session_id {
+            actions.push(NotificationAction {
+                id: "focus".into(),
+                label: "Focus session".into(),
+                kind: ActionKind::FocusSession { session_id: sid.clone() },
+                primary: true,
+            });
+        }
+        if matches!(outcome, Some(WatchOutcome::Failure)) {
+            actions.push(NotificationAction {
+                id: "retry".into(),
+                label: "Retry".into(),
+                kind: ActionKind::RetryWatch { watch_id: updated_watch.id.clone() },
+                primary: actions.is_empty(),
+            });
+            actions.push(NotificationAction {
+                id: "dismiss_source".into(),
+                label: "Dismiss all from source".into(),
+                kind: ActionKind::DismissSource,
+                primary: false,
+            });
+        } else {
+            actions.push(NotificationAction {
+                id: "dismiss".into(),
+                label: "Dismiss".into(),
+                kind: ActionKind::Dismiss,
+                primary: false,
+            });
+        }
+        state.notification_manager.push(
+            NotificationRequest {
+                level,
+                source: NotificationSource::Watch { watch_id: updated_watch.id.clone() },
+                title,
+                subtitle: None,
+                body: Some(body),
+                session_id,
+                actions,
+                dedup_key: None,
+            },
+            Some(app),
+        );
     }
 
     fn spawn_watch(
@@ -541,4 +682,11 @@ fn rand_jitter() -> u64 {
         .unwrap_or_default()
         .subsec_nanos();
     (nanos % 5000) as u64
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
