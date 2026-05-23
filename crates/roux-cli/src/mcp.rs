@@ -25,7 +25,7 @@ const MCP_TOOL_NAMES: &[&str] = &[
 enum McpToolError {
     Disabled,
     InvalidParams(&'static str),
-    Socket(String),
+    Socket(roux_sdk::RouxError),
     TaskJoin(String),
     SocketResponse(String),
 }
@@ -35,7 +35,7 @@ impl std::fmt::Display for McpToolError {
         match self {
             McpToolError::Disabled => write!(f, "Roux MCP is disabled in Settings"),
             McpToolError::InvalidParams(message) => write!(f, "{message}"),
-            McpToolError::Socket(message) => write!(f, "{message}"),
+            McpToolError::Socket(err) => write!(f, "{err}"),
             McpToolError::TaskJoin(message) => write!(f, "{message}"),
             McpToolError::SocketResponse(message) => write!(f, "{message}"),
         }
