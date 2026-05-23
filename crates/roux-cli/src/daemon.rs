@@ -484,6 +484,7 @@ async fn handle_request_with_watch_runner(
         "git-init" => handle_git_init(req).await,
         "run" => handle_daemon_process_start(req, host).await,
         "shell" => handle_session_panes_create(req, host, identity).await,
+        "split" => handle_session_panes_create(req, host, identity).await,
         "send" => handle_cli_send(req, host).await,
         "daemon-process-start" => handle_daemon_process_start(req, host).await,
         "daemon-process-output" => handle_daemon_process_output(req, host).await,
@@ -556,6 +557,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "git-init",
             "run",
             "shell",
+            "split",
             "send",
             "daemon-process-start",
             "daemon-process-output",
@@ -3376,6 +3378,82 @@ post-worktree-remove = "{post_remove}"
         assert_eq!(pty.working_dir, alternate_dir.to_string_lossy());
 
         let _ = host.pty_handle.kill("session-shell").await;
+        let _ = host.pty_handle.kill(&pty_id).await;
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_top_level_split_spawns_secondary_pty() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let create_session = handle_request(
+            Request {
+                command: "session-create-shell".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "id": "session-split",
+                    "repoPath": dir.path(),
+                    "name": "Split Session",
+                    "profile": "plain-shell",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(create_session.ok, "session create failed: {:?}", create_session.error);
+
+        let split = handle_request(
+            Request {
+                command: "split".to_string(),
+                session_id: Some("session-split".to_string()),
+                pane_id: Some("session-split-main".to_string()),
+                auth_token: None,
+                args: serde_json::json!({ "direction": "vertical" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(split.ok, "split failed: {:?}", split.error);
+        let pty_id = split.data.as_ref().unwrap()["pty_id"].as_str().unwrap().to_string();
+
+        let pty = host
+            .pty_handle
+            .list()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|pty| pty.id == pty_id)
+            .expect("split pty");
+        assert_eq!(pty.info.session_id.as_deref(), Some("session-split"));
+        assert!(matches!(pty.info.role, roux_core::PtyRole::Secondary));
+        assert_eq!(pty.info.profile.as_deref(), Some("plain-shell"));
+        assert_eq!(pty.working_dir, dir.path().to_string_lossy());
+
+        let _ = host.pty_handle.kill("session-split").await;
         let _ = host.pty_handle.kill(&pty_id).await;
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;

@@ -171,6 +171,14 @@ Requires `session_id`. Accepts optional `args.workingDir` / `args.working_dir`
 and otherwise behaves like `session-panes-create` with `profile:
 plain-shell`. Returns `{ "pane_id": "...", "pty_id": "..." }`.
 
+`split`
+
+Compatibility alias for top-level `roux split` when the daemon owns the socket.
+Requires `session_id`. Accepts `args.direction` for compatibility and otherwise
+behaves like `session-panes-create` with `profile: plain-shell`. Returns
+`{ "pane_id": "...", "pty_id": "..." }`. The daemon does not persist or render
+split layout.
+
 ## Project Commands
 
 `project-list`
