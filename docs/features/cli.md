@@ -202,6 +202,8 @@ roux daemon logs
 roux daemon logs --follow
 ```
 
+On Windows, `roux daemon logs --follow` currently errors; use `roux daemon logs` without `--follow` or follow the log from a supported platform.
+
 This is a foundation for moving long-lived runtime services out of the Tauri process. `roux daemon` runs the daemon in the foreground for development, logs, and process supervisors. `roux daemon start` starts the same daemon as a detached background process, waits briefly for readiness, and prints the PID, socket, and log path. `roux daemon stop` asks the daemon to shut down gracefully over the socket. `restart` composes stop/start, and `logs` prints the daemon log.
 
 The daemon exposes daemon-only CLI commands:

@@ -165,6 +165,7 @@ pub(crate) async fn do_notes_read(
         .map_err(|e| e.to_string())?;
     let path = svc
         .file_path(&scope, topic.as_deref(), &session_slug)
+        .map_err(|e| e.to_string())?
         .to_string_lossy()
         .into_owned();
     Ok(NotesRead { path, content })
@@ -202,10 +203,8 @@ pub(crate) async fn do_notes_write(
         &tags,
     )
     .map_err(|e| e.to_string())?;
-    emit_notes_changed(
-        app,
-        &svc.file_path(&scope, topic.as_deref(), &session_slug),
-    );
+    let path = svc.file_path(&scope, topic.as_deref(), &session_slug).map_err(|e| e.to_string())?;
+    emit_notes_changed(app, &path);
     Ok(())
 }
 
@@ -274,10 +273,8 @@ pub(crate) async fn do_notes_append(
         &tags,
     )
     .map_err(|e| e.to_string())?;
-    emit_notes_changed(
-        app,
-        &svc.file_path(&scope, topic.as_deref(), &session_slug),
-    );
+    let path = svc.file_path(&scope, topic.as_deref(), &session_slug).map_err(|e| e.to_string())?;
+    emit_notes_changed(app, &path);
     Ok(())
 }
 
@@ -316,7 +313,7 @@ pub(crate) async fn do_notes_path(
     let p = if dir {
         svc.dir_path(&scope, &session_slug)
     } else {
-        svc.file_path(&scope, topic.as_deref(), &session_slug)
+        svc.file_path(&scope, topic.as_deref(), &session_slug).map_err(|e| e.to_string())?
     };
     Ok(p.to_string_lossy().into_owned())
 }

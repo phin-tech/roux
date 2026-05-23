@@ -80,17 +80,25 @@ impl VaultPath {
     }
 
     /// Path to the scope's anchor `notes.md` (or a named topic file).
-    pub fn notes_file(&self, scope: &Scope, topic: Option<&str>, session_slug: &str) -> PathBuf {
-        let filename = safe_topic_filename(topic);
-        self.scope_dir(scope, session_slug).join(filename)
+    pub fn notes_file(
+        &self,
+        scope: &Scope,
+        topic: Option<&str>,
+        session_slug: &str,
+    ) -> Result<PathBuf, NotesError> {
+        let filename = safe_topic_filename(topic)?;
+        Ok(self.scope_dir(scope, session_slug).join(filename))
     }
 }
 
-fn safe_topic_filename(topic: Option<&str>) -> String {
-    topic
-        .and_then(|name| topic::slugify(name).ok())
-        .map(|slug| format!("{slug}.md"))
-        .unwrap_or_else(|| "notes.md".to_string())
+fn safe_topic_filename(topic: Option<&str>) -> Result<String, NotesError> {
+    match topic {
+        Some(name) => {
+            let slug = topic::slugify(name).map_err(|_| NotesError::InvalidTopic)?;
+            Ok(format!("{slug}.md"))
+        }
+        None => Ok("notes.md".to_string()),
+    }
 }
 
 /// On-disk index mapping canonical `repo_path` and `project_id` values to
@@ -324,7 +332,12 @@ impl NotesService {
     }
 
     /// Path to the scope/topic file (without touching the filesystem).
-    pub fn file_path(&self, scope: &Scope, topic: Option<&str>, session_slug: &str) -> PathBuf {
+    pub fn file_path(
+        &self,
+        scope: &Scope,
+        topic: Option<&str>,
+        session_slug: &str,
+    ) -> Result<PathBuf, NotesError> {
         self.vault.notes_file(scope, topic, session_slug)
     }
 
@@ -367,7 +380,7 @@ impl NotesService {
         };
         let new_contents = frontmatter::ensure(&stub, scope, now, extra_tags);
 
-        let path = self.vault.notes_file(scope, topic, session_slug);
+        let path = self.vault.notes_file(scope, topic, session_slug).map_err(invalid_topic_io)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -388,7 +401,7 @@ impl NotesService {
         now: &str,
         extra_tags: &[String],
     ) -> std::io::Result<()> {
-        let path = self.vault.notes_file(scope, topic, session_slug);
+        let path = self.vault.notes_file(scope, topic, session_slug).map_err(invalid_topic_io)?;
 
         // If a file already exists, pull its existing frontmatter forward by
         // feeding ensure a stub that combines the old frontmatter + the new
@@ -417,13 +430,17 @@ impl NotesService {
         topic: Option<&str>,
         session_slug: &str,
     ) -> std::io::Result<String> {
-        let path = self.vault.notes_file(scope, topic, session_slug);
+        let path = self.vault.notes_file(scope, topic, session_slug).map_err(invalid_topic_io)?;
         match std::fs::read_to_string(&path) {
             Ok(s) => Ok(s),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
             Err(e) => Err(e),
         }
     }
+}
+
+fn invalid_topic_io(err: NotesError) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
 }
 
 /// Walk `vault_root` and return absolute paths of `.md` files whose tags
@@ -737,7 +754,9 @@ pub fn migrate_legacy_project_notes(
         let slug = svc.freeze_project_slug(project_id, &name);
         let scope = Scope::Project { slug, name };
         // Skip if vault file already exists (idempotency).
-        let target = svc.file_path(&scope, None, "no-session");
+        let Ok(target) = svc.file_path(&scope, None, "no-session") else {
+            continue;
+        };
         if target.exists() {
             continue;
         }
@@ -1473,22 +1492,25 @@ mod tests {
     fn vault_path_builds_notes_files_for_each_scope() {
         let v = VaultPath::new("/vault");
         assert_eq!(
-            v.notes_file(&Scope::Global, None, "irrelevant"),
+            v.notes_file(&Scope::Global, None, "irrelevant").unwrap(),
             Path::new("/vault/global/notes.md")
         );
         let repo = Scope::Repo { slug: "r".to_string(), repo_path: "/p".to_string(), remote: None };
-        assert_eq!(v.notes_file(&repo, None, "irrelevant"), Path::new("/vault/repos/r/notes.md"));
         assert_eq!(
-            v.notes_file(&repo, Some("api-gotchas"), "irrelevant"),
-            Path::new("/vault/repos/r/api-gotchas.md")
-        );
-        assert_eq!(
-            v.notes_file(&repo, Some("API Gotchas"), "irrelevant"),
-            Path::new("/vault/repos/r/api-gotchas.md")
-        );
-        assert_eq!(
-            v.notes_file(&repo, Some("../outside"), "irrelevant"),
+            v.notes_file(&repo, None, "irrelevant").unwrap(),
             Path::new("/vault/repos/r/notes.md")
+        );
+        assert_eq!(
+            v.notes_file(&repo, Some("api-gotchas"), "irrelevant").unwrap(),
+            Path::new("/vault/repos/r/api-gotchas.md")
+        );
+        assert_eq!(
+            v.notes_file(&repo, Some("API Gotchas"), "irrelevant").unwrap(),
+            Path::new("/vault/repos/r/api-gotchas.md")
+        );
+        assert_eq!(
+            v.notes_file(&repo, Some("../outside"), "irrelevant").unwrap_err(),
+            NotesError::InvalidTopic
         );
         let session = Scope::Session {
             session_id: "id".to_string(),
@@ -1498,9 +1520,28 @@ mod tests {
             worktree: "/w".to_string(),
         };
         assert_eq!(
-            v.notes_file(&session, None, "feat--a1b2c3"),
+            v.notes_file(&session, None, "feat--a1b2c3").unwrap(),
             Path::new("/vault/sessions/feat--a1b2c3/notes.md")
         );
+    }
+
+    #[test]
+    fn service_file_ops_reject_invalid_topic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut svc = NotesService::new(tmp.path());
+        let err = svc
+            .write_file(
+                &Scope::Global,
+                Some("../outside"),
+                "unused",
+                "body",
+                "2026-04-18T10:00:00-05:00",
+                &[],
+            )
+            .unwrap_err();
+
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(svc.read_file(&Scope::Global, None, "unused").unwrap(), "");
     }
 
     #[test]

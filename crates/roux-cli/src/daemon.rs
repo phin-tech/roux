@@ -3166,8 +3166,10 @@ async fn handle_notes_read(req: Request, host: &RuntimeHost) -> Response {
         Ok(content) => content,
         Err(err) => return Response::err(err.to_string()),
     };
-    let path =
-        svc.file_path(&scope, topic.as_deref(), &session_slug).to_string_lossy().into_owned();
+    let path = match svc.file_path(&scope, topic.as_deref(), &session_slug) {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(err) => return Response::err(err.to_string()),
+    };
     serialize_response(DaemonNotesRead { path, content }, "notes read")
 }
 
@@ -3244,7 +3246,10 @@ async fn handle_notes_path(req: Request, host: &RuntimeHost) -> Response {
     let path = if args.dir {
         svc.dir_path(&scope, &session_slug)
     } else {
-        svc.file_path(&scope, topic.as_deref(), &session_slug)
+        match svc.file_path(&scope, topic.as_deref(), &session_slug) {
+            Ok(path) => path,
+            Err(err) => return Response::err(err.to_string()),
+        }
     };
     Response::success(Value::String(path.to_string_lossy().into_owned()))
 }
