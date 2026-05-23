@@ -41,7 +41,7 @@ fn build_post_worktree_remove_context(
         HookContext::new(HookEvent::PostWorktreeRemove).with_provider(provider, wt_available);
     context.repo_path = Some(repo_path.to_string());
     context.worktree_path = Some(worktree_path.to_string());
-    context.cwd = Some(worktree_path.to_string());
+    context.cwd = Some(repo_path.to_string());
     context.provider_hooks_ran =
         worktree_provider_hooks(HookEvent::PostWorktreeRemove, context.worktrunk);
     context
@@ -128,6 +128,19 @@ pub(crate) async fn cmd_create_worktree(
     let fetch_first = fetch_first.unwrap_or(false);
     let wt = crate::services::setup::resolve_wt_binary();
     let wt_available = wt.is_some();
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("worktree-create"))
+    {
+        match client
+            .create_worktree(repo_path.clone(), branch.clone(), start_point.clone(), fetch_first)
+            .await
+        {
+            Ok(path) => return Ok(path),
+            Err(err) if daemon_command_unsupported(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
+
     let pre_context =
         HookContext::new(HookEvent::PreWorktreeCreate).with_provider(provider, wt_available);
     let pre_context = HookContext {
@@ -145,33 +158,9 @@ pub(crate) async fn cmd_create_worktree(
     let post_provider = provider;
     let post_repo_path = repo_path.clone();
     let post_branch = branch.clone();
-    let daemon_client = state.daemon_client.clone();
-    let worktree_path = if let Some(client) =
-        daemon_client.filter(|client| client.supports("worktree-create"))
-    {
-        match client
-            .create_worktree(repo_path.clone(), branch.clone(), start_point.clone(), fetch_first)
-            .await
-        {
-            Ok(path) => path,
-            Err(err) if daemon_command_unsupported(&err) => {
-                create_worktree_local(
-                    repo_path,
-                    branch,
-                    base_path,
-                    start_point,
-                    fetch_first,
-                    provider,
-                    wt,
-                )
-                .await?
-            }
-            Err(err) => return Err(err),
-        }
-    } else {
+    let worktree_path =
         create_worktree_local(repo_path, branch, base_path, start_point, fetch_first, provider, wt)
-            .await?
-    };
+            .await?;
     let context = build_post_worktree_create_context(
         post_provider,
         wt_available,
@@ -197,6 +186,19 @@ pub(crate) async fn cmd_remove_worktree(
     let force = force.unwrap_or(false);
     let wt = crate::services::setup::resolve_wt_binary();
     let wt_available = wt.is_some();
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("worktree-remove"))
+    {
+        match client
+            .remove_worktree(repo_path.clone(), worktree_path.clone(), also_branch, force)
+            .await
+        {
+            Ok(()) => return Ok(()),
+            Err(err) if daemon_command_unsupported(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
+
     let pre_context = HookContext {
         repo_path: Some(repo_path.clone()),
         worktree_path: Some(worktree_path.clone()),
@@ -211,23 +213,7 @@ pub(crate) async fn cmd_remove_worktree(
     let post_hooks = state.automation_hooks.clone();
     let post_repo_path = repo_path.clone();
     let post_worktree_path = worktree_path.clone();
-    if let Some(client) =
-        state.daemon_client.clone().filter(|client| client.supports("worktree-remove"))
-    {
-        match client
-            .remove_worktree(repo_path.clone(), worktree_path.clone(), also_branch, force)
-            .await
-        {
-            Ok(()) => {}
-            Err(err) if daemon_command_unsupported(&err) => {
-                remove_worktree_local(repo_path, worktree_path, also_branch, force, provider, wt)
-                    .await?
-            }
-            Err(err) => return Err(err),
-        }
-    } else {
-        remove_worktree_local(repo_path, worktree_path, also_branch, force, provider, wt).await?;
-    }
+    remove_worktree_local(repo_path, worktree_path, also_branch, force, provider, wt).await?;
     let context = build_post_worktree_remove_context(
         provider,
         wt_available,

@@ -4103,13 +4103,17 @@ dependencies = [
  "anyhow",
  "dirs",
  "libc",
+ "minijinja",
  "portable-pty",
  "roux-core",
  "serde",
  "serde_json",
+ "sha2",
+ "specta",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "toml 0.8.2",
 ]
 
 [[package]]

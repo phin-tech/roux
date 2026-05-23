@@ -201,7 +201,7 @@ roux daemon kill daemon-process-1
 
 If Roux.app already owns the command socket, `roux daemon` refuses to start instead of replacing the live GUI socket.
 
-If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and routes daemon-backed sessions, PTYs, project/session metadata, process commands, and core worktree filesystem operations through the daemon. This is the first "desktop as one frontend" mode; automation hooks and watches still run in the desktop process for now.
+If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and routes daemon-backed sessions, PTYs, project/session metadata, process commands, and core worktree filesystem operations through the daemon. Worktree create/remove automation hooks run on the daemon host for daemon-owned worktree operations. Watches and the manual hook-management UX still run in the desktop process for now.
 
 Current limits:
 

@@ -9,13 +9,17 @@ workspace = true
 
 [dependencies]
 anyhow = "1"
+minijinja = "2"
 portable-pty = "0.9"
 roux-core = { path = "../roux-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+specta = { version = "=2.0.0-rc.24", features = ["derive", "serde_json"] }
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
 dirs = "6"
+toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

@@ -8,6 +8,9 @@ use tokio::net::TcpListener;
 #[cfg(not(windows))]
 use tokio::net::UnixListener;
 
+use roux_runtime::automation_hooks::{
+    worktree_provider_hooks, AutomationHookManager, HookContext, HookEvent,
+};
 use roux_runtime::host::{RuntimeHost, RuntimeHostConfig};
 use roux_runtime::process_service::PROCESS_OUTPUT_DEFAULT_POLL_BYTES;
 use roux_runtime::pty_service::{
@@ -902,6 +905,44 @@ fn serialize_session(session: roux_core::Session) -> Response {
     }
 }
 
+fn daemon_hook_manager() -> AutomationHookManager {
+    AutomationHookManager::from_config_root(platform::app_config_dir())
+}
+
+fn build_daemon_post_worktree_create_context(
+    provider: roux_core::WorktreeProvider,
+    wt_available: bool,
+    repo_path: &str,
+    branch: &str,
+    worktree_path: &str,
+) -> HookContext {
+    let mut context =
+        HookContext::new(HookEvent::PostWorktreeCreate).with_provider(provider, wt_available);
+    context.repo_path = Some(repo_path.to_string());
+    context.worktree_path = Some(worktree_path.to_string());
+    context.branch = Some(branch.to_string());
+    context.cwd = Some(worktree_path.to_string());
+    context.provider_hooks_ran =
+        worktree_provider_hooks(HookEvent::PostWorktreeCreate, context.worktrunk);
+    context
+}
+
+fn build_daemon_post_worktree_remove_context(
+    provider: roux_core::WorktreeProvider,
+    wt_available: bool,
+    repo_path: &str,
+    worktree_path: &str,
+) -> HookContext {
+    let mut context =
+        HookContext::new(HookEvent::PostWorktreeRemove).with_provider(provider, wt_available);
+    context.repo_path = Some(repo_path.to_string());
+    context.worktree_path = Some(worktree_path.to_string());
+    context.cwd = Some(repo_path.to_string());
+    context.provider_hooks_ran =
+        worktree_provider_hooks(HookEvent::PostWorktreeRemove, context.worktrunk);
+    context
+}
+
 async fn handle_project_list(host: &RuntimeHost) -> Response {
     match host.project_handle.list().await {
         Ok(projects) => match serde_json::to_value(&projects) {
@@ -934,6 +975,10 @@ async fn handle_worktree_list(req: Request) -> Response {
 }
 
 async fn handle_worktree_create(req: Request) -> Response {
+    handle_worktree_create_with_hooks(req, daemon_hook_manager()).await
+}
+
+async fn handle_worktree_create_with_hooks(req: Request, hooks: AutomationHookManager) -> Response {
     let Some(repo_path) = request_repo_path(&req) else {
         return Response::err("repoPath required");
     };
@@ -946,32 +991,60 @@ async fn handle_worktree_create(req: Request) -> Response {
     let base_path = optional_string_arg(&req.args, &["basePath", "base_path"]);
     let fetch_first = bool_arg(&req.args, &["fetchFirst", "fetch_first"]).unwrap_or(false);
     let settings = load_daemon_settings();
+    let provider = settings.worktree_provider;
+    let wt = resolve_wt_binary(&settings);
+    let wt_available = wt.is_some();
+    let pre_context = HookContext {
+        repo_path: Some(repo_path.clone()),
+        branch: Some(branch.clone()),
+        cwd: Some(repo_path.clone()),
+        ..HookContext::new(HookEvent::PreWorktreeCreate).with_provider(provider, wt_available)
+    };
+    if let Err(err) = hooks.run_blocking(HookEvent::PreWorktreeCreate, pre_context).await {
+        return Response::err(err.to_string());
+    }
+    let post_hooks = hooks.clone();
+    let post_repo_path = repo_path.clone();
+    let post_branch = branch.clone();
 
     match tokio::task::spawn_blocking(move || {
         if fetch_first {
             roux_core::fetch_origin(&repo_path).map_err(|err| err.to_string())?;
         }
-        let wt = resolve_wt_binary(&settings);
         let base_path = base_path.as_deref().or(settings.worktree_base_path.as_deref());
         roux_core::create_worktree_with_provider(
             &repo_path,
             &branch,
             base_path,
             start_point.as_deref(),
-            settings.worktree_provider,
+            provider,
             wt.as_ref(),
         )
         .map_err(|err| err.to_string())
     })
     .await
     {
-        Ok(Ok(path)) => Response::success(serde_json::json!({ "path": path })),
+        Ok(Ok(path)) => {
+            let context = build_daemon_post_worktree_create_context(
+                provider,
+                wt_available,
+                &post_repo_path,
+                &post_branch,
+                &path,
+            );
+            post_hooks.spawn_background(HookEvent::PostWorktreeCreate, context);
+            Response::success(serde_json::json!({ "path": path }))
+        }
         Ok(Err(err)) => Response::err(err),
         Err(err) => Response::err(format!("worktree-create task failed: {err}")),
     }
 }
 
 async fn handle_worktree_remove(req: Request) -> Response {
+    handle_worktree_remove_with_hooks(req, daemon_hook_manager()).await
+}
+
+async fn handle_worktree_remove_with_hooks(req: Request, hooks: AutomationHookManager) -> Response {
     let Some(repo_path) = request_repo_path(&req) else {
         return Response::err("repoPath required");
     };
@@ -990,25 +1063,46 @@ async fn handle_worktree_remove(req: Request) -> Response {
     let also_branch = bool_arg(&req.args, &["alsoBranch", "also_branch"]).unwrap_or(false);
     let force = bool_arg(&req.args, &["force"]).unwrap_or(false);
     let settings = load_daemon_settings();
+    let provider = settings.worktree_provider;
+    let wt = resolve_wt_binary(&settings);
+    let wt_available = wt.is_some();
+    let pre_context = HookContext {
+        repo_path: Some(repo_path.clone()),
+        worktree_path: Some(worktree_path.clone()),
+        cwd: Some(worktree_path.clone()),
+        ..HookContext::new(HookEvent::PreWorktreeRemove).with_provider(provider, wt_available)
+    };
+    if let Err(err) = hooks.run_blocking(HookEvent::PreWorktreeRemove, pre_context).await {
+        return Response::err(err.to_string());
+    }
+    let post_hooks = hooks.clone();
 
     match tokio::task::spawn_blocking(move || {
-        let wt = resolve_wt_binary(&settings);
         roux_core::remove_worktree_with_provider(
             &repo_path,
             &worktree_path,
             also_branch,
             force,
-            settings.worktree_provider,
+            provider,
             wt.as_ref(),
         )
         .map_err(|err| err.to_string())
     })
     .await
     {
-        Ok(Ok(())) => Response::success(serde_json::json!({
-            "repoPath": response_repo_path,
-            "worktreePath": response_worktree_path,
-        })),
+        Ok(Ok(())) => {
+            let context = build_daemon_post_worktree_remove_context(
+                provider,
+                wt_available,
+                &response_repo_path,
+                &response_worktree_path,
+            );
+            post_hooks.spawn_background(HookEvent::PostWorktreeRemove, context);
+            Response::success(serde_json::json!({
+                "repoPath": response_repo_path,
+                "worktreePath": response_worktree_path,
+            }))
+        }
         Ok(Err(err)) => Response::err(err),
         Err(err) => Response::err(format!("worktree-remove task failed: {err}")),
     }
@@ -1802,6 +1896,25 @@ mod tests {
         git(repo, &["commit", "--allow-empty", "-m", "init"]);
     }
 
+    fn shell_quote(path: &std::path::Path) -> String {
+        format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+    }
+
+    fn toml_escape(value: &str) -> String {
+        value.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+
+    async fn wait_for_marker(path: &std::path::Path, expected: &str) {
+        for _ in 0..50 {
+            let content = std::fs::read_to_string(path).unwrap_or_default();
+            if content.contains(expected) {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("marker {} did not contain {expected:?}", path.display());
+    }
+
     #[cfg(not(windows))]
     #[tokio::test]
     async fn daemon_worktree_commands_mutate_git_worktrees() {
@@ -1913,6 +2026,91 @@ mod tests {
         .await;
         assert!(remove.ok, "remove failed: {:?}", remove.error);
         assert!(!std::path::Path::new(&worktree_path).exists());
+
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_worktree_commands_run_hooks_server_side() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let worktree_base = dir.path().join("worktrees");
+        let hook_root = dir.path().join("hook-root");
+        std::fs::create_dir_all(&hook_root).unwrap();
+        let marker = dir.path().join("hook-events.txt");
+        let marker_arg = shell_quote(&marker);
+        let hooks_toml = format!(
+            r#"
+pre-worktree-create = "{pre_create}"
+post-worktree-create = "{post_create}"
+pre-worktree-remove = "{pre_remove}"
+post-worktree-remove = "{post_remove}"
+"#,
+            pre_create = toml_escape(&format!("printf pre-create >> {marker_arg}")),
+            post_create = toml_escape(&format!("printf post-create >> {marker_arg}")),
+            pre_remove = toml_escape(&format!("printf pre-remove >> {marker_arg}")),
+            post_remove = toml_escape(&format!("printf post-remove >> {marker_arg}")),
+        );
+        std::fs::write(hook_root.join("hooks.toml"), hooks_toml).unwrap();
+        let hooks = AutomationHookManager::from_config_root(&hook_root);
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+
+        let create = handle_worktree_create_with_hooks(
+            Request {
+                command: "worktree-create".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "repoPath": repo,
+                    "branch": "feature/hooked-worktree",
+                    "startPoint": "main",
+                    "basePath": worktree_base,
+                }),
+            },
+            hooks.clone(),
+        )
+        .await;
+        assert!(create.ok, "create failed: {:?}", create.error);
+        let worktree_path = create.data.as_ref().unwrap()["path"].as_str().unwrap().to_string();
+        wait_for_marker(&marker, "pre-create").await;
+        wait_for_marker(&marker, "post-create").await;
+
+        let remove = handle_worktree_remove_with_hooks(
+            Request {
+                command: "worktree-remove".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "repoPath": repo,
+                    "worktreePath": worktree_path,
+                    "alsoBranch": true,
+                    "force": true,
+                }),
+            },
+            hooks,
+        )
+        .await;
+        assert!(remove.ok, "remove failed: {:?}", remove.error);
+        wait_for_marker(&marker, "pre-remove").await;
+        wait_for_marker(&marker, "post-remove").await;
 
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;

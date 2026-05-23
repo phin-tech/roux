@@ -29,7 +29,7 @@ The daemon writes its own runtime log to `~/.config/roux/logs/roux-daemon.log`, 
 
 The daemon now owns a small headless process registry too. `roux daemon run "<command>"` starts a shell command inside the daemon process, `roux daemon output <id>` polls retained stdout/stderr and exit status, `roux daemon processes` lists daemon-owned processes, and `roux daemon kill <id>` stops one. This is the first runtime behavior owned by the daemon that the GUI does not render or spawn.
 
-Roux.app has thin Tauri command wrappers for the same process registry, PTY registry, session lifecycle, and worktree command surface. When an external daemon is connected, those wrappers forward to the daemon socket; when the desktop is self-hosting, they use the embedded runtime host or local filesystem helpers. The desktop-side boundary is now "frontend command adapter" instead of direct process ownership for these paths.
+Roux.app has thin Tauri command wrappers for the same process registry, PTY registry, session lifecycle, and worktree command surface. When an external daemon is connected, those wrappers forward to the daemon socket; when the desktop is self-hosting, they use the embedded runtime host or local filesystem helpers. Worktree create/remove automation hooks run wherever the worktree operation runs. The desktop-side boundary is now "frontend command adapter" instead of direct process ownership for these paths.
 
 If Roux.app already owns the socket, `roux daemon` refuses to start instead of unlinking or replacing the GUI's live command channel.
 
@@ -42,7 +42,7 @@ That is not the full design below yet. As of this note:
 - pane socket commands such as split, send, and attach still expect the desktop app to be running
 - top-level `roux run` still creates a GUI pane; daemon-owned processes use `roux daemon run`
 - there is no `roux attach` command yet
-- automation hooks, watches, and pane-state cleanup still run in the desktop process
+- watches, pane-state cleanup, and manual hook-management UX still run in the desktop process
 
 ## Problem
 

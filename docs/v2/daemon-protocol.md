@@ -132,14 +132,19 @@ Requires `args.repoPath` and `args.branch`. Creates or reuses a worktree for
 the branch on the daemon host. Optional `args.startPoint` selects the branch
 start point, `args.fetchFirst` runs `git fetch origin` before creation, and
 `args.basePath` overrides the daemon setting for the worktree base directory.
-Returns `{ "path": "..." }`.
+The daemon runs `pre-worktree-create` before the filesystem mutation and
+`post-worktree-create` after success, using hook config visible on the daemon
+host. Returns `{ "path": "..." }`.
 
 `worktree-remove`
 
 Requires `args.repoPath` and `args.worktreePath`. Optional `args.alsoBranch`
 also deletes the checked-out branch after removing the worktree. Optional
 `args.force` passes the force-delete intent through the selected provider.
-Returns `{ "repoPath": "...", "worktreePath": "..." }`.
+The daemon runs `pre-worktree-remove` before removal and
+`post-worktree-remove` after success, using the repository path as the
+post-remove cwd because the worktree path may no longer exist. Returns
+`{ "repoPath": "...", "worktreePath": "..." }`.
 
 `worktree-list-branches`
 
@@ -253,11 +258,11 @@ Daemon-owned:
 - Session create/reconnect/archive/restore/delete state transitions.
 - Worktree create/list/remove, branch listing, and git init filesystem
   operations.
+- Worktree create/remove automation hooks for daemon-owned worktree commands.
 
 Desktop-owned:
 
 - Rendering, pane layout, xterm instances, and UX-only state.
-- Automation hooks, watches, and pane-state cleanup until those services move.
-  The desktop currently runs worktree pre/post hooks around daemon worktree
-  operations.
+- Watches, pane-state cleanup, and manual hook preview/run/list UX until those
+  services move.
 - Local fallback runtime when no daemon is connected.
