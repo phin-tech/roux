@@ -4054,6 +4054,7 @@ dependencies = [
  "roux-gh",
  "roux-git",
  "roux-runtime",
+ "roux-sdk",
  "roux-smolvm",
  "roux-worktrunk",
  "schemars 1.2.1",

@@ -62,7 +62,48 @@ pub struct SpawnShell {
     session_id: Option<String>,
     pane_id: Option<String>,
     profile: Option<String>,
+    nono_profile: Option<String>,
+    nono_allow_dirs: Vec<String>,
     initial_size: Option<(u16, u16)>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NotesEnv {
+    pub vault_root: String,
+    pub session_slug: String,
+    pub repo_slug: String,
+    pub project_slug: Option<String>,
+    pub context_paths: Vec<String>,
+    pub project_prompt: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateSessionShell {
+    pub id: String,
+    pub repo_path: String,
+    pub name: String,
+    pub worktree_path: Option<String>,
+    pub branch: Option<String>,
+    pub base: Option<String>,
+    pub fetch_first: bool,
+    pub profile: Option<String>,
+    pub nono_profile: Option<String>,
+    pub nono_allow_dirs: Vec<String>,
+    pub initial_size: Option<(u16, u16)>,
+    pub project_id: Option<String>,
+    pub blueprint_id: Option<String>,
+    pub smol_machine_name: Option<String>,
+    pub notes: Option<NotesEnv>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReconnectSessionShell {
+    pub id: String,
+    pub profile: Option<String>,
+    pub nono_profile: Option<String>,
+    pub nono_allow_dirs: Vec<String>,
+    pub initial_size: Option<(u16, u16)>,
+    pub notes: Option<NotesEnv>,
 }
 
 impl Roux {
@@ -94,6 +135,26 @@ impl Roux {
         self.command(CommandRequest::new("watch-list")).await
     }
 
+    pub async fn create_session_shell(
+        &self,
+        request: CreateSessionShell,
+    ) -> RouxResult<roux_core::Session> {
+        self.command(CommandRequest::new("session-create-shell").args(request.into_args())).await
+    }
+
+    pub async fn reconnect_session_shell(
+        &self,
+        request: ReconnectSessionShell,
+    ) -> RouxResult<roux_core::Session> {
+        let session_id = request.id.clone();
+        self.command(
+            CommandRequest::new("session-reconnect-shell")
+                .session_id(session_id)
+                .args(request.into_args()),
+        )
+        .await
+    }
+
     pub fn session(&self, session: roux_core::Session) -> Session {
         Session { client: self.clone(), session }
     }
@@ -123,6 +184,8 @@ impl Roux {
             session_id: None,
             pane_id: None,
             profile: None,
+            nono_profile: None,
+            nono_allow_dirs: Vec::new(),
             initial_size: None,
         }
     }
@@ -178,6 +241,81 @@ impl RouxBuilder {
             self.endpoint.or_else(resolve_socket_endpoint).ok_or(RouxError::NotRunning)?;
         let auth_token = self.auth_token.or_else(endpoint::load_socket_auth_token);
         Ok(Roux { endpoint, auth_token, timeout: self.timeout })
+    }
+}
+
+impl CreateSessionShell {
+    fn into_args(self) -> Value {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), Value::String(self.id));
+        args.insert("repoPath".into(), Value::String(self.repo_path));
+        args.insert("name".into(), Value::String(self.name));
+        insert_optional_string(&mut args, "worktreePath", self.worktree_path);
+        insert_optional_string(&mut args, "branch", self.branch);
+        insert_optional_string(&mut args, "base", self.base);
+        if self.fetch_first {
+            args.insert("fetchFirst".into(), Value::Bool(true));
+        }
+        insert_optional_string(&mut args, "profile", self.profile);
+        insert_optional_string(&mut args, "nonoProfile", self.nono_profile);
+        if !self.nono_allow_dirs.is_empty() {
+            args.insert("nonoAllowDirs".into(), serde_json::json!(self.nono_allow_dirs));
+        }
+        insert_initial_size(&mut args, self.initial_size);
+        insert_optional_string(&mut args, "projectId", self.project_id);
+        insert_optional_string(&mut args, "blueprintId", self.blueprint_id);
+        insert_optional_string(&mut args, "smolMachineName", self.smol_machine_name);
+        insert_notes_env(&mut args, self.notes);
+        Value::Object(args)
+    }
+}
+
+impl ReconnectSessionShell {
+    fn into_args(self) -> Value {
+        let mut args = serde_json::Map::new();
+        insert_optional_string(&mut args, "profile", self.profile);
+        insert_optional_string(&mut args, "nonoProfile", self.nono_profile);
+        if !self.nono_allow_dirs.is_empty() {
+            args.insert("nonoAllowDirs".into(), serde_json::json!(self.nono_allow_dirs));
+        }
+        insert_initial_size(&mut args, self.initial_size);
+        insert_notes_env(&mut args, self.notes);
+        Value::Object(args)
+    }
+}
+
+fn insert_optional_string(
+    args: &mut serde_json::Map<String, Value>,
+    key: &'static str,
+    value: Option<String>,
+) {
+    if let Some(value) = value {
+        args.insert(key.into(), Value::String(value));
+    }
+}
+
+fn insert_initial_size(
+    args: &mut serde_json::Map<String, Value>,
+    initial_size: Option<(u16, u16)>,
+) {
+    if let Some((cols, rows)) = initial_size {
+        args.insert("initialSize".into(), serde_json::json!([cols, rows]));
+    }
+}
+
+fn insert_notes_env(args: &mut serde_json::Map<String, Value>, notes: Option<NotesEnv>) {
+    if let Some(notes) = notes {
+        args.insert(
+            "notesEnv".into(),
+            serde_json::json!({
+                "vaultRoot": notes.vault_root,
+                "sessionSlug": notes.session_slug,
+                "repoSlug": notes.repo_slug,
+                "projectSlug": notes.project_slug,
+                "contextPaths": notes.context_paths,
+                "projectPrompt": notes.project_prompt,
+            }),
+        );
     }
 }
 
@@ -380,6 +518,12 @@ impl SpawnTask {
     }
 
     pub async fn spawn(self) -> RouxResult<Pty> {
+        let client = self.client.clone();
+        let record = self.spawn_record().await?;
+        Ok(client.pty(record.id))
+    }
+
+    pub async fn spawn_record(self) -> RouxResult<PtyRecord> {
         let mut args = serde_json::Map::new();
         args.insert("command".into(), Value::String(self.command));
         if let Some(id) = self.id {
@@ -400,11 +544,9 @@ impl SpawnTask {
         if let Some((cols, rows)) = self.initial_size {
             args.insert("initialSize".into(), serde_json::json!([cols, rows]));
         }
-        let record: PtyRecord = self
-            .client
+        self.client
             .command(CommandRequest::new("daemon-pty-spawn-task").args(Value::Object(args)))
-            .await?;
-        Ok(self.client.pty(record.id))
+            .await
     }
 }
 
@@ -434,12 +576,28 @@ impl SpawnShell {
         self
     }
 
+    pub fn nono_profile(mut self, profile: impl Into<String>) -> Self {
+        self.nono_profile = Some(profile.into());
+        self
+    }
+
+    pub fn nono_allow_dirs(mut self, allow_dirs: Vec<String>) -> Self {
+        self.nono_allow_dirs = allow_dirs;
+        self
+    }
+
     pub fn initial_size(mut self, cols: u16, rows: u16) -> Self {
         self.initial_size = Some((cols, rows));
         self
     }
 
     pub async fn spawn(self) -> RouxResult<Pty> {
+        let client = self.client.clone();
+        let record = self.spawn_record().await?;
+        Ok(client.pty(record.id))
+    }
+
+    pub async fn spawn_record(self) -> RouxResult<PtyRecord> {
         let mut args = serde_json::Map::new();
         if let Some(id) = self.id {
             args.insert("id".into(), Value::String(id));
@@ -456,14 +614,18 @@ impl SpawnShell {
         if let Some(profile) = self.profile {
             args.insert("profile".into(), Value::String(profile));
         }
+        if let Some(nono_profile) = self.nono_profile {
+            args.insert("nonoProfile".into(), Value::String(nono_profile));
+        }
+        if !self.nono_allow_dirs.is_empty() {
+            args.insert("nonoAllowDirs".into(), serde_json::json!(self.nono_allow_dirs));
+        }
         if let Some((cols, rows)) = self.initial_size {
             args.insert("initialSize".into(), serde_json::json!([cols, rows]));
         }
-        let record: PtyRecord = self
-            .client
+        self.client
             .command(CommandRequest::new("daemon-pty-spawn-shell").args(Value::Object(args)))
-            .await?;
-        Ok(self.client.pty(record.id))
+            .await
     }
 }
 
@@ -674,6 +836,131 @@ mod tests {
     }
 
     #[test]
+    fn typed_create_session_shell_uses_daemon_command_shape() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(line.trim()).unwrap();
+            stream
+                .write_all(
+                    format!(r#"{{"ok":true,"data":{}}}"#, sample_session_json("session-a", false))
+                        .as_bytes(),
+                )
+                .unwrap();
+            stream.write_all(b"\n").unwrap();
+            request
+        });
+
+        let client = Roux::builder()
+            .endpoint(SocketEndpoint::Tcp(addr))
+            .auth_token("secret")
+            .connect()
+            .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let session = rt
+            .block_on(client.create_session_shell(CreateSessionShell {
+                id: "session-a".to_string(),
+                repo_path: "/repo".to_string(),
+                name: "Daemon Session".to_string(),
+                worktree_path: None,
+                branch: Some("feature/demo".to_string()),
+                base: Some("origin/main".to_string()),
+                fetch_first: true,
+                profile: Some("plain-shell".to_string()),
+                nono_profile: Some("strict".to_string()),
+                nono_allow_dirs: vec!["/tmp".to_string()],
+                initial_size: Some((100, 30)),
+                project_id: Some("project-a".to_string()),
+                blueprint_id: Some("blueprint-a".to_string()),
+                smol_machine_name: Some("vm-a".to_string()),
+                notes: Some(NotesEnv {
+                    vault_root: "/vault".to_string(),
+                    session_slug: "feature-demo--sessio".to_string(),
+                    repo_slug: "repo-a".to_string(),
+                    project_slug: Some("project-a".to_string()),
+                    context_paths: vec!["/repo/docs".to_string()],
+                    project_prompt: "Use project notes".to_string(),
+                }),
+            }))
+            .unwrap();
+        let request = handle.join().unwrap();
+
+        assert_eq!(session.id, "session-a");
+        assert_eq!(request["command"], "session-create-shell");
+        assert_eq!(request["args"]["id"], "session-a");
+        assert_eq!(request["args"]["repoPath"], "/repo");
+        assert_eq!(request["args"]["branch"], "feature/demo");
+        assert_eq!(request["args"]["base"], "origin/main");
+        assert_eq!(request["args"]["fetchFirst"], true);
+        assert_eq!(request["args"]["profile"], "plain-shell");
+        assert_eq!(request["args"]["nonoProfile"], "strict");
+        assert_eq!(request["args"]["nonoAllowDirs"][0], "/tmp");
+        assert_eq!(request["args"]["initialSize"], serde_json::json!([100, 30]));
+        assert_eq!(request["args"]["projectId"], "project-a");
+        assert_eq!(request["args"]["blueprintId"], "blueprint-a");
+        assert_eq!(request["args"]["smolMachineName"], "vm-a");
+        assert_eq!(request["args"]["notesEnv"]["vaultRoot"], "/vault");
+        assert_eq!(request["args"]["notesEnv"]["contextPaths"][0], "/repo/docs");
+    }
+
+    #[test]
+    fn typed_reconnect_session_shell_uses_daemon_command_shape() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(line.trim()).unwrap();
+            stream
+                .write_all(
+                    format!(r#"{{"ok":true,"data":{}}}"#, sample_session_json("session-a", false))
+                        .as_bytes(),
+                )
+                .unwrap();
+            stream.write_all(b"\n").unwrap();
+            request
+        });
+
+        let client = Roux::builder()
+            .endpoint(SocketEndpoint::Tcp(addr))
+            .auth_token("secret")
+            .connect()
+            .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let session = rt
+            .block_on(client.reconnect_session_shell(ReconnectSessionShell {
+                id: "session-a".to_string(),
+                profile: Some("plain-shell".to_string()),
+                nono_profile: Some("strict".to_string()),
+                nono_allow_dirs: vec!["/tmp".to_string()],
+                initial_size: Some((120, 40)),
+                notes: Some(NotesEnv {
+                    vault_root: "/vault".to_string(),
+                    session_slug: "feature-demo--sessio".to_string(),
+                    repo_slug: "repo-a".to_string(),
+                    project_slug: None,
+                    context_paths: vec![],
+                    project_prompt: "".to_string(),
+                }),
+            }))
+            .unwrap();
+        let request = handle.join().unwrap();
+
+        assert_eq!(session.id, "session-a");
+        assert_eq!(request["command"], "session-reconnect-shell");
+        assert_eq!(request["session_id"], "session-a");
+        assert_eq!(request["args"]["profile"], "plain-shell");
+        assert_eq!(request["args"]["nonoProfile"], "strict");
+        assert_eq!(request["args"]["nonoAllowDirs"][0], "/tmp");
+        assert_eq!(request["args"]["initialSize"], serde_json::json!([120, 40]));
+        assert_eq!(request["args"]["notesEnv"]["vaultRoot"], "/vault");
+    }
+
+    #[test]
     fn typed_pty_attach_decodes_ndjson_frames() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap().to_string();
@@ -721,6 +1008,31 @@ mod tests {
         assert_eq!(request["command"], "daemon-pty-attach");
         assert_eq!(request["args"]["id"], "pty-1");
         assert_eq!(*frames.lock().unwrap(), vec!["ready", "exit"]);
+    }
+
+    fn sample_session_json(id: &str, archived: bool) -> String {
+        serde_json::json!({
+            "id": id,
+            "name": "Daemon Session",
+            "repoRoot": "/repo",
+            "worktreePath": "/repo",
+            "branch": "feature/demo",
+            "isWorktree": false,
+            "model": null,
+            "cost": null,
+            "createdAt": 1,
+            "status": "idle",
+            "isGitRepo": true,
+            "nameOverride": null,
+            "primaryPtyId": "pty-primary",
+            "archived": archived,
+            "endedAt": null,
+            "projectId": "project-a",
+            "blueprintId": "blueprint-a",
+            "pinnedPrUrl": null,
+            "smolMachineName": "vm-a"
+        })
+        .to_string()
     }
 
     fn sample_pty_record_json(id: &str) -> String {

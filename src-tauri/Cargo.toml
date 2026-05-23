@@ -52,6 +52,7 @@ roux-core = { path = "../crates/roux-core" }
 roux-git = { path = "../crates/roux-git" }
 roux-gh = { path = "../crates/roux-gh" }
 roux-runtime = { path = "../crates/roux-runtime" }
+roux-sdk = { path = "../crates/roux-sdk" }
 roux-smolvm = { path = "../crates/roux-smolvm" }
 roux-worktrunk = { path = "../crates/roux-worktrunk" }
 schemars = "1"

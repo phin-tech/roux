@@ -67,31 +67,31 @@ fn main() {
         rlog!("Claude binary path: (default, resolved via PATH)");
     }
 
-    let mut daemon_startup_error = None;
     let daemon_client = match daemon_client::DaemonClient::ensure_local() {
-        daemon_client::DaemonStartup::Connected(client) => Some(client),
+        daemon_client::DaemonStartup::Connected(client) => client,
         daemon_client::DaemonStartup::LocalFallbackDisabled(reason) => {
-            rlog!("Daemon autostart disabled; desktop will self-host runtime state: {reason}");
-            None
-        }
-        daemon_client::DaemonStartup::Failed(err) => {
             let message = format!(
-                "Roux daemon startup failed; desktop will self-host runtime state. Set ROUX_DAEMON_AUTOSTART=0 to make local fallback explicit. {err}"
+                "Roux daemon startup is required, but daemon autostart is disabled. {reason}"
             );
             rlog!("{message}");
-            daemon_startup_error = Some(message);
-            None
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+        daemon_client::DaemonStartup::Failed(err) => {
+            let message =
+                format!("Roux daemon startup failed and desktop local fallback is disabled. {err}");
+            rlog!("{message}");
+            eprintln!("{message}");
+            std::process::exit(1);
         }
     };
-    if let Some(client) = daemon_client.as_ref() {
-        rlog!(
-            "Connected to roux daemon pid={} socket={}",
-            client.status().pid,
-            client.status().socket
-        );
-    } else {
-        rlog!("No roux daemon available; desktop will self-host runtime state");
-    }
+    rlog!(
+        "Connected to roux daemon pid={} socket={}",
+        daemon_client.status().pid,
+        daemon_client.status().socket
+    );
+    let daemon_client = Some(daemon_client);
+    let daemon_startup_error = None;
     let daemon_owns_watches =
         daemon_client.as_ref().map(|client| client.supports("watch-list")).unwrap_or(false);
     let persisted_watches = if daemon_owns_watches {
@@ -561,12 +561,7 @@ fn main() {
                 eprintln!("Warning: failed to start file status source: {}", e);
             }
             {
-                let state = app.state::<AppState>();
-                if state.daemon_client.is_some() {
-                    rlog!("Skipping desktop socket server because roux daemon owns the socket");
-                } else {
-                    socket::start_socket_server(app.handle().clone());
-                }
+                rlog!("Skipping desktop socket server because roux daemon owns the socket");
             }
 
             // System tray: shows active sessions + status, plus Show/Quit.

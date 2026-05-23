@@ -17,8 +17,8 @@ use roux_runtime::automation_hooks::{
     HookListItem, HookLogEntry, HookPreviewItem, HookRunRequest, HookRunSummary,
 };
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
-use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
+use roux_sdk::{CommandRequest, PtyAttachFrame, PtyRecord, PtySnapshot};
 
 use crate::platform;
 use crate::watches::WatchManager;
@@ -53,6 +53,7 @@ pub(crate) struct DaemonStatus {
 #[derive(Debug, Clone)]
 pub(crate) struct DaemonClient {
     status: DaemonStatus,
+    sdk: roux_sdk::Roux,
 }
 
 #[derive(Debug, Clone)]
@@ -111,7 +112,8 @@ impl DaemonClient {
                 .ok()?;
         let status: DaemonStatus = serde_json::from_value(data).ok()?;
         if status.kind == "roux-daemon" {
-            Some(Self { status })
+            let sdk = roux_sdk::Roux::connect().ok()?;
+            Some(Self { status, sdk })
         } else {
             None
         }
@@ -154,6 +156,10 @@ impl DaemonClient {
         &self.status
     }
 
+    pub(crate) fn sdk(&self) -> roux_sdk::Roux {
+        self.sdk.clone()
+    }
+
     pub(crate) fn supports(&self, capability: &str) -> bool {
         self.status.capabilities.iter().any(|candidate| candidate == capability)
     }
@@ -170,17 +176,14 @@ impl DaemonClient {
     }
 
     pub(crate) async fn list_sessions(&self) -> Result<Vec<Session>, String> {
-        let value = send_command_async(serde_json::json!({ "command": "session-list" })).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon session-list: {err}"))
+        self.sdk.sessions().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn get_session(&self, id: String) -> Result<Session, String> {
-        let value = send_command_async(serde_json::json!({
-            "command": "session-poll",
-            "session_id": id,
-        }))
-        .await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon session-poll: {err}"))
+        self.sdk
+            .command(CommandRequest::new("session-poll").session_id(id))
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_projects(&self) -> Result<Vec<Project>, String> {
@@ -646,18 +649,43 @@ impl DaemonClient {
         &self,
         request: DaemonCreateSessionShellRequest,
     ) -> Result<Session, String> {
-        let value = send_command_async(daemon_session_create_shell_request(request)).await?;
-        serde_json::from_value(value)
-            .map_err(|err| format!("decode daemon session-create-shell: {err}"))
+        self.sdk
+            .create_session_shell(roux_sdk::CreateSessionShell {
+                id: request.id,
+                repo_path: request.repo_path,
+                name: request.name,
+                worktree_path: request.worktree_path,
+                branch: request.branch,
+                base: request.base,
+                fetch_first: request.fetch_first,
+                profile: request.profile,
+                nono_profile: request.nono_profile,
+                nono_allow_dirs: request.nono_allow_dirs,
+                initial_size: request.initial_size,
+                project_id: request.project_id,
+                blueprint_id: request.blueprint_id,
+                smol_machine_name: request.smol_machine_name,
+                notes: request.notes.map(sdk_notes_env),
+            })
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn reconnect_session_shell(
         &self,
         request: DaemonReconnectSessionShellRequest,
     ) -> Result<Session, String> {
-        let value = send_command_async(daemon_session_reconnect_shell_request(request)).await?;
-        serde_json::from_value(value)
-            .map_err(|err| format!("decode daemon session-reconnect-shell: {err}"))
+        self.sdk
+            .reconnect_session_shell(roux_sdk::ReconnectSessionShell {
+                id: request.id,
+                profile: request.profile,
+                nono_profile: request.nono_profile,
+                nono_allow_dirs: request.nono_allow_dirs,
+                initial_size: request.initial_size,
+                notes: request.notes.map(sdk_notes_env),
+            })
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn archive_session(&self, id: String) -> Result<Session, String> {
@@ -842,18 +870,32 @@ impl DaemonClient {
         nono_allow_dirs: Vec<String>,
         initial_size: Option<(u16, u16)>,
     ) -> Result<PtyRecord, String> {
-        let value = send_command_async(daemon_pty_spawn_shell_request(
-            id,
-            working_dir,
-            session_id,
-            pane_id,
-            profile,
-            nono_profile,
-            nono_allow_dirs,
-            initial_size,
-        ))
-        .await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty spawn shell: {err}"))
+        let mut spawn = self.sdk.spawn_shell();
+        if let Some(id) = id {
+            spawn = spawn.id(id);
+        }
+        if let Some(working_dir) = working_dir {
+            spawn = spawn.working_dir(working_dir);
+        }
+        if let Some(session_id) = session_id {
+            spawn = spawn.session_id(session_id);
+        }
+        if let Some(pane_id) = pane_id {
+            spawn = spawn.pane_id(pane_id);
+        }
+        if let Some(profile) = profile {
+            spawn = spawn.profile(profile);
+        }
+        if let Some(nono_profile) = nono_profile {
+            spawn = spawn.nono_profile(nono_profile);
+        }
+        if !nono_allow_dirs.is_empty() {
+            spawn = spawn.nono_allow_dirs(nono_allow_dirs);
+        }
+        if let Some((cols, rows)) = initial_size {
+            spawn = spawn.initial_size(cols, rows);
+        }
+        spawn.spawn_record().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn spawn_daemon_pty_task(
@@ -866,17 +908,26 @@ impl DaemonClient {
         profile: Option<String>,
         initial_size: Option<(u16, u16)>,
     ) -> Result<PtyRecord, String> {
-        let value = send_command_async(daemon_pty_spawn_task_request(
-            command,
-            id,
-            working_dir,
-            session_id,
-            pane_id,
-            profile,
-            initial_size,
-        ))
-        .await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty spawn task: {err}"))
+        let mut spawn = self.sdk.spawn_task(command);
+        if let Some(id) = id {
+            spawn = spawn.id(id);
+        }
+        if let Some(working_dir) = working_dir {
+            spawn = spawn.working_dir(working_dir);
+        }
+        if let Some(session_id) = session_id {
+            spawn = spawn.session_id(session_id);
+        }
+        if let Some(pane_id) = pane_id {
+            spawn = spawn.pane_id(pane_id);
+        }
+        if let Some(profile) = profile {
+            spawn = spawn.profile(profile);
+        }
+        if let Some((cols, rows)) = initial_size {
+            spawn = spawn.initial_size(cols, rows);
+        }
+        spawn.spawn_record().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn daemon_pty_output(
@@ -884,18 +935,19 @@ impl DaemonClient {
         id: String,
         max_bytes: Option<usize>,
     ) -> Result<PtySnapshot, String> {
-        let value = send_command_async(daemon_pty_output_request(id, max_bytes)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty output: {err}"))
+        self.sdk
+            .pty(id)
+            .snapshot(max_bytes.unwrap_or(roux_runtime::pty_service::PTY_OUTPUT_DEFAULT_POLL_BYTES))
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_daemon_ptys(&self) -> Result<Vec<PtyRecord>, String> {
-        let value = send_command_async(daemon_pty_list_request()).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty list: {err}"))
+        self.sdk.ptys().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn write_daemon_pty(&self, id: String, data: String) -> Result<(), String> {
-        let _ = send_command_async(daemon_pty_write_request(id, data)).await?;
-        Ok(())
+        self.sdk.pty(id).write(data).await.map(|_| ()).map_err(|err| err.to_string())
     }
 
     pub(crate) async fn resize_daemon_pty(
@@ -904,18 +956,25 @@ impl DaemonClient {
         cols: u16,
         rows: u16,
     ) -> Result<PtyRecord, String> {
-        let value = send_command_async(daemon_pty_resize_request(id, cols, rows)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty resize: {err}"))
+        self.sdk.pty(id).resize(cols, rows).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn kill_daemon_pty(&self, id: String) -> Result<PtyRecord, String> {
-        let value = send_command_async(daemon_pty_kill_request(id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty kill: {err}"))
+        self.sdk
+            .pty(id)
+            .kill()
+            .await
+            .map_err(|err| err.to_string())?
+            .ok_or_else(|| "daemon pty not found".to_string())
     }
 
     pub(crate) async fn detach_daemon_pty(&self, id: String) -> Result<PtyRecord, String> {
-        let value = send_command_async(daemon_pty_detach_request(id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty detach: {err}"))
+        self.sdk
+            .pty(id)
+            .detach()
+            .await
+            .map_err(|err| err.to_string())?
+            .ok_or_else(|| "daemon pty not found".to_string())
     }
 
     pub(crate) async fn attach_daemon_pty_to_pane(
@@ -923,13 +982,21 @@ impl DaemonClient {
         id: String,
         pane_id: String,
     ) -> Result<PtyRecord, String> {
-        let value = send_command_async(daemon_pty_attach_pane_request(id, pane_id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty attach pane: {err}"))
+        self.sdk
+            .pty(id)
+            .attach_to_pane(pane_id)
+            .await
+            .map_err(|err| err.to_string())?
+            .ok_or_else(|| "daemon pty not found".to_string())
     }
 
     pub(crate) async fn mark_daemon_pty_read(&self, id: String) -> Result<PtyRecord, String> {
-        let value = send_command_async(daemon_pty_mark_read_request(id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty mark read: {err}"))
+        self.sdk
+            .pty(id)
+            .mark_read()
+            .await
+            .map_err(|err| err.to_string())?
+            .ok_or_else(|| "daemon pty not found".to_string())
     }
 
     pub(crate) async fn set_daemon_pty_name(
@@ -937,8 +1004,12 @@ impl DaemonClient {
         id: String,
         name: Option<String>,
     ) -> Result<PtyRecord, String> {
-        let value = send_command_async(daemon_pty_set_name_request(id, name)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon pty set name: {err}"))
+        self.sdk
+            .pty(id)
+            .set_name(name)
+            .await
+            .map_err(|err| err.to_string())?
+            .ok_or_else(|| "daemon pty not found".to_string())
     }
 
     pub(crate) fn spawn_daemon_pty_output_bridge(
@@ -947,9 +1018,23 @@ impl DaemonClient {
         channel: Channel<IpcResponse>,
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
-        tauri::async_runtime::spawn_blocking(move || {
-            if let Err(err) = attach_daemon_pty_output_blocking(id.clone(), channel, app) {
-                rlog!("Daemon PTY output bridge for {id} stopped: {err}");
+        let pty = self.sdk.pty(id.clone());
+        tauri::async_runtime::spawn(async move {
+            let log_id = id.clone();
+            let mut sent_until = 0_u64;
+            let result = pty
+                .attach(roux_runtime::pty_service::PTY_OUTPUT_LIMIT_BYTES, move |frame| {
+                    match handle_sdk_pty_attach_frame(&id, frame, &channel, &app, &mut sent_until) {
+                        Ok(keep_reading) => keep_reading,
+                        Err(err) => {
+                            rlog!("Daemon PTY output bridge for {id} stopped: {err}");
+                            false
+                        }
+                    }
+                })
+                .await;
+            if let Err(err) = result {
+                rlog!("Daemon PTY output bridge for {log_id} stopped: {err}");
             }
         })
     }
@@ -1063,6 +1148,17 @@ fn wait_for_daemon(timeout: Duration, interval: Duration) -> Option<DaemonClient
             return None;
         }
         std::thread::sleep(interval);
+    }
+}
+
+fn sdk_notes_env(notes: NotesEnvInputs) -> roux_sdk::NotesEnv {
+    roux_sdk::NotesEnv {
+        vault_root: notes.vault_root,
+        session_slug: notes.session_slug,
+        repo_slug: notes.repo_slug,
+        project_slug: notes.project_slug,
+        context_paths: notes.context_paths,
+        project_prompt: notes.project_prompt,
     }
 }
 
@@ -2388,6 +2484,47 @@ fn handle_pty_attach_frame(
             Ok(false)
         }
         PtyAttachStreamFrame::Error { error } => Err(error),
+    }
+}
+
+fn handle_sdk_pty_attach_frame(
+    id: &str,
+    frame: PtyAttachFrame,
+    channel: &Channel<IpcResponse>,
+    app: &AppHandle,
+    sent_until: &mut u64,
+) -> Result<bool, String> {
+    match frame {
+        PtyAttachFrame::Ready { replay_offset, replay_bytes, .. } => {
+            let replay_end = replay_offset.saturating_add(replay_bytes.len() as u64);
+            if !replay_bytes.is_empty() {
+                channel
+                    .send(IpcResponse::new(replay_bytes))
+                    .map_err(|err| format!("send daemon pty replay to frontend: {err}"))?;
+            }
+            *sent_until = (*sent_until).max(replay_end);
+            Ok(true)
+        }
+        PtyAttachFrame::Output { offset, bytes } => {
+            let frame_end = offset.saturating_add(bytes.len() as u64);
+            if frame_end <= *sent_until {
+                return Ok(true);
+            }
+            let start = if offset < *sent_until { (*sent_until - offset) as usize } else { 0 };
+            let bytes = bytes[start..].to_vec();
+            if !bytes.is_empty() {
+                channel
+                    .send(IpcResponse::new(bytes))
+                    .map_err(|err| format!("send daemon pty output to frontend: {err}"))?;
+            }
+            *sent_until = (*sent_until).max(frame_end);
+            Ok(true)
+        }
+        PtyAttachFrame::Exit { code, generation } => {
+            emit_daemon_pty_exit(app, id, code, generation);
+            Ok(false)
+        }
+        PtyAttachFrame::Error { error } => Err(error),
     }
 }
 
