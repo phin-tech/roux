@@ -179,6 +179,28 @@ behaves like `session-panes-create` with `profile: plain-shell`. Returns
 `{ "pane_id": "...", "pty_id": "..." }`. The daemon does not persist or render
 split layout.
 
+## Alias Commands
+
+The daemon handles the same alias socket commands as the desktop socket when it
+owns the socket. Alias state is loaded from and persisted to
+`aliases.json` in the daemon host's Roux config directory.
+
+- `alias-set`
+- `alias-unset`
+- `alias-claim`
+- `alias-list`
+- `alias-get`
+- `alias-whoami`
+- `alias-add-member`
+- `alias-remove-member`
+- `alias-mode`
+
+The command payloads match the CLI/MCP adapter fields. `alias-set` and
+`alias-claim` bind aliases to the calling or explicit session/pane. `alias-get`
+keeps bare-name ambiguity behavior for aliases that exist in multiple project
+scopes. Group membership and consumption mode commands mutate the same durable
+alias records.
+
 ## Project Commands
 
 `project-list`

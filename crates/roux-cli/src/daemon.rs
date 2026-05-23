@@ -10,7 +10,9 @@ use tokio::net::TcpListener;
 #[cfg(not(windows))]
 use tokio::net::UnixListener;
 
-use roux_core::{CreateWatchConfig, PtyRole, PtyStatus, RuntimeState, Watch};
+use roux_core::{ConsumptionMode, CreateWatchConfig, PtyRole, PtyStatus, RuntimeState, Watch};
+use roux_runtime::alias_service::AliasManager;
+use roux_runtime::alias_store::{BindRequest, ProjectFilter};
 use roux_runtime::automation_hooks::{
     worktree_provider_hooks, AutomationHookManager, HookContext, HookEvent,
 };
@@ -92,18 +94,25 @@ pub async fn run() -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct DaemonIdentity {
     started_at_ms: u64,
     socket: PathBuf,
     log_path: PathBuf,
     #[cfg_attr(not(windows), allow(dead_code))]
     auth_token: Option<String>,
+    alias_manager: AliasManager,
 }
 
 impl DaemonIdentity {
     fn new(socket: PathBuf, log_path: PathBuf, auth_token: Option<String>) -> Self {
-        Self { started_at_ms: unix_now_ms(), socket, log_path, auth_token }
+        Self {
+            started_at_ms: unix_now_ms(),
+            socket,
+            log_path,
+            auth_token,
+            alias_manager: AliasManager::load_from(paths::roux_config_dir().join("aliases.json")),
+        }
     }
 
     #[cfg(test)]
@@ -113,6 +122,18 @@ impl DaemonIdentity {
             socket: socket.into(),
             log_path: PathBuf::from("/tmp/roux-daemon.log"),
             auth_token: None,
+            alias_manager: AliasManager::in_memory(),
+        }
+    }
+
+    #[cfg(test)]
+    fn new_for_test_with_alias_path(socket: impl Into<PathBuf>, alias_path: PathBuf) -> Self {
+        Self {
+            started_at_ms: 1_000,
+            socket: socket.into(),
+            log_path: PathBuf::from("/tmp/roux-daemon.log"),
+            auth_token: None,
+            alias_manager: AliasManager::load_from(alias_path),
         }
     }
 }
@@ -448,6 +469,15 @@ async fn handle_request_with_watch_runner(
         "session-worktree-exists" => handle_session_worktree_exists(req, host).await,
         "session-refresh-branch" => handle_session_refresh_branch(req, host).await,
         "session-rename" => handle_session_rename(req, host).await,
+        "alias-set" => handle_alias_set(req, identity).await,
+        "alias-unset" => handle_alias_unset(req, identity).await,
+        "alias-claim" => handle_alias_claim(req, identity).await,
+        "alias-list" => handle_alias_list(req, identity).await,
+        "alias-get" => handle_alias_get(req, identity).await,
+        "alias-whoami" => handle_alias_whoami(req, identity).await,
+        "alias-add-member" => handle_alias_add_member(req, identity).await,
+        "alias-remove-member" => handle_alias_remove_member(req, identity).await,
+        "alias-mode" => handle_alias_mode(req, identity).await,
         "project-list" => handle_project_list(host).await,
         "watch-list" => handle_watch_list(host).await,
         "watch-create" => match watch_runner {
@@ -551,6 +581,15 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "session-worktree-exists",
             "session-refresh-branch",
             "session-rename",
+            "alias-set",
+            "alias-unset",
+            "alias-claim",
+            "alias-list",
+            "alias-get",
+            "alias-whoami",
+            "alias-add-member",
+            "alias-remove-member",
+            "alias-mode",
             "project-list",
             "watch-list",
             "watch-create",
@@ -868,6 +907,223 @@ async fn handle_session_rename(req: Request, host: &RuntimeHost) -> Response {
         "session_id": session_id,
         "name_override": name_override,
     }))
+}
+
+async fn handle_alias_set(req: Request, identity: &DaemonIdentity) -> Response {
+    let raw_alias = match request_arg_str(&req, "alias") {
+        Some(alias) => alias,
+        None => return Response::err("alias required"),
+    };
+    let canonical = match roux_core::validate_user_alias_name(raw_alias) {
+        Ok(alias) => alias,
+        Err(err) => return Response::err(err.to_string()),
+    };
+    let session_id = match request_arg_str(&req, "session_id")
+        .map(String::from)
+        .or_else(|| req.session_id.clone())
+    {
+        Some(session_id) => session_id,
+        None => {
+            return Response::err(
+                "session_id required (call from a session, or pass args.session_id)",
+            )
+        }
+    };
+    let bind_req = BindRequest {
+        project_id: request_arg_str(&req, "project_id").map(String::from),
+        session_id: Some(session_id),
+        pane_id: request_arg_str(&req, "pane_id").map(String::from).or_else(|| req.pane_id.clone()),
+        auto_claimed: false,
+        force: request_arg_bool(&req, "force").unwrap_or(false),
+    };
+
+    match identity.alias_manager.bind(&canonical, bind_req) {
+        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_alias_unset(req: Request, identity: &DaemonIdentity) -> Response {
+    let raw_alias = match request_arg_str(&req, "alias") {
+        Some(alias) => alias,
+        None => return Response::err("alias required"),
+    };
+    let canonical = match roux_core::validate_user_alias_name(raw_alias) {
+        Ok(alias) => alias,
+        Err(err) => return Response::err(err.to_string()),
+    };
+    let changed = identity.alias_manager.unbind(&canonical, request_arg_str(&req, "project_id"));
+    Response::success(serde_json::json!({ "changed": changed }))
+}
+
+async fn handle_alias_claim(req: Request, identity: &DaemonIdentity) -> Response {
+    let raw_alias = match request_arg_str(&req, "alias") {
+        Some(alias) => alias,
+        None => return Response::err("alias required"),
+    };
+    let canonical = match roux_core::validate_user_alias_name(raw_alias) {
+        Ok(alias) => alias,
+        Err(err) => return Response::err(err.to_string()),
+    };
+    let session_id = match req.session_id.clone() {
+        Some(session_id) => session_id,
+        None => return Response::err("alias-claim must be invoked from inside a session"),
+    };
+    let bind_req = BindRequest {
+        project_id: request_arg_str(&req, "project_id").map(String::from),
+        session_id: Some(session_id),
+        pane_id: request_arg_str(&req, "pane_id").map(String::from).or_else(|| req.pane_id.clone()),
+        auto_claimed: false,
+        force: request_arg_bool(&req, "steal").unwrap_or(false),
+    };
+
+    match identity.alias_manager.bind(&canonical, bind_req) {
+        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_alias_list(req: Request, identity: &DaemonIdentity) -> Response {
+    let aliases = identity.alias_manager.list(
+        alias_project_filter(request_arg_str(&req, "project_id"), request_arg_bool(&req, "global")),
+        request_arg_bool(&req, "only_unbound").unwrap_or(false),
+    );
+    Response::success(serde_json::to_value(aliases).unwrap_or_default())
+}
+
+async fn handle_alias_get(req: Request, identity: &DaemonIdentity) -> Response {
+    let raw_alias = match request_arg_str(&req, "alias") {
+        Some(alias) => alias,
+        None => return Response::err("alias required"),
+    };
+    let canonical = match roux_core::validate_alias_name(raw_alias) {
+        Ok(alias) => alias,
+        Err(err) => return Response::err(err.to_string()),
+    };
+    let project_id = request_arg_str(&req, "project_id");
+
+    if let Some(alias) = identity.alias_manager.get(&canonical, project_id) {
+        Response::success(serde_json::to_value(alias).unwrap_or_default())
+    } else if project_id.is_none() {
+        let matches = identity.alias_manager.find_all_by_name(&canonical);
+        match matches.len() {
+            0 => Response::err(format!("alias '{canonical}' not found")),
+            1 => Response::success(serde_json::to_value(&matches[0]).unwrap_or_default()),
+            _ => {
+                let projects: Vec<_> =
+                    matches.iter().map(|alias| alias.project_id.clone()).collect();
+                Response::err(format!(
+                    "alias '{canonical}' is ambiguous across projects {projects:?}; pass project_id"
+                ))
+            }
+        }
+    } else {
+        Response::err(format!("alias '{canonical}' not found"))
+    }
+}
+
+async fn handle_alias_whoami(req: Request, identity: &DaemonIdentity) -> Response {
+    let session_id = match request_arg_str(&req, "session_id")
+        .map(String::from)
+        .or_else(|| req.session_id.clone())
+    {
+        Some(session_id) => session_id,
+        None => {
+            return Response::err(
+                "session_id required (call from a session, or pass args.session_id)",
+            )
+        }
+    };
+    Response::success(
+        serde_json::to_value(identity.alias_manager.whoami(&session_id)).unwrap_or_default(),
+    )
+}
+
+async fn handle_alias_add_member(req: Request, identity: &DaemonIdentity) -> Response {
+    let alias = match canonical_user_alias_arg(&req) {
+        Ok(alias) => alias,
+        Err(response) => return response,
+    };
+    let pane_id = match request_arg_str(&req, "pane_id")
+        .map(String::from)
+        .or_else(|| req.pane_id.clone())
+    {
+        Some(pane_id) => pane_id,
+        None => return Response::err("pane_id required (call from a pane, or pass args.pane_id)"),
+    };
+    match identity.alias_manager.add_member(&alias, request_arg_str(&req, "project_id"), &pane_id) {
+        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_alias_remove_member(req: Request, identity: &DaemonIdentity) -> Response {
+    let alias = match canonical_user_alias_arg(&req) {
+        Ok(alias) => alias,
+        Err(response) => return response,
+    };
+    let pane_id =
+        match request_arg_str(&req, "pane_id").map(String::from).or_else(|| req.pane_id.clone()) {
+            Some(pane_id) => pane_id,
+            None => return Response::err("pane_id required"),
+        };
+    match identity.alias_manager.remove_member(
+        &alias,
+        request_arg_str(&req, "project_id"),
+        &pane_id,
+    ) {
+        Ok(removed) => Response::success(serde_json::json!({ "removed": removed })),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+async fn handle_alias_mode(req: Request, identity: &DaemonIdentity) -> Response {
+    let alias = match canonical_user_alias_arg(&req) {
+        Ok(alias) => alias,
+        Err(response) => return response,
+    };
+    let mode = match request_arg_str(&req, "mode") {
+        Some("competing") | Some("competingConsumer") | Some("competing-consumer") => {
+            ConsumptionMode::CompetingConsumer
+        }
+        Some("broadcast") => ConsumptionMode::Broadcast,
+        Some(other) => {
+            return Response::err(format!(
+                "invalid mode '{other}'; expected 'competing' or 'broadcast'"
+            ))
+        }
+        None => return Response::err("mode required"),
+    };
+
+    match identity.alias_manager.set_consumption_mode(
+        &alias,
+        request_arg_str(&req, "project_id"),
+        mode,
+    ) {
+        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Err(err) => Response::err(err.to_string()),
+    }
+}
+
+fn canonical_user_alias_arg(req: &Request) -> Result<String, Response> {
+    let raw_alias = request_arg_str(req, "alias").ok_or_else(|| Response::err("alias required"))?;
+    roux_core::validate_user_alias_name(raw_alias).map_err(|err| Response::err(err.to_string()))
+}
+
+fn alias_project_filter<'a>(project: Option<&'a str>, global: Option<bool>) -> ProjectFilter<'a> {
+    match (project, global) {
+        (Some(project), _) => ProjectFilter::Exact(Some(project)),
+        (None, Some(true)) => ProjectFilter::Exact(None),
+        (None, _) => ProjectFilter::Any,
+    }
+}
+
+fn request_arg_str<'a>(req: &'a Request, key: &str) -> Option<&'a str> {
+    req.args.get(key).and_then(|value| value.as_str())
+}
+
+fn request_arg_bool(req: &Request, key: &str) -> Option<bool> {
+    req.args.get(key).and_then(|value| value.as_bool())
 }
 
 async fn handle_cli_session_create(
@@ -4070,6 +4326,113 @@ post-worktree-remove = "{post_remove}"
         assert!(!latest["replay_bytes_base64"].as_str().unwrap().is_empty());
 
         let _ = host.pty_handle.kill(&pty_id).await;
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn daemon_alias_commands_mutate_daemon_alias_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let alias_path = dir.path().join("aliases.json");
+        let identity =
+            DaemonIdentity::new_for_test_with_alias_path("/tmp/roux.sock", alias_path.clone());
+
+        let set = handle_request(
+            Request {
+                command: "alias-set".to_string(),
+                session_id: Some("session-alias".to_string()),
+                pane_id: Some("pane-alias".to_string()),
+                auth_token: None,
+                args: serde_json::json!({ "alias": "reviewer" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(set.ok, "alias-set failed: {:?}", set.error);
+        assert_eq!(set.data.as_ref().unwrap()["alias"], "reviewer");
+        assert_eq!(set.data.as_ref().unwrap()["sessionId"], "session-alias");
+        assert_eq!(set.data.as_ref().unwrap()["paneId"], "pane-alias");
+
+        let get = handle_request(
+            Request {
+                command: "alias-get".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "alias": "reviewer" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(get.ok, "alias-get failed: {:?}", get.error);
+        assert_eq!(get.data.as_ref().unwrap()["sessionId"], "session-alias");
+
+        let reloaded_identity =
+            DaemonIdentity::new_for_test_with_alias_path("/tmp/roux.sock", alias_path);
+        let reloaded_get = handle_request(
+            Request {
+                command: "alias-get".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "alias": "reviewer" }),
+            },
+            &host,
+            &reloaded_identity,
+        )
+        .await;
+        assert!(reloaded_get.ok, "alias reload failed: {:?}", reloaded_get.error);
+        assert_eq!(reloaded_get.data.as_ref().unwrap()["sessionId"], "session-alias");
+
+        let whoami = handle_request(
+            Request {
+                command: "alias-whoami".to_string(),
+                session_id: Some("session-alias".to_string()),
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({}),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(whoami.ok, "alias-whoami failed: {:?}", whoami.error);
+        assert_eq!(whoami.data.as_ref().unwrap().as_array().unwrap().len(), 1);
+
+        let unset = handle_request(
+            Request {
+                command: "alias-unset".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "alias": "reviewer" }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(unset.ok, "alias-unset failed: {:?}", unset.error);
+        assert_eq!(unset.data.as_ref().unwrap()["changed"], true);
+
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
         host.watch_handle.shutdown().await;

@@ -4,6 +4,9 @@
 //! current Tauri app and, later, by a standalone daemon.
 
 pub mod automation_hooks;
+pub mod alias_persistence;
+pub mod alias_service;
+pub mod alias_store;
 pub mod host;
 pub mod notes_service;
 pub mod pane_service;

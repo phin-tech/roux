@@ -8,7 +8,7 @@ use tauri::ipc::{Channel, Response as IpcResponse};
 use tauri::{AppHandle, Emitter};
 
 use roux_core::{
-    CreateWatchConfig, Project, Session, SessionExitPayload, SessionExitReason, Watch,
+    AgentAlias, CreateWatchConfig, Project, Session, SessionExitPayload, SessionExitReason, Watch,
     WatchUpdateEvent, Worktree,
 };
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
@@ -150,6 +150,87 @@ impl DaemonClient {
     pub(crate) async fn list_projects(&self) -> Result<Vec<Project>, String> {
         let value = send_command_async(serde_json::json!({ "command": "project-list" })).await?;
         serde_json::from_value(value).map_err(|err| format!("decode daemon project-list: {err}"))
+    }
+
+    pub(crate) async fn list_aliases(
+        &self,
+        project_id: Option<String>,
+        global: bool,
+        only_unbound: bool,
+    ) -> Result<Vec<AgentAlias>, String> {
+        let value =
+            send_command_async(daemon_alias_list_request(project_id, global, only_unbound)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon alias-list: {err}"))
+    }
+
+    pub(crate) async fn get_alias(
+        &self,
+        alias: String,
+        project_id: Option<String>,
+    ) -> Result<Option<AgentAlias>, String> {
+        let value =
+            match send_command_async(daemon_alias_get_request(alias.clone(), project_id)).await {
+                Ok(value) => value,
+                Err(err) if err.contains(&format!("alias '{alias}' not found")) => return Ok(None),
+                Err(err) => return Err(err),
+            };
+        serde_json::from_value(value)
+            .map(Some)
+            .map_err(|err| format!("decode daemon alias-get: {err}"))
+    }
+
+    pub(crate) async fn whoami_aliases(
+        &self,
+        session_id: String,
+    ) -> Result<Vec<AgentAlias>, String> {
+        let value = send_command_async(daemon_alias_whoami_request(session_id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon alias-whoami: {err}"))
+    }
+
+    pub(crate) async fn add_alias_member(
+        &self,
+        alias: String,
+        pane_id: String,
+        project_id: Option<String>,
+    ) -> Result<AgentAlias, String> {
+        let value = send_command_async(daemon_alias_member_request(
+            "alias-add-member",
+            alias,
+            pane_id,
+            project_id,
+        ))
+        .await?;
+        serde_json::from_value(value)
+            .map_err(|err| format!("decode daemon alias-add-member: {err}"))
+    }
+
+    pub(crate) async fn remove_alias_member(
+        &self,
+        alias: String,
+        pane_id: String,
+        project_id: Option<String>,
+    ) -> Result<bool, String> {
+        let value = send_command_async(daemon_alias_member_request(
+            "alias-remove-member",
+            alias,
+            pane_id,
+            project_id,
+        ))
+        .await?;
+        value
+            .get("removed")
+            .and_then(|removed| removed.as_bool())
+            .ok_or_else(|| "decode daemon alias-remove-member: missing removed".to_string())
+    }
+
+    pub(crate) async fn set_alias_mode(
+        &self,
+        alias: String,
+        mode: String,
+        project_id: Option<String>,
+    ) -> Result<AgentAlias, String> {
+        let value = send_command_async(daemon_alias_mode_request(alias, mode, project_id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon alias-mode: {err}"))
     }
 
     pub(crate) async fn set_session_name_override(
@@ -695,6 +776,78 @@ fn daemon_path_request(command: &str, path: String) -> Value {
     serde_json::json!({
         "command": command,
         "args": { "path": path },
+    })
+}
+
+fn daemon_alias_list_request(
+    project_id: Option<String>,
+    global: bool,
+    only_unbound: bool,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    if let Some(project_id) = project_id {
+        args.insert("project_id".to_string(), Value::String(project_id));
+    }
+    if global {
+        args.insert("global".to_string(), Value::Bool(true));
+    }
+    if only_unbound {
+        args.insert("only_unbound".to_string(), Value::Bool(true));
+    }
+    serde_json::json!({
+        "command": "alias-list",
+        "args": args,
+    })
+}
+
+fn daemon_alias_get_request(alias: String, project_id: Option<String>) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("alias".to_string(), Value::String(alias));
+    if let Some(project_id) = project_id {
+        args.insert("project_id".to_string(), Value::String(project_id));
+    }
+    serde_json::json!({
+        "command": "alias-get",
+        "args": args,
+    })
+}
+
+fn daemon_alias_whoami_request(session_id: String) -> Value {
+    serde_json::json!({
+        "command": "alias-whoami",
+        "session_id": session_id,
+        "args": {},
+    })
+}
+
+fn daemon_alias_member_request(
+    command: &str,
+    alias: String,
+    pane_id: String,
+    project_id: Option<String>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("alias".to_string(), Value::String(alias));
+    args.insert("pane_id".to_string(), Value::String(pane_id));
+    if let Some(project_id) = project_id {
+        args.insert("project_id".to_string(), Value::String(project_id));
+    }
+    serde_json::json!({
+        "command": command,
+        "args": args,
+    })
+}
+
+fn daemon_alias_mode_request(alias: String, mode: String, project_id: Option<String>) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("alias".to_string(), Value::String(alias));
+    args.insert("mode".to_string(), Value::String(mode));
+    if let Some(project_id) = project_id {
+        args.insert("project_id".to_string(), Value::String(project_id));
+    }
+    serde_json::json!({
+        "command": "alias-mode",
+        "args": args,
     })
 }
 
@@ -1433,6 +1586,42 @@ mod tests {
         let init = daemon_path_request("git-init", "/new-repo".to_string());
         assert_eq!(init["command"], "git-init");
         assert_eq!(init["args"]["path"], "/new-repo");
+    }
+
+    #[test]
+    fn daemon_alias_requests_use_daemon_command_shape() {
+        let list = daemon_alias_list_request(Some("project-a".to_string()), false, true);
+        assert_eq!(list["command"], "alias-list");
+        assert_eq!(list["args"]["project_id"], "project-a");
+        assert_eq!(list["args"]["only_unbound"], true);
+        assert!(list["args"].get("global").is_none());
+
+        let get = daemon_alias_get_request("reviewer".to_string(), None);
+        assert_eq!(get["command"], "alias-get");
+        assert_eq!(get["args"]["alias"], "reviewer");
+
+        let whoami = daemon_alias_whoami_request("session-a".to_string());
+        assert_eq!(whoami["command"], "alias-whoami");
+        assert_eq!(whoami["session_id"], "session-a");
+
+        let add = daemon_alias_member_request(
+            "alias-add-member",
+            "team".to_string(),
+            "pane-a".to_string(),
+            None,
+        );
+        assert_eq!(add["command"], "alias-add-member");
+        assert_eq!(add["args"]["alias"], "team");
+        assert_eq!(add["args"]["pane_id"], "pane-a");
+
+        let mode = daemon_alias_mode_request(
+            "team".to_string(),
+            "broadcast".to_string(),
+            Some("project-a".to_string()),
+        );
+        assert_eq!(mode["command"], "alias-mode");
+        assert_eq!(mode["args"]["mode"], "broadcast");
+        assert_eq!(mode["args"]["project_id"], "project-a");
     }
 
     #[test]
