@@ -7,6 +7,7 @@ use std::time::Duration;
 use tauri::ipc::{Channel, Response as IpcResponse};
 use tauri::{AppHandle, Emitter};
 
+use crate::commands::notes::{NotesRead, NotesSearchQuery, NotesTarget};
 use roux_core::{
     AgentAlias, AliasEvent, BusSubscription, BusSubscriptionEvent, CreateWatchConfig, Event,
     MailboxEvent, Project, ReadState, Session, SessionExitPayload, SessionExitReason, Watch,
@@ -440,6 +441,56 @@ impl DaemonClient {
             .get("changed")
             .and_then(|changed| changed.as_bool())
             .ok_or_else(|| "decode daemon mailbox-dismiss: missing changed".to_string())
+    }
+
+    pub(crate) async fn read_notes(&self, target: NotesTarget) -> Result<NotesRead, String> {
+        let value = send_command_async(daemon_notes_read_request(target)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon notes-read: {err}"))
+    }
+
+    pub(crate) async fn write_notes(
+        &self,
+        target: NotesTarget,
+        content: String,
+        tags: Vec<String>,
+    ) -> Result<(), String> {
+        let _ = send_command_async(daemon_notes_write_request(target, content, tags)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn append_notes(
+        &self,
+        target: NotesTarget,
+        content: String,
+        timestamped: bool,
+        tags: Vec<String>,
+    ) -> Result<(), String> {
+        let _ = send_command_async(daemon_notes_append_request(target, content, timestamped, tags))
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn notes_path(
+        &self,
+        target: NotesTarget,
+        dir: bool,
+    ) -> Result<String, String> {
+        let value = send_command_async(daemon_notes_path_request(target, dir)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon notes-path: {err}"))
+    }
+
+    pub(crate) async fn search_notes(
+        &self,
+        query: NotesSearchQuery,
+    ) -> Result<Vec<String>, String> {
+        let value = send_command_async(daemon_notes_search_request(query)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon notes-search: {err}"))
+    }
+
+    pub(crate) async fn notes_vault_root(&self) -> Result<String, String> {
+        let value = send_command_async(daemon_notes_vault_root_request()).await?;
+        serde_json::from_value(value)
+            .map_err(|err| format!("decode daemon notes-vault-root: {err}"))
     }
 
     pub(crate) async fn set_session_name_override(
@@ -1265,6 +1316,62 @@ fn daemon_mailbox_clear_request(alias: String, project_id: Option<String>, globa
         "command": "mailbox-clear",
         "args": args,
     })
+}
+
+fn daemon_notes_read_request(target: NotesTarget) -> Value {
+    serde_json::json!({
+        "command": "notes-read",
+        "args": target,
+    })
+}
+
+fn daemon_notes_write_request(target: NotesTarget, content: String, tags: Vec<String>) -> Value {
+    serde_json::json!({
+        "command": "notes-write",
+        "args": {
+            "target": target,
+            "content": content,
+            "tags": tags,
+        },
+    })
+}
+
+fn daemon_notes_append_request(
+    target: NotesTarget,
+    content: String,
+    timestamped: bool,
+    tags: Vec<String>,
+) -> Value {
+    serde_json::json!({
+        "command": "notes-append",
+        "args": {
+            "target": target,
+            "content": content,
+            "timestamped": timestamped,
+            "tags": tags,
+        },
+    })
+}
+
+fn daemon_notes_path_request(target: NotesTarget, dir: bool) -> Value {
+    serde_json::json!({
+        "command": "notes-path",
+        "args": {
+            "target": target,
+            "dir": dir,
+        },
+    })
+}
+
+fn daemon_notes_search_request(query: NotesSearchQuery) -> Value {
+    serde_json::json!({
+        "command": "notes-search",
+        "args": query,
+    })
+}
+
+fn daemon_notes_vault_root_request() -> Value {
+    serde_json::json!({ "command": "notes-vault-root" })
 }
 
 fn insert_project_filter_args(
@@ -2453,6 +2560,49 @@ mod tests {
         let clear = daemon_mailbox_clear_request("reviewer".to_string(), None, true);
         assert_eq!(clear["command"], "mailbox-clear");
         assert_eq!(clear["args"]["global"], true);
+    }
+
+    #[test]
+    fn daemon_notes_requests_use_daemon_command_shape() {
+        let target = crate::commands::notes::NotesTarget {
+            scope: "session".to_string(),
+            session_id: Some("session-a".to_string()),
+            topic: Some("plan".to_string()),
+            override_slug: None,
+        };
+
+        let read = daemon_notes_read_request(target.clone());
+        assert_eq!(read["command"], "notes-read");
+        assert_eq!(read["args"]["scope"], "session");
+        assert_eq!(read["args"]["sessionId"], "session-a");
+        assert_eq!(read["args"]["topic"], "plan");
+
+        let write =
+            daemon_notes_write_request(target.clone(), "body".to_string(), vec!["tag".to_string()]);
+        assert_eq!(write["command"], "notes-write");
+        assert_eq!(write["args"]["target"]["scope"], "session");
+        assert_eq!(write["args"]["content"], "body");
+        assert_eq!(write["args"]["tags"][0], "tag");
+
+        let append = daemon_notes_append_request(target.clone(), "more".to_string(), true, vec![]);
+        assert_eq!(append["command"], "notes-append");
+        assert_eq!(append["args"]["timestamped"], true);
+
+        let path = daemon_notes_path_request(target, true);
+        assert_eq!(path["command"], "notes-path");
+        assert_eq!(path["args"]["dir"], true);
+
+        let search = daemon_notes_search_request(crate::commands::notes::NotesSearchQuery {
+            tags: vec!["tag".to_string()],
+            scope: Some("global".to_string()),
+            exact: true,
+        });
+        assert_eq!(search["command"], "notes-search");
+        assert_eq!(search["args"]["tags"][0], "tag");
+        assert_eq!(search["args"]["scope"], "global");
+        assert_eq!(search["args"]["exact"], true);
+
+        assert_eq!(daemon_notes_vault_root_request()["command"], "notes-vault-root");
     }
 
     #[test]

@@ -371,7 +371,9 @@ These commands use the daemon host's configured notes vault root
 (`settings.notes_vault_root`, or `~/Documents/Roux` by default). They share the
 same `roux-runtime::notes_service` implementation as the desktop adapter, so
 scope resolution, slug freezing, frontmatter, append formatting, and tag search
-stay consistent across clients.
+stay consistent across clients. When Roux.app is connected to a daemon, its
+notes panel commands forward to these daemon commands instead of reading or
+writing the desktop host's local vault.
 
 `notes-read`
 
