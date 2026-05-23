@@ -8,8 +8,8 @@ use tauri::ipc::{Channel, Response as IpcResponse};
 use tauri::{AppHandle, Emitter};
 
 use roux_core::{
-    AgentAlias, CreateWatchConfig, Project, Session, SessionExitPayload, SessionExitReason, Watch,
-    WatchUpdateEvent, Worktree,
+    AgentAlias, BusSubscription, CreateWatchConfig, Event, Project, ReadState, Session,
+    SessionExitPayload, SessionExitReason, Watch, WatchUpdateEvent, Worktree,
 };
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::pty_service::{PtyRecord, PtySnapshot};
@@ -72,6 +72,19 @@ pub(crate) struct DaemonReconnectSessionShellRequest {
     pub(crate) profile: Option<String>,
     pub(crate) initial_size: Option<(u16, u16)>,
     pub(crate) notes: Option<NotesEnvInputs>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DaemonMailboxPostRequest {
+    pub(crate) to: Option<String>,
+    pub(crate) topic: Option<String>,
+    pub(crate) body: String,
+    pub(crate) subject: Option<String>,
+    pub(crate) kind: Option<String>,
+    pub(crate) project_id: Option<String>,
+    pub(crate) correlation_id: Option<String>,
+    pub(crate) structured: Option<Value>,
+    pub(crate) from: Option<String>,
 }
 
 impl DaemonClient {
@@ -231,6 +244,201 @@ impl DaemonClient {
     ) -> Result<AgentAlias, String> {
         let value = send_command_async(daemon_alias_mode_request(alias, mode, project_id)).await?;
         serde_json::from_value(value).map_err(|err| format!("decode daemon alias-mode: {err}"))
+    }
+
+    pub(crate) async fn list_subscriptions(
+        &self,
+        alias: Option<String>,
+        project_id: Option<String>,
+        global: bool,
+    ) -> Result<Vec<BusSubscription>, String> {
+        let value =
+            send_command_async(daemon_bus_subscriptions_request(alias, project_id, global)).await?;
+        serde_json::from_value(value)
+            .map_err(|err| format!("decode daemon bus-subscriptions: {err}"))
+    }
+
+    pub(crate) async fn create_subscription(
+        &self,
+        alias: String,
+        pattern: String,
+        project_id: Option<String>,
+    ) -> Result<BusSubscription, String> {
+        let value =
+            send_command_async(daemon_bus_subscribe_request(alias, pattern, project_id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon bus-subscribe: {err}"))
+    }
+
+    pub(crate) async fn delete_subscription(&self, id: String) -> Result<bool, String> {
+        let value = send_command_async(daemon_bus_unsubscribe_request(id)).await?;
+        value
+            .get("removed")
+            .and_then(|removed| removed.as_bool())
+            .ok_or_else(|| "decode daemon bus-unsubscribe: missing removed".to_string())
+    }
+
+    pub(crate) async fn mailbox_list_for_recipient(
+        &self,
+        alias: String,
+        unread_only: bool,
+        project_id: Option<String>,
+        global: bool,
+    ) -> Result<Vec<Event>, String> {
+        let value = send_command_async(daemon_mailbox_peek_request(
+            alias,
+            unread_only,
+            project_id,
+            global,
+            None,
+        ))
+        .await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon mailbox-peek: {err}"))
+    }
+
+    pub(crate) async fn mailbox_list_for_topic(
+        &self,
+        topic: String,
+        project_id: Option<String>,
+        global: bool,
+    ) -> Result<Vec<Event>, String> {
+        let value =
+            send_command_async(daemon_bus_tail_request(Some(topic), project_id, global, None))
+                .await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon bus-tail: {err}"))
+    }
+
+    pub(crate) async fn mailbox_list_all(
+        &self,
+        project_id: Option<String>,
+        global: bool,
+        limit: Option<u32>,
+    ) -> Result<Vec<Event>, String> {
+        let value =
+            send_command_async(daemon_bus_tail_request(None, project_id, global, limit)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon bus-tail: {err}"))
+    }
+
+    pub(crate) async fn mailbox_unread_count(
+        &self,
+        alias: String,
+        project_id: Option<String>,
+        global: bool,
+    ) -> Result<u32, String> {
+        let value =
+            send_command_async(daemon_mailbox_count_request(alias, project_id, global)).await?;
+        value
+            .get("unread")
+            .and_then(|unread| unread.as_u64())
+            .and_then(|unread| u32::try_from(unread).ok())
+            .ok_or_else(|| "decode daemon mailbox-count: missing unread".to_string())
+    }
+
+    pub(crate) async fn mailbox_get_event(
+        &self,
+        event_id: String,
+    ) -> Result<Option<Event>, String> {
+        let value =
+            send_command_async(daemon_mailbox_event_id_request("mailbox-get", event_id)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon mailbox-get: {err}"))
+    }
+
+    pub(crate) async fn mailbox_read_state(
+        &self,
+        event_id: String,
+        recipient: String,
+    ) -> Result<Option<ReadState>, String> {
+        let value =
+            send_command_async(daemon_mailbox_read_state_request(event_id, recipient)).await?;
+        serde_json::from_value(value)
+            .map_err(|err| format!("decode daemon mailbox-read-state: {err}"))
+    }
+
+    pub(crate) async fn mailbox_post(
+        &self,
+        request: DaemonMailboxPostRequest,
+    ) -> Result<Event, String> {
+        let value = send_command_async(daemon_mailbox_post_request(request)).await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon mailbox-post: {err}"))
+    }
+
+    pub(crate) async fn mailbox_mark_read(
+        &self,
+        event_id: String,
+        recipient: String,
+    ) -> Result<bool, String> {
+        let value =
+            send_command_async(daemon_mailbox_mark_read_request(event_id, recipient)).await?;
+        value
+            .get("changed")
+            .and_then(|changed| changed.as_bool())
+            .ok_or_else(|| "decode daemon mailbox-mark-read: missing changed".to_string())
+    }
+
+    pub(crate) async fn mailbox_ack(
+        &self,
+        event_id: String,
+        recipient: String,
+        result: Option<String>,
+    ) -> Result<bool, String> {
+        let value = send_command_async(daemon_mailbox_alias_event_request(
+            "mailbox-ack",
+            event_id,
+            recipient,
+            result,
+        ))
+        .await?;
+        value
+            .get("changed")
+            .and_then(|changed| changed.as_bool())
+            .ok_or_else(|| "decode daemon mailbox-ack: missing changed".to_string())
+    }
+
+    pub(crate) async fn mailbox_clear_read(
+        &self,
+        recipient: String,
+        project_id: Option<String>,
+        global: bool,
+    ) -> Result<u32, String> {
+        let value =
+            send_command_async(daemon_mailbox_clear_request(recipient, project_id, global)).await?;
+        value
+            .get("cleared")
+            .and_then(|cleared| cleared.as_u64())
+            .and_then(|cleared| u32::try_from(cleared).ok())
+            .ok_or_else(|| "decode daemon mailbox-clear: missing cleared".to_string())
+    }
+
+    pub(crate) async fn mailbox_retract(
+        &self,
+        event_id: String,
+        sender: String,
+    ) -> Result<Event, String> {
+        let value = send_command_async(daemon_mailbox_alias_event_request(
+            "mailbox-retract",
+            event_id,
+            sender,
+            None,
+        ))
+        .await?;
+        serde_json::from_value(value).map_err(|err| format!("decode daemon mailbox-retract: {err}"))
+    }
+
+    pub(crate) async fn mailbox_dismiss(
+        &self,
+        event_id: String,
+        recipient: String,
+    ) -> Result<bool, String> {
+        let value = send_command_async(daemon_mailbox_alias_event_request(
+            "mailbox-dismiss",
+            event_id,
+            recipient,
+            None,
+        ))
+        .await?;
+        value
+            .get("changed")
+            .and_then(|changed| changed.as_bool())
+            .ok_or_else(|| "decode daemon mailbox-dismiss: missing changed".to_string())
     }
 
     pub(crate) async fn set_session_name_override(
@@ -849,6 +1057,193 @@ fn daemon_alias_mode_request(alias: String, mode: String, project_id: Option<Str
         "command": "alias-mode",
         "args": args,
     })
+}
+
+fn daemon_bus_subscriptions_request(
+    alias: Option<String>,
+    project_id: Option<String>,
+    global: bool,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    if let Some(alias) = alias {
+        args.insert("alias".to_string(), Value::String(alias));
+    }
+    insert_project_filter_args(&mut args, project_id, global);
+    serde_json::json!({
+        "command": "bus-subscriptions",
+        "args": args,
+    })
+}
+
+fn daemon_bus_subscribe_request(
+    alias: String,
+    pattern: String,
+    project_id: Option<String>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("alias".to_string(), Value::String(alias));
+    args.insert("pattern".to_string(), Value::String(pattern));
+    if let Some(project_id) = project_id {
+        args.insert("project_id".to_string(), Value::String(project_id));
+    }
+    serde_json::json!({
+        "command": "bus-subscribe",
+        "args": args,
+    })
+}
+
+fn daemon_bus_unsubscribe_request(id: String) -> Value {
+    serde_json::json!({
+        "command": "bus-unsubscribe",
+        "args": { "id": id },
+    })
+}
+
+fn daemon_mailbox_peek_request(
+    alias: String,
+    unread_only: bool,
+    project_id: Option<String>,
+    global: bool,
+    limit: Option<u32>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("alias".to_string(), Value::String(alias));
+    if unread_only {
+        args.insert("unread".to_string(), Value::Bool(true));
+    }
+    insert_project_filter_args(&mut args, project_id, global);
+    if let Some(limit) = limit {
+        args.insert("limit".to_string(), serde_json::json!(limit));
+    }
+    serde_json::json!({
+        "command": "mailbox-peek",
+        "args": args,
+    })
+}
+
+fn daemon_bus_tail_request(
+    topic: Option<String>,
+    project_id: Option<String>,
+    global: bool,
+    limit: Option<u32>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    if let Some(topic) = topic {
+        args.insert("topic".to_string(), Value::String(topic));
+    }
+    insert_project_filter_args(&mut args, project_id, global);
+    if let Some(limit) = limit {
+        args.insert("limit".to_string(), serde_json::json!(limit));
+    }
+    serde_json::json!({
+        "command": "bus-tail",
+        "args": args,
+    })
+}
+
+fn daemon_mailbox_count_request(alias: String, project_id: Option<String>, global: bool) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("alias".to_string(), Value::String(alias));
+    insert_project_filter_args(&mut args, project_id, global);
+    serde_json::json!({
+        "command": "mailbox-count",
+        "args": args,
+    })
+}
+
+fn daemon_mailbox_post_request(request: DaemonMailboxPostRequest) -> Value {
+    let mut args = serde_json::Map::new();
+    if let Some(to) = request.to {
+        args.insert("to".to_string(), Value::String(to));
+    }
+    if let Some(topic) = request.topic {
+        args.insert("topic".to_string(), Value::String(topic));
+    }
+    args.insert("body".to_string(), Value::String(request.body));
+    if let Some(subject) = request.subject {
+        args.insert("subject".to_string(), Value::String(subject));
+    }
+    if let Some(kind) = request.kind {
+        args.insert("kind".to_string(), Value::String(kind));
+    }
+    if let Some(project_id) = request.project_id {
+        args.insert("project_id".to_string(), Value::String(project_id));
+    }
+    if let Some(correlation_id) = request.correlation_id {
+        args.insert("correlation_id".to_string(), Value::String(correlation_id));
+    }
+    if let Some(structured) = request.structured {
+        args.insert("structured".to_string(), structured);
+    }
+    if let Some(from) = request.from {
+        args.insert("from".to_string(), Value::String(from));
+    }
+    serde_json::json!({
+        "command": "mailbox-post",
+        "args": args,
+    })
+}
+
+fn daemon_mailbox_event_id_request(command: &str, event_id: String) -> Value {
+    serde_json::json!({
+        "command": command,
+        "args": { "event_id": event_id },
+    })
+}
+
+fn daemon_mailbox_read_state_request(event_id: String, recipient: String) -> Value {
+    serde_json::json!({
+        "command": "mailbox-read-state",
+        "args": { "event_id": event_id, "recipient": recipient },
+    })
+}
+
+fn daemon_mailbox_mark_read_request(event_id: String, recipient: String) -> Value {
+    serde_json::json!({
+        "command": "mailbox-mark-read",
+        "args": { "event_id": event_id, "recipient": recipient },
+    })
+}
+
+fn daemon_mailbox_alias_event_request(
+    command: &str,
+    event_id: String,
+    alias: String,
+    result: Option<String>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("event_id".to_string(), Value::String(event_id));
+    args.insert("alias".to_string(), Value::String(alias));
+    if let Some(result) = result {
+        args.insert("result".to_string(), Value::String(result));
+    }
+    serde_json::json!({
+        "command": command,
+        "args": args,
+    })
+}
+
+fn daemon_mailbox_clear_request(alias: String, project_id: Option<String>, global: bool) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("alias".to_string(), Value::String(alias));
+    insert_project_filter_args(&mut args, project_id, global);
+    serde_json::json!({
+        "command": "mailbox-clear",
+        "args": args,
+    })
+}
+
+fn insert_project_filter_args(
+    args: &mut serde_json::Map<String, Value>,
+    project_id: Option<String>,
+    global: bool,
+) {
+    if let Some(project_id) = project_id {
+        args.insert("project_id".to_string(), Value::String(project_id));
+    }
+    if global {
+        args.insert("global".to_string(), Value::Bool(true));
+    }
 }
 
 fn daemon_watch_list_request() -> Value {
@@ -1622,6 +2017,114 @@ mod tests {
         assert_eq!(mode["command"], "alias-mode");
         assert_eq!(mode["args"]["mode"], "broadcast");
         assert_eq!(mode["args"]["project_id"], "project-a");
+    }
+
+    #[test]
+    fn daemon_bus_requests_use_daemon_command_shape() {
+        let list = daemon_bus_subscriptions_request(
+            Some("reviewer".to_string()),
+            Some("project-a".to_string()),
+            false,
+        );
+        assert_eq!(list["command"], "bus-subscriptions");
+        assert_eq!(list["args"]["alias"], "reviewer");
+        assert_eq!(list["args"]["project_id"], "project-a");
+        assert!(list["args"].get("global").is_none());
+
+        let global = daemon_bus_subscriptions_request(None, None, true);
+        assert_eq!(global["command"], "bus-subscriptions");
+        assert_eq!(global["args"]["global"], true);
+
+        let subscribe = daemon_bus_subscribe_request(
+            "reviewer".to_string(),
+            "build.**".to_string(),
+            Some("project-a".to_string()),
+        );
+        assert_eq!(subscribe["command"], "bus-subscribe");
+        assert_eq!(subscribe["args"]["alias"], "reviewer");
+        assert_eq!(subscribe["args"]["pattern"], "build.**");
+        assert_eq!(subscribe["args"]["project_id"], "project-a");
+
+        let unsubscribe = daemon_bus_unsubscribe_request("sub-a".to_string());
+        assert_eq!(unsubscribe["command"], "bus-unsubscribe");
+        assert_eq!(unsubscribe["args"]["id"], "sub-a");
+    }
+
+    #[test]
+    fn daemon_mailbox_requests_use_daemon_command_shape() {
+        let peek = daemon_mailbox_peek_request(
+            "reviewer".to_string(),
+            true,
+            Some("project-a".to_string()),
+            false,
+            Some(20),
+        );
+        assert_eq!(peek["command"], "mailbox-peek");
+        assert_eq!(peek["args"]["alias"], "reviewer");
+        assert_eq!(peek["args"]["unread"], true);
+        assert_eq!(peek["args"]["project_id"], "project-a");
+        assert_eq!(peek["args"]["limit"], 20);
+
+        let tail = daemon_bus_tail_request(Some("build.done".to_string()), None, true, Some(5));
+        assert_eq!(tail["command"], "bus-tail");
+        assert_eq!(tail["args"]["topic"], "build.done");
+        assert_eq!(tail["args"]["global"], true);
+        assert_eq!(tail["args"]["limit"], 5);
+
+        let count = daemon_mailbox_count_request("reviewer".to_string(), None, false);
+        assert_eq!(count["command"], "mailbox-count");
+        assert_eq!(count["args"]["alias"], "reviewer");
+        assert!(count["args"].get("project_id").is_none());
+
+        let post = daemon_mailbox_post_request(DaemonMailboxPostRequest {
+            to: Some("reviewer".to_string()),
+            topic: Some("build.done".to_string()),
+            body: "ready".to_string(),
+            subject: Some("Build".to_string()),
+            kind: Some("fyi".to_string()),
+            project_id: Some("project-a".to_string()),
+            correlation_id: Some("corr-a".to_string()),
+            structured: Some(serde_json::json!({ "ok": true })),
+            from: Some("runner".to_string()),
+        });
+        assert_eq!(post["command"], "mailbox-post");
+        assert_eq!(post["args"]["to"], "reviewer");
+        assert_eq!(post["args"]["topic"], "build.done");
+        assert_eq!(post["args"]["body"], "ready");
+        assert_eq!(post["args"]["subject"], "Build");
+        assert_eq!(post["args"]["kind"], "fyi");
+        assert_eq!(post["args"]["project_id"], "project-a");
+        assert_eq!(post["args"]["correlation_id"], "corr-a");
+        assert_eq!(post["args"]["structured"]["ok"], true);
+        assert_eq!(post["args"]["from"], "runner");
+
+        let get = daemon_mailbox_event_id_request("mailbox-get", "event-a".to_string());
+        assert_eq!(get["command"], "mailbox-get");
+        assert_eq!(get["args"]["event_id"], "event-a");
+
+        let read_state =
+            daemon_mailbox_read_state_request("event-a".to_string(), "reviewer".to_string());
+        assert_eq!(read_state["command"], "mailbox-read-state");
+        assert_eq!(read_state["args"]["recipient"], "reviewer");
+
+        let mark_read =
+            daemon_mailbox_mark_read_request("event-a".to_string(), "reviewer".to_string());
+        assert_eq!(mark_read["command"], "mailbox-mark-read");
+        assert_eq!(mark_read["args"]["event_id"], "event-a");
+
+        let ack = daemon_mailbox_alias_event_request(
+            "mailbox-ack",
+            "event-a".to_string(),
+            "reviewer".to_string(),
+            Some("done".to_string()),
+        );
+        assert_eq!(ack["command"], "mailbox-ack");
+        assert_eq!(ack["args"]["alias"], "reviewer");
+        assert_eq!(ack["args"]["result"], "done");
+
+        let clear = daemon_mailbox_clear_request("reviewer".to_string(), None, true);
+        assert_eq!(clear["command"], "mailbox-clear");
+        assert_eq!(clear["args"]["global"], true);
     }
 
     #[test]

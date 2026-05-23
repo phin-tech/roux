@@ -11,6 +11,7 @@ use roux_lib::aliases::ProjectFilter;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::daemon_client::DaemonMailboxPostRequest;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -54,6 +55,18 @@ pub async fn mailbox_list_for_recipient(
     global: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Event>, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-peek"))
+    {
+        return client
+            .mailbox_list_for_recipient(
+                alias.clone(),
+                unread_only.unwrap_or(false),
+                project_id.clone(),
+                global.unwrap_or(false),
+            )
+            .await;
+    }
     Ok(state.mailbox_manager.list_for_recipient(
         &alias,
         unread_only.unwrap_or(false),
@@ -68,10 +81,14 @@ pub async fn mailbox_list_for_topic(
     global: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Event>, String> {
-    Ok(state.mailbox_manager.list_for_topic(
-        &topic,
-        project_filter(project_id.as_deref(), global.unwrap_or(false)),
-    ))
+    if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("bus-tail")) {
+        return client
+            .mailbox_list_for_topic(topic.clone(), project_id.clone(), global.unwrap_or(false))
+            .await;
+    }
+    Ok(state
+        .mailbox_manager
+        .list_for_topic(&topic, project_filter(project_id.as_deref(), global.unwrap_or(false))))
 }
 
 #[tauri::command]
@@ -81,6 +98,9 @@ pub async fn mailbox_list_all(
     limit: Option<u32>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Event>, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("bus-tail")) {
+        return client.mailbox_list_all(project_id.clone(), global.unwrap_or(false), limit).await;
+    }
     Ok(state.mailbox_manager.list_all(
         project_filter(project_id.as_deref(), global.unwrap_or(false)),
         limit.map(|n| n as usize),
@@ -94,10 +114,17 @@ pub async fn mailbox_unread_count(
     global: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<u32, String> {
-    Ok(state.mailbox_manager.unread_count(
-        &alias,
-        project_filter(project_id.as_deref(), global.unwrap_or(false)),
-    ) as u32)
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-count"))
+    {
+        return client
+            .mailbox_unread_count(alias.clone(), project_id.clone(), global.unwrap_or(false))
+            .await;
+    }
+    Ok(state
+        .mailbox_manager
+        .unread_count(&alias, project_filter(project_id.as_deref(), global.unwrap_or(false)))
+        as u32)
 }
 
 #[tauri::command]
@@ -105,6 +132,11 @@ pub async fn mailbox_get_event(
     event_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<Event>, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-get"))
+    {
+        return client.mailbox_get_event(event_id.clone()).await;
+    }
     Ok(state.mailbox_manager.get(&event_id))
 }
 
@@ -114,6 +146,11 @@ pub async fn mailbox_read_state(
     recipient: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<ReadState>, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-read-state"))
+    {
+        return client.mailbox_read_state(event_id.clone(), recipient.clone()).await;
+    }
     Ok(state.mailbox_manager.read_state(&event_id, &recipient))
 }
 
@@ -123,6 +160,24 @@ pub async fn mailbox_post(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Event, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-post"))
+    {
+        return client
+            .mailbox_post(DaemonMailboxPostRequest {
+                to: input.to,
+                topic: input.topic,
+                body: input.body,
+                subject: input.subject,
+                kind: input.kind,
+                project_id: input.project_id,
+                correlation_id: input.correlation_id,
+                structured: input.structured,
+                from: input.from,
+            })
+            .await;
+    }
+
     if input.to.is_none() && input.topic.is_none() {
         return Err("at least one of `to` or `topic` required".into());
     }
@@ -175,6 +230,11 @@ pub async fn mailbox_mark_read(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-mark-read"))
+    {
+        return client.mailbox_mark_read(event_id.clone(), recipient.clone()).await;
+    }
     Ok(state.mailbox_manager.mark_read(&event_id, &recipient, Some(&app)))
 }
 
@@ -186,6 +246,11 @@ pub async fn mailbox_ack(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-ack"))
+    {
+        return client.mailbox_ack(event_id.clone(), recipient.clone(), result.clone()).await;
+    }
     Ok(state.mailbox_manager.ack(&event_id, &recipient, result, Some(&app)))
 }
 
@@ -197,6 +262,13 @@ pub async fn mailbox_clear_read(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<u32, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-clear"))
+    {
+        return client
+            .mailbox_clear_read(recipient.clone(), project_id.clone(), global.unwrap_or(false))
+            .await;
+    }
     Ok(state.mailbox_manager.clear_read(
         &recipient,
         project_filter(project_id.as_deref(), global.unwrap_or(false)),
@@ -211,10 +283,12 @@ pub async fn mailbox_retract(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Event, String> {
-    state
-        .mailbox_manager
-        .retract(&event_id, &sender, Some(&app))
-        .map_err(|e| e.to_string())
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-retract"))
+    {
+        return client.mailbox_retract(event_id.clone(), sender.clone()).await;
+    }
+    state.mailbox_manager.retract(&event_id, &sender, Some(&app)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -224,6 +298,11 @@ pub async fn mailbox_dismiss(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("mailbox-dismiss"))
+    {
+        return client.mailbox_dismiss(event_id.clone(), recipient.clone()).await;
+    }
     Ok(state.mailbox_manager.dismiss(&event_id, &recipient, Some(&app)))
 }
 
@@ -240,20 +319,23 @@ pub async fn mailbox_deliver_to_pane(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let event = state
-        .mailbox_manager
-        .get(&event_id)
-        .ok_or_else(|| format!("event '{event_id}' not found"))?;
+    let daemon_client = state.daemon_client.clone();
+    let event = match daemon_client.clone().filter(|client| client.supports("mailbox-get")) {
+        Some(client) => client.mailbox_get_event(event_id.clone()).await?,
+        None => state.mailbox_manager.get(&event_id),
+    }
+    .ok_or_else(|| format!("event '{event_id}' not found"))?;
 
     let recipient = event
         .to
         .as_deref()
         .ok_or_else(|| "event has no `to` recipient — nothing to deliver".to_string())?;
 
-    let alias = state
-        .alias_manager
-        .get(recipient, event.project_id.as_deref())
-        .ok_or_else(|| format!("alias '{recipient}' not found"))?;
+    let alias = match daemon_client.clone().filter(|client| client.supports("alias-get")) {
+        Some(client) => client.get_alias(recipient.to_string(), event.project_id.clone()).await?,
+        None => state.alias_manager.get(recipient, event.project_id.as_deref()),
+    }
+    .ok_or_else(|| format!("alias '{recipient}' not found"))?;
 
     let pane_id = alias.pane_id.clone().ok_or_else(|| {
         format!(
@@ -262,28 +344,47 @@ pub async fn mailbox_deliver_to_pane(
     })?;
 
     // Resolve pty_id via the pane handle.
-    let pane_records =
-        state.runtime.pane_handle.list_by_ids(vec![pane_id.clone()]).await.map_err(|e| e.to_string())?;
-    let pane = pane_records
-        .first()
-        .ok_or_else(|| format!("pane '{pane_id}' not found"))?;
+    let pane_records = state
+        .runtime
+        .pane_handle
+        .list_by_ids(vec![pane_id.clone()])
+        .await
+        .map_err(|e| e.to_string())?;
+    let pane = pane_records.first().ok_or_else(|| format!("pane '{pane_id}' not found"))?;
     let pty_id = pane.pty_id.clone();
 
     // Type the body into the pane. Append CR so Claude/Codex see it as
     // submitted input rather than a half-typed line.
-    let mut bytes = event.body.clone().into_bytes();
-    bytes.push(b'\r');
-    state
-        .pty_manager
-        .write(&pty_id, &bytes)
-        .map_err(|e| format!("failed to write to pane: {e}"))?;
+    let data = format!("{}\r", event.body);
+    if let Some(client) = daemon_client.clone().filter(|client| client.supports("daemon-pty-write"))
+    {
+        match client.write_daemon_pty(pty_id.clone(), data.clone()).await {
+            Ok(()) => {}
+            Err(err) if is_daemon_pty_not_found(&err) => {
+                state
+                    .pty_manager
+                    .write(&pty_id, data.as_bytes())
+                    .map_err(|e| format!("failed to write to pane: {e}"))?;
+            }
+            Err(err) => return Err(err),
+        }
+    } else {
+        state
+            .pty_manager
+            .write(&pty_id, data.as_bytes())
+            .map_err(|e| format!("failed to write to pane: {e}"))?;
+    }
 
     // Ack so the sender's `sent` view shows the delivery.
-    state.mailbox_manager.ack(
-        &event_id,
-        recipient,
-        Some(format!("delivered to pane {pane_id}")),
-        Some(&app),
-    );
+    let result = Some(format!("delivered to pane {pane_id}"));
+    if let Some(client) = daemon_client.filter(|client| client.supports("mailbox-ack")) {
+        let _ = client.mailbox_ack(event_id, recipient.to_string(), result).await?;
+    } else {
+        state.mailbox_manager.ack(&event_id, recipient, result, Some(&app));
+    }
     Ok(())
+}
+
+fn is_daemon_pty_not_found(err: &str) -> bool {
+    err.contains("daemon pty not found")
 }

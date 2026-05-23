@@ -39,7 +39,7 @@ Most `roux` commands are thin clients for the running desktop app:
 
 If the Roux app is not running, socket-backed commands fail with a direct `Roux is not running` error.
 
-`roux daemon` is the main exception: it starts an experimental standalone runtime host. When the daemon owns the socket, top-level `roux run`, `roux split`, `roux shell`, `roux session create`, `roux session panes list|create`, `roux session send`, `roux session kill`, and `roux alias ...` are handled by daemon-owned runtime services instead of the desktop pane system. `roux attach` can connect a terminal directly to a daemon-owned PTY.
+`roux daemon` is the main exception: it starts an experimental standalone runtime host. When the daemon owns the socket, top-level `roux run`, `roux split`, `roux shell`, `roux session create`, `roux session panes list|create`, `roux session send`, `roux session kill`, `roux alias ...`, `roux mailbox ...`, and `roux bus ...` are handled by daemon-owned runtime services instead of the desktop pane system. `roux attach` can connect a terminal directly to a daemon-owned PTY.
 
 ## Command groups
 
@@ -204,7 +204,7 @@ The daemon exposes daemon-only CLI commands:
 roux daemon status
 ```
 
-When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, log path, loaded session/project/process counts, and daemon capabilities. The daemon also answers headless session, project, PTY, process, and worktree commands over the socket.
+When `roux daemon` owns the socket, `roux daemon status` returns the daemon PID, uptime, socket path, log path, loaded session/project/process counts, and daemon capabilities. The daemon also answers headless session, project, PTY, process, worktree, alias, mailbox, and bus commands over the socket.
 
 The implemented socket protocol is documented in [`../v2/daemon-protocol.md`](../v2/daemon-protocol.md).
 

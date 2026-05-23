@@ -26,6 +26,13 @@ pub async fn subscriptions_list(
     global: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<BusSubscription>, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("bus-subscriptions"))
+    {
+        return client
+            .list_subscriptions(alias.clone(), project_id.clone(), global.unwrap_or(false))
+            .await;
+    }
     let filter = project_filter(project_id.as_deref(), global.unwrap_or(false));
     Ok(match alias {
         Some(a) => state.subscription_manager.for_alias(&a, filter),
@@ -41,6 +48,13 @@ pub async fn subscriptions_create(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<BusSubscription, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("bus-subscribe"))
+    {
+        return client
+            .create_subscription(alias.clone(), pattern.clone(), project_id.clone())
+            .await;
+    }
     state
         .subscription_manager
         .subscribe(&alias, &pattern, project_id, Some(&app))
@@ -53,8 +67,10 @@ pub async fn subscriptions_delete(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
-    state
-        .subscription_manager
-        .unsubscribe(&id, Some(&app))
-        .map_err(|e| e.to_string())
+    if let Some(client) =
+        state.daemon_client.clone().filter(|client| client.supports("bus-unsubscribe"))
+    {
+        return client.delete_subscription(id.clone()).await;
+    }
+    state.subscription_manager.unsubscribe(&id, Some(&app)).map_err(|e| e.to_string())
 }

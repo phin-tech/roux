@@ -708,7 +708,7 @@ mod tests {
         assert!(context.worktrunk);
         assert_eq!(context.repo_path.as_deref(), Some("/repo"));
         assert_eq!(context.worktree_path.as_deref(), Some("/repo/.worktrees/feat-x"));
-        assert_eq!(context.cwd.as_deref(), Some("/repo/.worktrees/feat-x"));
+        assert_eq!(context.cwd.as_deref(), Some("/repo"));
         assert_eq!(context.provider_hooks_ran, vec!["pre-remove", "post-remove"]);
     }
 }

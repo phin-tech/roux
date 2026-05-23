@@ -201,6 +201,106 @@ keeps bare-name ambiguity behavior for aliases that exist in multiple project
 scopes. Group membership and consumption mode commands mutate the same durable
 alias records.
 
+## Mailbox And Bus Commands
+
+The daemon owns the durable mailbox event log, per-recipient read state, and
+bus subscription records when it owns the socket. Desktop and CLI clients are
+frontends over the same state.
+
+`mailbox-post`
+
+Requires `args.body` and at least one of `args.to` or `args.topic`. Optional
+fields: `from`, `kind`, `subject`, `project_id`, `correlation_id`, and
+`structured`. Returns the created event. Posting to an alias ensures the alias
+record exists in daemon-owned alias state.
+
+`mailbox-peek`
+
+Requires `args.alias` unless the request has enough pane/session context to
+resolve one alias. Optional `args.unread`, `args.project_id`, `args.global`,
+and `args.limit`. Returns matching recipient events without marking them read.
+
+`mailbox-read`
+
+Same target fields as `mailbox-peek`, but returns unread events and marks them
+read. Optional `args.ack` also acks each returned event.
+
+`mailbox-get`
+
+Requires `args.event_id`. Returns the event or `null`.
+
+`mailbox-read-state`
+
+Requires `args.event_id` and `args.recipient`. Returns the recipient read state
+or `null`.
+
+`mailbox-mark-read`
+
+Requires `args.event_id` and `args.recipient`. Returns `{ "changed": true }`
+when state changed.
+
+`mailbox-ack`
+
+Requires `args.event_id` and `args.alias`; optional `args.result`. Returns
+`{ "changed": true }` when state changed.
+
+`mailbox-retract`
+
+Requires `args.event_id` and `args.alias`. Retracts a sent event when allowed
+by mailbox rules and returns the updated event.
+
+`mailbox-dismiss`
+
+Requires `args.event_id` and `args.alias`. Hides the event from that recipient
+and returns `{ "changed": true }` when state changed.
+
+`mailbox-count`
+
+Requires `args.alias`; optional `args.project_id` and `args.global`. Returns
+`{ "unread": 0 }`.
+
+`mailbox-clear`
+
+Requires `args.alias`; optional `args.project_id` and `args.global`. Clears
+read events for that recipient and returns `{ "cleared": 0 }`.
+
+`mailbox-reply`
+
+Requires `args.event_id` and `args.body`; optional `from`, `kind`, `subject`,
+and `structured`. Replies to the original sender and preserves/creates the
+thread correlation id.
+
+`mailbox-sent`
+
+Resolves the sender from `args.sender` or request context. Optional `args.to`
+and `args.limit`. Returns `{ "event": ..., "state": ... }` rows.
+
+`bus-publish`
+
+Requires `args.topic` and either non-empty `args.body` or non-null
+`args.structured`. Optional `from`, `kind`, `subject`, and `project_id`.
+Returns the created topic event.
+
+`bus-tail`
+
+Optional `args.topic`, `args.project_id`, `args.global`, and `args.limit`.
+Returns topic-filtered events or the full firehose when no topic is supplied.
+
+`bus-subscribe`
+
+Requires `args.alias` or pane context plus `args.pattern`; optional
+`args.project_id`. Creates a durable subscription and returns it.
+
+`bus-unsubscribe`
+
+Requires `args.id`. Returns `{ "removed": true }` when the subscription was
+present.
+
+`bus-subscriptions`
+
+Optional `args.alias`, `args.project_id`, and `args.global`. Returns durable
+subscriptions, filtered when requested.
+
 ## Project Commands
 
 `project-list`
@@ -485,11 +585,14 @@ Daemon-owned:
   operations.
 - Worktree create/remove automation hooks for daemon-owned worktree commands.
 - Durable watch definitions, check execution, watch hooks, and runtime state.
+- Durable alias, mailbox event, read-state, and bus subscription state.
 
 Desktop-owned:
 
 - Rendering, pane layout, xterm instances, and UX-only state.
 - Watch notification presentation from daemon `watch-events`.
+- Mailbox panel rendering, notification presentation, and last-mile
+  deliver-to-pane UX.
 - Pane-state cleanup and manual hook preview/run/list UX until those services
   move.
 - Local fallback runtime when no daemon is connected.
