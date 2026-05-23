@@ -2,13 +2,14 @@
 
 ## Project Overview
 
-Roux is a Tauri 2 + Svelte 5 desktop app for managing multiple Claude Code terminal sessions in one native window.
+Roux is a Tauri 2 + Svelte 5 desktop app, plus a Rust headless runtime daemon, for managing multiple Claude Code terminal sessions in one native window or from CLI/socket clients.
 
 The app combines:
 - split panes and stacked tabs
 - persistent Claude and shell terminals
 - git worktree support
-- a Unix socket / CLI bridge
+- a daemon-owned Unix/TCP socket / CLI bridge
+- daemon-owned runtime services for sessions, projects, PTYs, processes, watches, aliases, mailbox/bus state, notes, and automation hooks
 - project notes, docs, tasks, and watches
 
 This codebase has real filesystem, process, and terminal side effects. Defensive reasoning is the correct default.
@@ -26,16 +27,22 @@ npm run check        # Svelte type check
 ## Architecture
 
 - **Frontend**: Svelte 5 with runes (`$state`, `$derived`, `$effect`, `$props`), Tailwind CSS 4, xterm.js
-- **Backend**: Rust with Tauri 2, portable-pty for PTY management
+- **Desktop shell**: Tauri 2 command adapters, native windowing, tray/menu integration, notifications, pane layout, and xterm.js rendering
+- **Runtime daemon**: `roux daemon` in `crates/roux-cli` starts the shared `roux-runtime` service host and owns durable runtime state plus PTY/process lifetimes
+- **Shared runtime**: `crates/roux-runtime` contains the session/project/pane/process/PTY/watch services used by the daemon and by the explicit desktop fallback
+- **Daemon client**: `src-tauri/src/daemon_client.rs` connects to an existing daemon or autostarts one; Tauri commands route through it when the daemon advertises the needed capability
 - **State**: Svelte writable stores in `src/lib/stores/`
 - **Pane tree**: `SplitNode` recursive union in `src/lib/stores/panes.ts`
 - **Terminal registry**: `src/lib/panes/terminalRegistry.ts` keeps xterm instances alive across re-mounts
 - **Commands**: frontend command registration in `src/lib/commands/index.ts`
 - **Backend commands**: Tauri commands are registered from `src-tauri/src/main.rs`
-- **Persistence**: layouts in localStorage, sessions/settings/projects handled in Rust
+- **Socket protocol**: when a daemon is connected, it owns the Roux command endpoint; the desktop socket server starts only for local fallback
+- **Persistence**: layouts in localStorage; sessions/projects/watches/aliases/mailbox/bus state and other runtime data are daemon-owned when connected; settings remain desktop-readable Rust state
 
 ## Key Files
 
+- `docs/v2/daemon-protocol.md` - implemented daemon socket command surface
+- `docs/v2/session-daemon.md` - daemon architecture and migration note
 - `src/lib/stores/panes.ts` - pane tree data model, splits, stacking, persistence
 - `src/lib/stores/sessions.ts` - session management on the frontend
 - `src/lib/components/SplitPane.svelte` - recursive pane renderer
@@ -43,11 +50,20 @@ npm run check        # Svelte type check
 - `src/lib/components/ShellTerminal.svelte` - shell terminal pane
 - `src/lib/commands/index.ts` - command palette and keybindings
 - `src-tauri/src/main.rs` - Tauri bootstrap and command registration
+- `src-tauri/src/daemon_client.rs` - desktop connection/autostart client for daemon-owned runtime services
+- `src-tauri/src/commands/daemon.rs` - Tauri commands for daemon status, daemon processes, and daemon PTYs
 - `src-tauri/src/pty.rs` - PTY spawning and lifecycle
 - `src-tauri/src/session.rs` - session persistence
 - `src-tauri/src/watches.rs` - watch execution and state
 - `src-tauri/src/worktree.rs` - git worktree operations
-- `src-tauri/src/socket.rs` - local socket protocol / CLI bridge
+- `src-tauri/src/socket.rs` - desktop-owned local socket protocol / CLI bridge used only when the daemon is not connected
+- `crates/roux-cli/src/daemon.rs` - daemon entrypoint, socket server, and daemon command routing
+- `crates/roux-cli/src/attach.rs` - CLI attach client for daemon-owned PTYs
+- `crates/roux-cli/src/cli_socket.rs` - CLI socket client request/response helpers
+- `crates/roux-runtime/src/host.rs` - shared runtime service host construction
+- `crates/roux-runtime/src/pty_service.rs` - daemon/runtime PTY registry and output handling
+- `crates/roux-runtime/src/process_service.rs` - daemon/runtime process registry
+- `crates/roux-runtime/src/session_service.rs` - daemon/runtime session store and persistence
 
 ## Frontend Conventions
 
@@ -62,7 +78,12 @@ npm run check        # Svelte type check
 
 - Prefer typed internal errors over `Result<_, String>`
 - Keep Tauri command handlers thin; push logic into normal Rust functions/modules
-- Be careful with PTY, socket, process, and filesystem lifecycles
+- Prefer daemon-first routing for durable/runtime behavior: check `state.daemon_client` and daemon capabilities before falling back to desktop-local services
+- Use daemon capabilities from `daemon-status` instead of hardcoding protocol assumptions while the protocol is experimental
+- Keep GUI-only concerns in the desktop process: pane layout, xterm.js rendering, native menus/tray, and notification presentation
+- Keep daemon-owned concerns in the daemon when connected: session/project/watch metadata, PTY/process lifetimes, worktree filesystem operations, aliases, mailbox/bus state, notes vault operations, and automation hook execution
+- Do not create split-brain ownership where both daemon and desktop persist or mutate the same runtime state
+- Be careful with PTY, socket, process, daemon, and filesystem lifecycles
 - Avoid broad process-kill commands; Claude Code is a Node app, so never blindly kill `node` / `node.exe`
 - Do not use `git add .`; stage files explicitly
 
@@ -74,6 +95,8 @@ For this repo, the failure modes are:
 - breaking pane-tree invariants
 - corrupting persisted session/project/settings state
 - leaking PTYs, watchers, or background tasks
+- creating split-brain daemon/desktop ownership of sessions, projects, PTYs, watches, aliases, mailbox/bus state, notes, or automation hooks
+- changing daemon socket payloads or capabilities without updating all desktop, CLI, MCP, and docs callers
 - making a wrong filesystem assumption and deleting or moving the wrong thing
 - changing Tauri/Rust contracts without updating the frontend
 
@@ -196,7 +219,10 @@ If the correct verification path is ambiguous, ask the human which test or verif
 
 - Keep command handlers as adapters, not as the main home for business logic
 - Be explicit about Rust/TypeScript contract changes
-- Treat `AppState`, PTY/session lifecycle, socket handling, and watchers as long-lived system components
+- Treat `AppState`, `DaemonClient`, PTY/session lifecycle, socket handling, and watchers as long-lived system components
+- Before adding or changing durable/runtime behavior, decide whether the daemon owns it. The default answer should be "daemon owns it when connected; desktop adapts or renders it."
+- When changing the daemon protocol, update `docs/v2/daemon-protocol.md`, the CLI socket callers, the Tauri `DaemonClient`, capability checks, and any MCP/frontend callers together
+- If daemon autostart or detection changes, verify the three startup modes: existing daemon connected, daemon autostarted, and explicit local fallback with `ROUX_DAEMON_AUTOSTART=0`
 - Verify startup/shutdown behavior when changing background services
 - Be conservative around filesystem and worktree operations
 - Do not guess Tauri behavior when the official docs are available
@@ -207,6 +233,7 @@ Before changing a Tauri command or backend payload, identify:
 - which frontend caller depends on it
 - which persisted data shape might change
 - whether the CLI/socket protocol also depends on it
+- whether the daemon protocol/capability list also depends on it
 
 ## Root Cause Discipline
 
@@ -228,6 +255,7 @@ Especially in this repo, be careful with:
 - xterm lifecycle code
 - terminal registry behavior
 - PTY buffering / attach behavior
+- daemon/client fallback boundaries
 - socket protocol compatibility
 - settings migration / persistence behavior
 
