@@ -6,6 +6,12 @@
     setRailSide,
     type Side,
   } from "$lib/stores/sidebarLayout";
+  import {
+    settingsModalSize,
+    setSettingsModalSize,
+    SETTINGS_MODAL_MAX_WIDTH,
+    SETTINGS_MODAL_MAX_HEIGHT,
+  } from "$lib/stores/settingsModalSize";
   import { open } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { THEME_DEFINITIONS, getAllTerminalThemeDefinitions } from "$lib/themes";
@@ -129,6 +135,43 @@
       e.preventDefault();
       onclose();
     }
+  }
+
+  // Drag-to-resize. The modal stays centered, so each edge moves by half the
+  // size delta; doubling the cursor delta keeps the bottom-right corner under
+  // the pointer. Persisted size is clamped to absolute bounds by the store and
+  // to the live viewport here so it can't grow off-screen.
+  let resizing = $state(false);
+  let resizeStart = { x: 0, y: 0, w: 0, h: 0 };
+
+  function onResizePointerDown(e: PointerEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    resizing = true;
+    resizeStart = {
+      x: e.clientX,
+      y: e.clientY,
+      w: $settingsModalSize.width,
+      h: $settingsModalSize.height,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function onResizePointerMove(e: PointerEvent) {
+    if (!resizing) return;
+    const maxW = Math.min(SETTINGS_MODAL_MAX_WIDTH, window.innerWidth - 32);
+    const maxH = Math.min(SETTINGS_MODAL_MAX_HEIGHT, window.innerHeight - 32);
+    const w = Math.min(resizeStart.w + (e.clientX - resizeStart.x) * 2, maxW);
+    const h = Math.min(resizeStart.h + (e.clientY - resizeStart.y) * 2, maxH);
+    setSettingsModalSize(w, h);
+  }
+
+  function onResizePointerUp(e: PointerEvent) {
+    if (!resizing) return;
+    resizing = false;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
   }
 
   async function browseClaudeBinary() {
@@ -624,7 +667,8 @@
     onclick={onclose}
   >
     <div
-      class="flex h-[520px] w-[720px] overflow-hidden rounded-2xl border border-hairline bg-bg-deep shadow-[0_24px_64px_rgba(2,6,23,0.6),0_0_0_1px_rgba(255,255,255,0.04)]"
+      class="relative flex max-h-[90vh] max-w-[95vw] overflow-hidden rounded-2xl border border-hairline bg-bg-deep shadow-[0_24px_64px_rgba(2,6,23,0.6),0_0_0_1px_rgba(255,255,255,0.04)]"
+      style="width: {$settingsModalSize.width}px; height: {$settingsModalSize.height}px;"
       role="dialog"
       aria-modal="true"
       aria-label="Settings"
@@ -2014,6 +2058,22 @@
             </div>
           {/if}
         </div>
+      </div>
+
+      <!-- Drag-to-resize grip, anchored to the dialog's bottom-right corner. -->
+      <div
+        class="group absolute bottom-0 right-0 z-10 flex h-5 w-5 cursor-nwse-resize items-end justify-end p-1"
+        role="separator"
+        aria-label="Resize settings window"
+        aria-orientation="horizontal"
+        title="Drag to resize"
+        onpointerdown={onResizePointerDown}
+        onpointermove={onResizePointerMove}
+        onpointerup={onResizePointerUp}
+      >
+        <span
+          class="pointer-events-none h-2 w-2 border-b-2 border-r-2 border-text-muted/40 transition-colors group-hover:border-text-muted/80"
+        ></span>
       </div>
     </div>
   </div>
