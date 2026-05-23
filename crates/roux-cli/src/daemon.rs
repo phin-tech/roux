@@ -274,7 +274,7 @@ enum PtyAttachFrame {
     #[serde(rename = "ready")]
     Ready {
         id: String,
-        record: roux_runtime::pty_service::PtyRecord,
+        record: Box<roux_runtime::pty_service::PtyRecord>,
         #[serde(rename = "replayOffset")]
         replay_offset: u64,
         #[serde(rename = "replayBytes")]
@@ -294,7 +294,7 @@ enum WatchEventFrame {
     #[serde(rename = "ready")]
     Ready,
     #[serde(rename = "update")]
-    Update { event: roux_core::WatchUpdateEvent },
+    Update { event: Box<roux_core::WatchUpdateEvent> },
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
@@ -320,7 +320,7 @@ enum MailboxEventFrame {
     #[serde(rename = "ready")]
     Ready,
     #[serde(rename = "event")]
-    Event { event: MailboxEvent },
+    Event { event: Box<MailboxEvent> },
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
@@ -988,7 +988,7 @@ where
         writer,
         &PtyAttachFrame::Ready {
             id: record.id.clone(),
-            record: record.clone(),
+            record: Box::new(record.clone()),
             replay_offset: attach.replay_offset,
             replay_bytes: attach.replay_bytes.clone(),
         },
@@ -1105,7 +1105,9 @@ where
         for watch in watches {
             let event =
                 roux_core::WatchUpdateEvent { watch, changed: false, previous_outcome: None };
-            if !write_watch_event_frame(writer, &WatchEventFrame::Update { event }).await {
+            if !write_watch_event_frame(writer, &WatchEventFrame::Update { event: Box::new(event) })
+                .await
+            {
                 return false;
             }
         }
@@ -1114,7 +1116,12 @@ where
     loop {
         match rx.recv().await {
             Ok(event) => {
-                if !write_watch_event_frame(writer, &WatchEventFrame::Update { event }).await {
+                if !write_watch_event_frame(
+                    writer,
+                    &WatchEventFrame::Update { event: Box::new(event) },
+                )
+                .await
+                {
                     return false;
                 }
             }
@@ -1244,7 +1251,12 @@ where
     loop {
         match rx.recv().await {
             Ok(event) => {
-                if !write_mailbox_event_frame(writer, &MailboxEventFrame::Event { event }).await {
+                if !write_mailbox_event_frame(
+                    writer,
+                    &MailboxEventFrame::Event { event: Box::new(event) },
+                )
+                .await
+                {
                     return false;
                 }
             }
@@ -2287,7 +2299,6 @@ async fn handle_session_create_shell(
             profile: profile.clone(),
             initial_size,
             role: roux_core::PtyRole::SessionPrimary,
-            ..PtySpawnRequest::default()
         })
         .await;
     if let Err(err) = spawn {
@@ -2375,7 +2386,6 @@ async fn handle_session_reconnect_shell(
             profile,
             initial_size,
             role: roux_core::PtyRole::SessionPrimary,
-            ..PtySpawnRequest::default()
         })
         .await;
     if let Err(err) = spawn {
@@ -3667,7 +3677,6 @@ async fn handle_session_panes_create(
             profile: Some(profile.to_string()),
             initial_size: parse_initial_size(&req.args),
             role: PtyRole::Secondary,
-            ..PtySpawnRequest::default()
         })
         .await
     {
@@ -5359,8 +5368,10 @@ post-worktree-create = "{post_create}"
         );
         std::fs::write(hook_root.join("hooks.toml"), hooks_toml).unwrap();
         let hooks = AutomationHookManager::from_config_root(&hook_root);
-        let mut settings = roux_core::RouxSettings::default();
-        settings.worktree_base_path = Some(worktree_base.to_string_lossy().into_owned());
+        let settings = roux_core::RouxSettings {
+            worktree_base_path: Some(worktree_base.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
 
         let (worktree_path, branch, owns_worktree) = resolve_daemon_session_target(
             &repo.to_string_lossy(),

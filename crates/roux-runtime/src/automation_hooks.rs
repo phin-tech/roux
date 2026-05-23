@@ -1015,10 +1015,11 @@ async fn execute_command(
     if let Some(mut stdin) = child.stdin.take() {
         let json = serde_json::to_vec(&context.as_json(&command.name))
             .map_err(HookError::SerializeContext)?;
-        stdin
-            .write_all(&json)
-            .await
-            .map_err(|source| HookError::Execute { name: command.name.clone(), source })?;
+        if let Err(source) = stdin.write_all(&json).await {
+            if source.kind() != std::io::ErrorKind::BrokenPipe {
+                return Err(HookError::Execute { name: command.name.clone(), source });
+            }
+        }
     }
     let output = child
         .wait_with_output()
@@ -1236,6 +1237,26 @@ one = "echo b"
         let temp = TempDir::new().unwrap();
         let config = temp.path().join("hooks.toml");
         std::fs::write(&config, r#"pre-watch-run = "cat >/dev/null""#).unwrap();
+        let manager = AutomationHookManager {
+            user_config_path: config,
+            approval_path: temp.path().join("approvals.json"),
+            log_dir: temp.path().join("logs"),
+        };
+
+        let ran = manager
+            .run_blocking(HookEvent::PreWatchRun, HookContext::new(HookEvent::PreWatchRun))
+            .await
+            .unwrap();
+
+        assert_eq!(ran, 1);
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn run_blocking_allows_hooks_that_close_stdin() {
+        let temp = TempDir::new().unwrap();
+        let config = temp.path().join("hooks.toml");
+        std::fs::write(&config, r#"pre-watch-run = "exec 0<&-; sleep 1; exit 0""#).unwrap();
         let manager = AutomationHookManager {
             user_config_path: config,
             approval_path: temp.path().join("approvals.json"),

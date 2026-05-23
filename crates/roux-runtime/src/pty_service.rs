@@ -26,25 +26,13 @@ pub enum PtyKind {
     Task,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PtyEnvRequest {
     pub user_path: Option<String>,
     pub socket_path: Option<String>,
     pub cli_bin_dir: Option<String>,
     pub cli_path: Option<String>,
     pub pane_alias: Option<String>,
-}
-
-impl Default for PtyEnvRequest {
-    fn default() -> Self {
-        Self {
-            user_path: None,
-            socket_path: None,
-            cli_bin_dir: None,
-            cli_path: None,
-            pane_alias: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

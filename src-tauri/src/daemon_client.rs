@@ -2048,7 +2048,7 @@ enum PtyAttachStreamFrame {
         #[allow(dead_code)]
         id: String,
         #[allow(dead_code)]
-        record: PtyRecord,
+        record: Box<PtyRecord>,
         #[serde(rename = "replayOffset")]
         replay_offset: u64,
         #[serde(rename = "replayBytes")]
@@ -2068,7 +2068,7 @@ enum WatchEventStreamFrame {
     #[serde(rename = "ready")]
     Ready,
     #[serde(rename = "update")]
-    Update { event: WatchUpdateEvent },
+    Update { event: Box<WatchUpdateEvent> },
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
@@ -2081,7 +2081,7 @@ enum MailboxEventStreamFrame {
     #[serde(rename = "ready")]
     Ready,
     #[serde(rename = "event")]
-    Event { event: MailboxEvent },
+    Event { event: Box<MailboxEvent> },
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
@@ -2151,7 +2151,7 @@ fn handle_watch_event_frame(
             let app = app.clone();
             let watch_manager = watch_manager.clone();
             tauri::async_runtime::spawn(async move {
-                watch_manager.apply_daemon_watch_update(event, app).await;
+                watch_manager.apply_daemon_watch_update(*event, app).await;
             });
             Ok(())
         }
@@ -2192,7 +2192,7 @@ fn handle_mailbox_event_frame(
     match frame {
         MailboxEventStreamFrame::Ready => Ok(()),
         MailboxEventStreamFrame::Event { event } => app
-            .emit(roux_lib::mailbox::MAILBOX_EVENT, &event)
+            .emit(roux_lib::mailbox::MAILBOX_EVENT, event.as_ref())
             .map_err(|err| format!("emit daemon mailbox event: {err}")),
         MailboxEventStreamFrame::Warning { message } => {
             rlog!("Daemon mailbox event stream warning: {message}");
