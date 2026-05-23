@@ -223,7 +223,7 @@ roux daemon kill daemon-process-1
 
 If Roux.app already owns the command socket, `roux daemon` refuses to start instead of replacing the live GUI socket.
 
-If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and routes daemon-backed sessions, PTYs, project/session metadata, process commands, core worktree filesystem operations, durable watch state, and watch execution through the daemon. Worktree create/remove automation hooks run on the daemon host for daemon-owned worktree operations. `roux run`, `roux split`, `roux shell`, `roux session create`, `roux session panes list|create`, `roux session send`, and `roux session kill` also work against the daemon socket owner. Watch notification presentation and manual hook-management UX still run in the desktop process for now.
+If `roux daemon` is already running when Roux.app starts, the desktop app detects it, skips its own socket server, and routes daemon-backed sessions, PTYs, project/session metadata, process commands, core worktree filesystem operations, durable notes vault commands, durable watch state, and watch execution through the daemon. Worktree create/remove automation hooks run on the daemon host for daemon-owned worktree operations. `roux run`, `roux split`, `roux shell`, `roux session create`, `roux session panes list|create`, `roux session send`, `roux session kill`, and `roux notes ...` also work against the daemon socket owner. Watch notification presentation and manual hook-management UX still run in the desktop process for now.
 
 Current limits:
 
@@ -395,6 +395,10 @@ roux notes repo append "remember to update the fixture"
 roux notes project write --topic rollout-plan --content "..."
 roux notes search --tag api --scope repo
 ```
+
+When the daemon owns the socket, notes commands read and write the daemon
+host's configured notes vault. The Tauri app remains responsible for
+presenting live notes-change UI events to its own windows.
 
 Supported scopes:
 

@@ -25,6 +25,12 @@ pub fn roux_config_dir() -> PathBuf {
     home.join(".config").join("roux")
 }
 
+/// Default on-disk location for the Obsidian-compatible notes vault.
+pub fn default_notes_vault_root() -> PathBuf {
+    let home = home_dir_or_temp();
+    home.join("Documents").join("Roux")
+}
+
 fn home_dir_or_temp() -> PathBuf {
     home_dir_or_temp_from(dirs::home_dir().or_else(|| std::env::var_os("HOME").map(PathBuf::from)))
 }

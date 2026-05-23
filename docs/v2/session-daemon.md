@@ -53,6 +53,7 @@ That is not the full design below yet. As of this note:
 - top-level `roux run` starts a daemon-owned process when the daemon owns the socket; it still creates a GUI pane when Roux.app owns the socket
 - `roux split`, `roux shell`, and `roux session panes list|create` work against daemon-owned PTYs when the daemon owns the socket, but create does not mutate GUI layout
 - top-level `roux session send` and `roux session kill` work against daemon-owned sessions when the daemon owns the socket
+- `roux notes ...` uses the daemon host's configured notes vault when the daemon owns the socket
 - `roux attach` is initial and does not yet handle SIGWINCH resize events after attach
 - watch notification presentation, pane-state cleanup, and manual hook-management UX still run in the desktop process
 

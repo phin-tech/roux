@@ -5,6 +5,7 @@
 
 pub mod automation_hooks;
 pub mod host;
+pub mod notes_service;
 pub mod pane_service;
 pub mod process;
 pub mod process_service;

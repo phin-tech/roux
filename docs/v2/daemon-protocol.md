@@ -185,6 +185,53 @@ split layout.
 
 Returns all daemon projects.
 
+## Notes Commands
+
+The daemon handles the same notes socket commands as the desktop socket:
+
+- `notes-read`
+- `notes-write`
+- `notes-append`
+- `notes-path`
+- `notes-search`
+- `notes-vault-root`
+
+These commands use the daemon host's configured notes vault root
+(`settings.notes_vault_root`, or `~/Documents/Roux` by default). They share the
+same `roux-runtime::notes_service` implementation as the desktop adapter, so
+scope resolution, slug freezing, frontmatter, append formatting, and tag search
+stay consistent across clients.
+
+`notes-read`
+
+`args` is a notes target: `{ "scope": "global|project|repo|session",
+"sessionId": "...", "topic": null }`. Returns
+`{ "path": "...", "content": "..." }`.
+
+`notes-write`
+
+Requires `args.target`, `args.content`, and optional `args.tags`. Replaces the
+markdown body while preserving frontmatter fields managed by the notes service.
+
+`notes-append`
+
+Requires `args.target`, `args.content`, optional `args.timestamped`, and
+optional `args.tags`.
+
+`notes-path`
+
+Requires `args.target`; optional `args.dir` returns the containing scope
+directory instead of the note file path.
+
+`notes-search`
+
+Requires non-empty `args.tags`; optional `args.scope` restricts the search and
+optional `args.exact` disables hierarchical prefix matching.
+
+`notes-vault-root`
+
+Returns the daemon host's notes vault root path.
+
 ## Worktree Commands
 
 `worktree-list`
