@@ -49,6 +49,7 @@ That is not the full design below yet. As of this note:
 - Roux.app still owns xterm.js rendering and pane layout
 - daemon-owned processes are not yet attached to terminal panes
 - pane layout socket commands such as split, shell, focus, and pane create still expect the desktop app to be running
+- top-level `roux session create` creates a daemon-owned session and primary PTY when the daemon owns the socket, but prompt/nono/legacy flag options still require the desktop path
 - top-level `roux run` starts a daemon-owned process when the daemon owns the socket; it still creates a GUI pane when Roux.app owns the socket
 - top-level `roux session send` and `roux session kill` work against daemon-owned sessions when the daemon owns the socket
 - `roux attach` is initial and does not yet handle SIGWINCH resize events after attach

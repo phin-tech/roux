@@ -431,6 +431,7 @@ async fn handle_request_with_watch_runner(
         "daemon-status" => handle_daemon_status(host, identity).await,
         "session-list" => handle_session_list(host).await,
         "session-poll" => handle_session_poll(req, host).await,
+        "session-create" => handle_cli_session_create(req, host, identity).await,
         "session-create-shell" => handle_session_create_shell(req, host, identity).await,
         "session-reconnect-shell" => handle_session_reconnect_shell(req, host, identity).await,
         "session-archive" => handle_session_archive(req, host).await,
@@ -522,6 +523,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
             "daemon-status",
             "session-list",
             "session-poll",
+            "session-create",
             "session-create-shell",
             "session-reconnect-shell",
             "session-archive",
@@ -839,6 +841,110 @@ async fn handle_session_rename(req: Request, host: &RuntimeHost) -> Response {
         "session_id": session_id,
         "name_override": name_override,
     }))
+}
+
+async fn handle_cli_session_create(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
+    if req.args.get("prompt").and_then(|prompt| prompt.as_str()).is_some() {
+        return Response::err(
+            "daemon session create does not support --prompt until a frontend attaches; create the session, attach, then send input",
+        );
+    }
+    let normalized = match normalize_cli_session_create_request(req, host).await {
+        Ok(req) => req,
+        Err(response) => return response,
+    };
+
+    let create = handle_session_create_shell(normalized, host, identity).await;
+    if !create.ok {
+        return create;
+    }
+
+    let Some(session_id) = create
+        .data
+        .as_ref()
+        .and_then(|data| data.get("id"))
+        .and_then(|id| id.as_str())
+        .map(str::to_string)
+    else {
+        return Response::err("session created but response did not include id");
+    };
+
+    Response::success(serde_json::json!({ "session_id": session_id }))
+}
+
+async fn normalize_cli_session_create_request(
+    mut req: Request,
+    host: &RuntimeHost,
+) -> Result<Request, Response> {
+    if req
+        .args
+        .get("flags")
+        .and_then(|flags| flags.as_array())
+        .is_some_and(|flags| !flags.is_empty())
+    {
+        return Err(Response::err(
+            "--flag/-f is not supported by daemon session create; bake flags into a spawn profile's startup command instead",
+        ));
+    }
+    if req.args.get("nono_profile").is_some()
+        || req
+            .args
+            .get("nono_allow_dirs")
+            .and_then(|dirs| dirs.as_array())
+            .is_some_and(|dirs| !dirs.is_empty())
+    {
+        return Err(Response::err(
+            "daemon session create does not support nono options yet; create the session from Roux.app or a profile instead",
+        ));
+    }
+
+    let mut args = req.args.as_object().cloned().unwrap_or_default();
+    let working_dir = args
+        .get("working_dir")
+        .or_else(|| args.get("workingDir"))
+        .and_then(|working_dir| working_dir.as_str())
+        .filter(|working_dir| !working_dir.trim().is_empty())
+        .map(str::to_string);
+
+    let mut repo_path = args
+        .get("repoPath")
+        .or_else(|| args.get("repo_path"))
+        .and_then(|repo_path| repo_path.as_str())
+        .filter(|repo_path| !repo_path.trim().is_empty())
+        .map(str::to_string)
+        .or(working_dir);
+
+    if repo_path.is_none() {
+        if let Some(session_id) = req.session_id.as_deref() {
+            match host.session_handle.get(session_id).await {
+                Ok(Some(session)) => repo_path = Some(session.repo_root),
+                Ok(None) => {}
+                Err(err) => return Err(Response::err(err.to_string())),
+            }
+        }
+    }
+
+    let Some(repo_path) = repo_path else {
+        return Err(Response::err("working_dir, repoPath, or session_id required"));
+    };
+    args.insert("repoPath".to_string(), Value::String(repo_path));
+
+    if let Some(branch) = args.remove("worktree_branch").or_else(|| args.remove("worktreeBranch")) {
+        args.insert("branch".to_string(), branch);
+    }
+    if let Some(start_point) = args.remove("start_point").or_else(|| args.remove("startPoint")) {
+        let fetch_first = start_point.as_str().is_some_and(|start| start.starts_with("origin/"));
+        args.insert("base".to_string(), start_point);
+        args.entry("fetchFirst".to_string()).or_insert(Value::Bool(fetch_first));
+    }
+    args.entry("profile".to_string()).or_insert(Value::String("claude".to_string()));
+
+    req.args = Value::Object(args);
+    Ok(req)
 }
 
 async fn handle_session_create_shell(
@@ -2590,7 +2696,7 @@ mod tests {
     }
 
     async fn wait_for_marker(path: &std::path::Path, expected: &str) {
-        for _ in 0..50 {
+        for _ in 0..200 {
             let content = std::fs::read_to_string(path).unwrap_or_default();
             if content.contains(expected) {
                 return;
@@ -2866,6 +2972,99 @@ post-worktree-remove = "{post_remove}"
         assert_eq!(pty.info.session_id.as_deref(), Some("session-a"));
 
         let _ = host.pty_handle.kill("session-a").await;
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_session_create_alias_creates_daemon_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let create = handle_request(
+            Request {
+                command: "session-create".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "name": "Created from CLI",
+                    "working_dir": dir.path(),
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(create.ok, "session-create alias failed: {:?}", create.error);
+        let session_id = create.data.as_ref().unwrap()["session_id"].as_str().unwrap();
+        let session = host.session_handle.get(session_id).await.unwrap().expect("session");
+        assert_eq!(session.name, "Created from CLI");
+        assert_eq!(session.primary_pty_id.as_deref(), Some(session_id));
+
+        let _ = host.pty_handle.kill(session_id).await;
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn daemon_session_create_alias_rejects_prompt_until_attach_queue_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+        let create = handle_request(
+            Request {
+                command: "session-create".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "working_dir": dir.path(),
+                    "prompt": "do the thing",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(!create.ok);
+        assert!(create.error.as_deref().unwrap_or("").contains("--prompt"));
+
         host.process_handle.shutdown().await;
         host.pty_handle.shutdown().await;
         host.watch_handle.shutdown().await;

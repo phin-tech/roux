@@ -58,6 +58,15 @@ Returns all daemon sessions, including archived sessions.
 
 Requires `session_id`. Returns one session.
 
+`session-create`
+
+Compatibility alias for top-level `roux session create` when the daemon owns
+the socket. Accepts the existing CLI arg names such as `working_dir`,
+`worktree_branch`, and `start_point`, normalizes them into
+`session-create-shell`, and returns `{ "session_id": "..." }`. Daemon session
+creation currently rejects `prompt`, `flags`, `nono_profile`, and
+`nono_allow_dirs`.
+
 `session-create-shell`
 
 Creates a session record and primary PTY as one daemon-owned transaction.
