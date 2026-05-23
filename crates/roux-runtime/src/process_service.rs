@@ -192,6 +192,7 @@ struct ProcessEntry {
     working_dir: PathBuf,
     started_at_ms: u64,
     child: Option<Child>,
+    reader_threads: Vec<thread::JoinHandle<()>>,
     exit_code: Option<i32>,
     output: Arc<Mutex<ProcessOutputBuffer>>,
 }
@@ -212,11 +213,12 @@ impl ProcessEntry {
             .map_err(|err| format!("spawn daemon process: {err}"))?;
 
         let output = Arc::new(Mutex::new(ProcessOutputBuffer::new(PROCESS_OUTPUT_LIMIT_BYTES)));
+        let mut reader_threads = Vec::new();
         if let Some(stdout) = child.stdout.take() {
-            spawn_output_reader(stdout, Arc::clone(&output));
+            reader_threads.push(spawn_output_reader(stdout, Arc::clone(&output)));
         }
         if let Some(stderr) = child.stderr.take() {
-            spawn_output_reader(stderr, Arc::clone(&output));
+            reader_threads.push(spawn_output_reader(stderr, Arc::clone(&output)));
         }
 
         Ok(Self {
@@ -225,6 +227,7 @@ impl ProcessEntry {
             working_dir,
             started_at_ms: unix_now_ms(),
             child: Some(child),
+            reader_threads,
             exit_code: None,
             output,
         })
@@ -233,7 +236,10 @@ impl ProcessEntry {
     fn refresh_status(&mut self) {
         let status = match self.child.as_mut() {
             Some(child) => child.try_wait(),
-            None => return,
+            None => {
+                self.reap_finished_readers();
+                return;
+            }
         };
         match status {
             Ok(Some(status)) => {
@@ -246,10 +252,12 @@ impl ProcessEntry {
                 self.child = None;
             }
         }
+        self.reap_finished_readers();
     }
 
     fn kill(&mut self) -> Result<(), String> {
         let Some(child) = self.child.as_mut() else {
+            self.reap_finished_readers();
             return Ok(());
         };
         child.kill().map_err(|err| format!("kill daemon process {}: {err}", self.id))?;
@@ -257,6 +265,7 @@ impl ProcessEntry {
             child.wait().map_err(|err| format!("wait daemon process {}: {err}", self.id))?;
         self.exit_code = status.code();
         self.child = None;
+        self.reap_finished_readers();
         Ok(())
     }
 
@@ -271,7 +280,7 @@ impl ProcessEntry {
             command: self.command.clone(),
             working_dir: self.working_dir.to_string_lossy().to_string(),
             started_at_ms: self.started_at_ms,
-            running: self.child.is_some(),
+            running: self.child.is_some() || !self.reader_threads.is_empty(),
             exit_code: self.exit_code,
             retained_output_bytes,
             output_truncated,
@@ -282,6 +291,18 @@ impl ProcessEntry {
         let output =
             self.output.lock().map(|output| output.snapshot_text(max_bytes)).unwrap_or_default();
         ProcessSnapshot { record: self.record(), output }
+    }
+
+    fn reap_finished_readers(&mut self) {
+        let mut pending = Vec::new();
+        for thread in self.reader_threads.drain(..) {
+            if thread.is_finished() {
+                let _ = thread.join();
+            } else {
+                pending.push(thread);
+            }
+        }
+        self.reader_threads = pending;
     }
 }
 
@@ -337,7 +358,10 @@ impl ProcessOutputBuffer {
     }
 }
 
-fn spawn_output_reader<R>(mut reader: R, output: Arc<Mutex<ProcessOutputBuffer>>)
+fn spawn_output_reader<R>(
+    mut reader: R,
+    output: Arc<Mutex<ProcessOutputBuffer>>,
+) -> thread::JoinHandle<()>
 where
     R: Read + Send + 'static,
 {
@@ -356,7 +380,7 @@ where
                 Err(_) => break,
             }
         }
-    });
+    })
 }
 
 fn resolve_working_dir(working_dir: Option<PathBuf>) -> Result<PathBuf, String> {
@@ -446,5 +470,34 @@ mod tests {
         assert_eq!(output.snapshot_text(10), "def");
         assert!(output.is_truncated());
         assert!(output.len_bytes() <= 5);
+    }
+
+    #[test]
+    fn record_remains_running_until_output_readers_are_reaped() {
+        let output = Arc::new(Mutex::new(ProcessOutputBuffer::new(PROCESS_OUTPUT_LIMIT_BYTES)));
+        output.lock().unwrap().append(b"ready");
+        let reader = std::thread::spawn(|| std::thread::sleep(std::time::Duration::from_millis(5)));
+        let mut entry = ProcessEntry {
+            id: "daemon-process-test".to_string(),
+            command: "printf ready".to_string(),
+            working_dir: PathBuf::from("/tmp"),
+            started_at_ms: 0,
+            child: None,
+            reader_threads: vec![reader],
+            exit_code: Some(0),
+            output,
+        };
+
+        assert!(entry.record().running);
+        for _ in 0..50 {
+            entry.refresh_status();
+            if !entry.record().running {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
+        assert!(!entry.record().running);
+        assert_eq!(entry.snapshot(1024).output, "ready");
     }
 }
