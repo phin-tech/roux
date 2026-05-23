@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::daemon_client::DaemonStatus;
-use crate::state::AppState;
+use crate::state::{required_daemon_client_ref, AppState};
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_sdk::{PtyRecord, PtySnapshot};
 use serde::Serialize;
@@ -216,13 +216,4 @@ pub(crate) async fn daemon_pty_kill(
 ) -> Result<PtyRecord, String> {
     let client = required_daemon_client_ref(&state)?;
     client.kill_daemon_pty(id).await
-}
-
-fn required_daemon_client_ref(
-    state: &AppState,
-) -> Result<&crate::daemon_client::DaemonClient, String> {
-    state
-        .daemon_client
-        .as_ref()
-        .ok_or_else(|| "Roux daemon is required but not connected".to_string())
 }

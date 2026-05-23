@@ -1,5 +1,5 @@
 use crate::pty::PtyInfo;
-use crate::state::AppState;
+use crate::state::{required_daemon_client, AppState};
 
 #[tauri::command]
 #[specta::specta]
@@ -81,11 +81,4 @@ pub(crate) async fn set_pty_name(
     let client = required_daemon_client(&state)?;
     let _ = client.set_daemon_pty_name(pty_id, name).await?;
     Ok(())
-}
-
-fn required_daemon_client(state: &AppState) -> Result<crate::daemon_client::DaemonClient, String> {
-    state
-        .daemon_client
-        .clone()
-        .ok_or_else(|| "Roux daemon is required but not connected".to_string())
 }

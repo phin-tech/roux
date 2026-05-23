@@ -36,3 +36,21 @@ pub(crate) struct AppState {
     pub(crate) pending_replies: PendingReplies,
     pub(crate) managed_proxy: Arc<crate::services::managed_proxy::ManagedProxyState>,
 }
+
+pub(crate) fn required_daemon_client(
+    state: &AppState,
+) -> Result<crate::daemon_client::DaemonClient, String> {
+    state
+        .daemon_client
+        .clone()
+        .ok_or_else(|| "Roux daemon is required but not connected".to_string())
+}
+
+pub(crate) fn required_daemon_client_ref(
+    state: &AppState,
+) -> Result<&crate::daemon_client::DaemonClient, String> {
+    state
+        .daemon_client
+        .as_ref()
+        .ok_or_else(|| "Roux daemon is required but not connected".to_string())
+}

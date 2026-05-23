@@ -1,6 +1,8 @@
 use crate::services::sessions as svc;
 use crate::session::Session;
-use crate::state::{AppState, DaemonPtyAttachTask};
+use crate::state::{
+    required_daemon_client, required_daemon_client_ref, AppState, DaemonPtyAttachTask,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Manager;
@@ -635,8 +637,9 @@ pub(crate) async fn refresh_session_git_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
     let client = required_daemon_client_ref(&state)?;
+    let _ = client.refresh_session_branch(id.clone()).await?;
     let session = client.get_session(id).await?;
-    Ok(svc::is_git_repo(&session.worktree_path))
+    Ok(session.is_git_repo)
 }
 
 #[tauri::command]
@@ -667,20 +670,4 @@ pub(crate) fn list_claude_sessions(cwd: String) -> Result<Vec<svc::ClaudeSession
 pub(crate) fn get_builtin_profiles(state: tauri::State<AppState>) -> Vec<roux_core::SpawnProfile> {
     let settings = state.settings.lock().unwrap().clone();
     crate::providers::builtin_profiles(&settings)
-}
-
-fn required_daemon_client(state: &AppState) -> Result<crate::daemon_client::DaemonClient, String> {
-    state
-        .daemon_client
-        .clone()
-        .ok_or_else(|| "Roux daemon is required but not connected".to_string())
-}
-
-fn required_daemon_client_ref(
-    state: &AppState,
-) -> Result<&crate::daemon_client::DaemonClient, String> {
-    state
-        .daemon_client
-        .as_ref()
-        .ok_or_else(|| "Roux daemon is required but not connected".to_string())
 }
