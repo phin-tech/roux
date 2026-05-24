@@ -93,6 +93,34 @@ pub(crate) struct DaemonReconnectSessionShellRequest {
 
 pub(crate) type DaemonMailboxPostRequest = roux_sdk::MailboxPost;
 
+type DaemonClientResult<T> = std::result::Result<T, DaemonClientError>;
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DaemonClientError {
+    #[error(transparent)]
+    Sdk(#[from] roux_sdk::RouxError),
+    #[error(transparent)]
+    Decode(#[from] serde_json::Error),
+    #[error("unexpected daemon kind: {0}")]
+    UnexpectedDaemonKind(String),
+    #[error("daemon pty not found")]
+    DaemonPtyNotFound,
+    #[error("{0}")]
+    Adapter(String),
+}
+
+impl DaemonClientError {
+    fn adapter(message: impl Into<String>) -> Self {
+        Self::Adapter(message.into())
+    }
+}
+
+impl From<DaemonClientError> for String {
+    fn from(error: DaemonClientError) -> Self {
+        error.to_string()
+    }
+}
+
 impl DaemonClient {
     pub(crate) fn detect() -> Option<Self> {
         let sdk = roux_sdk::Roux::builder().timeout(PROBE_TIMEOUT).connect().ok()?;
@@ -154,46 +182,47 @@ impl DaemonClient {
         self.status.capabilities.iter().any(|candidate| candidate == capability)
     }
 
-    pub(crate) async fn refresh_status(&self) -> Result<DaemonStatus, String> {
-        let status = self.sdk.status_value().await.map_err(|err| err.to_string())?;
-        let status: DaemonStatus = serde_json::from_value(status).map_err(|err| err.to_string())?;
+    pub(crate) async fn refresh_status(&self) -> DaemonClientResult<DaemonStatus> {
+        let status = self.sdk.status_value().await.map_err(DaemonClientError::from)?;
+        let status: DaemonStatus =
+            serde_json::from_value(status).map_err(DaemonClientError::from)?;
         if status.kind == "roux-daemon" {
             Ok(status)
         } else {
-            Err(format!("unexpected daemon kind: {}", status.kind))
+            Err(DaemonClientError::UnexpectedDaemonKind(status.kind))
         }
     }
 
-    pub(crate) async fn list_sessions(&self) -> Result<Vec<Session>, String> {
-        self.sdk.sessions().await.map_err(|err| err.to_string())
+    pub(crate) async fn list_sessions(&self) -> DaemonClientResult<Vec<Session>> {
+        self.sdk.sessions().await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn get_session(&self, id: String) -> Result<Session, String> {
-        self.sdk.get_session(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn get_session(&self, id: String) -> DaemonClientResult<Session> {
+        self.sdk.get_session(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn list_projects(&self) -> Result<Vec<Project>, String> {
-        self.sdk.projects().await.map_err(|err| err.to_string())
+    pub(crate) async fn list_projects(&self) -> DaemonClientResult<Vec<Project>> {
+        self.sdk.projects().await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn create_project(&self, name: String) -> Result<Project, String> {
-        self.sdk.create_project(name).await.map_err(|err| err.to_string())
+    pub(crate) async fn create_project(&self, name: String) -> DaemonClientResult<Project> {
+        self.sdk.create_project(name).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn remove_project(&self, id: String) -> Result<(), String> {
-        self.sdk.remove_project(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn remove_project(&self, id: String) -> DaemonClientResult<()> {
+        self.sdk.remove_project(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn rename_project(&self, id: String, name: String) -> Result<(), String> {
-        self.sdk.rename_project(id, name).await.map_err(|err| err.to_string())
+    pub(crate) async fn rename_project(&self, id: String, name: String) -> DaemonClientResult<()> {
+        self.sdk.rename_project(id, name).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn update_project(
         &self,
         id: String,
         patch: ProjectUpdate,
-    ) -> Result<Project, String> {
-        self.sdk.update_project(id, patch).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Project> {
+        self.sdk.update_project(id, patch).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn list_aliases(
@@ -201,23 +230,26 @@ impl DaemonClient {
         project_id: Option<String>,
         global: bool,
         only_unbound: bool,
-    ) -> Result<Vec<AgentAlias>, String> {
-        self.sdk.list_aliases(project_id, global, only_unbound).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Vec<AgentAlias>> {
+        self.sdk
+            .list_aliases(project_id, global, only_unbound)
+            .await
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn get_alias(
         &self,
         alias: String,
         project_id: Option<String>,
-    ) -> Result<Option<AgentAlias>, String> {
-        self.sdk.get_alias(alias, project_id).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Option<AgentAlias>> {
+        self.sdk.get_alias(alias, project_id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn whoami_aliases(
         &self,
         session_id: String,
-    ) -> Result<Vec<AgentAlias>, String> {
-        self.sdk.whoami_aliases(session_id).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Vec<AgentAlias>> {
+        self.sdk.whoami_aliases(session_id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn add_alias_member(
@@ -225,8 +257,8 @@ impl DaemonClient {
         alias: String,
         pane_id: String,
         project_id: Option<String>,
-    ) -> Result<AgentAlias, String> {
-        self.sdk.add_alias_member(alias, pane_id, project_id).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<AgentAlias> {
+        self.sdk.add_alias_member(alias, pane_id, project_id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn remove_alias_member(
@@ -234,11 +266,11 @@ impl DaemonClient {
         alias: String,
         pane_id: String,
         project_id: Option<String>,
-    ) -> Result<bool, String> {
+    ) -> DaemonClientResult<bool> {
         self.sdk
             .remove_alias_member(alias, pane_id, project_id)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn set_alias_mode(
@@ -246,8 +278,8 @@ impl DaemonClient {
         alias: String,
         mode: String,
         project_id: Option<String>,
-    ) -> Result<AgentAlias, String> {
-        self.sdk.set_alias_mode(alias, mode, project_id).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<AgentAlias> {
+        self.sdk.set_alias_mode(alias, mode, project_id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn list_subscriptions(
@@ -255,8 +287,11 @@ impl DaemonClient {
         alias: Option<String>,
         project_id: Option<String>,
         global: bool,
-    ) -> Result<Vec<BusSubscription>, String> {
-        self.sdk.list_subscriptions(alias, project_id, global).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Vec<BusSubscription>> {
+        self.sdk
+            .list_subscriptions(alias, project_id, global)
+            .await
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn create_subscription(
@@ -264,15 +299,15 @@ impl DaemonClient {
         alias: String,
         pattern: String,
         project_id: Option<String>,
-    ) -> Result<BusSubscription, String> {
+    ) -> DaemonClientResult<BusSubscription> {
         self.sdk
             .create_subscription(alias, pattern, project_id)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn delete_subscription(&self, id: String) -> Result<bool, String> {
-        self.sdk.delete_subscription(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn delete_subscription(&self, id: String) -> DaemonClientResult<bool> {
+        self.sdk.delete_subscription(id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_list_for_recipient(
@@ -281,11 +316,11 @@ impl DaemonClient {
         unread_only: bool,
         project_id: Option<String>,
         global: bool,
-    ) -> Result<Vec<Event>, String> {
+    ) -> DaemonClientResult<Vec<Event>> {
         self.sdk
             .mailbox_list_for_recipient(alias, unread_only, project_id, global)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_list_for_topic(
@@ -293,11 +328,11 @@ impl DaemonClient {
         topic: String,
         project_id: Option<String>,
         global: bool,
-    ) -> Result<Vec<Event>, String> {
+    ) -> DaemonClientResult<Vec<Event>> {
         self.sdk
             .mailbox_list_for_topic(topic, project_id, global)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_list_all(
@@ -305,8 +340,8 @@ impl DaemonClient {
         project_id: Option<String>,
         global: bool,
         limit: Option<u32>,
-    ) -> Result<Vec<Event>, String> {
-        self.sdk.mailbox_list_all(project_id, global, limit).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Vec<Event>> {
+        self.sdk.mailbox_list_all(project_id, global, limit).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_unread_count(
@@ -314,41 +349,41 @@ impl DaemonClient {
         alias: String,
         project_id: Option<String>,
         global: bool,
-    ) -> Result<u32, String> {
+    ) -> DaemonClientResult<u32> {
         self.sdk
             .mailbox_unread_count(alias, project_id, global)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_get_event(
         &self,
         event_id: String,
-    ) -> Result<Option<Event>, String> {
-        self.sdk.mailbox_get_event(event_id).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Option<Event>> {
+        self.sdk.mailbox_get_event(event_id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_read_state(
         &self,
         event_id: String,
         recipient: String,
-    ) -> Result<Option<ReadState>, String> {
-        self.sdk.mailbox_read_state(event_id, recipient).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Option<ReadState>> {
+        self.sdk.mailbox_read_state(event_id, recipient).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_post(
         &self,
         request: DaemonMailboxPostRequest,
-    ) -> Result<Event, String> {
-        self.sdk.mailbox_post(request).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Event> {
+        self.sdk.mailbox_post(request).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_mark_read(
         &self,
         event_id: String,
         recipient: String,
-    ) -> Result<bool, String> {
-        self.sdk.mailbox_mark_read(event_id, recipient).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<bool> {
+        self.sdk.mailbox_mark_read(event_id, recipient).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_ack(
@@ -356,8 +391,8 @@ impl DaemonClient {
         event_id: String,
         recipient: String,
         result: Option<String>,
-    ) -> Result<bool, String> {
-        self.sdk.mailbox_ack(event_id, recipient, result).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<bool> {
+        self.sdk.mailbox_ack(event_id, recipient, result).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_clear_read(
@@ -365,31 +400,31 @@ impl DaemonClient {
         recipient: String,
         project_id: Option<String>,
         global: bool,
-    ) -> Result<u32, String> {
+    ) -> DaemonClientResult<u32> {
         self.sdk
             .mailbox_clear_read(recipient, project_id, global)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_retract(
         &self,
         event_id: String,
         sender: String,
-    ) -> Result<Event, String> {
-        self.sdk.mailbox_retract(event_id, sender).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Event> {
+        self.sdk.mailbox_retract(event_id, sender).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn mailbox_dismiss(
         &self,
         event_id: String,
         recipient: String,
-    ) -> Result<bool, String> {
-        self.sdk.mailbox_dismiss(event_id, recipient).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<bool> {
+        self.sdk.mailbox_dismiss(event_id, recipient).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn read_notes(&self, target: NotesTarget) -> Result<NotesRead, String> {
-        self.sdk.read_notes(target).await.map_err(|err| err.to_string())
+    pub(crate) async fn read_notes(&self, target: NotesTarget) -> DaemonClientResult<NotesRead> {
+        self.sdk.read_notes(target).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn write_notes(
@@ -397,8 +432,8 @@ impl DaemonClient {
         target: NotesTarget,
         content: String,
         tags: Vec<String>,
-    ) -> Result<(), String> {
-        self.sdk.write_notes(target, content, tags).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<()> {
+        self.sdk.write_notes(target, content, tags).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn append_notes(
@@ -407,111 +442,117 @@ impl DaemonClient {
         content: String,
         timestamped: bool,
         tags: Vec<String>,
-    ) -> Result<(), String> {
+    ) -> DaemonClientResult<()> {
         self.sdk
             .append_notes(target, content, timestamped, tags)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn notes_path(
         &self,
         target: NotesTarget,
         dir: bool,
-    ) -> Result<String, String> {
-        self.sdk.notes_path(target, dir).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<String> {
+        self.sdk.notes_path(target, dir).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn search_notes(
         &self,
         query: NotesSearchQuery,
-    ) -> Result<Vec<String>, String> {
-        self.sdk.search_notes(query).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Vec<String>> {
+        self.sdk.search_notes(query).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn notes_vault_root(&self) -> Result<String, String> {
-        self.sdk.notes_vault_root().await.map_err(|err| err.to_string())
+    pub(crate) async fn notes_vault_root(&self) -> DaemonClientResult<String> {
+        self.sdk.notes_vault_root().await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn list_automation_hooks(
         &self,
         repo_path: Option<String>,
-    ) -> Result<Vec<HookListItem>, String> {
-        self.sdk.list_automation_hooks(repo_path).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Vec<HookListItem>> {
+        self.sdk.list_automation_hooks(repo_path).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn preview_automation_hooks(
         &self,
         request: HookRunRequest,
-    ) -> Result<Vec<HookPreviewItem>, String> {
-        self.sdk.preview_automation_hooks(request).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Vec<HookPreviewItem>> {
+        self.sdk.preview_automation_hooks(request).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn run_automation_hook(
         &self,
         request: HookRunRequest,
-    ) -> Result<HookRunSummary, String> {
-        self.sdk.run_automation_hook(request).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<HookRunSummary> {
+        self.sdk.run_automation_hook(request).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn approve_automation_hook(&self, approval_id: String) -> Result<(), String> {
-        self.sdk.approve_automation_hook(approval_id).await.map_err(|err| err.to_string())
+    pub(crate) async fn approve_automation_hook(
+        &self,
+        approval_id: String,
+    ) -> DaemonClientResult<()> {
+        self.sdk.approve_automation_hook(approval_id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn clear_automation_hook_approvals(&self) -> Result<(), String> {
-        self.sdk.clear_automation_hook_approvals().await.map_err(|err| err.to_string())
+    pub(crate) async fn clear_automation_hook_approvals(&self) -> DaemonClientResult<()> {
+        self.sdk.clear_automation_hook_approvals().await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn list_automation_hook_logs(&self) -> Result<Vec<HookLogEntry>, String> {
-        self.sdk.list_automation_hook_logs().await.map_err(|err| err.to_string())
+    pub(crate) async fn list_automation_hook_logs(&self) -> DaemonClientResult<Vec<HookLogEntry>> {
+        self.sdk.list_automation_hook_logs().await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn read_automation_hook_log(&self, path: String) -> Result<String, String> {
-        self.sdk.read_automation_hook_log(path).await.map_err(|err| err.to_string())
+    pub(crate) async fn read_automation_hook_log(
+        &self,
+        path: String,
+    ) -> DaemonClientResult<String> {
+        self.sdk.read_automation_hook_log(path).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn set_session_name_override(
         &self,
         session_id: String,
         name_override: Option<String>,
-    ) -> Result<(), String> {
+    ) -> DaemonClientResult<()> {
         self.sdk
             .set_session_name_override(session_id, name_override)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn set_session_project(
         &self,
         session_id: String,
         project_id: Option<String>,
-    ) -> Result<(), String> {
-        self.sdk.set_session_project(session_id, project_id).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<()> {
+        self.sdk.set_session_project(session_id, project_id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn set_session_pinned_pr_url(
         &self,
         session_id: String,
         url: Option<String>,
-    ) -> Result<(), String> {
-        self.sdk.set_session_pinned_pr_url(session_id, url).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<()> {
+        self.sdk.set_session_pinned_pr_url(session_id, url).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn set_session_smol_machine(
         &self,
         session_id: String,
         machine_name: Option<String>,
-    ) -> Result<(), String> {
+    ) -> DaemonClientResult<()> {
         self.sdk
             .set_session_smol_machine(session_id, machine_name)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn create_session_shell(
         &self,
         request: DaemonCreateSessionShellRequest,
-    ) -> Result<Session, String> {
+    ) -> DaemonClientResult<Session> {
         self.sdk
             .create_session_shell(roux_sdk::CreateSessionShell {
                 id: request.id,
@@ -531,13 +572,13 @@ impl DaemonClient {
                 notes: request.notes.map(sdk_notes_env),
             })
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn reconnect_session_shell(
         &self,
         request: DaemonReconnectSessionShellRequest,
-    ) -> Result<Session, String> {
+    ) -> DaemonClientResult<Session> {
         self.sdk
             .reconnect_session_shell(roux_sdk::ReconnectSessionShell {
                 id: request.id,
@@ -548,34 +589,37 @@ impl DaemonClient {
                 notes: request.notes.map(sdk_notes_env),
             })
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn archive_session(&self, id: String) -> Result<Session, String> {
-        self.sdk.archive_session(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn archive_session(&self, id: String) -> DaemonClientResult<Session> {
+        self.sdk.archive_session(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn restore_session(&self, id: String) -> Result<Session, String> {
-        self.sdk.restore_session(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn restore_session(&self, id: String) -> DaemonClientResult<Session> {
+        self.sdk.restore_session(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn delete_session(&self, id: String) -> Result<(), String> {
-        self.sdk.delete_session(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn delete_session(&self, id: String) -> DaemonClientResult<()> {
+        self.sdk.delete_session(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn session_worktree_exists(&self, id: String) -> Result<bool, String> {
-        self.sdk.session_worktree_exists(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn session_worktree_exists(&self, id: String) -> DaemonClientResult<bool> {
+        self.sdk.session_worktree_exists(id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn refresh_session_branch(
         &self,
         id: String,
-    ) -> Result<Option<String>, String> {
-        self.sdk.refresh_session_branch(id).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Option<String>> {
+        self.sdk.refresh_session_branch(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn list_worktrees(&self, repo_path: String) -> Result<Vec<Worktree>, String> {
-        self.sdk.list_worktrees(repo_path).await.map_err(|err| err.to_string())
+    pub(crate) async fn list_worktrees(
+        &self,
+        repo_path: String,
+    ) -> DaemonClientResult<Vec<Worktree>> {
+        self.sdk.list_worktrees(repo_path).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn create_worktree(
@@ -584,11 +628,11 @@ impl DaemonClient {
         branch: String,
         start_point: Option<String>,
         fetch_first: bool,
-    ) -> Result<String, String> {
+    ) -> DaemonClientResult<String> {
         self.sdk
             .create_worktree(repo_path, branch, start_point, fetch_first)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn remove_worktree(
@@ -597,85 +641,91 @@ impl DaemonClient {
         worktree_path: String,
         also_branch: bool,
         force: bool,
-    ) -> Result<(), String> {
+    ) -> DaemonClientResult<()> {
         self.sdk
             .remove_worktree(repo_path, worktree_path, also_branch, force)
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn list_branches(&self, repo_path: String) -> Result<Vec<String>, String> {
-        self.sdk.list_branches(repo_path).await.map_err(|err| err.to_string())
+    pub(crate) async fn list_branches(&self, repo_path: String) -> DaemonClientResult<Vec<String>> {
+        self.sdk.list_branches(repo_path).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn git_init(&self, path: String) -> Result<(), String> {
-        self.sdk.git_init(path).await.map_err(|err| err.to_string())
+    pub(crate) async fn git_init(&self, path: String) -> DaemonClientResult<()> {
+        self.sdk.git_init(path).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn list_watches(&self) -> Result<Vec<Watch>, String> {
-        self.sdk.watches().await.map_err(|err| err.to_string())
+    pub(crate) async fn list_watches(&self) -> DaemonClientResult<Vec<Watch>> {
+        self.sdk.watches().await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn create_watch(&self, config: CreateWatchConfig) -> Result<Watch, String> {
-        self.sdk.create_watch(config).await.map_err(|err| err.to_string())
+    pub(crate) async fn create_watch(
+        &self,
+        config: CreateWatchConfig,
+    ) -> DaemonClientResult<Watch> {
+        self.sdk.create_watch(config).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn find_or_create_watch(
         &self,
         config: CreateWatchConfig,
-    ) -> Result<Watch, String> {
-        self.sdk.find_or_create_watch(config).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<Watch> {
+        self.sdk.find_or_create_watch(config).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn remove_watch(&self, id: String) -> Result<(), String> {
-        self.sdk.remove_watch(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn remove_watch(&self, id: String) -> DaemonClientResult<()> {
+        self.sdk.remove_watch(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn pause_watch(&self, id: String) -> Result<Watch, String> {
-        self.sdk.pause_watch(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn pause_watch(&self, id: String) -> DaemonClientResult<Watch> {
+        self.sdk.pause_watch(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn resume_watch(&self, id: String) -> Result<Watch, String> {
-        self.sdk.resume_watch(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn resume_watch(&self, id: String) -> DaemonClientResult<Watch> {
+        self.sdk.resume_watch(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn replace_watch(&self, watch: Watch) -> Result<(), String> {
-        self.sdk.replace_watch(watch).await.map_err(|err| err.to_string())
+    pub(crate) async fn replace_watch(&self, watch: Watch) -> DaemonClientResult<()> {
+        self.sdk.replace_watch(watch).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn remove_watches_for_session(
         &self,
         session_id: String,
-    ) -> Result<(), String> {
-        self.sdk.remove_watches_for_session(session_id).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<()> {
+        self.sdk.remove_watches_for_session(session_id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn cleanup_watch_orphans(&self) -> Result<(), String> {
-        self.sdk.cleanup_watch_orphans().await.map_err(|err| err.to_string())
+    pub(crate) async fn cleanup_watch_orphans(&self) -> DaemonClientResult<()> {
+        self.sdk.cleanup_watch_orphans().await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn start_daemon_process(
         &self,
         command: String,
         working_dir: Option<String>,
-    ) -> Result<ProcessRecord, String> {
-        self.sdk.start_daemon_process(command, working_dir).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<ProcessRecord> {
+        self.sdk.start_daemon_process(command, working_dir).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn daemon_process_output(
         &self,
         id: String,
         max_bytes: Option<usize>,
-    ) -> Result<ProcessSnapshot, String> {
-        self.sdk.daemon_process_output(id, max_bytes).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<ProcessSnapshot> {
+        self.sdk.daemon_process_output(id, max_bytes).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn list_daemon_processes(&self) -> Result<Vec<ProcessRecord>, String> {
-        self.sdk.list_daemon_processes().await.map_err(|err| err.to_string())
+    pub(crate) async fn list_daemon_processes(&self) -> DaemonClientResult<Vec<ProcessRecord>> {
+        self.sdk.list_daemon_processes().await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn kill_daemon_process(&self, id: String) -> Result<ProcessRecord, String> {
-        self.sdk.kill_daemon_process(id).await.map_err(|err| err.to_string())
+    pub(crate) async fn kill_daemon_process(
+        &self,
+        id: String,
+    ) -> DaemonClientResult<ProcessRecord> {
+        self.sdk.kill_daemon_process(id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn spawn_daemon_pty_shell(
@@ -688,7 +738,7 @@ impl DaemonClient {
         nono_profile: Option<String>,
         nono_allow_dirs: Vec<String>,
         initial_size: Option<(u16, u16)>,
-    ) -> Result<PtyRecord, String> {
+    ) -> DaemonClientResult<PtyRecord> {
         let mut spawn = self.sdk.spawn_shell();
         if let Some(id) = id {
             spawn = spawn.id(id);
@@ -714,7 +764,7 @@ impl DaemonClient {
         if let Some((cols, rows)) = initial_size {
             spawn = spawn.initial_size(cols, rows);
         }
-        spawn.spawn_record().await.map_err(|err| err.to_string())
+        spawn.spawn_record().await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn spawn_daemon_pty_task(
@@ -726,7 +776,7 @@ impl DaemonClient {
         pane_id: Option<String>,
         profile: Option<String>,
         initial_size: Option<(u16, u16)>,
-    ) -> Result<PtyRecord, String> {
+    ) -> DaemonClientResult<PtyRecord> {
         let mut spawn = self.sdk.spawn_task(command);
         if let Some(id) = id {
             spawn = spawn.id(id);
@@ -746,27 +796,31 @@ impl DaemonClient {
         if let Some((cols, rows)) = initial_size {
             spawn = spawn.initial_size(cols, rows);
         }
-        spawn.spawn_record().await.map_err(|err| err.to_string())
+        spawn.spawn_record().await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn daemon_pty_output(
         &self,
         id: String,
         max_bytes: Option<usize>,
-    ) -> Result<PtySnapshot, String> {
+    ) -> DaemonClientResult<PtySnapshot> {
         self.sdk
             .pty(id)
             .snapshot(max_bytes.unwrap_or(roux_runtime::pty_service::PTY_OUTPUT_DEFAULT_POLL_BYTES))
             .await
-            .map_err(|err| err.to_string())
+            .map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn list_daemon_ptys(&self) -> Result<Vec<PtyRecord>, String> {
-        self.sdk.ptys().await.map_err(|err| err.to_string())
+    pub(crate) async fn list_daemon_ptys(&self) -> DaemonClientResult<Vec<PtyRecord>> {
+        self.sdk.ptys().await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn write_daemon_pty(&self, id: String, data: String) -> Result<(), String> {
-        self.sdk.pty(id).write(data).await.map(|_| ()).map_err(|err| err.to_string())
+    pub(crate) async fn write_daemon_pty(
+        &self,
+        id: String,
+        data: String,
+    ) -> DaemonClientResult<()> {
+        self.sdk.pty(id).write(data).await.map(|_| ()).map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn resize_daemon_pty(
@@ -774,61 +828,61 @@ impl DaemonClient {
         id: String,
         cols: u16,
         rows: u16,
-    ) -> Result<PtyRecord, String> {
-        self.sdk.pty(id).resize(cols, rows).await.map_err(|err| err.to_string())
+    ) -> DaemonClientResult<PtyRecord> {
+        self.sdk.pty(id).resize(cols, rows).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn kill_daemon_pty(&self, id: String) -> Result<PtyRecord, String> {
+    pub(crate) async fn kill_daemon_pty(&self, id: String) -> DaemonClientResult<PtyRecord> {
         self.sdk
             .pty(id)
             .kill()
             .await
-            .map_err(|err| err.to_string())?
-            .ok_or_else(|| "daemon pty not found".to_string())
+            .map_err(DaemonClientError::from)?
+            .ok_or(DaemonClientError::DaemonPtyNotFound)
     }
 
-    pub(crate) async fn detach_daemon_pty(&self, id: String) -> Result<PtyRecord, String> {
+    pub(crate) async fn detach_daemon_pty(&self, id: String) -> DaemonClientResult<PtyRecord> {
         self.sdk
             .pty(id)
             .detach()
             .await
-            .map_err(|err| err.to_string())?
-            .ok_or_else(|| "daemon pty not found".to_string())
+            .map_err(DaemonClientError::from)?
+            .ok_or(DaemonClientError::DaemonPtyNotFound)
     }
 
     pub(crate) async fn attach_daemon_pty_to_pane(
         &self,
         id: String,
         pane_id: String,
-    ) -> Result<PtyRecord, String> {
+    ) -> DaemonClientResult<PtyRecord> {
         self.sdk
             .pty(id)
             .attach_to_pane(pane_id)
             .await
-            .map_err(|err| err.to_string())?
-            .ok_or_else(|| "daemon pty not found".to_string())
+            .map_err(DaemonClientError::from)?
+            .ok_or(DaemonClientError::DaemonPtyNotFound)
     }
 
-    pub(crate) async fn mark_daemon_pty_read(&self, id: String) -> Result<PtyRecord, String> {
+    pub(crate) async fn mark_daemon_pty_read(&self, id: String) -> DaemonClientResult<PtyRecord> {
         self.sdk
             .pty(id)
             .mark_read()
             .await
-            .map_err(|err| err.to_string())?
-            .ok_or_else(|| "daemon pty not found".to_string())
+            .map_err(DaemonClientError::from)?
+            .ok_or(DaemonClientError::DaemonPtyNotFound)
     }
 
     pub(crate) async fn set_daemon_pty_name(
         &self,
         id: String,
         name: Option<String>,
-    ) -> Result<PtyRecord, String> {
+    ) -> DaemonClientResult<PtyRecord> {
         self.sdk
             .pty(id)
             .set_name(name)
             .await
-            .map_err(|err| err.to_string())?
-            .ok_or_else(|| "daemon pty not found".to_string())
+            .map_err(DaemonClientError::from)?
+            .ok_or(DaemonClientError::DaemonPtyNotFound)
     }
 
     pub(crate) fn spawn_daemon_pty_output_bridge(
@@ -920,8 +974,8 @@ impl DaemonClient {
     }
 }
 
-fn connect_current_sdk() -> Result<roux_sdk::Roux, String> {
-    roux_sdk::Roux::connect().map_err(|err| err.to_string())
+fn connect_current_sdk() -> DaemonClientResult<roux_sdk::Roux> {
+    roux_sdk::Roux::connect().map_err(DaemonClientError::from)
 }
 
 fn run_reconnecting_resolved_event_bridge<C, T, F, S>(
@@ -931,8 +985,8 @@ fn run_reconnecting_resolved_event_bridge<C, T, F, S>(
     mut sleep: S,
     max_attempts: Option<usize>,
 ) where
-    C: FnMut() -> Result<T, String>,
-    F: FnMut(T) -> Result<(), String>,
+    C: FnMut() -> DaemonClientResult<T>,
+    F: FnMut(T) -> DaemonClientResult<()>,
     S: FnMut(Duration),
 {
     let mut attempts = 0_usize;
@@ -955,11 +1009,11 @@ struct StartedDaemon {
     pid: u32,
 }
 
-fn launch_local_daemon() -> Result<StartedDaemon, String> {
+fn launch_local_daemon() -> DaemonClientResult<StartedDaemon> {
     let binary = resolve_daemon_binary()?;
-    let mut child = daemon_spawn_command(&binary)
-        .spawn()
-        .map_err(|err| format!("spawn {} daemon: {err}", binary.display()))?;
+    let mut child = daemon_spawn_command(&binary).spawn().map_err(|err| {
+        DaemonClientError::adapter(format!("spawn {} daemon: {err}", binary.display()))
+    })?;
     let pid = child.id();
     std::thread::spawn(move || {
         let _ = child.wait();
@@ -1027,13 +1081,13 @@ fn parse_env_enabled(value: &str) -> Option<bool> {
     }
 }
 
-fn resolve_daemon_binary() -> Result<PathBuf, String> {
+fn resolve_daemon_binary() -> DaemonClientResult<PathBuf> {
     let current_exe = std::env::current_exe().ok();
     resolve_daemon_binary_from(current_exe.as_deref()).ok_or_else(|| {
-        format!(
+        DaemonClientError::adapter(format!(
             "{} not found next to the desktop binary or on PATH",
             platform::roux_cli_file_name()
-        )
+        ))
     })
 }
 
@@ -1067,7 +1121,7 @@ fn read_watch_events_blocking(
     sdk: &roux_sdk::Roux,
     app: AppHandle,
     watch_manager: WatchManager,
-) -> Result<(), String> {
+) -> DaemonClientResult<()> {
     let mut stream_error = None;
     let result = sdk.watch_events_blocking(true, |frame| {
         match handle_watch_event_frame(frame, &app, &watch_manager) {
@@ -1078,14 +1132,14 @@ fn read_watch_events_blocking(
             }
         }
     });
-    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
+    stream_error.map_or_else(|| result.map_err(DaemonClientError::from), Err)
 }
 
 fn handle_watch_event_frame(
     frame: WatchEventStreamFrame,
     app: &AppHandle,
     watch_manager: &WatchManager,
-) -> Result<(), String> {
+) -> DaemonClientResult<()> {
     match frame {
         WatchEventStreamFrame::Ready => Ok(()),
         WatchEventStreamFrame::Update { event } => {
@@ -1100,11 +1154,11 @@ fn handle_watch_event_frame(
             rlog!("Daemon watch event stream warning: {message}");
             Ok(())
         }
-        WatchEventStreamFrame::Error { error } => Err(error),
+        WatchEventStreamFrame::Error { error } => Err(DaemonClientError::adapter(error)),
     }
 }
 
-fn read_mailbox_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<(), String> {
+fn read_mailbox_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> DaemonClientResult<()> {
     let mut stream_error = None;
     let result =
         sdk.mailbox_events_blocking(|frame| match handle_mailbox_event_frame(frame, &app) {
@@ -1114,27 +1168,27 @@ fn read_mailbox_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<
                 false
             }
         });
-    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
+    stream_error.map_or_else(|| result.map_err(DaemonClientError::from), Err)
 }
 
 fn handle_mailbox_event_frame(
     frame: MailboxEventStreamFrame,
     app: &AppHandle,
-) -> Result<(), String> {
+) -> DaemonClientResult<()> {
     match frame {
         MailboxEventStreamFrame::Ready => Ok(()),
         MailboxEventStreamFrame::Event { event } => app
             .emit(roux_lib::mailbox::MAILBOX_EVENT, event.as_ref())
-            .map_err(|err| format!("emit daemon mailbox event: {err}")),
+            .map_err(|err| DaemonClientError::adapter(format!("emit daemon mailbox event: {err}"))),
         MailboxEventStreamFrame::Warning { message } => {
             rlog!("Daemon mailbox event stream warning: {message}");
             Ok(())
         }
-        MailboxEventStreamFrame::Error { error } => Err(error),
+        MailboxEventStreamFrame::Error { error } => Err(DaemonClientError::adapter(error)),
     }
 }
 
-fn read_alias_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<(), String> {
+fn read_alias_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> DaemonClientResult<()> {
     let mut stream_error = None;
     let result = sdk.alias_events_blocking(|frame| match handle_alias_event_frame(frame, &app) {
         Ok(()) => true,
@@ -1143,24 +1197,30 @@ fn read_alias_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<()
             false
         }
     });
-    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
+    stream_error.map_or_else(|| result.map_err(DaemonClientError::from), Err)
 }
 
-fn handle_alias_event_frame(frame: AliasEventStreamFrame, app: &AppHandle) -> Result<(), String> {
+fn handle_alias_event_frame(
+    frame: AliasEventStreamFrame,
+    app: &AppHandle,
+) -> DaemonClientResult<()> {
     match frame {
         AliasEventStreamFrame::Ready => Ok(()),
         AliasEventStreamFrame::Event { event } => app
             .emit(roux_lib::aliases::ALIAS_EVENT, &event)
-            .map_err(|err| format!("emit daemon alias event: {err}")),
+            .map_err(|err| DaemonClientError::adapter(format!("emit daemon alias event: {err}"))),
         AliasEventStreamFrame::Warning { message } => {
             rlog!("Daemon alias event stream warning: {message}");
             Ok(())
         }
-        AliasEventStreamFrame::Error { error } => Err(error),
+        AliasEventStreamFrame::Error { error } => Err(DaemonClientError::adapter(error)),
     }
 }
 
-fn read_subscription_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<(), String> {
+fn read_subscription_events_blocking(
+    sdk: &roux_sdk::Roux,
+    app: AppHandle,
+) -> DaemonClientResult<()> {
     let mut stream_error = None;
     let result = sdk.subscription_events_blocking(|frame| {
         match handle_subscription_event_frame(frame, &app) {
@@ -1171,23 +1231,25 @@ fn read_subscription_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Re
             }
         }
     });
-    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
+    stream_error.map_or_else(|| result.map_err(DaemonClientError::from), Err)
 }
 
 fn handle_subscription_event_frame(
     frame: SubscriptionEventStreamFrame,
     app: &AppHandle,
-) -> Result<(), String> {
+) -> DaemonClientResult<()> {
     match frame {
         SubscriptionEventStreamFrame::Ready => Ok(()),
-        SubscriptionEventStreamFrame::Event { event } => app
-            .emit(roux_lib::subscriptions::SUBSCRIPTION_EVENT, &event)
-            .map_err(|err| format!("emit daemon subscription event: {err}")),
+        SubscriptionEventStreamFrame::Event { event } => {
+            app.emit(roux_lib::subscriptions::SUBSCRIPTION_EVENT, &event).map_err(|err| {
+                DaemonClientError::adapter(format!("emit daemon subscription event: {err}"))
+            })
+        }
         SubscriptionEventStreamFrame::Warning { message } => {
             rlog!("Daemon subscription event stream warning: {message}");
             Ok(())
         }
-        SubscriptionEventStreamFrame::Error { error } => Err(error),
+        SubscriptionEventStreamFrame::Error { error } => Err(DaemonClientError::adapter(error)),
     }
 }
 
@@ -1197,14 +1259,14 @@ fn handle_sdk_pty_attach_frame(
     channel: &Channel<IpcResponse>,
     app: &AppHandle,
     sent_until: &mut u64,
-) -> Result<bool, String> {
+) -> DaemonClientResult<bool> {
     match frame {
         PtyAttachFrame::Ready { replay_offset, replay_bytes, .. } => {
             let replay_end = replay_offset.saturating_add(replay_bytes.len() as u64);
             if !replay_bytes.is_empty() {
-                channel
-                    .send(IpcResponse::new(replay_bytes))
-                    .map_err(|err| format!("send daemon pty replay to frontend: {err}"))?;
+                channel.send(IpcResponse::new(replay_bytes)).map_err(|err| {
+                    DaemonClientError::adapter(format!("send daemon pty replay to frontend: {err}"))
+                })?;
             }
             *sent_until = (*sent_until).max(replay_end);
             Ok(true)
@@ -1217,9 +1279,9 @@ fn handle_sdk_pty_attach_frame(
             let start = if offset < *sent_until { (*sent_until - offset) as usize } else { 0 };
             let bytes = bytes[start..].to_vec();
             if !bytes.is_empty() {
-                channel
-                    .send(IpcResponse::new(bytes))
-                    .map_err(|err| format!("send daemon pty output to frontend: {err}"))?;
+                channel.send(IpcResponse::new(bytes)).map_err(|err| {
+                    DaemonClientError::adapter(format!("send daemon pty output to frontend: {err}"))
+                })?;
             }
             *sent_until = (*sent_until).max(frame_end);
             Ok(true)
@@ -1228,7 +1290,7 @@ fn handle_sdk_pty_attach_frame(
             emit_daemon_pty_exit(app, id, code, generation);
             Ok(false)
         }
-        PtyAttachFrame::Error { error } => Err(error),
+        PtyAttachFrame::Error { error } => Err(DaemonClientError::adapter(error)),
     }
 }
 
@@ -1266,7 +1328,8 @@ mod tests {
     fn event_bridge_reconnects_after_eof_and_error() {
         let calls = Cell::new(0);
         let sleeps = Cell::new(0);
-        let mut results = vec![Ok(()), Err("socket closed".to_string()), Ok(())].into_iter();
+        let mut results =
+            vec![Ok(()), Err(DaemonClientError::adapter("socket closed")), Ok(())].into_iter();
 
         run_reconnecting_resolved_event_bridge(
             "test",
@@ -1288,7 +1351,8 @@ mod tests {
         let resolves = Cell::new(0);
         let reads = RefCell::new(Vec::new());
         let sleeps = Cell::new(0);
-        let mut results = vec![Ok(()), Err("socket closed".to_string()), Ok(())].into_iter();
+        let mut results =
+            vec![Ok(()), Err(DaemonClientError::adapter("socket closed")), Ok(())].into_iter();
 
         run_reconnecting_resolved_event_bridge(
             "test",
@@ -1322,6 +1386,20 @@ mod tests {
         let client = DaemonClient::from_detected_status(daemon_status(), probe_sdk).unwrap();
 
         assert_eq!(client.sdk.request_timeout(), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn daemon_client_error_stringification_preserves_boundary_messages() {
+        assert_eq!(
+            DaemonClientError::UnexpectedDaemonKind("other".to_string()).to_string(),
+            "unexpected daemon kind: other"
+        );
+        assert_eq!(String::from(DaemonClientError::DaemonPtyNotFound), "daemon pty not found");
+        assert_eq!(DaemonClientError::adapter("socket closed").to_string(), "socket closed");
+        assert_eq!(
+            DaemonClientError::from(roux_sdk::RouxError::NotRunning).to_string(),
+            "Roux is not running"
+        );
     }
 
     #[test]

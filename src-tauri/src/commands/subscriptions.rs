@@ -31,7 +31,8 @@ pub async fn subscriptions_list(
     {
         return client
             .list_subscriptions(alias.clone(), project_id.clone(), global.unwrap_or(false))
-            .await;
+            .await
+            .map_err(Into::into);
     }
     let filter = project_filter(project_id.as_deref(), global.unwrap_or(false));
     Ok(match alias {
@@ -53,7 +54,8 @@ pub async fn subscriptions_create(
     {
         return client
             .create_subscription(alias.clone(), pattern.clone(), project_id.clone())
-            .await;
+            .await
+            .map_err(Into::into);
     }
     state
         .subscription_manager
@@ -70,7 +72,7 @@ pub async fn subscriptions_delete(
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("bus-unsubscribe"))
     {
-        return client.delete_subscription(id.clone()).await;
+        return client.delete_subscription(id.clone()).await.map_err(Into::into);
     }
     state.subscription_manager.unsubscribe(&id, Some(&app)).map_err(|e| e.to_string())
 }

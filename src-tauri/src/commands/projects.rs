@@ -10,7 +10,7 @@ pub(crate) async fn list_projects(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Project>, String> {
     if let Some(client) = &state.daemon_client {
-        return client.list_projects().await;
+        return client.list_projects().await.map_err(Into::into);
     }
     state.runtime.project_handle.list().await.map_err(|e| e.to_string())
 }
@@ -22,7 +22,7 @@ pub(crate) async fn create_project(
     state: tauri::State<'_, AppState>,
 ) -> Result<Project, String> {
     if let Some(client) = &state.daemon_client {
-        return client.create_project(name).await;
+        return client.create_project(name).await.map_err(Into::into);
     }
     let project = Project {
         id: uuid::Uuid::new_v4().to_string(),
@@ -43,7 +43,7 @@ pub(crate) async fn remove_project(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     if let Some(client) = &state.daemon_client {
-        return client.remove_project(id).await;
+        return client.remove_project(id).await.map_err(Into::into);
     }
     let removed = state.runtime.project_handle.get(&id).await.map_err(|e| e.to_string())?;
     state.runtime.project_handle.remove(&id).await.map_err(|e| e.to_string())?;
@@ -64,7 +64,7 @@ pub(crate) async fn rename_project(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     if let Some(client) = &state.daemon_client {
-        return client.rename_project(id, name).await;
+        return client.rename_project(id, name).await.map_err(Into::into);
     }
     state.runtime.project_handle.rename(&id, &name).await.map_err(|e| e.to_string())
 }
@@ -77,7 +77,7 @@ pub(crate) async fn update_project(
     state: tauri::State<'_, AppState>,
 ) -> Result<Project, String> {
     if let Some(client) = &state.daemon_client {
-        return client.update_project(id, patch).await;
+        return client.update_project(id, patch).await.map_err(Into::into);
     }
     state
         .runtime
@@ -96,7 +96,7 @@ pub(crate) async fn set_session_project(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     if let Some(client) = &state.daemon_client {
-        return client.set_session_project(session_id, project_id).await;
+        return client.set_session_project(session_id, project_id).await.map_err(Into::into);
     }
     svc::set_session_project(&state.runtime.session_handle, &session_id, project_id)
         .await

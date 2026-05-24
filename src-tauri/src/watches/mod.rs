@@ -69,7 +69,7 @@ pub async fn cmd_remove_watch(id: String, state: tauri::State<'_, AppState>) -> 
 pub async fn cmd_list_watches(state: tauri::State<'_, AppState>) -> Result<Vec<Watch>, String> {
     if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("watch-list"))
     {
-        return client.list_watches().await;
+        return client.list_watches().await.map_err(Into::into);
     }
 
     state.watch_manager.store().list().await.map_err(|e| e.to_string())

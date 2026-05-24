@@ -47,8 +47,8 @@ fn build_post_worktree_remove_context(
     context
 }
 
-fn daemon_command_unsupported(err: &str) -> bool {
-    err.contains("unknown daemon command")
+fn daemon_command_unsupported(err: &impl std::fmt::Display) -> bool {
+    err.to_string().contains("unknown daemon command")
 }
 
 async fn create_worktree_local(
@@ -137,7 +137,7 @@ pub(crate) async fn cmd_create_worktree(
         {
             Ok(path) => return Ok(path),
             Err(err) if daemon_command_unsupported(&err) => {}
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
         }
     }
 
@@ -195,7 +195,7 @@ pub(crate) async fn cmd_remove_worktree(
         {
             Ok(()) => return Ok(()),
             Err(err) if daemon_command_unsupported(&err) => {}
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
         }
     }
 
@@ -236,7 +236,7 @@ pub(crate) async fn cmd_list_worktrees(
         match client.list_worktrees(repo_path.clone()).await {
             Ok(worktrees) => return Ok(worktrees),
             Err(err) if daemon_command_unsupported(&err) => {}
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
         }
     }
     list_worktrees_local(repo_path).await
@@ -254,7 +254,7 @@ pub(crate) async fn cmd_list_branches(
         match client.list_branches(repo_path.clone()).await {
             Ok(branches) => return Ok(branches),
             Err(err) if daemon_command_unsupported(&err) => {}
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
         }
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -274,7 +274,7 @@ pub(crate) async fn git_init(
         match client.git_init(path.clone()).await {
             Ok(()) => return Ok(()),
             Err(err) if daemon_command_unsupported(&err) => {}
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
         }
     }
     tauri::async_runtime::spawn_blocking(move || svc::git_init(&path).map_err(|e| e.to_string()))
