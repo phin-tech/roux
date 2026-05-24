@@ -19,7 +19,7 @@ pub use protocol::{CommandRequest, CommandResponse};
 pub use requests::{CreateSessionShell, MailboxPost, NotesEnv, ReconnectSessionShell};
 pub use streams::{
     AliasEventStreamFrame, MailboxEventStreamFrame, SubscriptionEventStreamFrame,
-    WatchEventStreamFrame,
+    WatchEventStreamFrame, WorkItemEventStreamFrame,
 };
 pub use types::{DaemonStatus, PtyAttachFrame, PtyKind, PtyRecord, PtySnapshot};
 

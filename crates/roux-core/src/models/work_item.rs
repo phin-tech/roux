@@ -79,7 +79,7 @@ pub struct WorkItem {
 
 /// Input shape for creating / importing a work item. All fields except
 /// `title` are optional; the store fills defaults.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkItemInput {
     pub title: String,

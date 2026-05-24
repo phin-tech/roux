@@ -391,6 +391,11 @@ export const commands = {
 	renameProject: (id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("rename_project", { id, name })),
 	updateProject: (id: string, patch: ProjectUpdate) => typedError<Project, string>(__TAURI_INVOKE("update_project", { id, patch })),
 	setSessionProject: (sessionId: string, projectId: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_project", { sessionId, projectId })),
+	workItemList: (projectId: string | null) => typedError<WorkItem[], string>(__TAURI_INVOKE("work_item_list", { projectId })),
+	workItemCreate: (input: WorkItemInput) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_create", { input })),
+	workItemUpdate: (id: string, input: WorkItemInput) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_update", { id, input })),
+	workItemMove: (id: string, status: WorkItemStatus, sortOrder: number) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_move", { id, status, sortOrder })),
+	workItemDelete: (id: string) => typedError<string, string>(__TAURI_INVOKE("work_item_delete", { id })),
 	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
 	notesWrite: (target: NotesTarget, content: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_write", { target, content, tags })),
 	notesAppend: (target: NotesTarget, content: string, timestamped: boolean, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_append", { target, content, timestamped, tags })),
@@ -1136,6 +1141,42 @@ export type ProjectUpdate = {
 	contextPaths?: string[] | null,
 	sessionBlueprints?: SessionBlueprint[] | null,
 	projectPrompt?: string | null,
+};
+
+export type WorkItemStatus = "todo" | "doing" | "review" | "done";
+
+export type ExternalRef = {
+	provider: string,
+	externalId: string,
+	url?: string | null,
+};
+
+export type WorkItem = {
+	id: string,
+	projectId?: string | null,
+	parentId?: string | null,
+	title: string,
+	body?: string | null,
+	status: WorkItemStatus,
+	sessionId?: string | null,
+	provider?: string | null,
+	externalId?: string | null,
+	externalUrl?: string | null,
+	sortOrder: number,
+	pinnedPrUrl?: string | null,
+	cost?: number | null,
+	createdAt: number,
+	updatedAt: number,
+};
+
+export type WorkItemInput = {
+	title: string,
+	body?: string | null,
+	status?: WorkItemStatus | null,
+	projectId?: string | null,
+	parentId?: string | null,
+	externalRef?: ExternalRef | null,
+	sortOrder?: number | null,
 };
 
 /**

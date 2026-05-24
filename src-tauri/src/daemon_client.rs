@@ -225,6 +225,41 @@ impl DaemonClient {
         self.sdk.update_project(id, patch).await.map_err(DaemonClientError::from)
     }
 
+    pub(crate) async fn work_item_list(
+        &self,
+        project_id: Option<String>,
+    ) -> Result<Vec<roux_core::WorkItem>, String> {
+        self.sdk.work_item_list(project_id).await.map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_create(
+        &self,
+        input: roux_core::WorkItemInput,
+    ) -> Result<roux_core::WorkItem, String> {
+        self.sdk.work_item_create(input).await.map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_update(
+        &self,
+        id: String,
+        input: roux_core::WorkItemInput,
+    ) -> Result<roux_core::WorkItem, String> {
+        self.sdk.work_item_update(id, input).await.map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_move(
+        &self,
+        id: String,
+        status: roux_core::WorkItemStatus,
+        sort_order: f64,
+    ) -> Result<roux_core::WorkItem, String> {
+        self.sdk.work_item_move(id, status, sort_order).await.map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_delete(&self, id: String) -> Result<String, String> {
+        self.sdk.work_item_delete(id).await.map_err(|err| err.to_string())
+    }
+
     pub(crate) async fn list_aliases(
         &self,
         project_id: Option<String>,

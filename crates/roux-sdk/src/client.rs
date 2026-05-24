@@ -804,6 +804,61 @@ impl Roux {
         self.command(CommandRequest::new("daemon-process-kill").args(id_arg(id.into()))).await
     }
 
+    pub async fn work_item_list(
+        &self,
+        project_id: Option<impl Into<String>>,
+    ) -> RouxResult<Vec<roux_core::WorkItem>> {
+        let args = match project_id {
+            Some(pid) => serde_json::json!({ "projectId": pid.into() }),
+            None => serde_json::json!({}),
+        };
+        self.command(CommandRequest::new("work-item-list").args(args)).await
+    }
+
+    pub async fn work_item_create(
+        &self,
+        input: roux_core::WorkItemInput,
+    ) -> RouxResult<roux_core::WorkItem> {
+        self.command(CommandRequest::new("work-item-create").args(
+            serde_json::to_value(input).map_err(RouxError::Decode)?,
+        ))
+        .await
+    }
+
+    pub async fn work_item_update(
+        &self,
+        id: impl Into<String>,
+        input: roux_core::WorkItemInput,
+    ) -> RouxResult<roux_core::WorkItem> {
+        let mut args = serde_json::to_value(input).map_err(RouxError::Decode)?;
+        args["id"] = serde_json::Value::String(id.into());
+        self.command(CommandRequest::new("work-item-update").args(args)).await
+    }
+
+    pub async fn work_item_move(
+        &self,
+        id: impl Into<String>,
+        status: roux_core::WorkItemStatus,
+        sort_order: f64,
+    ) -> RouxResult<roux_core::WorkItem> {
+        self.command(CommandRequest::new("work-item-move").args(serde_json::json!({
+            "id": id.into(),
+            "status": status.as_str(),
+            "sortOrder": sort_order,
+        })))
+        .await
+    }
+
+    pub async fn work_item_delete(&self, id: impl Into<String>) -> RouxResult<String> {
+        let value: Value =
+            self.command(CommandRequest::new("work-item-delete").args(id_arg(id.into()))).await?;
+        value
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| RouxError::Command("missing id in delete response".to_string()))
+    }
+
     pub async fn command<T>(&self, request: CommandRequest) -> RouxResult<T>
     where
         T: DeserializeOwned + Send + 'static,

@@ -51,3 +51,16 @@ pub enum SubscriptionEventStreamFrame {
     #[serde(rename = "error")]
     Error { error: String },
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+pub enum WorkItemEventStreamFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "event")]
+    Event { event: roux_core::WorkItemEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
+}

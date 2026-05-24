@@ -20,4 +20,5 @@ pub(crate) mod smol_machines;
 pub(crate) mod subscriptions;
 pub(crate) mod updater;
 pub(crate) mod user_themes;
+pub(crate) mod work_items;
 pub(crate) mod worktrees;
