@@ -692,6 +692,28 @@ used. Optional `args.profile`. Creates a session via `session-create-shell`
 `set_session` which fires `WorkItemEvent::SessionBound`. Returns the new
 session record.
 
+`work-item-import`
+
+Bulk import. Requires either `args.items` (inline JSON array) or `args.path`
+(path to a file containing `{ "items": [...] }`). Item shape:
+
+```json
+{
+  "title": "required",
+  "body": "optional",
+  "status": "todo|doing|review|done",
+  "projectId": "optional",
+  "externalRef": { "provider": "gh", "externalId": "123", "url": "optional" },
+  "parentExternalId": "100"
+}
+```
+
+Items with `externalRef` are upserted by `(provider, externalId)` — no
+duplicates on re-import. Items without `externalRef` are always inserted. A
+second pass resolves `parentExternalId` → `parent_id` within the batch (same
+provider). Fires one `WorkItemEvent::Imported { ids }` after all items are
+written. Returns `{ "imported": N, "ids": [...] }`.
+
 `work-item-events` (streaming)
 
 Opens a persistent stream of `WorkItemEvent` changes. Mirrors the

@@ -152,6 +152,10 @@ impl WorkItemHandle {
             .map_err(|e| format!("work-item upsert: {e}"))?;
         Ok(item)
     }
+
+    pub fn broadcast_imported(&self, ids: Vec<String>) {
+        self.broadcast(WorkItemEvent::Imported { ids });
+    }
 }
 
 #[cfg(test)]

@@ -827,6 +827,7 @@ async fn handle_request_with_watch_runner(
         "work-item-move" => handle_work_item_move(req, host).await,
         "work-item-delete" => handle_work_item_delete(req, host).await,
         "work-item-dispatch" => handle_work_item_dispatch(req, host, identity).await,
+        "work-item-import" => handle_work_item_import(req, host).await,
         _ => Response::err(format!("unknown daemon command: {}", req.command)),
     }
 }
@@ -850,6 +851,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "work-item-delete",
         "work-item-dispatch",
         "work-item-events",
+        "work-item-import",
         "session-create",
         "session-create-shell",
         "session-reconnect-shell",
@@ -4759,6 +4761,111 @@ async fn handle_work_item_dispatch(
     session_resp
 }
 
+async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
+    // Accept inline args.items or a path to a JSON file containing { "items": [...] }
+    let items_value = if let Some(items) = req.args.get("items") {
+        items.clone()
+    } else if let Some(path) = req.args.get("path").and_then(|v| v.as_str()) {
+        match std::fs::read_to_string(path) {
+            Ok(contents) => match serde_json::from_str::<serde_json::Value>(&contents) {
+                Ok(v) => v.get("items").cloned().unwrap_or(v),
+                Err(err) => return Response::err(format!("failed to parse import file: {err}")),
+            },
+            Err(err) => return Response::err(format!("failed to read import file: {err}")),
+        }
+    } else {
+        return Response::err("items or path required");
+    };
+
+    let Some(items_array) = items_value.as_array() else {
+        return Response::err("items must be an array");
+    };
+
+    // First pass: upsert/create each item; build external→id map for parent resolution.
+    let mut external_to_id: std::collections::HashMap<(String, String), String> = Default::default();
+    let mut imported_ids: Vec<String> = Vec::new();
+    // (item_id, provider, parent_external_id) to resolve in second pass
+    let mut parent_links: Vec<(String, String, String)> = Vec::new();
+
+    for item_val in items_array {
+        let title = item_val.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if title.is_empty() {
+            return Response::err("each import item must have a title");
+        }
+        let external_ref = parse_import_external_ref(item_val);
+        let input = roux_core::WorkItemInput {
+            title,
+            body: item_val.get("body").and_then(|v| v.as_str()).map(str::to_string),
+            status: item_val.get("status").and_then(|v| v.as_str()).and_then(roux_core::WorkItemStatus::from_str_opt),
+            project_id: optional_string_arg(item_val, &["projectId", "project_id"]),
+            parent_id: None, // resolved in second pass
+            external_ref,
+            sort_order: None,
+        };
+        let has_external = input.external_ref.is_some();
+        let item = if has_external {
+            match host.work_item_handle.upsert_by_external(input) {
+                Ok(item) => item,
+                Err(err) => return Response::err(err),
+            }
+        } else {
+            match host.work_item_handle.create(input) {
+                Ok(item) => item,
+                Err(err) => return Response::err(err),
+            }
+        };
+
+        if let (Some(provider), Some(ext_id)) = (&item.provider, &item.external_id) {
+            external_to_id.insert((provider.clone(), ext_id.clone()), item.id.clone());
+        }
+
+        if let Some(peid) = item_val.get("parentExternalId").and_then(|v| v.as_str()) {
+            if let Some(provider) = &item.provider {
+                parent_links.push((item.id.clone(), provider.clone(), peid.to_string()));
+            }
+        }
+
+        imported_ids.push(item.id.clone());
+    }
+
+    // Second pass: resolve parentExternalId → parent_id within the batch.
+    for (item_id, provider, parent_ext_id) in parent_links {
+        if let Some(parent_id) = external_to_id.get(&(provider, parent_ext_id)) {
+            if let Ok(Some(existing)) = host.work_item_handle.get(&item_id) {
+                let ext_ref = existing.provider.as_ref().map(|p| roux_core::ExternalRef {
+                    provider: p.clone(),
+                    external_id: existing.external_id.clone().unwrap_or_default(),
+                    url: existing.external_url.clone(),
+                });
+                let update = roux_core::WorkItemInput {
+                    title: existing.title,
+                    body: existing.body,
+                    status: Some(existing.status),
+                    project_id: existing.project_id,
+                    parent_id: Some(parent_id.clone()),
+                    external_ref: ext_ref,
+                    sort_order: Some(existing.sort_order),
+                };
+                let _ = host.work_item_handle.update(&item_id, update);
+            }
+        }
+    }
+
+    host.work_item_handle.broadcast_imported(imported_ids.clone());
+    Response::success(serde_json::json!({ "imported": imported_ids.len(), "ids": imported_ids }))
+}
+
+fn parse_import_external_ref(item_val: &serde_json::Value) -> Option<roux_core::ExternalRef> {
+    let ext = item_val.get("externalRef").or_else(|| item_val.get("external_ref"))?;
+    let provider = ext.get("provider").and_then(|v| v.as_str())?;
+    let external_id = ext.get("externalId").or_else(|| ext.get("external_id")).and_then(|v| v.as_str())?;
+    Some(roux_core::ExternalRef {
+        provider: provider.to_string(),
+        external_id: external_id.to_string(),
+        url: ext.get("url").and_then(|v| v.as_str()).map(str::to_string),
+    })
+}
+
 async fn handle_work_item_events_stream<W>(
     req: Request,
     writer: &mut W,
@@ -7941,6 +8048,142 @@ post-worktree-create = "{post_create}"
         assert_eq!(event_frame["type"], "event");
 
         stream_task.abort();
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_import_inline_items() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-import", serde_json::json!({
+                "items": [
+                    { "title": "Task A", "externalRef": { "provider": "gh", "externalId": "1" } },
+                    { "title": "Task B", "externalRef": { "provider": "gh", "externalId": "2" } },
+                    { "title": "Task C" },
+                ]
+            })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok, "import failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["imported"], 3);
+
+        let items = host.work_item_handle.list(None).unwrap();
+        assert_eq!(items.len(), 3);
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_import_deduplicates_on_reimport() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        // First import
+        handle_request(
+            req("work-item-import", serde_json::json!({
+                "items": [{ "title": "Old title", "externalRef": { "provider": "gh", "externalId": "42" } }]
+            })),
+            &host, &identity,
+        ).await;
+
+        // Re-import same externalId with updated title
+        let resp = handle_request(
+            req("work-item-import", serde_json::json!({
+                "items": [{ "title": "New title", "externalRef": { "provider": "gh", "externalId": "42" } }]
+            })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok);
+
+        let items = host.work_item_handle.list(None).unwrap();
+        assert_eq!(items.len(), 1, "no duplicates on re-import");
+        assert_eq!(items[0].title, "New title");
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_import_resolves_parent_external_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-import", serde_json::json!({
+                "items": [
+                    { "title": "Epic", "externalRef": { "provider": "gh", "externalId": "100" } },
+                    {
+                        "title": "Sub-task",
+                        "externalRef": { "provider": "gh", "externalId": "101" },
+                        "parentExternalId": "100"
+                    }
+                ]
+            })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok, "import failed: {:?}", resp.error);
+
+        let items = host.work_item_handle.list(None).unwrap();
+        let epic = items.iter().find(|i| i.external_id.as_deref() == Some("100")).unwrap();
+        let subtask = items.iter().find(|i| i.external_id.as_deref() == Some("101")).unwrap();
+        assert_eq!(subtask.parent_id.as_deref(), Some(epic.id.as_str()), "parent_id resolved");
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_import_from_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let import_file = dir.path().join("import.json");
+        std::fs::write(&import_file, serde_json::json!({
+            "items": [
+                { "title": "From file A" },
+                { "title": "From file B" },
+            ]
+        }).to_string()).unwrap();
+
+        let resp = handle_request(
+            req("work-item-import", serde_json::json!({ "path": import_file.to_string_lossy() })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok, "file import failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["imported"], 2);
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_import_broadcasts_imported_event() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let mut rx = host.work_item_handle.subscribe_events();
+
+        handle_request(
+            req("work-item-import", serde_json::json!({
+                "items": [{ "title": "Imported" }]
+            })),
+            &host, &identity,
+        ).await;
+
+        // Drain until we find the Imported event (there may be a Created event first)
+        let mut found = false;
+        for _ in 0..5 {
+            match rx.try_recv() {
+                Ok(roux_core::WorkItemEvent::Imported { ids }) => {
+                    assert_eq!(ids.len(), 1);
+                    found = true;
+                    break;
+                }
+                Ok(_) => continue,
+                Err(_) => break,
+            }
+        }
+        assert!(found, "Imported event should be broadcast");
+
         shutdown_host(host, joins).await;
     }
 }
