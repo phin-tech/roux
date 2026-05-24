@@ -801,6 +801,11 @@ async fn handle_request_with_watch_runner(
         "daemon-pty-mark-read" => handle_daemon_pty_mark_read(req, host).await,
         "daemon-pty-set-name" => handle_daemon_pty_set_name(req, host).await,
         "daemon-pty-kill" => handle_daemon_pty_kill(req, host).await,
+        "work-item-list" => handle_work_item_list(req, host).await,
+        "work-item-create" => handle_work_item_create(req, host).await,
+        "work-item-update" => handle_work_item_update(req, host).await,
+        "work-item-move" => handle_work_item_move(req, host).await,
+        "work-item-delete" => handle_work_item_delete(req, host).await,
         _ => Response::err(format!("unknown daemon command: {}", req.command)),
     }
 }
@@ -817,6 +822,11 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "session-list",
         "session-poll",
         "session-events",
+        "work-item-list",
+        "work-item-create",
+        "work-item-update",
+        "work-item-move",
+        "work-item-delete",
         "session-create",
         "session-create-shell",
         "session-reconnect-shell",
@@ -4562,6 +4572,106 @@ async fn wait_for_daemon_stop(rx: &mut watch::Receiver<bool>) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Work item handlers
+// ---------------------------------------------------------------------------
+
+async fn handle_work_item_list(req: Request, host: &RuntimeHost) -> Response {
+    let project_id = optional_string_arg(&req.args, &["projectId", "project_id"]);
+    match host.work_item_handle.list(project_id.as_deref()) {
+        Ok(items) => match serde_json::to_value(&items) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work items: {err}")),
+        },
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_work_item_create(req: Request, host: &RuntimeHost) -> Response {
+    let Some(title) = optional_string_arg(&req.args, &["title"]) else {
+        return Response::err("title required");
+    };
+    let input = roux_core::WorkItemInput {
+        title,
+        body: optional_string_arg(&req.args, &["body"]),
+        status: req.args.get("status").and_then(|v| v.as_str()).and_then(roux_core::WorkItemStatus::from_str_opt),
+        project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
+        parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
+        external_ref: None,
+        sort_order: req.args.get("sortOrder").or_else(|| req.args.get("sort_order")).and_then(|v| v.as_f64()),
+    };
+    match host.work_item_handle.create(input) {
+        Ok(item) => match serde_json::to_value(&item) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item: {err}")),
+        },
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_work_item_update(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id"]) else {
+        return Response::err("id required");
+    };
+    let Some(title) = optional_string_arg(&req.args, &["title"]) else {
+        return Response::err("title required");
+    };
+    let input = roux_core::WorkItemInput {
+        title,
+        body: optional_string_arg(&req.args, &["body"]),
+        status: req.args.get("status").and_then(|v| v.as_str()).and_then(roux_core::WorkItemStatus::from_str_opt),
+        project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
+        parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
+        external_ref: None,
+        sort_order: req.args.get("sortOrder").or_else(|| req.args.get("sort_order")).and_then(|v| v.as_f64()),
+    };
+    match host.work_item_handle.update(&id, input) {
+        Ok(Some(item)) => match serde_json::to_value(&item) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item: {err}")),
+        },
+        Ok(None) => Response::err("work item not found"),
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_work_item_move(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id"]) else {
+        return Response::err("id required");
+    };
+    let Some(status_str) = optional_string_arg(&req.args, &["status"]) else {
+        return Response::err("status required");
+    };
+    let Some(status) = roux_core::WorkItemStatus::from_str_opt(&status_str) else {
+        return Response::err(format!("unknown status: {status_str}"));
+    };
+    let sort_order = req
+        .args
+        .get("sortOrder")
+        .or_else(|| req.args.get("sort_order"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    match host.work_item_handle.move_item(&id, status, sort_order) {
+        Ok(Some(item)) => match serde_json::to_value(&item) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item: {err}")),
+        },
+        Ok(None) => Response::err("work item not found"),
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_work_item_delete(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id"]) else {
+        return Response::err("id required");
+    };
+    match host.work_item_handle.delete(&id) {
+        Ok(true) => Response::success(serde_json::json!({ "id": id })),
+        Ok(false) => Response::err("work item not found"),
+        Err(err) => Response::err(err),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7454,5 +7564,148 @@ post-worktree-create = "{post_create}"
         assert!(!request_authorized(&request(None), &identity));
         assert!(!request_authorized(&request(Some("wrong-token")), &identity));
         assert!(request_authorized(&request(Some("secret-token")), &identity));
+    }
+
+    async fn make_host_and_identity(
+        dir: &tempfile::TempDir,
+    ) -> (RuntimeHost, DaemonIdentity, Vec<tokio::task::JoinHandle<()>>) {
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
+        }
+        .build();
+        let (host, joins) = services.spawn_with(tokio::spawn);
+        let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+        (host, identity, joins)
+    }
+
+    async fn shutdown_host(host: RuntimeHost, joins: Vec<tokio::task::JoinHandle<()>>) {
+        host.process_handle.shutdown().await;
+        host.pty_handle.shutdown().await;
+        host.watch_handle.shutdown().await;
+        host.session_handle.shutdown().await;
+        host.project_handle.shutdown().await;
+        drop(host);
+        for join in joins {
+            join.await.unwrap();
+        }
+    }
+
+    fn req(command: &str, args: serde_json::Value) -> Request {
+        Request { command: command.to_string(), session_id: None, pane_id: None, auth_token: None, args }
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_crud_lifecycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        // list — empty initially
+        let resp = handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
+        assert!(resp.ok, "list should succeed");
+        assert_eq!(resp.data.as_ref().unwrap().as_array().unwrap().len(), 0);
+
+        // create
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Fix login bug" })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok, "create should succeed");
+        let item = resp.data.as_ref().unwrap();
+        assert_eq!(item["title"], "Fix login bug");
+        assert_eq!(item["status"], "todo");
+        let id = item["id"].as_str().unwrap().to_string();
+
+        // list — one item
+        let resp = handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
+        assert_eq!(resp.data.unwrap().as_array().unwrap().len(), 1);
+
+        // update
+        let resp = handle_request(
+            req("work-item-update", serde_json::json!({ "id": id, "title": "Fix login bug (updated)" })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok, "update should succeed");
+        assert_eq!(resp.data.as_ref().unwrap()["title"], "Fix login bug (updated)");
+
+        // move
+        let resp = handle_request(
+            req("work-item-move", serde_json::json!({ "id": id, "status": "doing", "sortOrder": 1.0 })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok, "move should succeed");
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "doing");
+
+        // delete
+        let resp = handle_request(
+            req("work-item-delete", serde_json::json!({ "id": id })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok, "delete should succeed");
+        assert_eq!(resp.data.as_ref().unwrap()["id"], id);
+
+        // list — empty again
+        let resp = handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
+        assert_eq!(resp.data.unwrap().as_array().unwrap().len(), 0);
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_create_requires_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(req("work-item-create", serde_json::json!({})), &host, &identity).await;
+        assert!(!resp.ok, "create without title should fail");
+        assert!(resp.error.as_deref().unwrap_or("").contains("title required"));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_not_found_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-update", serde_json::json!({ "id": "no-such-id", "title": "x" })),
+            &host, &identity,
+        ).await;
+        assert!(!resp.ok);
+
+        let resp = handle_request(
+            req("work-item-move", serde_json::json!({ "id": "no-such-id", "status": "doing" })),
+            &host, &identity,
+        ).await;
+        assert!(!resp.ok);
+
+        let resp = handle_request(
+            req("work-item-delete", serde_json::json!({ "id": "no-such-id" })),
+            &host, &identity,
+        ).await;
+        assert!(!resp.ok);
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_capabilities_advertised() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(req("daemon-status", serde_json::json!({})), &host, &identity).await;
+        assert!(resp.ok);
+        let caps = resp.data.as_ref().unwrap()["capabilities"].as_array().unwrap().clone();
+        for cap in &["work-item-list", "work-item-create", "work-item-update", "work-item-move", "work-item-delete"] {
+            assert!(caps.contains(&serde_json::json!(cap)), "missing capability: {cap}");
+        }
+
+        shutdown_host(host, joins).await;
     }
 }

@@ -652,6 +652,37 @@ Frames:
 { "type": "error", "error": "message" }
 ```
 
+## Work Item Commands
+
+Work items are durable intent cards stored in `~/.config/roux/board.db`
+(SQLite). They track kanban workflow status independent of session activity.
+
+`work-item-list`
+
+Returns all work items. Optional `args.projectId` / `args.project_id` filters
+to one project.
+
+`work-item-create`
+
+Requires `args.title`. Optional: `args.body`, `args.status` (default `"todo"`),
+`args.projectId`, `args.parentId`, `args.sortOrder`. Returns the created item.
+
+`work-item-update`
+
+Requires `args.id` and `args.title`. Optional: same fields as create. Returns
+the updated item or `404` if not found.
+
+`work-item-move`
+
+Requires `args.id` and `args.status`. Optional `args.sortOrder` (default
+`0.0`). Moves the card to the target column. Returns the updated item.
+
+Valid `status` values: `"todo"`, `"doing"`, `"review"`, `"done"`.
+
+`work-item-delete`
+
+Requires `args.id`. Returns `{ "id": "..." }` on success.
+
 ## PTY Commands
 
 `daemon-pty-spawn-shell`
@@ -761,6 +792,7 @@ Daemon-owned:
 - Durable alias, mailbox event, read-state, and bus subscription state.
 - Notes vault operations.
 - Automation hook list/preview/run/approval state and hook logs.
+- Work item board (`board.db`): create/update/move/delete/import.
 
 Desktop-owned:
 
