@@ -4864,7 +4864,7 @@ async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
                         external_ref: ext_ref,
                         sort_order: Some(existing.sort_order),
                     };
-                    if let Err(err) = host.work_item_handle.update(&item_id, update) {
+                    if let Err(err) = host.work_item_handle.update_silent(&item_id, update) {
                         second_pass_errors.push(format!("parent link for {item_id}: {err}"));
                     }
                 }

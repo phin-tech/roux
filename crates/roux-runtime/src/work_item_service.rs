@@ -155,6 +155,15 @@ impl WorkItemHandle {
 
     /// Insert an item without broadcasting a per-item event. Used by the
     /// import handler so the batch `Imported` event is the only signal emitted.
+    pub fn update_silent(&self, id: &str, input: WorkItemInput) -> Result<Option<WorkItem>, String> {
+        let now = now_secs();
+        self.inner
+            .lock()
+            .unwrap()
+            .update(id, input, now)
+            .map_err(|e| format!("work-item update: {e}"))
+    }
+
     pub fn insert_silent(&self, input: WorkItemInput) -> Result<WorkItem, String> {
         let id = Uuid::new_v4().to_string();
         let now = now_secs();

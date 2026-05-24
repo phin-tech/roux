@@ -46,8 +46,15 @@ pub fn start_watching(
 
     let rt = tokio::runtime::Handle::current();
 
-    // Process any files already present before the watcher starts so session
-    // status is accurate after a daemon restart.
+    let (notify_tx, notify_rx) = mpsc::channel::<notify::Result<Event>>();
+    let mut watcher = RecommendedWatcher::new(notify_tx, notify::Config::default())
+        .map_err(StatusSourceError::CreateWatcher)?;
+    watcher
+        .watch(&status_dir, RecursiveMode::NonRecursive)
+        .map_err(StatusSourceError::WatchDir)?;
+
+    // Scan after watch() is active so concurrent writes are either seen here
+    // or delivered through notify_rx — no gap between the scan and the watcher.
     if let Ok(entries) = fs::read_dir(&status_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -65,13 +72,6 @@ pub fn start_watching(
             }
         }
     }
-
-    let (notify_tx, notify_rx) = mpsc::channel::<notify::Result<Event>>();
-    let mut watcher = RecommendedWatcher::new(notify_tx, notify::Config::default())
-        .map_err(StatusSourceError::CreateWatcher)?;
-    watcher
-        .watch(&status_dir, RecursiveMode::NonRecursive)
-        .map_err(StatusSourceError::WatchDir)?;
 
     thread::spawn(move || {
         let _watcher = watcher; // keep alive
