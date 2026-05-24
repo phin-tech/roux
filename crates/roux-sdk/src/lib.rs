@@ -16,6 +16,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Debug, Clone)]
 pub struct Roux {
     endpoint: SocketEndpoint,
@@ -178,6 +180,18 @@ impl Roux {
 
     pub fn connect() -> RouxResult<Self> {
         Self::builder().connect()
+    }
+
+    pub fn with_timeout(&self, timeout: Duration) -> Self {
+        Self { endpoint: self.endpoint.clone(), auth_token: self.auth_token.clone(), timeout }
+    }
+
+    pub fn with_default_timeout(&self) -> Self {
+        self.with_timeout(DEFAULT_TIMEOUT)
+    }
+
+    pub fn request_timeout(&self) -> Duration {
+        self.timeout
     }
 
     pub async fn status(&self) -> RouxResult<DaemonStatus> {
@@ -1072,7 +1086,7 @@ impl Roux {
 
 impl Default for RouxBuilder {
     fn default() -> Self {
-        Self { endpoint: None, auth_token: None, timeout: Duration::from_secs(5) }
+        Self { endpoint: None, auth_token: None, timeout: DEFAULT_TIMEOUT }
     }
 }
 

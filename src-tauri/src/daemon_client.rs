@@ -96,10 +96,18 @@ pub(crate) type DaemonMailboxPostRequest = roux_sdk::MailboxPost;
 impl DaemonClient {
     pub(crate) fn detect() -> Option<Self> {
         let sdk = roux_sdk::Roux::builder().timeout(PROBE_TIMEOUT).connect().ok()?;
+        Self::detect_from_probe_sdk(sdk)
+    }
+
+    fn detect_from_probe_sdk(sdk: roux_sdk::Roux) -> Option<Self> {
         let data = sdk.status_blocking().ok()?;
         let status: DaemonStatus = serde_json::from_value(data).ok()?;
+        Self::from_detected_status(status, sdk)
+    }
+
+    fn from_detected_status(status: DaemonStatus, sdk: roux_sdk::Roux) -> Option<Self> {
         if status.kind == "roux-daemon" {
-            Some(Self { status, sdk })
+            Some(Self { status, sdk: sdk.with_default_timeout() })
         } else {
             None
         }
@@ -855,11 +863,11 @@ impl DaemonClient {
         app: AppHandle,
         watch_manager: WatchManager,
     ) -> tauri::async_runtime::JoinHandle<()> {
-        let sdk = self.sdk.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            run_reconnecting_event_bridge(
+            run_reconnecting_resolved_event_bridge(
                 "watch",
-                move || read_watch_events_blocking(&sdk, app.clone(), watch_manager.clone()),
+                connect_current_sdk,
+                move |sdk| read_watch_events_blocking(&sdk, app.clone(), watch_manager.clone()),
                 std::thread::sleep,
                 None,
             );
@@ -870,11 +878,11 @@ impl DaemonClient {
         &self,
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
-        let sdk = self.sdk.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            run_reconnecting_event_bridge(
+            run_reconnecting_resolved_event_bridge(
                 "mailbox",
-                move || read_mailbox_events_blocking(&sdk, app.clone()),
+                connect_current_sdk,
+                move |sdk| read_mailbox_events_blocking(&sdk, app.clone()),
                 std::thread::sleep,
                 None,
             );
@@ -885,11 +893,11 @@ impl DaemonClient {
         &self,
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
-        let sdk = self.sdk.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            run_reconnecting_event_bridge(
+            run_reconnecting_resolved_event_bridge(
                 "alias",
-                move || read_alias_events_blocking(&sdk, app.clone()),
+                connect_current_sdk,
+                move |sdk| read_alias_events_blocking(&sdk, app.clone()),
                 std::thread::sleep,
                 None,
             );
@@ -900,11 +908,11 @@ impl DaemonClient {
         &self,
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
-        let sdk = self.sdk.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            run_reconnecting_event_bridge(
+            run_reconnecting_resolved_event_bridge(
                 "subscription",
-                move || read_subscription_events_blocking(&sdk, app.clone()),
+                connect_current_sdk,
+                move |sdk| read_subscription_events_blocking(&sdk, app.clone()),
                 std::thread::sleep,
                 None,
             );
@@ -912,19 +920,25 @@ impl DaemonClient {
     }
 }
 
-fn run_reconnecting_event_bridge<F, S>(
+fn connect_current_sdk() -> Result<roux_sdk::Roux, String> {
+    roux_sdk::Roux::connect().map_err(|err| err.to_string())
+}
+
+fn run_reconnecting_resolved_event_bridge<C, T, F, S>(
     label: &'static str,
+    mut resolve: C,
     mut read_once: F,
     mut sleep: S,
     max_attempts: Option<usize>,
 ) where
-    F: FnMut() -> Result<(), String>,
+    C: FnMut() -> Result<T, String>,
+    F: FnMut(T) -> Result<(), String>,
     S: FnMut(Duration),
 {
     let mut attempts = 0_usize;
     loop {
         attempts += 1;
-        match read_once() {
+        match resolve().and_then(&mut read_once) {
             Ok(()) => rlog!("Daemon {label} event bridge disconnected; reconnecting"),
             Err(err) => rlog!("Daemon {label} event bridge stopped: {err}; reconnecting"),
         }
@@ -1229,7 +1243,24 @@ fn emit_daemon_pty_exit(app: &AppHandle, id: &str, code: Option<i32>, generation
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
+
+    fn daemon_status() -> DaemonStatus {
+        DaemonStatus {
+            kind: "roux-daemon".to_string(),
+            pid: 1,
+            socket: "unix:///tmp/roux.sock".to_string(),
+            log_path: None,
+            started_at_ms: 1,
+            uptime_ms: 2,
+            session_count: 0,
+            project_count: 0,
+            watch_count: 0,
+            process_count: 0,
+            pty_count: 0,
+            capabilities: vec!["daemon-status".to_string()],
+        }
+    }
 
     #[test]
     fn event_bridge_reconnects_after_eof_and_error() {
@@ -1237,9 +1268,10 @@ mod tests {
         let sleeps = Cell::new(0);
         let mut results = vec![Ok(()), Err("socket closed".to_string()), Ok(())].into_iter();
 
-        run_reconnecting_event_bridge(
+        run_reconnecting_resolved_event_bridge(
             "test",
-            || {
+            || Ok(()),
+            |()| {
                 calls.set(calls.get() + 1);
                 results.next().unwrap()
             },
@@ -1249,6 +1281,47 @@ mod tests {
 
         assert_eq!(calls.get(), 3);
         assert_eq!(sleeps.get(), 2);
+    }
+
+    #[test]
+    fn event_bridge_resolves_sdk_for_each_reconnect_attempt() {
+        let resolves = Cell::new(0);
+        let reads = RefCell::new(Vec::new());
+        let sleeps = Cell::new(0);
+        let mut results = vec![Ok(()), Err("socket closed".to_string()), Ok(())].into_iter();
+
+        run_reconnecting_resolved_event_bridge(
+            "test",
+            || {
+                let attempt = resolves.get() + 1;
+                resolves.set(attempt);
+                Ok(attempt)
+            },
+            |attempt| {
+                reads.borrow_mut().push(attempt);
+                results.next().unwrap()
+            },
+            |_| sleeps.set(sleeps.get() + 1),
+            Some(3),
+        );
+
+        assert_eq!(resolves.get(), 3);
+        assert_eq!(*reads.borrow(), vec![1, 2, 3]);
+        assert_eq!(sleeps.get(), 2);
+    }
+
+    #[test]
+    fn detected_client_uses_default_timeout_after_probe() {
+        let probe_sdk = roux_sdk::Roux::builder()
+            .endpoint(roux_sdk::SocketEndpoint::Unix(std::path::PathBuf::from(
+                "/tmp/roux-probe.sock",
+            )))
+            .timeout(PROBE_TIMEOUT)
+            .connect()
+            .unwrap();
+        let client = DaemonClient::from_detected_status(daemon_status(), probe_sdk).unwrap();
+
+        assert_eq!(client.sdk.request_timeout(), Duration::from_secs(5));
     }
 
     #[test]
