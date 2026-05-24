@@ -33,7 +33,8 @@ pub async fn aliases_list(
                 global.unwrap_or(false),
                 only_unbound.unwrap_or(false),
             )
-            .await;
+            .await
+            .map_err(Into::into);
     }
     Ok(state.alias_manager.list(
         project_filter(project_id.as_deref(), global.unwrap_or(false)),
@@ -49,7 +50,7 @@ pub async fn aliases_get(
 ) -> Result<Option<AgentAlias>, String> {
     if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("alias-get"))
     {
-        return client.get_alias(alias.clone(), project_id.clone()).await;
+        return client.get_alias(alias.clone(), project_id.clone()).await.map_err(Into::into);
     }
     Ok(state.alias_manager.get(&alias, project_id.as_deref()))
 }
@@ -62,7 +63,7 @@ pub async fn aliases_whoami(
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("alias-whoami"))
     {
-        return client.whoami_aliases(session_id.clone()).await;
+        return client.whoami_aliases(session_id.clone()).await.map_err(Into::into);
     }
     Ok(state.alias_manager.whoami(&session_id))
 }
@@ -81,7 +82,8 @@ pub async fn aliases_add_member(
     {
         return client
             .add_alias_member(canonical.clone(), pane_id.clone(), project_id.clone())
-            .await;
+            .await
+            .map_err(Into::into);
     }
     state
         .alias_manager
@@ -103,7 +105,8 @@ pub async fn aliases_remove_member(
     {
         return client
             .remove_alias_member(canonical.clone(), pane_id.clone(), project_id.clone())
-            .await;
+            .await
+            .map_err(Into::into);
     }
     state
         .alias_manager
@@ -131,7 +134,10 @@ pub async fn aliases_set_mode(
     };
     if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("alias-mode"))
     {
-        return client.set_alias_mode(canonical.clone(), mode, project_id.clone()).await;
+        return client
+            .set_alias_mode(canonical.clone(), mode, project_id.clone())
+            .await
+            .map_err(Into::into);
     }
     state
         .alias_manager

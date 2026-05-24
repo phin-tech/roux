@@ -65,7 +65,8 @@ pub async fn mailbox_list_for_recipient(
                 project_id.clone(),
                 global.unwrap_or(false),
             )
-            .await;
+            .await
+            .map_err(Into::into);
     }
     Ok(state.mailbox_manager.list_for_recipient(
         &alias,
@@ -84,7 +85,8 @@ pub async fn mailbox_list_for_topic(
     if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("bus-tail")) {
         return client
             .mailbox_list_for_topic(topic.clone(), project_id.clone(), global.unwrap_or(false))
-            .await;
+            .await
+            .map_err(Into::into);
     }
     Ok(state
         .mailbox_manager
@@ -99,7 +101,10 @@ pub async fn mailbox_list_all(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Event>, String> {
     if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("bus-tail")) {
-        return client.mailbox_list_all(project_id.clone(), global.unwrap_or(false), limit).await;
+        return client
+            .mailbox_list_all(project_id.clone(), global.unwrap_or(false), limit)
+            .await
+            .map_err(Into::into);
     }
     Ok(state.mailbox_manager.list_all(
         project_filter(project_id.as_deref(), global.unwrap_or(false)),
@@ -119,7 +124,8 @@ pub async fn mailbox_unread_count(
     {
         return client
             .mailbox_unread_count(alias.clone(), project_id.clone(), global.unwrap_or(false))
-            .await;
+            .await
+            .map_err(Into::into);
     }
     Ok(state
         .mailbox_manager
@@ -135,7 +141,7 @@ pub async fn mailbox_get_event(
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("mailbox-get"))
     {
-        return client.mailbox_get_event(event_id.clone()).await;
+        return client.mailbox_get_event(event_id.clone()).await.map_err(Into::into);
     }
     Ok(state.mailbox_manager.get(&event_id))
 }
@@ -149,7 +155,10 @@ pub async fn mailbox_read_state(
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("mailbox-read-state"))
     {
-        return client.mailbox_read_state(event_id.clone(), recipient.clone()).await;
+        return client
+            .mailbox_read_state(event_id.clone(), recipient.clone())
+            .await
+            .map_err(Into::into);
     }
     Ok(state.mailbox_manager.read_state(&event_id, &recipient))
 }
@@ -175,7 +184,8 @@ pub async fn mailbox_post(
                 structured: input.structured,
                 from: input.from,
             })
-            .await;
+            .await
+            .map_err(Into::into);
     }
 
     if input.to.is_none() && input.topic.is_none() {
@@ -233,7 +243,10 @@ pub async fn mailbox_mark_read(
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("mailbox-mark-read"))
     {
-        return client.mailbox_mark_read(event_id.clone(), recipient.clone()).await;
+        return client
+            .mailbox_mark_read(event_id.clone(), recipient.clone())
+            .await
+            .map_err(Into::into);
     }
     Ok(state.mailbox_manager.mark_read(&event_id, &recipient, Some(&app)))
 }
@@ -249,7 +262,10 @@ pub async fn mailbox_ack(
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("mailbox-ack"))
     {
-        return client.mailbox_ack(event_id.clone(), recipient.clone(), result.clone()).await;
+        return client
+            .mailbox_ack(event_id.clone(), recipient.clone(), result.clone())
+            .await
+            .map_err(Into::into);
     }
     Ok(state.mailbox_manager.ack(&event_id, &recipient, result, Some(&app)))
 }
@@ -267,7 +283,8 @@ pub async fn mailbox_clear_read(
     {
         return client
             .mailbox_clear_read(recipient.clone(), project_id.clone(), global.unwrap_or(false))
-            .await;
+            .await
+            .map_err(Into::into);
     }
     Ok(state.mailbox_manager.clear_read(
         &recipient,
@@ -286,7 +303,7 @@ pub async fn mailbox_retract(
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("mailbox-retract"))
     {
-        return client.mailbox_retract(event_id.clone(), sender.clone()).await;
+        return client.mailbox_retract(event_id.clone(), sender.clone()).await.map_err(Into::into);
     }
     state.mailbox_manager.retract(&event_id, &sender, Some(&app)).map_err(|e| e.to_string())
 }
@@ -301,7 +318,10 @@ pub async fn mailbox_dismiss(
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("mailbox-dismiss"))
     {
-        return client.mailbox_dismiss(event_id.clone(), recipient.clone()).await;
+        return client
+            .mailbox_dismiss(event_id.clone(), recipient.clone())
+            .await
+            .map_err(Into::into);
     }
     Ok(state.mailbox_manager.dismiss(&event_id, &recipient, Some(&app)))
 }
@@ -366,7 +386,7 @@ pub async fn mailbox_deliver_to_pane(
                     .write(&pty_id, data.as_bytes())
                     .map_err(|e| format!("failed to write to pane: {e}"))?;
             }
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
         }
     } else {
         state
@@ -385,6 +405,6 @@ pub async fn mailbox_deliver_to_pane(
     Ok(())
 }
 
-fn is_daemon_pty_not_found(err: &str) -> bool {
-    err.contains("daemon pty not found")
+fn is_daemon_pty_not_found(err: &impl std::fmt::Display) -> bool {
+    err.to_string().contains("daemon pty not found")
 }

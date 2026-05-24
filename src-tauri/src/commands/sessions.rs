@@ -67,7 +67,7 @@ pub(crate) async fn write_to_session(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let client = required_daemon_client(&state)?;
-    client.write_daemon_pty(id, data).await
+    client.write_daemon_pty(id, data).await.map_err(Into::into)
 }
 
 /// Frontend reply for a socket-initiated round-trip (e.g. panes list / create).
@@ -365,7 +365,7 @@ pub(crate) async fn session_worktree_exists(
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
     let client = required_daemon_client_ref(&state)?;
-    client.session_worktree_exists(id).await
+    client.session_worktree_exists(id).await.map_err(Into::into)
 }
 
 /// Kill only the PTY for `id`, leaving session state, pane-state files, and
@@ -396,7 +396,7 @@ pub(crate) async fn set_session_name_override(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let client = required_daemon_client_ref(&state)?;
-    client.set_session_name_override(session_id, name_override).await
+    client.set_session_name_override(session_id, name_override).await.map_err(Into::into)
 }
 
 /// Pin (or clear) a PR for a session. The status bar uses this when set
@@ -418,7 +418,7 @@ pub(crate) async fn set_session_pinned_pr_url(
         }
     });
     let client = required_daemon_client_ref(&state)?;
-    client.set_session_pinned_pr_url(session_id, normalized).await
+    client.set_session_pinned_pr_url(session_id, normalized).await.map_err(Into::into)
 }
 
 /// Bind (or clear) a smol machine for a session. When set, every PTY
@@ -435,7 +435,7 @@ pub(crate) async fn set_session_smol_machine(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let client = required_daemon_client_ref(&state)?;
-    client.set_session_smol_machine(session_id, machine_name).await
+    client.set_session_smol_machine(session_id, machine_name).await.map_err(Into::into)
 }
 
 /// Re-read the session's worktree branch via `git rev-parse` and update the
@@ -449,7 +449,7 @@ pub(crate) async fn refresh_session_branch(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     let client = required_daemon_client_ref(&state)?;
-    client.refresh_session_branch(session_id).await
+    client.refresh_session_branch(session_id).await.map_err(Into::into)
 }
 
 /// Spawns a plain shell in the session's
@@ -551,7 +551,7 @@ pub(crate) async fn create_session_shell(
             notes: Some(notes),
         })
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 /// Respawns a plain shell in the session's primary PTY. The frontend
@@ -603,6 +603,7 @@ pub(crate) async fn reconnect_session_shell(
             notes: Some(notes),
         })
         .await
+        .map_err(Into::into)
 }
 
 /// Active sessions only — archived rows are excluded. The history view
@@ -613,7 +614,11 @@ pub(crate) async fn list_sessions(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Session>, String> {
     let client = required_daemon_client_ref(&state)?;
-    client.list_sessions().await.map(|all| all.into_iter().filter(|s| !s.archived).collect())
+    client
+        .list_sessions()
+        .await
+        .map(|all| all.into_iter().filter(|s| !s.archived).collect())
+        .map_err(Into::into)
 }
 
 /// Archived sessions, sorted newest-first by `ended_at` so the history

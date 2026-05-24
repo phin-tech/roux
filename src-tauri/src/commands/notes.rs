@@ -33,10 +33,7 @@ fn emit_notes_changed(app: &tauri::AppHandle, path: &std::path::Path) {
 }
 
 fn emit_notes_changed_path(app: &tauri::AppHandle, path: String) {
-    let _ = app.emit(
-        "notes-changed",
-        NotesChangedEvent { path },
-    );
+    let _ = app.emit("notes-changed", NotesChangedEvent { path });
 }
 
 /// Scope + addressing info for a single note file. Sent verbatim from the
@@ -81,9 +78,7 @@ fn vault_root(state: &AppState) -> std::path::PathBuf {
         .ok()
         .and_then(|s| s.notes_vault_root.clone())
         .filter(|p| !p.is_empty());
-    override_path
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(default_notes_vault_root)
+    override_path.map(std::path::PathBuf::from).unwrap_or_else(default_notes_vault_root)
 }
 
 /// Return the best-effort git origin URL for `repo_root`. `None` if git
@@ -160,9 +155,8 @@ pub(crate) async fn do_notes_read(
 ) -> Result<NotesRead, String> {
     let mut svc = build_service(state);
     let (scope, topic, session_slug) = resolve(&mut svc, state, &target).await?;
-    let content = svc
-        .read_file(&scope, topic.as_deref(), &session_slug)
-        .map_err(|e| e.to_string())?;
+    let content =
+        svc.read_file(&scope, topic.as_deref(), &session_slug).map_err(|e| e.to_string())?;
     let path = svc
         .file_path(&scope, topic.as_deref(), &session_slug)
         .map_err(|e| e.to_string())?
@@ -179,7 +173,7 @@ pub(crate) async fn notes_read(
 ) -> Result<NotesRead, String> {
     if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("notes-read"))
     {
-        return client.read_notes(target).await;
+        return client.read_notes(target).await.map_err(Into::into);
     }
     do_notes_read(target, &state).await
 }
@@ -194,15 +188,8 @@ pub(crate) async fn do_notes_write(
     let mut svc = build_service(state);
     let (scope, topic, session_slug) = resolve(&mut svc, state, &target).await?;
     let now = now_iso8601();
-    svc.write_file(
-        &scope,
-        topic.as_deref(),
-        &session_slug,
-        &content,
-        &now,
-        &tags,
-    )
-    .map_err(|e| e.to_string())?;
+    svc.write_file(&scope, topic.as_deref(), &session_slug, &content, &now, &tags)
+        .map_err(|e| e.to_string())?;
     let path = svc.file_path(&scope, topic.as_deref(), &session_slug).map_err(|e| e.to_string())?;
     emit_notes_changed(app, &path);
     Ok(())
@@ -244,35 +231,20 @@ pub(crate) async fn do_notes_append(
     let (scope, topic, session_slug) = resolve(&mut svc, state, &target).await?;
     let now = now_iso8601();
 
-    let include_web_anchor = state
-        .settings
-        .lock()
-        .map_err(|e| e.to_string())?
-        .notes_include_web_anchors;
+    let include_web_anchor =
+        state.settings.lock().map_err(|e| e.to_string())?.notes_include_web_anchors;
 
     // Hoist the owned strings above the match so AppendOpts can borrow them.
     let ts = now_short();
     let id = short_entry_id();
     let opts = if timestamped {
-        AppendOpts::Timestamped {
-            timestamp: &ts,
-            id: &id,
-            include_web_anchor,
-        }
+        AppendOpts::Timestamped { timestamp: &ts, id: &id, include_web_anchor }
     } else {
         AppendOpts::Plain
     };
 
-    svc.append_file(
-        &scope,
-        topic.as_deref(),
-        &session_slug,
-        &content,
-        opts,
-        &now,
-        &tags,
-    )
-    .map_err(|e| e.to_string())?;
+    svc.append_file(&scope, topic.as_deref(), &session_slug, &content, opts, &now, &tags)
+        .map_err(|e| e.to_string())?;
     let path = svc.file_path(&scope, topic.as_deref(), &session_slug).map_err(|e| e.to_string())?;
     emit_notes_changed(app, &path);
     Ok(())
@@ -327,7 +299,7 @@ pub(crate) async fn notes_path(
 ) -> Result<String, String> {
     if let Some(client) = state.daemon_client.clone().filter(|client| client.supports("notes-path"))
     {
-        return client.notes_path(target, dir).await;
+        return client.notes_path(target, dir).await.map_err(Into::into);
     }
     do_notes_path(target, dir, &state).await
 }
@@ -353,7 +325,7 @@ pub(crate) async fn notes_search(
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("notes-search"))
     {
-        return client.search_notes(query).await;
+        return client.search_notes(query).await.map_err(Into::into);
     }
     do_notes_search(query, &state)
 }
@@ -368,7 +340,7 @@ pub(crate) async fn notes_vault_root(state: tauri::State<'_, AppState>) -> Resul
     if let Some(client) =
         state.daemon_client.clone().filter(|client| client.supports("notes-vault-root"))
     {
-        return client.notes_vault_root().await;
+        return client.notes_vault_root().await.map_err(Into::into);
     }
     Ok(do_notes_vault_root(&state))
 }
@@ -377,10 +349,7 @@ fn now_iso8601() -> String {
     // Best-effort local-ish ISO-8601 via std::time. For v1, seconds resolution
     // is fine and we avoid pulling in chrono.
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     format_epoch_seconds_iso8601(secs)
 }
 
@@ -389,10 +358,7 @@ fn now_short() -> String {
     // std, so this is a best-effort UTC rendering until we pull in chrono
     // or time. v1 acceptable per the spec's timestamp format notes.
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     format_epoch_seconds_short(secs)
 }
 

@@ -46,7 +46,7 @@ pub(crate) async fn get_runtime_status(
     let client = required_daemon_client_ref(&state)?;
     let (daemon, status_error) = match client.refresh_status().await {
         Ok(status) => (status, None),
-        Err(err) => (client.status().clone(), Some(err)),
+        Err(err) => (client.status().clone(), Some(err.into())),
     };
     Ok(RuntimeStatus {
         mode: RuntimeMode::Daemon,
@@ -66,7 +66,7 @@ pub(crate) async fn daemon_process_start(
     state: tauri::State<'_, AppState>,
 ) -> Result<ProcessRecord, String> {
     if let Some(client) = &state.daemon_client {
-        return client.start_daemon_process(command, working_dir).await;
+        return client.start_daemon_process(command, working_dir).await.map_err(Into::into);
     }
 
     state
@@ -84,7 +84,7 @@ pub(crate) async fn daemon_process_output(
     state: tauri::State<'_, AppState>,
 ) -> Result<ProcessSnapshot, String> {
     if let Some(client) = &state.daemon_client {
-        return client.daemon_process_output(id, max_bytes).await;
+        return client.daemon_process_output(id, max_bytes).await.map_err(Into::into);
     }
 
     state
@@ -104,7 +104,7 @@ pub(crate) async fn daemon_process_list(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<ProcessRecord>, String> {
     if let Some(client) = &state.daemon_client {
-        return client.list_daemon_processes().await;
+        return client.list_daemon_processes().await.map_err(Into::into);
     }
 
     state.runtime.process_handle.list().await.map_err(|err| err.to_string())
@@ -116,7 +116,7 @@ pub(crate) async fn daemon_process_kill(
     state: tauri::State<'_, AppState>,
 ) -> Result<ProcessRecord, String> {
     if let Some(client) = &state.daemon_client {
-        return client.kill_daemon_process(id).await;
+        return client.kill_daemon_process(id).await.map_err(Into::into);
     }
 
     state
@@ -151,6 +151,7 @@ pub(crate) async fn daemon_pty_spawn_shell(
             initial_size,
         )
         .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -168,6 +169,7 @@ pub(crate) async fn daemon_pty_spawn_task(
     client
         .spawn_daemon_pty_task(command, id, working_dir, session_id, pane_id, profile, initial_size)
         .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -177,7 +179,7 @@ pub(crate) async fn daemon_pty_output(
     state: tauri::State<'_, AppState>,
 ) -> Result<PtySnapshot, String> {
     let client = required_daemon_client_ref(&state)?;
-    client.daemon_pty_output(id, max_bytes).await
+    client.daemon_pty_output(id, max_bytes).await.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -185,7 +187,7 @@ pub(crate) async fn daemon_pty_list(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<PtyRecord>, String> {
     let client = required_daemon_client_ref(&state)?;
-    client.list_daemon_ptys().await
+    client.list_daemon_ptys().await.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -195,7 +197,7 @@ pub(crate) async fn daemon_pty_write(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let client = required_daemon_client_ref(&state)?;
-    client.write_daemon_pty(id, data).await
+    client.write_daemon_pty(id, data).await.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -206,7 +208,7 @@ pub(crate) async fn daemon_pty_resize(
     state: tauri::State<'_, AppState>,
 ) -> Result<PtyRecord, String> {
     let client = required_daemon_client_ref(&state)?;
-    client.resize_daemon_pty(id, cols, rows).await
+    client.resize_daemon_pty(id, cols, rows).await.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -215,5 +217,5 @@ pub(crate) async fn daemon_pty_kill(
     state: tauri::State<'_, AppState>,
 ) -> Result<PtyRecord, String> {
     let client = required_daemon_client_ref(&state)?;
-    client.kill_daemon_pty(id).await
+    client.kill_daemon_pty(id).await.map_err(Into::into)
 }
