@@ -116,6 +116,7 @@ fn main() {
         project_persist_path: paths::roux_config_dir().join("projects.json"),
         initial_watches: persisted_watches,
         watch_persist_path,
+        work_item_db_path: paths::roux_config_dir().join("board.db"),
     }
     .build();
     let (runtime, _runtime_joins) = runtime_services.spawn_with(tauri::async_runtime::spawn);

@@ -63,6 +63,7 @@ pub async fn run() -> Result<(), String> {
         project_persist_path: project_path,
         initial_watches: watches,
         watch_persist_path: Some(watch_path),
+        work_item_db_path: platform::work_items_db_path(),
     }
     .build();
 
@@ -4612,6 +4613,7 @@ mod tests {
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -4693,6 +4695,7 @@ mod tests {
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -4970,6 +4973,7 @@ mod tests {
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: vec![watch],
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5034,6 +5038,7 @@ mod tests {
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5243,6 +5248,7 @@ mod tests {
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5386,6 +5392,7 @@ post-worktree-remove = "{post_remove}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5499,6 +5506,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5563,6 +5571,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5611,6 +5620,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5656,6 +5666,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5754,6 +5765,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5830,6 +5842,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -5906,6 +5919,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6000,6 +6014,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6100,6 +6115,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6207,6 +6223,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6337,6 +6354,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6476,6 +6494,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6526,6 +6545,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6649,6 +6669,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6691,6 +6712,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6765,6 +6787,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6838,6 +6861,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -6919,6 +6943,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -7009,6 +7034,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -7094,6 +7120,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -7182,6 +7209,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -7293,6 +7321,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);
@@ -7353,6 +7382,7 @@ post-worktree-create = "{post_create}"
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
         let (host, joins) = services.spawn_with(tokio::spawn);

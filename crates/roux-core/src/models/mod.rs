@@ -13,6 +13,7 @@ mod subscription;
 mod task;
 mod user_terminal_themes;
 mod watch;
+mod work_item;
 mod worktree;
 
 pub use alias::{
@@ -51,4 +52,5 @@ pub use user_terminal_themes::{
     UserTerminalTheme, UserThemeError,
 };
 pub use watch::*;
+pub use work_item::{ExternalRef, WorkItem, WorkItemEvent, WorkItemInput, WorkItemStatus};
 pub use worktree::{Worktree, WorktrunkMetadata};

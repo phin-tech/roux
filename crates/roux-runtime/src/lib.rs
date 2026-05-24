@@ -34,3 +34,5 @@ pub mod terminal_env;
 pub mod watch_checks;
 pub mod watch_runner;
 pub mod watch_service;
+pub mod work_item_service;
+pub mod work_item_store;
