@@ -1,6 +1,8 @@
-use crate::{
-    blocking, CommandRequest, PtyAttachFrame, PtyRecord, PtySnapshot, Roux, RouxError, RouxResult,
-};
+use crate::blocking;
+use crate::client::Roux;
+use crate::error::{RouxError, RouxResult};
+use crate::protocol::CommandRequest;
+use crate::types::{PtyAttachFrame, PtyRecord, PtySnapshot};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -38,6 +40,43 @@ pub struct SpawnShell {
     pub(crate) nono_profile: Option<String>,
     pub(crate) nono_allow_dirs: Vec<String>,
     pub(crate) initial_size: Option<(u16, u16)>,
+}
+
+impl Roux {
+    pub fn session(&self, session: roux_core::Session) -> Session {
+        Session { client: self.clone(), session }
+    }
+
+    pub fn pty(&self, id: impl Into<String>) -> Pty {
+        Pty { client: self.clone(), id: id.into() }
+    }
+
+    pub fn spawn_task(&self, command: impl Into<String>) -> SpawnTask {
+        SpawnTask {
+            client: self.clone(),
+            command: command.into(),
+            id: None,
+            working_dir: None,
+            session_id: None,
+            pane_id: None,
+            profile: None,
+            initial_size: None,
+        }
+    }
+
+    pub fn spawn_shell(&self) -> SpawnShell {
+        SpawnShell {
+            client: self.clone(),
+            id: None,
+            working_dir: None,
+            session_id: None,
+            pane_id: None,
+            profile: None,
+            nono_profile: None,
+            nono_allow_dirs: Vec::new(),
+            initial_size: None,
+        }
+    }
 }
 
 impl Session {

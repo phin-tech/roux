@@ -24,19 +24,16 @@ pub use streams::{
 pub use types::{DaemonStatus, PtyAttachFrame, PtyKind, PtyRecord, PtySnapshot};
 
 #[cfg(test)]
-use serde_json::Value;
-#[cfg(test)]
-use std::time::Duration;
-
-#[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
     #[cfg(not(windows))]
     use std::os::unix::net::UnixListener;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn parses_socket_endpoints() {

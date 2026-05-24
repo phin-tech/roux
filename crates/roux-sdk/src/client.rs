@@ -1,9 +1,13 @@
-use crate::{
-    blocking, endpoint, resolve_socket_endpoint, AliasEventStreamFrame, CommandRequest,
-    CreateSessionShell, DaemonStatus, MailboxEventStreamFrame, MailboxPost, NotesEnv, Pty,
-    PtyRecord, ReconnectSessionShell, RouxError, RouxResult, Session, SocketEndpoint, SpawnShell,
-    SpawnTask, SubscriptionEventStreamFrame, WatchEventStreamFrame,
+use crate::blocking;
+use crate::endpoint::{self, resolve_socket_endpoint, SocketEndpoint};
+use crate::error::{RouxError, RouxResult};
+use crate::protocol::CommandRequest;
+use crate::requests::{CreateSessionShell, MailboxPost, ReconnectSessionShell};
+use crate::streams::{
+    AliasEventStreamFrame, MailboxEventStreamFrame, SubscriptionEventStreamFrame,
+    WatchEventStreamFrame,
 };
+use crate::types::{DaemonStatus, PtyRecord};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use std::time::Duration;
@@ -800,41 +804,6 @@ impl Roux {
         self.command(CommandRequest::new("daemon-process-kill").args(id_arg(id.into()))).await
     }
 
-    pub fn session(&self, session: roux_core::Session) -> Session {
-        Session { client: self.clone(), session }
-    }
-
-    pub fn pty(&self, id: impl Into<String>) -> Pty {
-        Pty { client: self.clone(), id: id.into() }
-    }
-
-    pub fn spawn_task(&self, command: impl Into<String>) -> SpawnTask {
-        SpawnTask {
-            client: self.clone(),
-            command: command.into(),
-            id: None,
-            working_dir: None,
-            session_id: None,
-            pane_id: None,
-            profile: None,
-            initial_size: None,
-        }
-    }
-
-    pub fn spawn_shell(&self) -> SpawnShell {
-        SpawnShell {
-            client: self.clone(),
-            id: None,
-            working_dir: None,
-            session_id: None,
-            pane_id: None,
-            profile: None,
-            nono_profile: None,
-            nono_allow_dirs: Vec::new(),
-            initial_size: None,
-        }
-    }
-
     pub async fn command<T>(&self, request: CommandRequest) -> RouxResult<T>
     where
         T: DeserializeOwned + Send + 'static,
@@ -962,64 +931,6 @@ impl RouxBuilder {
             self.endpoint.or_else(resolve_socket_endpoint).ok_or(RouxError::NotRunning)?;
         let auth_token = self.auth_token.or_else(endpoint::load_socket_auth_token);
         Ok(Roux { endpoint, auth_token, timeout: self.timeout })
-    }
-}
-
-impl CreateSessionShell {
-    fn into_args(self) -> Value {
-        let mut args = serde_json::Map::new();
-        args.insert("id".into(), Value::String(self.id));
-        args.insert("repoPath".into(), Value::String(self.repo_path));
-        args.insert("name".into(), Value::String(self.name));
-        insert_optional_string(&mut args, "worktreePath", self.worktree_path);
-        insert_optional_string(&mut args, "branch", self.branch);
-        insert_optional_string(&mut args, "base", self.base);
-        if self.fetch_first {
-            args.insert("fetchFirst".into(), Value::Bool(true));
-        }
-        insert_optional_string(&mut args, "profile", self.profile);
-        insert_optional_string(&mut args, "nonoProfile", self.nono_profile);
-        if !self.nono_allow_dirs.is_empty() {
-            args.insert("nonoAllowDirs".into(), serde_json::json!(self.nono_allow_dirs));
-        }
-        insert_initial_size(&mut args, self.initial_size);
-        insert_optional_string(&mut args, "projectId", self.project_id);
-        insert_optional_string(&mut args, "blueprintId", self.blueprint_id);
-        insert_optional_string(&mut args, "smolMachineName", self.smol_machine_name);
-        insert_notes_env(&mut args, self.notes);
-        Value::Object(args)
-    }
-}
-
-impl ReconnectSessionShell {
-    fn into_args(self) -> Value {
-        let mut args = serde_json::Map::new();
-        insert_optional_string(&mut args, "profile", self.profile);
-        insert_optional_string(&mut args, "nonoProfile", self.nono_profile);
-        if !self.nono_allow_dirs.is_empty() {
-            args.insert("nonoAllowDirs".into(), serde_json::json!(self.nono_allow_dirs));
-        }
-        insert_initial_size(&mut args, self.initial_size);
-        insert_notes_env(&mut args, self.notes);
-        Value::Object(args)
-    }
-}
-
-impl MailboxPost {
-    fn into_args(self) -> Value {
-        let mut args = serde_json::Map::new();
-        insert_optional_string(&mut args, "to", self.to);
-        insert_optional_string(&mut args, "topic", self.topic);
-        args.insert("body".into(), Value::String(self.body));
-        insert_optional_string(&mut args, "subject", self.subject);
-        insert_optional_string(&mut args, "kind", self.kind);
-        insert_optional_string(&mut args, "project_id", self.project_id);
-        insert_optional_string(&mut args, "correlation_id", self.correlation_id);
-        if let Some(structured) = self.structured {
-            args.insert("structured".into(), structured);
-        }
-        insert_optional_string(&mut args, "from", self.from);
-        Value::Object(args)
     }
 }
 
@@ -1235,30 +1146,5 @@ fn insert_optional_string(
 ) {
     if let Some(value) = value {
         args.insert(key.into(), Value::String(value));
-    }
-}
-
-fn insert_initial_size(
-    args: &mut serde_json::Map<String, Value>,
-    initial_size: Option<(u16, u16)>,
-) {
-    if let Some((cols, rows)) = initial_size {
-        args.insert("initialSize".into(), serde_json::json!([cols, rows]));
-    }
-}
-
-fn insert_notes_env(args: &mut serde_json::Map<String, Value>, notes: Option<NotesEnv>) {
-    if let Some(notes) = notes {
-        args.insert(
-            "notesEnv".into(),
-            serde_json::json!({
-                "vaultRoot": notes.vault_root,
-                "sessionSlug": notes.session_slug,
-                "repoSlug": notes.repo_slug,
-                "projectSlug": notes.project_slug,
-                "contextPaths": notes.context_paths,
-                "projectPrompt": notes.project_prompt,
-            }),
-        );
     }
 }
