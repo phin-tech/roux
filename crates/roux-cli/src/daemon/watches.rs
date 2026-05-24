@@ -1,3 +1,5 @@
+use std::fmt;
+
 use roux_core::{CreateWatchConfig, RuntimeState, Watch};
 use roux_runtime::host::RuntimeHost;
 use roux_runtime::watch_runner::WatchRunner;
@@ -18,7 +20,7 @@ pub(super) async fn handle_watch_list(host: &RuntimeHost) -> Response {
 pub(super) async fn handle_watch_create(req: Request, watch_runner: &WatchRunner) -> Response {
     let config = match parse_watch_config(&req) {
         Ok(config) => config,
-        Err(err) => return Response::err(err),
+        Err(err) => return Response::err(err.to_string()),
     };
     let watch = watch_from_config(config);
     match watch_runner.add_watch(watch).await {
@@ -33,7 +35,7 @@ pub(super) async fn handle_watch_find_or_create(
 ) -> Response {
     let config = match parse_watch_config(&req) {
         Ok(config) => config,
-        Err(err) => return Response::err(err),
+        Err(err) => return Response::err(err.to_string()),
     };
     let watch = watch_from_config(config);
     match watch_runner.find_or_add_github_pr(watch).await {
@@ -128,9 +130,28 @@ pub(super) async fn handle_watch_cleanup_orphans(
     }
 }
 
-fn parse_watch_config(req: &Request) -> Result<CreateWatchConfig, String> {
+#[derive(Debug)]
+struct ParseWatchConfigError {
+    source: serde_json::Error,
+}
+
+impl fmt::Display for ParseWatchConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid watch config: {}", self.source)
+    }
+}
+
+impl std::error::Error for ParseWatchConfigError {}
+
+impl From<serde_json::Error> for ParseWatchConfigError {
+    fn from(source: serde_json::Error) -> Self {
+        Self { source }
+    }
+}
+
+fn parse_watch_config(req: &Request) -> Result<CreateWatchConfig, ParseWatchConfigError> {
     let value = req.args.get("config").cloned().unwrap_or_else(|| req.args.clone());
-    serde_json::from_value(value).map_err(|err| format!("invalid watch config: {err}"))
+    serde_json::from_value(value).map_err(ParseWatchConfigError::from)
 }
 
 fn watch_from_config(config: CreateWatchConfig) -> Watch {

@@ -631,7 +631,7 @@ pub(super) async fn handle_bus_tail(req: Request, identity: &DaemonIdentity) -> 
 
 fn resolve_subscriber_alias(identity: &DaemonIdentity, req: &Request) -> Result<String, String> {
     if let Some(alias) = request_arg_str(req, "alias") {
-        return Ok(alias.to_string());
+        return roux_core::validate_alias_name(alias).map_err(|err| err.to_string());
     }
     let pane_id = req.pane_id.as_deref().ok_or_else(|| {
         "no --alias given and no pane context available; pass --alias <name>".to_string()

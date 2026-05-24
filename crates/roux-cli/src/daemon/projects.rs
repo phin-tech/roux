@@ -47,7 +47,11 @@ pub(super) async fn handle_project_remove(req: Request, host: &RuntimeHost) -> R
     }
     if let Err(err) = host.session_handle.clear_project_refs(&id).await {
         if let Some(project) = removed {
-            let _ = host.project_handle.add(project).await;
+            if let Err(restore_err) = host.project_handle.add(project).await {
+                return Response::err(format!(
+                    "failed to clear project refs: {err}; failed to restore removed project: {restore_err}"
+                ));
+            }
         }
         return Response::err(err.to_string());
     }

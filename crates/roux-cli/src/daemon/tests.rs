@@ -1646,6 +1646,29 @@ async fn daemon_mailbox_and_bus_commands_mutate_daemon_state() {
         mailbox_read_state_path.clone(),
     );
 
+    let invalid_subscribe = handle_request(
+        Request {
+            command: "bus-subscribe".to_string(),
+            session_id: None,
+            pane_id: None,
+            auth_token: None,
+            args: serde_json::json!({
+                "alias": "1auditor",
+                "pattern": "build.**",
+            }),
+        },
+        &host,
+        &identity,
+    )
+    .await;
+    assert!(!invalid_subscribe.ok);
+    assert_eq!(
+        invalid_subscribe.error.as_deref(),
+        Some(
+            "alias name '1auditor' has invalid characters; expected lowercase letters, digits, hyphens, starting with a letter"
+        )
+    );
+
     let subscribe = handle_request(
         Request {
             command: "bus-subscribe".to_string(),
