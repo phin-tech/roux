@@ -45,6 +45,27 @@ pub fn start_watching(
         .map_err(StatusSourceError::CreateDir)?;
 
     let rt = tokio::runtime::Handle::current();
+
+    // Process any files already present before the watcher starts so session
+    // status is accurate after a daemon restart.
+    if let Ok(entries) = fs::read_dir(&status_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(parsed) = serde_json::from_str::<Value>(&content) {
+                        if let Some((session_id, status)) = extract_status(&parsed) {
+                            let handle = session_handle.clone();
+                            rt.spawn(async move {
+                                let _ = handle.update_status(&session_id, status).await;
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let (notify_tx, notify_rx) = mpsc::channel::<notify::Result<Event>>();
     let mut watcher = RecommendedWatcher::new(notify_tx, notify::Config::default())
         .map_err(StatusSourceError::CreateWatcher)?;

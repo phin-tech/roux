@@ -674,8 +674,9 @@ the updated item or `404` if not found.
 
 `work-item-move`
 
-Requires `args.id` and `args.status`. Optional `args.sortOrder` (default
-`0.0`). Moves the card to the target column. Returns the updated item.
+Requires `args.id` and `args.status`. Optional `args.sortOrder` (defaults to
+current `Date.now()` milliseconds when called from the frontend). Moves the
+card to the target column. Returns the updated item.
 
 Valid `status` values: `"todo"`, `"doing"`, `"review"`, `"done"`.
 

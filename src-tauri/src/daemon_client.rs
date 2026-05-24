@@ -1305,7 +1305,7 @@ fn handle_subscription_event_frame(
 
 pub(crate) const WORK_ITEM_EVENT: &str = "work-item-event";
 
-fn read_work_item_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<(), String> {
+fn read_work_item_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> DaemonClientResult<()> {
     let mut stream_error = None;
     let result =
         sdk.work_item_events_blocking(|frame| match handle_work_item_event_frame(frame, &app) {
@@ -1315,22 +1315,23 @@ fn read_work_item_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Resul
                 false
             }
         });
-    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
+    stream_error.map_or_else(|| result.map_err(DaemonClientError::from), Err)
 }
 
 fn handle_work_item_event_frame(
     frame: WorkItemEventStreamFrame,
     app: &AppHandle,
-) -> Result<(), String> {
+) -> DaemonClientResult<()> {
     match frame {
         WorkItemEventStreamFrame::Ready => Ok(()),
         WorkItemEventStreamFrame::Event { event } => app
             .emit(WORK_ITEM_EVENT, &event)
-            .map_err(|err| format!("emit daemon work-item event: {err}")),
+            .map_err(|err| DaemonClientError::adapter(format!("emit daemon work-item event: {err}"))),
         WorkItemEventStreamFrame::Warning { message } => {
             rlog!("Daemon work-item event stream warning: {message}");
             Ok(())
         }
+        WorkItemEventStreamFrame::Error { error } => Err(DaemonClientError::adapter(error)),
     }
 }
 

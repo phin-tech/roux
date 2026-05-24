@@ -4768,7 +4768,9 @@ async fn handle_work_item_dispatch(
     };
 
     if let Err(err) = host.work_item_handle.set_session(&item_id, &session_id) {
-        return Response::err(format!("session created but set_session failed: {err}"));
+        // Roll back the orphaned session so it doesn't linger unlinked.
+        let _ = host.session_handle.remove(&session_id).await;
+        return Response::err(format!("set_session failed, session rolled back: {err}"));
     }
 
     session_resp
@@ -4843,26 +4845,44 @@ async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
     }
 
     // Second pass: resolve parentExternalId → parent_id within the batch.
+    let mut second_pass_errors: Vec<String> = Vec::new();
     for (item_id, provider, parent_ext_id) in parent_links {
         if let Some(parent_id) = external_to_id.get(&(provider, parent_ext_id)) {
-            if let Ok(Some(existing)) = host.work_item_handle.get(&item_id) {
-                let ext_ref = existing.provider.as_ref().map(|p| roux_core::ExternalRef {
-                    provider: p.clone(),
-                    external_id: existing.external_id.clone().unwrap_or_default(),
-                    url: existing.external_url.clone(),
-                });
-                let update = roux_core::WorkItemInput {
-                    title: existing.title,
-                    body: existing.body,
-                    status: Some(existing.status),
-                    project_id: existing.project_id,
-                    parent_id: Some(parent_id.clone()),
-                    external_ref: ext_ref,
-                    sort_order: Some(existing.sort_order),
-                };
-                let _ = host.work_item_handle.update(&item_id, update);
+            match host.work_item_handle.get(&item_id) {
+                Ok(Some(existing)) => {
+                    let ext_ref = existing.provider.as_ref().map(|p| roux_core::ExternalRef {
+                        provider: p.clone(),
+                        external_id: existing.external_id.clone().unwrap_or_default(),
+                        url: existing.external_url.clone(),
+                    });
+                    let update = roux_core::WorkItemInput {
+                        title: existing.title,
+                        body: existing.body,
+                        status: Some(existing.status),
+                        project_id: existing.project_id,
+                        parent_id: Some(parent_id.clone()),
+                        external_ref: ext_ref,
+                        sort_order: Some(existing.sort_order),
+                    };
+                    if let Err(err) = host.work_item_handle.update(&item_id, update) {
+                        second_pass_errors.push(format!("parent link for {item_id}: {err}"));
+                    }
+                }
+                Ok(None) => {
+                    second_pass_errors.push(format!("parent link for {item_id}: item not found"));
+                }
+                Err(err) => {
+                    second_pass_errors.push(format!("parent link for {item_id}: {err}"));
+                }
             }
         }
+    }
+    if !second_pass_errors.is_empty() {
+        return Response::err(format!(
+            "import succeeded but {} parent link(s) failed: {}",
+            second_pass_errors.len(),
+            second_pass_errors.join("; ")
+        ));
     }
 
     host.work_item_handle.broadcast_imported(imported_ids.clone());

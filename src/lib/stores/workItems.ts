@@ -47,6 +47,7 @@ export async function hydrateWorkItems(): Promise<void> {
     workItems.set(items);
   } catch (err) {
     console.error("Failed to hydrate work items", err);
+    throw err;
   }
 }
 

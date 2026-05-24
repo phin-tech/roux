@@ -52,10 +52,7 @@ impl RuntimeHostConfig {
         let (watch_handle, watch_future) =
             watch_service::service_with_path(self.initial_watches, self.watch_persist_path);
         let work_item_handle = WorkItemHandle::open(&self.work_item_db_path)
-            .unwrap_or_else(|e| {
-                eprintln!("Warning: failed to open board.db, using in-memory fallback: {e}");
-                WorkItemHandle::in_memory()
-            });
+            .unwrap_or_else(|e| panic!("failed to open board.db at {}: {e}\nIf the database is corrupted, remove it and restart.", self.work_item_db_path.display()));
 
         RuntimeHostServices {
             host: RuntimeHost {
