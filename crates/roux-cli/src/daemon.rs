@@ -8050,12 +8050,11 @@ post-worktree-create = "{post_create}"
             ).await
         });
 
-        // Read the ready frame
+        // Use a single BufReader so buffered data between reads is not lost.
+        let mut client_reader = tokio::io::BufReader::new(&mut client);
+
         let mut buf = String::new();
-        tokio::io::AsyncBufReadExt::read_line(
-            &mut tokio::io::BufReader::new(&mut client),
-            &mut buf,
-        ).await.unwrap();
+        tokio::io::AsyncBufReadExt::read_line(&mut client_reader, &mut buf).await.unwrap();
         let frame: serde_json::Value = serde_json::from_str(buf.trim()).unwrap();
         assert_eq!(frame["type"], "ready");
 
@@ -8066,10 +8065,7 @@ post-worktree-create = "{post_create}"
         ).await;
 
         let mut buf2 = String::new();
-        tokio::io::AsyncBufReadExt::read_line(
-            &mut tokio::io::BufReader::new(&mut client),
-            &mut buf2,
-        ).await.unwrap();
+        tokio::io::AsyncBufReadExt::read_line(&mut client_reader, &mut buf2).await.unwrap();
         let event_frame: serde_json::Value = serde_json::from_str(buf2.trim()).unwrap();
         assert_eq!(event_frame["type"], "event");
 

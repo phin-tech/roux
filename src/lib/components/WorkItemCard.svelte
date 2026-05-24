@@ -41,7 +41,7 @@
 >
   <!-- Live status dot -->
   {#if dotClass}
-    <span class="absolute right-2 top-2 flex h-2 w-2" aria-label="live status">
+    <span class="absolute right-2 top-2 flex h-2 w-2" role="img" aria-label="live status">
       <span
         class="absolute inline-flex h-2 w-2 animate-ping rounded-full opacity-60 {dotClass}"
       ></span>
