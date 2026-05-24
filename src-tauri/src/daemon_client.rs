@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -9,22 +7,23 @@ use tauri::{AppHandle, Emitter};
 
 use crate::commands::notes::{NotesRead, NotesSearchQuery, NotesTarget};
 use roux_core::{
-    AgentAlias, AliasEvent, BusSubscription, BusSubscriptionEvent, CreateWatchConfig, Event,
-    MailboxEvent, Project, ProjectUpdate, ReadState, Session, SessionExitPayload,
-    SessionExitReason, Watch, WatchUpdateEvent, Worktree,
+    AgentAlias, BusSubscription, CreateWatchConfig, Event, Project, ProjectUpdate, ReadState,
+    Session, SessionExitPayload, SessionExitReason, Watch, Worktree,
 };
 use roux_runtime::automation_hooks::{
     HookListItem, HookLogEntry, HookPreviewItem, HookRunRequest, HookRunSummary,
 };
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
-use roux_sdk::{CommandRequest, PtyAttachFrame, PtyRecord, PtySnapshot};
+use roux_sdk::{
+    AliasEventStreamFrame, MailboxEventStreamFrame, PtyAttachFrame, PtyRecord, PtySnapshot,
+    SubscriptionEventStreamFrame, WatchEventStreamFrame,
+};
 
 use crate::platform;
 use crate::watches::WatchManager;
 
 const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(3);
 const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const EVENT_BRIDGE_RECONNECT_DELAY: Duration = Duration::from_secs(1);
@@ -92,27 +91,14 @@ pub(crate) struct DaemonReconnectSessionShellRequest {
     pub(crate) notes: Option<NotesEnvInputs>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct DaemonMailboxPostRequest {
-    pub(crate) to: Option<String>,
-    pub(crate) topic: Option<String>,
-    pub(crate) body: String,
-    pub(crate) subject: Option<String>,
-    pub(crate) kind: Option<String>,
-    pub(crate) project_id: Option<String>,
-    pub(crate) correlation_id: Option<String>,
-    pub(crate) structured: Option<Value>,
-    pub(crate) from: Option<String>,
-}
+pub(crate) type DaemonMailboxPostRequest = roux_sdk::MailboxPost;
 
 impl DaemonClient {
     pub(crate) fn detect() -> Option<Self> {
-        let data =
-            send_command_blocking(serde_json::json!({ "command": "daemon-status" }), PROBE_TIMEOUT)
-                .ok()?;
+        let sdk = roux_sdk::Roux::builder().timeout(PROBE_TIMEOUT).connect().ok()?;
+        let data = sdk.status_blocking().ok()?;
         let status: DaemonStatus = serde_json::from_value(data).ok()?;
         if status.kind == "roux-daemon" {
-            let sdk = roux_sdk::Roux::connect().ok()?;
             Some(Self { status, sdk })
         } else {
             None
@@ -161,9 +147,8 @@ impl DaemonClient {
     }
 
     pub(crate) async fn refresh_status(&self) -> Result<DaemonStatus, String> {
-        let value = send_command_async(serde_json::json!({ "command": "daemon-status" })).await?;
-        let status: DaemonStatus =
-            serde_json::from_value(value).map_err(|err| format!("decode daemon-status: {err}"))?;
+        let status = self.sdk.status_value().await.map_err(|err| err.to_string())?;
+        let status: DaemonStatus = serde_json::from_value(status).map_err(|err| err.to_string())?;
         if status.kind == "roux-daemon" {
             Ok(status)
         } else {
@@ -176,30 +161,23 @@ impl DaemonClient {
     }
 
     pub(crate) async fn get_session(&self, id: String) -> Result<Session, String> {
-        self.sdk
-            .command(CommandRequest::new("session-poll").session_id(id))
-            .await
-            .map_err(|err| err.to_string())
+        self.sdk.get_session(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_projects(&self) -> Result<Vec<Project>, String> {
-        let value = send_command_async(serde_json::json!({ "command": "project-list" })).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon project-list: {err}"))
+        self.sdk.projects().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn create_project(&self, name: String) -> Result<Project, String> {
-        let value = send_command_async(daemon_project_create_request(name)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon project-create: {err}"))
+        self.sdk.create_project(name).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn remove_project(&self, id: String) -> Result<(), String> {
-        let _ = send_command_async(daemon_project_id_request("project-remove", id)).await?;
-        Ok(())
+        self.sdk.remove_project(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn rename_project(&self, id: String, name: String) -> Result<(), String> {
-        let _ = send_command_async(daemon_project_rename_request(id, name)).await?;
-        Ok(())
+        self.sdk.rename_project(id, name).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn update_project(
@@ -207,8 +185,7 @@ impl DaemonClient {
         id: String,
         patch: ProjectUpdate,
     ) -> Result<Project, String> {
-        let value = send_command_async(daemon_project_update_request(id, patch)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon project-update: {err}"))
+        self.sdk.update_project(id, patch).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_aliases(
@@ -217,9 +194,7 @@ impl DaemonClient {
         global: bool,
         only_unbound: bool,
     ) -> Result<Vec<AgentAlias>, String> {
-        let value =
-            send_command_async(daemon_alias_list_request(project_id, global, only_unbound)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon alias-list: {err}"))
+        self.sdk.list_aliases(project_id, global, only_unbound).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn get_alias(
@@ -227,23 +202,14 @@ impl DaemonClient {
         alias: String,
         project_id: Option<String>,
     ) -> Result<Option<AgentAlias>, String> {
-        let value =
-            match send_command_async(daemon_alias_get_request(alias.clone(), project_id)).await {
-                Ok(value) => value,
-                Err(err) if err.contains(&format!("alias '{alias}' not found")) => return Ok(None),
-                Err(err) => return Err(err),
-            };
-        serde_json::from_value(value)
-            .map(Some)
-            .map_err(|err| format!("decode daemon alias-get: {err}"))
+        self.sdk.get_alias(alias, project_id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn whoami_aliases(
         &self,
         session_id: String,
     ) -> Result<Vec<AgentAlias>, String> {
-        let value = send_command_async(daemon_alias_whoami_request(session_id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon alias-whoami: {err}"))
+        self.sdk.whoami_aliases(session_id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn add_alias_member(
@@ -252,15 +218,7 @@ impl DaemonClient {
         pane_id: String,
         project_id: Option<String>,
     ) -> Result<AgentAlias, String> {
-        let value = send_command_async(daemon_alias_member_request(
-            "alias-add-member",
-            alias,
-            pane_id,
-            project_id,
-        ))
-        .await?;
-        serde_json::from_value(value)
-            .map_err(|err| format!("decode daemon alias-add-member: {err}"))
+        self.sdk.add_alias_member(alias, pane_id, project_id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn remove_alias_member(
@@ -269,17 +227,10 @@ impl DaemonClient {
         pane_id: String,
         project_id: Option<String>,
     ) -> Result<bool, String> {
-        let value = send_command_async(daemon_alias_member_request(
-            "alias-remove-member",
-            alias,
-            pane_id,
-            project_id,
-        ))
-        .await?;
-        value
-            .get("removed")
-            .and_then(|removed| removed.as_bool())
-            .ok_or_else(|| "decode daemon alias-remove-member: missing removed".to_string())
+        self.sdk
+            .remove_alias_member(alias, pane_id, project_id)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn set_alias_mode(
@@ -288,8 +239,7 @@ impl DaemonClient {
         mode: String,
         project_id: Option<String>,
     ) -> Result<AgentAlias, String> {
-        let value = send_command_async(daemon_alias_mode_request(alias, mode, project_id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon alias-mode: {err}"))
+        self.sdk.set_alias_mode(alias, mode, project_id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_subscriptions(
@@ -298,10 +248,7 @@ impl DaemonClient {
         project_id: Option<String>,
         global: bool,
     ) -> Result<Vec<BusSubscription>, String> {
-        let value =
-            send_command_async(daemon_bus_subscriptions_request(alias, project_id, global)).await?;
-        serde_json::from_value(value)
-            .map_err(|err| format!("decode daemon bus-subscriptions: {err}"))
+        self.sdk.list_subscriptions(alias, project_id, global).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn create_subscription(
@@ -310,17 +257,14 @@ impl DaemonClient {
         pattern: String,
         project_id: Option<String>,
     ) -> Result<BusSubscription, String> {
-        let value =
-            send_command_async(daemon_bus_subscribe_request(alias, pattern, project_id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon bus-subscribe: {err}"))
+        self.sdk
+            .create_subscription(alias, pattern, project_id)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn delete_subscription(&self, id: String) -> Result<bool, String> {
-        let value = send_command_async(daemon_bus_unsubscribe_request(id)).await?;
-        value
-            .get("removed")
-            .and_then(|removed| removed.as_bool())
-            .ok_or_else(|| "decode daemon bus-unsubscribe: missing removed".to_string())
+        self.sdk.delete_subscription(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_list_for_recipient(
@@ -330,15 +274,10 @@ impl DaemonClient {
         project_id: Option<String>,
         global: bool,
     ) -> Result<Vec<Event>, String> {
-        let value = send_command_async(daemon_mailbox_peek_request(
-            alias,
-            unread_only,
-            project_id,
-            global,
-            None,
-        ))
-        .await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon mailbox-peek: {err}"))
+        self.sdk
+            .mailbox_list_for_recipient(alias, unread_only, project_id, global)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_list_for_topic(
@@ -347,10 +286,10 @@ impl DaemonClient {
         project_id: Option<String>,
         global: bool,
     ) -> Result<Vec<Event>, String> {
-        let value =
-            send_command_async(daemon_bus_tail_request(Some(topic), project_id, global, None))
-                .await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon bus-tail: {err}"))
+        self.sdk
+            .mailbox_list_for_topic(topic, project_id, global)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_list_all(
@@ -359,9 +298,7 @@ impl DaemonClient {
         global: bool,
         limit: Option<u32>,
     ) -> Result<Vec<Event>, String> {
-        let value =
-            send_command_async(daemon_bus_tail_request(None, project_id, global, limit)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon bus-tail: {err}"))
+        self.sdk.mailbox_list_all(project_id, global, limit).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_unread_count(
@@ -370,22 +307,17 @@ impl DaemonClient {
         project_id: Option<String>,
         global: bool,
     ) -> Result<u32, String> {
-        let value =
-            send_command_async(daemon_mailbox_count_request(alias, project_id, global)).await?;
-        value
-            .get("unread")
-            .and_then(|unread| unread.as_u64())
-            .and_then(|unread| u32::try_from(unread).ok())
-            .ok_or_else(|| "decode daemon mailbox-count: missing unread".to_string())
+        self.sdk
+            .mailbox_unread_count(alias, project_id, global)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_get_event(
         &self,
         event_id: String,
     ) -> Result<Option<Event>, String> {
-        let value =
-            send_command_async(daemon_mailbox_event_id_request("mailbox-get", event_id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon mailbox-get: {err}"))
+        self.sdk.mailbox_get_event(event_id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_read_state(
@@ -393,18 +325,14 @@ impl DaemonClient {
         event_id: String,
         recipient: String,
     ) -> Result<Option<ReadState>, String> {
-        let value =
-            send_command_async(daemon_mailbox_read_state_request(event_id, recipient)).await?;
-        serde_json::from_value(value)
-            .map_err(|err| format!("decode daemon mailbox-read-state: {err}"))
+        self.sdk.mailbox_read_state(event_id, recipient).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_post(
         &self,
         request: DaemonMailboxPostRequest,
     ) -> Result<Event, String> {
-        let value = send_command_async(daemon_mailbox_post_request(request)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon mailbox-post: {err}"))
+        self.sdk.mailbox_post(request).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_mark_read(
@@ -412,12 +340,7 @@ impl DaemonClient {
         event_id: String,
         recipient: String,
     ) -> Result<bool, String> {
-        let value =
-            send_command_async(daemon_mailbox_mark_read_request(event_id, recipient)).await?;
-        value
-            .get("changed")
-            .and_then(|changed| changed.as_bool())
-            .ok_or_else(|| "decode daemon mailbox-mark-read: missing changed".to_string())
+        self.sdk.mailbox_mark_read(event_id, recipient).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_ack(
@@ -426,17 +349,7 @@ impl DaemonClient {
         recipient: String,
         result: Option<String>,
     ) -> Result<bool, String> {
-        let value = send_command_async(daemon_mailbox_alias_event_request(
-            "mailbox-ack",
-            event_id,
-            recipient,
-            result,
-        ))
-        .await?;
-        value
-            .get("changed")
-            .and_then(|changed| changed.as_bool())
-            .ok_or_else(|| "decode daemon mailbox-ack: missing changed".to_string())
+        self.sdk.mailbox_ack(event_id, recipient, result).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_clear_read(
@@ -445,13 +358,10 @@ impl DaemonClient {
         project_id: Option<String>,
         global: bool,
     ) -> Result<u32, String> {
-        let value =
-            send_command_async(daemon_mailbox_clear_request(recipient, project_id, global)).await?;
-        value
-            .get("cleared")
-            .and_then(|cleared| cleared.as_u64())
-            .and_then(|cleared| u32::try_from(cleared).ok())
-            .ok_or_else(|| "decode daemon mailbox-clear: missing cleared".to_string())
+        self.sdk
+            .mailbox_clear_read(recipient, project_id, global)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_retract(
@@ -459,14 +369,7 @@ impl DaemonClient {
         event_id: String,
         sender: String,
     ) -> Result<Event, String> {
-        let value = send_command_async(daemon_mailbox_alias_event_request(
-            "mailbox-retract",
-            event_id,
-            sender,
-            None,
-        ))
-        .await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon mailbox-retract: {err}"))
+        self.sdk.mailbox_retract(event_id, sender).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn mailbox_dismiss(
@@ -474,22 +377,11 @@ impl DaemonClient {
         event_id: String,
         recipient: String,
     ) -> Result<bool, String> {
-        let value = send_command_async(daemon_mailbox_alias_event_request(
-            "mailbox-dismiss",
-            event_id,
-            recipient,
-            None,
-        ))
-        .await?;
-        value
-            .get("changed")
-            .and_then(|changed| changed.as_bool())
-            .ok_or_else(|| "decode daemon mailbox-dismiss: missing changed".to_string())
+        self.sdk.mailbox_dismiss(event_id, recipient).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn read_notes(&self, target: NotesTarget) -> Result<NotesRead, String> {
-        let value = send_command_async(daemon_notes_read_request(target)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon notes-read: {err}"))
+        self.sdk.read_notes(target).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn write_notes(
@@ -498,8 +390,7 @@ impl DaemonClient {
         content: String,
         tags: Vec<String>,
     ) -> Result<(), String> {
-        let _ = send_command_async(daemon_notes_write_request(target, content, tags)).await?;
-        Ok(())
+        self.sdk.write_notes(target, content, tags).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn append_notes(
@@ -509,9 +400,10 @@ impl DaemonClient {
         timestamped: bool,
         tags: Vec<String>,
     ) -> Result<(), String> {
-        let _ = send_command_async(daemon_notes_append_request(target, content, timestamped, tags))
-            .await?;
-        Ok(())
+        self.sdk
+            .append_notes(target, content, timestamped, tags)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn notes_path(
@@ -519,66 +411,55 @@ impl DaemonClient {
         target: NotesTarget,
         dir: bool,
     ) -> Result<String, String> {
-        let value = send_command_async(daemon_notes_path_request(target, dir)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon notes-path: {err}"))
+        self.sdk.notes_path(target, dir).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn search_notes(
         &self,
         query: NotesSearchQuery,
     ) -> Result<Vec<String>, String> {
-        let value = send_command_async(daemon_notes_search_request(query)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon notes-search: {err}"))
+        self.sdk.search_notes(query).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn notes_vault_root(&self) -> Result<String, String> {
-        let value = send_command_async(daemon_notes_vault_root_request()).await?;
-        serde_json::from_value(value)
-            .map_err(|err| format!("decode daemon notes-vault-root: {err}"))
+        self.sdk.notes_vault_root().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_automation_hooks(
         &self,
         repo_path: Option<String>,
     ) -> Result<Vec<HookListItem>, String> {
-        let value = send_command_async(daemon_hook_show_request(repo_path)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-show: {err}"))
+        self.sdk.list_automation_hooks(repo_path).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn preview_automation_hooks(
         &self,
         request: HookRunRequest,
     ) -> Result<Vec<HookPreviewItem>, String> {
-        let value = send_command_async(daemon_hook_run_request("hook-preview", request)?).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-preview: {err}"))
+        self.sdk.preview_automation_hooks(request).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn run_automation_hook(
         &self,
         request: HookRunRequest,
     ) -> Result<HookRunSummary, String> {
-        let value = send_command_async(daemon_hook_run_request("hook-run", request)?).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-run: {err}"))
+        self.sdk.run_automation_hook(request).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn approve_automation_hook(&self, approval_id: String) -> Result<(), String> {
-        let _ = send_command_async(daemon_hook_approve_request(approval_id)).await?;
-        Ok(())
+        self.sdk.approve_automation_hook(approval_id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn clear_automation_hook_approvals(&self) -> Result<(), String> {
-        let _ = send_command_async(daemon_hook_clear_approvals_request()).await?;
-        Ok(())
+        self.sdk.clear_automation_hook_approvals().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_automation_hook_logs(&self) -> Result<Vec<HookLogEntry>, String> {
-        let value = send_command_async(daemon_hook_log_list_request()).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-log-list: {err}"))
+        self.sdk.list_automation_hook_logs().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn read_automation_hook_log(&self, path: String) -> Result<String, String> {
-        let value = send_command_async(daemon_hook_log_read_request(path)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon hook-log-read: {err}"))
+        self.sdk.read_automation_hook_log(path).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn set_session_name_override(
@@ -586,14 +467,10 @@ impl DaemonClient {
         session_id: String,
         name_override: Option<String>,
     ) -> Result<(), String> {
-        let name = name_override.unwrap_or_default();
-        let _ = send_command_async(serde_json::json!({
-            "command": "session-rename",
-            "session_id": session_id,
-            "args": { "name": name },
-        }))
-        .await?;
-        Ok(())
+        self.sdk
+            .set_session_name_override(session_id, name_override)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn set_session_project(
@@ -601,14 +478,7 @@ impl DaemonClient {
         session_id: String,
         project_id: Option<String>,
     ) -> Result<(), String> {
-        let _ = send_command_async(daemon_session_optional_value_request(
-            "session-set-project",
-            session_id,
-            "projectId",
-            project_id,
-        ))
-        .await?;
-        Ok(())
+        self.sdk.set_session_project(session_id, project_id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn set_session_pinned_pr_url(
@@ -616,14 +486,7 @@ impl DaemonClient {
         session_id: String,
         url: Option<String>,
     ) -> Result<(), String> {
-        let _ = send_command_async(daemon_session_optional_value_request(
-            "session-set-pinned-pr-url",
-            session_id,
-            "url",
-            url,
-        ))
-        .await?;
-        Ok(())
+        self.sdk.set_session_pinned_pr_url(session_id, url).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn set_session_smol_machine(
@@ -631,14 +494,10 @@ impl DaemonClient {
         session_id: String,
         machine_name: Option<String>,
     ) -> Result<(), String> {
-        let _ = send_command_async(daemon_session_optional_value_request(
-            "session-set-smol-machine",
-            session_id,
-            "machineName",
-            machine_name,
-        ))
-        .await?;
-        Ok(())
+        self.sdk
+            .set_session_smol_machine(session_id, machine_name)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn create_session_shell(
@@ -685,42 +544,30 @@ impl DaemonClient {
     }
 
     pub(crate) async fn archive_session(&self, id: String) -> Result<Session, String> {
-        let value = send_command_async(daemon_session_id_request("session-archive", id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon session-archive: {err}"))
+        self.sdk.archive_session(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn restore_session(&self, id: String) -> Result<Session, String> {
-        let value = send_command_async(daemon_session_id_request("session-restore", id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon session-restore: {err}"))
+        self.sdk.restore_session(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn delete_session(&self, id: String) -> Result<(), String> {
-        let _ = send_command_async(daemon_session_id_request("session-delete", id)).await?;
-        Ok(())
+        self.sdk.delete_session(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn session_worktree_exists(&self, id: String) -> Result<bool, String> {
-        let value =
-            send_command_async(daemon_session_id_request("session-worktree-exists", id)).await?;
-        value
-            .get("exists")
-            .and_then(|exists| exists.as_bool())
-            .ok_or_else(|| "decode daemon session-worktree-exists: missing exists".to_string())
+        self.sdk.session_worktree_exists(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn refresh_session_branch(
         &self,
         id: String,
     ) -> Result<Option<String>, String> {
-        let value =
-            send_command_async(daemon_session_id_request("session-refresh-branch", id)).await?;
-        Ok(value.get("branch").and_then(|branch| branch.as_str()).map(str::to_string))
+        self.sdk.refresh_session_branch(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_worktrees(&self, repo_path: String) -> Result<Vec<Worktree>, String> {
-        let value =
-            send_command_async(daemon_repo_path_request("worktree-list", repo_path)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon worktree-list: {err}"))
+        self.sdk.list_worktrees(repo_path).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn create_worktree(
@@ -730,18 +577,10 @@ impl DaemonClient {
         start_point: Option<String>,
         fetch_first: bool,
     ) -> Result<String, String> {
-        let value = send_command_async(daemon_worktree_create_request(
-            repo_path,
-            branch,
-            start_point,
-            fetch_first,
-        ))
-        .await?;
-        value
-            .get("path")
-            .and_then(|path| path.as_str())
-            .map(str::to_string)
-            .ok_or_else(|| "decode daemon worktree-create: missing path".to_string())
+        self.sdk
+            .create_worktree(repo_path, branch, start_point, fetch_first)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn remove_worktree(
@@ -751,80 +590,60 @@ impl DaemonClient {
         also_branch: bool,
         force: bool,
     ) -> Result<(), String> {
-        let _ = send_command_async(daemon_worktree_remove_request(
-            repo_path,
-            worktree_path,
-            also_branch,
-            force,
-        ))
-        .await?;
-        Ok(())
+        self.sdk
+            .remove_worktree(repo_path, worktree_path, also_branch, force)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_branches(&self, repo_path: String) -> Result<Vec<String>, String> {
-        let value =
-            send_command_async(daemon_repo_path_request("worktree-list-branches", repo_path))
-                .await?;
-        serde_json::from_value(value)
-            .map_err(|err| format!("decode daemon worktree-list-branches: {err}"))
+        self.sdk.list_branches(repo_path).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn git_init(&self, path: String) -> Result<(), String> {
-        let _ = send_command_async(daemon_path_request("git-init", path)).await?;
-        Ok(())
+        self.sdk.git_init(path).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_watches(&self) -> Result<Vec<Watch>, String> {
-        let value = send_command_async(daemon_watch_list_request()).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon watch-list: {err}"))
+        self.sdk.watches().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn create_watch(&self, config: CreateWatchConfig) -> Result<Watch, String> {
-        let value = send_command_async(daemon_watch_config_request("watch-create", config)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon watch-create: {err}"))
+        self.sdk.create_watch(config).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn find_or_create_watch(
         &self,
         config: CreateWatchConfig,
     ) -> Result<Watch, String> {
-        let value =
-            send_command_async(daemon_watch_config_request("watch-find-or-create", config)).await?;
-        serde_json::from_value(value)
-            .map_err(|err| format!("decode daemon watch-find-or-create: {err}"))
+        self.sdk.find_or_create_watch(config).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn remove_watch(&self, id: String) -> Result<(), String> {
-        let _ = send_command_async(daemon_watch_id_request("watch-remove", id)).await?;
-        Ok(())
+        self.sdk.remove_watch(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn pause_watch(&self, id: String) -> Result<Watch, String> {
-        let value = send_command_async(daemon_watch_id_request("watch-pause", id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon watch-pause: {err}"))
+        self.sdk.pause_watch(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn resume_watch(&self, id: String) -> Result<Watch, String> {
-        let value = send_command_async(daemon_watch_id_request("watch-resume", id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon watch-resume: {err}"))
+        self.sdk.resume_watch(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn replace_watch(&self, watch: Watch) -> Result<(), String> {
-        let _ = send_command_async(daemon_watch_replace_request(watch)).await?;
-        Ok(())
+        self.sdk.replace_watch(watch).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn remove_watches_for_session(
         &self,
         session_id: String,
     ) -> Result<(), String> {
-        let _ = send_command_async(daemon_watch_session_request(session_id)).await?;
-        Ok(())
+        self.sdk.remove_watches_for_session(session_id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn cleanup_watch_orphans(&self) -> Result<(), String> {
-        let _ = send_command_async(daemon_watch_cleanup_orphans_request()).await?;
-        Ok(())
+        self.sdk.cleanup_watch_orphans().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn start_daemon_process(
@@ -832,8 +651,7 @@ impl DaemonClient {
         command: String,
         working_dir: Option<String>,
     ) -> Result<ProcessRecord, String> {
-        let value = send_command_async(daemon_process_start_request(command, working_dir)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon process start: {err}"))
+        self.sdk.start_daemon_process(command, working_dir).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn daemon_process_output(
@@ -841,18 +659,15 @@ impl DaemonClient {
         id: String,
         max_bytes: Option<usize>,
     ) -> Result<ProcessSnapshot, String> {
-        let value = send_command_async(daemon_process_output_request(id, max_bytes)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon process output: {err}"))
+        self.sdk.daemon_process_output(id, max_bytes).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn list_daemon_processes(&self) -> Result<Vec<ProcessRecord>, String> {
-        let value = send_command_async(daemon_process_list_request()).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon process list: {err}"))
+        self.sdk.list_daemon_processes().await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn kill_daemon_process(&self, id: String) -> Result<ProcessRecord, String> {
-        let value = send_command_async(daemon_process_kill_request(id)).await?;
-        serde_json::from_value(value).map_err(|err| format!("decode daemon process kill: {err}"))
+        self.sdk.kill_daemon_process(id).await.map_err(|err| err.to_string())
     }
 
     pub(crate) async fn spawn_daemon_pty_shell(
@@ -1040,10 +855,11 @@ impl DaemonClient {
         app: AppHandle,
         watch_manager: WatchManager,
     ) -> tauri::async_runtime::JoinHandle<()> {
+        let sdk = self.sdk.clone();
         tauri::async_runtime::spawn_blocking(move || {
             run_reconnecting_event_bridge(
                 "watch",
-                move || read_watch_events_blocking(app.clone(), watch_manager.clone()),
+                move || read_watch_events_blocking(&sdk, app.clone(), watch_manager.clone()),
                 std::thread::sleep,
                 None,
             );
@@ -1054,10 +870,11 @@ impl DaemonClient {
         &self,
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
+        let sdk = self.sdk.clone();
         tauri::async_runtime::spawn_blocking(move || {
             run_reconnecting_event_bridge(
                 "mailbox",
-                move || read_mailbox_events_blocking(app.clone()),
+                move || read_mailbox_events_blocking(&sdk, app.clone()),
                 std::thread::sleep,
                 None,
             );
@@ -1068,10 +885,11 @@ impl DaemonClient {
         &self,
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
+        let sdk = self.sdk.clone();
         tauri::async_runtime::spawn_blocking(move || {
             run_reconnecting_event_bridge(
                 "alias",
-                move || read_alias_events_blocking(app.clone()),
+                move || read_alias_events_blocking(&sdk, app.clone()),
                 std::thread::sleep,
                 None,
             );
@@ -1082,10 +900,11 @@ impl DaemonClient {
         &self,
         app: AppHandle,
     ) -> tauri::async_runtime::JoinHandle<()> {
+        let sdk = self.sdk.clone();
         tauri::async_runtime::spawn_blocking(move || {
             run_reconnecting_event_bridge(
                 "subscription",
-                move || read_subscription_events_blocking(app.clone()),
+                move || read_subscription_events_blocking(&sdk, app.clone()),
                 std::thread::sleep,
                 None,
             );
@@ -1230,1035 +1049,22 @@ fn daemon_spawn_command(binary: &Path) -> Command {
     command
 }
 
-fn daemon_process_start_request(command: String, working_dir: Option<String>) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("command".to_string(), Value::String(command));
-    if let Some(working_dir) = working_dir {
-        args.insert("workingDir".to_string(), Value::String(working_dir));
-    }
-    serde_json::json!({
-        "command": "daemon-process-start",
-        "args": args,
-    })
-}
-
-#[cfg(test)]
-fn daemon_session_create_shell_request(request: DaemonCreateSessionShellRequest) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("id".to_string(), Value::String(request.id));
-    args.insert("repoPath".to_string(), Value::String(request.repo_path));
-    args.insert("name".to_string(), Value::String(request.name));
-    if let Some(worktree_path) = request.worktree_path {
-        args.insert("worktreePath".to_string(), Value::String(worktree_path));
-    }
-    if let Some(branch) = request.branch {
-        args.insert("branch".to_string(), Value::String(branch));
-    }
-    if let Some(base) = request.base {
-        args.insert("base".to_string(), Value::String(base));
-    }
-    if request.fetch_first {
-        args.insert("fetchFirst".to_string(), Value::Bool(true));
-    }
-    if let Some(profile) = request.profile {
-        args.insert("profile".to_string(), Value::String(profile));
-    }
-    if let Some(nono_profile) = request.nono_profile {
-        args.insert("nonoProfile".to_string(), Value::String(nono_profile));
-    }
-    if !request.nono_allow_dirs.is_empty() {
-        args.insert("nonoAllowDirs".to_string(), serde_json::json!(request.nono_allow_dirs));
-    }
-    if let Some((cols, rows)) = request.initial_size {
-        args.insert("initialSize".to_string(), serde_json::json!([cols, rows]));
-    }
-    if let Some(project_id) = request.project_id {
-        args.insert("projectId".to_string(), Value::String(project_id));
-    }
-    if let Some(blueprint_id) = request.blueprint_id {
-        args.insert("blueprintId".to_string(), Value::String(blueprint_id));
-    }
-    if let Some(smol_machine_name) = request.smol_machine_name {
-        args.insert("smolMachineName".to_string(), Value::String(smol_machine_name));
-    }
-    if let Some(notes) = request.notes {
-        args.insert(
-            "notesEnv".to_string(),
-            serde_json::json!({
-                "vaultRoot": notes.vault_root,
-                "sessionSlug": notes.session_slug,
-                "repoSlug": notes.repo_slug,
-                "projectSlug": notes.project_slug,
-                "contextPaths": notes.context_paths,
-                "projectPrompt": notes.project_prompt,
-            }),
-        );
-    }
-    serde_json::json!({
-        "command": "session-create-shell",
-        "args": args,
-    })
-}
-
-#[cfg(test)]
-fn daemon_session_reconnect_shell_request(request: DaemonReconnectSessionShellRequest) -> Value {
-    let mut args = serde_json::Map::new();
-    if let Some(profile) = request.profile {
-        args.insert("profile".to_string(), Value::String(profile));
-    }
-    if let Some(nono_profile) = request.nono_profile {
-        args.insert("nonoProfile".to_string(), Value::String(nono_profile));
-    }
-    if !request.nono_allow_dirs.is_empty() {
-        args.insert("nonoAllowDirs".to_string(), serde_json::json!(request.nono_allow_dirs));
-    }
-    if let Some((cols, rows)) = request.initial_size {
-        args.insert("initialSize".to_string(), serde_json::json!([cols, rows]));
-    }
-    if let Some(notes) = request.notes {
-        args.insert(
-            "notesEnv".to_string(),
-            serde_json::json!({
-                "vaultRoot": notes.vault_root,
-                "sessionSlug": notes.session_slug,
-                "repoSlug": notes.repo_slug,
-                "projectSlug": notes.project_slug,
-                "contextPaths": notes.context_paths,
-                "projectPrompt": notes.project_prompt,
-            }),
-        );
-    }
-    serde_json::json!({
-        "command": "session-reconnect-shell",
-        "session_id": request.id,
-        "args": args,
-    })
-}
-
-fn daemon_session_id_request(command: &str, id: String) -> Value {
-    serde_json::json!({
-        "command": command,
-        "session_id": id,
-    })
-}
-
-fn daemon_session_optional_value_request(
-    command: &str,
-    session_id: String,
-    key: &str,
-    value: Option<String>,
-) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert(key.to_string(), value.map(Value::String).unwrap_or(Value::Null));
-    serde_json::json!({
-        "command": command,
-        "session_id": session_id,
-        "args": args,
-    })
-}
-
-fn daemon_project_create_request(name: String) -> Value {
-    serde_json::json!({
-        "command": "project-create",
-        "args": { "name": name },
-    })
-}
-
-fn daemon_project_id_request(command: &str, id: String) -> Value {
-    serde_json::json!({
-        "command": command,
-        "args": { "id": id },
-    })
-}
-
-fn daemon_project_rename_request(id: String, name: String) -> Value {
-    serde_json::json!({
-        "command": "project-rename",
-        "args": { "id": id, "name": name },
-    })
-}
-
-fn daemon_project_update_request(id: String, patch: ProjectUpdate) -> Value {
-    serde_json::json!({
-        "command": "project-update",
-        "args": { "id": id, "patch": patch },
-    })
-}
-
-fn daemon_repo_path_request(command: &str, repo_path: String) -> Value {
-    serde_json::json!({
-        "command": command,
-        "args": { "repoPath": repo_path },
-    })
-}
-
-fn daemon_path_request(command: &str, path: String) -> Value {
-    serde_json::json!({
-        "command": command,
-        "args": { "path": path },
-    })
-}
-
-fn daemon_alias_list_request(
-    project_id: Option<String>,
-    global: bool,
-    only_unbound: bool,
-) -> Value {
-    let mut args = serde_json::Map::new();
-    if let Some(project_id) = project_id {
-        args.insert("project_id".to_string(), Value::String(project_id));
-    }
-    if global {
-        args.insert("global".to_string(), Value::Bool(true));
-    }
-    if only_unbound {
-        args.insert("only_unbound".to_string(), Value::Bool(true));
-    }
-    serde_json::json!({
-        "command": "alias-list",
-        "args": args,
-    })
-}
-
-fn daemon_alias_get_request(alias: String, project_id: Option<String>) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("alias".to_string(), Value::String(alias));
-    if let Some(project_id) = project_id {
-        args.insert("project_id".to_string(), Value::String(project_id));
-    }
-    serde_json::json!({
-        "command": "alias-get",
-        "args": args,
-    })
-}
-
-fn daemon_alias_whoami_request(session_id: String) -> Value {
-    serde_json::json!({
-        "command": "alias-whoami",
-        "session_id": session_id,
-        "args": {},
-    })
-}
-
-fn daemon_alias_member_request(
-    command: &str,
-    alias: String,
-    pane_id: String,
-    project_id: Option<String>,
-) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("alias".to_string(), Value::String(alias));
-    args.insert("pane_id".to_string(), Value::String(pane_id));
-    if let Some(project_id) = project_id {
-        args.insert("project_id".to_string(), Value::String(project_id));
-    }
-    serde_json::json!({
-        "command": command,
-        "args": args,
-    })
-}
-
-fn daemon_alias_mode_request(alias: String, mode: String, project_id: Option<String>) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("alias".to_string(), Value::String(alias));
-    args.insert("mode".to_string(), Value::String(mode));
-    if let Some(project_id) = project_id {
-        args.insert("project_id".to_string(), Value::String(project_id));
-    }
-    serde_json::json!({
-        "command": "alias-mode",
-        "args": args,
-    })
-}
-
-fn daemon_bus_subscriptions_request(
-    alias: Option<String>,
-    project_id: Option<String>,
-    global: bool,
-) -> Value {
-    let mut args = serde_json::Map::new();
-    if let Some(alias) = alias {
-        args.insert("alias".to_string(), Value::String(alias));
-    }
-    insert_project_filter_args(&mut args, project_id, global);
-    serde_json::json!({
-        "command": "bus-subscriptions",
-        "args": args,
-    })
-}
-
-fn daemon_bus_subscribe_request(
-    alias: String,
-    pattern: String,
-    project_id: Option<String>,
-) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("alias".to_string(), Value::String(alias));
-    args.insert("pattern".to_string(), Value::String(pattern));
-    if let Some(project_id) = project_id {
-        args.insert("project_id".to_string(), Value::String(project_id));
-    }
-    serde_json::json!({
-        "command": "bus-subscribe",
-        "args": args,
-    })
-}
-
-fn daemon_bus_unsubscribe_request(id: String) -> Value {
-    serde_json::json!({
-        "command": "bus-unsubscribe",
-        "args": { "id": id },
-    })
-}
-
-fn daemon_mailbox_peek_request(
-    alias: String,
-    unread_only: bool,
-    project_id: Option<String>,
-    global: bool,
-    limit: Option<u32>,
-) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("alias".to_string(), Value::String(alias));
-    if unread_only {
-        args.insert("unread".to_string(), Value::Bool(true));
-    }
-    insert_project_filter_args(&mut args, project_id, global);
-    if let Some(limit) = limit {
-        args.insert("limit".to_string(), serde_json::json!(limit));
-    }
-    serde_json::json!({
-        "command": "mailbox-peek",
-        "args": args,
-    })
-}
-
-fn daemon_bus_tail_request(
-    topic: Option<String>,
-    project_id: Option<String>,
-    global: bool,
-    limit: Option<u32>,
-) -> Value {
-    let mut args = serde_json::Map::new();
-    if let Some(topic) = topic {
-        args.insert("topic".to_string(), Value::String(topic));
-    }
-    insert_project_filter_args(&mut args, project_id, global);
-    if let Some(limit) = limit {
-        args.insert("limit".to_string(), serde_json::json!(limit));
-    }
-    serde_json::json!({
-        "command": "bus-tail",
-        "args": args,
-    })
-}
-
-fn daemon_mailbox_count_request(alias: String, project_id: Option<String>, global: bool) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("alias".to_string(), Value::String(alias));
-    insert_project_filter_args(&mut args, project_id, global);
-    serde_json::json!({
-        "command": "mailbox-count",
-        "args": args,
-    })
-}
-
-fn daemon_mailbox_post_request(request: DaemonMailboxPostRequest) -> Value {
-    let mut args = serde_json::Map::new();
-    if let Some(to) = request.to {
-        args.insert("to".to_string(), Value::String(to));
-    }
-    if let Some(topic) = request.topic {
-        args.insert("topic".to_string(), Value::String(topic));
-    }
-    args.insert("body".to_string(), Value::String(request.body));
-    if let Some(subject) = request.subject {
-        args.insert("subject".to_string(), Value::String(subject));
-    }
-    if let Some(kind) = request.kind {
-        args.insert("kind".to_string(), Value::String(kind));
-    }
-    if let Some(project_id) = request.project_id {
-        args.insert("project_id".to_string(), Value::String(project_id));
-    }
-    if let Some(correlation_id) = request.correlation_id {
-        args.insert("correlation_id".to_string(), Value::String(correlation_id));
-    }
-    if let Some(structured) = request.structured {
-        args.insert("structured".to_string(), structured);
-    }
-    if let Some(from) = request.from {
-        args.insert("from".to_string(), Value::String(from));
-    }
-    serde_json::json!({
-        "command": "mailbox-post",
-        "args": args,
-    })
-}
-
-fn daemon_mailbox_event_id_request(command: &str, event_id: String) -> Value {
-    serde_json::json!({
-        "command": command,
-        "args": { "event_id": event_id },
-    })
-}
-
-fn daemon_mailbox_read_state_request(event_id: String, recipient: String) -> Value {
-    serde_json::json!({
-        "command": "mailbox-read-state",
-        "args": { "event_id": event_id, "recipient": recipient },
-    })
-}
-
-fn daemon_mailbox_mark_read_request(event_id: String, recipient: String) -> Value {
-    serde_json::json!({
-        "command": "mailbox-mark-read",
-        "args": { "event_id": event_id, "recipient": recipient },
-    })
-}
-
-fn daemon_mailbox_alias_event_request(
-    command: &str,
-    event_id: String,
-    alias: String,
-    result: Option<String>,
-) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("event_id".to_string(), Value::String(event_id));
-    args.insert("alias".to_string(), Value::String(alias));
-    if let Some(result) = result {
-        args.insert("result".to_string(), Value::String(result));
-    }
-    serde_json::json!({
-        "command": command,
-        "args": args,
-    })
-}
-
-fn daemon_mailbox_clear_request(alias: String, project_id: Option<String>, global: bool) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("alias".to_string(), Value::String(alias));
-    insert_project_filter_args(&mut args, project_id, global);
-    serde_json::json!({
-        "command": "mailbox-clear",
-        "args": args,
-    })
-}
-
-fn daemon_notes_read_request(target: NotesTarget) -> Value {
-    serde_json::json!({
-        "command": "notes-read",
-        "args": target,
-    })
-}
-
-fn daemon_notes_write_request(target: NotesTarget, content: String, tags: Vec<String>) -> Value {
-    serde_json::json!({
-        "command": "notes-write",
-        "args": {
-            "target": target,
-            "content": content,
-            "tags": tags,
-        },
-    })
-}
-
-fn daemon_notes_append_request(
-    target: NotesTarget,
-    content: String,
-    timestamped: bool,
-    tags: Vec<String>,
-) -> Value {
-    serde_json::json!({
-        "command": "notes-append",
-        "args": {
-            "target": target,
-            "content": content,
-            "timestamped": timestamped,
-            "tags": tags,
-        },
-    })
-}
-
-fn daemon_notes_path_request(target: NotesTarget, dir: bool) -> Value {
-    serde_json::json!({
-        "command": "notes-path",
-        "args": {
-            "target": target,
-            "dir": dir,
-        },
-    })
-}
-
-fn daemon_notes_search_request(query: NotesSearchQuery) -> Value {
-    serde_json::json!({
-        "command": "notes-search",
-        "args": query,
-    })
-}
-
-fn daemon_notes_vault_root_request() -> Value {
-    serde_json::json!({ "command": "notes-vault-root" })
-}
-
-fn daemon_hook_show_request(repo_path: Option<String>) -> Value {
-    let mut args = serde_json::Map::new();
-    if let Some(repo_path) = repo_path {
-        args.insert("repoPath".to_string(), Value::String(repo_path));
-    }
-    serde_json::json!({
-        "command": "hook-show",
-        "args": args,
-    })
-}
-
-fn daemon_hook_run_request(command: &str, request: HookRunRequest) -> Result<Value, String> {
-    Ok(serde_json::json!({
-        "command": command,
-        "args": serde_json::to_value(request)
-            .map_err(|err| format!("encode daemon {command} request: {err}"))?,
-    }))
-}
-
-fn daemon_hook_approve_request(approval_id: String) -> Value {
-    serde_json::json!({
-        "command": "hook-approve",
-        "args": { "approvalId": approval_id },
-    })
-}
-
-fn daemon_hook_clear_approvals_request() -> Value {
-    serde_json::json!({ "command": "hook-clear-approvals" })
-}
-
-fn daemon_hook_log_list_request() -> Value {
-    serde_json::json!({ "command": "hook-log-list" })
-}
-
-fn daemon_hook_log_read_request(path: String) -> Value {
-    serde_json::json!({
-        "command": "hook-log-read",
-        "args": { "path": path },
-    })
-}
-
-fn insert_project_filter_args(
-    args: &mut serde_json::Map<String, Value>,
-    project_id: Option<String>,
-    global: bool,
-) {
-    if let Some(project_id) = project_id {
-        args.insert("project_id".to_string(), Value::String(project_id));
-    }
-    if global {
-        args.insert("global".to_string(), Value::Bool(true));
-    }
-}
-
-fn daemon_watch_list_request() -> Value {
-    serde_json::json!({ "command": "watch-list" })
-}
-
-fn daemon_watch_config_request(command: &str, config: CreateWatchConfig) -> Value {
-    serde_json::json!({
-        "command": command,
-        "args": { "config": config },
-    })
-}
-
-fn daemon_watch_id_request(command: &str, id: String) -> Value {
-    serde_json::json!({
-        "command": command,
-        "args": { "id": id },
-    })
-}
-
-fn daemon_watch_replace_request(watch: Watch) -> Value {
-    serde_json::json!({
-        "command": "watch-replace",
-        "args": { "watch": watch },
-    })
-}
-
-fn daemon_watch_session_request(session_id: String) -> Value {
-    serde_json::json!({
-        "command": "watch-remove-for-session",
-        "args": { "sessionId": session_id },
-    })
-}
-
-fn daemon_watch_cleanup_orphans_request() -> Value {
-    serde_json::json!({ "command": "watch-cleanup-orphans" })
-}
-
-fn daemon_watch_events_request(backlog: bool) -> Value {
-    serde_json::json!({
-        "command": "watch-events",
-        "args": { "backlog": backlog },
-    })
-}
-
-fn daemon_mailbox_events_request() -> Value {
-    serde_json::json!({ "command": "mailbox-events" })
-}
-
-fn daemon_alias_events_request() -> Value {
-    serde_json::json!({ "command": "alias-events" })
-}
-
-fn daemon_subscription_events_request() -> Value {
-    serde_json::json!({ "command": "subscription-events" })
-}
-
-fn daemon_worktree_create_request(
-    repo_path: String,
-    branch: String,
-    start_point: Option<String>,
-    fetch_first: bool,
-) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("repoPath".to_string(), Value::String(repo_path));
-    args.insert("branch".to_string(), Value::String(branch));
-    if let Some(start_point) = start_point {
-        args.insert("startPoint".to_string(), Value::String(start_point));
-    }
-    if fetch_first {
-        args.insert("fetchFirst".to_string(), Value::Bool(true));
-    }
-    serde_json::json!({
-        "command": "worktree-create",
-        "args": args,
-    })
-}
-
-fn daemon_worktree_remove_request(
-    repo_path: String,
-    worktree_path: String,
-    also_branch: bool,
-    force: bool,
-) -> Value {
-    serde_json::json!({
-        "command": "worktree-remove",
-        "args": {
-            "repoPath": repo_path,
-            "worktreePath": worktree_path,
-            "alsoBranch": also_branch,
-            "force": force,
-        },
-    })
-}
-
-fn daemon_process_output_request(id: String, max_bytes: Option<usize>) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("id".to_string(), Value::String(id));
-    if let Some(max_bytes) = max_bytes {
-        args.insert("maxBytes".to_string(), serde_json::json!(max_bytes));
-    }
-    serde_json::json!({
-        "command": "daemon-process-output",
-        "args": args,
-    })
-}
-
-fn daemon_process_list_request() -> Value {
-    serde_json::json!({ "command": "daemon-process-list" })
-}
-
-fn daemon_process_kill_request(id: String) -> Value {
-    serde_json::json!({
-        "command": "daemon-process-kill",
-        "args": { "id": id },
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_spawn_shell_request(
-    id: Option<String>,
-    working_dir: Option<String>,
-    session_id: Option<String>,
-    pane_id: Option<String>,
-    profile: Option<String>,
-    nono_profile: Option<String>,
-    nono_allow_dirs: Vec<String>,
-    initial_size: Option<(u16, u16)>,
-) -> Value {
-    serde_json::json!({
-        "command": "daemon-pty-spawn-shell",
-        "args": daemon_pty_spawn_args(
-            id,
-            working_dir,
-            session_id,
-            pane_id,
-            profile,
-            nono_profile,
-            nono_allow_dirs,
-            initial_size,
-        ),
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_spawn_task_request(
-    command: String,
-    id: Option<String>,
-    working_dir: Option<String>,
-    session_id: Option<String>,
-    pane_id: Option<String>,
-    profile: Option<String>,
-    initial_size: Option<(u16, u16)>,
-) -> Value {
-    let mut args = daemon_pty_spawn_args(
-        id,
-        working_dir,
-        session_id,
-        pane_id,
-        profile,
-        None,
-        Vec::new(),
-        initial_size,
-    );
-    args.insert("command".to_string(), Value::String(command));
-    serde_json::json!({
-        "command": "daemon-pty-spawn-task",
-        "args": args,
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_spawn_args(
-    id: Option<String>,
-    working_dir: Option<String>,
-    session_id: Option<String>,
-    pane_id: Option<String>,
-    profile: Option<String>,
-    nono_profile: Option<String>,
-    nono_allow_dirs: Vec<String>,
-    initial_size: Option<(u16, u16)>,
-) -> serde_json::Map<String, Value> {
-    let mut args = serde_json::Map::new();
-    if let Some(id) = id {
-        args.insert("id".to_string(), Value::String(id));
-    }
-    if let Some(working_dir) = working_dir {
-        args.insert("workingDir".to_string(), Value::String(working_dir));
-    }
-    if let Some(session_id) = session_id {
-        args.insert("sessionId".to_string(), Value::String(session_id));
-    }
-    if let Some(pane_id) = pane_id {
-        args.insert("paneId".to_string(), Value::String(pane_id));
-    }
-    if let Some(profile) = profile {
-        args.insert("profile".to_string(), Value::String(profile));
-    }
-    if let Some(nono_profile) = nono_profile {
-        args.insert("nonoProfile".to_string(), Value::String(nono_profile));
-    }
-    if !nono_allow_dirs.is_empty() {
-        args.insert("nonoAllowDirs".to_string(), serde_json::json!(nono_allow_dirs));
-    }
-    if let Some((cols, rows)) = initial_size {
-        args.insert("initialSize".to_string(), serde_json::json!([cols, rows]));
-    }
-    args
-}
-
-#[cfg(test)]
-fn daemon_pty_output_request(id: String, max_bytes: Option<usize>) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("id".to_string(), Value::String(id));
-    if let Some(max_bytes) = max_bytes {
-        args.insert("maxBytes".to_string(), serde_json::json!(max_bytes));
-    }
-    serde_json::json!({
-        "command": "daemon-pty-output",
-        "args": args,
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_attach_request(id: String, max_bytes: Option<usize>) -> Value {
-    let mut args = serde_json::Map::new();
-    args.insert("id".to_string(), Value::String(id));
-    if let Some(max_bytes) = max_bytes {
-        args.insert("maxBytes".to_string(), serde_json::json!(max_bytes));
-    }
-    serde_json::json!({
-        "command": "daemon-pty-attach",
-        "args": args,
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_list_request() -> Value {
-    serde_json::json!({ "command": "daemon-pty-list" })
-}
-
-#[cfg(test)]
-fn daemon_pty_write_request(id: String, data: String) -> Value {
-    serde_json::json!({
-        "command": "daemon-pty-write",
-        "args": { "id": id, "data": data },
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_resize_request(id: String, cols: u16, rows: u16) -> Value {
-    serde_json::json!({
-        "command": "daemon-pty-resize",
-        "args": { "id": id, "cols": cols, "rows": rows },
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_detach_request(id: String) -> Value {
-    serde_json::json!({
-        "command": "daemon-pty-detach",
-        "args": { "id": id },
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_attach_pane_request(id: String, pane_id: String) -> Value {
-    serde_json::json!({
-        "command": "daemon-pty-attach-pane",
-        "args": { "id": id, "paneId": pane_id },
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_mark_read_request(id: String) -> Value {
-    serde_json::json!({
-        "command": "daemon-pty-mark-read",
-        "args": { "id": id },
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_set_name_request(id: String, name: Option<String>) -> Value {
-    serde_json::json!({
-        "command": "daemon-pty-set-name",
-        "args": { "id": id, "name": name },
-    })
-}
-
-#[cfg(test)]
-fn daemon_pty_kill_request(id: String) -> Value {
-    serde_json::json!({
-        "command": "daemon-pty-kill",
-        "args": { "id": id },
-    })
-}
-
-async fn send_command_async(request: Value) -> Result<Value, String> {
-    tokio::task::spawn_blocking(move || send_command_blocking(request, COMMAND_TIMEOUT))
-        .await
-        .map_err(|err| format!("daemon client task failed: {err}"))?
-}
-
-#[derive(Debug, Deserialize)]
-struct Response {
-    ok: bool,
-    data: Option<Value>,
-    error: Option<String>,
-}
-
-fn decode_response(raw: &str) -> Result<Value, String> {
-    let response: Response = serde_json::from_str(raw.trim())
-        .map_err(|err| format!("invalid daemon response: {err}"))?;
-    if response.ok {
-        Ok(response.data.unwrap_or(Value::Null))
-    } else {
-        Err(response.error.unwrap_or_else(|| "daemon command failed".to_string()))
-    }
-}
-
-fn send_command_blocking(request: Value, timeout: Duration) -> Result<Value, String> {
-    let endpoint = platform::resolve_socket_endpoint_spec()
-        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
-    match endpoint {
-        platform::SocketEndpoint::Unix(path) => send_unix_command(path, request, timeout),
-        platform::SocketEndpoint::Tcp(addr) => send_tcp_command(addr, request, timeout),
-    }
-}
-
-#[cfg(not(windows))]
-fn send_unix_command(path: PathBuf, request: Value, timeout: Duration) -> Result<Value, String> {
-    use std::os::unix::net::UnixStream;
-
-    let mut stream = UnixStream::connect(&path)
-        .map_err(|err| format!("connect daemon socket {}: {err}", path.display()))?;
-    stream
-        .set_read_timeout(Some(timeout))
-        .map_err(|err| format!("set daemon read timeout: {err}"))?;
-    stream
-        .set_write_timeout(Some(timeout))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-
-    write_request(&mut stream, request)?;
-    let mut raw = String::new();
-    stream.read_to_string(&mut raw).map_err(|err| format!("read daemon response: {err}"))?;
-    decode_response(&raw)
-}
-
-#[cfg(windows)]
-fn send_unix_command(_path: PathBuf, _request: Value, _timeout: Duration) -> Result<Value, String> {
-    Err("Unix socket endpoints are not supported on Windows".to_string())
-}
-
-fn send_tcp_command(addr: String, request: Value, timeout: Duration) -> Result<Value, String> {
-    use std::net::{Shutdown, TcpStream};
-
-    let request = add_socket_auth_token(request)?;
-    let mut stream =
-        TcpStream::connect(&addr).map_err(|err| format!("connect daemon socket {addr}: {err}"))?;
-    stream
-        .set_read_timeout(Some(timeout))
-        .map_err(|err| format!("set daemon read timeout: {err}"))?;
-    stream
-        .set_write_timeout(Some(timeout))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-
-    write_request(&mut stream, request)?;
-    let _ = stream.shutdown(Shutdown::Write);
-    let mut raw = String::new();
-    stream.read_to_string(&mut raw).map_err(|err| format!("read daemon response: {err}"))?;
-    decode_response(&raw)
-}
-
-fn add_socket_auth_token(mut request: Value) -> Result<Value, String> {
-    let auth_token = platform::load_socket_auth_token()
-        .ok_or_else(|| "daemon socket auth token not found".to_string())?;
-    if let Some(obj) = request.as_object_mut() {
-        obj.insert("auth_token".to_string(), Value::String(auth_token));
-    }
-    Ok(request)
-}
-
-fn write_request(stream: &mut impl Write, request: Value) -> Result<(), String> {
-    let json = serde_json::to_string(&request).map_err(|err| format!("encode request: {err}"))?;
-    stream
-        .write_all(json.as_bytes())
-        .and_then(|_| stream.write_all(b"\n"))
-        .map_err(|err| format!("write daemon request: {err}"))
-}
-
-fn connect_daemon_stream(request: Value) -> Result<Box<dyn Read>, String> {
-    let endpoint = platform::resolve_socket_endpoint_spec()
-        .ok_or_else(|| "daemon socket endpoint not found".to_string())?;
-    match endpoint {
-        platform::SocketEndpoint::Unix(path) => connect_daemon_stream_unix(path, request),
-        platform::SocketEndpoint::Tcp(addr) => connect_daemon_stream_tcp(addr, request),
-    }
-}
-
-#[cfg(not(windows))]
-fn connect_daemon_stream_unix(path: PathBuf, request: Value) -> Result<Box<dyn Read>, String> {
-    use std::os::unix::net::UnixStream;
-
-    let mut stream = UnixStream::connect(&path)
-        .map_err(|err| format!("connect daemon socket {}: {err}", path.display()))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, request)?;
-    Ok(Box::new(stream))
-}
-
-#[cfg(windows)]
-fn connect_daemon_stream_unix(_path: PathBuf, _request: Value) -> Result<Box<dyn Read>, String> {
-    Err("Unix socket endpoints are not supported on Windows".to_string())
-}
-
-fn connect_daemon_stream_tcp(addr: String, request: Value) -> Result<Box<dyn Read>, String> {
-    use std::net::TcpStream;
-
-    let request = add_socket_auth_token(request)?;
-    let mut stream =
-        TcpStream::connect(&addr).map_err(|err| format!("connect daemon socket {addr}: {err}"))?;
-    stream
-        .set_write_timeout(Some(COMMAND_TIMEOUT))
-        .map_err(|err| format!("set daemon write timeout: {err}"))?;
-    write_request(&mut stream, request)?;
-    Ok(Box::new(stream))
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum WatchEventStreamFrame {
-    #[serde(rename = "ready")]
-    Ready,
-    #[serde(rename = "update")]
-    Update { event: Box<WatchUpdateEvent> },
-    #[serde(rename = "warning")]
-    Warning { message: String },
-    #[serde(rename = "error")]
-    Error { error: String },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum MailboxEventStreamFrame {
-    #[serde(rename = "ready")]
-    Ready,
-    #[serde(rename = "event")]
-    Event { event: Box<MailboxEvent> },
-    #[serde(rename = "warning")]
-    Warning { message: String },
-    #[serde(rename = "error")]
-    Error { error: String },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum AliasEventStreamFrame {
-    #[serde(rename = "ready")]
-    Ready,
-    #[serde(rename = "event")]
-    Event { event: AliasEvent },
-    #[serde(rename = "warning")]
-    Warning { message: String },
-    #[serde(rename = "error")]
-    Error { error: String },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum SubscriptionEventStreamFrame {
-    #[serde(rename = "ready")]
-    Ready,
-    #[serde(rename = "event")]
-    Event { event: BusSubscriptionEvent },
-    #[serde(rename = "warning")]
-    Warning { message: String },
-    #[serde(rename = "error")]
-    Error { error: String },
-}
-
-fn read_watch_events_blocking(app: AppHandle, watch_manager: WatchManager) -> Result<(), String> {
-    let stream = connect_daemon_stream(daemon_watch_events_request(true))?;
-    read_watch_event_stream(stream, app, watch_manager)
-}
-
-fn read_watch_event_stream(
-    stream: impl Read,
+fn read_watch_events_blocking(
+    sdk: &roux_sdk::Roux,
     app: AppHandle,
     watch_manager: WatchManager,
 ) -> Result<(), String> {
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    loop {
-        line.clear();
-        let read = reader
-            .read_line(&mut line)
-            .map_err(|err| format!("read daemon watch event frame: {err}"))?;
-        if read == 0 {
-            return Ok(());
+    let mut stream_error = None;
+    let result = sdk.watch_events_blocking(true, |frame| {
+        match handle_watch_event_frame(frame, &app, &watch_manager) {
+            Ok(()) => true,
+            Err(err) => {
+                stream_error = Some(err);
+                false
+            }
         }
-        let frame: WatchEventStreamFrame = serde_json::from_str(line.trim())
-            .map_err(|err| format!("decode daemon watch event frame: {err}"))?;
-        handle_watch_event_frame(frame, &app, &watch_manager)?;
-    }
+    });
+    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
 }
 
 fn handle_watch_event_frame(
@@ -2284,26 +1090,17 @@ fn handle_watch_event_frame(
     }
 }
 
-fn read_mailbox_events_blocking(app: AppHandle) -> Result<(), String> {
-    let stream = connect_daemon_stream(daemon_mailbox_events_request())?;
-    read_mailbox_event_stream(stream, app)
-}
-
-fn read_mailbox_event_stream(stream: impl Read, app: AppHandle) -> Result<(), String> {
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    loop {
-        line.clear();
-        let read = reader
-            .read_line(&mut line)
-            .map_err(|err| format!("read daemon mailbox event frame: {err}"))?;
-        if read == 0 {
-            return Ok(());
-        }
-        let frame: MailboxEventStreamFrame = serde_json::from_str(line.trim())
-            .map_err(|err| format!("decode daemon mailbox event frame: {err}"))?;
-        handle_mailbox_event_frame(frame, &app)?;
-    }
+fn read_mailbox_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<(), String> {
+    let mut stream_error = None;
+    let result =
+        sdk.mailbox_events_blocking(|frame| match handle_mailbox_event_frame(frame, &app) {
+            Ok(()) => true,
+            Err(err) => {
+                stream_error = Some(err);
+                false
+            }
+        });
+    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
 }
 
 fn handle_mailbox_event_frame(
@@ -2323,26 +1120,16 @@ fn handle_mailbox_event_frame(
     }
 }
 
-fn read_alias_events_blocking(app: AppHandle) -> Result<(), String> {
-    let stream = connect_daemon_stream(daemon_alias_events_request())?;
-    read_alias_event_stream(stream, app)
-}
-
-fn read_alias_event_stream(stream: impl Read, app: AppHandle) -> Result<(), String> {
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    loop {
-        line.clear();
-        let read = reader
-            .read_line(&mut line)
-            .map_err(|err| format!("read daemon alias event frame: {err}"))?;
-        if read == 0 {
-            return Ok(());
+fn read_alias_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<(), String> {
+    let mut stream_error = None;
+    let result = sdk.alias_events_blocking(|frame| match handle_alias_event_frame(frame, &app) {
+        Ok(()) => true,
+        Err(err) => {
+            stream_error = Some(err);
+            false
         }
-        let frame: AliasEventStreamFrame = serde_json::from_str(line.trim())
-            .map_err(|err| format!("decode daemon alias event frame: {err}"))?;
-        handle_alias_event_frame(frame, &app)?;
-    }
+    });
+    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
 }
 
 fn handle_alias_event_frame(frame: AliasEventStreamFrame, app: &AppHandle) -> Result<(), String> {
@@ -2359,26 +1146,18 @@ fn handle_alias_event_frame(frame: AliasEventStreamFrame, app: &AppHandle) -> Re
     }
 }
 
-fn read_subscription_events_blocking(app: AppHandle) -> Result<(), String> {
-    let stream = connect_daemon_stream(daemon_subscription_events_request())?;
-    read_subscription_event_stream(stream, app)
-}
-
-fn read_subscription_event_stream(stream: impl Read, app: AppHandle) -> Result<(), String> {
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    loop {
-        line.clear();
-        let read = reader
-            .read_line(&mut line)
-            .map_err(|err| format!("read daemon subscription event frame: {err}"))?;
-        if read == 0 {
-            return Ok(());
+fn read_subscription_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<(), String> {
+    let mut stream_error = None;
+    let result = sdk.subscription_events_blocking(|frame| {
+        match handle_subscription_event_frame(frame, &app) {
+            Ok(()) => true,
+            Err(err) => {
+                stream_error = Some(err);
+                false
+            }
         }
-        let frame: SubscriptionEventStreamFrame = serde_json::from_str(line.trim())
-            .map_err(|err| format!("decode daemon subscription event frame: {err}"))?;
-        handle_subscription_event_frame(frame, &app)?;
-    }
+    });
+    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
 }
 
 fn handle_subscription_event_frame(
@@ -2453,18 +1232,6 @@ mod tests {
     use std::cell::Cell;
 
     #[test]
-    fn decode_response_returns_data_on_success() {
-        let data = decode_response(r#"{"ok":true,"data":{"kind":"roux-daemon"}}"#).unwrap();
-        assert_eq!(data["kind"], "roux-daemon");
-    }
-
-    #[test]
-    fn decode_response_returns_error_message() {
-        let err = decode_response(r#"{"ok":false,"error":"nope"}"#).unwrap_err();
-        assert_eq!(err, "nope");
-    }
-
-    #[test]
     fn event_bridge_reconnects_after_eof_and_error() {
         let calls = Cell::new(0);
         let sleeps = Cell::new(0);
@@ -2482,573 +1249,6 @@ mod tests {
 
         assert_eq!(calls.get(), 3);
         assert_eq!(sleeps.get(), 2);
-    }
-
-    #[test]
-    fn daemon_process_start_request_uses_daemon_command_shape() {
-        let request =
-            daemon_process_start_request("printf hi".to_string(), Some("/tmp".to_string()));
-
-        assert_eq!(request["command"], "daemon-process-start");
-        assert_eq!(request["args"]["command"], "printf hi");
-        assert_eq!(request["args"]["workingDir"], "/tmp");
-    }
-
-    #[test]
-    fn daemon_session_create_shell_request_uses_daemon_command_shape() {
-        let request = daemon_session_create_shell_request(DaemonCreateSessionShellRequest {
-            id: "session-a".to_string(),
-            repo_path: "/repo".to_string(),
-            name: "Daemon Session".to_string(),
-            worktree_path: None,
-            branch: Some("feature/demo".to_string()),
-            base: Some("origin/main".to_string()),
-            fetch_first: true,
-            profile: Some("plain-shell".to_string()),
-            nono_profile: Some("strict".to_string()),
-            nono_allow_dirs: vec!["/tmp".to_string()],
-            initial_size: Some((100, 30)),
-            project_id: Some("project-a".to_string()),
-            blueprint_id: Some("blueprint-a".to_string()),
-            smol_machine_name: Some("vm-a".to_string()),
-            notes: Some(NotesEnvInputs {
-                vault_root: "/vault".to_string(),
-                session_slug: "feature-demo--sessio".to_string(),
-                repo_slug: "repo-a".to_string(),
-                project_slug: Some("project-a".to_string()),
-                context_paths: vec!["/repo/docs".to_string()],
-                project_prompt: "Use project notes".to_string(),
-            }),
-        });
-
-        assert_eq!(request["command"], "session-create-shell");
-        assert_eq!(request["args"]["id"], "session-a");
-        assert_eq!(request["args"]["repoPath"], "/repo");
-        assert_eq!(request["args"]["branch"], "feature/demo");
-        assert_eq!(request["args"]["base"], "origin/main");
-        assert_eq!(request["args"]["fetchFirst"], true);
-        assert_eq!(request["args"]["profile"], "plain-shell");
-        assert_eq!(request["args"]["nonoProfile"], "strict");
-        assert_eq!(request["args"]["nonoAllowDirs"][0], "/tmp");
-        assert_eq!(request["args"]["initialSize"], serde_json::json!([100, 30]));
-        assert_eq!(request["args"]["projectId"], "project-a");
-        assert_eq!(request["args"]["smolMachineName"], "vm-a");
-        assert_eq!(request["args"]["notesEnv"]["vaultRoot"], "/vault");
-        assert_eq!(request["args"]["notesEnv"]["contextPaths"][0], "/repo/docs");
-    }
-
-    #[test]
-    fn daemon_session_lifecycle_requests_use_daemon_command_shape() {
-        let reconnect =
-            daemon_session_reconnect_shell_request(DaemonReconnectSessionShellRequest {
-                id: "session-a".to_string(),
-                profile: Some("plain-shell".to_string()),
-                nono_profile: Some("strict".to_string()),
-                nono_allow_dirs: vec!["/tmp".to_string()],
-                initial_size: Some((120, 40)),
-                notes: None,
-            });
-        assert_eq!(reconnect["command"], "session-reconnect-shell");
-        assert_eq!(reconnect["session_id"], "session-a");
-        assert_eq!(reconnect["args"]["profile"], "plain-shell");
-        assert_eq!(reconnect["args"]["nonoProfile"], "strict");
-        assert_eq!(reconnect["args"]["nonoAllowDirs"][0], "/tmp");
-        assert_eq!(reconnect["args"]["initialSize"], serde_json::json!([120, 40]));
-
-        let archive = daemon_session_id_request("session-archive", "session-a".to_string());
-        assert_eq!(archive["command"], "session-archive");
-        assert_eq!(archive["session_id"], "session-a");
-
-        let restore = daemon_session_id_request("session-restore", "session-a".to_string());
-        assert_eq!(restore["command"], "session-restore");
-
-        let delete = daemon_session_id_request("session-delete", "session-a".to_string());
-        assert_eq!(delete["command"], "session-delete");
-
-        let exists = daemon_session_id_request("session-worktree-exists", "session-a".to_string());
-        assert_eq!(exists["command"], "session-worktree-exists");
-
-        let refresh = daemon_session_id_request("session-refresh-branch", "session-a".to_string());
-        assert_eq!(refresh["command"], "session-refresh-branch");
-
-        let project = daemon_session_optional_value_request(
-            "session-set-project",
-            "session-a".to_string(),
-            "projectId",
-            Some("project-a".to_string()),
-        );
-        assert_eq!(project["command"], "session-set-project");
-        assert_eq!(project["session_id"], "session-a");
-        assert_eq!(project["args"]["projectId"], "project-a");
-
-        let clear_smol = daemon_session_optional_value_request(
-            "session-set-smol-machine",
-            "session-a".to_string(),
-            "machineName",
-            None,
-        );
-        assert_eq!(clear_smol["command"], "session-set-smol-machine");
-        assert!(clear_smol["args"]["machineName"].is_null());
-    }
-
-    #[test]
-    fn daemon_project_requests_use_daemon_command_shape() {
-        let create = daemon_project_create_request("Alpha".to_string());
-        assert_eq!(create["command"], "project-create");
-        assert_eq!(create["args"]["name"], "Alpha");
-
-        let remove = daemon_project_id_request("project-remove", "project-a".to_string());
-        assert_eq!(remove["command"], "project-remove");
-        assert_eq!(remove["args"]["id"], "project-a");
-
-        let rename = daemon_project_rename_request("project-a".to_string(), "Beta".to_string());
-        assert_eq!(rename["command"], "project-rename");
-        assert_eq!(rename["args"]["name"], "Beta");
-
-        let update = daemon_project_update_request(
-            "project-a".to_string(),
-            ProjectUpdate {
-                name: Some("Gamma".to_string()),
-                repo_roots: None,
-                context_paths: Some(vec!["/docs".to_string()]),
-                session_blueprints: None,
-                project_prompt: None,
-            },
-        );
-        assert_eq!(update["command"], "project-update");
-        assert_eq!(update["args"]["id"], "project-a");
-        assert_eq!(update["args"]["patch"]["name"], "Gamma");
-        assert_eq!(update["args"]["patch"]["contextPaths"][0], "/docs");
-    }
-
-    #[test]
-    fn daemon_worktree_requests_use_daemon_command_shape() {
-        let create = daemon_worktree_create_request(
-            "/repo".to_string(),
-            "feature/demo".to_string(),
-            Some("origin/main".to_string()),
-            true,
-        );
-        assert_eq!(create["command"], "worktree-create");
-        assert_eq!(create["args"]["repoPath"], "/repo");
-        assert_eq!(create["args"]["branch"], "feature/demo");
-        assert_eq!(create["args"]["startPoint"], "origin/main");
-        assert_eq!(create["args"]["fetchFirst"], true);
-
-        let remove = daemon_worktree_remove_request(
-            "/repo".to_string(),
-            "/repo-feature".to_string(),
-            true,
-            false,
-        );
-        assert_eq!(remove["command"], "worktree-remove");
-        assert_eq!(remove["args"]["repoPath"], "/repo");
-        assert_eq!(remove["args"]["worktreePath"], "/repo-feature");
-        assert_eq!(remove["args"]["alsoBranch"], true);
-        assert_eq!(remove["args"]["force"], false);
-
-        let list = daemon_repo_path_request("worktree-list", "/repo".to_string());
-        assert_eq!(list["command"], "worktree-list");
-        assert_eq!(list["args"]["repoPath"], "/repo");
-
-        let branches = daemon_repo_path_request("worktree-list-branches", "/repo".to_string());
-        assert_eq!(branches["command"], "worktree-list-branches");
-
-        let init = daemon_path_request("git-init", "/new-repo".to_string());
-        assert_eq!(init["command"], "git-init");
-        assert_eq!(init["args"]["path"], "/new-repo");
-    }
-
-    #[test]
-    fn daemon_alias_requests_use_daemon_command_shape() {
-        let list = daemon_alias_list_request(Some("project-a".to_string()), false, true);
-        assert_eq!(list["command"], "alias-list");
-        assert_eq!(list["args"]["project_id"], "project-a");
-        assert_eq!(list["args"]["only_unbound"], true);
-        assert!(list["args"].get("global").is_none());
-
-        let get = daemon_alias_get_request("reviewer".to_string(), None);
-        assert_eq!(get["command"], "alias-get");
-        assert_eq!(get["args"]["alias"], "reviewer");
-
-        let whoami = daemon_alias_whoami_request("session-a".to_string());
-        assert_eq!(whoami["command"], "alias-whoami");
-        assert_eq!(whoami["session_id"], "session-a");
-
-        let add = daemon_alias_member_request(
-            "alias-add-member",
-            "team".to_string(),
-            "pane-a".to_string(),
-            None,
-        );
-        assert_eq!(add["command"], "alias-add-member");
-        assert_eq!(add["args"]["alias"], "team");
-        assert_eq!(add["args"]["pane_id"], "pane-a");
-
-        let mode = daemon_alias_mode_request(
-            "team".to_string(),
-            "broadcast".to_string(),
-            Some("project-a".to_string()),
-        );
-        assert_eq!(mode["command"], "alias-mode");
-        assert_eq!(mode["args"]["mode"], "broadcast");
-        assert_eq!(mode["args"]["project_id"], "project-a");
-    }
-
-    #[test]
-    fn daemon_bus_requests_use_daemon_command_shape() {
-        let list = daemon_bus_subscriptions_request(
-            Some("reviewer".to_string()),
-            Some("project-a".to_string()),
-            false,
-        );
-        assert_eq!(list["command"], "bus-subscriptions");
-        assert_eq!(list["args"]["alias"], "reviewer");
-        assert_eq!(list["args"]["project_id"], "project-a");
-        assert!(list["args"].get("global").is_none());
-
-        let global = daemon_bus_subscriptions_request(None, None, true);
-        assert_eq!(global["command"], "bus-subscriptions");
-        assert_eq!(global["args"]["global"], true);
-
-        let subscribe = daemon_bus_subscribe_request(
-            "reviewer".to_string(),
-            "build.**".to_string(),
-            Some("project-a".to_string()),
-        );
-        assert_eq!(subscribe["command"], "bus-subscribe");
-        assert_eq!(subscribe["args"]["alias"], "reviewer");
-        assert_eq!(subscribe["args"]["pattern"], "build.**");
-        assert_eq!(subscribe["args"]["project_id"], "project-a");
-
-        let unsubscribe = daemon_bus_unsubscribe_request("sub-a".to_string());
-        assert_eq!(unsubscribe["command"], "bus-unsubscribe");
-        assert_eq!(unsubscribe["args"]["id"], "sub-a");
-    }
-
-    #[test]
-    fn daemon_mailbox_requests_use_daemon_command_shape() {
-        let peek = daemon_mailbox_peek_request(
-            "reviewer".to_string(),
-            true,
-            Some("project-a".to_string()),
-            false,
-            Some(20),
-        );
-        assert_eq!(peek["command"], "mailbox-peek");
-        assert_eq!(peek["args"]["alias"], "reviewer");
-        assert_eq!(peek["args"]["unread"], true);
-        assert_eq!(peek["args"]["project_id"], "project-a");
-        assert_eq!(peek["args"]["limit"], 20);
-
-        let tail = daemon_bus_tail_request(Some("build.done".to_string()), None, true, Some(5));
-        assert_eq!(tail["command"], "bus-tail");
-        assert_eq!(tail["args"]["topic"], "build.done");
-        assert_eq!(tail["args"]["global"], true);
-        assert_eq!(tail["args"]["limit"], 5);
-
-        let count = daemon_mailbox_count_request("reviewer".to_string(), None, false);
-        assert_eq!(count["command"], "mailbox-count");
-        assert_eq!(count["args"]["alias"], "reviewer");
-        assert!(count["args"].get("project_id").is_none());
-
-        let post = daemon_mailbox_post_request(DaemonMailboxPostRequest {
-            to: Some("reviewer".to_string()),
-            topic: Some("build.done".to_string()),
-            body: "ready".to_string(),
-            subject: Some("Build".to_string()),
-            kind: Some("fyi".to_string()),
-            project_id: Some("project-a".to_string()),
-            correlation_id: Some("corr-a".to_string()),
-            structured: Some(serde_json::json!({ "ok": true })),
-            from: Some("runner".to_string()),
-        });
-        assert_eq!(post["command"], "mailbox-post");
-        assert_eq!(post["args"]["to"], "reviewer");
-        assert_eq!(post["args"]["topic"], "build.done");
-        assert_eq!(post["args"]["body"], "ready");
-        assert_eq!(post["args"]["subject"], "Build");
-        assert_eq!(post["args"]["kind"], "fyi");
-        assert_eq!(post["args"]["project_id"], "project-a");
-        assert_eq!(post["args"]["correlation_id"], "corr-a");
-        assert_eq!(post["args"]["structured"]["ok"], true);
-        assert_eq!(post["args"]["from"], "runner");
-
-        let get = daemon_mailbox_event_id_request("mailbox-get", "event-a".to_string());
-        assert_eq!(get["command"], "mailbox-get");
-        assert_eq!(get["args"]["event_id"], "event-a");
-
-        let read_state =
-            daemon_mailbox_read_state_request("event-a".to_string(), "reviewer".to_string());
-        assert_eq!(read_state["command"], "mailbox-read-state");
-        assert_eq!(read_state["args"]["recipient"], "reviewer");
-
-        let mark_read =
-            daemon_mailbox_mark_read_request("event-a".to_string(), "reviewer".to_string());
-        assert_eq!(mark_read["command"], "mailbox-mark-read");
-        assert_eq!(mark_read["args"]["event_id"], "event-a");
-
-        let ack = daemon_mailbox_alias_event_request(
-            "mailbox-ack",
-            "event-a".to_string(),
-            "reviewer".to_string(),
-            Some("done".to_string()),
-        );
-        assert_eq!(ack["command"], "mailbox-ack");
-        assert_eq!(ack["args"]["alias"], "reviewer");
-        assert_eq!(ack["args"]["result"], "done");
-
-        let clear = daemon_mailbox_clear_request("reviewer".to_string(), None, true);
-        assert_eq!(clear["command"], "mailbox-clear");
-        assert_eq!(clear["args"]["global"], true);
-    }
-
-    #[test]
-    fn daemon_notes_requests_use_daemon_command_shape() {
-        let target = crate::commands::notes::NotesTarget {
-            scope: "session".to_string(),
-            session_id: Some("session-a".to_string()),
-            topic: Some("plan".to_string()),
-            override_slug: None,
-        };
-
-        let read = daemon_notes_read_request(target.clone());
-        assert_eq!(read["command"], "notes-read");
-        assert_eq!(read["args"]["scope"], "session");
-        assert_eq!(read["args"]["sessionId"], "session-a");
-        assert_eq!(read["args"]["topic"], "plan");
-
-        let write =
-            daemon_notes_write_request(target.clone(), "body".to_string(), vec!["tag".to_string()]);
-        assert_eq!(write["command"], "notes-write");
-        assert_eq!(write["args"]["target"]["scope"], "session");
-        assert_eq!(write["args"]["content"], "body");
-        assert_eq!(write["args"]["tags"][0], "tag");
-
-        let append = daemon_notes_append_request(target.clone(), "more".to_string(), true, vec![]);
-        assert_eq!(append["command"], "notes-append");
-        assert_eq!(append["args"]["timestamped"], true);
-
-        let path = daemon_notes_path_request(target, true);
-        assert_eq!(path["command"], "notes-path");
-        assert_eq!(path["args"]["dir"], true);
-
-        let search = daemon_notes_search_request(crate::commands::notes::NotesSearchQuery {
-            tags: vec!["tag".to_string()],
-            scope: Some("global".to_string()),
-            exact: true,
-        });
-        assert_eq!(search["command"], "notes-search");
-        assert_eq!(search["args"]["tags"][0], "tag");
-        assert_eq!(search["args"]["scope"], "global");
-        assert_eq!(search["args"]["exact"], true);
-
-        assert_eq!(daemon_notes_vault_root_request()["command"], "notes-vault-root");
-    }
-
-    #[test]
-    fn daemon_hook_requests_use_daemon_command_shape() {
-        let show = daemon_hook_show_request(Some("/repo".to_string()));
-        assert_eq!(show["command"], "hook-show");
-        assert_eq!(show["args"]["repoPath"], "/repo");
-
-        let request = HookRunRequest {
-            event: "pre-watch-run".to_string(),
-            repo_path: Some("/repo".to_string()),
-            worktree_path: Some("/repo/wt".to_string()),
-            branch: Some("feature/demo".to_string()),
-            session_id: Some("session-a".to_string()),
-            project_id: Some("project-a".to_string()),
-            task_id: Some("task-a".to_string()),
-            scope: Some("project".to_string()),
-            provider: Some("git".to_string()),
-            args: Some(vec!["one".to_string(), "two".to_string()]),
-        };
-        let preview = daemon_hook_run_request("hook-preview", request.clone()).unwrap();
-        assert_eq!(preview["command"], "hook-preview");
-        assert_eq!(preview["args"]["event"], "pre-watch-run");
-        assert_eq!(preview["args"]["repoPath"], "/repo");
-        assert_eq!(preview["args"]["worktreePath"], "/repo/wt");
-        assert_eq!(preview["args"]["sessionId"], "session-a");
-        assert_eq!(preview["args"]["args"][0], "one");
-
-        let run = daemon_hook_run_request("hook-run", request).unwrap();
-        assert_eq!(run["command"], "hook-run");
-
-        let approve = daemon_hook_approve_request("approval-a".to_string());
-        assert_eq!(approve["command"], "hook-approve");
-        assert_eq!(approve["args"]["approvalId"], "approval-a");
-
-        assert_eq!(daemon_hook_clear_approvals_request()["command"], "hook-clear-approvals");
-        assert_eq!(daemon_hook_log_list_request()["command"], "hook-log-list");
-
-        let read = daemon_hook_log_read_request("/tmp/hook.json".to_string());
-        assert_eq!(read["command"], "hook-log-read");
-        assert_eq!(read["args"]["path"], "/tmp/hook.json");
-    }
-
-    #[test]
-    fn daemon_watch_requests_use_daemon_command_shape() {
-        let config = CreateWatchConfig {
-            name: "HTTP".to_string(),
-            kind: roux_core::WatchKind::HttpHealth {
-                url: "http://localhost".to_string(),
-                expected_status: 200,
-            },
-            mode: roux_core::WatchMode::Recurring { interval_secs: 30 },
-            scope: roux_core::WatchScope::Global,
-            notify: None,
-        };
-
-        assert_eq!(daemon_watch_list_request()["command"], "watch-list");
-
-        let create = daemon_watch_config_request("watch-create", config.clone());
-        assert_eq!(create["command"], "watch-create");
-        assert_eq!(create["args"]["config"]["name"], "HTTP");
-        assert_eq!(create["args"]["config"]["kind"]["type"], "httpHealth");
-
-        let find_or_create = daemon_watch_config_request("watch-find-or-create", config);
-        assert_eq!(find_or_create["command"], "watch-find-or-create");
-
-        let remove = daemon_watch_id_request("watch-remove", "watch-a".to_string());
-        assert_eq!(remove["command"], "watch-remove");
-        assert_eq!(remove["args"]["id"], "watch-a");
-
-        let watch = Watch {
-            id: "watch-a".to_string(),
-            name: "HTTP".to_string(),
-            kind: roux_core::WatchKind::HttpHealth {
-                url: "http://localhost".to_string(),
-                expected_status: 200,
-            },
-            mode: roux_core::WatchMode::Recurring { interval_secs: 30 },
-            scope: roux_core::WatchScope::Global,
-            runtime_state: roux_core::RuntimeState::Active,
-            last_result: None,
-            last_checked: None,
-            notify: roux_core::NotifyConfig::default(),
-            created_at: 0,
-        };
-        let replace = daemon_watch_replace_request(watch);
-        assert_eq!(replace["command"], "watch-replace");
-        assert_eq!(replace["args"]["watch"]["id"], "watch-a");
-
-        let session_cleanup = daemon_watch_session_request("session-a".to_string());
-        assert_eq!(session_cleanup["command"], "watch-remove-for-session");
-        assert_eq!(session_cleanup["args"]["sessionId"], "session-a");
-
-        let events = daemon_watch_events_request(true);
-        assert_eq!(events["command"], "watch-events");
-        assert_eq!(events["args"]["backlog"], true);
-
-        assert_eq!(daemon_mailbox_events_request()["command"], "mailbox-events");
-        assert_eq!(daemon_alias_events_request()["command"], "alias-events");
-        assert_eq!(daemon_subscription_events_request()["command"], "subscription-events");
-
-        assert_eq!(daemon_watch_cleanup_orphans_request()["command"], "watch-cleanup-orphans");
-    }
-
-    #[test]
-    fn daemon_process_output_request_uses_max_bytes() {
-        let request = daemon_process_output_request("daemon-process-1".to_string(), Some(42));
-
-        assert_eq!(request["command"], "daemon-process-output");
-        assert_eq!(request["args"]["id"], "daemon-process-1");
-        assert_eq!(request["args"]["maxBytes"], 42);
-    }
-
-    #[test]
-    fn daemon_process_list_and_kill_requests_use_daemon_commands() {
-        assert_eq!(daemon_process_list_request()["command"], "daemon-process-list");
-
-        let kill = daemon_process_kill_request("daemon-process-1".to_string());
-        assert_eq!(kill["command"], "daemon-process-kill");
-        assert_eq!(kill["args"]["id"], "daemon-process-1");
-    }
-
-    #[test]
-    fn daemon_pty_spawn_shell_request_includes_nono_config() {
-        let request = daemon_pty_spawn_shell_request(
-            Some("pty-a".to_string()),
-            Some("/tmp".to_string()),
-            Some("session-a".to_string()),
-            Some("pane-a".to_string()),
-            Some("plain-shell".to_string()),
-            Some("strict".to_string()),
-            vec!["/tmp".to_string()],
-            Some((120, 40)),
-        );
-
-        assert_eq!(request["command"], "daemon-pty-spawn-shell");
-        assert_eq!(request["args"]["nonoProfile"], "strict");
-        assert_eq!(request["args"]["nonoAllowDirs"][0], "/tmp");
-    }
-
-    #[test]
-    fn daemon_pty_spawn_task_request_uses_daemon_command_shape() {
-        let request = daemon_pty_spawn_task_request(
-            "printf hi".to_string(),
-            Some("pty-a".to_string()),
-            Some("/tmp".to_string()),
-            Some("session-a".to_string()),
-            Some("pane-a".to_string()),
-            Some("task".to_string()),
-            Some((120, 40)),
-        );
-
-        assert_eq!(request["command"], "daemon-pty-spawn-task");
-        assert_eq!(request["args"]["command"], "printf hi");
-        assert_eq!(request["args"]["id"], "pty-a");
-        assert_eq!(request["args"]["workingDir"], "/tmp");
-        assert_eq!(request["args"]["sessionId"], "session-a");
-        assert_eq!(request["args"]["paneId"], "pane-a");
-        assert_eq!(request["args"]["profile"], "task");
-        assert_eq!(request["args"]["initialSize"], serde_json::json!([120, 40]));
-    }
-
-    #[test]
-    fn daemon_pty_control_requests_use_daemon_commands() {
-        let output = daemon_pty_output_request("pty-a".to_string(), Some(42));
-        assert_eq!(output["command"], "daemon-pty-output");
-        assert_eq!(output["args"]["id"], "pty-a");
-        assert_eq!(output["args"]["maxBytes"], 42);
-
-        let attach = daemon_pty_attach_request("pty-a".to_string(), Some(1024));
-        assert_eq!(attach["command"], "daemon-pty-attach");
-        assert_eq!(attach["args"]["id"], "pty-a");
-        assert_eq!(attach["args"]["maxBytes"], 1024);
-
-        assert_eq!(daemon_pty_list_request()["command"], "daemon-pty-list");
-
-        let write = daemon_pty_write_request("pty-a".to_string(), "input\n".to_string());
-        assert_eq!(write["command"], "daemon-pty-write");
-        assert_eq!(write["args"]["data"], "input\n");
-
-        let resize = daemon_pty_resize_request("pty-a".to_string(), 100, 30);
-        assert_eq!(resize["command"], "daemon-pty-resize");
-        assert_eq!(resize["args"]["cols"], 100);
-        assert_eq!(resize["args"]["rows"], 30);
-
-        let detach = daemon_pty_detach_request("pty-a".to_string());
-        assert_eq!(detach["command"], "daemon-pty-detach");
-        assert_eq!(detach["args"]["id"], "pty-a");
-
-        let attach_pane = daemon_pty_attach_pane_request("pty-a".to_string(), "pane-b".to_string());
-        assert_eq!(attach_pane["command"], "daemon-pty-attach-pane");
-        assert_eq!(attach_pane["args"]["paneId"], "pane-b");
-
-        let mark_read = daemon_pty_mark_read_request("pty-a".to_string());
-        assert_eq!(mark_read["command"], "daemon-pty-mark-read");
-
-        let set_name = daemon_pty_set_name_request("pty-a".to_string(), Some("Build".to_string()));
-        assert_eq!(set_name["command"], "daemon-pty-set-name");
-        assert_eq!(set_name["args"]["name"], "Build");
-        let clear_name = daemon_pty_set_name_request("pty-a".to_string(), None);
-        assert!(clear_name["args"]["name"].is_null());
-
-        let kill = daemon_pty_kill_request("pty-a".to_string());
-        assert_eq!(kill["command"], "daemon-pty-kill");
-        assert_eq!(kill["args"]["id"], "pty-a");
     }
 
     #[test]
