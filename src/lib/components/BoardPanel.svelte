@@ -30,9 +30,7 @@
   });
 
   async function handleMove(id: string, status: WorkItemStatus) {
-    const col = $itemsByColumn.get(status) ?? [];
-    const lastOrder = col.length > 0 ? col[col.length - 1].sortOrder : -1;
-    await moveWorkItem(id, status, lastOrder + 1);
+    await moveWorkItem(id, status, Date.now());
   }
 
   async function handleStart(id: string) {

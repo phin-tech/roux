@@ -360,6 +360,8 @@ enum WorkItemEventFrame {
     Event { event: roux_core::WorkItemEvent },
     #[serde(rename = "warning")]
     Warning { message: String },
+    #[serde(rename = "error")]
+    Error { error: String },
 }
 
 impl Response {
@@ -630,7 +632,7 @@ async fn handle_connection<R, W>(
                     return;
                 }
                 if command == "session-events" {
-                    let ok = handle_session_events_stream(req, writer, host).await;
+                    let ok = handle_session_events_stream(req, writer, host, identity).await;
                     if ok {
                         log.write("Handled socket command: session-events");
                     } else {
@@ -639,7 +641,7 @@ async fn handle_connection<R, W>(
                     return;
                 }
                 if command == "work-item-events" {
-                    let ok = handle_work_item_events_stream(req, writer, host).await;
+                    let ok = handle_work_item_events_stream(req, writer, host, identity).await;
                     if ok {
                         log.write("Handled socket command: work-item-events");
                     } else {
@@ -1412,13 +1414,19 @@ enum SessionEventFrame {
     Ready,
     Event { event: SessionStatusEvent },
     Warning { message: String },
+    Error { error: String },
 }
 
-async fn handle_session_events_stream<W>(req: Request, writer: &mut W, host: &RuntimeHost) -> bool
+async fn handle_session_events_stream<W>(
+    req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> bool
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
-    let result = handle_session_events_stream_inner(req, writer, host).await;
+    let result = handle_session_events_stream_inner(req, writer, host, identity).await;
     let _ = writer.shutdown().await;
     result
 }
@@ -1427,14 +1435,19 @@ async fn handle_session_events_stream_inner<W>(
     req: Request,
     writer: &mut W,
     host: &RuntimeHost,
+    identity: &DaemonIdentity,
 ) -> bool
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
-    // Auth is checked by the outer `request_authorized` path for non-streaming
-    // commands; streaming handlers repeat the check since they bypass it.
-    // session-events carries no secret data but we keep the pattern consistent.
-    drop(req); // no per-stream args needed today
+    // Streaming handlers bypass the request_authorized gate in the main
+    // dispatch loop; repeat the check here so auth is enforced on all paths.
+    if !request_authorized(&req, identity) {
+        let _ =
+            write_session_event_frame(writer, &SessionEventFrame::Error { error: "unauthorized".into() })
+                .await;
+        return false;
+    }
     let mut rx = host.session_handle.subscribe_status();
     if !write_session_event_frame(writer, &SessionEventFrame::Ready).await {
         return false;
@@ -4802,14 +4815,15 @@ async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
             external_ref,
             sort_order: None,
         };
-        let has_external = input.external_ref.is_some();
-        let item = if has_external {
+        // Both paths are silent during import; a single Imported event is
+        // broadcast at the end so subscribers see one consistent batch signal.
+        let item = if input.external_ref.is_some() {
             match host.work_item_handle.upsert_by_external(input) {
                 Ok(item) => item,
                 Err(err) => return Response::err(err),
             }
         } else {
-            match host.work_item_handle.create(input) {
+            match host.work_item_handle.insert_silent(input) {
                 Ok(item) => item,
                 Err(err) => return Response::err(err),
             }
@@ -4870,23 +4884,33 @@ async fn handle_work_item_events_stream<W>(
     req: Request,
     writer: &mut W,
     host: &RuntimeHost,
+    identity: &DaemonIdentity,
 ) -> bool
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
-    let result = handle_work_item_events_stream_inner(req, writer, host).await;
+    let result = handle_work_item_events_stream_inner(req, writer, host, identity).await;
     let _ = writer.shutdown().await;
     result
 }
 
 async fn handle_work_item_events_stream_inner<W>(
-    _req: Request,
+    req: Request,
     writer: &mut W,
     host: &RuntimeHost,
+    identity: &DaemonIdentity,
 ) -> bool
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
+    if !request_authorized(&req, identity) {
+        let _ = write_work_item_event_frame(
+            writer,
+            &WorkItemEventFrame::Error { error: "unauthorized".into() },
+        )
+        .await;
+        return false;
+    }
     let mut rx = host.work_item_handle.subscribe_events();
     if !write_work_item_event_frame(writer, &WorkItemEventFrame::Ready).await {
         return false;
@@ -8016,11 +8040,13 @@ post-worktree-create = "{post_create}"
 
         // Drive the stream handler in the background
         let host_clone = host.clone();
+        let identity_clone = identity.clone();
         let stream_task = tokio::spawn(async move {
             handle_work_item_events_stream(
                 req("work-item-events", serde_json::json!({})),
                 &mut server,
                 &host_clone,
+                &identity_clone,
             ).await
         });
 
