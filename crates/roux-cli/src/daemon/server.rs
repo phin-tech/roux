@@ -203,12 +203,41 @@ async fn bind_tcp_listener(addr: &str, identity: &DaemonIdentity) -> Result<TcpL
         .local_addr()
         .map_err(|err| format!("resolve daemon socket address: {err}"))?
         .to_string();
-    std::fs::write(platform::socket_addr_file_path(), &local_addr)
-        .map_err(|err| format!("write daemon socket endpoint: {err}"))?;
+    write_private_file(
+        &platform::socket_addr_file_path(),
+        local_addr.as_bytes(),
+        "daemon socket endpoint",
+    )?;
     let token = identity.auth_token.as_deref().unwrap_or_default();
-    std::fs::write(platform::socket_auth_token_file_path(), token)
-        .map_err(|err| format!("write daemon socket token: {err}"))?;
+    write_private_file(
+        &platform::socket_auth_token_file_path(),
+        token.as_bytes(),
+        "daemon socket token",
+    )?;
     Ok(listener)
+}
+
+#[cfg(unix)]
+fn write_private_file(path: &Path, contents: &[u8], label: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|err| format!("write {label}: {err}"))?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .map_err(|err| format!("set {label} permissions: {err}"))?;
+    file.write_all(contents).map_err(|err| format!("write {label}: {err}"))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_private_file(path: &Path, contents: &[u8], label: &str) -> Result<(), String> {
+    std::fs::write(path, contents).map_err(|err| format!("write {label}: {err}"))
 }
 
 async fn handle_connection<R, W>(
@@ -308,5 +337,26 @@ async fn handle_connection<R, W>(
         } else {
             log.write("daemon-stop requested but shutdown channel is unavailable");
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn write_private_file_sets_owner_only_permissions_on_unix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("socket-token");
+
+        write_private_file(&path, b"secret", "test token").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "secret");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_private_file(&path, b"secret-2", "test token").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "secret-2");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
 }
