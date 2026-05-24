@@ -1,3 +1,7 @@
+use super::streams::{
+    handle_alias_events_stream, handle_daemon_pty_attach_stream, handle_mailbox_events_stream,
+    handle_subscription_events_stream, handle_watch_events_stream,
+};
 use super::*;
 use roux_core::EventBuilder;
 use roux_runtime::alias_store::BindRequest;
@@ -2304,7 +2308,7 @@ async fn daemon_pty_spawn_task_and_output_poll_are_daemon_owned() {
             output = Some(data);
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 
     let output = output.expect("daemon-owned PTY output should be pollable");

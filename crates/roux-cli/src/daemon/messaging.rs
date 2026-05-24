@@ -1,3 +1,4 @@
+use serde::Serialize;
 use serde_json::Value;
 
 use roux_core::{ConsumptionMode, EventBuilder, EventKind};
@@ -5,6 +6,13 @@ use roux_runtime::alias_store::{BindRequest, ProjectFilter};
 
 use super::identity::DaemonIdentity;
 use super::protocol::{Request, Response};
+
+fn serialize_response<T: Serialize>(value: T, label: &str) -> Response {
+    match serde_json::to_value(value) {
+        Ok(value) => Response::success(value),
+        Err(err) => Response::err(format!("failed to serialize {label}: {err}")),
+    }
+}
 
 pub(super) async fn handle_alias_set(req: Request, identity: &DaemonIdentity) -> Response {
     let raw_alias = match request_arg_str(&req, "alias") {
@@ -35,7 +43,7 @@ pub(super) async fn handle_alias_set(req: Request, identity: &DaemonIdentity) ->
     };
 
     match identity.alias_manager.bind(&canonical, bind_req) {
-        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Ok(alias) => serialize_response(alias, "alias"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -75,7 +83,7 @@ pub(super) async fn handle_alias_claim(req: Request, identity: &DaemonIdentity) 
     };
 
     match identity.alias_manager.bind(&canonical, bind_req) {
-        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Ok(alias) => serialize_response(alias, "alias"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -85,7 +93,7 @@ pub(super) async fn handle_alias_list(req: Request, identity: &DaemonIdentity) -
         alias_project_filter(request_arg_str(&req, "project_id"), request_arg_bool(&req, "global")),
         request_arg_bool(&req, "only_unbound").unwrap_or(false),
     );
-    Response::success(serde_json::to_value(aliases).unwrap_or_default())
+    serialize_response(aliases, "aliases")
 }
 
 pub(super) async fn handle_alias_get(req: Request, identity: &DaemonIdentity) -> Response {
@@ -100,12 +108,12 @@ pub(super) async fn handle_alias_get(req: Request, identity: &DaemonIdentity) ->
     let project_id = request_arg_str(&req, "project_id");
 
     if let Some(alias) = identity.alias_manager.get(&canonical, project_id) {
-        Response::success(serde_json::to_value(alias).unwrap_or_default())
+        serialize_response(alias, "alias")
     } else if project_id.is_none() {
         let matches = identity.alias_manager.find_all_by_name(&canonical);
         match matches.len() {
             0 => Response::err(format!("alias '{canonical}' not found")),
-            1 => Response::success(serde_json::to_value(&matches[0]).unwrap_or_default()),
+            1 => serialize_response(&matches[0], "alias"),
             _ => {
                 let projects: Vec<_> =
                     matches.iter().map(|alias| alias.project_id.clone()).collect();
@@ -131,9 +139,7 @@ pub(super) async fn handle_alias_whoami(req: Request, identity: &DaemonIdentity)
             )
         }
     };
-    Response::success(
-        serde_json::to_value(identity.alias_manager.whoami(&session_id)).unwrap_or_default(),
-    )
+    serialize_response(identity.alias_manager.whoami(&session_id), "aliases")
 }
 
 pub(super) async fn handle_alias_add_member(req: Request, identity: &DaemonIdentity) -> Response {
@@ -149,7 +155,7 @@ pub(super) async fn handle_alias_add_member(req: Request, identity: &DaemonIdent
         None => return Response::err("pane_id required (call from a pane, or pass args.pane_id)"),
     };
     match identity.alias_manager.add_member(&alias, request_arg_str(&req, "project_id"), &pane_id) {
-        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Ok(alias) => serialize_response(alias, "alias"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -200,7 +206,7 @@ pub(super) async fn handle_alias_mode(req: Request, identity: &DaemonIdentity) -
         request_arg_str(&req, "project_id"),
         mode,
     ) {
-        Ok(alias) => Response::success(serde_json::to_value(alias).unwrap_or_default()),
+        Ok(alias) => serialize_response(alias, "alias"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -347,7 +353,7 @@ pub(super) async fn handle_mailbox_post(req: Request, identity: &DaemonIdentity)
     }
 
     match identity.mailbox_manager.post(builder) {
-        Ok(event) => Response::success(serde_json::to_value(event).unwrap_or_default()),
+        Ok(event) => serialize_response(event, "event"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -365,7 +371,7 @@ pub(super) async fn handle_mailbox_peek(req: Request, identity: &DaemonIdentity)
     if let Some(limit) = req.args.get("limit").and_then(|value| value.as_u64()) {
         events.truncate(limit as usize);
     }
-    Response::success(serde_json::to_value(events).unwrap_or_default())
+    serialize_response(events, "events")
 }
 
 pub(super) async fn handle_mailbox_read(req: Request, identity: &DaemonIdentity) -> Response {
@@ -387,7 +393,7 @@ pub(super) async fn handle_mailbox_read(req: Request, identity: &DaemonIdentity)
             identity.mailbox_manager.ack(&event.id, &alias, None);
         }
     }
-    Response::success(serde_json::to_value(events).unwrap_or_default())
+    serialize_response(events, "events")
 }
 
 pub(super) async fn handle_mailbox_get(req: Request, identity: &DaemonIdentity) -> Response {
@@ -395,9 +401,7 @@ pub(super) async fn handle_mailbox_get(req: Request, identity: &DaemonIdentity) 
         Some(event_id) => event_id,
         None => return Response::err("event_id required"),
     };
-    Response::success(
-        serde_json::to_value(identity.mailbox_manager.get(event_id)).unwrap_or_default(),
-    )
+    serialize_response(identity.mailbox_manager.get(event_id), "mailbox event")
 }
 
 pub(super) async fn handle_mailbox_read_state(req: Request, identity: &DaemonIdentity) -> Response {
@@ -409,9 +413,9 @@ pub(super) async fn handle_mailbox_read_state(req: Request, identity: &DaemonIde
         Some(recipient) => recipient,
         None => return Response::err("recipient required"),
     };
-    Response::success(
-        serde_json::to_value(identity.mailbox_manager.read_state(event_id, recipient))
-            .unwrap_or_default(),
+    serialize_response(
+        identity.mailbox_manager.read_state(event_id, recipient),
+        "mailbox read state",
     )
 }
 
@@ -455,7 +459,7 @@ pub(super) async fn handle_mailbox_retract(req: Request, identity: &DaemonIdenti
         Err(err) => return Response::err(err),
     };
     match identity.mailbox_manager.retract(&event_id, &alias) {
-        Ok(event) => Response::success(serde_json::to_value(event).unwrap_or_default()),
+        Ok(event) => serialize_response(event, "event"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -546,7 +550,7 @@ pub(super) async fn handle_mailbox_reply(req: Request, identity: &DaemonIdentity
 
     identity.alias_manager.ensure(&canonical_to, builder.project_id.clone());
     match identity.mailbox_manager.post(builder) {
-        Ok(event) => Response::success(serde_json::to_value(event).unwrap_or_default()),
+        Ok(event) => serialize_response(event, "event"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -603,7 +607,7 @@ pub(super) async fn handle_bus_publish(req: Request, identity: &DaemonIdentity) 
         builder = builder.structured(structured);
     }
     match identity.mailbox_manager.post(builder) {
-        Ok(event) => Response::success(serde_json::to_value(event).unwrap_or_default()),
+        Ok(event) => serialize_response(event, "event"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -622,7 +626,7 @@ pub(super) async fn handle_bus_tail(req: Request, identity: &DaemonIdentity) -> 
         }
         None => identity.mailbox_manager.list_all(filter, limit),
     };
-    Response::success(serde_json::to_value(events).unwrap_or_default())
+    serialize_response(events, "events")
 }
 
 fn resolve_subscriber_alias(identity: &DaemonIdentity, req: &Request) -> Result<String, String> {
@@ -662,9 +666,7 @@ pub(super) async fn handle_bus_subscribe(req: Request, identity: &DaemonIdentity
         &pattern,
         request_arg_str(&req, "project_id").map(String::from),
     ) {
-        Ok(subscription) => {
-            Response::success(serde_json::to_value(subscription).unwrap_or_default())
-        }
+        Ok(subscription) => serialize_response(subscription, "subscription"),
         Err(err) => Response::err(err.to_string()),
     }
 }
@@ -687,5 +689,5 @@ pub(super) async fn handle_bus_subscriptions(req: Request, identity: &DaemonIden
         Some(alias) => identity.subscription_manager.for_alias(alias, filter),
         None => identity.subscription_manager.list(filter),
     };
-    Response::success(serde_json::to_value(subscriptions).unwrap_or_default())
+    serialize_response(subscriptions, "subscriptions")
 }

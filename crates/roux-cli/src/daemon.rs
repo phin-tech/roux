@@ -28,7 +28,7 @@ mod status;
 mod streams;
 mod watches;
 
-use identity::DaemonIdentity;
+use identity::{request_authorized, DaemonIdentity};
 use messaging::{
     handle_alias_add_member, handle_alias_claim, handle_alias_get, handle_alias_list,
     handle_alias_mode, handle_alias_remove_member, handle_alias_set, handle_alias_unset,
@@ -49,12 +49,6 @@ use projects::{
 use protocol::{Request, Response};
 use server::start_socket_server;
 use status::{handle_daemon_status, handle_daemon_stop};
-use streams::request_authorized;
-#[cfg(test)]
-use streams::{
-    handle_alias_events_stream, handle_daemon_pty_attach_stream, handle_mailbox_events_stream,
-    handle_subscription_events_stream, handle_watch_events_stream,
-};
 use watches::{
     handle_watch_cleanup_orphans, handle_watch_create, handle_watch_find_or_create,
     handle_watch_list, handle_watch_pause, handle_watch_remove, handle_watch_remove_for_session,

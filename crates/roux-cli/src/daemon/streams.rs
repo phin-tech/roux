@@ -4,7 +4,7 @@ use roux_runtime::host::RuntimeHost;
 use roux_runtime::pty_service::{PtyOutputEvent, PTY_OUTPUT_DEFAULT_POLL_BYTES};
 use roux_runtime::watch_runner::WatchRunner;
 
-use super::identity::DaemonIdentity;
+use super::identity::{request_authorized, DaemonIdentity};
 use super::protocol::{
     AliasEventFrame, MailboxEventFrame, PtyAttachFrame, Request, SubscriptionEventFrame,
     WatchEventFrame,
@@ -69,13 +69,14 @@ where
     };
 
     let record = attach.record.clone();
+    let replay_bytes = std::mem::take(&mut attach.replay_bytes);
     if !write_attach_frame(
         writer,
         &PtyAttachFrame::Ready {
             id: record.id.clone(),
             record: Box::new(record.clone()),
             replay_offset: attach.replay_offset,
-            replay_bytes: attach.replay_bytes.clone(),
+            replay_bytes,
         },
     )
     .await
@@ -433,11 +434,4 @@ where
         return false;
     };
     writer.write_all(json.as_bytes()).await.is_ok() && writer.write_all(b"\n").await.is_ok()
-}
-
-pub(super) fn request_authorized(req: &Request, identity: &DaemonIdentity) -> bool {
-    match identity.auth_token.as_deref() {
-        Some(expected) if !expected.is_empty() => req.auth_token.as_deref() == Some(expected),
-        _ => true,
-    }
 }

@@ -153,3 +153,13 @@ pub(super) fn endpoint_path(endpoint: &platform::SocketEndpoint) -> PathBuf {
         platform::SocketEndpoint::Tcp(_) => PathBuf::from(endpoint.display_value()),
     }
 }
+
+pub(super) fn request_authorized(
+    req: &super::protocol::Request,
+    identity: &DaemonIdentity,
+) -> bool {
+    match identity.auth_token.as_deref() {
+        Some(expected) if !expected.is_empty() => req.auth_token.as_deref() == Some(expected),
+        _ => true,
+    }
+}
