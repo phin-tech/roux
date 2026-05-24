@@ -893,8 +893,10 @@ impl Roux {
         let result = self.stream_lines_blocking(request, |line| match serde_json::from_str(line) {
             Ok(frame) => on_frame(frame),
             Err(err) => {
-                parse_error = Some(RouxError::Decode(err));
-                false
+                if parse_error.is_none() {
+                    parse_error = Some(RouxError::Decode(err));
+                }
+                true
             }
         });
         result.and(match parse_error {

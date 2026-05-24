@@ -121,7 +121,7 @@ impl Session {
             .command(
                 CommandRequest::new("session-rename")
                     .session_id(self.id())
-                    .args(serde_json::json!({ "name": name })),
+                    .args(serde_json::json!({ "name": name.unwrap_or_default() })),
             )
             .await?;
         Ok(())
@@ -231,8 +231,10 @@ impl Pty {
                 |line| match serde_json::from_str::<PtyAttachFrame>(line) {
                     Ok(frame) => on_frame(frame),
                     Err(err) => {
-                        parse_error = Some(RouxError::Decode(err));
-                        false
+                        if parse_error.is_none() {
+                            parse_error = Some(RouxError::Decode(err));
+                        }
+                        true
                     }
                 },
             );

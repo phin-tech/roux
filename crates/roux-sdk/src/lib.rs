@@ -216,6 +216,49 @@ mod tests {
     }
 
     #[test]
+    fn typed_watch_events_stream_continues_after_malformed_frame() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(line.trim()).unwrap();
+            stream.write_all(br#"{"type":"ready"}"#).unwrap();
+            stream.write_all(b"\n").unwrap();
+            stream.write_all(b"not-json\n").unwrap();
+            stream.write_all(br#"{"type":"warning","message":"heads up"}"#).unwrap();
+            stream.write_all(b"\n").unwrap();
+            request
+        });
+
+        let client = Roux::builder()
+            .endpoint(SocketEndpoint::Tcp(addr))
+            .auth_token("secret")
+            .connect()
+            .unwrap();
+        let frames = Arc::new(Mutex::new(Vec::new()));
+        let frames_for_callback = frames.clone();
+        let err = client
+            .watch_events_blocking(true, move |frame| {
+                let label = match frame {
+                    WatchEventStreamFrame::Ready => "ready",
+                    WatchEventStreamFrame::Warning { .. } => "warning",
+                    WatchEventStreamFrame::Update { .. } => "update",
+                    WatchEventStreamFrame::Error { .. } => "error",
+                };
+                frames_for_callback.lock().unwrap().push(label);
+                true
+            })
+            .unwrap_err();
+        let request = handle.join().unwrap();
+
+        assert!(matches!(err, RouxError::Decode(_)));
+        assert_eq!(request["command"], "watch-events");
+        assert_eq!(*frames.lock().unwrap(), vec!["ready", "warning"]);
+    }
+
+    #[test]
     fn typed_status_decodes_from_daemon_response() {
         let (client, handle) = tcp_client_with_response(
             r#"{"ok":true,"data":{"kind":"roux-daemon","pid":42,"socket":"tcp://test","startedAtMs":10,"uptimeMs":20,"sessionCount":1,"projectCount":2,"watchCount":3,"processCount":4,"ptyCount":5,"capabilities":["daemon-status","daemon-pty-list"]}}"#
@@ -454,6 +497,22 @@ mod tests {
     }
 
     #[test]
+    fn session_rename_none_sends_empty_string_to_clear_override() {
+        let (client, handle) = tcp_client_with_response(r#"{"ok":true,"data":{}}"#.to_string());
+        let session: roux_core::Session =
+            serde_json::from_str(&sample_session_json("session-a", false)).unwrap();
+        let session = client.session(session);
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+
+        rt.block_on(session.rename(None)).unwrap();
+        let request = handle.join().unwrap();
+
+        assert_eq!(request["command"], "session-rename");
+        assert_eq!(request["session_id"], "session-a");
+        assert_eq!(request["args"]["name"], "");
+    }
+
+    #[test]
     fn typed_pty_attach_decodes_ndjson_frames() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap().to_string();
@@ -500,6 +559,58 @@ mod tests {
 
         assert_eq!(request["command"], "daemon-pty-attach");
         assert_eq!(request["args"]["id"], "pty-1");
+        assert_eq!(*frames.lock().unwrap(), vec!["ready", "exit"]);
+    }
+
+    #[test]
+    fn typed_pty_attach_continues_after_malformed_frame() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(line.trim()).unwrap();
+            stream
+                .write_all(
+                    format!(
+                        "{{\"type\":\"ready\",\"id\":\"pty-1\",\"record\":{},\"replayOffset\":0,\"replayBytes\":[104,105]}}\n",
+                        sample_pty_record_json("pty-1")
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+            stream.write_all(b"not-json\n").unwrap();
+            stream.write_all(br#"{"type":"exit","code":0,"generation":1}"#).unwrap();
+            stream.write_all(b"\n").unwrap();
+            request
+        });
+
+        let client = Roux::builder()
+            .endpoint(SocketEndpoint::Tcp(addr))
+            .auth_token("secret")
+            .connect()
+            .unwrap();
+        let pty = client.pty("pty-1");
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let frames = Arc::new(Mutex::new(Vec::new()));
+        let frames_for_callback = frames.clone();
+        let err = rt
+            .block_on(pty.attach(1024, move |frame| {
+                let label = match frame {
+                    PtyAttachFrame::Ready { .. } => "ready",
+                    PtyAttachFrame::Output { .. } => "output",
+                    PtyAttachFrame::Exit { .. } => "exit",
+                    PtyAttachFrame::Error { .. } => "error",
+                };
+                frames_for_callback.lock().unwrap().push(label);
+                true
+            }))
+            .unwrap_err();
+        let request = handle.join().unwrap();
+
+        assert!(matches!(err, RouxError::Decode(_)));
+        assert_eq!(request["command"], "daemon-pty-attach");
         assert_eq!(*frames.lock().unwrap(), vec!["ready", "exit"]);
     }
 
