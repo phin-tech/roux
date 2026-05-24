@@ -11,7 +11,7 @@ use roux_lib::aliases::ProjectFilter;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::daemon_client::DaemonMailboxPostRequest;
+use crate::daemon_client::{DaemonClientError, DaemonMailboxPostRequest};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -405,6 +405,6 @@ pub async fn mailbox_deliver_to_pane(
     Ok(())
 }
 
-fn is_daemon_pty_not_found(err: &impl std::fmt::Display) -> bool {
-    err.to_string().contains("daemon pty not found")
+fn is_daemon_pty_not_found(err: &DaemonClientError) -> bool {
+    matches!(err, DaemonClientError::DaemonPtyNotFound)
 }
