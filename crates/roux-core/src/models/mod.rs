@@ -39,7 +39,7 @@ pub use notification::{
 pub use profile::{ProfileSource, Provider, SpawnProfile, StartupBehavior};
 pub use project::{Project, ProjectUpdate, SessionBlueprint};
 pub use pty::{PtyInfo, PtyRole, PtyStatus};
-pub use session::{Session, SessionStatus};
+pub use session::{map_hook_status, Session, SessionStatus, SessionStatusEvent};
 pub use settings::{
     CursorStyle, ExampleVariant, ExperimentsConfig, GroupBy, LibrarySource, LibrarySourceKind,
     ManagedProxyConfig, RouxSettings, SkillSyncMode, StatusBarPosition, TabPosition,

@@ -72,6 +72,24 @@ Returns all daemon sessions, including archived sessions.
 
 Requires `session_id`. Returns one session.
 
+`session-events` (streaming)
+
+Opens a persistent stream that broadcasts `SessionStatus` changes for all
+daemon-owned sessions. The daemon watches `~/.config/roux/status/*.json` for
+hook status files written by `roux hook <status>` and routes changes to the
+session service; only files that include a `roux_session_id` field are routed.
+
+Frame shapes (newline-delimited JSON, `"type"` tag):
+- `{ "type": "ready" }` — sent once when the stream is open and the subscriber
+  is registered.
+- `{ "type": "event", "event": { "sessionId": "...", "status": "..." } }` —
+  emitted on every status change (compare-before-assign — no-ops are dropped).
+- `{ "type": "warning", "message": "..." }` — emitted when the broadcast
+  buffer overflows and events are dropped.
+
+`status` values mirror `SessionStatus`: `idle`, `generating`, `attention`,
+`error`, `disconnected`.
+
 `session-create`
 
 Compatibility alias for top-level `roux session create` when the daemon owns

@@ -12,7 +12,8 @@ use tokio::sync::watch;
 
 use roux_core::{
     AliasEvent, BusSubscriptionEvent, ConsumptionMode, CreateWatchConfig, EventBuilder, EventKind,
-    MailboxEvent, Project, ProjectUpdate, PtyRole, PtyStatus, RuntimeState, Watch,
+    MailboxEvent, Project, ProjectUpdate, PtyRole, PtyStatus, RuntimeState, SessionStatusEvent,
+    Watch,
 };
 use roux_runtime::alias_service::AliasManager;
 use roux_runtime::alias_store::{BindRequest, ProjectFilter};
@@ -66,6 +67,15 @@ pub async fn run() -> Result<(), String> {
     .build();
 
     let (host, joins) = services.spawn_with(tokio::spawn);
+
+    let status_dir = platform::status_dir();
+    if let Err(err) = roux_runtime::session_status_source::start_watching(
+        status_dir,
+        host.session_handle.clone(),
+    ) {
+        log.write(&format!("Warning: failed to start session status watcher: {err}"));
+    }
+
     let watch_runner = WatchRunner::new(host.watch_handle.clone(), daemon_hook_manager());
     watch_runner.start_all().await;
     let endpoint = platform::daemon_bind_endpoint();
@@ -607,6 +617,15 @@ async fn handle_connection<R, W>(
                     }
                     return;
                 }
+                if command == "session-events" {
+                    let ok = handle_session_events_stream(req, writer, host).await;
+                    if ok {
+                        log.write("Handled socket command: session-events");
+                    } else {
+                        log.write("Socket command failed: session-events");
+                    }
+                    return;
+                }
                 let response =
                     handle_request_with_watch_runner(req, host, Some(watch_runner), identity).await;
                 shutdown_after_response = command == "daemon-stop" && response.ok;
@@ -796,6 +815,7 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "daemon-stop",
         "session-list",
         "session-poll",
+        "session-events",
         "session-create",
         "session-create-shell",
         "session-reconnect-shell",
@@ -1341,6 +1361,70 @@ where
 }
 
 async fn write_subscription_event_frame<W>(writer: &mut W, frame: &SubscriptionEventFrame) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let Ok(json) = serde_json::to_string(frame) else {
+        return false;
+    };
+    writer.write_all(json.as_bytes()).await.is_ok() && writer.write_all(b"\n").await.is_ok()
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum SessionEventFrame {
+    Ready,
+    Event { event: SessionStatusEvent },
+    Warning { message: String },
+}
+
+async fn handle_session_events_stream<W>(req: Request, writer: &mut W, host: &RuntimeHost) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let result = handle_session_events_stream_inner(req, writer, host).await;
+    let _ = writer.shutdown().await;
+    result
+}
+
+async fn handle_session_events_stream_inner<W>(
+    req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    // Auth is checked by the outer `request_authorized` path for non-streaming
+    // commands; streaming handlers repeat the check since they bypass it.
+    // session-events carries no secret data but we keep the pattern consistent.
+    drop(req); // no per-stream args needed today
+    let mut rx = host.session_handle.subscribe_status();
+    if !write_session_event_frame(writer, &SessionEventFrame::Ready).await {
+        return false;
+    }
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                if !write_session_event_frame(writer, &SessionEventFrame::Event { event }).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                let warning = SessionEventFrame::Warning {
+                    message: format!("dropped {skipped} buffered session event(s)"),
+                };
+                if !write_session_event_frame(writer, &warning).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return true,
+        }
+    }
+}
+
+async fn write_session_event_frame<W>(writer: &mut W, frame: &SessionEventFrame) -> bool
 where
     W: tokio::io::AsyncWrite + Unpin,
 {

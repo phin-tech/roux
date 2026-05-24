@@ -26,6 +26,7 @@ pub mod pty_service;
 pub mod pty_session;
 pub mod pty_spawn;
 pub mod session_service;
+pub mod session_status_source;
 pub mod subscription_persistence;
 pub mod subscription_service;
 pub mod subscription_store;
