@@ -683,6 +683,26 @@ Valid `status` values: `"todo"`, `"doing"`, `"review"`, `"done"`.
 
 Requires `args.id`. Returns `{ "id": "..." }` on success.
 
+`work-item-dispatch`
+
+The explicit "Start" action. Requires `args.id`. Optional `args.repoPath`
+overrides the repo path; otherwise the item's project's first `repo_root` is
+used. Optional `args.profile`. Creates a session via `session-create-shell`
+(named after the work item's title, inheriting `projectId`), then binds it with
+`set_session` which fires `WorkItemEvent::SessionBound`. Returns the new
+session record.
+
+`work-item-events` (streaming)
+
+Opens a persistent stream of `WorkItemEvent` changes. Mirrors the
+`session-events` / `mailbox-events` streaming pattern.
+
+Frame shapes (newline-delimited JSON, `"type"` tag):
+- `{ "type": "ready" }` — sent once on stream open.
+- `{ "type": "event", "event": { ... } }` — one frame per `WorkItemEvent`
+  (created/updated/moved/deleted/imported/sessionBound).
+- `{ "type": "warning", "message": "..." }` — broadcast buffer overflowed.
+
 ## PTY Commands
 
 `daemon-pty-spawn-shell`

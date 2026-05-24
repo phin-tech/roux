@@ -351,6 +351,17 @@ enum SubscriptionEventFrame {
     Error { error: String },
 }
 
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum WorkItemEventFrame {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "event")]
+    Event { event: roux_core::WorkItemEvent },
+    #[serde(rename = "warning")]
+    Warning { message: String },
+}
+
 impl Response {
     fn success(data: Value) -> Self {
         Self { ok: true, data: Some(data), error: None }
@@ -627,6 +638,15 @@ async fn handle_connection<R, W>(
                     }
                     return;
                 }
+                if command == "work-item-events" {
+                    let ok = handle_work_item_events_stream(req, writer, host).await;
+                    if ok {
+                        log.write("Handled socket command: work-item-events");
+                    } else {
+                        log.write("Socket command failed: work-item-events");
+                    }
+                    return;
+                }
                 let response =
                     handle_request_with_watch_runner(req, host, Some(watch_runner), identity).await;
                 shutdown_after_response = command == "daemon-stop" && response.ok;
@@ -806,6 +826,7 @@ async fn handle_request_with_watch_runner(
         "work-item-update" => handle_work_item_update(req, host).await,
         "work-item-move" => handle_work_item_move(req, host).await,
         "work-item-delete" => handle_work_item_delete(req, host).await,
+        "work-item-dispatch" => handle_work_item_dispatch(req, host, identity).await,
         _ => Response::err(format!("unknown daemon command: {}", req.command)),
     }
 }
@@ -827,6 +848,8 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "work-item-update",
         "work-item-move",
         "work-item-delete",
+        "work-item-dispatch",
+        "work-item-events",
         "session-create",
         "session-create-shell",
         "session-reconnect-shell",
@@ -4672,6 +4695,126 @@ async fn handle_work_item_delete(req: Request, host: &RuntimeHost) -> Response {
     }
 }
 
+async fn handle_work_item_dispatch(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
+    let Some(item_id) = optional_string_arg(&req.args, &["id"]) else {
+        return Response::err("id required");
+    };
+    let item = match host.work_item_handle.get(&item_id) {
+        Ok(Some(item)) => item,
+        Ok(None) => return Response::err("work item not found"),
+        Err(err) => return Response::err(err),
+    };
+
+    // Resolve repo_path: explicit arg → project.repo_roots[0] → error
+    let repo_path = if let Some(path) = optional_string_arg(&req.args, &["repoPath", "repo_path"]) {
+        path
+    } else if let Some(pid) = &item.project_id {
+        match host.project_handle.get(pid).await {
+            Ok(Some(project)) => match project.repo_roots.into_iter().next() {
+                Some(root) => root,
+                None => return Response::err("project has no repo_roots"),
+            },
+            Ok(None) => return Response::err("project not found"),
+            Err(err) => return Response::err(err.to_string()),
+        }
+    } else {
+        return Response::err("repoPath required (work item has no project)");
+    };
+
+    let session_create_req = Request {
+        command: "session-create-shell".to_string(),
+        session_id: None,
+        pane_id: None,
+        auth_token: req.auth_token.clone(),
+        args: serde_json::json!({
+            "repoPath": repo_path,
+            "name": item.title,
+            "projectId": item.project_id,
+            "profile": optional_string_arg(&req.args, &["profile"]),
+        }),
+    };
+    let session_resp = handle_session_create_shell(session_create_req, host, identity).await;
+    if !session_resp.ok {
+        return session_resp;
+    }
+
+    let session_id = session_resp
+        .data
+        .as_ref()
+        .and_then(|d| d.get("id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let Some(session_id) = session_id else {
+        return Response::err("session created but id missing from response");
+    };
+
+    if let Err(err) = host.work_item_handle.set_session(&item_id, &session_id) {
+        return Response::err(format!("session created but set_session failed: {err}"));
+    }
+
+    session_resp
+}
+
+async fn handle_work_item_events_stream<W>(
+    req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let result = handle_work_item_events_stream_inner(req, writer, host).await;
+    let _ = writer.shutdown().await;
+    result
+}
+
+async fn handle_work_item_events_stream_inner<W>(
+    _req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut rx = host.work_item_handle.subscribe_events();
+    if !write_work_item_event_frame(writer, &WorkItemEventFrame::Ready).await {
+        return false;
+    }
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                if !write_work_item_event_frame(writer, &WorkItemEventFrame::Event { event }).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                let warning = WorkItemEventFrame::Warning {
+                    message: format!("dropped {skipped} buffered work-item event(s)"),
+                };
+                if !write_work_item_event_frame(writer, &warning).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return true,
+        }
+    }
+}
+
+async fn write_work_item_event_frame<W>(writer: &mut W, frame: &WorkItemEventFrame) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let Ok(json) = serde_json::to_string(frame) else {
+        return false;
+    };
+    writer.write_all(json.as_bytes()).await.is_ok() && writer.write_all(b"\n").await.is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7702,10 +7845,102 @@ post-worktree-create = "{post_create}"
         let resp = handle_request(req("daemon-status", serde_json::json!({})), &host, &identity).await;
         assert!(resp.ok);
         let caps = resp.data.as_ref().unwrap()["capabilities"].as_array().unwrap().clone();
-        for cap in &["work-item-list", "work-item-create", "work-item-update", "work-item-move", "work-item-delete"] {
+        for cap in &[
+            "work-item-list", "work-item-create", "work-item-update",
+            "work-item-move", "work-item-delete", "work-item-dispatch", "work-item-events",
+        ] {
             assert!(caps.contains(&serde_json::json!(cap)), "missing capability: {cap}");
         }
 
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_dispatch_creates_session_and_binds_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        // Create a work item
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Write tests" })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        // Subscribe to work-item events before dispatch
+        let mut wi_rx = host.work_item_handle.subscribe_events();
+
+        // Dispatch — repoPath points to our temp dir which is a valid path
+        let resp = handle_request(
+            req("work-item-dispatch", serde_json::json!({
+                "id": item_id,
+                "repoPath": dir.path(),
+                "profile": "plain-shell",
+            })),
+            &host, &identity,
+        ).await;
+        assert!(resp.ok, "dispatch failed: {:?}", resp.error);
+        let session_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        // The work item should now have session_id bound
+        let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
+        assert_eq!(item.session_id.as_deref(), Some(session_id.as_str()), "session_id bound");
+
+        // A SessionBound event should have been broadcast
+        let event = wi_rx.try_recv().expect("SessionBound event");
+        assert!(
+            matches!(&event, roux_core::WorkItemEvent::SessionBound { id, .. } if id == &item_id),
+            "expected SessionBound, got: {event:?}"
+        );
+
+        let _ = host.pty_handle.kill(&session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_events_stream_emits_ready_then_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        // Run the event stream against a duplex buffer
+        let (mut client, mut server) = tokio::io::duplex(4096);
+
+        // Drive the stream handler in the background
+        let host_clone = host.clone();
+        let stream_task = tokio::spawn(async move {
+            handle_work_item_events_stream(
+                req("work-item-events", serde_json::json!({})),
+                &mut server,
+                &host_clone,
+            ).await
+        });
+
+        // Read the ready frame
+        let mut buf = String::new();
+        tokio::io::AsyncBufReadExt::read_line(
+            &mut tokio::io::BufReader::new(&mut client),
+            &mut buf,
+        ).await.unwrap();
+        let frame: serde_json::Value = serde_json::from_str(buf.trim()).unwrap();
+        assert_eq!(frame["type"], "ready");
+
+        // Trigger a create so the stream emits an event frame
+        handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Stream test item" })),
+            &host, &identity,
+        ).await;
+
+        let mut buf2 = String::new();
+        tokio::io::AsyncBufReadExt::read_line(
+            &mut tokio::io::BufReader::new(&mut client),
+            &mut buf2,
+        ).await.unwrap();
+        let event_frame: serde_json::Value = serde_json::from_str(buf2.trim()).unwrap();
+        assert_eq!(event_frame["type"], "event");
+
+        stream_task.abort();
         shutdown_host(host, joins).await;
     }
 }
