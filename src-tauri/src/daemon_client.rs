@@ -17,7 +17,7 @@ use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
 use roux_sdk::{
     AliasEventStreamFrame, MailboxEventStreamFrame, PtyAttachFrame, PtyRecord, PtySnapshot,
-    SubscriptionEventStreamFrame, WatchEventStreamFrame,
+    SubscriptionEventStreamFrame, WatchEventStreamFrame, WorkItemEventStreamFrame,
 };
 
 use crate::platform;
@@ -1007,6 +1007,21 @@ impl DaemonClient {
             );
         })
     }
+
+    pub(crate) fn spawn_work_item_event_bridge(
+        &self,
+        app: AppHandle,
+    ) -> tauri::async_runtime::JoinHandle<()> {
+        tauri::async_runtime::spawn_blocking(move || {
+            run_reconnecting_resolved_event_bridge(
+                "work-item",
+                connect_current_sdk,
+                move |sdk| read_work_item_events_blocking(&sdk, app.clone()),
+                std::thread::sleep,
+                None,
+            );
+        })
+    }
 }
 
 fn connect_current_sdk() -> DaemonClientResult<roux_sdk::Roux> {
@@ -1285,6 +1300,37 @@ fn handle_subscription_event_frame(
             Ok(())
         }
         SubscriptionEventStreamFrame::Error { error } => Err(DaemonClientError::adapter(error)),
+    }
+}
+
+pub(crate) const WORK_ITEM_EVENT: &str = "work-item-event";
+
+fn read_work_item_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> Result<(), String> {
+    let mut stream_error = None;
+    let result =
+        sdk.work_item_events_blocking(|frame| match handle_work_item_event_frame(frame, &app) {
+            Ok(()) => true,
+            Err(err) => {
+                stream_error = Some(err);
+                false
+            }
+        });
+    stream_error.map_or_else(|| result.map_err(|err| err.to_string()), Err)
+}
+
+fn handle_work_item_event_frame(
+    frame: WorkItemEventStreamFrame,
+    app: &AppHandle,
+) -> Result<(), String> {
+    match frame {
+        WorkItemEventStreamFrame::Ready => Ok(()),
+        WorkItemEventStreamFrame::Event { event } => app
+            .emit(WORK_ITEM_EVENT, &event)
+            .map_err(|err| format!("emit daemon work-item event: {err}")),
+        WorkItemEventStreamFrame::Warning { message } => {
+            rlog!("Daemon work-item event stream warning: {message}");
+            Ok(())
+        }
     }
 }
 

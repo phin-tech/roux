@@ -1179,6 +1179,14 @@ export type WorkItemInput = {
 	sortOrder?: number | null,
 };
 
+export type WorkItemEvent =
+	| { type: "created"; item: WorkItem }
+	| { type: "updated"; item: WorkItem }
+	| { type: "moved"; id: string; status: WorkItemStatus; sortOrder: number }
+	| { type: "deleted"; id: string }
+	| { type: "imported"; ids: string[] }
+	| { type: "sessionBound"; id: string; sessionId: string };
+
 /**
  *  Agent providers that Roux knows how to light up first-class UI for.
  *

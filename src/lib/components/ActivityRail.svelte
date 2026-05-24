@@ -10,6 +10,7 @@
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import Trees from "@lucide/svelte/icons/trees";
   import Container from "@lucide/svelte/icons/container";
+  import Kanban from "@lucide/svelte/icons/kanban";
   import Pin from "@lucide/svelte/icons/pin";
   import { worktrunkDetection } from "$lib/stores/worktrunkDetection";
   import { smolvmDetection } from "$lib/stores/smolvmDetection";
@@ -45,6 +46,7 @@
     { id: "watches", label: "Watches", icon: Eye },
     { id: "library", label: "Library", icon: Library },
     { id: "tasks", label: "Tasks", icon: ListTodo },
+    { id: "board", label: "Board", icon: Kanban },
     { id: "docs", label: "Docs", icon: BookOpen },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "mailbox", label: "Mailbox", icon: Inbox },

@@ -37,6 +37,7 @@
   import { addSession, removeSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
+  import { hydrateWorkItems, applyWorkItemEvent } from "$lib/stores/workItems";
   import {
     hydrateMailbox,
     applyMailboxEvent,
@@ -76,7 +77,7 @@
   } from "$lib/stores/sessionPrLookup";
   import { installSessionBranchPoller } from "$lib/stores/sessionBranchPoller";
   import { clearPermissionInfo } from "$lib/panes/agentState";
-  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, onMailboxEvent, onAliasEvent, quitApp, submitRouxReply } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, onMailboxEvent, onAliasEvent, onWorkItemEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
   import { profileRegistry } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -855,6 +856,12 @@
     );
     tauriUnlisteners.push(
       await onAliasEvent((payload) => applyAliasEvent(payload)),
+    );
+
+    // Hydrate + subscribe to the work item board.
+    await hydrateWorkItems();
+    tauriUnlisteners.push(
+      await onWorkItemEvent((payload) => applyWorkItemEvent(payload)),
     );
 
     // Listen for global status updates from hooks. Tier-1 routing (with a

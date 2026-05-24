@@ -932,6 +932,58 @@ export async function setSessionProject(
   return invoke("set_session_project", { sessionId, projectId });
 }
 
+// Work Items
+export type {
+  WorkItem,
+  WorkItemInput,
+  WorkItemStatus,
+  WorkItemEvent,
+} from "$lib/bindings";
+
+export async function workItemList(projectId: string | null): Promise<import("$lib/bindings").WorkItem[]> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemList(projectId);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function workItemCreate(
+  input: import("$lib/bindings").WorkItemInput,
+): Promise<import("$lib/bindings").WorkItem> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemCreate(input);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function workItemUpdate(
+  id: string,
+  input: import("$lib/bindings").WorkItemInput,
+): Promise<import("$lib/bindings").WorkItem> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemUpdate(id, input);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function workItemMove(
+  id: string,
+  status: import("$lib/bindings").WorkItemStatus,
+  sortOrder: number,
+): Promise<import("$lib/bindings").WorkItem> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemMove(id, status, sortOrder);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function workItemDelete(id: string): Promise<string> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemDelete(id);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
 export async function setSessionNameOverride(
   sessionId: string,
   nameOverride: string | null,
@@ -1416,6 +1468,14 @@ export function onAliasEvent(
   callback: (payload: AliasEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<AliasEvent>("alias-event", (e) => callback(e.payload));
+}
+
+export function onWorkItemEvent(
+  callback: (payload: import("$lib/bindings").WorkItemEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<import("$lib/bindings").WorkItemEvent>("work-item-event", (e) =>
+    callback(e.payload),
+  );
 }
 
 export interface MailboxListOptions {

@@ -20,7 +20,8 @@ export type SidebarId =
   | "docs"
   | "sessions"
   | "smolMachines"
-  | "worktrunk";
+  | "worktrunk"
+  | "board";
 
 export const PINNABLE_SIDEBARS: ReadonlySet<SidebarId> = new Set<SidebarId>([
   "sessions",
@@ -32,6 +33,7 @@ export const PINNABLE_SIDEBARS: ReadonlySet<SidebarId> = new Set<SidebarId>([
   "mailbox",
   "smolMachines",
   "worktrunk",
+  "board",
 ]);
 
 interface SidebarState {

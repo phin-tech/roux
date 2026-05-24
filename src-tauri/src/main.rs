@@ -697,7 +697,10 @@ fn main() {
                         client.spawn_mailbox_event_bridge(app_handle.clone());
                     }
                     if client.supports("subscription-events") {
-                        client.spawn_subscription_event_bridge(app_handle);
+                        client.spawn_subscription_event_bridge(app_handle.clone());
+                    }
+                    if client.supports("work-item-events") {
+                        client.spawn_work_item_event_bridge(app_handle);
                     }
                 }
             }

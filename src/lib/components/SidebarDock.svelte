@@ -30,6 +30,7 @@
   import DocPanel from "./DocPanel.svelte";
   import LibraryPanel from "./LibraryPanel.svelte";
   import TaskPanel from "./TaskPanel.svelte";
+  import BoardPanel from "./BoardPanel.svelte";
   import SessionTabs from "./SessionTabs.svelte";
 
   interface Props {
@@ -124,6 +125,7 @@
     "watches",
     "library",
     "tasks",
+    "board",
     "notifications",
     "mailbox",
     "docs",
@@ -289,6 +291,13 @@
             <DocPanel {visible} onclose={onCloseFor(id)} />
           {:else if id === "smolMachines"}
             <SmolMachinesPanel
+              {visible}
+              onclose={onCloseFor(id)}
+              pinned={$pinnedSidebar === id}
+              onTogglePin={onTogglePinFor(id)}
+            />
+          {:else if id === "board"}
+            <BoardPanel
               {visible}
               onclose={onCloseFor(id)}
               pinned={$pinnedSidebar === id}

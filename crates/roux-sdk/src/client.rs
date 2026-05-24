@@ -5,7 +5,7 @@ use crate::protocol::CommandRequest;
 use crate::requests::{CreateSessionShell, MailboxPost, ReconnectSessionShell};
 use crate::streams::{
     AliasEventStreamFrame, MailboxEventStreamFrame, SubscriptionEventStreamFrame,
-    WatchEventStreamFrame,
+    WatchEventStreamFrame, WorkItemEventStreamFrame,
 };
 use crate::types::{DaemonStatus, PtyRecord};
 use serde::{de::DeserializeOwned, Serialize};
@@ -933,6 +933,13 @@ impl Roux {
         F: FnMut(SubscriptionEventStreamFrame) -> bool,
     {
         self.stream_json_frames_blocking(CommandRequest::new("subscription-events"), on_frame)
+    }
+
+    pub fn work_item_events_blocking<F>(&self, on_frame: F) -> RouxResult<()>
+    where
+        F: FnMut(WorkItemEventStreamFrame) -> bool,
+    {
+        self.stream_json_frames_blocking(CommandRequest::new("work-item-events"), on_frame)
     }
 
     fn stream_json_frames_blocking<T, F>(
