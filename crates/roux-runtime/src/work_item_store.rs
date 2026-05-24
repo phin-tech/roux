@@ -150,7 +150,7 @@ impl WorkItemStore {
         self.conn.execute(
             "UPDATE work_items SET
                 title       = ?2,
-                body        = ?3,
+                body        = COALESCE(?3, body),
                 status      = COALESCE(?4, status),
                 project_id  = COALESCE(?5, project_id),
                 parent_id   = COALESCE(?6, parent_id),
