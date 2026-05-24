@@ -4877,6 +4877,10 @@ async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
             }
         }
     }
+    // Broadcast before returning so the frontend hydrates even when parent links
+    // partially failed — items are already durable in the DB.
+    host.work_item_handle.broadcast_imported(imported_ids.clone());
+
     if !second_pass_errors.is_empty() {
         return Response::err(format!(
             "import succeeded but {} parent link(s) failed: {}",
@@ -4885,7 +4889,6 @@ async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
         ));
     }
 
-    host.work_item_handle.broadcast_imported(imported_ids.clone());
     Response::success(serde_json::json!({ "imported": imported_ids.len(), "ids": imported_ids }))
 }
 
