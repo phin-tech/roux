@@ -19,6 +19,7 @@ import {
   closePane,
   closeFocusedPane,
   closeSessionPanes,
+  detachSessionPanes,
   initSession,
 } from "../actions";
 import { paneInstances, resetInstances, getInstance } from "../instances";
@@ -280,6 +281,20 @@ describe("pane actions", () => {
       initSession("s1");
       closeSessionPanes("s1");
       expect(get(focusedPaneId)).toBeNull();
+    });
+  });
+
+  describe("detachSessionPanes", () => {
+    it("detaches all pane PTYs and removes layout without killing them", () => {
+      initSession("s1");
+      splitPane("s1", "h", { type: "shell", ptyId: "pty-1" });
+
+      detachSessionPanes("s1");
+
+      expect(detachPty).toHaveBeenCalledWith("s1");
+      expect(detachPty).toHaveBeenCalledWith("pty-1");
+      expect(killPty).not.toHaveBeenCalled();
+      expect(get(sessionLayouts).has("s1")).toBe(false);
     });
   });
 

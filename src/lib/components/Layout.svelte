@@ -3,10 +3,12 @@
   import SidebarDock from "./SidebarDock.svelte";
   import SplitPane from "./SplitPane.svelte";
   import StatusBar from "./StatusBar.svelte";
+  import BoardFullscreen from "./BoardFullscreen.svelte";
   import { activeSessionId, sessionList } from "$lib/stores/sessions";
   import { sessionLayouts } from "$lib/panes/layout";
   import { settings } from "$lib/stores/settings";
   import { sidebarLayout } from "$lib/stores/sidebarLayout";
+  import { boardFullscreen } from "$lib/stores/ui";
   import { openNewProjectDialog } from "$lib/stores/newProjectDialog";
   import type { Snippet } from "svelte";
 
@@ -47,6 +49,10 @@
       {#if statusBarPosition === "top"}
         <StatusBar position="top" />
       {/if}
+      <!-- Pane region. Wrapped so the full-screen board can overlay just this
+           area (relative anchor) while the rail, dock, and status bar stay
+           visible. Panes are never unmounted underneath — protects xterm. -->
+      <div class="relative flex min-h-0 flex-1 flex-col">
       {#if $sessionList.length === 0}
         <div class="flex flex-1 flex-col items-center justify-center gap-4 text-center text-text-secondary">
           <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_18px_40px_rgba(2,6,23,0.45)]">
@@ -91,6 +97,10 @@
           {/if}
         {/each}
       {/if}
+        {#if $boardFullscreen}
+          <BoardFullscreen />
+        {/if}
+      </div>
 
       {#if settingsPanel}
         {@render settingsPanel()}

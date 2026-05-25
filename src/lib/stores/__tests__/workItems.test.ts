@@ -1,19 +1,39 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
 import {
   workItems,
   itemsByColumn,
   applyWorkItemEvent,
+  dispatchWorkItem,
   WORK_ITEM_COLUMNS,
 } from "../workItems";
+import { workItemDispatch as tauriWorkItemDispatch } from "$lib/tauri";
 import type { WorkItem } from "$lib/bindings";
+
+vi.mock("$lib/tauri", () => ({
+  workItemList: vi.fn(),
+  workItemCreate: vi.fn(),
+  workItemUpdate: vi.fn(),
+  workItemMove: vi.fn(),
+  workItemDelete: vi.fn(),
+  workItemDispatch: vi.fn(),
+}));
 
 function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
     id: crypto.randomUUID(),
+    projectId: null,
+    parentId: null,
     title: "Test item",
+    body: null,
     status: "todo",
+    sessionId: null,
+    provider: null,
+    externalId: null,
+    externalUrl: null,
     sortOrder: 0,
+    pinnedPrUrl: null,
+    cost: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     ...overrides,
@@ -79,6 +99,19 @@ describe("workItems store", () => {
       const item = makeItem({ sessionId: null });
       workItems.set([item]);
       applyWorkItemEvent({ type: "sessionBound", id: item.id, sessionId: "sess-1" });
+      expect(get(workItems)[0].sessionId).toBe("sess-1");
+    });
+  });
+
+  describe("dispatchWorkItem", () => {
+    it("binds the returned session id immediately", async () => {
+      const item = makeItem({ id: "wi-1", sessionId: null });
+      workItems.set([item]);
+      vi.mocked(tauriWorkItemDispatch).mockResolvedValueOnce("sess-1");
+
+      await expect(dispatchWorkItem("wi-1")).resolves.toBe("sess-1");
+
+      expect(tauriWorkItemDispatch).toHaveBeenCalledWith("wi-1", {});
       expect(get(workItems)[0].sessionId).toBe("sess-1");
     });
   });

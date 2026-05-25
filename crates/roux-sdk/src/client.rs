@@ -859,6 +859,53 @@ impl Roux {
             .ok_or_else(|| RouxError::Command("missing id in delete response".to_string()))
     }
 
+    /// Dispatch a work item: the daemon creates a shell session named after
+    /// the item, binds it (broadcasting `SessionBound`), and rolls the session
+    /// back if binding fails. Returns the created session id.
+    ///
+    /// `profile` is forwarded to session creation; `None` yields a plain shell.
+    pub async fn work_item_dispatch(
+        &self,
+        id: impl Into<String>,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+        branch: Option<String>,
+        base: Option<String>,
+        fetch_first: Option<bool>,
+    ) -> RouxResult<String> {
+        let mut args = serde_json::json!({ "id": id.into() });
+        if let Some(profile) = profile {
+            args["profile"] = serde_json::Value::String(profile);
+        }
+        if let Some(repo_path) = repo_path {
+            args["repoPath"] = serde_json::Value::String(repo_path);
+        }
+        if let Some(name) = name {
+            args["name"] = serde_json::Value::String(name);
+        }
+        if let Some(worktree_path) = worktree_path {
+            args["worktreePath"] = serde_json::Value::String(worktree_path);
+        }
+        if let Some(branch) = branch {
+            args["branch"] = serde_json::Value::String(branch);
+        }
+        if let Some(base) = base {
+            args["base"] = serde_json::Value::String(base);
+        }
+        if let Some(fetch_first) = fetch_first {
+            args["fetchFirst"] = serde_json::Value::Bool(fetch_first);
+        }
+        let value: Value =
+            self.command(CommandRequest::new("work-item-dispatch").args(args)).await?;
+        value
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| RouxError::Command("missing id in dispatch response".to_string()))
+    }
+
     pub async fn command<T>(&self, request: CommandRequest) -> RouxResult<T>
     where
         T: DeserializeOwned + Send + 'static,

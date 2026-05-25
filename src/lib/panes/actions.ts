@@ -197,3 +197,24 @@ export function closeSessionPanes(sessionId: string) {
     setLogicalFocus(null);
   }
 }
+
+export function detachSessionPanes(sessionId: string) {
+  const tree = get(sessionLayouts).get(sessionId);
+  if (tree) {
+    const ids = collectLeafIds(tree);
+    for (const id of ids) {
+      const instance = getInstance(id);
+      const ptyId = instance ? getAttachedPtyId(instance) : null;
+      if (ptyId) detachPty(ptyId).catch(() => {});
+      disposePane(id);
+    }
+  }
+  sessionLayouts.update((m) => {
+    m.delete(sessionId);
+    return new Map(m);
+  });
+  const focused = get(focusedPaneId);
+  if (focused && tree && collectLeafIds(tree).includes(focused)) {
+    setLogicalFocus(null);
+  }
+}

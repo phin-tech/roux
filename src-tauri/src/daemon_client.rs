@@ -260,6 +260,33 @@ impl DaemonClient {
         self.sdk.work_item_delete(id).await.map_err(|err| err.to_string())
     }
 
+    pub(crate) async fn work_item_dispatch(
+        &self,
+        id: String,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+        branch: Option<String>,
+        base: Option<String>,
+        fetch_first: Option<bool>,
+    ) -> Result<String, String> {
+        self
+            .sdk
+            .work_item_dispatch(
+                id,
+                profile,
+                repo_path,
+                name,
+                worktree_path,
+                branch,
+                base,
+                fetch_first,
+            )
+            .await
+            .map_err(|err| err.to_string())
+    }
+
     pub(crate) async fn list_aliases(
         &self,
         project_id: Option<String>,

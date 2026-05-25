@@ -6,6 +6,7 @@
 
 pub mod agent_fsm;
 pub mod models;
+pub mod providers;
 pub mod smolvm;
 pub mod topic_glob;
 pub mod worktree;

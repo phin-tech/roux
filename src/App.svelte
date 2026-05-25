@@ -9,6 +9,7 @@
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import LibraryWindow from "$lib/components/LibraryWindow.svelte";
   import LibraryVariablePrompt from "$lib/components/LibraryVariablePrompt.svelte";
+  import WorkItemEditor from "$lib/components/WorkItemEditor.svelte";
   import { multiLineEditor } from "$lib/stores/multiLineEditor";
   import { libraryWindow } from "$lib/stores/libraryWindow";
   import { libraryVariablePrompt } from "$lib/stores/libraryVariablePrompt";
@@ -104,11 +105,19 @@
     openSidebar,
     closeSidebar,
     toggleSidebar,
+    closeWorkItemSessionStart,
+    workItemSessionStart,
   } from "$lib/stores/ui";
 
   let showNewSessionDialog = $state(false);
+  let showSessionDialog = $derived(showNewSessionDialog || $workItemSessionStart !== null);
   let showSetupPrompt = $state(false);
   let showQuitDialog = $state(false);
+
+  function closeSessionDialog() {
+    showNewSessionDialog = false;
+    closeWorkItemSessionStart();
+  }
 
   /** Returns true if a pane was closed, false if there was nothing to close */
   async function closeCurrentFocusedPane(): Promise<boolean> {
@@ -906,8 +915,9 @@
 </Layout>
 
 <NewSessionDialog
-  visible={showNewSessionDialog}
-  onclose={() => (showNewSessionDialog = false)}
+  visible={showSessionDialog}
+  workItemStart={$workItemSessionStart}
+  onclose={closeSessionDialog}
 />
 
 <!-- Global custom-profile editor host. Opened by palette flows
@@ -939,6 +949,8 @@
 <LibraryWindow />
 
 <LibraryVariablePrompt />
+
+<WorkItemEditor />
 
 {#if $hudVisible || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
   <KeymapHud

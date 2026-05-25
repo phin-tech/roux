@@ -141,6 +141,26 @@ impl WorkItemHandle {
         Ok(item)
     }
 
+    /// Bind a session only if the item is still unbound, broadcasting
+    /// `SessionBound` only when this call wins. Returns whether the bind
+    /// happened so callers can roll back a now-orphaned session on a lost race.
+    pub fn set_session_if_unbound(&self, id: &str, session_id: &str) -> Result<bool, String> {
+        let now = now_secs();
+        let bound = self
+            .inner
+            .lock()
+            .unwrap()
+            .set_session_if_unbound(id, session_id, now)
+            .map_err(|e| format!("work-item set-session: {e}"))?;
+        if bound {
+            self.broadcast(WorkItemEvent::SessionBound {
+                id: id.to_string(),
+                session_id: session_id.to_string(),
+            });
+        }
+        Ok(bound)
+    }
+
     pub fn upsert_by_external(&self, input: WorkItemInput) -> Result<WorkItem, String> {
         let id = Uuid::new_v4().to_string();
         let now = now_secs();

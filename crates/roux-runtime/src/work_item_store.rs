@@ -204,6 +204,24 @@ impl WorkItemStore {
         self.get(id)
     }
 
+    /// Bind a session only if the item still exists and is unbound. Returns
+    /// `true` if this call performed the bind, `false` if the item was already
+    /// bound (lost a dispatch race) or no longer exists. The `session_id IS
+    /// NULL` guard makes concurrent dispatches mutually exclusive at the DB.
+    pub fn set_session_if_unbound(
+        &mut self,
+        id: &str,
+        session_id: &str,
+        now: u64,
+    ) -> SqlResult<bool> {
+        let changed = self.conn.execute(
+            "UPDATE work_items SET session_id = ?2, updated_at = ?3
+             WHERE id = ?1 AND session_id IS NULL",
+            params![id, session_id, now as i64],
+        )?;
+        Ok(changed > 0)
+    }
+
     /// Upsert by `(provider, external_id)`: insert if no match, otherwise
     /// update `title`, `body`, `status`, and `updated_at`.
     pub fn upsert_by_external(
@@ -390,6 +408,26 @@ mod tests {
 
         let bound = store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
         assert_eq!(bound.session_id.as_deref(), Some("sess-1"));
+    }
+
+    #[test]
+    fn set_session_if_unbound_only_binds_once() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+
+        // First dispatch wins.
+        assert!(store.set_session_if_unbound("i-1", "sess-1", 2000).unwrap());
+        // A racing second dispatch loses and must not clobber the binding.
+        assert!(!store.set_session_if_unbound("i-1", "sess-2", 3000).unwrap());
+
+        let item = store.get("i-1").unwrap().unwrap();
+        assert_eq!(item.session_id.as_deref(), Some("sess-1"));
+    }
+
+    #[test]
+    fn set_session_if_unbound_is_false_for_missing_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        assert!(!store.set_session_if_unbound("nope", "sess-1", 1000).unwrap());
     }
 
     #[test]

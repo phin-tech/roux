@@ -70,10 +70,9 @@ pub async fn run() -> Result<(), String> {
     let (host, joins) = services.spawn_with(tokio::spawn);
 
     let status_dir = platform::status_dir();
-    if let Err(err) = roux_runtime::session_status_source::start_watching(
-        status_dir,
-        host.session_handle.clone(),
-    ) {
+    if let Err(err) =
+        roux_runtime::session_status_source::start_watching(status_dir, host.session_handle.clone())
+    {
         log.write(&format!("Warning: failed to start session status watcher: {err}"));
     }
 
@@ -1443,9 +1442,11 @@ where
     // Streaming handlers bypass the request_authorized gate in the main
     // dispatch loop; repeat the check here so auth is enforced on all paths.
     if !request_authorized(&req, identity) {
-        let _ =
-            write_session_event_frame(writer, &SessionEventFrame::Error { error: "unauthorized".into() })
-                .await;
+        let _ = write_session_event_frame(
+            writer,
+            &SessionEventFrame::Error { error: "unauthorized".into() },
+        )
+        .await;
         return false;
     }
     let mut rx = host.session_handle.subscribe_status();
@@ -4632,11 +4633,19 @@ async fn handle_work_item_create(req: Request, host: &RuntimeHost) -> Response {
     let input = roux_core::WorkItemInput {
         title,
         body: optional_string_arg(&req.args, &["body"]),
-        status: req.args.get("status").and_then(|v| v.as_str()).and_then(roux_core::WorkItemStatus::from_str_opt),
+        status: req
+            .args
+            .get("status")
+            .and_then(|v| v.as_str())
+            .and_then(roux_core::WorkItemStatus::from_str_opt),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
         external_ref: None,
-        sort_order: req.args.get("sortOrder").or_else(|| req.args.get("sort_order")).and_then(|v| v.as_f64()),
+        sort_order: req
+            .args
+            .get("sortOrder")
+            .or_else(|| req.args.get("sort_order"))
+            .and_then(|v| v.as_f64()),
     };
     match host.work_item_handle.create(input) {
         Ok(item) => match serde_json::to_value(&item) {
@@ -4657,11 +4666,19 @@ async fn handle_work_item_update(req: Request, host: &RuntimeHost) -> Response {
     let input = roux_core::WorkItemInput {
         title,
         body: optional_string_arg(&req.args, &["body"]),
-        status: req.args.get("status").and_then(|v| v.as_str()).and_then(roux_core::WorkItemStatus::from_str_opt),
+        status: req
+            .args
+            .get("status")
+            .and_then(|v| v.as_str())
+            .and_then(roux_core::WorkItemStatus::from_str_opt),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
         external_ref: None,
-        sort_order: req.args.get("sortOrder").or_else(|| req.args.get("sort_order")).and_then(|v| v.as_f64()),
+        sort_order: req
+            .args
+            .get("sortOrder")
+            .or_else(|| req.args.get("sort_order"))
+            .and_then(|v| v.as_f64()),
     };
     match host.work_item_handle.update(&id, input) {
         Ok(Some(item)) => match serde_json::to_value(&item) {
@@ -4724,6 +4741,13 @@ async fn handle_work_item_dispatch(
         Err(err) => return Response::err(err),
     };
 
+    // Cheap guard for the common sequential double-dispatch (e.g. double
+    // click): skip creating a doomed session if the card is already bound.
+    // The real race is closed by the conditional bind below.
+    if item.session_id.is_some() {
+        return Response::err("work item already dispatched to a session");
+    }
+
     // Resolve repo_path: explicit arg → project.repo_roots[0] → error
     let repo_path = if let Some(path) = optional_string_arg(&req.args, &["repoPath", "repo_path"]) {
         path
@@ -4740,17 +4764,44 @@ async fn handle_work_item_dispatch(
         return Response::err("repoPath required (work item has no project)");
     };
 
+    let name = optional_string_arg(&req.args, &["name"]).unwrap_or_else(|| item.title.clone());
+    let worktree_path = optional_nullable_string_arg(&req.args, &["worktreePath", "worktree_path"]);
+    let branch =
+        optional_nullable_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"]);
+    let base = optional_nullable_string_arg(&req.args, &["base", "startPoint", "start_point"]);
+    let fetch_first = bool_arg(&req.args, &["fetchFirst", "fetch_first"]);
+
+    // Default to the built-in Claude agent when the caller didn't pick a
+    // profile, so a dispatched card actually runs an agent (not a bare shell).
+    // Callers (incl. the desktop board) can override via the `profile` arg.
+    let profile_id =
+        optional_string_arg(&req.args, &["profile"]).unwrap_or_else(|| "claude".to_string());
+
+    let mut session_args = serde_json::json!({
+        "repoPath": repo_path,
+        "name": name,
+        "projectId": item.project_id,
+        "profile": profile_id,
+    });
+    if let Some(worktree_path) = worktree_path {
+        session_args["worktreePath"] = serde_json::Value::String(worktree_path);
+    }
+    if let Some(branch) = branch {
+        session_args["branch"] = serde_json::Value::String(branch);
+    }
+    if let Some(base) = base {
+        session_args["base"] = serde_json::Value::String(base);
+    }
+    if let Some(fetch_first) = fetch_first {
+        session_args["fetchFirst"] = serde_json::Value::Bool(fetch_first);
+    }
+
     let session_create_req = Request {
         command: "session-create-shell".to_string(),
         session_id: None,
         pane_id: None,
         auth_token: req.auth_token.clone(),
-        args: serde_json::json!({
-            "repoPath": repo_path,
-            "name": item.title,
-            "projectId": item.project_id,
-            "profile": optional_string_arg(&req.args, &["profile"]),
-        }),
+        args: session_args,
     };
     let session_resp = handle_session_create_shell(session_create_req, host, identity).await;
     if !session_resp.ok {
@@ -4767,13 +4818,127 @@ async fn handle_work_item_dispatch(
         return Response::err("session created but id missing from response");
     };
 
-    if let Err(err) = host.work_item_handle.set_session(&item_id, &session_id) {
-        // Roll back the orphaned session so it doesn't linger unlinked.
-        let _ = host.session_handle.remove(&session_id).await;
-        return Response::err(format!("set_session failed, session rolled back: {err}"));
+    // Conditional bind: only succeeds if the card is still unbound. If a
+    // concurrent dispatch already bound it (or it was removed), this session is
+    // now orphaned — roll it back so it doesn't linger running but unlinked.
+    match host.work_item_handle.set_session_if_unbound(&item_id, &session_id) {
+        Ok(true) => {}
+        Ok(false) => {
+            let _ = host.session_handle.remove(&session_id).await;
+            return Response::err(
+                "work item was dispatched concurrently; this session was rolled back",
+            );
+        }
+        Err(err) => {
+            let _ = host.session_handle.remove(&session_id).await;
+            return Response::err(format!("set_session failed, session rolled back: {err}"));
+        }
     }
 
+    // Bring the agent to life in the now-bound session. Best-effort: the
+    // session is already created + bound, so a failure here just leaves a
+    // shell prompt rather than failing the dispatch.
+    run_dispatched_profile(host, &item, &session_id, &profile_id).await;
+
     session_resp
+}
+
+/// Type the resolved profile's startup sequence (env, setup, agent command
+/// with the project prompt folded in) into a freshly-dispatched session's PTY
+/// so the card runs an agent headlessly. Best-effort and silent on failure.
+async fn run_dispatched_profile(
+    host: &RuntimeHost,
+    item: &roux_core::WorkItem,
+    session_id: &str,
+    profile_id: &str,
+) {
+    let settings = load_daemon_settings();
+    let Some(profile) = roux_core::providers::resolve_profile(profile_id, &settings) else {
+        return;
+    };
+
+    let append = render_dispatch_project_prompt(host, item, session_id, &profile, &settings).await;
+    let append_opt = (!append.trim().is_empty()).then_some(append.as_str());
+    let task_prompt = render_work_item_task_prompt(item);
+    let task_opt = (!task_prompt.trim().is_empty()).then_some(task_prompt.as_str());
+
+    if let Some(input) = roux_core::providers::profile_startup_input_with_initial_task(
+        &profile, append_opt, task_opt,
+    ) {
+        let _ = host.pty_handle.write(session_id, input.into_bytes()).await;
+    }
+}
+
+fn render_work_item_task_prompt(item: &roux_core::WorkItem) -> String {
+    let title = sanitize_card_prompt_field(&item.title);
+    let body = item.body.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
+    let external_url =
+        item.external_url.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
+
+    let mut prompt = String::new();
+    prompt.push_str("Start work on this Roux board card.\n\nTitle:\n");
+    prompt.push_str(if title.is_empty() { "Untitled" } else { &title });
+    if !body.is_empty() {
+        prompt.push_str("\n\nDescription:\n");
+        prompt.push_str(&body);
+    }
+    if !external_url.is_empty() {
+        prompt.push_str("\n\nExternal link:\n");
+        prompt.push_str(&external_url);
+    }
+    prompt.push_str(
+        "\n\nInspect the repository, make the necessary changes, and report progress in this session.",
+    );
+    prompt
+}
+
+fn sanitize_card_prompt_field(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\r' => out.push('\n'),
+            '\n' | '\t' => out.push(ch),
+            ch if ch.is_control() => out.push(' '),
+            ch => out.push(ch),
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Render the dispatched card's project prompt (`--append-system-prompt` text)
+/// using the same context the desktop builds. Empty string when the card has
+/// no project, the project/session can't be loaded, or rendering fails.
+async fn render_dispatch_project_prompt(
+    host: &RuntimeHost,
+    item: &roux_core::WorkItem,
+    session_id: &str,
+    profile: &roux_core::SpawnProfile,
+    settings: &roux_core::RouxSettings,
+) -> String {
+    let Some(pid) = item.project_id.as_deref() else {
+        return String::new();
+    };
+    let (Ok(Some(project)), Ok(Some(session))) =
+        (host.project_handle.get(pid).await, host.session_handle.get(session_id).await)
+    else {
+        return String::new();
+    };
+    let others: Vec<roux_core::Session> = host
+        .session_handle
+        .list()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| s.project_id.as_deref() == Some(pid) && s.id != session.id && !s.archived)
+        .collect();
+    roux_runtime::project_prompt::render_for_session(
+        &project,
+        &session,
+        Some(profile),
+        settings,
+        &others,
+    )
+    .unwrap_or_default()
 }
 
 async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
@@ -4797,7 +4962,8 @@ async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
     };
 
     // First pass: upsert/create each item; build external→id map for parent resolution.
-    let mut external_to_id: std::collections::HashMap<(String, String), String> = Default::default();
+    let mut external_to_id: std::collections::HashMap<(String, String), String> =
+        Default::default();
     let mut imported_ids: Vec<String> = Vec::new();
     // (item_id, provider, parent_external_id) to resolve in second pass
     let mut parent_links: Vec<(String, String, String)> = Vec::new();
@@ -4811,7 +4977,10 @@ async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
         let input = roux_core::WorkItemInput {
             title,
             body: item_val.get("body").and_then(|v| v.as_str()).map(str::to_string),
-            status: item_val.get("status").and_then(|v| v.as_str()).and_then(roux_core::WorkItemStatus::from_str_opt),
+            status: item_val
+                .get("status")
+                .and_then(|v| v.as_str())
+                .and_then(roux_core::WorkItemStatus::from_str_opt),
             project_id: optional_string_arg(item_val, &["projectId", "project_id"]),
             parent_id: None, // resolved in second pass
             external_ref,
@@ -4895,7 +5064,8 @@ async fn handle_work_item_import(req: Request, host: &RuntimeHost) -> Response {
 fn parse_import_external_ref(item_val: &serde_json::Value) -> Option<roux_core::ExternalRef> {
     let ext = item_val.get("externalRef").or_else(|| item_val.get("external_ref"))?;
     let provider = ext.get("provider").and_then(|v| v.as_str())?;
-    let external_id = ext.get("externalId").or_else(|| ext.get("external_id")).and_then(|v| v.as_str())?;
+    let external_id =
+        ext.get("externalId").or_else(|| ext.get("external_id")).and_then(|v| v.as_str())?;
     Some(roux_core::ExternalRef {
         provider: provider.to_string(),
         external_id: external_id.to_string(),
@@ -4942,7 +5112,8 @@ where
     loop {
         match rx.recv().await {
             Ok(event) => {
-                if !write_work_item_event_frame(writer, &WorkItemEventFrame::Event { event }).await {
+                if !write_work_item_event_frame(writer, &WorkItemEventFrame::Event { event }).await
+                {
                     return false;
                 }
             }
@@ -7894,7 +8065,43 @@ post-worktree-create = "{post_create}"
     }
 
     fn req(command: &str, args: serde_json::Value) -> Request {
-        Request { command: command.to_string(), session_id: None, pane_id: None, auth_token: None, args }
+        Request {
+            command: command.to_string(),
+            session_id: None,
+            pane_id: None,
+            auth_token: None,
+            args,
+        }
+    }
+
+    #[test]
+    fn work_item_task_prompt_includes_card_context_and_sanitizes_control_chars() {
+        let item = roux_core::WorkItem {
+            id: "wi-1".into(),
+            project_id: None,
+            parent_id: None,
+            title: "Fix tests\u{0007}".into(),
+            body: Some("Handle failures\r\nthen report back\u{0003}".into()),
+            status: roux_core::WorkItemStatus::Todo,
+            session_id: None,
+            provider: None,
+            external_id: None,
+            external_url: Some("https://example.test/task\u{001b}".into()),
+            sort_order: 0.0,
+            pinned_pr_url: None,
+            cost: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+
+        let prompt = render_work_item_task_prompt(&item);
+
+        assert!(prompt.contains("Title:\nFix tests"));
+        assert!(prompt.contains("Description:\nHandle failures\n\nthen report back"));
+        assert!(prompt.contains("External link:\nhttps://example.test/task"));
+        assert!(!prompt.contains('\u{0007}'));
+        assert!(!prompt.contains('\u{0003}'));
+        assert!(!prompt.contains('\u{001b}'));
     }
 
     #[tokio::test]
@@ -7903,15 +8110,18 @@ post-worktree-create = "{post_create}"
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
         // list — empty initially
-        let resp = handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
+        let resp =
+            handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
         assert!(resp.ok, "list should succeed");
         assert_eq!(resp.data.as_ref().unwrap().as_array().unwrap().len(), 0);
 
         // create
         let resp = handle_request(
             req("work-item-create", serde_json::json!({ "title": "Fix login bug" })),
-            &host, &identity,
-        ).await;
+            &host,
+            &identity,
+        )
+        .await;
         assert!(resp.ok, "create should succeed");
         let item = resp.data.as_ref().unwrap();
         assert_eq!(item["title"], "Fix login bug");
@@ -7919,35 +8129,49 @@ post-worktree-create = "{post_create}"
         let id = item["id"].as_str().unwrap().to_string();
 
         // list — one item
-        let resp = handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
+        let resp =
+            handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
         assert_eq!(resp.data.unwrap().as_array().unwrap().len(), 1);
 
         // update
         let resp = handle_request(
-            req("work-item-update", serde_json::json!({ "id": id, "title": "Fix login bug (updated)" })),
-            &host, &identity,
-        ).await;
+            req(
+                "work-item-update",
+                serde_json::json!({ "id": id, "title": "Fix login bug (updated)" }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
         assert!(resp.ok, "update should succeed");
         assert_eq!(resp.data.as_ref().unwrap()["title"], "Fix login bug (updated)");
 
         // move
         let resp = handle_request(
-            req("work-item-move", serde_json::json!({ "id": id, "status": "doing", "sortOrder": 1.0 })),
-            &host, &identity,
-        ).await;
+            req(
+                "work-item-move",
+                serde_json::json!({ "id": id, "status": "doing", "sortOrder": 1.0 }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
         assert!(resp.ok, "move should succeed");
         assert_eq!(resp.data.as_ref().unwrap()["status"], "doing");
 
         // delete
         let resp = handle_request(
             req("work-item-delete", serde_json::json!({ "id": id })),
-            &host, &identity,
-        ).await;
+            &host,
+            &identity,
+        )
+        .await;
         assert!(resp.ok, "delete should succeed");
         assert_eq!(resp.data.as_ref().unwrap()["id"], id);
 
         // list — empty again
-        let resp = handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
+        let resp =
+            handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
         assert_eq!(resp.data.unwrap().as_array().unwrap().len(), 0);
 
         shutdown_host(host, joins).await;
@@ -7958,7 +8182,8 @@ post-worktree-create = "{post_create}"
         let dir = tempfile::tempdir().unwrap();
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
-        let resp = handle_request(req("work-item-create", serde_json::json!({})), &host, &identity).await;
+        let resp =
+            handle_request(req("work-item-create", serde_json::json!({})), &host, &identity).await;
         assert!(!resp.ok, "create without title should fail");
         assert!(resp.error.as_deref().unwrap_or("").contains("title required"));
 
@@ -7972,20 +8197,26 @@ post-worktree-create = "{post_create}"
 
         let resp = handle_request(
             req("work-item-update", serde_json::json!({ "id": "no-such-id", "title": "x" })),
-            &host, &identity,
-        ).await;
+            &host,
+            &identity,
+        )
+        .await;
         assert!(!resp.ok);
 
         let resp = handle_request(
             req("work-item-move", serde_json::json!({ "id": "no-such-id", "status": "doing" })),
-            &host, &identity,
-        ).await;
+            &host,
+            &identity,
+        )
+        .await;
         assert!(!resp.ok);
 
         let resp = handle_request(
             req("work-item-delete", serde_json::json!({ "id": "no-such-id" })),
-            &host, &identity,
-        ).await;
+            &host,
+            &identity,
+        )
+        .await;
         assert!(!resp.ok);
 
         shutdown_host(host, joins).await;
@@ -7996,12 +8227,18 @@ post-worktree-create = "{post_create}"
         let dir = tempfile::tempdir().unwrap();
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
-        let resp = handle_request(req("daemon-status", serde_json::json!({})), &host, &identity).await;
+        let resp =
+            handle_request(req("daemon-status", serde_json::json!({})), &host, &identity).await;
         assert!(resp.ok);
         let caps = resp.data.as_ref().unwrap()["capabilities"].as_array().unwrap().clone();
         for cap in &[
-            "work-item-list", "work-item-create", "work-item-update",
-            "work-item-move", "work-item-delete", "work-item-dispatch", "work-item-events",
+            "work-item-list",
+            "work-item-create",
+            "work-item-update",
+            "work-item-move",
+            "work-item-delete",
+            "work-item-dispatch",
+            "work-item-events",
         ] {
             assert!(caps.contains(&serde_json::json!(cap)), "missing capability: {cap}");
         }
@@ -8018,8 +8255,10 @@ post-worktree-create = "{post_create}"
         // Create a work item
         let resp = handle_request(
             req("work-item-create", serde_json::json!({ "title": "Write tests" })),
-            &host, &identity,
-        ).await;
+            &host,
+            &identity,
+        )
+        .await;
         assert!(resp.ok);
         let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
@@ -8028,13 +8267,18 @@ post-worktree-create = "{post_create}"
 
         // Dispatch — repoPath points to our temp dir which is a valid path
         let resp = handle_request(
-            req("work-item-dispatch", serde_json::json!({
-                "id": item_id,
-                "repoPath": dir.path(),
-                "profile": "plain-shell",
-            })),
-            &host, &identity,
-        ).await;
+            req(
+                "work-item-dispatch",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": dir.path(),
+                    "profile": "plain-shell",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
         assert!(resp.ok, "dispatch failed: {:?}", resp.error);
         let session_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
@@ -8048,6 +8292,111 @@ post-worktree-create = "{post_create}"
             matches!(&event, roux_core::WorkItemEvent::SessionBound { id, .. } if id == &item_id),
             "expected SessionBound, got: {event:?}"
         );
+
+        // A second dispatch of the now-bound card must be rejected and must
+        // leave the original binding intact (no rebind, no orphaned session).
+        let resp2 = handle_request(
+            req(
+                "work-item-dispatch",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": dir.path(),
+                    "profile": "plain-shell",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(!resp2.ok, "second dispatch of a bound card should be rejected");
+        let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
+        assert_eq!(
+            item.session_id.as_deref(),
+            Some(session_id.as_str()),
+            "binding must be unchanged after a rejected re-dispatch",
+        );
+
+        let _ = host.pty_handle.kill(&session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_dispatch_defaults_to_agent_profile() {
+        // With no `profile` arg the dispatch resolves the built-in Claude
+        // agent and types its startup command into the PTY (best-effort). This
+        // exercises the resolve → build-startup → pty-write glue; we assert the
+        // dispatch still succeeds and binds (the agent run never fails it).
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run the agent" })),
+            &host,
+            &identity,
+        )
+        .await;
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req(
+                "work-item-dispatch",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": dir.path(),
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "default-profile dispatch failed: {:?}", resp.error);
+        let session_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
+        assert_eq!(item.session_id.as_deref(), Some(session_id.as_str()));
+
+        let _ = host.pty_handle.kill(&session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_dispatch_forwards_session_target_args() {
+        let dir = tempfile::tempdir().unwrap();
+        let worktree = dir.path().join("existing-worktree");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Original card title" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req(
+                "work-item-dispatch",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": dir.path(),
+                    "name": "Prompt-selected name",
+                    "worktreePath": worktree,
+                    "profile": "plain-shell",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "dispatch failed: {:?}", resp.error);
+        let session_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
+        assert_eq!(session.name, "Prompt-selected name");
+        assert_eq!(session.worktree_path, worktree.to_string_lossy());
 
         let _ = host.pty_handle.kill(&session_id).await;
         shutdown_host(host, joins).await;
@@ -8070,7 +8419,8 @@ post-worktree-create = "{post_create}"
                 &mut server,
                 &host_clone,
                 &identity_clone,
-            ).await
+            )
+            .await
         });
 
         // Use a single BufReader so buffered data between reads is not lost.
@@ -8084,8 +8434,10 @@ post-worktree-create = "{post_create}"
         // Trigger a create so the stream emits an event frame
         handle_request(
             req("work-item-create", serde_json::json!({ "title": "Stream test item" })),
-            &host, &identity,
-        ).await;
+            &host,
+            &identity,
+        )
+        .await;
 
         let mut buf2 = String::new();
         tokio::io::AsyncBufReadExt::read_line(&mut client_reader, &mut buf2).await.unwrap();
@@ -8183,17 +8535,24 @@ post-worktree-create = "{post_create}"
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
         let import_file = dir.path().join("import.json");
-        std::fs::write(&import_file, serde_json::json!({
-            "items": [
-                { "title": "From file A" },
-                { "title": "From file B" },
-            ]
-        }).to_string()).unwrap();
+        std::fs::write(
+            &import_file,
+            serde_json::json!({
+                "items": [
+                    { "title": "From file A" },
+                    { "title": "From file B" },
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
 
         let resp = handle_request(
             req("work-item-import", serde_json::json!({ "path": import_file.to_string_lossy() })),
-            &host, &identity,
-        ).await;
+            &host,
+            &identity,
+        )
+        .await;
         assert!(resp.ok, "file import failed: {:?}", resp.error);
         assert_eq!(resp.data.as_ref().unwrap()["imported"], 2);
 
@@ -8208,11 +8567,16 @@ post-worktree-create = "{post_create}"
         let mut rx = host.work_item_handle.subscribe_events();
 
         handle_request(
-            req("work-item-import", serde_json::json!({
-                "items": [{ "title": "Imported" }]
-            })),
-            &host, &identity,
-        ).await;
+            req(
+                "work-item-import",
+                serde_json::json!({
+                    "items": [{ "title": "Imported" }]
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
 
         // Drain until we find the Imported event (there may be a Created event first)
         let mut found = false;

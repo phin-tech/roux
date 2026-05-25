@@ -1,16 +1,13 @@
 import { writable, derived, get } from "svelte/store";
-import type {
-  WorkItem,
-  WorkItemEvent,
-  WorkItemInput,
-  WorkItemStatus,
-} from "$lib/bindings";
+import type { WorkItem, WorkItemInput, WorkItemStatus } from "$lib/bindings";
+import type { WorkItemEvent } from "$lib/types/workItems";
 import {
   workItemList as tauriWorkItemList,
   workItemCreate as tauriWorkItemCreate,
   workItemUpdate as tauriWorkItemUpdate,
   workItemMove as tauriWorkItemMove,
   workItemDelete as tauriWorkItemDelete,
+  workItemDispatch as tauriWorkItemDispatch,
 } from "$lib/tauri";
 
 export { type WorkItem, type WorkItemEvent, type WorkItemInput, type WorkItemStatus };
@@ -40,6 +37,12 @@ export const itemsByColumn = derived(workItems, ($items) => {
   }
   return map;
 });
+
+function bindSessionToWorkItem(id: string, sessionId: string): void {
+  workItems.update((list) =>
+    list.map((i) => (i.id === id ? { ...i, sessionId } : i)),
+  );
+}
 
 export async function hydrateWorkItems(): Promise<void> {
   try {
@@ -80,11 +83,7 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       void hydrateWorkItems();
       break;
     case "sessionBound":
-      workItems.update((list) =>
-        list.map((i) =>
-          i.id === event.id ? { ...i, sessionId: event.sessionId } : i,
-        ),
-      );
+      bindSessionToWorkItem(event.id, event.sessionId);
       break;
   }
 }
@@ -107,6 +106,31 @@ export async function moveWorkItem(
 
 export async function deleteWorkItem(id: string): Promise<void> {
   await tauriWorkItemDelete(id);
+}
+
+/**
+ * Dispatch a work item: the daemon creates a session named after the item and
+ * binds it. The returned session id is applied immediately so the board can
+ * switch from Start to Open terminal without waiting for the broadcast event.
+ * Throws if no daemon is connected.
+ */
+export interface WorkItemDispatchOptions {
+  profile?: string | null;
+  repoPath?: string | null;
+  name?: string | null;
+  worktreePath?: string | null;
+  branch?: string | null;
+  base?: string | null;
+  fetchFirst?: boolean | null;
+}
+
+export async function dispatchWorkItem(
+  id: string,
+  options: WorkItemDispatchOptions = {},
+): Promise<string> {
+  const sessionId = await tauriWorkItemDispatch(id, options);
+  bindSessionToWorkItem(id, sessionId);
+  return sessionId;
 }
 
 export function getWorkItemSnapshot(id: string): WorkItem | undefined {

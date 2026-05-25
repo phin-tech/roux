@@ -4,6 +4,7 @@ import { get } from "svelte/store";
 vi.mock("$lib/tauri", () => ({
   killSession: vi.fn().mockResolvedValue(undefined),
   killPty: vi.fn().mockResolvedValue(undefined),
+  detachPty: vi.fn().mockResolvedValue(undefined),
   removeWorktree: vi.fn().mockResolvedValue(undefined),
   deleteSessionPermanently: vi.fn().mockResolvedValue(undefined),
   upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
@@ -25,10 +26,12 @@ import { resetFocus } from "$lib/panes/focus";
 import { initSession } from "$lib/panes/actions";
 import {
   killSession,
+  detachPty,
   removeWorktree,
   deleteSessionPermanently,
   saveLivePaneStateRaw,
 } from "$lib/tauri";
+import { workItems } from "$lib/stores/workItems";
 import type { Session } from "$lib/types";
 import { DEFAULT_SETTINGS } from "$lib/types";
 
@@ -57,8 +60,10 @@ describe("closeSession", () => {
     resetLayouts();
     resetInstances();
     resetFocus();
+    workItems.set([]);
     settings.set({ ...DEFAULT_SETTINGS });
     vi.mocked(killSession).mockReset().mockResolvedValue(undefined);
+    vi.mocked(detachPty).mockReset().mockResolvedValue(undefined);
     vi.mocked(removeWorktree).mockReset().mockResolvedValue(undefined);
     vi.mocked(deleteSessionPermanently).mockReset().mockResolvedValue(undefined);
     vi.mocked(saveLivePaneStateRaw).mockReset().mockResolvedValue(undefined);
@@ -86,6 +91,80 @@ describe("closeSession", () => {
     expect(archived[0].id).toBe(session.id);
     expect(archived[0].archived).toBe(true);
     expect(archived[0].endedAt).toBeTypeOf("number");
+  });
+
+  it("detaches a work-item-bound session instead of archiving or killing its PTY", async () => {
+    const session = makeSession({ id: "task-session" });
+    addSession(session);
+    initSession(session.id);
+    archivedSessionsState.update((s) => ({ ...s, loaded: true }));
+    workItems.set([
+      {
+        id: "wi-1",
+        projectId: null,
+        parentId: null,
+        title: "Task card",
+        body: null,
+        status: "doing",
+        sessionId: session.id,
+        provider: null,
+        externalId: null,
+        externalUrl: null,
+        sortOrder: 0,
+        pinnedPrUrl: null,
+        cost: null,
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ]);
+
+    const result = await closeSession(session);
+
+    expect(result).toBe(true);
+    expect(detachPty).toHaveBeenCalledWith(session.id);
+    expect(killSession).not.toHaveBeenCalled();
+    expect(deleteSessionPermanently).not.toHaveBeenCalled();
+    expect(removeWorktree).not.toHaveBeenCalled();
+    expect(get(sessionState).sessions).toHaveLength(0);
+    expect(get(archivedSessionsState).sessions).toHaveLength(0);
+  });
+
+  it("archives and kills a work-item-bound session when preservation is disabled", async () => {
+    const session = makeSession({ id: "task-session" });
+    addSession(session);
+    initSession(session.id);
+    archivedSessionsState.update((s) => ({ ...s, loaded: true }));
+    workItems.set([
+      {
+        id: "wi-1",
+        projectId: null,
+        parentId: null,
+        title: "Task card",
+        body: null,
+        status: "doing",
+        sessionId: session.id,
+        provider: null,
+        externalId: null,
+        externalUrl: null,
+        sortOrder: 0,
+        pinnedPrUrl: null,
+        cost: null,
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ]);
+
+    const result = await closeSession(session, {
+      force: true,
+      preserveWorkItemBoundSession: false,
+    });
+
+    expect(result).toBe(true);
+    expect(killSession).toHaveBeenCalledWith(session.id);
+    expect(detachPty).not.toHaveBeenCalled();
+    expect(deleteSessionPermanently).not.toHaveBeenCalled();
+    expect(get(sessionState).sessions).toHaveLength(0);
+    expect(get(archivedSessionsState).sessions).toHaveLength(1);
   });
 
   it("flushes live pane state before removing panes", async () => {

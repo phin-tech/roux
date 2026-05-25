@@ -688,10 +688,15 @@ Requires `args.id`. Returns `{ "id": "..." }` on success.
 
 The explicit "Start" action. Requires `args.id`. Optional `args.repoPath`
 overrides the repo path; otherwise the item's project's first `repo_root` is
-used. Optional `args.profile`. Creates a session via `session-create-shell`
-(named after the work item's title, inheriting `projectId`), then binds it with
-`set_session` which fires `WorkItemEvent::SessionBound`. Returns the new
-session record.
+used. Optional `args.name`, `args.worktreePath`, `args.branch`, `args.base`,
+`args.fetchFirst`, and `args.profile` are forwarded to `session-create-shell`.
+Creates a session via `session-create-shell` (named after the work item's title
+unless `args.name` is supplied, inheriting `projectId`), then binds it with
+`set_session` which fires `WorkItemEvent::SessionBound`. Returns the new session
+record. For known auto-run agent profiles (Claude/Codex), dispatch also writes
+the provider startup command and then sends a first task prompt built from the
+card title, description, and external link. Plain-shell and type-only profiles
+are left at the prompt.
 
 `work-item-import`
 

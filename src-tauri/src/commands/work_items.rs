@@ -81,3 +81,41 @@ pub(crate) async fn work_item_delete(
         Err("work item not found".to_string())
     }
 }
+
+/// Dispatch a work item to a freshly-created, bound session. The whole
+/// create-session + bind + rollback orchestration lives in the daemon
+/// (`handle_work_item_dispatch`); the desktop only forwards. Unlike the other
+/// work-item commands there is no desktop-local fallback: session/PTY creation
+/// for dispatch is daemon-owned, so without a daemon we surface a clear error
+/// rather than half-implement it locally. Returns the new session id.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn work_item_dispatch(
+    id: String,
+    profile: Option<String>,
+    repo_path: Option<String>,
+    name: Option<String>,
+    worktree_path: Option<String>,
+    branch: Option<String>,
+    base: Option<String>,
+    fetch_first: Option<bool>,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|c| c.supports("work-item-dispatch"))
+    {
+        return client
+            .work_item_dispatch(
+                id,
+                profile,
+                repo_path,
+                name,
+                worktree_path,
+                branch,
+                base,
+                fetch_first,
+            )
+            .await;
+    }
+    Err("Dispatching a work item requires a running daemon.".to_string())
+}

@@ -937,8 +937,10 @@ export type {
   WorkItem,
   WorkItemInput,
   WorkItemStatus,
-  WorkItemEvent,
 } from "$lib/bindings";
+// WorkItemEvent is hand-typed — specta can't reach the "work-item-event"
+// channel payload, so it lives outside the generated bindings.
+export type { WorkItemEvent } from "./types/workItems";
 
 export async function workItemList(projectId: string | null): Promise<import("$lib/bindings").WorkItem[]> {
   const { commands } = await import("$lib/bindings");
@@ -980,6 +982,36 @@ export async function workItemMove(
 export async function workItemDelete(id: string): Promise<string> {
   const { commands } = await import("$lib/bindings");
   const r = await commands.workItemDelete(id);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+// Dispatch a work item to a new bound session. The daemon owns the
+// create-session + bind orchestration; this only forwards. Returns the new
+// session id. Errors (e.g. "requires a running daemon") propagate to the UI.
+export async function workItemDispatch(
+  id: string,
+  options: {
+    profile?: string | null;
+    repoPath?: string | null;
+    name?: string | null;
+    worktreePath?: string | null;
+    branch?: string | null;
+    base?: string | null;
+    fetchFirst?: boolean | null;
+  } = {},
+): Promise<string> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemDispatch(
+    id,
+    options.profile ?? null,
+    options.repoPath ?? null,
+    options.name ?? null,
+    options.worktreePath ?? null,
+    options.branch ?? null,
+    options.base ?? null,
+    options.fetchFirst ?? null,
+  );
   if (r.status === "error") throw new Error(r.error);
   return r.data;
 }
@@ -1471,9 +1503,9 @@ export function onAliasEvent(
 }
 
 export function onWorkItemEvent(
-  callback: (payload: import("$lib/bindings").WorkItemEvent) => void,
+  callback: (payload: import("./types/workItems").WorkItemEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<import("$lib/bindings").WorkItemEvent>("work-item-event", (e) =>
+  return listen<import("./types/workItems").WorkItemEvent>("work-item-event", (e) =>
     callback(e.payload),
   );
 }
