@@ -350,18 +350,7 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
             | roux_core::WorkItemRunStatus::Done
             | roux_core::WorkItemRunStatus::Failed
     ) {
-        if run.status == roux_core::WorkItemRunStatus::Stopped {
-            if let Some(session_id) = run.session_id.as_deref() {
-                if let Err(response) = cleanup_stopped_work_item_run_session(host, session_id).await
-                {
-                    return response;
-                }
-            }
-        }
-        return match serde_json::to_value(run) {
-            Ok(value) => Response::success(value),
-            Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
-        };
+        return terminal_work_item_run_stop_response(host, run).await;
     }
 
     let stopped_run = match host.work_item_handle.set_run_status(
@@ -382,10 +371,7 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
                         | roux_core::WorkItemRunStatus::Failed
                 ) =>
             {
-                return match serde_json::to_value(run) {
-                    Ok(value) => Response::success(value),
-                    Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
-                };
+                return terminal_work_item_run_stop_response(host, run).await;
             }
             Ok(Some(_)) => return Response::err("work item run status was not updated"),
             Ok(None) => return Response::err("work item run not found"),
@@ -401,6 +387,23 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
     }
 
     match serde_json::to_value(stopped_run) {
+        Ok(value) => Response::success(value),
+        Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
+    }
+}
+
+async fn terminal_work_item_run_stop_response(
+    host: &RuntimeHost,
+    run: roux_core::WorkItemRun,
+) -> Response {
+    if run.status == roux_core::WorkItemRunStatus::Stopped {
+        if let Some(session_id) = run.session_id.as_deref() {
+            if let Err(response) = cleanup_stopped_work_item_run_session(host, session_id).await {
+                return response;
+            }
+        }
+    }
+    match serde_json::to_value(run) {
         Ok(value) => Response::success(value),
         Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
     }
@@ -2026,6 +2029,58 @@ mod tests {
         let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
         assert!(session.archived);
         assert!(session.primary_pty_id.is_none());
+        assert!(host.pty_handle.snapshot(&session_id, 64).await.unwrap().is_none());
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn terminal_work_item_run_stop_response_cleans_stopped_run_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run card" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req(
+                "work-item-run-dispatch",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": dir.path(),
+                    "profile": "plain-shell",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
+        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+
+        host.work_item_handle
+            .set_run_status(
+                &run_id,
+                roux_core::WorkItemRunStatus::Stopped,
+                serde_json::json!({ "reason": "preexisting" }),
+            )
+            .unwrap();
+        let run = host.work_item_handle.get_run(&run_id).unwrap().unwrap();
+
+        let resp = terminal_work_item_run_stop_response(&host, run).await;
+        assert!(resp.ok, "terminal run response failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "stopped");
+
+        let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
+        assert!(session.archived);
         assert!(host.pty_handle.snapshot(&session_id, 64).await.unwrap().is_none());
 
         shutdown_host(host, joins).await;
