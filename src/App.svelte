@@ -9,6 +9,7 @@
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import LibraryWindow from "$lib/components/LibraryWindow.svelte";
   import LibraryVariablePrompt from "$lib/components/LibraryVariablePrompt.svelte";
+  import WorkItemEditor from "$lib/components/WorkItemEditor.svelte";
   import { multiLineEditor } from "$lib/stores/multiLineEditor";
   import { libraryWindow } from "$lib/stores/libraryWindow";
   import { libraryVariablePrompt } from "$lib/stores/libraryVariablePrompt";
@@ -37,6 +38,7 @@
   import { addSession, removeSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
   import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
   import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
+  import { hydrateWorkItems, applyWorkItemEvent } from "$lib/stores/workItems";
   import {
     hydrateMailbox,
     applyMailboxEvent,
@@ -76,7 +78,7 @@
   } from "$lib/stores/sessionPrLookup";
   import { installSessionBranchPoller } from "$lib/stores/sessionBranchPoller";
   import { clearPermissionInfo } from "$lib/panes/agentState";
-  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, onMailboxEvent, onAliasEvent, quitApp, submitRouxReply } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, onMailboxEvent, onAliasEvent, onWorkItemEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
   import { profileRegistry } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -103,11 +105,19 @@
     openSidebar,
     closeSidebar,
     toggleSidebar,
+    closeWorkItemSessionStart,
+    workItemSessionStart,
   } from "$lib/stores/ui";
 
   let showNewSessionDialog = $state(false);
+  let showSessionDialog = $derived(showNewSessionDialog || $workItemSessionStart !== null);
   let showSetupPrompt = $state(false);
   let showQuitDialog = $state(false);
+
+  function closeSessionDialog() {
+    showNewSessionDialog = false;
+    closeWorkItemSessionStart();
+  }
 
   /** Returns true if a pane was closed, false if there was nothing to close */
   async function closeCurrentFocusedPane(): Promise<boolean> {
@@ -857,6 +867,16 @@
       await onAliasEvent((payload) => applyAliasEvent(payload)),
     );
 
+    // Hydrate + subscribe to the work item board.
+    try {
+      await hydrateWorkItems();
+      tauriUnlisteners.push(
+        await onWorkItemEvent((payload) => applyWorkItemEvent(payload)),
+      );
+    } catch (e) {
+      logError("Failed to initialize work item board", e);
+    }
+
     // Listen for global status updates from hooks. Tier-1 routing (with a
     // `rouxPaneId` in the payload) updates the pane's runtime agentState so
     // the session-card aggregate and provider-specific UI light up. Legacy
@@ -899,8 +919,9 @@
 </Layout>
 
 <NewSessionDialog
-  visible={showNewSessionDialog}
-  onclose={() => (showNewSessionDialog = false)}
+  visible={showSessionDialog}
+  workItemStart={$workItemSessionStart}
+  onclose={closeSessionDialog}
 />
 
 <!-- Global custom-profile editor host. Opened by palette flows
@@ -932,6 +953,8 @@
 <LibraryWindow />
 
 <LibraryVariablePrompt />
+
+<WorkItemEditor />
 
 {#if $hudVisible || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
   <KeymapHud

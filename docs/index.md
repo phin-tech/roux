@@ -31,6 +31,7 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 - **Doctor panel** — inspect and reinstall CLI/hooks/skill integrations from Settings
 - **Agent notifications** — configure Claude Code hooks and Codex TUI notifications from Settings
 - **Projects** — group sessions across repos, save session blueprints, and inject project context
+- **Kanban board** — plan card-based agent work, start daemon-owned runs, and resolve blocked decisions
 - **Multi-scoped notes vault** — plain-text notes sidebar (++cmd+b++) with four scopes (global / project / repo / session), backed by an Obsidian-compatible markdown vault. Scriptable from `roux notes <scope> <verb>` and exposed to agents through per-PTY env vars. Experimental.
 - **CLI bridge** — `roux` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal
 - **MCP integration** — expose Roux sessions, panes, latest terminal output, and notes to supported MCP hosts through `roux mcp`

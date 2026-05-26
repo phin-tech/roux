@@ -34,6 +34,10 @@ pub fn watches_path() -> PathBuf {
     app_config_dir().join("watches.json")
 }
 
+pub fn work_items_db_path() -> PathBuf {
+    app_config_dir().join("board.db")
+}
+
 pub fn task_overrides_path() -> PathBuf {
     app_config_dir().join("task-overrides.json")
 }

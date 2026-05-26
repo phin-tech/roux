@@ -11,6 +11,7 @@ import {
   pinnedSidebar,
   pinSidebar,
   PINNABLE_SIDEBARS,
+  toggleBoardFullscreen,
   toggleSidebar,
   unpinSidebar,
 } from "$lib/stores/ui";
@@ -135,6 +136,13 @@ export function registerUiCommands() {
     category: "App",
     available: () => !!queries.activeSession(),
     execute: () => toggleSidebar("notes"),
+  });
+
+  registry.register({
+    id: "ui.toggle-board",
+    label: "Toggle Board (Fullscreen)",
+    category: "App",
+    execute: () => toggleBoardFullscreen(),
   });
 
   registry.register({

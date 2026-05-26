@@ -391,6 +391,20 @@ export const commands = {
 	renameProject: (id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("rename_project", { id, name })),
 	updateProject: (id: string, patch: ProjectUpdate) => typedError<Project, string>(__TAURI_INVOKE("update_project", { id, patch })),
 	setSessionProject: (sessionId: string, projectId: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_project", { sessionId, projectId })),
+	workItemList: (projectId: string | null) => typedError<WorkItem[], string>(__TAURI_INVOKE("work_item_list", { projectId })),
+	workItemCreate: (input: WorkItemInput) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_create", { input })),
+	workItemUpdate: (id: string, input: WorkItemInput) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_update", { id, input })),
+	workItemMove: (id: string, status: WorkItemStatus, sortOrder: number) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_move", { id, status, sortOrder })),
+	workItemDelete: (id: string) => typedError<string, string>(__TAURI_INVOKE("work_item_delete", { id })),
+	/**
+	 *  Dispatch a work item to a freshly-created, bound session. The whole
+	 *  create-session + bind + rollback orchestration lives in the daemon
+	 *  (`handle_work_item_dispatch`); the desktop only forwards. Unlike the other
+	 *  work-item commands there is no desktop-local fallback: session/PTY creation
+	 *  for dispatch is daemon-owned, so without a daemon we surface a clear error
+	 *  rather than half-implement it locally. Returns the new session id.
+	 */
+	workItemDispatch: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, branch: string | null, base: string | null, fetchFirst: boolean | null) => typedError<string, string>(__TAURI_INVOKE("work_item_dispatch", { id, profile, repoPath, name, worktreePath, branch, base, fetchFirst })),
 	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
 	notesWrite: (target: NotesTarget, content: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_write", { target, content, tags })),
 	notesAppend: (target: NotesTarget, content: string, timestamped: boolean, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_append", { target, content, timestamped, tags })),
@@ -589,6 +603,17 @@ export type ExperimentsConfig = {
 	exampleFlag?: boolean,
 	exampleVariant?: ExampleVariant,
 	simplifiedSessionTabs?: boolean,
+};
+
+/**
+ *  Pointer to an item's identity in an external system (e.g. a future
+ *  GitHub or Linear adapter). Only `provider` + `external_id` together
+ *  form the dedup key; `url` is informational.
+ */
+export type ExternalRef = {
+	provider: string,
+	externalId: string,
+	url: string | null,
 };
 
 export type GithubJob = {
@@ -1704,6 +1729,53 @@ export type WatchOutcome = "success" | "failure" | "inProgress";
 export type WatchResult = { type: "githubRun"; runId: number; status: string; conclusion: string | null; url: string; jobs: GithubJob[]; outcome: WatchOutcome } | { type: "httpCheck"; statusCode: number; responseTimeMs: number; outcome: WatchOutcome } | { type: "commandRun"; exitCode: number; stdout: string; stderr: string; outcome: WatchOutcome } | { type: "githubPr"; prNumber: number; state: string; title: string; url: string; headSha: string; draft: boolean; reviews: PrReview[]; checks: PrCheckRun[]; outcome: WatchOutcome };
 
 export type WatchScope = { type: "global" } | { type: "session"; sessionId: string } | { type: "project"; projectId: string };
+
+/**
+ *  A durable unit of intended work. Cards outlive the sessions that run
+ *  them — a card is born with no session (`Todo`) and session binding is
+ *  set by the explicit `work-item-dispatch` action.
+ */
+export type WorkItem = {
+	id: string,
+	projectId: string | null,
+	parentId: string | null,
+	title: string,
+	body: string | null,
+	status: WorkItemStatus,
+	// Bound agent session — set when `work-item-dispatch` fires.
+	sessionId: string | null,
+	/**
+	 *  External system identity fields (provider, external_id, external_url)
+	 *  are de-normalised onto the item so the frontend never needs to
+	 *  join with a separate refs table.
+	 */
+	provider: string | null,
+	externalId: string | null,
+	externalUrl: string | null,
+	sortOrder: number,
+	pinnedPrUrl: string | null,
+	// Reserved for future cost-capture; never read in v1.
+	cost: number | null,
+	createdAt: number,
+	updatedAt: number,
+};
+
+/**
+ *  Input shape for creating / importing a work item. All fields except
+ *  `title` are optional; the store fills defaults.
+ */
+export type WorkItemInput = {
+	title: string,
+	body?: string | null,
+	status?: WorkItemStatus | null,
+	projectId?: string | null,
+	parentId?: string | null,
+	externalRef?: ExternalRef | null,
+	sortOrder?: number | null,
+};
+
+// Board column / workflow position of a work item.
+export type WorkItemStatus = "todo" | "doing" | "review" | "done";
 
 export type Worktree = {
 	path: string,

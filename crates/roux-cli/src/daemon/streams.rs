@@ -6,8 +6,8 @@ use roux_runtime::watch_runner::WatchRunner;
 
 use super::identity::{request_authorized, DaemonIdentity};
 use super::protocol::{
-    AliasEventFrame, MailboxEventFrame, PtyAttachFrame, Request, SubscriptionEventFrame,
-    WatchEventFrame,
+    AliasEventFrame, MailboxEventFrame, PtyAttachFrame, Request, SessionEventFrame,
+    SubscriptionEventFrame, WatchEventFrame,
 };
 
 pub(super) async fn handle_daemon_pty_attach_stream<W>(
@@ -427,6 +427,73 @@ where
 }
 
 async fn write_subscription_event_frame<W>(writer: &mut W, frame: &SubscriptionEventFrame) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let Ok(json) = serde_json::to_string(frame) else {
+        return false;
+    };
+    writer.write_all(json.as_bytes()).await.is_ok() && writer.write_all(b"\n").await.is_ok()
+}
+
+pub(super) async fn handle_session_events_stream<W>(
+    req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let result = handle_session_events_stream_inner(req, writer, host, identity).await;
+    let _ = writer.shutdown().await;
+    result
+}
+
+async fn handle_session_events_stream_inner<W>(
+    req: Request,
+    writer: &mut W,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> bool
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if !request_authorized(&req, identity) {
+        let _ = write_session_event_frame(
+            writer,
+            &SessionEventFrame::Error { error: "unauthorized".into() },
+        )
+        .await;
+        return false;
+    }
+
+    let mut rx = host.session_handle.subscribe_status();
+    if !write_session_event_frame(writer, &SessionEventFrame::Ready).await {
+        return false;
+    }
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                if !write_session_event_frame(writer, &SessionEventFrame::Event { event }).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                let warning = SessionEventFrame::Warning {
+                    message: format!("dropped {skipped} buffered session event(s)"),
+                };
+                if !write_session_event_frame(writer, &warning).await {
+                    return false;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return true,
+        }
+    }
+}
+
+async fn write_session_event_frame<W>(writer: &mut W, frame: &SessionEventFrame) -> bool
 where
     W: tokio::io::AsyncWrite + Unpin,
 {

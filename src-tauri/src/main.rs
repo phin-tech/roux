@@ -116,6 +116,7 @@ fn main() {
         project_persist_path: paths::roux_config_dir().join("projects.json"),
         initial_watches: persisted_watches,
         watch_persist_path,
+        work_item_db_path: paths::roux_config_dir().join("board.db"),
     }
     .build();
     let (runtime, _runtime_joins) = runtime_services.spawn_with(tauri::async_runtime::spawn);
@@ -226,6 +227,12 @@ fn main() {
         commands::projects::rename_project,
         commands::projects::update_project,
         commands::projects::set_session_project,
+        commands::work_items::work_item_list,
+        commands::work_items::work_item_create,
+        commands::work_items::work_item_update,
+        commands::work_items::work_item_move,
+        commands::work_items::work_item_delete,
+        commands::work_items::work_item_dispatch,
         commands::notes::notes_read,
         commands::notes::notes_write,
         commands::notes::notes_append,
@@ -441,6 +448,19 @@ fn main() {
             commands::projects::update_project,
             commands::projects::set_session_project,
             commands::projects::render_project_prompt_template,
+            commands::work_items::work_item_list,
+            commands::work_items::work_item_create,
+            commands::work_items::work_item_update,
+            commands::work_items::work_item_move,
+            commands::work_items::work_item_delete,
+            commands::work_items::work_item_dispatch,
+            commands::work_items::work_item_run_dispatch,
+            commands::work_items::work_item_runs_list,
+            commands::work_items::work_item_run_events,
+            commands::work_items::work_item_run_stop,
+            commands::work_items::work_item_decision_create,
+            commands::work_items::work_item_decisions_list,
+            commands::work_items::work_item_decision_resolve,
             commands::notes::notes_read,
             commands::notes::notes_write,
             commands::notes::notes_append,
@@ -686,8 +706,18 @@ fn main() {
                         client.spawn_mailbox_event_bridge(app_handle.clone());
                     }
                     if client.supports("subscription-events") {
-                        client.spawn_subscription_event_bridge(app_handle);
+                        client.spawn_subscription_event_bridge(app_handle.clone());
                     }
+                    if client.supports("work-item-events") {
+                        client.spawn_work_item_event_bridge(app_handle);
+                    }
+                } else {
+                    let app_handle = app.handle().clone();
+                    let work_item_handle = state.runtime.work_item_handle.clone();
+                    crate::daemon_client::spawn_local_work_item_event_bridge(
+                        app_handle,
+                        work_item_handle,
+                    );
                 }
             }
 

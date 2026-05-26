@@ -20,7 +20,8 @@ export type SidebarId =
   | "docs"
   | "sessions"
   | "smolMachines"
-  | "worktrunk";
+  | "worktrunk"
+  | "board";
 
 export const PINNABLE_SIDEBARS: ReadonlySet<SidebarId> = new Set<SidebarId>([
   "sessions",
@@ -32,6 +33,7 @@ export const PINNABLE_SIDEBARS: ReadonlySet<SidebarId> = new Set<SidebarId>([
   "mailbox",
   "smolMachines",
   "worktrunk",
+  "board",
 ]);
 
 interface SidebarState {
@@ -175,6 +177,56 @@ export function openNotesForSession(sessionId: string): void {
   showSidebar();
   notesOverrideSessionId.set(sessionId);
   sidebarState.update((s) => ({ ...s, active: "notes" }));
+}
+
+/**
+ * The board has two surfaces: the lightweight dock panel (a pinnable
+ * `SidebarId`) and a roomy full-screen view that overlays the main content
+ * area. This flag drives the full-screen view only; it is independent of the
+ * sidebar pinned/active slots so opening one never disturbs the other.
+ */
+export const boardFullscreen = writable(false);
+
+export function openBoardFullscreen(): void {
+  boardFullscreen.set(true);
+}
+
+export function closeBoardFullscreen(): void {
+  boardFullscreen.set(false);
+}
+
+export function toggleBoardFullscreen(): void {
+  boardFullscreen.update((v) => !v);
+}
+
+/**
+ * Id of the work item currently open in the card editor, or null when the
+ * editor is closed. Kept here (not in the work-items data store) because it is
+ * pure view state shared between the board surfaces and the editor modal.
+ */
+export const editingWorkItemId = writable<string | null>(null);
+
+export function openWorkItemEditor(id: string): void {
+  editingWorkItemId.set(id);
+}
+
+export function closeWorkItemEditor(): void {
+  editingWorkItemId.set(null);
+}
+
+export interface WorkItemSessionStartRequest {
+  itemId: string;
+  title: string;
+}
+
+export const workItemSessionStart = writable<WorkItemSessionStartRequest | null>(null);
+
+export function openWorkItemSessionStart(request: WorkItemSessionStartRequest): void {
+  workItemSessionStart.set(request);
+}
+
+export function closeWorkItemSessionStart(): void {
+  workItemSessionStart.set(null);
 }
 
 const HOLD_DELAY_MS = 200;

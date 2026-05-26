@@ -54,6 +54,7 @@ async fn daemon_status_is_daemon_only_socket_command() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -117,6 +118,7 @@ async fn daemon_watch_commands_mutate_runtime_state() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -394,6 +396,7 @@ async fn daemon_watch_events_stream_sends_ready_and_backlog() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: vec![watch],
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -458,6 +461,7 @@ async fn daemon_session_rename_mutates_runtime_state() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -667,6 +671,7 @@ async fn daemon_worktree_commands_mutate_git_worktrees() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -810,6 +815,7 @@ post-worktree-remove = "{post_remove}"
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -923,6 +929,7 @@ async fn daemon_session_create_shell_owns_session_and_primary_pty() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -987,6 +994,7 @@ async fn daemon_session_create_alias_creates_daemon_session() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1035,6 +1043,7 @@ async fn daemon_session_create_alias_rejects_prompt_until_attach_queue_exists() 
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1080,6 +1089,7 @@ async fn daemon_session_panes_create_spawns_secondary_pty_and_list_reports_it() 
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1178,6 +1188,7 @@ async fn daemon_top_level_shell_spawns_secondary_pty() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1254,6 +1265,7 @@ async fn daemon_top_level_split_spawns_secondary_pty() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1330,6 +1342,7 @@ async fn daemon_notes_commands_use_shared_vault_service() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1424,6 +1437,7 @@ async fn daemon_latest_output_alias_reads_daemon_pty_replay() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1524,6 +1538,7 @@ async fn daemon_alias_commands_mutate_daemon_alias_state() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1631,6 +1646,7 @@ async fn daemon_mailbox_and_bus_commands_mutate_daemon_state() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1784,6 +1800,7 @@ async fn daemon_session_lifecycle_commands_mutate_state_and_ptys() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1925,6 +1942,7 @@ async fn daemon_session_refresh_branch_updates_git_status_when_repo_is_initializ
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -1971,6 +1989,7 @@ async fn daemon_project_and_session_metadata_commands_mutate_runtime_state() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2094,6 +2113,7 @@ async fn daemon_session_kill_alias_archives_session() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2136,6 +2156,7 @@ async fn daemon_process_start_and_output_poll_are_daemon_owned() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2210,6 +2231,7 @@ async fn daemon_top_level_run_alias_starts_daemon_process() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2283,6 +2305,7 @@ async fn daemon_pty_spawn_task_and_output_poll_are_daemon_owned() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2364,6 +2387,7 @@ async fn daemon_top_level_send_writes_to_session_primary_pty() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2454,6 +2478,7 @@ async fn daemon_pty_spawn_request_populates_runtime_env() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2537,6 +2562,7 @@ async fn daemon_pty_attach_stream_replays_output_and_exit() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2625,6 +2651,7 @@ async fn daemon_pty_metadata_commands_mutate_info() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2736,6 +2763,7 @@ async fn daemon_socket_serves_status_request() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);
@@ -2796,6 +2824,7 @@ async fn daemon_socket_stop_requests_shutdown_after_response() {
         project_persist_path: dir.path().join("projects.json"),
         initial_watches: Vec::new(),
         watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
     }
     .build();
     let (host, joins) = services.spawn_with(tokio::spawn);

@@ -12,6 +12,23 @@ pub enum SessionStatus {
     Attention,
 }
 
+impl SessionStatus {
+    /// Map a raw hook status string (as written by `roux hook <status>`) to a
+    /// `SessionStatus`. "working" and "generating" both map to `Generating`
+    /// (the hook writer uses "working"; "generating" is the normalised form).
+    /// Unknown strings map to `Idle`.
+    pub fn from_hook_status(raw: &str) -> Self {
+        match raw {
+            "working" | "generating" => Self::Generating,
+            "idle" => Self::Idle,
+            "attention" => Self::Attention,
+            "error" => Self::Error,
+            "disconnected" => Self::Disconnected,
+            _ => Self::Idle,
+        }
+    }
+}
+
 impl std::fmt::Display for SessionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -23,6 +40,30 @@ impl std::fmt::Display for SessionStatus {
             Self::Attention => write!(f, "attention"),
         }
     }
+}
+
+/// Map a raw hook status string to its canonical string form (the same
+/// normalisation used by `StatusUpdate.status` in the desktop). This
+/// pure function lives in `roux-core` so both the daemon watcher and the
+/// desktop `file_status` source share identical canonicalisation logic.
+pub fn map_hook_status(raw: &str) -> &str {
+    match raw {
+        "working" | "generating" => "generating",
+        "idle" => "idle",
+        "attention" => "attention",
+        "error" => "error",
+        "disconnected" => "disconnected",
+        _ => "idle",
+    }
+}
+
+/// Broadcast event emitted by the session service whenever a session's
+/// status actually changes (compare-before-assign — no-ops are dropped).
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStatusEvent {
+    pub session_id: String,
+    pub status: SessionStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -77,4 +118,51 @@ pub struct Session {
     /// rather than silently running on host.
     #[serde(default)]
     pub smol_machine_name: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_hook_status_maps_all_known_values() {
+        assert_eq!(SessionStatus::from_hook_status("working"), SessionStatus::Generating);
+        assert_eq!(SessionStatus::from_hook_status("generating"), SessionStatus::Generating);
+        assert_eq!(SessionStatus::from_hook_status("idle"), SessionStatus::Idle);
+        assert_eq!(SessionStatus::from_hook_status("attention"), SessionStatus::Attention);
+        assert_eq!(SessionStatus::from_hook_status("error"), SessionStatus::Error);
+        assert_eq!(SessionStatus::from_hook_status("disconnected"), SessionStatus::Disconnected);
+    }
+
+    #[test]
+    fn from_hook_status_unknown_maps_to_idle() {
+        assert_eq!(SessionStatus::from_hook_status(""), SessionStatus::Idle);
+        assert_eq!(SessionStatus::from_hook_status("thinking"), SessionStatus::Idle);
+        assert_eq!(SessionStatus::from_hook_status("bogus"), SessionStatus::Idle);
+    }
+
+    #[test]
+    fn map_hook_status_normalises_working_to_generating() {
+        assert_eq!(map_hook_status("working"), "generating");
+        assert_eq!(map_hook_status("idle"), "idle");
+        assert_eq!(map_hook_status("attention"), "attention");
+        assert_eq!(map_hook_status("error"), "error");
+        assert_eq!(map_hook_status("disconnected"), "disconnected");
+    }
+
+    #[test]
+    fn map_hook_status_unknown_maps_to_idle() {
+        assert_eq!(map_hook_status("unknown"), "idle");
+        assert_eq!(map_hook_status("generating"), "generating");
+    }
+
+    #[test]
+    fn session_status_event_round_trips_json() {
+        let event =
+            SessionStatusEvent { session_id: "s-1".to_string(), status: SessionStatus::Generating };
+        let json = serde_json::to_string(&event).unwrap();
+        let decoded: SessionStatusEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.session_id, "s-1");
+        assert_eq!(decoded.status, SessionStatus::Generating);
+    }
 }

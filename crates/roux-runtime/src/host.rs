@@ -10,6 +10,7 @@ use crate::project_service::{self, ProjectHandle};
 use crate::pty_service::{self, PtyHandle};
 use crate::session_service::{self, SessionHandle};
 use crate::watch_service::{self, WatchStoreHandle};
+use crate::work_item_service::WorkItemHandle;
 
 pub type RuntimeServiceFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
@@ -21,6 +22,7 @@ pub struct RuntimeHost {
     pub session_handle: SessionHandle,
     pub project_handle: ProjectHandle,
     pub watch_handle: WatchStoreHandle,
+    pub work_item_handle: WorkItemHandle,
 }
 
 pub struct RuntimeHostConfig {
@@ -30,6 +32,7 @@ pub struct RuntimeHostConfig {
     pub project_persist_path: PathBuf,
     pub initial_watches: Vec<Watch>,
     pub watch_persist_path: Option<PathBuf>,
+    pub work_item_db_path: PathBuf,
 }
 
 pub struct RuntimeHostServices {
@@ -48,6 +51,16 @@ impl RuntimeHostConfig {
             project_service::service_with_path(self.initial_projects, self.project_persist_path);
         let (watch_handle, watch_future) =
             watch_service::service_with_path(self.initial_watches, self.watch_persist_path);
+        let work_item_handle = match WorkItemHandle::open(&self.work_item_db_path) {
+            Ok(handle) => handle,
+            Err(err) => {
+                eprintln!(
+                    "Warning: failed to open board.db at {}: {err}; using in-memory work items for this process.",
+                    self.work_item_db_path.display()
+                );
+                WorkItemHandle::in_memory()
+            }
+        };
 
         RuntimeHostServices {
             host: RuntimeHost {
@@ -57,6 +70,7 @@ impl RuntimeHostConfig {
                 session_handle,
                 project_handle,
                 watch_handle,
+                work_item_handle,
             },
             services: vec![
                 Box::pin(session_future),
@@ -94,9 +108,36 @@ mod tests {
             project_persist_path: dir.path().join("projects.json"),
             initial_watches: Vec::new(),
             watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().join("board.db"),
         }
         .build();
 
         assert_eq!(services.services.len(), 6);
+    }
+
+    #[test]
+    fn host_uses_in_memory_work_items_when_db_cannot_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().to_path_buf(),
+        }
+        .build();
+
+        let item = services
+            .host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Fallback card".into(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(item.title, "Fallback card");
     }
 }

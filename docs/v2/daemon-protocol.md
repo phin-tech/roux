@@ -72,6 +72,24 @@ Returns all daemon sessions, including archived sessions.
 
 Requires `session_id`. Returns one session.
 
+`session-events` (streaming)
+
+Opens a persistent stream that broadcasts `SessionStatus` changes for all
+daemon-owned sessions. The daemon watches `~/.config/roux/status/*.json` for
+hook status files written by `roux hook <status>` and routes changes to the
+session service; only files that include a `roux_session_id` field are routed.
+
+Frame shapes (newline-delimited JSON, `"type"` tag):
+- `{ "type": "ready" }` — sent once when the stream is open and the subscriber
+  is registered.
+- `{ "type": "event", "event": { "sessionId": "...", "status": "..." } }` —
+  emitted on every status change (compare-before-assign — no-ops are dropped).
+- `{ "type": "warning", "message": "..." }` — emitted when the broadcast
+  buffer overflows and events are dropped.
+
+`status` values mirror `SessionStatus`: `idle`, `generating`, `attention`,
+`error`, `disconnected`.
+
 `session-create`
 
 Compatibility alias for top-level `roux session create` when the daemon owns
@@ -634,6 +652,157 @@ Frames:
 { "type": "error", "error": "message" }
 ```
 
+## Work Item Commands
+
+Work items are durable intent cards stored in `~/.config/roux/board.db`
+(SQLite). They track kanban workflow status independent of session activity.
+
+`work-item-list`
+
+Returns all work items. Optional `args.projectId` / `args.project_id` filters
+to one project.
+
+`work-item-create`
+
+Requires `args.title`. Optional: `args.body`, `args.status` (default `"todo"`),
+`args.projectId`, `args.parentId`, `args.sortOrder`. Returns the created item.
+
+`work-item-update`
+
+Requires `args.id` and `args.title`. Optional: same fields as create. Returns
+the updated item or `404` if not found.
+
+`work-item-move`
+
+Requires `args.id` and `args.status`. Optional `args.sortOrder` (defaults to
+current `Date.now()` milliseconds when called from the frontend). Moves the
+card to the target column. Returns the updated item.
+
+Valid `status` values: `"todo"`, `"doing"`, `"review"`, `"done"`.
+
+`work-item-delete`
+
+Requires `args.id`. Returns `{ "id": "..." }` on success.
+
+`work-item-dispatch`
+
+Compatibility "Start" action. Requires `args.id`. Optional `args.repoPath`
+overrides the repo path; otherwise the item's project's first `repo_root` is
+used. Optional `args.name`, `args.worktreePath`, `args.branch`, `args.base`,
+`args.fetchFirst`, and `args.profile` are forwarded to `session-create-shell`.
+Creates a session via `session-create-shell` (named after the work item's title
+unless `args.name` is supplied, inheriting `projectId`), then binds it with
+`set_session` which fires `WorkItemEvent::SessionBound`, creates a
+`WorkItemRun`, and fires `WorkItemEvent::RunCreated`. Returns the new session
+record for older callers; `work-item-run-dispatch` is the source-of-truth
+variant.
+
+`work-item-run-dispatch`
+
+The run-owned "Start" action. Accepts the same args as `work-item-dispatch` but
+returns the created `WorkItemRun`. A card can have multiple runs; the card's
+`session_id` is maintained only as latest-session compatibility/display state.
+Successful dispatch moves the card to `doing` after the run is created.
+For known auto-run agent profiles (Claude/Codex), dispatch also writes the
+provider startup command and then sends a first task prompt built from the card
+title, description, and external link. Plain-shell and type-only profiles are
+left at the prompt.
+
+`work-item-runs-list`
+
+Optional `args.workItemId` / `args.work_item_id`. Returns persisted
+`WorkItemRun` rows, ordered by creation.
+
+`work-item-run-events`
+
+Requires `args.runId` / `args.run_id`. Returns append-only `WorkItemRunEvent`
+rows for that run in insertion order. For daemon-dispatched runs, the daemon
+attaches to the linked PTY and appends `text` events for observed output chunks.
+When the linked PTY exits, the daemon records a terminal `statusChanged` event:
+exit code `0` marks the run `done`; any non-zero or unknown exit marks it
+`failed`. Explicitly stopped runs are not overwritten by later PTY exit events.
+
+`work-item-run-stop`
+
+Requires `args.runId` / `args.run_id` / `args.id`. Stops a daemon-owned run by
+removing PTYs for the linked session, archiving the session record, setting the
+run status to `stopped`, stamping `endedAt`, appending a `statusChanged` run
+event, and broadcasting `WorkItemEvent::RunUpdated` plus
+`WorkItemEvent::RunEventAppended`. Returns the updated `WorkItemRun`.
+
+`work-item-decision-create`
+
+Requires `args.runId`, `args.question`, and `args.options` (`[{ value, label }]`).
+Optional `args.defaultValue`, `args.timeoutAt` / `args.timeout_at`,
+`args.timeoutSeconds` / `args.timeout_seconds`, or `args.timeoutMs` /
+`args.timeout_ms`. A timeout requires a default value. Persists a pending
+`WorkItemDecision`, marks the run blocked, appends a `decision` run event, and
+broadcasts `WorkItemEvent::DecisionCreated`. A run remains blocked while any
+decision on that run is still pending.
+
+If a timeout expires before a human resolves the decision, the daemon marks the
+decision `timedOut`, records `resolvedBy: "timeout"` and the default as
+`resolvedValue`, appends a `decisionTimedOut` run event, broadcasts
+`WorkItemEvent::DecisionTimedOut`, unblocks the run when no other pending
+decision remains, and writes the default value plus a newline to the linked
+session just like a clicked answer.
+
+Daemon-dispatched run output is also scanned for newline-delimited JSON decision
+events. Supported first-pass shapes include:
+
+```json
+{"type":"decision","question":"Choose path?","options":[{"value":"existing","label":"Use existing"},{"value":"new","label":"Create new"}],"defaultValue":"existing","timeoutSeconds":86400}
+```
+
+and nested forms like `{ "decision": { "question": "...", "options": ["A", "B"] } }`.
+Detected prompts are persisted through the same daemon decision path.
+
+`work-item-decisions-list`
+
+Optional `args.workItemId` / `args.work_item_id`. Returns pending decisions,
+filtered to the card when supplied.
+
+`work-item-decision-resolve`
+
+Requires `args.id` and `args.value`. Optional `args.resolvedBy`. Marks the
+decision resolved, appends a `decisionResolved` run event, and broadcasts
+`WorkItemEvent::DecisionResolved`. If the decision's run has a linked daemon
+PTY/session, the daemon writes the selected value plus a newline to that
+session. Delivery failures are audited as an `error` run event on the same run.
+
+`work-item-import`
+
+Bulk import. Requires either `args.items` (inline JSON array) or `args.path`
+(path to a file containing `{ "items": [...] }`). Item shape:
+
+```json
+{
+  "title": "required",
+  "body": "optional",
+  "status": "todo|doing|review|done",
+  "projectId": "optional",
+  "externalRef": { "provider": "gh", "externalId": "123", "url": "optional" },
+  "parentExternalId": "100"
+}
+```
+
+Items with `externalRef` are upserted by `(provider, externalId)` — no
+duplicates on re-import. Items without `externalRef` are always inserted. A
+second pass resolves `parentExternalId` → `parent_id` within the batch (same
+provider). Fires one `WorkItemEvent::Imported { ids }` after all items are
+written. Returns `{ "imported": N, "ids": [...] }`.
+
+`work-item-events` (streaming)
+
+Opens a persistent stream of `WorkItemEvent` changes. Mirrors the
+`session-events` / `mailbox-events` streaming pattern.
+
+Frame shapes (newline-delimited JSON, `"type"` tag):
+- `{ "type": "ready" }` — sent once on stream open.
+- `{ "type": "event", "event": { ... } }` — one frame per `WorkItemEvent`
+  (created/updated/moved/deleted/imported/sessionBound).
+- `{ "type": "warning", "message": "..." }` — broadcast buffer overflowed.
+
 ## PTY Commands
 
 `daemon-pty-spawn-shell`
@@ -743,6 +912,7 @@ Daemon-owned:
 - Durable alias, mailbox event, read-state, and bus subscription state.
 - Notes vault operations.
 - Automation hook list/preview/run/approval state and hook logs.
+- Work item board (`board.db`): create/update/move/delete/import.
 
 Desktop-owned:
 

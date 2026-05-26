@@ -5,7 +5,7 @@ use crate::protocol::CommandRequest;
 use crate::requests::{CreateSessionShell, MailboxPost, ReconnectSessionShell};
 use crate::streams::{
     AliasEventStreamFrame, MailboxEventStreamFrame, SubscriptionEventStreamFrame,
-    WatchEventStreamFrame,
+    WatchEventStreamFrame, WorkItemEventStreamFrame,
 };
 use crate::types::{DaemonStatus, PtyRecord};
 use serde::{de::DeserializeOwned, Serialize};
@@ -804,6 +804,215 @@ impl Roux {
         self.command(CommandRequest::new("daemon-process-kill").args(id_arg(id.into()))).await
     }
 
+    pub async fn work_item_list(
+        &self,
+        project_id: Option<impl Into<String>>,
+    ) -> RouxResult<Vec<roux_core::WorkItem>> {
+        let args = match project_id {
+            Some(pid) => serde_json::json!({ "projectId": pid.into() }),
+            None => serde_json::json!({}),
+        };
+        self.command(CommandRequest::new("work-item-list").args(args)).await
+    }
+
+    pub async fn work_item_create(
+        &self,
+        input: roux_core::WorkItemInput,
+    ) -> RouxResult<roux_core::WorkItem> {
+        self.command(
+            CommandRequest::new("work-item-create")
+                .args(serde_json::to_value(input).map_err(RouxError::Decode)?),
+        )
+        .await
+    }
+
+    pub async fn work_item_update(
+        &self,
+        id: impl Into<String>,
+        input: roux_core::WorkItemInput,
+    ) -> RouxResult<roux_core::WorkItem> {
+        let mut args = serde_json::to_value(input).map_err(RouxError::Decode)?;
+        args["id"] = serde_json::Value::String(id.into());
+        self.command(CommandRequest::new("work-item-update").args(args)).await
+    }
+
+    pub async fn work_item_move(
+        &self,
+        id: impl Into<String>,
+        status: roux_core::WorkItemStatus,
+        sort_order: f64,
+    ) -> RouxResult<roux_core::WorkItem> {
+        self.command(CommandRequest::new("work-item-move").args(serde_json::json!({
+            "id": id.into(),
+            "status": status.as_str(),
+            "sortOrder": sort_order,
+        })))
+        .await
+    }
+
+    pub async fn work_item_delete(&self, id: impl Into<String>) -> RouxResult<String> {
+        let value: Value =
+            self.command(CommandRequest::new("work-item-delete").args(id_arg(id.into()))).await?;
+        value
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| RouxError::Command("missing id in delete response".to_string()))
+    }
+
+    /// Dispatch a work item: the daemon creates a shell session named after
+    /// the item, binds it (broadcasting `SessionBound`), and rolls the session
+    /// back if binding fails. Returns the created session id.
+    ///
+    /// `profile` is forwarded to session creation; `None` yields a plain shell.
+    pub async fn work_item_dispatch(
+        &self,
+        id: impl Into<String>,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+        branch: Option<String>,
+        base: Option<String>,
+        fetch_first: Option<bool>,
+    ) -> RouxResult<String> {
+        let mut args = serde_json::json!({ "id": id.into() });
+        if let Some(profile) = profile {
+            args["profile"] = serde_json::Value::String(profile);
+        }
+        if let Some(repo_path) = repo_path {
+            args["repoPath"] = serde_json::Value::String(repo_path);
+        }
+        if let Some(name) = name {
+            args["name"] = serde_json::Value::String(name);
+        }
+        if let Some(worktree_path) = worktree_path {
+            args["worktreePath"] = serde_json::Value::String(worktree_path);
+        }
+        if let Some(branch) = branch {
+            args["branch"] = serde_json::Value::String(branch);
+        }
+        if let Some(base) = base {
+            args["base"] = serde_json::Value::String(base);
+        }
+        if let Some(fetch_first) = fetch_first {
+            args["fetchFirst"] = serde_json::Value::Bool(fetch_first);
+        }
+        let value: Value =
+            self.command(CommandRequest::new("work-item-dispatch").args(args)).await?;
+        value
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| RouxError::Command("missing id in dispatch response".to_string()))
+    }
+
+    pub async fn work_item_run_dispatch(
+        &self,
+        id: impl Into<String>,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+        branch: Option<String>,
+        base: Option<String>,
+        fetch_first: Option<bool>,
+    ) -> RouxResult<roux_core::WorkItemRun> {
+        let args = work_item_dispatch_args(
+            id.into(),
+            profile,
+            repo_path,
+            name,
+            worktree_path,
+            branch,
+            base,
+            fetch_first,
+        );
+        self.command(CommandRequest::new("work-item-run-dispatch").args(args)).await
+    }
+
+    pub async fn work_item_runs_list(
+        &self,
+        work_item_id: Option<impl Into<String>>,
+    ) -> RouxResult<Vec<roux_core::WorkItemRun>> {
+        let args = match work_item_id {
+            Some(id) => serde_json::json!({ "workItemId": id.into() }),
+            None => serde_json::json!({}),
+        };
+        self.command(CommandRequest::new("work-item-runs-list").args(args)).await
+    }
+
+    pub async fn work_item_run_events(
+        &self,
+        run_id: impl Into<String>,
+    ) -> RouxResult<Vec<roux_core::WorkItemRunEvent>> {
+        self.command(
+            CommandRequest::new("work-item-run-events")
+                .args(serde_json::json!({ "runId": run_id.into() })),
+        )
+        .await
+    }
+
+    pub async fn work_item_run_stop(
+        &self,
+        run_id: impl Into<String>,
+    ) -> RouxResult<roux_core::WorkItemRun> {
+        self.command(
+            CommandRequest::new("work-item-run-stop")
+                .args(serde_json::json!({ "runId": run_id.into() })),
+        )
+        .await
+    }
+
+    pub async fn work_item_decision_create(
+        &self,
+        run_id: impl Into<String>,
+        question: impl Into<String>,
+        options: Vec<roux_core::WorkItemDecisionOption>,
+        default_value: Option<String>,
+        timeout_at: Option<u64>,
+    ) -> RouxResult<roux_core::WorkItemDecision> {
+        let mut args = serde_json::json!({
+            "runId": run_id.into(),
+            "question": question.into(),
+            "options": options,
+        });
+        if let Some(default_value) = default_value {
+            args["defaultValue"] = serde_json::Value::String(default_value);
+        }
+        if let Some(timeout_at) = timeout_at {
+            args["timeoutAt"] = serde_json::Value::Number(timeout_at.into());
+        }
+        self.command(CommandRequest::new("work-item-decision-create").args(args)).await
+    }
+
+    pub async fn work_item_decisions_list(
+        &self,
+        work_item_id: Option<impl Into<String>>,
+    ) -> RouxResult<Vec<roux_core::WorkItemDecision>> {
+        let args = match work_item_id {
+            Some(id) => serde_json::json!({ "workItemId": id.into() }),
+            None => serde_json::json!({}),
+        };
+        self.command(CommandRequest::new("work-item-decisions-list").args(args)).await
+    }
+
+    pub async fn work_item_decision_resolve(
+        &self,
+        id: impl Into<String>,
+        value: impl Into<String>,
+        resolved_by: Option<String>,
+    ) -> RouxResult<roux_core::WorkItemDecision> {
+        let mut args = serde_json::json!({
+            "id": id.into(),
+            "value": value.into(),
+        });
+        if let Some(resolved_by) = resolved_by {
+            args["resolvedBy"] = serde_json::Value::String(resolved_by);
+        }
+        self.command(CommandRequest::new("work-item-decision-resolve").args(args)).await
+    }
+
     pub async fn command<T>(&self, request: CommandRequest) -> RouxResult<T>
     where
         T: DeserializeOwned + Send + 'static,
@@ -878,6 +1087,13 @@ impl Roux {
         F: FnMut(SubscriptionEventStreamFrame) -> bool,
     {
         self.stream_json_frames_blocking(CommandRequest::new("subscription-events"), on_frame)
+    }
+
+    pub fn work_item_events_blocking<F>(&self, on_frame: F) -> RouxResult<()>
+    where
+        F: FnMut(WorkItemEventStreamFrame) -> bool,
+    {
+        self.stream_json_frames_blocking(CommandRequest::new("work-item-events"), on_frame)
     }
 
     fn stream_json_frames_blocking<T, F>(
@@ -956,6 +1172,42 @@ fn optional_repo_path_args(repo_path: Option<String>) -> Value {
     let mut args = serde_json::Map::new();
     insert_optional_string(&mut args, "repoPath", repo_path);
     Value::Object(args)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn work_item_dispatch_args(
+    id: String,
+    profile: Option<String>,
+    repo_path: Option<String>,
+    name: Option<String>,
+    worktree_path: Option<String>,
+    branch: Option<String>,
+    base: Option<String>,
+    fetch_first: Option<bool>,
+) -> Value {
+    let mut args = serde_json::json!({ "id": id });
+    if let Some(profile) = profile {
+        args["profile"] = Value::String(profile);
+    }
+    if let Some(repo_path) = repo_path {
+        args["repoPath"] = Value::String(repo_path);
+    }
+    if let Some(name) = name {
+        args["name"] = Value::String(name);
+    }
+    if let Some(worktree_path) = worktree_path {
+        args["worktreePath"] = Value::String(worktree_path);
+    }
+    if let Some(branch) = branch {
+        args["branch"] = Value::String(branch);
+    }
+    if let Some(base) = base {
+        args["base"] = Value::String(base);
+    }
+    if let Some(fetch_first) = fetch_first {
+        args["fetchFirst"] = Value::Bool(fetch_first);
+    }
+    args
 }
 
 fn optional_string_arg(key: &'static str, value: Option<String>) -> Value {

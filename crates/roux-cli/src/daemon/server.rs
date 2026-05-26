@@ -15,8 +15,9 @@ use super::identity::{endpoint_path, DaemonIdentity};
 use super::protocol::{Request, Response};
 use super::streams::{
     handle_alias_events_stream, handle_daemon_pty_attach_stream, handle_mailbox_events_stream,
-    handle_subscription_events_stream, handle_watch_events_stream,
+    handle_session_events_stream, handle_subscription_events_stream, handle_watch_events_stream,
 };
+use super::work_items::handle_work_item_events_stream;
 
 pub(super) struct SocketServerHandle {
     join: tokio::task::JoinHandle<()>,
@@ -301,6 +302,24 @@ async fn handle_connection<R, W>(
                         log.write("Handled socket command: subscription-events");
                     } else {
                         log.write("Socket command failed: subscription-events");
+                    }
+                    return;
+                }
+                if command == "session-events" {
+                    let ok = handle_session_events_stream(req, writer, host, identity).await;
+                    if ok {
+                        log.write("Handled socket command: session-events");
+                    } else {
+                        log.write("Socket command failed: session-events");
+                    }
+                    return;
+                }
+                if command == "work-item-events" {
+                    let ok = handle_work_item_events_stream(req, writer, host, identity).await;
+                    if ok {
+                        log.write("Handled socket command: work-item-events");
+                    } else {
+                        log.write("Socket command failed: work-item-events");
                     }
                     return;
                 }

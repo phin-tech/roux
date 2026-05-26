@@ -1,0 +1,91 @@
+/**
+ * Frontend type mirroring `roux_core::models::work_item::WorkItemEvent`.
+ *
+ * Hand-written rather than generated via specta: the event is delivered over
+ * the "work-item-event" Tauri channel (see `onWorkItemEvent` in tauri.ts) and
+ * is not referenced by any collected command, so `Builder::export` cannot
+ * reach it and a regenerated `bindings.ts` would omit it. Keep in sync with
+ * the Rust enum (serde tag `"type"`, `rename_all = "camelCase"`). `WorkItem`
+ * and `WorkItemStatus` stay generated in `bindings.ts`.
+ */
+import type { WorkItem, WorkItemStatus } from "$lib/bindings";
+
+export type WorkItemRunStatus =
+  | "queued"
+  | "running"
+  | "blocked"
+  | "review"
+  | "failed"
+  | "stopped"
+  | "done";
+
+export interface WorkItemRun {
+  id: string;
+  workItemId: string;
+  sessionId: string | null;
+  provider: string | null;
+  profileId: string | null;
+  status: WorkItemRunStatus;
+  worktreePath: string | null;
+  branch: string | null;
+  cost: number | null;
+  createdAt: number;
+  startedAt: number | null;
+  endedAt: number | null;
+  updatedAt: number;
+}
+
+export type WorkItemRunEventKind =
+  | "text"
+  | "toolUse"
+  | "toolResult"
+  | "decision"
+  | "decisionResolved"
+  | "decisionTimedOut"
+  | "result"
+  | "error"
+  | "statusChanged";
+
+export interface WorkItemRunEvent {
+  id: string;
+  runId: string;
+  kind: WorkItemRunEventKind;
+  payload: unknown;
+  createdAt: number;
+}
+
+export interface WorkItemDecisionOption {
+  value: string;
+  label: string;
+}
+
+export type WorkItemDecisionStatus = "pending" | "resolved" | "timedOut";
+
+export interface WorkItemDecision {
+  id: string;
+  runId: string;
+  question: string;
+  options: WorkItemDecisionOption[];
+  defaultValue: string | null;
+  timeoutAt: number | null;
+  status: WorkItemDecisionStatus;
+  resolvedValue: string | null;
+  resolvedBy: string | null;
+  createdAt: number;
+  resolvedAt: number | null;
+  updatedAt: number;
+}
+
+export type WorkItemEvent =
+  | { type: "created"; item: WorkItem }
+  | { type: "updated"; item: WorkItem }
+  | { type: "moved"; id: string; status: WorkItemStatus; sortOrder: number }
+  | { type: "deleted"; id: string }
+  | { type: "imported"; ids: string[] }
+  | { type: "sessionBound"; id: string; sessionId: string }
+  | { type: "runCreated"; run: WorkItemRun }
+  | { type: "runUpdated"; run: WorkItemRun }
+  | { type: "runEventAppended"; event: WorkItemRunEvent }
+  | { type: "decisionCreated"; decision: WorkItemDecision }
+  | { type: "decisionResolved"; decision: WorkItemDecision }
+  | { type: "decisionTimedOut"; decision: WorkItemDecision };

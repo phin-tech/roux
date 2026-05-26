@@ -9,6 +9,8 @@ workspace = true
 
 [dependencies]
 anyhow = "1"
+notify = "7"
+rusqlite = { version = "0.32", features = ["bundled"] }
 minijinja = "2"
 portable-pty = "0.9"
 roux-core = { path = "../roux-core" }

@@ -15,9 +15,10 @@ use roux_runtime::automation_hooks::{
 };
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
+use roux_runtime::work_item_service::WorkItemHandle;
 use roux_sdk::{
     AliasEventStreamFrame, MailboxEventStreamFrame, PtyAttachFrame, PtyRecord, PtySnapshot,
-    SubscriptionEventStreamFrame, WatchEventStreamFrame,
+    SubscriptionEventStreamFrame, WatchEventStreamFrame, WorkItemEventStreamFrame,
 };
 
 use crate::platform;
@@ -223,6 +224,147 @@ impl DaemonClient {
         patch: ProjectUpdate,
     ) -> DaemonClientResult<Project> {
         self.sdk.update_project(id, patch).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_list(
+        &self,
+        project_id: Option<String>,
+    ) -> DaemonClientResult<Vec<roux_core::WorkItem>> {
+        self.sdk.work_item_list(project_id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_create(
+        &self,
+        input: roux_core::WorkItemInput,
+    ) -> DaemonClientResult<roux_core::WorkItem> {
+        self.sdk.work_item_create(input).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_update(
+        &self,
+        id: String,
+        input: roux_core::WorkItemInput,
+    ) -> DaemonClientResult<roux_core::WorkItem> {
+        self.sdk.work_item_update(id, input).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_move(
+        &self,
+        id: String,
+        status: roux_core::WorkItemStatus,
+        sort_order: f64,
+    ) -> DaemonClientResult<roux_core::WorkItem> {
+        self.sdk.work_item_move(id, status, sort_order).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_delete(&self, id: String) -> DaemonClientResult<String> {
+        self.sdk.work_item_delete(id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_dispatch(
+        &self,
+        id: String,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+        branch: Option<String>,
+        base: Option<String>,
+        fetch_first: Option<bool>,
+    ) -> DaemonClientResult<String> {
+        self.sdk
+            .work_item_dispatch(
+                id,
+                profile,
+                repo_path,
+                name,
+                worktree_path,
+                branch,
+                base,
+                fetch_first,
+            )
+            .await
+            .map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_run_dispatch(
+        &self,
+        id: String,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+        branch: Option<String>,
+        base: Option<String>,
+        fetch_first: Option<bool>,
+    ) -> DaemonClientResult<roux_core::WorkItemRun> {
+        self.sdk
+            .work_item_run_dispatch(
+                id,
+                profile,
+                repo_path,
+                name,
+                worktree_path,
+                branch,
+                base,
+                fetch_first,
+            )
+            .await
+            .map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_runs_list(
+        &self,
+        work_item_id: Option<String>,
+    ) -> DaemonClientResult<Vec<roux_core::WorkItemRun>> {
+        self.sdk.work_item_runs_list(work_item_id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_run_events(
+        &self,
+        run_id: String,
+    ) -> DaemonClientResult<Vec<roux_core::WorkItemRunEvent>> {
+        self.sdk.work_item_run_events(run_id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_run_stop(
+        &self,
+        run_id: String,
+    ) -> DaemonClientResult<roux_core::WorkItemRun> {
+        self.sdk.work_item_run_stop(run_id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_decision_create(
+        &self,
+        run_id: String,
+        question: String,
+        options: Vec<roux_core::WorkItemDecisionOption>,
+        default_value: Option<String>,
+        timeout_at: Option<u64>,
+    ) -> DaemonClientResult<roux_core::WorkItemDecision> {
+        self.sdk
+            .work_item_decision_create(run_id, question, options, default_value, timeout_at)
+            .await
+            .map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_decisions_list(
+        &self,
+        work_item_id: Option<String>,
+    ) -> DaemonClientResult<Vec<roux_core::WorkItemDecision>> {
+        self.sdk.work_item_decisions_list(work_item_id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_decision_resolve(
+        &self,
+        id: String,
+        value: String,
+        resolved_by: Option<String>,
+    ) -> DaemonClientResult<roux_core::WorkItemDecision> {
+        self.sdk
+            .work_item_decision_resolve(id, value, resolved_by)
+            .await
+            .map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn list_aliases(
@@ -972,6 +1114,21 @@ impl DaemonClient {
             );
         })
     }
+
+    pub(crate) fn spawn_work_item_event_bridge(
+        &self,
+        app: AppHandle,
+    ) -> tauri::async_runtime::JoinHandle<()> {
+        tauri::async_runtime::spawn_blocking(move || {
+            run_reconnecting_resolved_event_bridge(
+                "work-item",
+                connect_current_sdk,
+                move |sdk| read_work_item_events_blocking(&sdk, app.clone()),
+                std::thread::sleep,
+                None,
+            );
+        })
+    }
 }
 
 fn connect_current_sdk() -> DaemonClientResult<roux_sdk::Roux> {
@@ -1250,6 +1407,59 @@ fn handle_subscription_event_frame(
             Ok(())
         }
         SubscriptionEventStreamFrame::Error { error } => Err(DaemonClientError::adapter(error)),
+    }
+}
+
+pub(crate) const WORK_ITEM_EVENT: &str = "work-item-event";
+
+pub(crate) fn spawn_local_work_item_event_bridge(app: AppHandle, work_item_handle: WorkItemHandle) {
+    let _join = tauri::async_runtime::spawn(async move {
+        let mut rx = work_item_handle.subscribe_events();
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if let Err(err) = app.emit(WORK_ITEM_EVENT, &event) {
+                        rlog!("Local work-item event bridge emit failed: {err}");
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    rlog!("Local work-item event bridge skipped {skipped} event(s)");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+fn read_work_item_events_blocking(sdk: &roux_sdk::Roux, app: AppHandle) -> DaemonClientResult<()> {
+    let mut stream_error = None;
+    let result =
+        sdk.work_item_events_blocking(|frame| match handle_work_item_event_frame(frame, &app) {
+            Ok(()) => true,
+            Err(err) => {
+                stream_error = Some(err);
+                false
+            }
+        });
+    stream_error.map_or_else(|| result.map_err(DaemonClientError::from), Err)
+}
+
+fn handle_work_item_event_frame(
+    frame: WorkItemEventStreamFrame,
+    app: &AppHandle,
+) -> DaemonClientResult<()> {
+    match frame {
+        WorkItemEventStreamFrame::Ready => Ok(()),
+        WorkItemEventStreamFrame::Event { event } => {
+            app.emit(WORK_ITEM_EVENT, &event).map_err(|err| {
+                DaemonClientError::adapter(format!("emit daemon work-item event: {err}"))
+            })
+        }
+        WorkItemEventStreamFrame::Warning { message } => {
+            rlog!("Daemon work-item event stream warning: {message}");
+            Ok(())
+        }
+        WorkItemEventStreamFrame::Error { error } => Err(DaemonClientError::adapter(error)),
     }
 }
 

@@ -27,6 +27,7 @@ mod server;
 mod status;
 mod streams;
 mod watches;
+mod work_items;
 
 use identity::{request_authorized, DaemonIdentity};
 use messaging::{
@@ -53,6 +54,14 @@ use watches::{
     handle_watch_cleanup_orphans, handle_watch_create, handle_watch_find_or_create,
     handle_watch_list, handle_watch_pause, handle_watch_remove, handle_watch_remove_for_session,
     handle_watch_replace, handle_watch_resume,
+};
+use work_items::{
+    handle_work_item_create, handle_work_item_decision_create, handle_work_item_decision_resolve,
+    handle_work_item_decisions_list, handle_work_item_delete, handle_work_item_dispatch,
+    handle_work_item_import, handle_work_item_list, handle_work_item_move,
+    handle_work_item_run_dispatch, handle_work_item_run_events, handle_work_item_run_stop,
+    handle_work_item_runs_list, handle_work_item_update,
+    schedule_pending_work_item_decision_timeouts,
 };
 
 const DEFAULT_LATEST_OUTPUT_BYTES: usize = 8 * 1024;
@@ -85,10 +94,22 @@ pub async fn run() -> Result<(), String> {
         project_persist_path: project_path,
         initial_watches: watches,
         watch_persist_path: Some(watch_path),
+        work_item_db_path: platform::work_items_db_path(),
     }
     .build();
 
     let (host, joins) = services.spawn_with(tokio::spawn);
+    if let Err(err) = schedule_pending_work_item_decision_timeouts(host.clone()).await {
+        log.write(&format!("Warning: failed to schedule pending work item decisions: {err}"));
+    }
+
+    let status_dir = platform::status_dir();
+    if let Err(err) =
+        roux_runtime::session_status_source::start_watching(status_dir, host.session_handle.clone())
+    {
+        log.write(&format!("Warning: failed to start session status watcher: {err}"));
+    }
+
     let watch_runner = WatchRunner::new(host.watch_handle.clone(), daemon_hook_manager());
     watch_runner.start_all().await;
     let endpoint = platform::daemon_bind_endpoint();
@@ -229,6 +250,20 @@ async fn handle_request_with_watch_runner(
             Some(runner) => handle_watch_cleanup_orphans(host, runner).await,
             None => Response::err("watch runner unavailable"),
         },
+        "work-item-list" => handle_work_item_list(req, host).await,
+        "work-item-create" => handle_work_item_create(req, host).await,
+        "work-item-update" => handle_work_item_update(req, host).await,
+        "work-item-move" => handle_work_item_move(req, host).await,
+        "work-item-delete" => handle_work_item_delete(req, host).await,
+        "work-item-dispatch" => handle_work_item_dispatch(req, host, identity).await,
+        "work-item-run-dispatch" => handle_work_item_run_dispatch(req, host, identity).await,
+        "work-item-runs-list" => handle_work_item_runs_list(req, host).await,
+        "work-item-run-events" => handle_work_item_run_events(req, host).await,
+        "work-item-run-stop" => handle_work_item_run_stop(req, host).await,
+        "work-item-decision-create" => handle_work_item_decision_create(req, host).await,
+        "work-item-decisions-list" => handle_work_item_decisions_list(req, host).await,
+        "work-item-decision-resolve" => handle_work_item_decision_resolve(req, host).await,
+        "work-item-import" => handle_work_item_import(req, host).await,
         "worktree-list" => handle_worktree_list(req).await,
         "worktree-create" => handle_worktree_create(req).await,
         "worktree-remove" => handle_worktree_remove(req).await,

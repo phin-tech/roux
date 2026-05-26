@@ -1,7 +1,7 @@
 import { get } from "svelte/store";
 import { removeSession } from "$lib/stores/sessions";
 import { addArchivedSessionFromEvent } from "$lib/stores/archivedSessions";
-import { closeSessionPanes } from "$lib/panes/actions";
+import { closeSessionPanes, detachSessionPanes } from "$lib/panes/actions";
 import { flushPaneState } from "$lib/panes/persistence";
 import {
   killSession,
@@ -13,6 +13,7 @@ import {
   sessionAgentStatus,
   computeEffectiveSessionStatus,
 } from "$lib/panes/agentState";
+import { workItems } from "$lib/stores/workItems";
 import type { Session } from "$lib/types";
 
 /**
@@ -33,12 +34,15 @@ interface CloseOpts {
   force?: boolean;
   /** Defaults to `archive`. `delete-forever` skips the confirm unconditionally. */
   action?: CloseAction;
+  /** Work-item cards normally detach on close so their terminal can be reopened. */
+  preserveWorkItemBoundSession?: boolean;
 }
 
 export async function closeSession(session: Session, opts?: CloseOpts): Promise<boolean> {
   const s = get(settings);
   const force = opts?.force ?? false;
   const action: CloseAction = opts?.action ?? "archive";
+  const preserveWorkItemBoundSession = opts?.preserveWorkItemBoundSession ?? true;
 
   // Thinking/generating confirm — preserved from the old flow. Always the
   // same one-confirm prompt; no secondary destructive confirm stacked on
@@ -68,6 +72,15 @@ export async function closeSession(session: Session, opts?: CloseOpts): Promise<
   // the user clicks Continue. A blanket flush here would write that stub
   // over each session's rich persisted layout, losing their split panes.
   await flushPaneState(session.id);
+
+  const isWorkItemBoundSession = get(workItems).some(
+    (item) => item.sessionId === session.id,
+  );
+  if (action === "archive" && preserveWorkItemBoundSession && isWorkItemBoundSession) {
+    detachSessionPanes(session.id);
+    removeSession(session.id);
+    return true;
+  }
 
   // Dispose panes / terminals regardless of action.
   closeSessionPanes(session.id);

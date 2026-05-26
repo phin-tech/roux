@@ -16,6 +16,7 @@ bind "Cmd+Comma" "app.settings"
 bind "Cmd+KeyB"        "ui.toggle-notes"
 bind "Cmd+KeyI"        "ui.toggle-notifications"
 bind "Cmd+Shift+KeyW"  "ui.toggle-watches"
+bind "Cmd+Alt+KeyB"    "ui.toggle-board"
 bind "Cmd+Backslash"   "ui.toggle-sidebar"
 
 // Library
@@ -99,6 +100,7 @@ tree "leader-toggle" {
     bind "w" "ui.toggle-watches"
     bind "i" "ui.toggle-notifications"
     bind "l" "ui.toggle-library"
+    bind "b" "ui.toggle-board"
 }
 
 tree "leader-panes" {

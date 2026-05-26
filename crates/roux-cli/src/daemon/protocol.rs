@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use roux_core::{AliasEvent, BusSubscriptionEvent, MailboxEvent};
+use roux_core::{AliasEvent, BusSubscriptionEvent, MailboxEvent, SessionStatusEvent};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct Request {
@@ -93,6 +93,15 @@ pub(super) enum SubscriptionEventFrame {
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
+    Error { error: String },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub(super) enum SessionEventFrame {
+    Ready,
+    Event { event: SessionStatusEvent },
+    Warning { message: String },
     Error { error: String },
 }
 

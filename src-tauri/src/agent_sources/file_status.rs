@@ -23,6 +23,7 @@ use tauri::Emitter;
 use thiserror::Error;
 
 use roux_core::agent_fsm::{AgentEvent, AgentIdentity, MappedStatus};
+use roux_core::map_hook_status;
 
 use crate::agent_registry::{AgentInput, EventContext, RegistryMessage};
 
@@ -121,7 +122,7 @@ pub fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
         .map(|s| s.to_string());
 
     Some(StatusUpdate {
-        status: map_status(&raw_status).to_string(),
+        status: map_hook_status(&raw_status).to_string(),
         cwd,
         provider_session_id,
         provider,
@@ -133,17 +134,6 @@ pub fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
         query,
         response,
     })
-}
-
-fn map_status(raw: &str) -> &str {
-    match raw {
-        "working" => "generating",
-        "idle" => "idle",
-        "attention" => "attention",
-        "error" => "error",
-        "disconnected" => "disconnected",
-        _ => raw,
-    }
 }
 
 /// Map a `StatusUpdate`'s mapped status string to the FSM's typed
@@ -381,10 +371,11 @@ mod tests {
 
     #[test]
     fn map_status_normalizes_working_to_generating() {
-        assert_eq!(map_status("working"), "generating");
-        assert_eq!(map_status("idle"), "idle");
-        assert_eq!(map_status("attention"), "attention");
-        assert_eq!(map_status("unknown"), "unknown");
+        assert_eq!(map_hook_status("working"), "generating");
+        assert_eq!(map_hook_status("generating"), "generating");
+        assert_eq!(map_hook_status("idle"), "idle");
+        assert_eq!(map_hook_status("attention"), "attention");
+        assert_eq!(map_hook_status("unknown"), "idle");
     }
 
     #[test]

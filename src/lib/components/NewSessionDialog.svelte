@@ -26,15 +26,18 @@
   import { applyLayoutToSession, resolveFirstLeafNono, type LayoutApplyError } from "$lib/panes/layoutRunner";
   import { initSessionWithProfile } from "$lib/panes/actions";
   import { settings } from "$lib/stores/settings";
+  import { dispatchWorkItem, moveWorkItem } from "$lib/stores/workItems";
   import {
     profileList,
     type SpawnProfile,
     type SpawnProfileRef,
   } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
+  import { openSessionById } from "$lib/panes/openSession";
   import { estimatePaneSize } from "$lib/panes/estimatePaneSize";
   import type { Worktree } from "$lib/types";
   import { log, logError } from "$lib/logging";
+  import type { WorkItemSessionStartRequest } from "$lib/stores/ui";
   import ProfileCustomEditor from "./ProfileCustomEditor.svelte";
   import WorktreeRowContent from "./WorktreeRowContent.svelte";
   import RepoAutoComplete from "./RepoAutoComplete.svelte";
@@ -44,9 +47,12 @@
   interface Props {
     visible: boolean;
     onclose: () => void;
+    workItemStart?: WorkItemSessionStartRequest | null;
   }
 
-  let { visible, onclose }: Props = $props();
+  let { visible, onclose, workItemStart = null }: Props = $props();
+  let isWorkItemStart = $derived(workItemStart !== null);
+  let seededWorkItemStartId = $state<string | null>(null);
 
   let repoPath = $state($settings.defaultProjectPath ?? "");
   let isGitRepo = $state(false);
@@ -194,10 +200,12 @@
       value: profile.id,
       label: `${profile.name}${profile.source === "user" ? " (user)" : ""}`,
     }));
-    if (inlineProfile) {
+    if (!isWorkItemStart && inlineProfile) {
       options.push({ value: "__inline__", label: `${inlineProfile.name} (custom)` });
     }
-    options.push({ value: "__custom__", label: "Custom…" });
+    if (!isWorkItemStart) {
+      options.push({ value: "__custom__", label: "Custom…" });
+    }
     return options;
   });
   let profileListClass = $derived.by<string>(() =>
@@ -304,6 +312,16 @@
   // Check for nono on mount and detect git repo for default path
   $effect(() => {
     if (visible) {
+      if (workItemStart && seededWorkItemStartId !== workItemStart.itemId) {
+        seededWorkItemStartId = workItemStart.itemId;
+        sessionName = workItemStart.title;
+        selectedLayoutId = "";
+        layoutPickOpen = false;
+        if (selectedProfileId === "__inline__" || selectedProfileId === "__custom__") {
+          selectedProfileId = "claude";
+          inlineProfile = null;
+        }
+      }
       checkNonoInstalled().then((installed) => {
         nonoInstalled = installed;
         if (installed) {
@@ -333,6 +351,8 @@
       if (repoPath) {
         detectGitRepo(repoPath);
       }
+    } else {
+      seededWorkItemStartId = null;
     }
   });
 
@@ -838,6 +858,25 @@
       const effectiveNono = resolveNonoForProfile(profile, selectedNonoProfile);
       const defaultBase = resolveDefaultBase();
 
+      if (workItemStart) {
+        log(
+          `Starting work item ${workItemStart.itemId}: repo=${repoPath}, target=${gitTarget?.label ?? "plain"}, name=${name}, profile=${profile.id}`,
+        );
+        const sessionId = await dispatchWorkItem(workItemStart.itemId, {
+          repoPath,
+          name,
+          worktreePath: worktreePathArg,
+          branch: branchArg,
+          profile: profile.id,
+          base: defaultBase.base,
+          fetchFirst: defaultBase.fetchFirst,
+        });
+        await moveWorkItem(workItemStart.itemId, "doing", Date.now());
+        await openSessionById(sessionId);
+        resetAndClose();
+        return;
+      }
+
       // Spawn a shell (optionally nono-wrapped), then type the profile's
       // setup / startup commands into it after the PTY is attached.
       const session = await createSessionShell(
@@ -930,6 +969,7 @@
   }
 
   function handleProfileSelect(value: string) {
+    if (isWorkItemStart && (value === "__custom__" || value === "__inline__")) return;
     if (value === "__custom__") {
       showCustomEditor = true;
       return;
@@ -976,6 +1016,7 @@
     worktreePickOpen = true;
     worktreeActiveIndex = 0;
     startPointInput = "";
+    seededWorkItemStartId = null;
     onclose();
   }
 </script>
@@ -996,8 +1037,14 @@
     >
       <!-- Header -->
       <div class="border-b border-hairline bg-bg-surface/30 px-6 pt-5 pb-4">
-        <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">New Session</h2>
-        <p class="text-xs text-text-muted">Pick a spawn profile and launch a pane</p>
+        <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">
+          {isWorkItemStart ? "Start Task" : "New Session"}
+        </h2>
+        <p class="text-xs text-text-muted">
+          {isWorkItemStart
+            ? "Pick where this task should run"
+            : "Pick a spawn profile and launch a pane"}
+        </p>
       </div>
 
       <!-- Body -->
@@ -1219,59 +1266,61 @@
           </fieldset>
         {/if}
 
-        <!-- Layout picker -->
-        <div class="flex flex-col gap-1.5">
-          <label
-            for="new-session-layout"
-            class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
-          >
-            Layout
-          </label>
-          <div
-            class={pickerShellClass}
-            onfocusin={cancelLayoutPickerDeferredClose}
-            onfocusout={(e) => {
-              const shell = e.currentTarget as HTMLElement;
-              if (!focusLeavingElement(shell, e.relatedTarget)) return;
-              armLayoutPickerDeferredClose();
-            }}
-          >
-            <div class={pickerInputRowClass}>
-              <button
-                id="new-session-layout"
-                type="button"
-                class="flex w-full items-center justify-between bg-transparent px-1 py-1 text-left text-[12px] text-text-primary outline-none"
-                onclick={() => { layoutPickOpen = !layoutPickOpen; }}
-                aria-expanded={layoutPickOpen}
-                aria-haspopup="listbox"
-              >
-                <span class="truncate">{selectedLayout?.name ?? "None (single pane)"}</span>
-                <span class="ml-2 text-[10px] text-text-muted">{layoutPickOpen ? "▲" : "▼"}</span>
-              </button>
-            </div>
-            {#if layoutPickOpen}
-              <div class={`${pickerListClass} max-h-32`} role="listbox" aria-labelledby="new-session-layout">
-                {#each layoutOptions as option (option.value)}
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={selectedLayoutId === option.value}
-                    class={`${pickerItemClass} w-full justify-between py-1.5 ${selectedLayoutId === option.value ? "bg-bg-active" : ""}`}
-                    onclick={() => selectLayoutOption(option.value)}
-                  >
-                    <span class="truncate text-[12px] text-text-primary">{option.label}</span>
-                    {#if selectedLayoutId === option.value}
-                      <span class="ml-2 text-[10px] text-accent">selected</span>
-                    {/if}
-                  </button>
-                {/each}
+        {#if !isWorkItemStart}
+          <!-- Layout picker -->
+          <div class="flex flex-col gap-1.5">
+            <label
+              for="new-session-layout"
+              class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+            >
+              Layout
+            </label>
+            <div
+              class={pickerShellClass}
+              onfocusin={cancelLayoutPickerDeferredClose}
+              onfocusout={(e) => {
+                const shell = e.currentTarget as HTMLElement;
+                if (!focusLeavingElement(shell, e.relatedTarget)) return;
+                armLayoutPickerDeferredClose();
+              }}
+            >
+              <div class={pickerInputRowClass}>
+                <button
+                  id="new-session-layout"
+                  type="button"
+                  class="flex w-full items-center justify-between bg-transparent px-1 py-1 text-left text-[12px] text-text-primary outline-none"
+                  onclick={() => { layoutPickOpen = !layoutPickOpen; }}
+                  aria-expanded={layoutPickOpen}
+                  aria-haspopup="listbox"
+                >
+                  <span class="truncate">{selectedLayout?.name ?? "None (single pane)"}</span>
+                  <span class="ml-2 text-[10px] text-text-muted">{layoutPickOpen ? "▲" : "▼"}</span>
+                </button>
               </div>
+              {#if layoutPickOpen}
+                <div class={`${pickerListClass} max-h-32`} role="listbox" aria-labelledby="new-session-layout">
+                  {#each layoutOptions as option (option.value)}
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={selectedLayoutId === option.value}
+                      class={`${pickerItemClass} w-full justify-between py-1.5 ${selectedLayoutId === option.value ? "bg-bg-active" : ""}`}
+                      onclick={() => selectLayoutOption(option.value)}
+                    >
+                      <span class="truncate text-[12px] text-text-primary">{option.label}</span>
+                      {#if selectedLayoutId === option.value}
+                        <span class="ml-2 text-[10px] text-accent">selected</span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+            {#if selectedLayout?.description}
+              <p class="text-[11px] text-text-muted">{selectedLayout.description}</p>
             {/if}
           </div>
-          {#if selectedLayout?.description}
-            <p class="text-[11px] text-text-muted">{selectedLayout.description}</p>
-          {/if}
-        </div>
+        {/if}
 
         {#if !selectedLayout}
           <!-- Spawn profile picker -->
@@ -1480,7 +1529,9 @@
 
       <!-- Footer -->
       <div class="flex justify-end gap-2 border-t border-hairline px-6 py-4">
-        <div class="mr-auto self-center text-[11px] text-text-muted">Esc to close • Cmd/Ctrl+Enter to create</div>
+        <div class="mr-auto self-center text-[11px] text-text-muted">
+          Esc to close • Cmd/Ctrl+Enter to {isWorkItemStart ? "start" : "create"}
+        </div>
         <button
           class="cursor-pointer rounded-xl border border-border-subtle bg-bg-surface px-5 py-2 text-[13px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
           onclick={resetAndClose}
@@ -1492,7 +1543,9 @@
           onclick={handleCreate}
           disabled={creating}
         >
-          {creating ? "Creating..." : "Create Session"}
+          {creating
+            ? (isWorkItemStart ? "Starting..." : "Creating...")
+            : (isWorkItemStart ? "Start Task" : "Create Session")}
         </button>
       </div>
     </div>

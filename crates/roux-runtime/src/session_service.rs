@@ -22,11 +22,13 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 
-use roux_core::Session;
+use roux_core::{Session, SessionStatusEvent};
+
+const STATUS_BROADCAST_CAPACITY: usize = 128;
 
 enum SessionMsg {
     // `Session` is ~272 bytes; box it so this variant doesn't dominate the
@@ -109,11 +111,16 @@ pub struct ServiceError;
 #[derive(Clone)]
 pub struct SessionHandle {
     tx: mpsc::UnboundedSender<SessionMsg>,
+    status_tx: broadcast::Sender<SessionStatusEvent>,
 }
 
 impl SessionHandle {
     fn send(&self, msg: SessionMsg) -> Result<(), ServiceError> {
         self.tx.send(msg).map_err(|_| ServiceError)
+    }
+
+    pub fn subscribe_status(&self) -> broadcast::Receiver<SessionStatusEvent> {
+        self.status_tx.subscribe()
     }
 
     pub async fn add(&self, session: Session) -> Result<(), ServiceError> {
@@ -264,13 +271,16 @@ pub fn service_with_path(
     persist_path: PathBuf,
 ) -> (SessionHandle, impl std::future::Future<Output = ()> + Send + 'static) {
     let (tx, rx) = mpsc::unbounded_channel();
-    (SessionHandle { tx }, service_loop(rx, initial_sessions, persist_path))
+    let (status_tx, _) = broadcast::channel(STATUS_BROADCAST_CAPACITY);
+    let handle = SessionHandle { tx, status_tx: status_tx.clone() };
+    (handle, service_loop(rx, initial_sessions, persist_path, status_tx))
 }
 
 async fn service_loop(
     mut rx: mpsc::UnboundedReceiver<SessionMsg>,
     mut sessions: Vec<Session>,
     persist_path: PathBuf,
+    status_tx: broadcast::Sender<SessionStatusEvent>,
 ) {
     let mut dirty = false;
     let mut tick = interval(Duration::from_millis(500));
@@ -321,8 +331,14 @@ async fn service_loop(
                     }
                     Some(SessionMsg::UpdateStatus { id, status, reply }) => {
                         if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
-                            s.status = status;
-                            dirty = true;
+                            if s.status != status {
+                                s.status = status.clone();
+                                dirty = true;
+                                let _ = status_tx.send(SessionStatusEvent {
+                                    session_id: id.clone(),
+                                    status,
+                                });
+                            }
                         }
                         let _ = reply.send(());
                     }
@@ -800,5 +816,47 @@ mod tests {
         handle.set_pinned_pr_url("s1", None).await.unwrap();
         let cleared = handle.get("s1").await.unwrap().unwrap();
         assert!(cleared.pinned_pr_url.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_status_broadcasts_on_actual_change() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) = spawn_with_path(vec![make_session("s1")], path);
+        let mut rx = handle.subscribe_status();
+
+        handle.update_status("s1", roux_core::SessionStatus::Generating).await.unwrap();
+
+        let event = rx.try_recv().expect("broadcast event should be present");
+        assert_eq!(event.session_id, "s1");
+        assert_eq!(event.status, roux_core::SessionStatus::Generating);
+    }
+
+    #[tokio::test]
+    async fn update_status_no_broadcast_on_noop() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) = spawn_with_path(vec![make_session("s1")], path);
+        let mut rx = handle.subscribe_status();
+
+        // make_session sets status to Idle; updating to Idle again is a no-op
+        handle.update_status("s1", roux_core::SessionStatus::Idle).await.unwrap();
+
+        assert!(rx.try_recv().is_err(), "no broadcast on no-op status update");
+    }
+
+    #[tokio::test]
+    async fn update_status_broadcasts_each_distinct_change() {
+        let (_dir, path) = temp_persist_path();
+        let (handle, _join) = spawn_with_path(vec![make_session("s1")], path);
+        let mut rx = handle.subscribe_status();
+
+        handle.update_status("s1", roux_core::SessionStatus::Generating).await.unwrap();
+        handle.update_status("s1", roux_core::SessionStatus::Generating).await.unwrap(); // same — no-op
+        handle.update_status("s1", roux_core::SessionStatus::Idle).await.unwrap();
+
+        let e1 = rx.try_recv().expect("first change should broadcast");
+        assert_eq!(e1.status, roux_core::SessionStatus::Generating);
+        let e2 = rx.try_recv().expect("second change should broadcast");
+        assert_eq!(e2.status, roux_core::SessionStatus::Idle);
+        assert!(rx.try_recv().is_err(), "no third event for the no-op");
     }
 }
