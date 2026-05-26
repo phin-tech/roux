@@ -150,7 +150,7 @@ describe("BoardFullscreen", () => {
     expect(closeBoardFullscreen).toHaveBeenCalled();
   });
 
-  it("Start dispatches a session then moves the card to In Progress", async () => {
+  it("Start dispatches without issuing a second move", async () => {
     seedColumns([
       workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
     ]);
@@ -159,10 +159,7 @@ describe("BoardFullscreen", () => {
     await fireEvent.click(screen.getByLabelText("Start work item"));
 
     expect(dispatchWorkItem).toHaveBeenCalledWith("wi-1");
-    // move happens after dispatch resolves
-    await vi.waitFor(() =>
-      expect(moveWorkItem).toHaveBeenCalledWith("wi-1", "doing", expect.any(Number)),
-    );
+    expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
   it("shows an inline error when Start dispatch fails", async () => {

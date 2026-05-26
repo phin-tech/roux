@@ -97,6 +97,18 @@ describe("BoardPanel", () => {
     seedColumns([]);
   });
 
+  it("Start dispatches without issuing a second move", async () => {
+    seedColumns([
+      workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
+    ]);
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByLabelText("Start work item"));
+
+    expect(dispatchWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(moveWorkItem).not.toHaveBeenCalled();
+  });
+
   it("shows an inline error when Start dispatch fails", async () => {
     vi.mocked(dispatchWorkItem).mockRejectedValueOnce(
       new Error("project not found"),

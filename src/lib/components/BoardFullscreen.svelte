@@ -61,11 +61,9 @@
     startingItemIds = { ...startingItemIds, [id]: true };
     startErrors = withoutKey(startErrors, id);
 
-    // Dispatch first (daemon creates + binds a session); only move the card to
-    // In Progress once that succeeds, so a failed dispatch leaves it put.
+    // Dispatch creates + binds a session and atomically moves the card to Doing.
     try {
       await dispatchWorkItem(id);
-      await handleMove(id, "doing");
     } catch (err) {
       startErrors = { ...startErrors, [id]: formatWorkItemStartError(err) };
       console.error("Failed to dispatch work item", err);
