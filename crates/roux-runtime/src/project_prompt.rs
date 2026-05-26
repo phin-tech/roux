@@ -8,6 +8,12 @@ use minijinja::{AutoEscape, Environment, UndefinedBehavior};
 use roux_core::{Project, Provider, RouxSettings, Session, SpawnProfile};
 use serde_json::{json, Value};
 
+#[derive(Debug, thiserror::Error)]
+pub enum ProjectPromptError {
+    #[error("failed to render project prompt: {0}")]
+    Render(#[from] minijinja::Error),
+}
+
 fn last_path_segment(path: &str) -> String {
     path.replace('\\', "/")
         .split('/')
@@ -47,8 +53,7 @@ pub fn build_context(
     other_sessions: &[Session],
 ) -> Value {
     let family = provider_family(profile);
-    let model_name =
-        settings.default_model.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let model_name = settings.default_model.as_deref().map(str::trim).filter(|s| !s.is_empty());
     json!({
         "project": {
             "id": project.id,
@@ -70,14 +75,14 @@ pub fn build_context(
 
 /// Render a template against a context. Strict undefined behavior so a template
 /// referencing an unknown variable errors loudly (same as the desktop path).
-pub fn render(template: &str, context: &Value) -> Result<String, String> {
+pub fn render(template: &str, context: &Value) -> Result<String, ProjectPromptError> {
     if template.trim().is_empty() {
         return Ok(String::new());
     }
     let mut env = Environment::new();
     env.set_auto_escape_callback(|_| AutoEscape::None);
     env.set_undefined_behavior(UndefinedBehavior::Strict);
-    env.render_str(template, context).map_err(|e| e.to_string())
+    env.render_str(template, context).map_err(ProjectPromptError::from)
 }
 
 /// Render `project.project_prompt` for a dispatched session. Empty prompt →
@@ -88,7 +93,7 @@ pub fn render_for_session(
     profile: Option<&SpawnProfile>,
     settings: &RouxSettings,
     other_sessions: &[Session],
-) -> Result<String, String> {
+) -> Result<String, ProjectPromptError> {
     if project.project_prompt.trim().is_empty() {
         return Ok(String::new());
     }
@@ -119,14 +124,8 @@ mod tests {
 
     #[test]
     fn renders_project_and_session_variables() {
-        let out = render_for_session(
-            &project(),
-            &session(),
-            None,
-            &RouxSettings::default(),
-            &[],
-        )
-        .unwrap();
+        let out = render_for_session(&project(), &session(), None, &RouxSettings::default(), &[])
+            .unwrap();
         assert_eq!(out, "Project Roux on feat");
     }
 
@@ -134,8 +133,7 @@ mod tests {
     fn empty_prompt_renders_empty() {
         let mut p = project();
         p.project_prompt = "   ".into();
-        let out =
-            render_for_session(&p, &session(), None, &RouxSettings::default(), &[]).unwrap();
+        let out = render_for_session(&p, &session(), None, &RouxSettings::default(), &[]).unwrap();
         assert_eq!(out, "");
     }
 

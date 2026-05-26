@@ -372,9 +372,10 @@ mod tests {
     #[test]
     fn map_status_normalizes_working_to_generating() {
         assert_eq!(map_hook_status("working"), "generating");
+        assert_eq!(map_hook_status("generating"), "generating");
         assert_eq!(map_hook_status("idle"), "idle");
         assert_eq!(map_hook_status("attention"), "attention");
-        assert_eq!(map_hook_status("unknown"), "unknown");
+        assert_eq!(map_hook_status("unknown"), "idle");
     }
 
     #[test]

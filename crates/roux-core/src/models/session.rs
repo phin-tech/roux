@@ -48,12 +48,12 @@ impl std::fmt::Display for SessionStatus {
 /// desktop `file_status` source share identical canonicalisation logic.
 pub fn map_hook_status(raw: &str) -> &str {
     match raw {
-        "working" => "generating",
+        "working" | "generating" => "generating",
         "idle" => "idle",
         "attention" => "attention",
         "error" => "error",
         "disconnected" => "disconnected",
-        other => other,
+        _ => "idle",
     }
 }
 
@@ -158,10 +158,8 @@ mod tests {
 
     #[test]
     fn session_status_event_round_trips_json() {
-        let event = SessionStatusEvent {
-            session_id: "s-1".to_string(),
-            status: SessionStatus::Generating,
-        };
+        let event =
+            SessionStatusEvent { session_id: "s-1".to_string(), status: SessionStatus::Generating };
         let json = serde_json::to_string(&event).unwrap();
         let decoded: SessionStatusEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.session_id, "s-1");

@@ -868,10 +868,14 @@
     );
 
     // Hydrate + subscribe to the work item board.
-    await hydrateWorkItems();
-    tauriUnlisteners.push(
-      await onWorkItemEvent((payload) => applyWorkItemEvent(payload)),
-    );
+    try {
+      await hydrateWorkItems();
+      tauriUnlisteners.push(
+        await onWorkItemEvent((payload) => applyWorkItemEvent(payload)),
+      );
+    } catch (e) {
+      logError("Failed to initialize work item board", e);
+    }
 
     // Listen for global status updates from hooks. Tier-1 routing (with a
     // `rouxPaneId` in the payload) updates the pane's runtime agentState so

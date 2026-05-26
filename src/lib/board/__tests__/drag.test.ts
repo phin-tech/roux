@@ -89,5 +89,12 @@ describe("Work item drag data", () => {
     const empty = dataTransfer();
     empty.setData(WORK_ITEM_DRAG_MIME, JSON.stringify({ fromStatus: "todo" }));
     expect(readWorkItemDragData(empty)).toBeNull();
+
+    const unknownStatus = dataTransfer();
+    unknownStatus.setData(
+      WORK_ITEM_DRAG_MIME,
+      JSON.stringify({ itemId: "wi-1", fromStatus: "backlog" }),
+    );
+    expect(readWorkItemDragData(unknownStatus)).toBeNull();
   });
 });

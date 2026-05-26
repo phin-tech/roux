@@ -2,6 +2,7 @@ import { writable } from "svelte/store";
 import type { WorkItem, WorkItemStatus } from "$lib/bindings";
 
 export const WORK_ITEM_DRAG_MIME = "application/x-roux-work-item";
+const WORK_ITEM_STATUSES = new Set<WorkItemStatus>(["todo", "doing", "review", "done"]);
 
 export interface WorkItemDragPayload {
   itemId: string;
@@ -17,6 +18,10 @@ export const draggedWorkItem = writable<WorkItemDragPayload | null>(null);
 
 export function workItemDragPayload(item: WorkItem): WorkItemDragPayload {
   return { itemId: item.id, fromStatus: item.status };
+}
+
+function isWorkItemStatus(value: string): value is WorkItemStatus {
+  return WORK_ITEM_STATUSES.has(value as WorkItemStatus);
 }
 
 export function writeWorkItemDragData(
@@ -54,10 +59,12 @@ export function readWorkItemDragData(
     if (typeof parsed.itemId !== "string" || parsed.itemId.trim() === "") {
       return null;
     }
-    if (typeof parsed.fromStatus !== "string") return null;
+    if (typeof parsed.fromStatus !== "string" || !isWorkItemStatus(parsed.fromStatus)) {
+      return null;
+    }
     return {
       itemId: parsed.itemId,
-      fromStatus: parsed.fromStatus as WorkItemStatus,
+      fromStatus: parsed.fromStatus,
     };
   } catch {
     return null;

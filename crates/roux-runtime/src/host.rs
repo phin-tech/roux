@@ -51,8 +51,16 @@ impl RuntimeHostConfig {
             project_service::service_with_path(self.initial_projects, self.project_persist_path);
         let (watch_handle, watch_future) =
             watch_service::service_with_path(self.initial_watches, self.watch_persist_path);
-        let work_item_handle = WorkItemHandle::open(&self.work_item_db_path)
-            .unwrap_or_else(|e| panic!("failed to open board.db at {}: {e}\nIf the database is corrupted, remove it and restart.", self.work_item_db_path.display()));
+        let work_item_handle = match WorkItemHandle::open(&self.work_item_db_path) {
+            Ok(handle) => handle,
+            Err(err) => {
+                eprintln!(
+                    "Warning: failed to open board.db at {}: {err}; using in-memory work items for this process.",
+                    self.work_item_db_path.display()
+                );
+                WorkItemHandle::in_memory()
+            }
+        };
 
         RuntimeHostServices {
             host: RuntimeHost {
@@ -105,5 +113,31 @@ mod tests {
         .build();
 
         assert_eq!(services.services.len(), 6);
+    }
+
+    #[test]
+    fn host_uses_in_memory_work_items_when_db_cannot_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = RuntimeHostConfig {
+            initial_sessions: Vec::new(),
+            session_persist_path: dir.path().join("sessions.json"),
+            initial_projects: Vec::new(),
+            project_persist_path: dir.path().join("projects.json"),
+            initial_watches: Vec::new(),
+            watch_persist_path: Some(dir.path().join("watches.json")),
+            work_item_db_path: dir.path().to_path_buf(),
+        }
+        .build();
+
+        let item = services
+            .host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Fallback card".into(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(item.title, "Fallback card");
     }
 }

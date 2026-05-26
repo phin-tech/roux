@@ -9,6 +9,7 @@
 
   let open = $state(false);
   let title = $state("");
+  let submitting = $state(false);
   let inputEl = $state<HTMLInputElement | null>(null);
 
   // Focus the field whenever it opens.
@@ -17,12 +18,20 @@
   });
 
   async function submit() {
+    if (submitting) return;
     const trimmed = title.trim();
     if (!trimmed) return;
-    title = "";
-    await onCreate(trimmed);
-    // Stay open + focused so several cards can be added in a row.
-    inputEl?.focus();
+    submitting = true;
+    try {
+      await onCreate(trimmed);
+      title = "";
+    } catch (err) {
+      console.error("Failed to create work item", err);
+    } finally {
+      submitting = false;
+      // Stay open + focused so several cards can be added in a row.
+      inputEl?.focus();
+    }
   }
 
   function cancel() {
@@ -53,6 +62,7 @@
     bind:value={title}
     type="text"
     {placeholder}
+    disabled={submitting}
     class="w-full rounded border border-border bg-surface-1 px-2 py-1 text-sm text-text outline-none focus:border-accent"
     aria-label="New card title"
     onkeydown={onKeydown}

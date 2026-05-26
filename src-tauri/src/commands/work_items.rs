@@ -11,7 +11,7 @@ pub(crate) async fn work_item_list(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<WorkItem>, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-list")) {
-        return client.work_item_list(project_id).await;
+        return client.work_item_list(project_id).await.map_err(String::from);
     }
     state.runtime.work_item_handle.list(project_id.as_deref())
 }
@@ -23,7 +23,7 @@ pub(crate) async fn work_item_create(
     state: tauri::State<'_, AppState>,
 ) -> Result<WorkItem, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-create")) {
-        return client.work_item_create(input).await;
+        return client.work_item_create(input).await.map_err(String::from);
     }
     state.runtime.work_item_handle.create(input)
 }
@@ -36,7 +36,7 @@ pub(crate) async fn work_item_update(
     state: tauri::State<'_, AppState>,
 ) -> Result<WorkItem, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-update")) {
-        return client.work_item_update(id, input).await;
+        return client.work_item_update(id, input).await.map_err(String::from);
     }
     state
         .runtime
@@ -54,7 +54,7 @@ pub(crate) async fn work_item_move(
     state: tauri::State<'_, AppState>,
 ) -> Result<WorkItem, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-move")) {
-        return client.work_item_move(id, status, sort_order).await;
+        return client.work_item_move(id, status, sort_order).await.map_err(String::from);
     }
     state
         .runtime
@@ -70,7 +70,7 @@ pub(crate) async fn work_item_delete(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-delete")) {
-        return client.work_item_delete(id).await;
+        return client.work_item_delete(id).await.map_err(String::from);
     }
     if state.runtime.work_item_handle.delete(&id)? {
         Ok(id)
@@ -110,7 +110,8 @@ pub(crate) async fn work_item_dispatch(
                 base,
                 fetch_first,
             )
-            .await;
+            .await
+            .map_err(String::from);
     }
     Err("Dispatching a work item requires a running daemon.".to_string())
 }
@@ -143,7 +144,8 @@ pub(crate) async fn work_item_run_dispatch(
                 base,
                 fetch_first,
             )
-            .await;
+            .await
+            .map_err(String::from);
     }
     Err("Dispatching a work item run requires a running daemon.".to_string())
 }
@@ -155,7 +157,7 @@ pub(crate) async fn work_item_runs_list(
 ) -> Result<Vec<WorkItemRun>, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-runs-list"))
     {
-        return client.work_item_runs_list(work_item_id).await;
+        return client.work_item_runs_list(work_item_id).await.map_err(String::from);
     }
     state.runtime.work_item_handle.list_runs(work_item_id.as_deref())
 }
@@ -167,7 +169,7 @@ pub(crate) async fn work_item_run_events(
 ) -> Result<Vec<WorkItemRunEvent>, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-run-events"))
     {
-        return client.work_item_run_events(run_id).await;
+        return client.work_item_run_events(run_id).await.map_err(String::from);
     }
     state.runtime.work_item_handle.list_run_events(&run_id)
 }
@@ -177,9 +179,8 @@ pub(crate) async fn work_item_run_stop(
     run_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<WorkItemRun, String> {
-    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-run-stop"))
-    {
-        return client.work_item_run_stop(run_id).await;
+    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-run-stop")) {
+        return client.work_item_run_stop(run_id).await.map_err(String::from);
     }
     Err("Stopping a work item run requires a running daemon.".to_string())
 }
@@ -198,7 +199,8 @@ pub(crate) async fn work_item_decision_create(
     {
         return client
             .work_item_decision_create(run_id, question, options, default_value, timeout_at)
-            .await;
+            .await
+            .map_err(String::from);
     }
     state.runtime.work_item_handle.create_decision(
         &run_id,
@@ -217,7 +219,7 @@ pub(crate) async fn work_item_decisions_list(
     if let Some(client) =
         state.daemon_client.clone().filter(|c| c.supports("work-item-decisions-list"))
     {
-        return client.work_item_decisions_list(work_item_id).await;
+        return client.work_item_decisions_list(work_item_id).await.map_err(String::from);
     }
     state.runtime.work_item_handle.list_pending_decisions(work_item_id.as_deref())
 }
@@ -232,7 +234,10 @@ pub(crate) async fn work_item_decision_resolve(
     if let Some(client) =
         state.daemon_client.clone().filter(|c| c.supports("work-item-decision-resolve"))
     {
-        return client.work_item_decision_resolve(id, value, resolved_by).await;
+        return client
+            .work_item_decision_resolve(id, value, resolved_by)
+            .await
+            .map_err(String::from);
     }
     state
         .runtime

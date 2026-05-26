@@ -711,6 +711,13 @@ fn main() {
                     if client.supports("work-item-events") {
                         client.spawn_work_item_event_bridge(app_handle);
                     }
+                } else {
+                    let app_handle = app.handle().clone();
+                    let work_item_handle = state.runtime.work_item_handle.clone();
+                    crate::daemon_client::spawn_local_work_item_event_bridge(
+                        app_handle,
+                        work_item_handle,
+                    );
                 }
             }
 

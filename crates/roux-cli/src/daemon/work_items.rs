@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 
 use roux_runtime::host::RuntimeHost;
@@ -22,6 +23,13 @@ enum WorkItemEventFrame {
     Warning { message: String },
     #[serde(rename = "error")]
     Error { error: String },
+}
+
+fn default_work_item_sort_order() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as f64)
+        .unwrap_or(0.0)
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +126,7 @@ pub(super) async fn handle_work_item_move(req: Request, host: &RuntimeHost) -> R
         .get("sortOrder")
         .or_else(|| req.args.get("sort_order"))
         .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
+        .unwrap_or_else(default_work_item_sort_order);
     match host.work_item_handle.move_item(&id, status, sort_order) {
         Ok(Some(item)) => match serde_json::to_value(&item) {
             Ok(value) => Response::success(value),
@@ -1419,6 +1427,16 @@ mod tests {
         .await;
         assert!(resp.ok, "move should succeed");
         assert_eq!(resp.data.as_ref().unwrap()["status"], "doing");
+
+        let resp = handle_request(
+            req("work-item-move", serde_json::json!({ "id": id, "status": "review" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "move without sort should succeed");
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "review");
+        assert!(resp.data.as_ref().unwrap()["sortOrder"].as_f64().unwrap() > 1.0);
 
         // delete
         let resp = handle_request(

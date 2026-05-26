@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import AddCardInput from "../AddCardInput.svelte";
 
@@ -24,7 +24,26 @@ describe("AddCardInput", () => {
     expect(onCreate).toHaveBeenCalledWith("Wire the board");
     // Stays open and clears for rapid entry.
     expect(screen.getByLabelText("New card title")).toBeTruthy();
-    expect((screen.getByLabelText("New card title") as HTMLInputElement).value).toBe("");
+    await waitFor(() =>
+      expect((screen.getByLabelText("New card title") as HTMLInputElement).value).toBe(""),
+    );
+  });
+
+  it("keeps the typed title when create fails", async () => {
+    const onCreate = vi.fn().mockRejectedValue(new Error("nope"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(AddCardInput, { onCreate });
+
+    await fireEvent.click(screen.getByLabelText("Add card"));
+    const input = screen.getByLabelText("New card title") as HTMLInputElement;
+
+    await fireEvent.input(input, { target: { value: "Keep this" } });
+    await fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(errorSpy).toHaveBeenCalled());
+    expect(onCreate).toHaveBeenCalledWith("Keep this");
+    expect(input.value).toBe("Keep this");
+    errorSpy.mockRestore();
   });
 
   it("ignores an empty/whitespace title", async () => {

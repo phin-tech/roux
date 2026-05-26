@@ -42,6 +42,7 @@ export const workItems = writable<WorkItem[]>([]);
 export const workItemRuns = writable<WorkItemRun[]>([]);
 export const workItemRunEvents = writable<WorkItemRunEvent[]>([]);
 export const workItemDecisions = writable<WorkItemDecision[]>([]);
+const TERMINAL_RUN_STATUSES = new Set<WorkItemRun["status"]>(["failed", "stopped", "done"]);
 
 export const itemsByColumn = derived(workItems, ($items) => {
   const map = new Map<WorkItemStatus, WorkItem[]>();
@@ -154,7 +155,9 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       workItems.update((list) => list.filter((i) => i.id !== event.id));
       break;
     case "imported":
-      void hydrateWorkItems();
+      void hydrateWorkItems().catch((err) => {
+        console.error("Failed to hydrate imported work items", err);
+      });
       break;
     case "sessionBound":
       bindSessionToWorkItem(event.id, event.sessionId);
@@ -212,7 +215,17 @@ function markRunStatusAfterDecisionResolved(runId: string): void {
   const hasPendingDecision = get(workItemDecisions).some(
     (decision) => decision.runId === runId && decision.status === "pending",
   );
-  markRunStatus(runId, hasPendingDecision ? "blocked" : "running");
+  if (hasPendingDecision) {
+    markRunStatus(runId, "blocked");
+    return;
+  }
+  workItemRuns.update((runs) =>
+    runs.map((run) =>
+      run.id === runId && !TERMINAL_RUN_STATUSES.has(run.status)
+        ? { ...run, status: "running" }
+        : run,
+    ),
+  );
 }
 
 export async function createWorkItem(input: WorkItemInput): Promise<WorkItem> {
@@ -257,12 +270,12 @@ export async function dispatchWorkItem(
 ): Promise<string> {
   const run = await tauriWorkItemRunDispatch(id, options);
   upsertRun(run);
-  markItemDoing(id);
   if (run.sessionId) {
+    markItemDoing(id);
     bindSessionToWorkItem(id, run.sessionId);
     return run.sessionId;
   }
-  return "";
+  throw new Error(`Work item run ${run.id} did not include a session id`);
 }
 
 export async function resolveWorkItemDecision(

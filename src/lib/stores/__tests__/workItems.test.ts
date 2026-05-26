@@ -276,6 +276,23 @@ describe("workItems store", () => {
       expect(get(workItemRuns)[0].status).toBe("blocked");
       expect(get(pendingDecisionByItem).get("wi-1")?.id).toBe("dec-2");
     });
+
+    it("does not revive a terminal run when its decision resolves", () => {
+      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "done" })]);
+      workItemDecisions.set([makeDecision()]);
+
+      applyWorkItemEvent({
+        type: "decisionResolved",
+        decision: makeDecision({
+          status: "resolved",
+          resolvedValue: "go",
+          resolvedAt: 3,
+        }),
+      });
+
+      expect(get(workItemRuns)[0].status).toBe("done");
+      expect(get(pendingDecisionByItem).has("wi-1")).toBe(false);
+    });
   });
 
   describe("dispatchWorkItem", () => {
@@ -290,6 +307,20 @@ describe("workItems store", () => {
       expect(get(workItemRuns)).toHaveLength(1);
       expect(get(workItems)[0].sessionId).toBe("sess-1");
       expect(get(workItems)[0].status).toBe("doing");
+    });
+
+    it("rejects when the daemon returns a run without a session id", async () => {
+      const item = makeItem({ id: "wi-1", sessionId: null, status: "todo" });
+      workItems.set([item]);
+      vi.mocked(tauriWorkItemRunDispatch).mockResolvedValueOnce(makeRun({ sessionId: null }));
+
+      await expect(dispatchWorkItem("wi-1")).rejects.toThrow(
+        "Work item run run-1 did not include a session id",
+      );
+
+      expect(get(workItemRuns)).toHaveLength(1);
+      expect(get(workItems)[0].sessionId).toBeNull();
+      expect(get(workItems)[0].status).toBe("todo");
     });
   });
 

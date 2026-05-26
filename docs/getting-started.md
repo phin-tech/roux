@@ -52,7 +52,7 @@ The global OS notification toggle only controls macOS/desktop fan-out. Roux stil
 
 Use the Kanban board to turn a written task into a daemon-owned agent run.
 
-- **Start** creates a new run, links it to a daemon session/PTy, and moves the
+- **Start** creates a new run, links it to a daemon session/PTY, and moves the
   card to **In Progress**.
 - **Open terminal** attaches to the latest linked run/session without creating a
   new run.
