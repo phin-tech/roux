@@ -134,6 +134,12 @@ enum Commands {
         #[command(subcommand)]
         action: Option<DaemonAction>,
     },
+    /// Manage Kanban board work items
+    #[command(name = "work-item", visible_alias = "kanban")]
+    WorkItem {
+        #[command(subcommand)]
+        action: WorkItemAction,
+    },
     /// Manage agent aliases — stable, restart-durable identity for sessions
     Alias {
         #[command(subcommand)]
@@ -390,6 +396,187 @@ enum DaemonAction {
     },
     /// List daemon-owned watches
     Watches,
+}
+
+#[derive(Subcommand)]
+enum WorkItemAction {
+    /// List work items
+    List {
+        /// Filter to one project id
+        #[arg(short, long)]
+        project: Option<String>,
+    },
+    /// Create a work item card
+    Create(WorkItemCreateArgs),
+    /// Update a work item card
+    Update(WorkItemUpdateArgs),
+    /// Move a work item to a new status
+    Move {
+        /// Work item id
+        id: String,
+        /// Status: todo | doing | review | done
+        status: String,
+        /// Sort order within the destination column
+        #[arg(long)]
+        sort_order: Option<f64>,
+    },
+    /// Delete a work item card
+    Delete {
+        /// Work item id
+        id: String,
+    },
+    /// Start a work item as a daemon-owned run
+    #[command(alias = "dispatch")]
+    Start(WorkItemStartArgs),
+    /// List work item runs
+    Runs {
+        /// Filter to one work item id
+        #[arg(short = 'w', long = "work-item")]
+        work_item: Option<String>,
+    },
+    /// List events for a work item run
+    Events {
+        /// Work item run id
+        run_id: String,
+    },
+    /// Stop a daemon-owned work item run
+    Stop {
+        /// Work item run id
+        run_id: String,
+    },
+    /// Manage card-level decision prompts
+    Decision {
+        #[command(subcommand)]
+        action: WorkItemDecisionAction,
+    },
+    /// Bulk import work items from a JSON file or inline JSON array
+    Import {
+        /// File containing { "items": [...] }
+        #[arg(long)]
+        path: Option<String>,
+        /// Inline JSON array of items
+        #[arg(long = "items-json")]
+        items_json: Option<String>,
+    },
+    /// Stream work item board events as JSON lines
+    Watch,
+}
+
+#[derive(Args)]
+struct WorkItemCreateArgs {
+    /// Card title
+    title: String,
+    /// Card body/description
+    #[arg(short, long)]
+    body: Option<String>,
+    /// Initial status: todo | doing | review | done
+    #[arg(short, long)]
+    status: Option<String>,
+    /// Project id
+    #[arg(short, long)]
+    project: Option<String>,
+    /// Parent work item id
+    #[arg(long)]
+    parent: Option<String>,
+    /// Sort order within the column
+    #[arg(long)]
+    sort_order: Option<f64>,
+}
+
+#[derive(Args)]
+struct WorkItemUpdateArgs {
+    /// Work item id
+    id: String,
+    /// New card title
+    #[arg(short, long)]
+    title: String,
+    /// Card body/description
+    #[arg(short, long)]
+    body: Option<String>,
+    /// Status: todo | doing | review | done
+    #[arg(short, long)]
+    status: Option<String>,
+    /// Project id
+    #[arg(short, long)]
+    project: Option<String>,
+    /// Parent work item id
+    #[arg(long)]
+    parent: Option<String>,
+    /// Sort order within the column
+    #[arg(long)]
+    sort_order: Option<f64>,
+}
+
+#[derive(Args)]
+struct WorkItemStartArgs {
+    /// Work item id
+    id: String,
+    /// Spawn profile id, e.g. claude, codex, plain-shell
+    #[arg(short = 'P', long)]
+    profile: Option<String>,
+    /// Repo path override; otherwise the card project's repo is used
+    #[arg(long)]
+    repo_path: Option<String>,
+    /// Session name override
+    #[arg(long)]
+    name: Option<String>,
+    /// Worktree path to use/create
+    #[arg(long)]
+    worktree_path: Option<String>,
+    /// Branch name for session/worktree creation
+    #[arg(long)]
+    branch: Option<String>,
+    /// Base ref for worktree branch creation
+    #[arg(long)]
+    base: Option<String>,
+    /// Fetch before creating/checking out the worktree
+    #[arg(long)]
+    fetch_first: bool,
+}
+
+#[derive(Subcommand)]
+enum WorkItemDecisionAction {
+    /// Create a pending decision on a run
+    Create(WorkItemDecisionCreateArgs),
+    /// List pending decisions
+    List {
+        /// Filter to one work item id
+        #[arg(short = 'w', long = "work-item")]
+        work_item: Option<String>,
+    },
+    /// Resolve a pending decision
+    Resolve {
+        /// Decision id
+        id: String,
+        /// Selected option value
+        value: String,
+        /// Actor label for audit history
+        #[arg(long)]
+        resolved_by: Option<String>,
+    },
+}
+
+#[derive(Args)]
+struct WorkItemDecisionCreateArgs {
+    /// Work item run id
+    run_id: String,
+    /// Prompt shown to the human
+    question: String,
+    /// Option as value=label. If =label is omitted, label defaults to value.
+    #[arg(short = 'o', long = "option", required = true)]
+    options: Vec<String>,
+    /// Default option value used by timeout
+    #[arg(long)]
+    default_value: Option<String>,
+    /// Absolute Unix timestamp in milliseconds
+    #[arg(long)]
+    timeout_at: Option<u64>,
+    /// Relative timeout in seconds
+    #[arg(long)]
+    timeout_seconds: Option<u64>,
+    /// Relative timeout in milliseconds
+    #[arg(long)]
+    timeout_ms: Option<u64>,
 }
 
 #[derive(Subcommand)]
@@ -1158,6 +1345,237 @@ fn run_streaming_command(request: Value) {
     }
 }
 
+fn insert_optional_string(
+    args: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: Option<String>,
+) {
+    if let Some(value) = value {
+        args.insert(key.into(), Value::String(value));
+    }
+}
+
+fn insert_optional_f64(args: &mut serde_json::Map<String, Value>, key: &str, value: Option<f64>) {
+    if let Some(value) = value {
+        if let Some(number) = serde_json::Number::from_f64(value) {
+            args.insert(key.into(), Value::Number(number));
+        }
+    }
+}
+
+fn build_work_item_create_request(params: WorkItemCreateArgs) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("title".into(), Value::String(params.title));
+    insert_optional_string(&mut args, "body", params.body);
+    insert_optional_string(&mut args, "status", params.status);
+    insert_optional_string(&mut args, "projectId", params.project);
+    insert_optional_string(&mut args, "parentId", params.parent);
+    insert_optional_f64(&mut args, "sortOrder", params.sort_order);
+    serde_json::json!({
+        "command": "work-item-create",
+        "args": Value::Object(args),
+    })
+}
+
+fn build_work_item_update_request(params: WorkItemUpdateArgs) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(params.id));
+    args.insert("title".into(), Value::String(params.title));
+    insert_optional_string(&mut args, "body", params.body);
+    insert_optional_string(&mut args, "status", params.status);
+    insert_optional_string(&mut args, "projectId", params.project);
+    insert_optional_string(&mut args, "parentId", params.parent);
+    insert_optional_f64(&mut args, "sortOrder", params.sort_order);
+    serde_json::json!({
+        "command": "work-item-update",
+        "args": Value::Object(args),
+    })
+}
+
+fn build_work_item_start_request(params: WorkItemStartArgs) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(params.id));
+    insert_optional_string(&mut args, "profile", params.profile);
+    insert_optional_string(&mut args, "repoPath", params.repo_path);
+    insert_optional_string(&mut args, "name", params.name);
+    insert_optional_string(&mut args, "worktreePath", params.worktree_path);
+    insert_optional_string(&mut args, "branch", params.branch);
+    insert_optional_string(&mut args, "base", params.base);
+    if params.fetch_first {
+        args.insert("fetchFirst".into(), Value::Bool(true));
+    }
+    serde_json::json!({
+        "command": "work-item-run-dispatch",
+        "args": Value::Object(args),
+    })
+}
+
+fn parse_work_item_decision_options(options: Vec<String>) -> Result<Value, String> {
+    let mut parsed = Vec::with_capacity(options.len());
+    for raw in options {
+        let (value, label) = raw.split_once('=').unwrap_or((raw.as_str(), raw.as_str()));
+        let value = value.trim();
+        let label = label.trim();
+        if value.is_empty() || label.is_empty() {
+            return Err("--option requires a non-empty value and label".to_string());
+        }
+        parsed.push(serde_json::json!({ "value": value, "label": label }));
+    }
+    Ok(Value::Array(parsed))
+}
+
+fn build_work_item_decision_create_request(
+    params: WorkItemDecisionCreateArgs,
+) -> Result<Value, String> {
+    let mut args = serde_json::Map::new();
+    args.insert("runId".into(), Value::String(params.run_id));
+    args.insert("question".into(), Value::String(params.question));
+    args.insert("options".into(), parse_work_item_decision_options(params.options)?);
+    insert_optional_string(&mut args, "defaultValue", params.default_value);
+    if let Some(timeout_at) = params.timeout_at {
+        args.insert("timeoutAt".into(), Value::Number(timeout_at.into()));
+    }
+    if let Some(timeout_seconds) = params.timeout_seconds {
+        args.insert("timeoutSeconds".into(), Value::Number(timeout_seconds.into()));
+    }
+    if let Some(timeout_ms) = params.timeout_ms {
+        args.insert("timeoutMs".into(), Value::Number(timeout_ms.into()));
+    }
+    Ok(serde_json::json!({
+        "command": "work-item-decision-create",
+        "args": Value::Object(args),
+    }))
+}
+
+fn build_work_item_import_request(
+    path: Option<String>,
+    items_json: Option<String>,
+) -> Result<Value, String> {
+    let mut args = serde_json::Map::new();
+    match (path, items_json) {
+        (Some(path), None) => {
+            args.insert("path".into(), Value::String(path));
+        }
+        (None, Some(items_json)) => {
+            let items: Value = serde_json::from_str(&items_json)
+                .map_err(|err| format!("invalid --items-json: {err}"))?;
+            if !items.is_array() {
+                return Err("--items-json must be a JSON array".to_string());
+            }
+            args.insert("items".into(), items);
+        }
+        (None, None) => return Err("work-item import requires --path or --items-json".to_string()),
+        (Some(_), Some(_)) => {
+            return Err("work-item import accepts only one of --path or --items-json".to_string())
+        }
+    }
+    Ok(serde_json::json!({
+        "command": "work-item-import",
+        "args": Value::Object(args),
+    }))
+}
+
+fn exit_with_input_error(message: impl std::fmt::Display) -> ! {
+    eprintln!("Error: {message}");
+    std::process::exit(2);
+}
+
+fn handle_work_item(action: WorkItemAction) {
+    match action {
+        WorkItemAction::List { project } => {
+            let mut args = serde_json::Map::new();
+            insert_optional_string(&mut args, "projectId", project);
+            run_socket_command(serde_json::json!({
+                "command": "work-item-list",
+                "args": Value::Object(args),
+            }));
+        }
+        WorkItemAction::Create(params) => {
+            run_socket_command(build_work_item_create_request(params))
+        }
+        WorkItemAction::Update(params) => {
+            run_socket_command(build_work_item_update_request(params))
+        }
+        WorkItemAction::Move { id, status, sort_order } => {
+            let mut args = serde_json::Map::new();
+            args.insert("id".into(), Value::String(id));
+            args.insert("status".into(), Value::String(status));
+            insert_optional_f64(&mut args, "sortOrder", sort_order);
+            run_socket_command(serde_json::json!({
+                "command": "work-item-move",
+                "args": Value::Object(args),
+            }));
+        }
+        WorkItemAction::Delete { id } => {
+            run_socket_command(serde_json::json!({
+                "command": "work-item-delete",
+                "args": { "id": id },
+            }));
+        }
+        WorkItemAction::Start(params) => run_socket_command(build_work_item_start_request(params)),
+        WorkItemAction::Runs { work_item } => {
+            let mut args = serde_json::Map::new();
+            insert_optional_string(&mut args, "workItemId", work_item);
+            run_socket_command(serde_json::json!({
+                "command": "work-item-runs-list",
+                "args": Value::Object(args),
+            }));
+        }
+        WorkItemAction::Events { run_id } => {
+            run_socket_command(serde_json::json!({
+                "command": "work-item-run-events",
+                "args": { "runId": run_id },
+            }));
+        }
+        WorkItemAction::Stop { run_id } => {
+            run_socket_command(serde_json::json!({
+                "command": "work-item-run-stop",
+                "args": { "runId": run_id },
+            }));
+        }
+        WorkItemAction::Decision { action } => match action {
+            WorkItemDecisionAction::Create(params) => {
+                let request = match build_work_item_decision_create_request(params) {
+                    Ok(request) => request,
+                    Err(err) => exit_with_input_error(err),
+                };
+                run_socket_command(request);
+            }
+            WorkItemDecisionAction::List { work_item } => {
+                let mut args = serde_json::Map::new();
+                insert_optional_string(&mut args, "workItemId", work_item);
+                run_socket_command(serde_json::json!({
+                    "command": "work-item-decisions-list",
+                    "args": Value::Object(args),
+                }));
+            }
+            WorkItemDecisionAction::Resolve { id, value, resolved_by } => {
+                let mut args = serde_json::Map::new();
+                args.insert("id".into(), Value::String(id));
+                args.insert("value".into(), Value::String(value));
+                insert_optional_string(&mut args, "resolvedBy", resolved_by);
+                run_socket_command(serde_json::json!({
+                    "command": "work-item-decision-resolve",
+                    "args": Value::Object(args),
+                }));
+            }
+        },
+        WorkItemAction::Import { path, items_json } => {
+            let request = match build_work_item_import_request(path, items_json) {
+                Ok(request) => request,
+                Err(err) => exit_with_input_error(err),
+            };
+            run_socket_command(request);
+        }
+        WorkItemAction::Watch => {
+            run_streaming_command(serde_json::json!({
+                "command": "work-item-events",
+                "args": {},
+            }));
+        }
+    }
+}
+
 fn handle_hook(status: &str) {
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
@@ -1541,6 +1959,8 @@ fn main() {
                 }));
             }
         },
+
+        Commands::WorkItem { action } => handle_work_item(action),
 
         Commands::App { path } => {
             let resolved = resolve_path(&path);
@@ -2476,6 +2896,121 @@ mod tests {
             Commands::Session { action: SessionAction::List } => {}
             _ => panic!("expected Session::List"),
         }
+    }
+
+    #[test]
+    fn cli_parses_work_item_create() {
+        let cli = Cli::try_parse_from([
+            "roux",
+            "work-item",
+            "create",
+            "Fix login",
+            "--body",
+            "Add regression coverage",
+            "--status",
+            "todo",
+            "--project",
+            "proj-1",
+            "--sort-order",
+            "42.5",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::WorkItem {
+                action:
+                    WorkItemAction::Create(WorkItemCreateArgs {
+                        title,
+                        body,
+                        status,
+                        project,
+                        sort_order,
+                        ..
+                    }),
+            } => {
+                assert_eq!(title, "Fix login");
+                assert_eq!(body.as_deref(), Some("Add regression coverage"));
+                assert_eq!(status.as_deref(), Some("todo"));
+                assert_eq!(project.as_deref(), Some("proj-1"));
+                assert_eq!(sort_order, Some(42.5));
+            }
+            _ => panic!("expected WorkItem::Create"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_kanban_alias_start() {
+        let cli = Cli::try_parse_from([
+            "roux",
+            "kanban",
+            "start",
+            "wi-1",
+            "--profile",
+            "claude",
+            "--repo-path",
+            "/repo",
+            "--fetch-first",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::WorkItem {
+                action:
+                    WorkItemAction::Start(WorkItemStartArgs {
+                        id, profile, repo_path, fetch_first, ..
+                    }),
+            } => {
+                assert_eq!(id, "wi-1");
+                assert_eq!(profile.as_deref(), Some("claude"));
+                assert_eq!(repo_path.as_deref(), Some("/repo"));
+                assert!(fetch_first);
+            }
+            _ => panic!("expected WorkItem::Start"),
+        }
+    }
+
+    #[test]
+    fn work_item_start_uses_run_dispatch_socket_command() {
+        let request = build_work_item_start_request(WorkItemStartArgs {
+            id: "wi-1".into(),
+            profile: Some("claude".into()),
+            repo_path: Some("/repo".into()),
+            name: Some("Fix login".into()),
+            worktree_path: None,
+            branch: Some("feat/login".into()),
+            base: Some("origin/main".into()),
+            fetch_first: true,
+        });
+
+        assert_eq!(request["command"], "work-item-run-dispatch");
+        assert_eq!(request["args"]["id"], "wi-1");
+        assert_eq!(request["args"]["profile"], "claude");
+        assert_eq!(request["args"]["repoPath"], "/repo");
+        assert_eq!(request["args"]["name"], "Fix login");
+        assert_eq!(request["args"]["branch"], "feat/login");
+        assert_eq!(request["args"]["base"], "origin/main");
+        assert_eq!(request["args"]["fetchFirst"], true);
+    }
+
+    #[test]
+    fn work_item_decision_options_parse_value_label_pairs() {
+        let options =
+            parse_work_item_decision_options(vec!["ship=Ship it".into(), "hold".into()]).unwrap();
+
+        assert_eq!(options[0]["value"], "ship");
+        assert_eq!(options[0]["label"], "Ship it");
+        assert_eq!(options[1]["value"], "hold");
+        assert_eq!(options[1]["label"], "hold");
+    }
+
+    #[test]
+    fn work_item_import_requires_one_source() {
+        assert!(build_work_item_import_request(None, None).is_err());
+        assert!(build_work_item_import_request(Some("/tmp/items.json".into()), Some("[]".into()))
+            .is_err());
+
+        let request = build_work_item_import_request(None, Some(r#"[{"title":"A"}]"#.into()))
+            .expect("inline items json should parse");
+        assert_eq!(request["command"], "work-item-import");
+        assert_eq!(request["args"]["items"][0]["title"], "A");
     }
 
     #[test]

@@ -356,25 +356,15 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
         };
     }
 
-    if let Some(session_id) = run.session_id.as_deref() {
-        kill_session_ptys(host, session_id).await;
-        if let Err(err) = host.session_handle.archive(session_id).await {
-            return Response::err(err.to_string());
-        }
-    }
-
-    match host.work_item_handle.set_run_status(
+    let stopped_run = match host.work_item_handle.set_run_status(
         &run_id,
         roux_core::WorkItemRunStatus::Stopped,
         serde_json::json!({
             "reason": "user",
-            "sessionId": run.session_id,
+            "sessionId": run.session_id.clone(),
         }),
     ) {
-        Ok(Some(run)) => match serde_json::to_value(run) {
-            Ok(value) => Response::success(value),
-            Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
-        },
+        Ok(Some(run)) => run,
         Ok(None) => match host.work_item_handle.get_run(&run_id) {
             Ok(Some(run))
                 if matches!(
@@ -384,16 +374,28 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
                         | roux_core::WorkItemRunStatus::Failed
                 ) =>
             {
-                match serde_json::to_value(run) {
+                return match serde_json::to_value(run) {
                     Ok(value) => Response::success(value),
                     Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
-                }
+                };
             }
-            Ok(Some(_)) => Response::err("work item run status was not updated"),
-            Ok(None) => Response::err("work item run not found"),
-            Err(err) => Response::err(err),
+            Ok(Some(_)) => return Response::err("work item run status was not updated"),
+            Ok(None) => return Response::err("work item run not found"),
+            Err(err) => return Response::err(err),
         },
-        Err(err) => Response::err(err),
+        Err(err) => return Response::err(err),
+    };
+
+    if let Some(session_id) = run.session_id.as_deref() {
+        kill_session_ptys(host, session_id).await;
+        if let Err(err) = host.session_handle.archive(session_id).await {
+            return Response::err(err.to_string());
+        }
+    }
+
+    match serde_json::to_value(stopped_run) {
+        Ok(value) => Response::success(value),
+        Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
     }
 }
 

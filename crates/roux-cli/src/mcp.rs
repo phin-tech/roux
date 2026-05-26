@@ -2,7 +2,7 @@ use rmcp::{
     handler::server::wrapper::Parameters, model::CallToolResult, schemars::JsonSchema, tool,
     tool_router, transport::stdio, ErrorData, ServiceExt,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 #[cfg(test)]
@@ -19,6 +19,19 @@ const MCP_TOOL_NAMES: &[&str] = &[
     "roux_search_notes",
     "roux_append_notes",
     "roux_notes_vault_root",
+    "roux_list_work_items",
+    "roux_create_work_item",
+    "roux_update_work_item",
+    "roux_move_work_item",
+    "roux_delete_work_item",
+    "roux_start_work_item",
+    "roux_list_work_item_runs",
+    "roux_list_work_item_run_events",
+    "roux_stop_work_item_run",
+    "roux_create_work_item_decision",
+    "roux_list_work_item_decisions",
+    "roux_resolve_work_item_decision",
+    "roux_import_work_items",
 ];
 
 #[derive(Debug)]
@@ -143,6 +156,118 @@ pub struct NotesAppendParams {
     pub timestamped: bool,
     #[serde(default)]
     pub tags: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemListParams {
+    pub project_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemCreateParams {
+    pub title: String,
+    pub body: Option<String>,
+    pub status: Option<String>,
+    pub project_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub sort_order: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemUpdateParams {
+    pub id: String,
+    pub title: String,
+    pub body: Option<String>,
+    pub status: Option<String>,
+    pub project_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub sort_order: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemMoveParams {
+    pub id: String,
+    /// One of: todo | doing | review | done.
+    pub status: String,
+    pub sort_order: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemIdParams {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemStartParams {
+    pub id: String,
+    pub profile: Option<String>,
+    pub repo_path: Option<String>,
+    pub name: Option<String>,
+    pub worktree_path: Option<String>,
+    pub branch: Option<String>,
+    pub base: Option<String>,
+    #[serde(default)]
+    pub fetch_first: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemRunsListParams {
+    pub work_item_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemRunIdParams {
+    pub run_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemDecisionOptionParam {
+    pub value: String,
+    pub label: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemDecisionCreateParams {
+    pub run_id: String,
+    pub question: String,
+    pub options: Vec<WorkItemDecisionOptionParam>,
+    pub default_value: Option<String>,
+    pub timeout_at: Option<u64>,
+    pub timeout_seconds: Option<u64>,
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemDecisionsListParams {
+    pub work_item_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemDecisionResolveParams {
+    pub id: String,
+    pub value: String,
+    pub resolved_by: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemImportParams {
+    /// Inline items array. Each item follows the daemon work-item import shape.
+    pub items: Option<Vec<Value>>,
+    /// Path to a JSON file containing { "items": [...] }.
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -489,6 +614,162 @@ impl RouxMcpServer {
     #[tool(description = "Get the Roux notes vault root path.")]
     async fn roux_notes_vault_root(&self) -> Result<CallToolResult, ErrorData> {
         call_socket(json!({ "command": "notes-vault-root", "args": {} })).await
+    }
+
+    #[tool(description = "List Kanban board work items. Pass projectId to filter to one project.")]
+    async fn roux_list_work_items(
+        &self,
+        Parameters(params): Parameters<WorkItemListParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_work_item_list_request(params)).await
+    }
+
+    #[tool(
+        description = "Create a Kanban board work item. Status may be todo, doing, review, or done."
+    )]
+    async fn roux_create_work_item(
+        &self,
+        Parameters(params): Parameters<WorkItemCreateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_work_item_create_request(params)).await
+    }
+
+    #[tool(
+        description = "Update a Kanban board work item. The daemon update path requires id and title."
+    )]
+    async fn roux_update_work_item(
+        &self,
+        Parameters(params): Parameters<WorkItemUpdateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_work_item_update_request(params)).await
+    }
+
+    #[tool(
+        description = "Move a Kanban board work item to a new status. Status may be todo, doing, review, or done."
+    )]
+    async fn roux_move_work_item(
+        &self,
+        Parameters(params): Parameters<WorkItemMoveParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_work_item_move_request(params)).await
+    }
+
+    #[tool(
+        description = "Delete a Kanban board work item by id. This deletes board run/decision history for that card but does not directly delete arbitrary files."
+    )]
+    async fn roux_delete_work_item(
+        &self,
+        Parameters(params): Parameters<WorkItemIdParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(json!({
+            "command": "work-item-delete",
+            "args": { "id": params.id },
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Start a Kanban board work item as a daemon-owned run. Returns the created WorkItemRun; repoPath/profile/worktree options are forwarded to session creation."
+    )]
+    async fn roux_start_work_item(
+        &self,
+        Parameters(params): Parameters<WorkItemStartParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_work_item_start_request(params)).await
+    }
+
+    #[tool(description = "List daemon-owned runs for Kanban work items.")]
+    async fn roux_list_work_item_runs(
+        &self,
+        Parameters(params): Parameters<WorkItemRunsListParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        insert_optional_string(&mut args, "workItemId", params.work_item_id);
+        call_socket(json!({
+            "command": "work-item-runs-list",
+            "args": Value::Object(args),
+        }))
+        .await
+    }
+
+    #[tool(description = "List append-only events for a Kanban work item run.")]
+    async fn roux_list_work_item_run_events(
+        &self,
+        Parameters(params): Parameters<WorkItemRunIdParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(json!({
+            "command": "work-item-run-events",
+            "args": { "runId": params.run_id },
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Stop a daemon-owned Kanban work item run. This archives the linked session and removes its daemon PTYs."
+    )]
+    async fn roux_stop_work_item_run(
+        &self,
+        Parameters(params): Parameters<WorkItemRunIdParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(json!({
+            "command": "work-item-run-stop",
+            "args": { "runId": params.run_id },
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Create a card-level structured decision prompt for a Kanban work item run. A timeout requires defaultValue."
+    )]
+    async fn roux_create_work_item_decision(
+        &self,
+        Parameters(params): Parameters<WorkItemDecisionCreateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_work_item_decision_create_request(params)?).await
+    }
+
+    #[tool(
+        description = "List pending Kanban work item decisions. Pass workItemId to filter to one card."
+    )]
+    async fn roux_list_work_item_decisions(
+        &self,
+        Parameters(params): Parameters<WorkItemDecisionsListParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        insert_optional_string(&mut args, "workItemId", params.work_item_id);
+        call_socket(json!({
+            "command": "work-item-decisions-list",
+            "args": Value::Object(args),
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Resolve a pending Kanban work item decision and write the selected value back to the linked run PTY."
+    )]
+    async fn roux_resolve_work_item_decision(
+        &self,
+        Parameters(params): Parameters<WorkItemDecisionResolveParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), Value::String(params.id));
+        args.insert("value".into(), Value::String(params.value));
+        insert_optional_string(&mut args, "resolvedBy", params.resolved_by);
+        call_socket(json!({
+            "command": "work-item-decision-resolve",
+            "args": Value::Object(args),
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Bulk import Kanban work items from an inline items array or from a JSON file path."
+    )]
+    async fn roux_import_work_items(
+        &self,
+        Parameters(params): Parameters<WorkItemImportParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_work_item_import_request(params)?).await
     }
 
     #[tool(
@@ -1132,6 +1413,139 @@ fn notes_target(scope: String, session_id: Option<String>, topic: Option<String>
     })
 }
 
+fn insert_optional_string(
+    args: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: Option<String>,
+) {
+    if let Some(value) = value {
+        args.insert(key.into(), Value::String(value));
+    }
+}
+
+fn insert_optional_f64(args: &mut serde_json::Map<String, Value>, key: &str, value: Option<f64>) {
+    if let Some(value) = value {
+        if let Some(number) = serde_json::Number::from_f64(value) {
+            args.insert(key.into(), Value::Number(number));
+        }
+    }
+}
+
+fn build_work_item_list_request(params: WorkItemListParams) -> Value {
+    let mut args = serde_json::Map::new();
+    insert_optional_string(&mut args, "projectId", params.project_id);
+    json!({
+        "command": "work-item-list",
+        "args": Value::Object(args),
+    })
+}
+
+fn build_work_item_create_request(params: WorkItemCreateParams) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("title".into(), Value::String(params.title));
+    insert_optional_string(&mut args, "body", params.body);
+    insert_optional_string(&mut args, "status", params.status);
+    insert_optional_string(&mut args, "projectId", params.project_id);
+    insert_optional_string(&mut args, "parentId", params.parent_id);
+    insert_optional_f64(&mut args, "sortOrder", params.sort_order);
+    json!({
+        "command": "work-item-create",
+        "args": Value::Object(args),
+    })
+}
+
+fn build_work_item_update_request(params: WorkItemUpdateParams) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(params.id));
+    args.insert("title".into(), Value::String(params.title));
+    insert_optional_string(&mut args, "body", params.body);
+    insert_optional_string(&mut args, "status", params.status);
+    insert_optional_string(&mut args, "projectId", params.project_id);
+    insert_optional_string(&mut args, "parentId", params.parent_id);
+    insert_optional_f64(&mut args, "sortOrder", params.sort_order);
+    json!({
+        "command": "work-item-update",
+        "args": Value::Object(args),
+    })
+}
+
+fn build_work_item_move_request(params: WorkItemMoveParams) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(params.id));
+    args.insert("status".into(), Value::String(params.status));
+    insert_optional_f64(&mut args, "sortOrder", params.sort_order);
+    json!({
+        "command": "work-item-move",
+        "args": Value::Object(args),
+    })
+}
+
+fn build_work_item_start_request(params: WorkItemStartParams) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(params.id));
+    insert_optional_string(&mut args, "profile", params.profile);
+    insert_optional_string(&mut args, "repoPath", params.repo_path);
+    insert_optional_string(&mut args, "name", params.name);
+    insert_optional_string(&mut args, "worktreePath", params.worktree_path);
+    insert_optional_string(&mut args, "branch", params.branch);
+    insert_optional_string(&mut args, "base", params.base);
+    if params.fetch_first {
+        args.insert("fetchFirst".into(), Value::Bool(true));
+    }
+    json!({
+        "command": "work-item-run-dispatch",
+        "args": Value::Object(args),
+    })
+}
+
+fn build_work_item_decision_create_request(
+    params: WorkItemDecisionCreateParams,
+) -> Result<Value, ErrorData> {
+    if params.options.is_empty() {
+        return Err(McpToolError::InvalidParams("options must not be empty").into());
+    }
+    let mut args = serde_json::Map::new();
+    args.insert("runId".into(), Value::String(params.run_id));
+    args.insert("question".into(), Value::String(params.question));
+    args.insert("options".into(), json!(params.options));
+    insert_optional_string(&mut args, "defaultValue", params.default_value);
+    if let Some(timeout_at) = params.timeout_at {
+        args.insert("timeoutAt".into(), Value::Number(timeout_at.into()));
+    }
+    if let Some(timeout_seconds) = params.timeout_seconds {
+        args.insert("timeoutSeconds".into(), Value::Number(timeout_seconds.into()));
+    }
+    if let Some(timeout_ms) = params.timeout_ms {
+        args.insert("timeoutMs".into(), Value::Number(timeout_ms.into()));
+    }
+    Ok(json!({
+        "command": "work-item-decision-create",
+        "args": Value::Object(args),
+    }))
+}
+
+fn build_work_item_import_request(params: WorkItemImportParams) -> Result<Value, ErrorData> {
+    let mut args = serde_json::Map::new();
+    match (params.path, params.items) {
+        (Some(path), None) => {
+            args.insert("path".into(), Value::String(path));
+        }
+        (None, Some(items)) => {
+            args.insert("items".into(), Value::Array(items));
+        }
+        (None, None) => {
+            return Err(McpToolError::InvalidParams("path or items required").into());
+        }
+        (Some(_), Some(_)) => {
+            return Err(McpToolError::InvalidParams("pass only one of path or items").into());
+        }
+    }
+    Ok(json!({
+        "command": "work-item-import",
+        "args": Value::Object(args),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1140,6 +1554,8 @@ mod tests {
     fn safe_tool_list_excludes_destructive_capabilities() {
         assert!(MCP_TOOL_NAMES.contains(&"roux_send_text"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_get_latest_output"));
+        assert!(MCP_TOOL_NAMES.contains(&"roux_start_work_item"));
+        assert!(MCP_TOOL_NAMES.contains(&"roux_resolve_work_item_decision"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_run_command"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_kill_pty"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_remove_worktree"));
@@ -1190,6 +1606,76 @@ mod tests {
         assert_eq!(request["args"]["profile"], "plain-shell");
         assert_eq!(request["args"]["direction"], "vertical");
         assert_eq!(request["args"]["working_dir"], "/repo");
+    }
+
+    #[test]
+    fn work_item_start_uses_run_dispatch_socket_command() {
+        let request = build_work_item_start_request(WorkItemStartParams {
+            id: "wi-1".into(),
+            profile: Some("claude".into()),
+            repo_path: Some("/repo".into()),
+            name: Some("Fix login".into()),
+            worktree_path: None,
+            branch: Some("feat/login".into()),
+            base: Some("origin/main".into()),
+            fetch_first: true,
+        });
+
+        assert_eq!(request["command"], "work-item-run-dispatch");
+        assert_eq!(request["args"]["id"], "wi-1");
+        assert_eq!(request["args"]["profile"], "claude");
+        assert_eq!(request["args"]["repoPath"], "/repo");
+        assert_eq!(request["args"]["name"], "Fix login");
+        assert_eq!(request["args"]["branch"], "feat/login");
+        assert_eq!(request["args"]["base"], "origin/main");
+        assert_eq!(request["args"]["fetchFirst"], true);
+    }
+
+    #[test]
+    fn work_item_decision_create_requires_options() {
+        let err = build_work_item_decision_create_request(WorkItemDecisionCreateParams {
+            run_id: "run-1".into(),
+            question: "Ship?".into(),
+            options: vec![],
+            default_value: None,
+            timeout_at: None,
+            timeout_seconds: None,
+            timeout_ms: None,
+        })
+        .expect_err("empty options should fail");
+
+        assert!(err.to_string().contains("options must not be empty"));
+    }
+
+    #[test]
+    fn work_item_import_requires_exactly_one_source() {
+        let missing =
+            build_work_item_import_request(WorkItemImportParams { items: None, path: None });
+        assert!(missing.is_err());
+
+        let both = build_work_item_import_request(WorkItemImportParams {
+            items: Some(vec![json!({ "title": "A" })]),
+            path: Some("/tmp/items.json".into()),
+        });
+        assert!(both.is_err());
+
+        let request = build_work_item_import_request(WorkItemImportParams {
+            items: Some(vec![json!({ "title": "A" })]),
+            path: None,
+        })
+        .expect("inline items should build");
+        assert_eq!(request["command"], "work-item-import");
+        assert_eq!(request["args"]["items"][0]["title"], "A");
+    }
+
+    #[test]
+    fn work_item_tools_are_registered() {
+        let tools = RouxMcpServer::tool_router().list_all();
+        let names = tools.iter().map(|tool| tool.name.as_ref()).collect::<Vec<_>>();
+
+        assert!(names.contains(&"roux_list_work_items"));
+        assert!(names.contains(&"roux_start_work_item"));
+        assert!(names.contains(&"roux_resolve_work_item_decision"));
     }
 
     #[test]

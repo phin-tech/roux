@@ -41,6 +41,27 @@ Deleting a card deletes the card's daemon-owned run history, run events, and
 decision prompts from the board database. Session/PTy deletion is a separate
 runtime-lifecycle decision surfaced by the app confirmation flow.
 
+## CLI and MCP
+
+The human CLI wraps the daemon work-item commands:
+
+```bash
+roux work-item list
+roux work-item create "Fix login" --project <project-id>
+roux work-item move <card-id> doing
+roux work-item start <card-id> --profile claude --repo-path /path/to/repo
+roux work-item runs --work-item <card-id>
+roux work-item events <run-id>
+roux work-item decision list --work-item <card-id>
+roux work-item decision resolve <decision-id> <value>
+```
+
+`roux kanban ...` is a visible alias for `roux work-item ...`.
+
+The MCP server exposes the same daemon-backed board surface with tools such as
+`roux_list_work_items`, `roux_create_work_item`, `roux_start_work_item`,
+`roux_list_work_item_runs`, and `roux_resolve_work_item_decision`.
+
 ## Related Protocol
 
 The daemon protocol surface is documented in
