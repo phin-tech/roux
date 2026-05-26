@@ -671,6 +671,9 @@ impl WorkItemStore {
         let Some(existing) = self.get_decision(id)? else {
             return Ok(None);
         };
+        if existing.status != WorkItemDecisionStatus::Pending {
+            return Ok(None);
+        }
         let tx = self.conn.transaction()?;
         tx.execute(
             "UPDATE work_item_decisions SET
@@ -1290,6 +1293,38 @@ mod tests {
 
         let run = store.get_run("run-1").unwrap().unwrap();
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Running);
+    }
+
+    #[test]
+    fn resolve_decision_ignores_non_pending_decisions() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .create_decision(
+                "dec-1".into(),
+                "run-1",
+                "Choose path?",
+                vec![roux_core::WorkItemDecisionOption {
+                    value: "existing".into(),
+                    label: "Use existing file".into(),
+                }],
+                Some("existing"),
+                Some(1250),
+                1200,
+            )
+            .unwrap();
+        store.timeout_decision_to_default("dec-1", 1250).unwrap().unwrap();
+
+        let result = store.resolve_decision("dec-1", "manual", Some("user"), 1300).unwrap();
+
+        assert!(result.is_none());
+        let decision = store.get_decision("dec-1").unwrap().unwrap();
+        assert_eq!(decision.status, roux_core::WorkItemDecisionStatus::TimedOut);
+        assert_eq!(decision.resolved_value.as_deref(), Some("existing"));
+        assert_eq!(decision.resolved_by.as_deref(), Some("timeout"));
     }
 
     #[test]
