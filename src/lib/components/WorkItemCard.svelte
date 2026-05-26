@@ -6,6 +6,7 @@
   import Terminal from "@lucide/svelte/icons/terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { WorkItem, WorkItemStatus } from "$lib/bindings";
+  import type { WorkItemDecision } from "$lib/types/workItems";
   import type { SessionStatus } from "$lib/types";
   import {
     clearDraggedWorkItem,
@@ -25,6 +26,7 @@
     onDelete?: (id: string, item: WorkItem) => void;
     startPending?: boolean;
     startError?: string | null;
+    pendingDecision?: WorkItemDecision | null;
     /** Opt-in card dragging. The full-screen board enables it; the sidebar leaves it off. */
     draggable?: boolean;
   }
@@ -39,6 +41,7 @@
     onDelete,
     startPending = false,
     startError = null,
+    pendingDecision = null,
     draggable = false,
   }: Props = $props();
 
@@ -114,6 +117,7 @@
   {draggable}
   data-dispatched={isDispatched}
   data-error={!!startError}
+  data-blocked={!!pendingDecision}
   ondragstart={draggable
     ? (e) => writeWorkItemDragData(e.dataTransfer, item)
     : undefined}
@@ -166,6 +170,25 @@
 
   {#if item.body}
     <p class="line-clamp-2 text-[11px] leading-4 text-text-muted">{item.body}</p>
+  {/if}
+
+  {#if pendingDecision}
+    <div class="rounded-md border border-amber/30 bg-amber/10 px-2 py-1.5">
+      <p class="text-[10px] font-semibold uppercase text-amber">Blocked</p>
+      <p class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-text-secondary">
+        {pendingDecision.question}
+      </p>
+      <div class="mt-1.5 flex flex-col gap-1">
+        {#each pendingDecision.options as option, index (option.value)}
+          <div class="flex min-w-0 items-center gap-1.5 text-[10px] leading-4 text-text-secondary">
+            <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-amber/20 font-semibold text-amber">
+              {index + 1}
+            </span>
+            <span class="truncate">{option.label}</span>
+          </div>
+        {/each}
+      </div>
+    </div>
   {/if}
 
   {#if startError}
@@ -305,6 +328,15 @@
   .work-card[data-error="true"]::before {
     background: var(--color-red);
     box-shadow: 0 0 18px color-mix(in srgb, var(--color-red) 38%, transparent);
+  }
+
+  .work-card[data-blocked="true"] {
+    border-color: color-mix(in srgb, var(--color-amber) 38%, var(--color-border));
+  }
+
+  .work-card[data-blocked="true"]::before {
+    background: var(--color-amber);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--color-amber) 38%, transparent);
   }
 
   @media (prefers-reduced-motion: reduce) {

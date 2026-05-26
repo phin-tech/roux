@@ -2,13 +2,24 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
 import {
   workItems,
+  workItemRuns,
+  workItemRunEvents,
+  workItemDecisions,
   itemsByColumn,
+  latestRunByItem,
+  pendingDecisionByItem,
+  runsByItem,
   applyWorkItemEvent,
   dispatchWorkItem,
+  stopWorkItemRun,
   WORK_ITEM_COLUMNS,
 } from "../workItems";
-import { workItemDispatch as tauriWorkItemDispatch } from "$lib/tauri";
+import {
+  workItemRunDispatch as tauriWorkItemRunDispatch,
+  workItemRunStop as tauriWorkItemRunStop,
+} from "$lib/tauri";
 import type { WorkItem } from "$lib/bindings";
+import type { WorkItemDecision, WorkItemRun } from "$lib/types/workItems";
 
 vi.mock("$lib/tauri", () => ({
   workItemList: vi.fn(),
@@ -16,7 +27,11 @@ vi.mock("$lib/tauri", () => ({
   workItemUpdate: vi.fn(),
   workItemMove: vi.fn(),
   workItemDelete: vi.fn(),
-  workItemDispatch: vi.fn(),
+  workItemRunDispatch: vi.fn(),
+  workItemRunStop: vi.fn(),
+  workItemRunsList: vi.fn().mockResolvedValue([]),
+  workItemDecisionsList: vi.fn().mockResolvedValue([]),
+  workItemDecisionResolve: vi.fn(),
 }));
 
 function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
@@ -40,9 +55,50 @@ function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
   };
 }
 
+function makeRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
+  return {
+    id: "run-1",
+    workItemId: "wi-1",
+    sessionId: "sess-1",
+    provider: "claude",
+    profileId: "claude",
+    status: "running",
+    worktreePath: null,
+    branch: null,
+    cost: null,
+    createdAt: 1,
+    startedAt: 1,
+    endedAt: null,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function makeDecision(overrides: Partial<WorkItemDecision> = {}): WorkItemDecision {
+  return {
+    id: "dec-1",
+    runId: "run-1",
+    question: "Choose path?",
+    options: [{ value: "go", label: "Go" }],
+    defaultValue: "go",
+    timeoutAt: null,
+    status: "pending",
+    resolvedValue: null,
+    resolvedBy: null,
+    createdAt: 2,
+    resolvedAt: null,
+    updatedAt: 2,
+    ...overrides,
+  };
+}
+
 describe("workItems store", () => {
   beforeEach(() => {
     workItems.set([]);
+    workItemRuns.set([]);
+    workItemRunEvents.set([]);
+    workItemDecisions.set([]);
+    vi.clearAllMocks();
   });
 
   describe("applyWorkItemEvent - created", () => {
@@ -103,16 +159,154 @@ describe("workItems store", () => {
     });
   });
 
+  describe("applyWorkItemEvent - run and decision events", () => {
+    it("stores created runs and binds their session to the card", () => {
+      const item = makeItem({ id: "wi-1", sessionId: null });
+      workItems.set([item]);
+
+      applyWorkItemEvent({ type: "runCreated", run: makeRun() });
+
+      expect(get(workItemRuns)).toHaveLength(1);
+      expect(get(workItems)[0].sessionId).toBe("sess-1");
+    });
+
+    it("treats the last stored run as latest even when timestamps match", () => {
+      workItemRuns.set([
+        makeRun({ id: "run-2", sessionId: "sess-2", createdAt: 1 }),
+        makeRun({ id: "run-1", sessionId: "sess-1", createdAt: 1 }),
+      ]);
+
+      expect(get(latestRunByItem).get("wi-1")?.id).toBe("run-1");
+      expect(get(runsByItem).get("wi-1")?.map((run) => run.id)).toEqual([
+        "run-1",
+        "run-2",
+      ]);
+    });
+
+    it("updates a run from daemon runUpdated events", () => {
+      workItemRuns.set([makeRun({ id: "run-1", status: "running" })]);
+
+      applyWorkItemEvent({
+        type: "runUpdated",
+        run: makeRun({ id: "run-1", status: "stopped", endedAt: 3 }),
+      });
+
+      expect(get(workItemRuns)[0].status).toBe("stopped");
+      expect(get(workItemRuns)[0].endedAt).toBe(3);
+    });
+
+    it("stores appended run events", () => {
+      applyWorkItemEvent({
+        type: "runEventAppended",
+        event: {
+          id: "event-1",
+          runId: "run-1",
+          kind: "statusChanged",
+          payload: { status: "stopped" },
+          createdAt: 3,
+        },
+      });
+
+      expect(get(workItemRunEvents)).toHaveLength(1);
+      expect(get(workItemRunEvents)[0].kind).toBe("statusChanged");
+    });
+
+    it("marks a card blocked when its latest run has a pending decision", () => {
+      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1" })]);
+
+      applyWorkItemEvent({ type: "decisionCreated", decision: makeDecision() });
+
+      expect(get(workItemRuns)[0].status).toBe("blocked");
+      expect(get(pendingDecisionByItem).get("wi-1")?.id).toBe("dec-1");
+    });
+
+    it("removes a resolved decision from pending card state", () => {
+      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "blocked" })]);
+      workItemDecisions.set([makeDecision()]);
+
+      applyWorkItemEvent({
+        type: "decisionResolved",
+        decision: makeDecision({
+          status: "resolved",
+          resolvedValue: "go",
+          resolvedAt: 3,
+        }),
+      });
+
+      expect(get(workItemRuns)[0].status).toBe("running");
+      expect(get(pendingDecisionByItem).has("wi-1")).toBe(false);
+    });
+
+    it("removes a timed out decision from pending card state", () => {
+      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "blocked" })]);
+      workItemDecisions.set([makeDecision({ timeoutAt: 3 })]);
+
+      applyWorkItemEvent({
+        type: "decisionTimedOut",
+        decision: makeDecision({
+          status: "timedOut",
+          resolvedValue: "go",
+          resolvedBy: "timeout",
+          resolvedAt: 3,
+          timeoutAt: 3,
+        }),
+      });
+
+      expect(get(workItemRuns)[0].status).toBe("running");
+      expect(get(pendingDecisionByItem).has("wi-1")).toBe(false);
+    });
+
+    it("keeps a run blocked while another decision on the run is pending", () => {
+      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "blocked" })]);
+      workItemDecisions.set([
+        makeDecision({ id: "dec-1" }),
+        makeDecision({ id: "dec-2", question: "Choose again?" }),
+      ]);
+
+      applyWorkItemEvent({
+        type: "decisionResolved",
+        decision: makeDecision({
+          id: "dec-1",
+          status: "resolved",
+          resolvedValue: "go",
+          resolvedAt: 3,
+        }),
+      });
+
+      expect(get(workItemRuns)[0].status).toBe("blocked");
+      expect(get(pendingDecisionByItem).get("wi-1")?.id).toBe("dec-2");
+    });
+  });
+
   describe("dispatchWorkItem", () => {
     it("binds the returned session id immediately", async () => {
       const item = makeItem({ id: "wi-1", sessionId: null });
       workItems.set([item]);
-      vi.mocked(tauriWorkItemDispatch).mockResolvedValueOnce("sess-1");
+      vi.mocked(tauriWorkItemRunDispatch).mockResolvedValueOnce(makeRun());
 
       await expect(dispatchWorkItem("wi-1")).resolves.toBe("sess-1");
 
-      expect(tauriWorkItemDispatch).toHaveBeenCalledWith("wi-1", {});
+      expect(tauriWorkItemRunDispatch).toHaveBeenCalledWith("wi-1", {});
+      expect(get(workItemRuns)).toHaveLength(1);
       expect(get(workItems)[0].sessionId).toBe("sess-1");
+      expect(get(workItems)[0].status).toBe("doing");
+    });
+  });
+
+  describe("stopWorkItemRun", () => {
+    it("upserts the stopped run returned by the daemon", async () => {
+      workItemRuns.set([makeRun({ id: "run-1", status: "running" })]);
+      vi.mocked(tauriWorkItemRunStop).mockResolvedValueOnce(
+        makeRun({ id: "run-1", status: "stopped", endedAt: 3 }),
+      );
+
+      await expect(stopWorkItemRun("run-1")).resolves.toMatchObject({
+        id: "run-1",
+        status: "stopped",
+      });
+
+      expect(tauriWorkItemRunStop).toHaveBeenCalledWith("run-1");
+      expect(get(workItemRuns)[0].status).toBe("stopped");
     });
   });
 

@@ -686,17 +686,89 @@ Requires `args.id`. Returns `{ "id": "..." }` on success.
 
 `work-item-dispatch`
 
-The explicit "Start" action. Requires `args.id`. Optional `args.repoPath`
+Compatibility "Start" action. Requires `args.id`. Optional `args.repoPath`
 overrides the repo path; otherwise the item's project's first `repo_root` is
 used. Optional `args.name`, `args.worktreePath`, `args.branch`, `args.base`,
 `args.fetchFirst`, and `args.profile` are forwarded to `session-create-shell`.
 Creates a session via `session-create-shell` (named after the work item's title
 unless `args.name` is supplied, inheriting `projectId`), then binds it with
-`set_session` which fires `WorkItemEvent::SessionBound`. Returns the new session
-record. For known auto-run agent profiles (Claude/Codex), dispatch also writes
-the provider startup command and then sends a first task prompt built from the
-card title, description, and external link. Plain-shell and type-only profiles
-are left at the prompt.
+`set_session` which fires `WorkItemEvent::SessionBound`, creates a
+`WorkItemRun`, and fires `WorkItemEvent::RunCreated`. Returns the new session
+record for older callers; `work-item-run-dispatch` is the source-of-truth
+variant.
+
+`work-item-run-dispatch`
+
+The run-owned "Start" action. Accepts the same args as `work-item-dispatch` but
+returns the created `WorkItemRun`. A card can have multiple runs; the card's
+`session_id` is maintained only as latest-session compatibility/display state.
+Successful dispatch moves the card to `doing` after the run is created.
+For known auto-run agent profiles (Claude/Codex), dispatch also writes the
+provider startup command and then sends a first task prompt built from the card
+title, description, and external link. Plain-shell and type-only profiles are
+left at the prompt.
+
+`work-item-runs-list`
+
+Optional `args.workItemId` / `args.work_item_id`. Returns persisted
+`WorkItemRun` rows, ordered by creation.
+
+`work-item-run-events`
+
+Requires `args.runId` / `args.run_id`. Returns append-only `WorkItemRunEvent`
+rows for that run in insertion order. For daemon-dispatched runs, the daemon
+attaches to the linked PTY and appends `text` events for observed output chunks.
+When the linked PTY exits, the daemon records a terminal `statusChanged` event:
+exit code `0` marks the run `done`; any non-zero or unknown exit marks it
+`failed`. Explicitly stopped runs are not overwritten by later PTY exit events.
+
+`work-item-run-stop`
+
+Requires `args.runId` / `args.run_id` / `args.id`. Stops a daemon-owned run by
+removing PTYs for the linked session, archiving the session record, setting the
+run status to `stopped`, stamping `endedAt`, appending a `statusChanged` run
+event, and broadcasting `WorkItemEvent::RunUpdated` plus
+`WorkItemEvent::RunEventAppended`. Returns the updated `WorkItemRun`.
+
+`work-item-decision-create`
+
+Requires `args.runId`, `args.question`, and `args.options` (`[{ value, label }]`).
+Optional `args.defaultValue`, `args.timeoutAt` / `args.timeout_at`,
+`args.timeoutSeconds` / `args.timeout_seconds`, or `args.timeoutMs` /
+`args.timeout_ms`. A timeout requires a default value. Persists a pending
+`WorkItemDecision`, marks the run blocked, appends a `decision` run event, and
+broadcasts `WorkItemEvent::DecisionCreated`. A run remains blocked while any
+decision on that run is still pending.
+
+If a timeout expires before a human resolves the decision, the daemon marks the
+decision `timedOut`, records `resolvedBy: "timeout"` and the default as
+`resolvedValue`, appends a `decisionTimedOut` run event, broadcasts
+`WorkItemEvent::DecisionTimedOut`, unblocks the run when no other pending
+decision remains, and writes the default value plus a newline to the linked
+session just like a clicked answer.
+
+Daemon-dispatched run output is also scanned for newline-delimited JSON decision
+events. Supported first-pass shapes include:
+
+```json
+{"type":"decision","question":"Choose path?","options":[{"value":"existing","label":"Use existing"},{"value":"new","label":"Create new"}],"defaultValue":"existing","timeoutSeconds":86400}
+```
+
+and nested forms like `{ "decision": { "question": "...", "options": ["A", "B"] } }`.
+Detected prompts are persisted through the same daemon decision path.
+
+`work-item-decisions-list`
+
+Optional `args.workItemId` / `args.work_item_id`. Returns pending decisions,
+filtered to the card when supplied.
+
+`work-item-decision-resolve`
+
+Requires `args.id` and `args.value`. Optional `args.resolvedBy`. Marks the
+decision resolved, appends a `decisionResolved` run event, and broadcasts
+`WorkItemEvent::DecisionResolved`. If the decision's run has a linked daemon
+PTY/session, the daemon writes the selected value plus a newline to that
+session. Delivery failures are audited as an `error` run event on the same run.
 
 `work-item-import`
 

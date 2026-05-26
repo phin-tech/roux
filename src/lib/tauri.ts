@@ -941,6 +941,12 @@ export type {
 // WorkItemEvent is hand-typed — specta can't reach the "work-item-event"
 // channel payload, so it lives outside the generated bindings.
 export type { WorkItemEvent } from "./types/workItems";
+export type {
+  WorkItemDecision,
+  WorkItemDecisionOption,
+  WorkItemRun,
+  WorkItemRunEvent,
+} from "./types/workItems";
 
 export async function workItemList(projectId: string | null): Promise<import("$lib/bindings").WorkItem[]> {
   const { commands } = await import("$lib/bindings");
@@ -1014,6 +1020,80 @@ export async function workItemDispatch(
   );
   if (r.status === "error") throw new Error(r.error);
   return r.data;
+}
+
+export interface WorkItemDispatchOptions {
+  profile?: string | null;
+  repoPath?: string | null;
+  name?: string | null;
+  worktreePath?: string | null;
+  branch?: string | null;
+  base?: string | null;
+  fetchFirst?: boolean | null;
+}
+
+export async function workItemRunDispatch(
+  id: string,
+  options: WorkItemDispatchOptions = {},
+): Promise<import("./types/workItems").WorkItemRun> {
+  return invoke("work_item_run_dispatch", {
+    id,
+    profile: options.profile ?? null,
+    repoPath: options.repoPath ?? null,
+    name: options.name ?? null,
+    worktreePath: options.worktreePath ?? null,
+    branch: options.branch ?? null,
+    base: options.base ?? null,
+    fetchFirst: options.fetchFirst ?? null,
+  });
+}
+
+export async function workItemRunsList(
+  workItemId: string | null,
+): Promise<import("./types/workItems").WorkItemRun[]> {
+  return invoke("work_item_runs_list", { workItemId });
+}
+
+export async function workItemRunEvents(
+  runId: string,
+): Promise<import("./types/workItems").WorkItemRunEvent[]> {
+  return invoke("work_item_run_events", { runId });
+}
+
+export async function workItemRunStop(
+  runId: string,
+): Promise<import("./types/workItems").WorkItemRun> {
+  return invoke("work_item_run_stop", { runId });
+}
+
+export async function workItemDecisionCreate(
+  runId: string,
+  question: string,
+  options: import("./types/workItems").WorkItemDecisionOption[],
+  defaultValue: string | null = null,
+  timeoutAt: number | null = null,
+): Promise<import("./types/workItems").WorkItemDecision> {
+  return invoke("work_item_decision_create", {
+    runId,
+    question,
+    options,
+    defaultValue,
+    timeoutAt,
+  });
+}
+
+export async function workItemDecisionsList(
+  workItemId: string | null,
+): Promise<import("./types/workItems").WorkItemDecision[]> {
+  return invoke("work_item_decisions_list", { workItemId });
+}
+
+export async function workItemDecisionResolve(
+  id: string,
+  value: string,
+  resolvedBy: string | null = null,
+): Promise<import("./types/workItems").WorkItemDecision> {
+  return invoke("work_item_decision_resolve", { id, value, resolvedBy });
 }
 
 export async function setSessionNameOverride(

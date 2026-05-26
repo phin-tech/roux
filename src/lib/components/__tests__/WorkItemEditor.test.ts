@@ -18,10 +18,16 @@ if (typeof Element !== "undefined" && !Element.prototype.animate) {
     }) as unknown as Animation;
 }
 import { editingWorkItemId } from "$lib/stores/ui";
-import { workItems, updateWorkItem } from "$lib/stores/workItems";
+import {
+  runsByItem,
+  stopWorkItemRun,
+  workItems,
+  updateWorkItem,
+} from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { projects } from "$lib/stores/projects";
 import type { WorkItem } from "$lib/bindings";
+import type { WorkItemRun } from "$lib/types/workItems";
 
 vi.mock("$lib/stores/ui", async () => {
   const { writable } = await import("svelte/store");
@@ -36,7 +42,11 @@ vi.mock("$lib/stores/workItems", async () => {
   const { writable } = await import("svelte/store");
   return {
     workItems: writable<WorkItem[]>([]),
+    pendingDecisionByItem: writable(new Map()),
+    runsByItem: writable(new Map()),
     updateWorkItem: vi.fn().mockResolvedValue({}),
+    resolveWorkItemDecision: vi.fn().mockResolvedValue({}),
+    stopWorkItemRun: vi.fn().mockResolvedValue({}),
     WORK_ITEM_COLUMNS: ["todo", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
@@ -77,6 +87,25 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
   } as WorkItem;
 }
 
+function workItemRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
+  return {
+    id: "run-1",
+    workItemId: "wi-1",
+    sessionId: "sess-1",
+    provider: "claude",
+    profileId: "claude",
+    status: "running",
+    worktreePath: "/tmp/repo",
+    branch: "roux/run-1",
+    cost: null,
+    createdAt: 1_700_000_000,
+    startedAt: 1_700_000_000,
+    endedAt: null,
+    updatedAt: 1_700_000_000,
+    ...overrides,
+  };
+}
+
 describe("WorkItemEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -86,6 +115,7 @@ describe("WorkItemEditor", () => {
     (projects as ReturnType<typeof import("svelte/store").writable>).set([
       { id: "proj-1", name: "Roux" },
     ]);
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
     editingWorkItemId.set(null);
   });
 
@@ -144,5 +174,31 @@ describe("WorkItemEditor", () => {
       expect.objectContaining({ id: "wi-1" }),
       "card-only",
     );
+  });
+
+  it("shows daemon run history for the card", async () => {
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([["wi-1", [workItemRun({ status: "blocked" })]]]),
+    );
+
+    render(WorkItemEditor);
+    editingWorkItemId.set("wi-1");
+
+    await screen.findByText("Run History");
+    expect(screen.getByText("blocked")).toBeTruthy();
+    expect(screen.getByText("roux/run-1")).toBeTruthy();
+  });
+
+  it("stops an active run from run history", async () => {
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([["wi-1", [workItemRun({ id: "run-1", status: "running" })]]]),
+    );
+
+    render(WorkItemEditor);
+    editingWorkItemId.set("wi-1");
+
+    await fireEvent.click(await screen.findByRole("button", { name: "Stop run run-1" }));
+
+    expect(stopWorkItemRun).toHaveBeenCalledWith("run-1");
   });
 });

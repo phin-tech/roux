@@ -1,16 +1,33 @@
 import { writable, derived, get } from "svelte/store";
 import type { WorkItem, WorkItemInput, WorkItemStatus } from "$lib/bindings";
-import type { WorkItemEvent } from "$lib/types/workItems";
+import type {
+  WorkItemDecision,
+  WorkItemEvent,
+  WorkItemRun,
+  WorkItemRunEvent,
+} from "$lib/types/workItems";
 import {
   workItemList as tauriWorkItemList,
   workItemCreate as tauriWorkItemCreate,
   workItemUpdate as tauriWorkItemUpdate,
   workItemMove as tauriWorkItemMove,
   workItemDelete as tauriWorkItemDelete,
-  workItemDispatch as tauriWorkItemDispatch,
+  workItemRunDispatch as tauriWorkItemRunDispatch,
+  workItemRunsList as tauriWorkItemRunsList,
+  workItemRunStop as tauriWorkItemRunStop,
+  workItemDecisionsList as tauriWorkItemDecisionsList,
+  workItemDecisionResolve as tauriWorkItemDecisionResolve,
 } from "$lib/tauri";
 
-export { type WorkItem, type WorkItemEvent, type WorkItemInput, type WorkItemStatus };
+export {
+  type WorkItem,
+  type WorkItemDecision,
+  type WorkItemEvent,
+  type WorkItemInput,
+  type WorkItemRun,
+  type WorkItemRunEvent,
+  type WorkItemStatus,
+};
 
 export const WORK_ITEM_COLUMNS: WorkItemStatus[] = ["todo", "doing", "review", "done"];
 
@@ -22,6 +39,9 @@ export const COLUMN_LABELS: Record<WorkItemStatus, string> = {
 };
 
 export const workItems = writable<WorkItem[]>([]);
+export const workItemRuns = writable<WorkItemRun[]>([]);
+export const workItemRunEvents = writable<WorkItemRunEvent[]>([]);
+export const workItemDecisions = writable<WorkItemDecision[]>([]);
 
 export const itemsByColumn = derived(workItems, ($items) => {
   const map = new Map<WorkItemStatus, WorkItem[]>();
@@ -38,16 +58,70 @@ export const itemsByColumn = derived(workItems, ($items) => {
   return map;
 });
 
+export const latestRunByItem = derived(workItemRuns, ($runs) => {
+  const map = new Map<string, WorkItemRun>();
+  for (const run of $runs) {
+    map.set(run.workItemId, run);
+  }
+  return map;
+});
+
+export const runsByItem = derived(workItemRuns, ($runs) => {
+  const map = new Map<string, WorkItemRun[]>();
+  for (const run of $runs) {
+    const bucket = map.get(run.workItemId) ?? [];
+    bucket.push(run);
+    map.set(run.workItemId, bucket);
+  }
+  for (const runs of map.values()) {
+    runs.reverse();
+  }
+  return map;
+});
+
+export const pendingDecisionByRun = derived(workItemDecisions, ($decisions) => {
+  const map = new Map<string, WorkItemDecision>();
+  for (const decision of $decisions) {
+    if (decision.status !== "pending") continue;
+    map.set(decision.runId, decision);
+  }
+  return map;
+});
+
+export const pendingDecisionByItem = derived(
+  [latestRunByItem, pendingDecisionByRun],
+  ([$latestRunByItem, $pendingDecisionByRun]) => {
+    const map = new Map<string, WorkItemDecision>();
+    for (const [itemId, run] of $latestRunByItem) {
+      const decision = $pendingDecisionByRun.get(run.id);
+      if (decision) map.set(itemId, decision);
+    }
+    return map;
+  },
+);
+
 function bindSessionToWorkItem(id: string, sessionId: string): void {
   workItems.update((list) =>
     list.map((i) => (i.id === id ? { ...i, sessionId } : i)),
   );
 }
 
+function markItemDoing(id: string): void {
+  workItems.update((list) =>
+    list.map((i) => (i.id === id ? { ...i, status: "doing" } : i)),
+  );
+}
+
 export async function hydrateWorkItems(): Promise<void> {
   try {
-    const items = await tauriWorkItemList(null);
+    const [items, runs, decisions] = await Promise.all([
+      tauriWorkItemList(null),
+      tauriWorkItemRunsList(null),
+      tauriWorkItemDecisionsList(null),
+    ]);
     workItems.set(items);
+    workItemRuns.set(runs);
+    workItemDecisions.set(decisions);
   } catch (err) {
     console.error("Failed to hydrate work items", err);
     throw err;
@@ -85,7 +159,60 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
     case "sessionBound":
       bindSessionToWorkItem(event.id, event.sessionId);
       break;
+    case "runCreated":
+      upsertRun(event.run);
+      if (event.run.sessionId) {
+        bindSessionToWorkItem(event.run.workItemId, event.run.sessionId);
+      }
+      break;
+    case "runUpdated":
+      upsertRun(event.run);
+      break;
+    case "runEventAppended":
+      workItemRunEvents.update((events) => [...events, event.event]);
+      break;
+    case "decisionCreated":
+      upsertDecision(event.decision);
+      markRunStatus(event.decision.runId, "blocked");
+      break;
+    case "decisionResolved":
+      upsertDecision(event.decision);
+      markRunStatusAfterDecisionResolved(event.decision.runId);
+      break;
+    case "decisionTimedOut":
+      upsertDecision(event.decision);
+      markRunStatusAfterDecisionResolved(event.decision.runId);
+      break;
   }
+}
+
+function upsertRun(run: WorkItemRun): void {
+  workItemRuns.update((runs) =>
+    runs.some((r) => r.id === run.id)
+      ? runs.map((r) => (r.id === run.id ? run : r))
+      : [...runs, run],
+  );
+}
+
+function upsertDecision(decision: WorkItemDecision): void {
+  workItemDecisions.update((decisions) =>
+    decisions.some((d) => d.id === decision.id)
+      ? decisions.map((d) => (d.id === decision.id ? decision : d))
+      : [...decisions, decision],
+  );
+}
+
+function markRunStatus(runId: string, status: WorkItemRun["status"]): void {
+  workItemRuns.update((runs) =>
+    runs.map((run) => (run.id === runId ? { ...run, status } : run)),
+  );
+}
+
+function markRunStatusAfterDecisionResolved(runId: string): void {
+  const hasPendingDecision = get(workItemDecisions).some(
+    (decision) => decision.runId === runId && decision.status === "pending",
+  );
+  markRunStatus(runId, hasPendingDecision ? "blocked" : "running");
 }
 
 export async function createWorkItem(input: WorkItemInput): Promise<WorkItem> {
@@ -128,9 +255,30 @@ export async function dispatchWorkItem(
   id: string,
   options: WorkItemDispatchOptions = {},
 ): Promise<string> {
-  const sessionId = await tauriWorkItemDispatch(id, options);
-  bindSessionToWorkItem(id, sessionId);
-  return sessionId;
+  const run = await tauriWorkItemRunDispatch(id, options);
+  upsertRun(run);
+  markItemDoing(id);
+  if (run.sessionId) {
+    bindSessionToWorkItem(id, run.sessionId);
+    return run.sessionId;
+  }
+  return "";
+}
+
+export async function resolveWorkItemDecision(
+  id: string,
+  value: string,
+): Promise<WorkItemDecision> {
+  const decision = await tauriWorkItemDecisionResolve(id, value, "user");
+  upsertDecision(decision);
+  markRunStatusAfterDecisionResolved(decision.runId);
+  return decision;
+}
+
+export async function stopWorkItemRun(runId: string): Promise<WorkItemRun> {
+  const run = await tauriWorkItemRunStop(runId);
+  upsertRun(run);
+  return run;
 }
 
 export function getWorkItemSnapshot(id: string): WorkItem | undefined {

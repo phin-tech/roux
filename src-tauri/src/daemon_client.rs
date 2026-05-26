@@ -271,8 +271,7 @@ impl DaemonClient {
         base: Option<String>,
         fetch_first: Option<bool>,
     ) -> Result<String, String> {
-        self
-            .sdk
+        self.sdk
             .work_item_dispatch(
                 id,
                 profile,
@@ -283,6 +282,86 @@ impl DaemonClient {
                 base,
                 fetch_first,
             )
+            .await
+            .map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_run_dispatch(
+        &self,
+        id: String,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+        branch: Option<String>,
+        base: Option<String>,
+        fetch_first: Option<bool>,
+    ) -> Result<roux_core::WorkItemRun, String> {
+        self.sdk
+            .work_item_run_dispatch(
+                id,
+                profile,
+                repo_path,
+                name,
+                worktree_path,
+                branch,
+                base,
+                fetch_first,
+            )
+            .await
+            .map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_runs_list(
+        &self,
+        work_item_id: Option<String>,
+    ) -> Result<Vec<roux_core::WorkItemRun>, String> {
+        self.sdk.work_item_runs_list(work_item_id).await.map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_run_events(
+        &self,
+        run_id: String,
+    ) -> Result<Vec<roux_core::WorkItemRunEvent>, String> {
+        self.sdk.work_item_run_events(run_id).await.map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_run_stop(
+        &self,
+        run_id: String,
+    ) -> Result<roux_core::WorkItemRun, String> {
+        self.sdk.work_item_run_stop(run_id).await.map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_decision_create(
+        &self,
+        run_id: String,
+        question: String,
+        options: Vec<roux_core::WorkItemDecisionOption>,
+        default_value: Option<String>,
+        timeout_at: Option<u64>,
+    ) -> Result<roux_core::WorkItemDecision, String> {
+        self.sdk
+            .work_item_decision_create(run_id, question, options, default_value, timeout_at)
+            .await
+            .map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_decisions_list(
+        &self,
+        work_item_id: Option<String>,
+    ) -> Result<Vec<roux_core::WorkItemDecision>, String> {
+        self.sdk.work_item_decisions_list(work_item_id).await.map_err(|err| err.to_string())
+    }
+
+    pub(crate) async fn work_item_decision_resolve(
+        &self,
+        id: String,
+        value: String,
+        resolved_by: Option<String>,
+    ) -> Result<roux_core::WorkItemDecision, String> {
+        self.sdk
+            .work_item_decision_resolve(id, value, resolved_by)
             .await
             .map_err(|err| err.to_string())
     }
@@ -1351,9 +1430,11 @@ fn handle_work_item_event_frame(
 ) -> DaemonClientResult<()> {
     match frame {
         WorkItemEventStreamFrame::Ready => Ok(()),
-        WorkItemEventStreamFrame::Event { event } => app
-            .emit(WORK_ITEM_EVENT, &event)
-            .map_err(|err| DaemonClientError::adapter(format!("emit daemon work-item event: {err}"))),
+        WorkItemEventStreamFrame::Event { event } => {
+            app.emit(WORK_ITEM_EVENT, &event).map_err(|err| {
+                DaemonClientError::adapter(format!("emit daemon work-item event: {err}"))
+            })
+        }
         WorkItemEventStreamFrame::Warning { message } => {
             rlog!("Daemon work-item event stream warning: {message}");
             Ok(())

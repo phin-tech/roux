@@ -8,6 +8,7 @@
     moveWorkItem,
     dispatchWorkItem,
     createWorkItem,
+    pendingDecisionByItem,
     type WorkItemStatus,
   } from "$lib/stores/workItems";
   import { sessionList } from "$lib/stores/sessions";
@@ -191,9 +192,11 @@
               {@const sessionStatus = item.sessionId
                 ? ($sessionStatusMap.get(item.sessionId) ?? null)
                 : null}
+              {@const pendingDecision = $pendingDecisionByItem.get(item.id) ?? null}
               <WorkItemCard
                 {item}
                 {sessionStatus}
+                {pendingDecision}
                 draggable
                 onMove={handleMove}
                 onStart={handleStart}

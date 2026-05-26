@@ -48,6 +48,20 @@ Open **Settings -> Notifications** to check whether agent notifications are wire
 
 The global OS notification toggle only controls macOS/desktop fan-out. Roux still keeps in-app notifications and unread badges available.
 
+## Kanban board
+
+Use the Kanban board to turn a written task into a daemon-owned agent run.
+
+- **Start** creates a new run, links it to a daemon session/PTy, and moves the
+  card to **In Progress**.
+- **Open terminal** attaches to the latest linked run/session without creating a
+  new run.
+- Blocked decision prompts appear on the card and detail view with numbered
+  choices. Picking a choice writes that value back to the session.
+
+See [Kanban Board](features/kanban.md) for run history, decision timeout, and
+deletion behavior.
+
 ## Reconnect and restore
 
 On launch, restored sessions appear disconnected by design. Click **Reconnect** on a session card to restore its saved pane layout (including shell splits) and reconnect the main agent pane.

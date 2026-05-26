@@ -15,7 +15,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use roux_core::{WorkItem, WorkItemEvent, WorkItemInput, WorkItemStatus};
+use roux_core::{
+    WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemEvent, WorkItemInput, WorkItemRun,
+    WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunStatus, WorkItemStatus,
+};
 
 use crate::work_item_store::WorkItemStore;
 
@@ -54,11 +57,7 @@ impl WorkItemHandle {
     }
 
     pub fn list(&self, project_id: Option<&str>) -> Result<Vec<WorkItem>, String> {
-        self.inner
-            .lock()
-            .unwrap()
-            .list(project_id)
-            .map_err(|e| format!("work-item list: {e}"))
+        self.inner.lock().unwrap().list(project_id).map_err(|e| format!("work-item list: {e}"))
     }
 
     pub fn get(&self, id: &str) -> Result<Option<WorkItem>, String> {
@@ -106,11 +105,7 @@ impl WorkItemHandle {
             .move_item(id, status.clone(), sort_order, now)
             .map_err(|e| format!("work-item move: {e}"))?;
         if item.is_some() {
-            self.broadcast(WorkItemEvent::Moved {
-                id: id.to_string(),
-                status,
-                sort_order,
-            });
+            self.broadcast(WorkItemEvent::Moved { id: id.to_string(), status, sort_order });
         }
         Ok(item)
     }
@@ -175,7 +170,11 @@ impl WorkItemHandle {
 
     /// Insert an item without broadcasting a per-item event. Used by the
     /// import handler so the batch `Imported` event is the only signal emitted.
-    pub fn update_silent(&self, id: &str, input: WorkItemInput) -> Result<Option<WorkItem>, String> {
+    pub fn update_silent(
+        &self,
+        id: &str,
+        input: WorkItemInput,
+    ) -> Result<Option<WorkItem>, String> {
         let now = now_secs();
         self.inner
             .lock()
@@ -196,6 +195,211 @@ impl WorkItemHandle {
 
     pub fn broadcast_imported(&self, ids: Vec<String>) {
         self.broadcast(WorkItemEvent::Imported { ids });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_run(
+        &self,
+        work_item_id: &str,
+        session_id: Option<&str>,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+    ) -> Result<WorkItemRun, String> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_secs();
+        let run = self
+            .inner
+            .lock()
+            .unwrap()
+            .create_run(
+                id,
+                work_item_id,
+                session_id,
+                provider,
+                profile_id,
+                worktree_path,
+                branch,
+                now,
+            )
+            .map_err(|e| format!("work-item run create: {e}"))?;
+        self.broadcast(WorkItemEvent::RunCreated { run: run.clone() });
+        Ok(run)
+    }
+
+    pub fn list_runs(&self, work_item_id: Option<&str>) -> Result<Vec<WorkItemRun>, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .list_runs(work_item_id)
+            .map_err(|e| format!("work-item run list: {e}"))
+    }
+
+    pub fn get_run(&self, id: &str) -> Result<Option<WorkItemRun>, String> {
+        self.inner.lock().unwrap().get_run(id).map_err(|e| format!("work-item run get: {e}"))
+    }
+
+    pub fn append_run_event(
+        &self,
+        run_id: &str,
+        kind: WorkItemRunEventKind,
+        payload: serde_json::Value,
+    ) -> Result<WorkItemRunEvent, String> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_secs();
+        let event = self
+            .inner
+            .lock()
+            .unwrap()
+            .append_run_event(id, run_id, kind, payload, now)
+            .map_err(|e| format!("work-item run event append: {e}"))?;
+        self.broadcast(WorkItemEvent::RunEventAppended { event: event.clone() });
+        Ok(event)
+    }
+
+    pub fn list_run_events(&self, run_id: &str) -> Result<Vec<WorkItemRunEvent>, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .list_run_events(run_id)
+            .map_err(|e| format!("work-item run event list: {e}"))
+    }
+
+    pub fn set_run_status(
+        &self,
+        id: &str,
+        status: WorkItemRunStatus,
+        mut payload: serde_json::Value,
+    ) -> Result<Option<WorkItemRun>, String> {
+        let now = now_secs();
+        if let serde_json::Value::Object(ref mut object) = payload {
+            object
+                .entry("status")
+                .or_insert_with(|| serde_json::Value::String(status.as_str().to_string()));
+        }
+        let event_id = Uuid::new_v4().to_string();
+        let result = self
+            .inner
+            .lock()
+            .unwrap()
+            .update_run_status_with_event(id, status, event_id, payload, now)
+            .map_err(|e| format!("work-item run status update: {e}"))?;
+        if let Some((run, event)) = result {
+            self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
+            self.broadcast(WorkItemEvent::RunEventAppended { event });
+            Ok(Some(run))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn create_decision(
+        &self,
+        run_id: &str,
+        question: &str,
+        options: Vec<WorkItemDecisionOption>,
+        default_value: Option<&str>,
+        timeout_at: Option<u64>,
+    ) -> Result<WorkItemDecision, String> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_secs();
+        let decision = self
+            .inner
+            .lock()
+            .unwrap()
+            .create_decision(id, run_id, question, options, default_value, timeout_at, now)
+            .map_err(|e| format!("work-item decision create: {e}"))?;
+        self.append_run_event(
+            &decision.run_id,
+            WorkItemRunEventKind::Decision,
+            serde_json::to_value(&decision)
+                .map_err(|e| format!("work-item decision event encode: {e}"))?,
+        )?;
+        self.broadcast(WorkItemEvent::DecisionCreated { decision: decision.clone() });
+        if decision.timeout_at.is_some_and(|deadline| deadline <= now) {
+            return Ok(self.timeout_decision_to_default(&decision.id)?.unwrap_or(decision));
+        }
+        Ok(decision)
+    }
+
+    pub fn list_pending_decisions(
+        &self,
+        work_item_id: Option<&str>,
+    ) -> Result<Vec<WorkItemDecision>, String> {
+        self.expire_due_decisions()?;
+        self.inner
+            .lock()
+            .unwrap()
+            .list_pending_decisions(work_item_id)
+            .map_err(|e| format!("work-item decision list: {e}"))
+    }
+
+    pub fn expire_due_decisions(&self) -> Result<Vec<WorkItemDecision>, String> {
+        let now = now_secs();
+        let decisions = self
+            .inner
+            .lock()
+            .unwrap()
+            .timeout_due_decisions(now)
+            .map_err(|e| format!("work-item decision timeout: {e}"))?;
+        for decision in &decisions {
+            self.record_decision_timeout(decision)?;
+        }
+        Ok(decisions)
+    }
+
+    pub fn timeout_decision_to_default(
+        &self,
+        id: &str,
+    ) -> Result<Option<WorkItemDecision>, String> {
+        let now = now_secs();
+        let decision = self
+            .inner
+            .lock()
+            .unwrap()
+            .timeout_decision_to_default(id, now)
+            .map_err(|e| format!("work-item decision timeout: {e}"))?;
+        if let Some(ref decision) = decision {
+            self.record_decision_timeout(decision)?;
+        }
+        Ok(decision)
+    }
+
+    pub fn resolve_decision(
+        &self,
+        id: &str,
+        value: &str,
+        resolved_by: Option<&str>,
+    ) -> Result<Option<WorkItemDecision>, String> {
+        let now = now_secs();
+        let decision = self
+            .inner
+            .lock()
+            .unwrap()
+            .resolve_decision(id, value, resolved_by, now)
+            .map_err(|e| format!("work-item decision resolve: {e}"))?;
+        if let Some(ref decision) = decision {
+            self.append_run_event(
+                &decision.run_id,
+                WorkItemRunEventKind::DecisionResolved,
+                serde_json::to_value(decision)
+                    .map_err(|e| format!("work-item decision event encode: {e}"))?,
+            )?;
+            self.broadcast(WorkItemEvent::DecisionResolved { decision: decision.clone() });
+        }
+        Ok(decision)
+    }
+
+    fn record_decision_timeout(&self, decision: &WorkItemDecision) -> Result<(), String> {
+        self.append_run_event(
+            &decision.run_id,
+            WorkItemRunEventKind::DecisionTimedOut,
+            serde_json::to_value(decision)
+                .map_err(|e| format!("work-item decision event encode: {e}"))?,
+        )?;
+        self.broadcast(WorkItemEvent::DecisionTimedOut { decision: decision.clone() });
+        Ok(())
     }
 }
 
@@ -265,6 +469,108 @@ mod tests {
 
         let event = rx.try_recv().expect("SessionBound event should be broadcast");
         assert!(matches!(event, WorkItemEvent::SessionBound { .. }));
+    }
+
+    #[test]
+    fn run_created_event_broadcasts() {
+        let handle = WorkItemHandle::in_memory();
+        let item = handle.create(input("Task")).unwrap();
+        let mut rx = handle.subscribe_events();
+
+        let run = handle
+            .create_run(&item.id, Some("sess-1"), Some("claude"), Some("claude"), None, None)
+            .unwrap();
+
+        assert_eq!(run.work_item_id, item.id);
+        let event = rx.try_recv().expect("RunCreated event should be broadcast");
+        assert!(matches!(event, WorkItemEvent::RunCreated { .. }));
+    }
+
+    #[test]
+    fn run_status_update_broadcasts_run_and_event() {
+        let handle = WorkItemHandle::in_memory();
+        let item = handle.create(input("Task")).unwrap();
+        let run = handle.create_run(&item.id, Some("sess-1"), None, None, None, None).unwrap();
+        let mut rx = handle.subscribe_events();
+
+        let updated = handle
+            .set_run_status(
+                &run.id,
+                roux_core::WorkItemRunStatus::Stopped,
+                serde_json::json!({ "reason": "user" }),
+            )
+            .unwrap()
+            .expect("run should exist");
+
+        assert_eq!(updated.status, roux_core::WorkItemRunStatus::Stopped);
+        let event = rx.try_recv().expect("RunUpdated event should be broadcast");
+        assert!(matches!(event, WorkItemEvent::RunUpdated { .. }));
+        let event = rx.try_recv().expect("RunEventAppended event should be broadcast");
+        assert!(matches!(
+            event,
+            WorkItemEvent::RunEventAppended {
+                event: WorkItemRunEvent { kind: WorkItemRunEventKind::StatusChanged, .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn decision_events_broadcast() {
+        let handle = WorkItemHandle::in_memory();
+        let item = handle.create(input("Task")).unwrap();
+        let run = handle.create_run(&item.id, Some("sess-1"), None, None, None, None).unwrap();
+        let mut rx = handle.subscribe_events();
+
+        let decision = handle
+            .create_decision(
+                &run.id,
+                "Choose path?",
+                vec![roux_core::WorkItemDecisionOption { value: "go".into(), label: "Go".into() }],
+                Some("go"),
+                None,
+            )
+            .unwrap();
+        let audit = rx.try_recv().expect("decision audit event should be broadcast");
+        assert!(matches!(audit, WorkItemEvent::RunEventAppended { .. }));
+        let created = rx.try_recv().expect("DecisionCreated event should be broadcast");
+        assert!(matches!(created, WorkItemEvent::DecisionCreated { .. }));
+
+        handle.resolve_decision(&decision.id, "go", Some("user")).unwrap();
+        let audit = rx.try_recv().expect("resolution audit event should be broadcast");
+        assert!(matches!(audit, WorkItemEvent::RunEventAppended { .. }));
+        let resolved = rx.try_recv().expect("DecisionResolved event should be broadcast");
+        assert!(matches!(resolved, WorkItemEvent::DecisionResolved { .. }));
+    }
+
+    #[test]
+    fn decision_timeout_broadcasts_audit_event() {
+        let handle = WorkItemHandle::in_memory();
+        let item = handle.create(input("Task")).unwrap();
+        let run = handle.create_run(&item.id, Some("sess-1"), None, None, None, None).unwrap();
+        let decision = handle
+            .create_decision(
+                &run.id,
+                "Choose path?",
+                vec![roux_core::WorkItemDecisionOption { value: "go".into(), label: "Go".into() }],
+                Some("go"),
+                Some(now_secs() + 60),
+            )
+            .unwrap();
+        let mut rx = handle.subscribe_events();
+
+        let timed_out = handle.timeout_decision_to_default(&decision.id).unwrap().unwrap();
+
+        assert_eq!(timed_out.status, roux_core::WorkItemDecisionStatus::TimedOut);
+        assert_eq!(timed_out.resolved_value.as_deref(), Some("go"));
+        let audit = rx.try_recv().expect("timeout audit event should be broadcast");
+        assert!(matches!(
+            audit,
+            WorkItemEvent::RunEventAppended {
+                event: WorkItemRunEvent { kind: WorkItemRunEventKind::DecisionTimedOut, .. }
+            }
+        ));
+        let timed_out = rx.try_recv().expect("DecisionTimedOut event should be broadcast");
+        assert!(matches!(timed_out, WorkItemEvent::DecisionTimedOut { .. }));
     }
 
     #[test]

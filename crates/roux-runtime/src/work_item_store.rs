@@ -11,8 +11,13 @@
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
+use serde_json::Value;
 
-use roux_core::{ExternalRef, WorkItem, WorkItemInput, WorkItemStatus};
+use roux_core::{
+    ExternalRef, WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemDecisionStatus,
+    WorkItemInput, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunStatus,
+    WorkItemStatus,
+};
 
 pub struct WorkItemStore {
     conn: Connection,
@@ -21,11 +26,12 @@ pub struct WorkItemStore {
 impl WorkItemStore {
     pub fn open(path: &Path) -> SqlResult<Self> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| rusqlite::Error::SqliteFailure(
+            std::fs::create_dir_all(parent).map_err(|e| {
+                rusqlite::Error::SqliteFailure(
                     rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CANTOPEN),
                     Some(e.to_string()),
-                ))?;
+                )
+            })?;
         }
         let conn = Connection::open(path)?;
         Self::configure_and_migrate(conn)
@@ -39,10 +45,10 @@ impl WorkItemStore {
     fn configure_and_migrate(conn: Connection) -> SqlResult<Self> {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
+             PRAGMA foreign_keys=ON;
              PRAGMA busy_timeout=5000;",
         )?;
-        let version: i64 =
-            conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         if version < 1 {
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS work_items (
@@ -70,6 +76,70 @@ impl WorkItemStore {
                 CREATE INDEX IF NOT EXISTS work_items_status
                     ON work_items(status);
                 PRAGMA user_version = 1;",
+            )?;
+        }
+        if version < 2 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS work_item_runs (
+                    id            TEXT PRIMARY KEY,
+                    work_item_id  TEXT NOT NULL,
+                    session_id    TEXT,
+                    provider      TEXT,
+                    profile_id    TEXT,
+                    status        TEXT NOT NULL DEFAULT 'running',
+                    worktree_path TEXT,
+                    branch        TEXT,
+                    cost          REAL,
+                    created_at    INTEGER NOT NULL,
+                    started_at    INTEGER,
+                    ended_at      INTEGER,
+                    updated_at    INTEGER NOT NULL,
+                    FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS work_item_runs_item
+                    ON work_item_runs(work_item_id, created_at);
+                CREATE INDEX IF NOT EXISTS work_item_runs_status
+                    ON work_item_runs(status);
+
+                CREATE TABLE IF NOT EXISTS work_item_run_events (
+                    id         TEXT PRIMARY KEY,
+                    run_id     TEXT NOT NULL,
+                    kind       TEXT NOT NULL,
+                    payload    TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(run_id) REFERENCES work_item_runs(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS work_item_run_events_run
+                    ON work_item_run_events(run_id, created_at);
+
+                CREATE TABLE IF NOT EXISTS work_item_decisions (
+                    id             TEXT PRIMARY KEY,
+                    run_id         TEXT NOT NULL,
+                    question       TEXT NOT NULL,
+                    options        TEXT NOT NULL,
+                    default_value  TEXT,
+                    status         TEXT NOT NULL DEFAULT 'pending',
+                    resolved_value TEXT,
+                    resolved_by    TEXT,
+                    created_at     INTEGER NOT NULL,
+                    resolved_at    INTEGER,
+                    updated_at     INTEGER NOT NULL,
+                    FOREIGN KEY(run_id) REFERENCES work_item_runs(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS work_item_decisions_run
+                    ON work_item_decisions(run_id, created_at);
+                CREATE INDEX IF NOT EXISTS work_item_decisions_status
+                    ON work_item_decisions(status);
+                PRAGMA user_version = 2;",
+            )?;
+        }
+        if version < 3 {
+            conn.execute_batch(
+                "ALTER TABLE work_item_decisions ADD COLUMN timeout_at INTEGER;
+                CREATE INDEX IF NOT EXISTS work_item_decisions_timeout
+                    ON work_item_decisions(timeout_at)
+                    WHERE status = 'pending' AND timeout_at IS NOT NULL;
+                PRAGMA user_version = 3;",
             )?;
         }
         Ok(WorkItemStore { conn })
@@ -139,12 +209,15 @@ impl WorkItemStore {
                 now as i64,
             ],
         )?;
-        self.get(&id)?.ok_or_else(|| {
-            rusqlite::Error::QueryReturnedNoRows
-        })
+        self.get(&id)?.ok_or_else(|| rusqlite::Error::QueryReturnedNoRows)
     }
 
-    pub fn update(&mut self, id: &str, input: WorkItemInput, now: u64) -> SqlResult<Option<WorkItem>> {
+    pub fn update(
+        &mut self,
+        id: &str,
+        input: WorkItemInput,
+        now: u64,
+    ) -> SqlResult<Option<WorkItem>> {
         let status = input.status.as_ref().map(|s| s.as_str().to_string());
         let (provider, external_id, external_url) = split_external_ref(input.external_ref.as_ref());
         self.conn.execute(
@@ -196,7 +269,12 @@ impl WorkItemStore {
         Ok(changed > 0)
     }
 
-    pub fn set_session(&mut self, id: &str, session_id: &str, now: u64) -> SqlResult<Option<WorkItem>> {
+    pub fn set_session(
+        &mut self,
+        id: &str,
+        session_id: &str,
+        now: u64,
+    ) -> SqlResult<Option<WorkItem>> {
         self.conn.execute(
             "UPDATE work_items SET session_id = ?2, updated_at = ?3 WHERE id = ?1",
             params![id, session_id, now as i64],
@@ -263,11 +341,373 @@ impl WorkItemStore {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_run(
+        &mut self,
+        id: String,
+        work_item_id: &str,
+        session_id: Option<&str>,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+        now: u64,
+    ) -> SqlResult<WorkItemRun> {
+        self.conn.execute(
+            "INSERT INTO work_item_runs
+             (id, work_item_id, session_id, provider, profile_id, status,
+              worktree_path, branch, created_at, started_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                id,
+                work_item_id,
+                session_id,
+                provider,
+                profile_id,
+                WorkItemRunStatus::Running.as_str(),
+                worktree_path,
+                branch,
+                now as i64,
+                now as i64,
+                now as i64,
+            ],
+        )?;
+        self.get_run(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn get_run(&self, id: &str) -> SqlResult<Option<WorkItemRun>> {
+        self.conn
+            .query_row(
+                "SELECT id, work_item_id, session_id, provider, profile_id, status,
+                        worktree_path, branch, cost, created_at, started_at, ended_at, updated_at
+                 FROM work_item_runs
+                 WHERE id = ?1",
+                params![id],
+                row_to_work_item_run,
+            )
+            .optional()
+    }
+
+    pub fn list_runs(&self, work_item_id: Option<&str>) -> SqlResult<Vec<WorkItemRun>> {
+        let sql = if work_item_id.is_some() {
+            "SELECT id, work_item_id, session_id, provider, profile_id, status,
+                    worktree_path, branch, cost, created_at, started_at, ended_at, updated_at
+             FROM work_item_runs
+             WHERE work_item_id = ?1
+             ORDER BY rowid"
+        } else {
+            "SELECT id, work_item_id, session_id, provider, profile_id, status,
+                    worktree_path, branch, cost, created_at, started_at, ended_at, updated_at
+             FROM work_item_runs
+             ORDER BY rowid"
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = if let Some(work_item_id) = work_item_id {
+            stmt.query_map(params![work_item_id], row_to_work_item_run)?
+        } else {
+            stmt.query_map([], row_to_work_item_run)?
+        };
+        rows.collect()
+    }
+
+    pub fn append_run_event(
+        &mut self,
+        id: String,
+        run_id: &str,
+        kind: WorkItemRunEventKind,
+        payload: Value,
+        now: u64,
+    ) -> SqlResult<WorkItemRunEvent> {
+        let payload = serde_json::to_string(&payload)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        self.conn.execute(
+            "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, run_id, kind.as_str(), payload, now as i64],
+        )?;
+        self.get_run_event(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn get_run_event(&self, id: &str) -> SqlResult<Option<WorkItemRunEvent>> {
+        self.conn
+            .query_row(
+                "SELECT id, run_id, kind, payload, created_at
+                 FROM work_item_run_events
+                 WHERE id = ?1",
+                params![id],
+                row_to_work_item_run_event,
+            )
+            .optional()
+    }
+
+    pub fn list_run_events(&self, run_id: &str) -> SqlResult<Vec<WorkItemRunEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, run_id, kind, payload, created_at
+             FROM work_item_run_events
+             WHERE run_id = ?1
+             ORDER BY rowid",
+        )?;
+        let events = stmt.query_map(params![run_id], row_to_work_item_run_event)?.collect();
+        events
+    }
+
+    pub fn update_run_status_with_event(
+        &mut self,
+        id: &str,
+        status: WorkItemRunStatus,
+        event_id: String,
+        payload: Value,
+        now: u64,
+    ) -> SqlResult<Option<(WorkItemRun, WorkItemRunEvent)>> {
+        if self.get_run(id)?.is_none() {
+            return Ok(None);
+        }
+        let payload = serde_json::to_string(&payload)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        let is_terminal = matches!(
+            status,
+            WorkItemRunStatus::Failed | WorkItemRunStatus::Stopped | WorkItemRunStatus::Done
+        );
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "UPDATE work_item_runs
+             SET status = ?2,
+                 updated_at = ?3,
+                 ended_at = CASE WHEN ?4 THEN COALESCE(ended_at, ?3) ELSE ended_at END
+             WHERE id = ?1",
+            params![id, status.as_str(), now as i64, is_terminal],
+        )?;
+        tx.execute(
+            "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                event_id,
+                id,
+                WorkItemRunEventKind::StatusChanged.as_str(),
+                payload,
+                now as i64,
+            ],
+        )?;
+        tx.commit()?;
+
+        let run = self.get_run(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let event = self.get_run_event(&event_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        Ok(Some((run, event)))
+    }
+
+    pub fn create_decision(
+        &mut self,
+        id: String,
+        run_id: &str,
+        question: &str,
+        options: Vec<WorkItemDecisionOption>,
+        default_value: Option<&str>,
+        timeout_at: Option<u64>,
+        now: u64,
+    ) -> SqlResult<WorkItemDecision> {
+        let options_json = serde_json::to_string(&options)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT INTO work_item_decisions
+             (id, run_id, question, options, default_value, timeout_at, status, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                id,
+                run_id,
+                question,
+                options_json,
+                default_value,
+                timeout_at.map(|value| value as i64),
+                WorkItemDecisionStatus::Pending.as_str(),
+                now as i64,
+                now as i64,
+            ],
+        )?;
+        tx.execute(
+            "UPDATE work_item_runs SET status = ?2, updated_at = ?3 WHERE id = ?1",
+            params![run_id, WorkItemRunStatus::Blocked.as_str(), now as i64],
+        )?;
+        tx.commit()?;
+        self.get_decision(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn get_decision(&self, id: &str) -> SqlResult<Option<WorkItemDecision>> {
+        self.conn
+            .query_row(
+                "SELECT id, run_id, question, options, default_value, timeout_at, status,
+                        resolved_value, resolved_by, created_at, resolved_at, updated_at
+                 FROM work_item_decisions
+                 WHERE id = ?1",
+                params![id],
+                row_to_work_item_decision,
+            )
+            .optional()
+    }
+
+    pub fn list_pending_decisions(
+        &self,
+        work_item_id: Option<&str>,
+    ) -> SqlResult<Vec<WorkItemDecision>> {
+        let sql = if work_item_id.is_some() {
+            "SELECT d.id, d.run_id, d.question, d.options, d.default_value, d.timeout_at, d.status,
+                    d.resolved_value, d.resolved_by, d.created_at, d.resolved_at, d.updated_at
+             FROM work_item_decisions d
+             JOIN work_item_runs r ON r.id = d.run_id
+             WHERE d.status = ?1 AND r.work_item_id = ?2
+             ORDER BY d.created_at, d.id"
+        } else {
+            "SELECT id, run_id, question, options, default_value, timeout_at, status,
+                    resolved_value, resolved_by, created_at, resolved_at, updated_at
+             FROM work_item_decisions
+             WHERE status = ?1
+             ORDER BY created_at, id"
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = if let Some(work_item_id) = work_item_id {
+            stmt.query_map(
+                params![WorkItemDecisionStatus::Pending.as_str(), work_item_id],
+                row_to_work_item_decision,
+            )?
+        } else {
+            stmt.query_map(
+                params![WorkItemDecisionStatus::Pending.as_str()],
+                row_to_work_item_decision,
+            )?
+        };
+        rows.collect()
+    }
+
+    pub fn resolve_decision(
+        &mut self,
+        id: &str,
+        value: &str,
+        resolved_by: Option<&str>,
+        now: u64,
+    ) -> SqlResult<Option<WorkItemDecision>> {
+        let Some(existing) = self.get_decision(id)? else {
+            return Ok(None);
+        };
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "UPDATE work_item_decisions SET
+                status = ?2,
+                resolved_value = ?3,
+                resolved_by = ?4,
+                resolved_at = ?5,
+                updated_at = ?6
+             WHERE id = ?1",
+            params![
+                id,
+                WorkItemDecisionStatus::Resolved.as_str(),
+                value,
+                resolved_by,
+                now as i64,
+                now as i64,
+            ],
+        )?;
+        tx.execute(
+            "UPDATE work_item_runs
+             SET status = ?2, updated_at = ?3
+             WHERE id = ?1 AND status = ?4
+               AND NOT EXISTS (
+                   SELECT 1 FROM work_item_decisions
+                   WHERE run_id = ?1 AND status = ?5
+               )",
+            params![
+                existing.run_id,
+                WorkItemRunStatus::Running.as_str(),
+                now as i64,
+                WorkItemRunStatus::Blocked.as_str(),
+                WorkItemDecisionStatus::Pending.as_str(),
+            ],
+        )?;
+        tx.commit()?;
+        self.get_decision(id)
+    }
+
+    pub fn timeout_due_decisions(&mut self, now: u64) -> SqlResult<Vec<WorkItemDecision>> {
+        let ids = {
+            let mut stmt = self.conn.prepare(
+                "SELECT id
+                 FROM work_item_decisions
+                 WHERE status = ?1
+                   AND timeout_at IS NOT NULL
+                   AND timeout_at <= ?2
+                   AND default_value IS NOT NULL
+                 ORDER BY timeout_at, created_at, id",
+            )?;
+            let rows = stmt.query_map(
+                params![WorkItemDecisionStatus::Pending.as_str(), now as i64],
+                |row| row.get::<_, String>(0),
+            )?;
+            rows.collect::<SqlResult<Vec<_>>>()?
+        };
+
+        let mut decisions = Vec::new();
+        for id in ids {
+            if let Some(decision) = self.timeout_decision_to_default(&id, now)? {
+                decisions.push(decision);
+            }
+        }
+        Ok(decisions)
+    }
+
+    pub fn timeout_decision_to_default(
+        &mut self,
+        id: &str,
+        now: u64,
+    ) -> SqlResult<Option<WorkItemDecision>> {
+        let Some(existing) = self.get_decision(id)? else {
+            return Ok(None);
+        };
+        if existing.status != WorkItemDecisionStatus::Pending {
+            return Ok(None);
+        }
+        let Some(default_value) = existing.default_value.clone() else {
+            return Ok(None);
+        };
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "UPDATE work_item_decisions SET
+                status = ?2,
+                resolved_value = ?3,
+                resolved_by = ?4,
+                resolved_at = ?5,
+                updated_at = ?6
+             WHERE id = ?1 AND status = ?7",
+            params![
+                id,
+                WorkItemDecisionStatus::TimedOut.as_str(),
+                default_value,
+                "timeout",
+                now as i64,
+                now as i64,
+                WorkItemDecisionStatus::Pending.as_str(),
+            ],
+        )?;
+        tx.execute(
+            "UPDATE work_item_runs
+             SET status = ?2, updated_at = ?3
+             WHERE id = ?1 AND status = ?4
+               AND NOT EXISTS (
+                   SELECT 1 FROM work_item_decisions
+                   WHERE run_id = ?1 AND status = ?5
+               )",
+            params![
+                existing.run_id,
+                WorkItemRunStatus::Running.as_str(),
+                now as i64,
+                WorkItemRunStatus::Blocked.as_str(),
+                WorkItemDecisionStatus::Pending.as_str(),
+            ],
+        )?;
+        tx.commit()?;
+        self.get_decision(id)
+    }
 }
 
-fn split_external_ref(
-    r: Option<&ExternalRef>,
-) -> (Option<String>, Option<String>, Option<String>) {
+fn split_external_ref(r: Option<&ExternalRef>) -> (Option<String>, Option<String>, Option<String>) {
     match r {
         Some(r) => (Some(r.provider.clone()), Some(r.external_id.clone()), r.url.clone()),
         None => (None, None, None),
@@ -296,6 +736,65 @@ fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
     })
 }
 
+fn row_to_work_item_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItemRun> {
+    let status_str: String = row.get(5)?;
+    let status = WorkItemRunStatus::from_str_opt(&status_str).unwrap_or_default();
+    Ok(WorkItemRun {
+        id: row.get(0)?,
+        work_item_id: row.get(1)?,
+        session_id: row.get(2)?,
+        provider: row.get(3)?,
+        profile_id: row.get(4)?,
+        status,
+        worktree_path: row.get(6)?,
+        branch: row.get(7)?,
+        cost: row.get(8)?,
+        created_at: row.get::<_, i64>(9)? as u64,
+        started_at: row.get::<_, Option<i64>>(10)?.map(|value| value as u64),
+        ended_at: row.get::<_, Option<i64>>(11)?.map(|value| value as u64),
+        updated_at: row.get::<_, i64>(12)? as u64,
+    })
+}
+
+fn row_to_work_item_run_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItemRunEvent> {
+    let kind_str: String = row.get(2)?;
+    let kind = WorkItemRunEventKind::from_str_opt(&kind_str).unwrap_or(WorkItemRunEventKind::Text);
+    let payload_str: String = row.get(3)?;
+    let payload = serde_json::from_str(&payload_str).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+    Ok(WorkItemRunEvent {
+        id: row.get(0)?,
+        run_id: row.get(1)?,
+        kind,
+        payload,
+        created_at: row.get::<_, i64>(4)? as u64,
+    })
+}
+
+fn row_to_work_item_decision(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItemDecision> {
+    let options_str: String = row.get(3)?;
+    let options = serde_json::from_str(&options_str).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+    let status_str: String = row.get(6)?;
+    let status = WorkItemDecisionStatus::from_str_opt(&status_str).unwrap_or_default();
+    Ok(WorkItemDecision {
+        id: row.get(0)?,
+        run_id: row.get(1)?,
+        question: row.get(2)?,
+        options,
+        default_value: row.get(4)?,
+        timeout_at: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+        status,
+        resolved_value: row.get(7)?,
+        resolved_by: row.get(8)?,
+        created_at: row.get::<_, i64>(9)? as u64,
+        resolved_at: row.get::<_, Option<i64>>(10)?.map(|value| value as u64),
+        updated_at: row.get::<_, i64>(11)? as u64,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,11 +817,11 @@ mod tests {
     }
 
     #[test]
-    fn migration_sets_user_version_to_one() {
+    fn migration_sets_user_version_to_current() {
         let store = WorkItemStore::open_in_memory().unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -380,10 +879,7 @@ mod tests {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         store.create("i-1".into(), input("Task"), 1000).unwrap();
 
-        let moved = store
-            .move_item("i-1", WorkItemStatus::Doing, 1.5, 2000)
-            .unwrap()
-            .unwrap();
+        let moved = store.move_item("i-1", WorkItemStatus::Doing, 1.5, 2000).unwrap().unwrap();
         assert_eq!(moved.status, WorkItemStatus::Doing);
         assert!((moved.sort_order - 1.5).abs() < f64::EPSILON);
     }
@@ -428,6 +924,294 @@ mod tests {
     fn set_session_if_unbound_is_false_for_missing_item() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         assert!(!store.set_session_if_unbound("nope", "sess-1", 1000).unwrap());
+    }
+
+    #[test]
+    fn runs_are_persisted_and_listed_by_work_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+
+        let run = store
+            .create_run(
+                "run-1".into(),
+                "i-1",
+                Some("sess-1"),
+                Some("claude"),
+                Some("claude"),
+                Some("/repo/.roux/worktrees/run-1"),
+                Some("roux/run-1"),
+                1100,
+            )
+            .unwrap();
+
+        assert_eq!(run.work_item_id, "i-1");
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Running);
+        assert_eq!(run.session_id.as_deref(), Some("sess-1"));
+
+        let runs = store.list_runs(Some("i-1")).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].id, "run-1");
+    }
+
+    #[test]
+    fn runs_are_listed_in_insert_order_even_with_same_timestamp() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-2".into(), "i-1", Some("sess-2"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        let runs = store.list_runs(Some("i-1")).unwrap();
+        assert_eq!(runs.iter().map(|run| run.id.as_str()).collect::<Vec<_>>(), ["run-2", "run-1"]);
+    }
+
+    #[test]
+    fn run_events_are_append_only_and_ordered() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        store
+            .append_run_event(
+                "event-1".into(),
+                "run-1",
+                roux_core::WorkItemRunEventKind::Text,
+                serde_json::json!({ "text": "hello" }),
+                1200,
+            )
+            .unwrap();
+        store
+            .append_run_event(
+                "event-2".into(),
+                "run-1",
+                roux_core::WorkItemRunEventKind::Result,
+                serde_json::json!({ "ok": true }),
+                1201,
+            )
+            .unwrap();
+
+        let events = store.list_run_events("run-1").unwrap();
+        assert_eq!(
+            events.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            ["event-1", "event-2"]
+        );
+        assert_eq!(events[0].kind, roux_core::WorkItemRunEventKind::Text);
+        assert_eq!(events[0].payload["text"], "hello");
+    }
+
+    #[test]
+    fn run_status_update_persists_terminal_status_and_event() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        let (run, event) = store
+            .update_run_status_with_event(
+                "run-1",
+                roux_core::WorkItemRunStatus::Stopped,
+                "event-1".into(),
+                serde_json::json!({ "status": "stopped", "reason": "user" }),
+                1200,
+            )
+            .unwrap()
+            .expect("run should exist");
+
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Stopped);
+        assert_eq!(run.ended_at, Some(1200));
+        assert_eq!(event.kind, roux_core::WorkItemRunEventKind::StatusChanged);
+        assert_eq!(event.payload["reason"], "user");
+    }
+
+    #[test]
+    fn decisions_can_be_created_and_resolved_with_audit_events() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        let decision = store
+            .create_decision(
+                "dec-1".into(),
+                "run-1",
+                "Choose path?",
+                vec![
+                    roux_core::WorkItemDecisionOption {
+                        value: "existing".into(),
+                        label: "Use existing file".into(),
+                    },
+                    roux_core::WorkItemDecisionOption {
+                        value: "new".into(),
+                        label: "Create new file".into(),
+                    },
+                ],
+                Some("existing"),
+                None,
+                1200,
+            )
+            .unwrap();
+
+        assert_eq!(decision.status, roux_core::WorkItemDecisionStatus::Pending);
+        assert_eq!(store.list_pending_decisions(Some("i-1")).unwrap().len(), 1);
+
+        let resolved = store
+            .resolve_decision("dec-1", "new", Some("user"), 1300)
+            .unwrap()
+            .expect("decision should resolve");
+
+        assert_eq!(resolved.status, roux_core::WorkItemDecisionStatus::Resolved);
+        assert_eq!(resolved.resolved_value.as_deref(), Some("new"));
+        assert_eq!(store.list_pending_decisions(Some("i-1")).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn due_decisions_timeout_to_default_and_unblock_run() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        let decision = store
+            .create_decision(
+                "dec-1".into(),
+                "run-1",
+                "Choose path?",
+                vec![roux_core::WorkItemDecisionOption {
+                    value: "existing".into(),
+                    label: "Use existing file".into(),
+                }],
+                Some("existing"),
+                Some(1250),
+                1200,
+            )
+            .unwrap();
+
+        assert_eq!(decision.timeout_at, Some(1250));
+        assert_eq!(store.timeout_due_decisions(1249).unwrap().len(), 0);
+
+        let timed_out = store.timeout_due_decisions(1250).unwrap();
+        assert_eq!(timed_out.len(), 1);
+        assert_eq!(timed_out[0].status, roux_core::WorkItemDecisionStatus::TimedOut);
+        assert_eq!(timed_out[0].resolved_value.as_deref(), Some("existing"));
+        assert_eq!(timed_out[0].resolved_by.as_deref(), Some("timeout"));
+        assert_eq!(store.list_pending_decisions(Some("i-1")).unwrap().len(), 0);
+
+        let run = store.get_run("run-1").unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Running);
+    }
+
+    #[test]
+    fn runs_events_and_pending_decisions_survive_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("board.db");
+        {
+            let mut store = WorkItemStore::open(&path).unwrap();
+            store.create("i-1".into(), input("Task"), 1000).unwrap();
+            store
+                .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+                .unwrap();
+            store
+                .append_run_event(
+                    "event-1".into(),
+                    "run-1",
+                    roux_core::WorkItemRunEventKind::Text,
+                    serde_json::json!({ "text": "hello" }),
+                    1200,
+                )
+                .unwrap();
+            store
+                .create_decision(
+                    "dec-1".into(),
+                    "run-1",
+                    "Choose path?",
+                    vec![roux_core::WorkItemDecisionOption {
+                        value: "go".into(),
+                        label: "Go".into(),
+                    }],
+                    Some("go"),
+                    None,
+                    1300,
+                )
+                .unwrap();
+        }
+
+        let store = WorkItemStore::open(&path).unwrap();
+        let runs = store.list_runs(Some("i-1")).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].id, "run-1");
+        let events = store.list_run_events("run-1").unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload["text"], "hello");
+        let decisions = store.list_pending_decisions(Some("i-1")).unwrap();
+        assert_eq!(decisions.len(), 1);
+        assert_eq!(decisions[0].id, "dec-1");
+    }
+
+    #[test]
+    fn resolving_one_of_multiple_pending_decisions_keeps_run_blocked() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        let options =
+            vec![roux_core::WorkItemDecisionOption { value: "go".into(), label: "Go".into() }];
+        store
+            .create_decision("dec-1".into(), "run-1", "First?", options.clone(), None, None, 1200)
+            .unwrap();
+        store
+            .create_decision("dec-2".into(), "run-1", "Second?", options, None, None, 1201)
+            .unwrap();
+
+        store.resolve_decision("dec-1", "go", Some("user"), 1300).unwrap();
+        let run = store.get_run("run-1").unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Blocked);
+
+        store.resolve_decision("dec-2", "go", Some("user"), 1400).unwrap();
+        let run = store.get_run("run-1").unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Running);
+    }
+
+    #[test]
+    fn deleting_work_item_cascades_run_history_and_decisions() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .append_run_event(
+                "event-1".into(),
+                "run-1",
+                roux_core::WorkItemRunEventKind::Decision,
+                serde_json::json!({ "question": "Choose?" }),
+                1200,
+            )
+            .unwrap();
+        store
+            .create_decision(
+                "dec-1".into(),
+                "run-1",
+                "Choose path?",
+                vec![roux_core::WorkItemDecisionOption { value: "go".into(), label: "Go".into() }],
+                Some("go"),
+                None,
+                1300,
+            )
+            .unwrap();
+
+        assert!(store.delete("i-1").unwrap());
+        assert!(store.list_runs(None).unwrap().is_empty());
+        assert!(store.list_run_events("run-1").unwrap().is_empty());
+        assert!(store.list_pending_decisions(None).unwrap().is_empty());
     }
 
     #[test]

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CircleStop from "@lucide/svelte/icons/circle-stop";
   import { fade, scale } from "svelte/transition";
   import { editingWorkItemId, closeWorkItemEditor } from "$lib/stores/ui";
   import {
@@ -6,6 +7,10 @@
     updateWorkItem,
     WORK_ITEM_COLUMNS,
     COLUMN_LABELS,
+    pendingDecisionByItem,
+    resolveWorkItemDecision,
+    runsByItem,
+    stopWorkItemRun,
     type WorkItemStatus,
   } from "$lib/stores/workItems";
   import { projects } from "$lib/stores/projects";
@@ -23,6 +28,10 @@
       ? ($workItems.find((i) => i.id === $editingWorkItemId) ?? null)
       : null,
   );
+  const pendingDecision = $derived(
+    item ? ($pendingDecisionByItem.get(item.id) ?? null) : null,
+  );
+  const itemRuns = $derived(item ? ($runsByItem.get(item.id) ?? []) : []);
 
   let title = $state("");
   let body = $state("");
@@ -33,6 +42,8 @@
   let deleteDialogOpen = $state(false);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
+  let resolvingDecision = $state<string | null>(null);
+  let stoppingRunId = $state<string | null>(null);
 
   // Re-seed the form whenever a different card opens.
   let loadedId = $state<string | null>(null);
@@ -48,6 +59,8 @@
       deleteDialogOpen = false;
       deleting = false;
       deleteError = null;
+      resolvingDecision = null;
+      stoppingRunId = null;
     } else if (!item) {
       loadedId = null;
     }
@@ -94,6 +107,46 @@
     } finally {
       deleting = false;
     }
+  }
+
+  async function handleResolveDecision(value: string) {
+    if (!pendingDecision) return;
+    resolvingDecision = value;
+    error = "";
+    try {
+      await resolveWorkItemDecision(pendingDecision.id, value);
+    } catch (e) {
+      error = String(e);
+      logError(`work-item decision: resolve failed — ${e}`);
+    } finally {
+      resolvingDecision = null;
+    }
+  }
+
+  async function handleStopRun(runId: string) {
+    stoppingRunId = runId;
+    error = "";
+    try {
+      await stopWorkItemRun(runId);
+    } catch (e) {
+      error = String(e);
+      logError(`work-item run: stop failed — ${e}`);
+    } finally {
+      stoppingRunId = null;
+    }
+  }
+
+  function isStoppableRun(status: string): boolean {
+    return status === "queued" || status === "running" || status === "blocked";
+  }
+
+  function runLabel(createdAt: number): string {
+    return new Date(createdAt * 1000).toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -175,6 +228,74 @@
               Assign a project to make “Start” work — it resolves the repo the
               session runs in.
             </p>
+          {/if}
+
+          {#if pendingDecision}
+            <section class="rounded-lg border border-amber/30 bg-amber/10 p-3">
+              <p class={sectionLabel}>Blocked Decision</p>
+              <p class="mt-1 text-[13px] leading-5 text-text-primary">
+                {pendingDecision.question}
+              </p>
+              <div class="mt-3 flex flex-col gap-2">
+                {#each pendingDecision.options as option, index (option.value)}
+                  <button
+                    type="button"
+                    class="flex items-center gap-2 rounded-md border border-border-subtle bg-bg-surface px-3 py-2 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
+                    onclick={() => handleResolveDecision(option.value)}
+                    disabled={resolvingDecision !== null}
+                  >
+                    <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-amber/20 text-[10px] font-semibold text-amber">
+                      {index + 1}
+                    </span>
+                    <span>{resolvingDecision === option.value ? "Resolving…" : option.label}</span>
+                  </button>
+                {/each}
+              </div>
+            </section>
+          {/if}
+
+          {#if itemRuns.length > 0}
+            <section class="flex flex-col gap-2">
+              <p class={sectionLabel}>Run History</p>
+              <div class="flex flex-col overflow-hidden rounded-lg border border-border-subtle">
+                {#each itemRuns as run (run.id)}
+                  <div class="flex items-start gap-3 border-b border-hairline px-3 py-2 last:border-b-0">
+                    <div class="min-w-0 flex-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-[12px] font-semibold capitalize text-text-primary">
+                          {run.status}
+                        </span>
+                        {#if run.provider || run.profileId}
+                          <span class="text-[11px] text-text-muted">
+                            {run.provider ?? run.profileId}
+                          </span>
+                        {/if}
+                      </div>
+                      <p class="mt-0.5 truncate text-[11px] text-text-muted">
+                        {run.branch ?? run.worktreePath ?? run.sessionId ?? run.id}
+                      </p>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-2">
+                      <time class="text-[11px] text-text-muted" datetime={String(run.createdAt)}>
+                        {runLabel(run.createdAt)}
+                      </time>
+                      {#if isStoppableRun(run.status)}
+                        <button
+                          type="button"
+                          class="inline-flex h-6 items-center gap-1 rounded-md border border-red/30 bg-red/10 px-2 text-[11px] font-medium text-red transition-colors hover:bg-red/15 disabled:opacity-50"
+                          onclick={() => handleStopRun(run.id)}
+                          disabled={stoppingRunId !== null}
+                          aria-label={`Stop run ${run.id}`}
+                        >
+                          <CircleStop size={12} strokeWidth={2.1} />
+                          <span>{stoppingRunId === run.id ? "Stopping" : "Stop"}</span>
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </section>
           {/if}
 
           {#if error}

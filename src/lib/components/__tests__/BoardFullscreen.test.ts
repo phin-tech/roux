@@ -42,6 +42,7 @@ vi.mock("$lib/stores/workItems", async () => {
       done: "Done",
     },
     itemsByColumn: writable(new Map()),
+    pendingDecisionByItem: writable(new Map()),
     moveWorkItem: vi.fn().mockResolvedValue({}),
     dispatchWorkItem: vi.fn().mockResolvedValue("sess-1"),
     createWorkItem: vi.fn().mockResolvedValue({}),

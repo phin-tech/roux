@@ -68,6 +68,9 @@ pub async fn run() -> Result<(), String> {
     .build();
 
     let (host, joins) = services.spawn_with(tokio::spawn);
+    if let Err(err) = schedule_pending_work_item_decision_timeouts(host.clone()).await {
+        log.write(&format!("Warning: failed to schedule pending work item decisions: {err}"));
+    }
 
     let status_dir = platform::status_dir();
     if let Err(err) =
@@ -828,6 +831,13 @@ async fn handle_request_with_watch_runner(
         "work-item-move" => handle_work_item_move(req, host).await,
         "work-item-delete" => handle_work_item_delete(req, host).await,
         "work-item-dispatch" => handle_work_item_dispatch(req, host, identity).await,
+        "work-item-run-dispatch" => handle_work_item_run_dispatch(req, host, identity).await,
+        "work-item-runs-list" => handle_work_item_runs_list(req, host).await,
+        "work-item-run-events" => handle_work_item_run_events(req, host).await,
+        "work-item-run-stop" => handle_work_item_run_stop(req, host).await,
+        "work-item-decision-create" => handle_work_item_decision_create(req, host).await,
+        "work-item-decisions-list" => handle_work_item_decisions_list(req, host).await,
+        "work-item-decision-resolve" => handle_work_item_decision_resolve(req, host).await,
         "work-item-import" => handle_work_item_import(req, host).await,
         _ => Response::err(format!("unknown daemon command: {}", req.command)),
     }
@@ -851,6 +861,13 @@ async fn handle_daemon_status(host: &RuntimeHost, identity: &DaemonIdentity) -> 
         "work-item-move",
         "work-item-delete",
         "work-item-dispatch",
+        "work-item-run-dispatch",
+        "work-item-runs-list",
+        "work-item-run-events",
+        "work-item-run-stop",
+        "work-item-decision-create",
+        "work-item-decisions-list",
+        "work-item-decision-resolve",
         "work-item-events",
         "work-item-import",
         "session-create",
@@ -4537,6 +4554,13 @@ fn unix_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn unix_now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
 fn daemon_auth_token(endpoint: &platform::SocketEndpoint) -> Result<Option<String>, String> {
     match endpoint {
         platform::SocketEndpoint::Unix(_) => Ok(None),
@@ -4732,21 +4756,44 @@ async fn handle_work_item_dispatch(
     host: &RuntimeHost,
     identity: &DaemonIdentity,
 ) -> Response {
+    match dispatch_work_item_run(req, host, identity).await {
+        Ok(result) => Response::success(result.session),
+        Err(resp) => resp,
+    }
+}
+
+async fn handle_work_item_run_dispatch(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
+    match dispatch_work_item_run(req, host, identity).await {
+        Ok(result) => match serde_json::to_value(&result.run) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
+        },
+        Err(resp) => resp,
+    }
+}
+
+struct WorkItemRunDispatch {
+    session: serde_json::Value,
+    run: roux_core::WorkItemRun,
+}
+
+async fn dispatch_work_item_run(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Result<WorkItemRunDispatch, Response> {
     let Some(item_id) = optional_string_arg(&req.args, &["id"]) else {
-        return Response::err("id required");
+        return Err(Response::err("id required"));
     };
     let item = match host.work_item_handle.get(&item_id) {
         Ok(Some(item)) => item,
-        Ok(None) => return Response::err("work item not found"),
-        Err(err) => return Response::err(err),
+        Ok(None) => return Err(Response::err("work item not found")),
+        Err(err) => return Err(Response::err(err)),
     };
-
-    // Cheap guard for the common sequential double-dispatch (e.g. double
-    // click): skip creating a doomed session if the card is already bound.
-    // The real race is closed by the conditional bind below.
-    if item.session_id.is_some() {
-        return Response::err("work item already dispatched to a session");
-    }
 
     // Resolve repo_path: explicit arg → project.repo_roots[0] → error
     let repo_path = if let Some(path) = optional_string_arg(&req.args, &["repoPath", "repo_path"]) {
@@ -4755,13 +4802,13 @@ async fn handle_work_item_dispatch(
         match host.project_handle.get(pid).await {
             Ok(Some(project)) => match project.repo_roots.into_iter().next() {
                 Some(root) => root,
-                None => return Response::err("project has no repo_roots"),
+                None => return Err(Response::err("project has no repo_roots")),
             },
-            Ok(None) => return Response::err("project not found"),
-            Err(err) => return Response::err(err.to_string()),
+            Ok(None) => return Err(Response::err("project not found")),
+            Err(err) => return Err(Response::err(err.to_string())),
         }
     } else {
-        return Response::err("repoPath required (work item has no project)");
+        return Err(Response::err("repoPath required (work item has no project)"));
     };
 
     let name = optional_string_arg(&req.args, &["name"]).unwrap_or_else(|| item.title.clone());
@@ -4805,7 +4852,7 @@ async fn handle_work_item_dispatch(
     };
     let session_resp = handle_session_create_shell(session_create_req, host, identity).await;
     if !session_resp.ok {
-        return session_resp;
+        return Err(session_resp);
     }
 
     let session_id = session_resp
@@ -4815,32 +4862,654 @@ async fn handle_work_item_dispatch(
         .and_then(|v| v.as_str())
         .map(str::to_string);
     let Some(session_id) = session_id else {
-        return Response::err("session created but id missing from response");
+        return Err(Response::err("session created but id missing from response"));
     };
 
-    // Conditional bind: only succeeds if the card is still unbound. If a
-    // concurrent dispatch already bound it (or it was removed), this session is
-    // now orphaned — roll it back so it doesn't linger running but unlinked.
-    match host.work_item_handle.set_session_if_unbound(&item_id, &session_id) {
-        Ok(true) => {}
-        Ok(false) => {
+    match host.work_item_handle.set_session(&item_id, &session_id) {
+        Ok(Some(_)) => {}
+        Ok(None) => {
             let _ = host.session_handle.remove(&session_id).await;
-            return Response::err(
-                "work item was dispatched concurrently; this session was rolled back",
-            );
+            return Err(Response::err("work item was removed; session was rolled back"));
         }
         Err(err) => {
             let _ = host.session_handle.remove(&session_id).await;
-            return Response::err(format!("set_session failed, session rolled back: {err}"));
+            return Err(Response::err(format!("set_session failed, session rolled back: {err}")));
         }
     }
+
+    let session = host.session_handle.get(&session_id).await.ok().flatten();
+    let settings = load_daemon_settings();
+    let provider = roux_core::providers::resolve_profile(&profile_id, &settings)
+        .and_then(|profile| provider_slug(profile.provider).map(str::to_string));
+    let worktree_path = session.as_ref().map(|s| s.worktree_path.as_str());
+    let branch =
+        session.as_ref().map(|s| s.branch.as_str()).filter(|branch| !branch.trim().is_empty());
+    let run = match host.work_item_handle.create_run(
+        &item_id,
+        Some(&session_id),
+        provider.as_deref(),
+        Some(&profile_id),
+        worktree_path,
+        branch,
+    ) {
+        Ok(run) => run,
+        Err(err) => {
+            let _ = host.session_handle.remove(&session_id).await;
+            return Err(Response::err(format!("create run failed, session rolled back: {err}")));
+        }
+    };
+    match host.work_item_handle.move_item(
+        &item_id,
+        roux_core::WorkItemStatus::Doing,
+        item.sort_order,
+    ) {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            let _ = host.session_handle.remove(&session_id).await;
+            return Err(Response::err("work item was removed; session was rolled back"));
+        }
+        Err(err) => {
+            let _ = host.session_handle.remove(&session_id).await;
+            return Err(Response::err(format!(
+                "move work item failed, session rolled back: {err}"
+            )));
+        }
+    }
+
+    start_work_item_run_output_monitor(host.clone(), run.id.clone(), session_id.clone());
 
     // Bring the agent to life in the now-bound session. Best-effort: the
     // session is already created + bound, so a failure here just leaves a
     // shell prompt rather than failing the dispatch.
     run_dispatched_profile(host, &item, &session_id, &profile_id).await;
 
-    session_resp
+    Ok(WorkItemRunDispatch { session: session_resp.data.unwrap_or(serde_json::Value::Null), run })
+}
+
+fn provider_slug(provider: Option<roux_core::Provider>) -> Option<&'static str> {
+    match provider {
+        Some(roux_core::Provider::Claude) => Some("claude"),
+        Some(roux_core::Provider::Codex) => Some("codex"),
+        None => None,
+    }
+}
+
+async fn handle_work_item_runs_list(req: Request, host: &RuntimeHost) -> Response {
+    let work_item_id = optional_string_arg(&req.args, &["workItemId", "work_item_id"]);
+    match host.work_item_handle.list_runs(work_item_id.as_deref()) {
+        Ok(runs) => match serde_json::to_value(runs) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item runs: {err}")),
+        },
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_work_item_run_events(req: Request, host: &RuntimeHost) -> Response {
+    let Some(run_id) = optional_string_arg(&req.args, &["runId", "run_id"]) else {
+        return Response::err("runId required");
+    };
+    match host.work_item_handle.list_run_events(&run_id) {
+        Ok(events) => match serde_json::to_value(events) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item run events: {err}")),
+        },
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) -> Response {
+    let Some(run_id) = optional_string_arg(&req.args, &["id", "runId", "run_id"]) else {
+        return Response::err("runId required");
+    };
+    let run = match host.work_item_handle.get_run(&run_id) {
+        Ok(Some(run)) => run,
+        Ok(None) => return Response::err("work item run not found"),
+        Err(err) => return Response::err(err),
+    };
+    if matches!(
+        run.status,
+        roux_core::WorkItemRunStatus::Stopped
+            | roux_core::WorkItemRunStatus::Done
+            | roux_core::WorkItemRunStatus::Failed
+    ) {
+        return match serde_json::to_value(run) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
+        };
+    }
+
+    if let Some(session_id) = run.session_id.as_deref() {
+        kill_session_ptys(host, session_id).await;
+        if let Err(err) = host.session_handle.archive(session_id).await {
+            return Response::err(err.to_string());
+        }
+    }
+
+    match host.work_item_handle.set_run_status(
+        &run_id,
+        roux_core::WorkItemRunStatus::Stopped,
+        serde_json::json!({
+            "reason": "user",
+            "sessionId": run.session_id,
+        }),
+    ) {
+        Ok(Some(run)) => match serde_json::to_value(run) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
+        },
+        Ok(None) => Response::err("work item run not found"),
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_work_item_decision_create(req: Request, host: &RuntimeHost) -> Response {
+    let Some(run_id) = optional_string_arg(&req.args, &["runId", "run_id"]) else {
+        return Response::err("runId required");
+    };
+    let Some(question) = optional_string_arg(&req.args, &["question"]) else {
+        return Response::err("question required");
+    };
+    let options = match parse_decision_options(req.args.get("options")) {
+        Ok(options) => options,
+        Err(err) => return Response::err(err),
+    };
+    let default_value = optional_string_arg(&req.args, &["defaultValue", "default_value"]);
+    let timeout_at = match parse_decision_timeout_at(&req.args, default_value.as_deref()) {
+        Ok(timeout_at) => timeout_at,
+        Err(err) => return Response::err(err),
+    };
+    match host.work_item_handle.create_decision(
+        &run_id,
+        &question,
+        options,
+        default_value.as_deref(),
+        timeout_at,
+    ) {
+        Ok(decision) => {
+            handle_created_or_timed_out_decision(host, &decision).await;
+            match serde_json::to_value(decision) {
+                Ok(value) => Response::success(value),
+                Err(err) => Response::err(format!("failed to serialize work item decision: {err}")),
+            }
+        }
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_work_item_decisions_list(req: Request, host: &RuntimeHost) -> Response {
+    let work_item_id = optional_string_arg(&req.args, &["workItemId", "work_item_id"]);
+    if let Err(err) = expire_due_work_item_decisions(host).await {
+        return Response::err(err);
+    }
+    match host.work_item_handle.list_pending_decisions(work_item_id.as_deref()) {
+        Ok(decisions) => match serde_json::to_value(decisions) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item decisions: {err}")),
+        },
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn handle_work_item_decision_resolve(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id"]) else {
+        return Response::err("id required");
+    };
+    let Some(value) = optional_string_arg(&req.args, &["value"]) else {
+        return Response::err("value required");
+    };
+    let resolved_by = optional_string_arg(&req.args, &["resolvedBy", "resolved_by"]);
+    match host.work_item_handle.resolve_decision(&id, &value, resolved_by.as_deref()) {
+        Ok(Some(decision)) => {
+            write_resolved_decision_to_run(host, &decision, &value).await;
+            match serde_json::to_value(decision) {
+                Ok(value) => Response::success(value),
+                Err(err) => Response::err(format!("failed to serialize work item decision: {err}")),
+            }
+        }
+        Ok(None) => Response::err("decision not found"),
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn write_resolved_decision_to_run(
+    host: &RuntimeHost,
+    decision: &roux_core::WorkItemDecision,
+    value: &str,
+) {
+    let run = match host.work_item_handle.get_run(&decision.run_id) {
+        Ok(Some(run)) => run,
+        Ok(None) => return,
+        Err(_) => return,
+    };
+    let Some(session_id) = run.session_id.as_deref() else {
+        return;
+    };
+
+    let input = format!("{value}\n");
+    if let Err(err) = host.pty_handle.write(session_id, input.into_bytes()).await {
+        let _ = host.work_item_handle.append_run_event(
+            &run.id,
+            roux_core::WorkItemRunEventKind::Error,
+            serde_json::json!({
+                "decisionId": decision.id,
+                "message": format!("failed to write resolved decision to session: {err}"),
+                "sessionId": session_id,
+                "stage": "decisionResolutionWrite"
+            }),
+        );
+    }
+}
+
+fn parse_decision_options(
+    value: Option<&serde_json::Value>,
+) -> Result<Vec<roux_core::WorkItemDecisionOption>, String> {
+    let Some(value) = value else {
+        return Err("options required".into());
+    };
+    serde_json::from_value(value.clone()).map_err(|err| format!("invalid options: {err}"))
+}
+
+fn parse_decision_timeout_at(
+    args: &serde_json::Value,
+    default_value: Option<&str>,
+) -> Result<Option<u64>, String> {
+    let timeout_at = optional_u64_arg(args, &["timeoutAt", "timeout_at", "expiresAt", "expires_at"])?;
+    let timeout_ms = optional_u64_arg(args, &["timeoutMs", "timeout_ms"])?;
+    let timeout_seconds = optional_u64_arg(args, &["timeoutSeconds", "timeout_seconds"])?;
+    let timeout_at = timeout_at
+        .or_else(|| {
+            timeout_ms.map(|ms| unix_now_secs().saturating_add(ms.saturating_add(999) / 1000))
+        })
+        .or_else(|| timeout_seconds.map(|seconds| unix_now_secs().saturating_add(seconds)));
+    if timeout_at.is_some() && default_value.is_none() {
+        return Err("defaultValue required when timeout is set".into());
+    }
+    Ok(timeout_at)
+}
+
+fn optional_u64_arg(args: &serde_json::Value, keys: &[&str]) -> Result<Option<u64>, String> {
+    for key in keys {
+        let Some(value) = args.get(*key) else {
+            continue;
+        };
+        if value.is_null() {
+            return Ok(None);
+        }
+        if let Some(value) = value.as_u64() {
+            return Ok(Some(value));
+        }
+        if let Some(value) = value.as_str().map(str::trim).filter(|value| !value.is_empty()) {
+            return value
+                .parse::<u64>()
+                .map(Some)
+                .map_err(|_| format!("{key} must be an unsigned integer"));
+        }
+        return Err(format!("{key} must be an unsigned integer"));
+    }
+    Ok(None)
+}
+
+fn start_work_item_run_output_monitor(host: RuntimeHost, run_id: String, pty_id: String) {
+    tokio::spawn(async move {
+        let mut attach = match host.pty_handle.attach(&pty_id, PTY_OUTPUT_DEFAULT_POLL_BYTES).await {
+            Ok(Some(attach)) => attach,
+            Ok(None) => {
+                let _ = host.work_item_handle.append_run_event(
+                    &run_id,
+                    roux_core::WorkItemRunEventKind::Error,
+                    serde_json::json!({
+                        "message": "failed to monitor work item run output: daemon pty not found",
+                        "ptyId": pty_id,
+                        "stage": "runOutputMonitorAttach"
+                    }),
+                );
+                return;
+            }
+            Err(err) => {
+                let _ = host.work_item_handle.append_run_event(
+                    &run_id,
+                    roux_core::WorkItemRunEventKind::Error,
+                    serde_json::json!({
+                        "message": format!("failed to monitor work item run output: {err}"),
+                        "ptyId": pty_id,
+                        "stage": "runOutputMonitorAttach"
+                    }),
+                );
+                return;
+            }
+        };
+
+        let mut parser = WorkItemRunOutputParser::default();
+        let mut observed_offset = attach.replay_offset;
+        if !attach.replay_bytes.is_empty() {
+            ingest_work_item_run_output(
+                &host,
+                &run_id,
+                attach.replay_offset,
+                &attach.replay_bytes,
+                &mut parser,
+            );
+            observed_offset = attach.replay_offset.saturating_add(attach.replay_bytes.len() as u64);
+        }
+        if !attach.record.running {
+            record_work_item_run_pty_exit(
+                &host,
+                &run_id,
+                attach.record.exit_code,
+                attach.record.generation,
+            );
+            return;
+        }
+
+        loop {
+            match attach.events.recv().await {
+                Ok(PtyOutputEvent::Output(frame)) => {
+                    let frame_end = frame.offset.saturating_add(frame.bytes.len() as u64);
+                    if frame_end <= observed_offset {
+                        continue;
+                    }
+                    let (offset, bytes) = if frame.offset < observed_offset {
+                        let skip = (observed_offset - frame.offset) as usize;
+                        (observed_offset, &frame.bytes[skip..])
+                    } else {
+                        (frame.offset, frame.bytes.as_slice())
+                    };
+                    ingest_work_item_run_output(
+                        &host,
+                        &run_id,
+                        offset,
+                        bytes,
+                        &mut parser,
+                    );
+                    observed_offset = frame_end;
+                }
+                Ok(PtyOutputEvent::Exit { code, generation }) => {
+                    record_work_item_run_pty_exit(&host, &run_id, code, generation);
+                    break;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    let _ = host.work_item_handle.append_run_event(
+                        &run_id,
+                        roux_core::WorkItemRunEventKind::Error,
+                        serde_json::json!({
+                            "message": format!("run output monitor lagged by {skipped} frame(s)"),
+                            "stage": "runOutputMonitor"
+                        }),
+                    );
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+fn record_work_item_run_pty_exit(
+    host: &RuntimeHost,
+    run_id: &str,
+    code: Option<i32>,
+    generation: u64,
+) {
+    let status = match code {
+        Some(0) => roux_core::WorkItemRunStatus::Done,
+        _ => roux_core::WorkItemRunStatus::Failed,
+    };
+    let payload = serde_json::json!({
+        "reason": "ptyExit",
+        "exitCode": code,
+        "generation": generation,
+    });
+
+    match host.work_item_handle.get_run(run_id) {
+        Ok(Some(run))
+            if matches!(
+                run.status,
+                roux_core::WorkItemRunStatus::Stopped
+                    | roux_core::WorkItemRunStatus::Done
+                    | roux_core::WorkItemRunStatus::Failed
+            ) => {}
+        Ok(Some(_)) => {
+            let _ = host.work_item_handle.set_run_status(run_id, status, payload);
+        }
+        Ok(None) => {}
+        Err(_) => {
+            let _ = host.work_item_handle.append_run_event(
+                run_id,
+                roux_core::WorkItemRunEventKind::Error,
+                serde_json::json!({
+                    "message": "failed to load run while recording PTY exit",
+                    "stage": "runOutputMonitorExit"
+                }),
+            );
+        }
+    }
+}
+
+fn ingest_work_item_run_output(
+    host: &RuntimeHost,
+    run_id: &str,
+    offset: u64,
+    bytes: &[u8],
+    parser: &mut WorkItemRunOutputParser,
+) {
+    let text = String::from_utf8_lossy(bytes).into_owned();
+    let _ = host.work_item_handle.append_run_event(
+        run_id,
+        roux_core::WorkItemRunEventKind::Text,
+        serde_json::json!({
+            "offset": offset,
+            "text": text,
+        }),
+    );
+
+    for decision in parser.ingest(&text) {
+        let Ok(decision) = host.work_item_handle.create_decision(
+            run_id,
+            &decision.question,
+            decision.options,
+            decision.default_value.as_deref(),
+            decision.timeout_at,
+        ) else {
+            continue;
+        };
+        tokio::spawn({
+            let host = host.clone();
+            async move {
+                handle_created_or_timed_out_decision(&host, &decision).await;
+            }
+        });
+    }
+}
+
+async fn handle_created_or_timed_out_decision(
+    host: &RuntimeHost,
+    decision: &roux_core::WorkItemDecision,
+) {
+    match decision.status {
+        roux_core::WorkItemDecisionStatus::Pending => {
+            schedule_work_item_decision_timeout(host.clone(), decision);
+        }
+        roux_core::WorkItemDecisionStatus::TimedOut => {
+            if let Some(value) = decision.resolved_value.clone() {
+                write_resolved_decision_to_run(host, decision, &value).await;
+            }
+        }
+        roux_core::WorkItemDecisionStatus::Resolved => {}
+    }
+}
+
+async fn expire_due_work_item_decisions(
+    host: &RuntimeHost,
+) -> Result<Vec<roux_core::WorkItemDecision>, String> {
+    let decisions = host.work_item_handle.expire_due_decisions()?;
+    for decision in &decisions {
+        if let Some(value) = decision.resolved_value.clone() {
+            write_resolved_decision_to_run(host, decision, &value).await;
+        }
+    }
+    Ok(decisions)
+}
+
+async fn schedule_pending_work_item_decision_timeouts(host: RuntimeHost) -> Result<(), String> {
+    expire_due_work_item_decisions(&host).await?;
+    let decisions = host.work_item_handle.list_pending_decisions(None)?;
+    for decision in decisions {
+        schedule_work_item_decision_timeout(host.clone(), &decision);
+    }
+    Ok(())
+}
+
+fn schedule_work_item_decision_timeout(
+    host: RuntimeHost,
+    decision: &roux_core::WorkItemDecision,
+) {
+    if decision.status != roux_core::WorkItemDecisionStatus::Pending
+        || decision.timeout_at.is_none()
+        || decision.default_value.is_none()
+    {
+        return;
+    }
+    let decision_id = decision.id.clone();
+    let timeout_at = decision.timeout_at.unwrap();
+    tokio::spawn(async move {
+        let now = unix_now_secs();
+        if timeout_at > now {
+            tokio::time::sleep(std::time::Duration::from_secs(timeout_at - now)).await;
+        }
+        let Ok(Some(decision)) = host.work_item_handle.timeout_decision_to_default(&decision_id)
+        else {
+            return;
+        };
+        if let Some(value) = decision.resolved_value.clone() {
+            write_resolved_decision_to_run(&host, &decision, &value).await;
+        }
+    });
+}
+
+#[derive(Default)]
+struct WorkItemRunOutputParser {
+    line_buffer: String,
+}
+
+impl WorkItemRunOutputParser {
+    fn ingest(&mut self, text: &str) -> Vec<AgentDecisionPrompt> {
+        let mut decisions = Vec::new();
+        self.line_buffer.push_str(text);
+        while let Some(newline) = self.line_buffer.find('\n') {
+            let mut line = self.line_buffer.drain(..=newline).collect::<String>();
+            line.truncate(line.trim_end_matches(['\r', '\n']).len());
+            if let Some(decision) = parse_agent_decision_line(&line) {
+                decisions.push(decision);
+            }
+        }
+        if self.line_buffer.len() > 64 * 1024 {
+            let keep_from = self.line_buffer.len().saturating_sub(8 * 1024);
+            self.line_buffer.replace_range(..keep_from, "");
+        }
+        decisions
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AgentDecisionPrompt {
+    question: String,
+    options: Vec<roux_core::WorkItemDecisionOption>,
+    default_value: Option<String>,
+    timeout_at: Option<u64>,
+}
+
+fn parse_agent_decision_line(line: &str) -> Option<AgentDecisionPrompt> {
+    let line = strip_ansi_sequences(line).trim().to_string();
+    let start = line.find('{')?;
+    let end = line.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(&line[start..=end]).ok()?;
+    let decision = decision_payload(&value)?;
+    let question = string_field(decision, &["question", "prompt", "message"])?.trim().to_string();
+    if question.is_empty() {
+        return None;
+    }
+    let options_value = decision.get("options").or_else(|| decision.get("choices"))?;
+    let options = parse_agent_decision_options(options_value)?;
+    let default_value = string_field(decision, &["defaultValue", "default", "default_value"])
+        .map(str::to_string);
+    let timeout_at = parse_decision_timeout_at(decision, default_value.as_deref()).ok().flatten();
+    Some(AgentDecisionPrompt { question, options, default_value, timeout_at })
+}
+
+fn decision_payload(value: &serde_json::Value) -> Option<&serde_json::Value> {
+    if is_decision_marker(value) {
+        return Some(value);
+    }
+    let nested = value.get("decision").or_else(|| value.get("decisionPrompt"))?;
+    if is_decision_marker(nested) || nested.get("question").is_some() {
+        Some(nested)
+    } else {
+        None
+    }
+}
+
+fn is_decision_marker(value: &serde_json::Value) -> bool {
+    ["type", "event", "kind"].iter().any(|key| {
+        value
+            .get(*key)
+            .and_then(|value| value.as_str())
+            .is_some_and(|marker| {
+                matches!(marker, "decision" | "decisionPrompt" | "decision_prompt")
+            })
+    })
+}
+
+fn parse_agent_decision_options(
+    value: &serde_json::Value,
+) -> Option<Vec<roux_core::WorkItemDecisionOption>> {
+    let array = value.as_array()?;
+    let mut options = Vec::new();
+    for value in array {
+        let option = if let Some(label) = value.as_str() {
+            roux_core::WorkItemDecisionOption {
+                value: label.to_string(),
+                label: label.to_string(),
+            }
+        } else {
+            let value_text = string_field(value, &["value", "id", "key", "label", "text"])?;
+            let label_text =
+                string_field(value, &["label", "text", "title", "value", "id", "key"])
+                    .unwrap_or(value_text);
+            roux_core::WorkItemDecisionOption {
+                value: value_text.to_string(),
+                label: label_text.to_string(),
+            }
+        };
+        if option.value.trim().is_empty() || option.label.trim().is_empty() {
+            return None;
+        }
+        options.push(option);
+    }
+    (!options.is_empty()).then_some(options)
+}
+
+fn string_field<'a>(value: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| value.get(*key).and_then(|value| value.as_str()))
+}
+
+fn strip_ansi_sequences(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            for next in chars.by_ref() {
+                if next.is_ascii_alphabetic() || next == '\u{7}' {
+                    break;
+                }
+            }
+        } else if !ch.is_control() || ch == '\t' {
+            output.push(ch);
+        }
+    }
+    output
 }
 
 /// Type the resolved profile's startup sequence (env, setup, agent command
@@ -5179,6 +5848,47 @@ mod tests {
             scope: roux_core::WatchScope::Global,
             notify: None,
         }
+    }
+
+    #[test]
+    fn parses_agent_decision_json_line() {
+        let line = r#"{"type":"decision","question":"Choose path?","options":[{"value":"existing","label":"Use existing"},{"value":"new","label":"Create new"}],"defaultValue":"existing","timeoutAt":123}"#;
+
+        let decision = parse_agent_decision_line(line).expect("decision should parse");
+
+        assert_eq!(decision.question, "Choose path?");
+        assert_eq!(decision.default_value.as_deref(), Some("existing"));
+        assert_eq!(decision.timeout_at, Some(123));
+        assert_eq!(
+            decision.options,
+            vec![
+                roux_core::WorkItemDecisionOption {
+                    value: "existing".into(),
+                    label: "Use existing".into(),
+                },
+                roux_core::WorkItemDecisionOption {
+                    value: "new".into(),
+                    label: "Create new".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_nested_decision_with_string_options() {
+        let line = "\u{1b}[32magent\u{1b}[0m {\"decision\":{\"question\":\"Pick one\",\"options\":[\"A\",\"B\"],\"default\":\"A\"}}";
+
+        let decision = parse_agent_decision_line(line).expect("nested decision should parse");
+
+        assert_eq!(decision.question, "Pick one");
+        assert_eq!(decision.default_value.as_deref(), Some("A"));
+        assert_eq!(
+            decision.options,
+            vec![
+                roux_core::WorkItemDecisionOption { value: "A".into(), label: "A".into() },
+                roux_core::WorkItemDecisionOption { value: "B".into(), label: "B".into() },
+            ]
+        );
     }
 
     #[tokio::test]
@@ -8074,6 +8784,57 @@ post-worktree-create = "{post_create}"
         }
     }
 
+    #[cfg(not(windows))]
+    async fn spawn_task_work_item_run(
+        host: &RuntimeHost,
+        working_dir: &std::path::Path,
+        command: &str,
+        pty_id: &str,
+    ) -> (String, String) {
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput { title: "Run card".into(), ..Default::default() })
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_run(&item.id, Some(pty_id), None, None, None, None)
+            .unwrap();
+        let record = host
+            .pty_handle
+            .spawn_task(
+                command.to_string(),
+                PtySpawnRequest {
+                    id: Some(pty_id.to_string()),
+                    working_dir: Some(working_dir.to_path_buf()),
+                    session_id: Some(pty_id.to_string()),
+                    profile: Some("task".to_string()),
+                    initial_size: Some((80, 24)),
+                    ..PtySpawnRequest::default()
+                },
+            )
+            .await
+            .unwrap();
+        start_work_item_run_output_monitor(host.clone(), run.id.clone(), record.id.clone());
+        (run.id, record.id)
+    }
+
+    #[cfg(not(windows))]
+    async fn wait_for_run_status(
+        host: &RuntimeHost,
+        run_id: &str,
+        expected: roux_core::WorkItemRunStatus,
+    ) -> roux_core::WorkItemRun {
+        for _ in 0..60 {
+            let run = host.work_item_handle.get_run(run_id).unwrap().unwrap();
+            if run.status == expected {
+                return run;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let run = host.work_item_handle.get_run(run_id).unwrap().unwrap();
+        panic!("run {run_id} status was {:?}, expected {expected:?}", run.status);
+    }
+
     #[test]
     fn work_item_task_prompt_includes_card_context_and_sanitizes_control_chars() {
         let item = roux_core::WorkItem {
@@ -8285,16 +9046,34 @@ post-worktree-create = "{post_create}"
         // The work item should now have session_id bound
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
         assert_eq!(item.session_id.as_deref(), Some(session_id.as_str()), "session_id bound");
+        assert_eq!(item.status, roux_core::WorkItemStatus::Doing);
 
-        // A SessionBound event should have been broadcast
+        // Session, run, and status events should have been broadcast.
         let event = wi_rx.try_recv().expect("SessionBound event");
         assert!(
             matches!(&event, roux_core::WorkItemEvent::SessionBound { id, .. } if id == &item_id),
             "expected SessionBound, got: {event:?}"
         );
+        let event = wi_rx.try_recv().expect("RunCreated event");
+        assert!(
+            matches!(&event, roux_core::WorkItemEvent::RunCreated { run } if run.work_item_id == item_id && run.session_id.as_deref() == Some(session_id.as_str())),
+            "expected RunCreated, got: {event:?}"
+        );
+        let event = wi_rx.try_recv().expect("Moved event");
+        assert!(
+            matches!(
+                &event,
+                roux_core::WorkItemEvent::Moved {
+                    id,
+                    status: roux_core::WorkItemStatus::Doing,
+                    ..
+                } if id == &item_id
+            ),
+            "expected Moved, got: {event:?}"
+        );
 
-        // A second dispatch of the now-bound card must be rejected and must
-        // leave the original binding intact (no rebind, no orphaned session).
+        // A card can have multiple runs. The compatibility session_id points
+        // at the latest run, but run history keeps both attempts.
         let resp2 = handle_request(
             req(
                 "work-item-dispatch",
@@ -8308,15 +9087,21 @@ post-worktree-create = "{post_create}"
             &identity,
         )
         .await;
-        assert!(!resp2.ok, "second dispatch of a bound card should be rejected");
+        assert!(resp2.ok, "second dispatch should create another run: {:?}", resp2.error);
+        let session_id_2 = resp2.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        assert_ne!(session_id, session_id_2);
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
         assert_eq!(
             item.session_id.as_deref(),
-            Some(session_id.as_str()),
-            "binding must be unchanged after a rejected re-dispatch",
+            Some(session_id_2.as_str()),
+            "compatibility session_id points at the latest run",
         );
+        assert_eq!(item.status, roux_core::WorkItemStatus::Doing);
+        let runs = host.work_item_handle.list_runs(Some(&item_id)).unwrap();
+        assert_eq!(runs.len(), 2);
 
         let _ = host.pty_handle.kill(&session_id).await;
+        let _ = host.pty_handle.kill(&session_id_2).await;
         shutdown_host(host, joins).await;
     }
 
@@ -8399,6 +9184,484 @@ post-worktree-create = "{post_create}"
         assert_eq!(session.worktree_path, worktree.to_string_lossy());
 
         let _ = host.pty_handle.kill(&session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_run_dispatch_returns_run_and_lists_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run card" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req(
+                "work-item-run-dispatch",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": dir.path(),
+                    "profile": "plain-shell",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
+        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+        assert_eq!(resp.data.as_ref().unwrap()["workItemId"], item_id);
+
+        let resp = handle_request(
+            req("work-item-runs-list", serde_json::json!({ "workItemId": item_id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let runs = resp.data.as_ref().unwrap().as_array().unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0]["id"], run_id);
+
+        let _ = host.pty_handle.kill(&session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_run_output_detects_decision_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run card" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req(
+                "work-item-run-dispatch",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": dir.path(),
+                    "profile": "plain-shell",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
+        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+
+        let line = r#"{"type":"decision","question":"Choose path?","options":[{"value":"existing","label":"Use existing"},{"value":"new","label":"Create new"}],"defaultValue":"existing"}"#;
+        host.pty_handle
+            .write(&session_id, format!("{line}\n").into_bytes())
+            .await
+            .unwrap();
+
+        let mut decisions = Vec::new();
+        for _ in 0..40 {
+            decisions = host.work_item_handle.list_pending_decisions(Some(&item_id)).unwrap();
+            if !decisions.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+
+        assert_eq!(decisions.len(), 1, "pending decision should be detected from output");
+        assert_eq!(decisions[0].run_id, run_id);
+        assert_eq!(decisions[0].question, "Choose path?");
+        assert_eq!(decisions[0].default_value.as_deref(), Some("existing"));
+
+        let run = host.work_item_handle.get_run(&run_id).unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Blocked);
+
+        let events = host.work_item_handle.list_run_events(&run_id).unwrap();
+        assert!(events.iter().any(|event| event.kind == roux_core::WorkItemRunEventKind::Text));
+        assert!(events.iter().any(|event| event.kind == roux_core::WorkItemRunEventKind::Decision));
+
+        let _ = host.pty_handle.kill(&session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_run_marks_done_on_zero_pty_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, _identity, joins) = make_host_and_identity(&dir).await;
+
+        let (run_id, _pty_id) =
+            spawn_task_work_item_run(&host, dir.path(), "exit 0", "task-exit-zero").await;
+
+        let run = wait_for_run_status(&host, &run_id, roux_core::WorkItemRunStatus::Done).await;
+
+        assert!(run.ended_at.is_some());
+        let events = host.work_item_handle.list_run_events(&run_id).unwrap();
+        assert!(events.iter().any(|event| {
+            event.kind == roux_core::WorkItemRunEventKind::StatusChanged
+                && event.payload["status"] == "done"
+                && event.payload["reason"] == "ptyExit"
+        }));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_run_marks_failed_on_nonzero_pty_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, _identity, joins) = make_host_and_identity(&dir).await;
+
+        let (run_id, _pty_id) =
+            spawn_task_work_item_run(&host, dir.path(), "exit 7", "task-exit-nonzero").await;
+
+        let run = wait_for_run_status(&host, &run_id, roux_core::WorkItemRunStatus::Failed).await;
+
+        assert!(run.ended_at.is_some());
+        let events = host.work_item_handle.list_run_events(&run_id).unwrap();
+        assert!(events.iter().any(|event| {
+            event.kind == roux_core::WorkItemRunEventKind::StatusChanged
+                && event.payload["status"] == "failed"
+                && event.payload["exitCode"] == 7
+        }));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn record_work_item_run_pty_exit_does_not_overwrite_stopped_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, _identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput { title: "Task".into(), ..Default::default() })
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_run(&item.id, Some("sess-1"), None, None, None, None)
+            .unwrap();
+        host.work_item_handle
+            .set_run_status(
+                &run.id,
+                roux_core::WorkItemRunStatus::Stopped,
+                serde_json::json!({ "reason": "user" }),
+            )
+            .unwrap();
+
+        record_work_item_run_pty_exit(&host, &run.id, Some(0), 1);
+
+        let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Stopped);
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_run_stop_archives_session_and_records_event() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run card" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req(
+                "work-item-run-dispatch",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": dir.path(),
+                    "profile": "plain-shell",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
+        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req("work-item-run-stop", serde_json::json!({ "runId": run_id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "run stop failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "stopped");
+        assert!(resp.data.as_ref().unwrap()["endedAt"].is_number());
+
+        let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
+        assert!(session.archived);
+        assert!(session.primary_pty_id.is_none());
+        assert!(host.pty_handle.snapshot(&session_id, 64).await.unwrap().is_none());
+
+        let resp = handle_request(
+            req("work-item-run-events", serde_json::json!({ "runId": run_id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let events = resp.data.as_ref().unwrap().as_array().unwrap();
+        assert_eq!(events.last().unwrap()["kind"], "statusChanged");
+        assert_eq!(events.last().unwrap()["payload"]["status"], "stopped");
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_decision_commands_persist_and_resolve_with_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Needs decision".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_run(&item.id, Some("sess-1"), None, None, None, None)
+            .unwrap();
+
+        let resp = handle_request(
+            req(
+                "work-item-decision-create",
+                serde_json::json!({
+                    "runId": run.id,
+                    "question": "Choose path?",
+                    "options": [
+                        { "value": "existing", "label": "Use existing" },
+                        { "value": "new", "label": "Create new" }
+                    ],
+                    "defaultValue": "existing",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "decision create failed: {:?}", resp.error);
+        let decision_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "pending");
+
+        let resp = handle_request(
+            req("work-item-decisions-list", serde_json::json!({ "workItemId": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        assert_eq!(resp.data.as_ref().unwrap().as_array().unwrap().len(), 1);
+
+        let resp = handle_request(
+            req(
+                "work-item-decision-resolve",
+                serde_json::json!({
+                    "id": decision_id,
+                    "value": "new",
+                    "resolvedBy": "test",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "decision resolve failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "resolved");
+        assert_eq!(resp.data.as_ref().unwrap()["resolvedValue"], "new");
+
+        let resp = handle_request(
+            req("work-item-run-events", serde_json::json!({ "runId": run.id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let events = resp.data.as_ref().unwrap().as_array().unwrap();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0]["kind"], "decision");
+        assert_eq!(events[1]["kind"], "decisionResolved");
+        assert_eq!(events[2]["kind"], "error");
+        assert_eq!(events[2]["payload"]["stage"], "decisionResolutionWrite");
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_decision_resolve_writes_choice_to_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Needs answer".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let pty_id = "decision-resolve-pty";
+        host.pty_handle
+            .spawn_task(
+                "cat".into(),
+                PtySpawnRequest {
+                    id: Some(pty_id.into()),
+                    working_dir: Some(dir.path().to_path_buf()),
+                    session_id: Some(pty_id.into()),
+                    profile: Some("task".into()),
+                    initial_size: Some((80, 24)),
+                    ..PtySpawnRequest::default()
+                },
+            )
+            .await
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_run(&item.id, Some(pty_id), None, None, None, None)
+            .unwrap();
+        let decision = host
+            .work_item_handle
+            .create_decision(
+                &run.id,
+                "Choose path?",
+                vec![
+                    roux_core::WorkItemDecisionOption {
+                        value: "existing".into(),
+                        label: "Use existing".into(),
+                    },
+                    roux_core::WorkItemDecisionOption {
+                        value: "new".into(),
+                        label: "Create new".into(),
+                    },
+                ],
+                Some("existing"),
+                None,
+            )
+            .unwrap();
+
+        let resp = handle_request(
+            req(
+                "work-item-decision-resolve",
+                serde_json::json!({
+                    "id": decision.id,
+                    "value": "new",
+                    "resolvedBy": "test",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "decision resolve failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "resolved");
+
+        let mut output = String::new();
+        for _ in 0..40 {
+            let snapshot = host.pty_handle.snapshot(pty_id, 1024).await.unwrap().unwrap();
+            output = snapshot.output;
+            if output.contains("new") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(output.contains("new"), "resolved choice should be written to PTY: {output:?}");
+
+        let _ = host.pty_handle.kill(pty_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_decision_timeout_writes_default_to_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Needs timeout".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let pty_id = "decision-timeout-pty";
+        host.pty_handle
+            .spawn_task(
+                "cat".into(),
+                PtySpawnRequest {
+                    id: Some(pty_id.into()),
+                    working_dir: Some(dir.path().to_path_buf()),
+                    session_id: Some(pty_id.into()),
+                    profile: Some("task".into()),
+                    initial_size: Some((80, 24)),
+                    ..PtySpawnRequest::default()
+                },
+            )
+            .await
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_run(&item.id, Some(pty_id), None, None, None, None)
+            .unwrap();
+
+        let resp = handle_request(
+            req(
+                "work-item-decision-create",
+                serde_json::json!({
+                    "runId": run.id,
+                    "question": "Use default?",
+                    "options": [{ "value": "yes", "label": "Yes" }],
+                    "defaultValue": "yes",
+                    "timeoutSeconds": 0,
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "decision create failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "timedOut");
+        assert_eq!(resp.data.as_ref().unwrap()["resolvedValue"], "yes");
+
+        let mut output = String::new();
+        for _ in 0..40 {
+            let snapshot = host.pty_handle.snapshot(pty_id, 1024).await.unwrap().unwrap();
+            output = snapshot.output;
+            if output.contains("yes") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(output.contains("yes"), "timed-out default should be written to PTY: {output:?}");
+
+        let events = host.work_item_handle.list_run_events(&run.id).unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == roux_core::WorkItemRunEventKind::DecisionTimedOut)
+        );
+
+        let _ = host.pty_handle.kill(pty_id).await;
         shutdown_host(host, joins).await;
     }
 

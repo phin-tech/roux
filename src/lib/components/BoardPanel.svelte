@@ -7,6 +7,7 @@
     moveWorkItem,
     dispatchWorkItem,
     createWorkItem,
+    pendingDecisionByItem,
     type WorkItemStatus,
   } from "$lib/stores/workItems";
   import { sessionList } from "$lib/stores/sessions";
@@ -152,9 +153,11 @@
           <div class="flex flex-col gap-1.5">
             {#each items as item (item.id)}
               {@const sessionStatus = item.sessionId ? ($sessionStatusMap.get(item.sessionId) ?? null) : null}
+              {@const pendingDecision = $pendingDecisionByItem.get(item.id) ?? null}
               <WorkItemCard
                 {item}
                 {sessionStatus}
+                {pendingDecision}
                 onMove={handleMove}
                 onStart={handleStart}
                 onOpen={handleOpen}
