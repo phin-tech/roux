@@ -300,6 +300,62 @@ impl WorkItemStore {
         Ok(changed > 0)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_run(
+        &mut self,
+        run_id: String,
+        work_item_id: &str,
+        session_id: &str,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+        sort_order: f64,
+        now: u64,
+    ) -> SqlResult<Option<(WorkItem, WorkItemRun)>> {
+        let tx = self.conn.transaction()?;
+        let changed = tx.execute(
+            "UPDATE work_items
+             SET session_id = ?2, status = ?3, sort_order = ?4, updated_at = ?5
+             WHERE id = ?1",
+            params![
+                work_item_id,
+                session_id,
+                WorkItemStatus::Doing.as_str(),
+                sort_order,
+                now as i64,
+            ],
+        )?;
+        if changed == 0 {
+            tx.rollback()?;
+            return Ok(None);
+        }
+        tx.execute(
+            "INSERT INTO work_item_runs
+             (id, work_item_id, session_id, provider, profile_id, status,
+              worktree_path, branch, created_at, started_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                run_id,
+                work_item_id,
+                session_id,
+                provider,
+                profile_id,
+                WorkItemRunStatus::Running.as_str(),
+                worktree_path,
+                branch,
+                now as i64,
+                now as i64,
+                now as i64,
+            ],
+        )?;
+        tx.commit()?;
+
+        let item = self.get(work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let run = self.get_run(&run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        Ok(Some((item, run)))
+    }
+
     /// Upsert by `(provider, external_id)`: insert if no match, otherwise
     /// update `title`, `body`, `status`, and `updated_at`.
     pub fn upsert_by_external(
@@ -469,14 +525,27 @@ impl WorkItemStore {
             WorkItemRunStatus::Failed | WorkItemRunStatus::Stopped | WorkItemRunStatus::Done
         );
         let tx = self.conn.transaction()?;
-        tx.execute(
+        let changed = tx.execute(
             "UPDATE work_item_runs
              SET status = ?2,
                  updated_at = ?3,
                  ended_at = CASE WHEN ?4 THEN COALESCE(ended_at, ?3) ELSE ended_at END
-             WHERE id = ?1",
-            params![id, status.as_str(), now as i64, is_terminal],
+             WHERE id = ?1
+               AND status NOT IN (?5, ?6, ?7)",
+            params![
+                id,
+                status.as_str(),
+                now as i64,
+                is_terminal,
+                WorkItemRunStatus::Done.as_str(),
+                WorkItemRunStatus::Failed.as_str(),
+                WorkItemRunStatus::Stopped.as_str(),
+            ],
         )?;
+        if changed == 0 {
+            tx.rollback()?;
+            return Ok(None);
+        }
         tx.execute(
             "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -927,6 +996,52 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_run_rolls_back_item_update_when_run_insert_fails() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        let err = store
+            .dispatch_run("run-1".into(), "i-1", "sess-2", None, None, None, None, 5.0, 1200)
+            .unwrap_err();
+        assert!(matches!(err, rusqlite::Error::SqliteFailure(_, _)));
+
+        let item = store.get("i-1").unwrap().unwrap();
+        assert_eq!(item.session_id, None);
+        assert_eq!(item.status, WorkItemStatus::Todo);
+        assert_eq!(item.sort_order, 0.0);
+    }
+
+    #[test]
+    fn dispatch_run_updates_item_and_creates_run_atomically() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+
+        let (item, run) = store
+            .dispatch_run(
+                "run-1".into(),
+                "i-1",
+                "sess-1",
+                Some("claude"),
+                Some("claude"),
+                Some("/repo"),
+                Some("branch"),
+                7.0,
+                1200,
+            )
+            .unwrap()
+            .expect("item should exist");
+
+        assert_eq!(item.session_id.as_deref(), Some("sess-1"));
+        assert_eq!(item.status, WorkItemStatus::Doing);
+        assert_eq!(item.sort_order, 7.0);
+        assert_eq!(run.session_id.as_deref(), Some("sess-1"));
+        assert_eq!(run.work_item_id, "i-1");
+    }
+
+    #[test]
     fn runs_are_persisted_and_listed_by_work_item() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         store.create("i-1".into(), input("Task"), 1000).unwrap();
@@ -1027,6 +1142,42 @@ mod tests {
         assert_eq!(run.ended_at, Some(1200));
         assert_eq!(event.kind, roux_core::WorkItemRunEventKind::StatusChanged);
         assert_eq!(event.payload["reason"], "user");
+    }
+
+    #[test]
+    fn run_status_update_does_not_overwrite_terminal_status() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .update_run_status_with_event(
+                "run-1",
+                roux_core::WorkItemRunStatus::Done,
+                "event-1".into(),
+                serde_json::json!({ "status": "done" }),
+                1200,
+            )
+            .unwrap()
+            .expect("first update should win");
+
+        let result = store
+            .update_run_status_with_event(
+                "run-1",
+                roux_core::WorkItemRunStatus::Stopped,
+                "event-2".into(),
+                serde_json::json!({ "status": "stopped", "reason": "user" }),
+                1300,
+            )
+            .unwrap();
+
+        assert!(result.is_none());
+        let run = store.get_run("run-1").unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
+        let events = store.list_run_events("run-1").unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].id, "event-1");
     }
 
     #[test]

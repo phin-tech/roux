@@ -228,6 +228,52 @@ impl WorkItemHandle {
         Ok(run)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_run(
+        &self,
+        work_item_id: &str,
+        session_id: &str,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+        sort_order: f64,
+    ) -> Result<Option<WorkItemRun>, String> {
+        let run_id = Uuid::new_v4().to_string();
+        let now = now_secs();
+        let result = self
+            .inner
+            .lock()
+            .unwrap()
+            .dispatch_run(
+                run_id,
+                work_item_id,
+                session_id,
+                provider,
+                profile_id,
+                worktree_path,
+                branch,
+                sort_order,
+                now,
+            )
+            .map_err(|e| format!("work-item dispatch run: {e}"))?;
+        if let Some((item, run)) = result {
+            self.broadcast(WorkItemEvent::SessionBound {
+                id: item.id.clone(),
+                session_id: session_id.to_string(),
+            });
+            self.broadcast(WorkItemEvent::RunCreated { run: run.clone() });
+            self.broadcast(WorkItemEvent::Moved {
+                id: item.id,
+                status: item.status,
+                sort_order: item.sort_order,
+            });
+            Ok(Some(run))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn list_runs(&self, work_item_id: Option<&str>) -> Result<Vec<WorkItemRun>, String> {
         self.inner
             .lock()
@@ -484,6 +530,26 @@ mod tests {
         assert_eq!(run.work_item_id, item.id);
         let event = rx.try_recv().expect("RunCreated event should be broadcast");
         assert!(matches!(event, WorkItemEvent::RunCreated { .. }));
+    }
+
+    #[test]
+    fn dispatch_run_broadcasts_session_run_and_move_events() {
+        let handle = WorkItemHandle::in_memory();
+        let item = handle.create(input("Task")).unwrap();
+        let mut rx = handle.subscribe_events();
+
+        let run = handle
+            .dispatch_run(&item.id, "sess-1", Some("claude"), Some("claude"), None, None, 1.0)
+            .unwrap()
+            .expect("item should exist");
+
+        assert_eq!(run.work_item_id, item.id);
+        let event = rx.try_recv().expect("SessionBound event should be broadcast");
+        assert!(matches!(event, WorkItemEvent::SessionBound { .. }));
+        let event = rx.try_recv().expect("RunCreated event should be broadcast");
+        assert!(matches!(event, WorkItemEvent::RunCreated { .. }));
+        let event = rx.try_recv().expect("Moved event should be broadcast");
+        assert!(matches!(event, WorkItemEvent::Moved { .. }));
     }
 
     #[test]

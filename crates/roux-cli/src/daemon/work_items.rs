@@ -262,18 +262,6 @@ async fn dispatch_work_item_run(
         return Err(Response::err("session created but id missing from response"));
     };
 
-    match host.work_item_handle.set_session(&item_id, &session_id) {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            let _ = host.session_handle.remove(&session_id).await;
-            return Err(Response::err("work item was removed; session was rolled back"));
-        }
-        Err(err) => {
-            let _ = host.session_handle.remove(&session_id).await;
-            return Err(Response::err(format!("set_session failed, session rolled back: {err}")));
-        }
-    }
-
     let session = host.session_handle.get(&session_id).await.ok().flatten();
     let settings = load_daemon_settings();
     let provider = roux_core::providers::resolve_profile(&profile_id, &settings)
@@ -281,37 +269,25 @@ async fn dispatch_work_item_run(
     let worktree_path = session.as_ref().map(|s| s.worktree_path.as_str());
     let branch =
         session.as_ref().map(|s| s.branch.as_str()).filter(|branch| !branch.trim().is_empty());
-    let run = match host.work_item_handle.create_run(
+    let run = match host.work_item_handle.dispatch_run(
         &item_id,
-        Some(&session_id),
+        &session_id,
         provider.as_deref(),
         Some(&profile_id),
         worktree_path,
         branch,
-    ) {
-        Ok(run) => run,
-        Err(err) => {
-            let _ = host.session_handle.remove(&session_id).await;
-            return Err(Response::err(format!("create run failed, session rolled back: {err}")));
-        }
-    };
-    match host.work_item_handle.move_item(
-        &item_id,
-        roux_core::WorkItemStatus::Doing,
         item.sort_order,
     ) {
-        Ok(Some(_)) => {}
+        Ok(Some(run)) => run,
         Ok(None) => {
             let _ = host.session_handle.remove(&session_id).await;
             return Err(Response::err("work item was removed; session was rolled back"));
         }
         Err(err) => {
             let _ = host.session_handle.remove(&session_id).await;
-            return Err(Response::err(format!(
-                "move work item failed, session rolled back: {err}"
-            )));
+            return Err(Response::err(format!("dispatch run failed, session rolled back: {err}")));
         }
-    }
+    };
 
     start_work_item_run_output_monitor(host.clone(), run.id.clone(), session_id.clone());
 
@@ -395,7 +371,24 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
             Ok(value) => Response::success(value),
             Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
         },
-        Ok(None) => Response::err("work item run not found"),
+        Ok(None) => match host.work_item_handle.get_run(&run_id) {
+            Ok(Some(run))
+                if matches!(
+                    run.status,
+                    roux_core::WorkItemRunStatus::Stopped
+                        | roux_core::WorkItemRunStatus::Done
+                        | roux_core::WorkItemRunStatus::Failed
+                ) =>
+            {
+                match serde_json::to_value(run) {
+                    Ok(value) => Response::success(value),
+                    Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
+                }
+            }
+            Ok(Some(_)) => Response::err("work item run status was not updated"),
+            Ok(None) => Response::err("work item run not found"),
+            Err(err) => Response::err(err),
+        },
         Err(err) => Response::err(err),
     }
 }
