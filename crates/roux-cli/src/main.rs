@@ -568,7 +568,7 @@ struct WorkItemDecisionCreateArgs {
     /// Default option value used by timeout
     #[arg(long)]
     default_value: Option<String>,
-    /// Absolute Unix timestamp in milliseconds
+    /// Absolute Unix timestamp in seconds
     #[arg(long)]
     timeout_at: Option<u64>,
     /// Relative timeout in seconds
@@ -1396,9 +1396,13 @@ fn build_work_item_start_request(params: WorkItemStartArgs) -> Value {
     let mut args = serde_json::Map::new();
     args.insert("id".into(), Value::String(params.id));
     insert_optional_string(&mut args, "profile", params.profile);
-    insert_optional_string(&mut args, "repoPath", params.repo_path);
+    if let Some(repo_path) = params.repo_path {
+        args.insert("repoPath".into(), Value::String(resolve_path(&repo_path)));
+    }
     insert_optional_string(&mut args, "name", params.name);
-    insert_optional_string(&mut args, "worktreePath", params.worktree_path);
+    if let Some(worktree_path) = params.worktree_path {
+        args.insert("worktreePath".into(), Value::String(resolve_path(&worktree_path)));
+    }
     insert_optional_string(&mut args, "branch", params.branch);
     insert_optional_string(&mut args, "base", params.base);
     if params.fetch_first {
@@ -1454,7 +1458,7 @@ fn build_work_item_import_request(
     let mut args = serde_json::Map::new();
     match (path, items_json) {
         (Some(path), None) => {
-            args.insert("path".into(), Value::String(path));
+            args.insert("path".into(), Value::String(resolve_path(&path)));
         }
         (None, Some(items_json)) => {
             let items: Value = serde_json::from_str(&items_json)
@@ -2991,6 +2995,23 @@ mod tests {
     }
 
     #[test]
+    fn work_item_start_resolves_cli_paths_before_socket_request() {
+        let request = build_work_item_start_request(WorkItemStartArgs {
+            id: "wi-1".into(),
+            profile: None,
+            repo_path: Some(".".into()),
+            name: None,
+            worktree_path: Some("./wt".into()),
+            branch: None,
+            base: None,
+            fetch_first: false,
+        });
+
+        assert_eq!(request["args"]["repoPath"], resolve_path("."));
+        assert_eq!(request["args"]["worktreePath"], resolve_path("./wt"));
+    }
+
+    #[test]
     fn work_item_decision_options_parse_value_label_pairs() {
         let options =
             parse_work_item_decision_options(vec!["ship=Ship it".into(), "hold".into()]).unwrap();
@@ -3011,6 +3032,15 @@ mod tests {
             .expect("inline items json should parse");
         assert_eq!(request["command"], "work-item-import");
         assert_eq!(request["args"]["items"][0]["title"], "A");
+    }
+
+    #[test]
+    fn work_item_import_resolves_file_path_before_socket_request() {
+        let request = build_work_item_import_request(Some("items.json".into()), None)
+            .expect("file path import should build");
+
+        assert_eq!(request["command"], "work-item-import");
+        assert_eq!(request["args"]["path"], resolve_path("items.json"));
     }
 
     #[test]

@@ -350,6 +350,14 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
             | roux_core::WorkItemRunStatus::Done
             | roux_core::WorkItemRunStatus::Failed
     ) {
+        if run.status == roux_core::WorkItemRunStatus::Stopped {
+            if let Some(session_id) = run.session_id.as_deref() {
+                if let Err(response) = cleanup_stopped_work_item_run_session(host, session_id).await
+                {
+                    return response;
+                }
+            }
+        }
         return match serde_json::to_value(run) {
             Ok(value) => Response::success(value),
             Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
@@ -387,9 +395,8 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
     };
 
     if let Some(session_id) = run.session_id.as_deref() {
-        kill_session_ptys(host, session_id).await;
-        if let Err(err) = host.session_handle.archive(session_id).await {
-            return Response::err(err.to_string());
+        if let Err(response) = cleanup_stopped_work_item_run_session(host, session_id).await {
+            return response;
         }
     }
 
@@ -397,6 +404,14 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
         Ok(value) => Response::success(value),
         Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
     }
+}
+
+async fn cleanup_stopped_work_item_run_session(
+    host: &RuntimeHost,
+    session_id: &str,
+) -> Result<(), Response> {
+    kill_session_ptys(host, session_id).await;
+    host.session_handle.archive(session_id).await.map_err(|err| Response::err(err.to_string()))
 }
 
 pub(super) async fn handle_work_item_decision_create(req: Request, host: &RuntimeHost) -> Response {
@@ -1951,6 +1966,67 @@ mod tests {
         let events = resp.data.as_ref().unwrap().as_array().unwrap();
         assert_eq!(events.last().unwrap()["kind"], "statusChanged");
         assert_eq!(events.last().unwrap()["payload"]["status"], "stopped");
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_run_stop_retries_cleanup_for_already_stopped_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run card" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req(
+                "work-item-run-dispatch",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": dir.path(),
+                    "profile": "plain-shell",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
+        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+
+        host.work_item_handle
+            .set_run_status(
+                &run_id,
+                roux_core::WorkItemRunStatus::Stopped,
+                serde_json::json!({ "reason": "preexisting" }),
+            )
+            .unwrap();
+
+        let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
+        assert!(!session.archived);
+        assert!(host.pty_handle.snapshot(&session_id, 64).await.unwrap().is_some());
+
+        let resp = handle_request(
+            req("work-item-run-stop", serde_json::json!({ "runId": run_id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "run stop failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "stopped");
+
+        let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
+        assert!(session.archived);
+        assert!(session.primary_pty_id.is_none());
+        assert!(host.pty_handle.snapshot(&session_id, 64).await.unwrap().is_none());
 
         shutdown_host(host, joins).await;
     }
