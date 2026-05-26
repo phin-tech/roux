@@ -281,7 +281,9 @@ async fn dispatch_work_item_run(
         Ok(Some(run)) => run,
         Ok(None) => {
             let _ = host.session_handle.remove(&session_id).await;
-            return Err(Response::err("work item was removed; session was rolled back"));
+            return Err(Response::err(
+                "work item was removed or already bound; session was rolled back",
+            ));
         }
         Err(err) => {
             let _ = host.session_handle.remove(&session_id).await;
@@ -1583,8 +1585,8 @@ mod tests {
             "expected Moved, got: {event:?}"
         );
 
-        // A card can have multiple runs. The compatibility session_id points
-        // at the latest run, but run history keeps both attempts.
+        // A card with a live binding cannot be dispatched again; otherwise the
+        // second session would orphan the first session from the board.
         let resp2 = handle_request(
             req(
                 "work-item-dispatch",
@@ -1598,21 +1600,23 @@ mod tests {
             &identity,
         )
         .await;
-        assert!(resp2.ok, "second dispatch should create another run: {:?}", resp2.error);
-        let session_id_2 = resp2.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
-        assert_ne!(session_id, session_id_2);
+        assert!(!resp2.ok, "second dispatch should be rejected");
+        assert!(
+            resp2.error.as_deref().unwrap_or_default().contains("already bound"),
+            "unexpected error: {:?}",
+            resp2.error
+        );
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
         assert_eq!(
             item.session_id.as_deref(),
-            Some(session_id_2.as_str()),
-            "compatibility session_id points at the latest run",
+            Some(session_id.as_str()),
+            "session_id keeps the original binding",
         );
         assert_eq!(item.status, roux_core::WorkItemStatus::Doing);
         let runs = host.work_item_handle.list_runs(Some(&item_id)).unwrap();
-        assert_eq!(runs.len(), 2);
+        assert_eq!(runs.len(), 1);
 
         let _ = host.pty_handle.kill(&session_id).await;
-        let _ = host.pty_handle.kill(&session_id_2).await;
         shutdown_host(host, joins).await;
     }
 

@@ -317,7 +317,7 @@ impl WorkItemStore {
         let changed = tx.execute(
             "UPDATE work_items
              SET session_id = ?2, status = ?3, sort_order = ?4, updated_at = ?5
-             WHERE id = ?1",
+             WHERE id = ?1 AND session_id IS NULL",
             params![
                 work_item_id,
                 session_id,
@@ -577,6 +577,24 @@ impl WorkItemStore {
         let options_json = serde_json::to_string(&options)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let tx = self.conn.transaction()?;
+        let changed = tx.execute(
+            "UPDATE work_item_runs
+             SET status = ?2, updated_at = ?3
+             WHERE id = ?1
+               AND status NOT IN (?4, ?5, ?6)",
+            params![
+                run_id,
+                WorkItemRunStatus::Blocked.as_str(),
+                now as i64,
+                WorkItemRunStatus::Done.as_str(),
+                WorkItemRunStatus::Failed.as_str(),
+                WorkItemRunStatus::Stopped.as_str(),
+            ],
+        )?;
+        if changed == 0 {
+            tx.rollback()?;
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
         tx.execute(
             "INSERT INTO work_item_decisions
              (id, run_id, question, options, default_value, timeout_at, status, created_at, updated_at)
@@ -592,10 +610,6 @@ impl WorkItemStore {
                 now as i64,
                 now as i64,
             ],
-        )?;
-        tx.execute(
-            "UPDATE work_item_runs SET status = ?2, updated_at = ?3 WHERE id = ?1",
-            params![run_id, WorkItemRunStatus::Blocked.as_str(), now as i64],
         )?;
         tx.commit()?;
         self.get_decision(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
@@ -1042,6 +1056,25 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_run_rejects_already_bound_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .dispatch_run("run-1".into(), "i-1", "sess-1", None, None, None, None, 0.0, 1100)
+            .unwrap()
+            .expect("first dispatch should bind");
+
+        let result = store
+            .dispatch_run("run-2".into(), "i-1", "sess-2", None, None, None, None, 0.0, 1200)
+            .unwrap();
+
+        assert!(result.is_none());
+        let item = store.get("i-1").unwrap().unwrap();
+        assert_eq!(item.session_id.as_deref(), Some("sess-1"));
+        assert!(store.get_run("run-2").unwrap().is_none());
+    }
+
+    #[test]
     fn runs_are_persisted_and_listed_by_work_item() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         store.create("i-1".into(), input("Task"), 1000).unwrap();
@@ -1257,6 +1290,42 @@ mod tests {
 
         let run = store.get_run("run-1").unwrap().unwrap();
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Running);
+    }
+
+    #[test]
+    fn create_decision_does_not_revive_terminal_run() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .update_run_status_with_event(
+                "run-1",
+                roux_core::WorkItemRunStatus::Done,
+                "event-1".into(),
+                serde_json::json!({ "status": "done" }),
+                1200,
+            )
+            .unwrap()
+            .expect("run should update");
+
+        let err = store
+            .create_decision(
+                "dec-1".into(),
+                "run-1",
+                "Choose path?",
+                vec![WorkItemDecisionOption { value: "a".into(), label: "A".into() }],
+                None,
+                None,
+                1300,
+            )
+            .unwrap_err();
+
+        assert!(matches!(err, rusqlite::Error::QueryReturnedNoRows));
+        let run = store.get_run("run-1").unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
+        assert!(store.list_pending_decisions(None).unwrap().is_empty());
     }
 
     #[test]
