@@ -280,12 +280,14 @@ async fn dispatch_work_item_run(
     ) {
         Ok(Some(run)) => run,
         Ok(None) => {
+            kill_session_ptys(host, &session_id).await;
             let _ = host.session_handle.remove(&session_id).await;
             return Err(Response::err(
                 "work item was removed or already bound; session was rolled back",
             ));
         }
         Err(err) => {
+            kill_session_ptys(host, &session_id).await;
             let _ = host.session_handle.remove(&session_id).await;
             return Err(Response::err(format!("dispatch run failed, session rolled back: {err}")));
         }
@@ -1615,6 +1617,15 @@ mod tests {
         assert_eq!(item.status, roux_core::WorkItemStatus::Doing);
         let runs = host.work_item_handle.list_runs(Some(&item_id)).unwrap();
         assert_eq!(runs.len(), 1);
+        let sessions = host.session_handle.list().await.unwrap();
+        assert_eq!(sessions.len(), 1);
+        let ptys = host.pty_handle.list().await.unwrap();
+        assert_eq!(
+            ptys.iter()
+                .filter(|pty| pty.info.session_id.as_deref() == Some(session_id.as_str()))
+                .count(),
+            1
+        );
 
         let _ = host.pty_handle.kill(&session_id).await;
         shutdown_host(host, joins).await;

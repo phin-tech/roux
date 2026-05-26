@@ -151,8 +151,8 @@ mod tests {
     }
 
     #[test]
-    fn map_hook_status_passes_unknown_through() {
-        assert_eq!(map_hook_status("unknown"), "unknown");
+    fn map_hook_status_unknown_maps_to_idle() {
+        assert_eq!(map_hook_status("unknown"), "idle");
         assert_eq!(map_hook_status("generating"), "generating");
     }
 

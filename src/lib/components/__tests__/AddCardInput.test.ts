@@ -32,18 +32,21 @@ describe("AddCardInput", () => {
   it("keeps the typed title when create fails", async () => {
     const onCreate = vi.fn().mockRejectedValue(new Error("nope"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    render(AddCardInput, { onCreate });
+    try {
+      render(AddCardInput, { onCreate });
 
-    await fireEvent.click(screen.getByLabelText("Add card"));
-    const input = screen.getByLabelText("New card title") as HTMLInputElement;
+      await fireEvent.click(screen.getByLabelText("Add card"));
+      const input = screen.getByLabelText("New card title") as HTMLInputElement;
 
-    await fireEvent.input(input, { target: { value: "Keep this" } });
-    await fireEvent.keyDown(input, { key: "Enter" });
+      await fireEvent.input(input, { target: { value: "Keep this" } });
+      await fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => expect(errorSpy).toHaveBeenCalled());
-    expect(onCreate).toHaveBeenCalledWith("Keep this");
-    expect(input.value).toBe("Keep this");
-    errorSpy.mockRestore();
+      await waitFor(() => expect(errorSpy).toHaveBeenCalled());
+      expect(onCreate).toHaveBeenCalledWith("Keep this");
+      expect(input.value).toBe("Keep this");
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it("ignores an empty/whitespace title", async () => {
