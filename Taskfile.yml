@@ -15,11 +15,12 @@ includes:
 
 tasks:
   dev:
-    desc: "Run Tauri in development mode (also rebuilds the Roux CLI)"
+    desc: "Run Tauri in development mode (also rebuilds and restarts the Roux daemon)"
     cmds:
       - task: frontend:ensure
       - task: cli:install
       - task: cli:stage-dev-binary
+      - task: cli:restart-dev-daemon
       - npm run tauri dev
 
   dev:up:
@@ -124,6 +125,14 @@ tasks:
           cp -f target/debug/roux.exe src-tauri/binaries/roux-cli.exe
           cp -f target/debug/roux.exe "src-tauri/binaries/roux-cli-${TARGET}.exe"
           echo "Prepared dev Roux CLI binaries for ${TARGET}"
+        platforms: [windows]
+
+  cli:restart-dev-daemon:
+    desc: "Restart the freshly built debug Roux daemon for Tauri dev"
+    cmds:
+      - cmd: target/debug/roux daemon restart
+        platforms: [darwin, linux]
+      - cmd: target/debug/roux.exe daemon restart
         platforms: [windows]
 
   dev:install:
