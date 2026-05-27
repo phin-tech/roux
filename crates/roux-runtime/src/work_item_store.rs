@@ -151,15 +151,11 @@ impl WorkItemStore {
             version = 3;
         }
         if (1..4).contains(&version) {
-            if !table_has_column(&conn, "work_items", "repo_path")? {
-                conn.execute_batch(
-                    "ALTER TABLE work_items ADD COLUMN repo_path TEXT;
-                    ALTER TABLE work_items ADD COLUMN agent_profile TEXT;
-                    ALTER TABLE work_items ADD COLUMN base_branch TEXT;
-                    ALTER TABLE work_items ADD COLUMN worktree_path TEXT;
-                    ALTER TABLE work_items ADD COLUMN start_error TEXT;",
-                )?;
-            }
+            add_column_if_missing(&conn, "work_items", "repo_path", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "agent_profile", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "base_branch", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "worktree_path", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "start_error", "TEXT")?;
             conn.execute_batch("PRAGMA user_version = 4;")?;
         }
         Ok(WorkItemStore { conn })
@@ -1088,6 +1084,18 @@ fn table_has_column(conn: &Connection, table: &str, column: &str) -> SqlResult<b
     Ok(false)
 }
 
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> SqlResult<()> {
+    if !table_has_column(conn, table, column)? {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition};"))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1134,6 +1142,92 @@ mod tests {
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
         assert_eq!(version, 4);
         assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
+    }
+
+    #[test]
+    fn v4_migration_repairs_partially_added_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("board.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE work_items (
+                    id          TEXT PRIMARY KEY,
+                    project_id  TEXT,
+                    parent_id   TEXT,
+                    title       TEXT NOT NULL,
+                    body        TEXT,
+                    status      TEXT NOT NULL DEFAULT 'todo',
+                    repo_path   TEXT,
+                    session_id  TEXT,
+                    provider    TEXT,
+                    external_id TEXT,
+                    external_url TEXT,
+                    sort_order  REAL NOT NULL DEFAULT 0,
+                    pinned_pr_url TEXT,
+                    cost        REAL,
+                    created_at  INTEGER NOT NULL,
+                    updated_at  INTEGER NOT NULL
+                );
+                CREATE TABLE work_item_runs (
+                    id            TEXT PRIMARY KEY,
+                    work_item_id  TEXT NOT NULL,
+                    session_id    TEXT,
+                    provider      TEXT,
+                    profile_id    TEXT,
+                    status        TEXT NOT NULL DEFAULT 'running',
+                    worktree_path TEXT,
+                    branch        TEXT,
+                    cost          REAL,
+                    created_at    INTEGER NOT NULL,
+                    started_at    INTEGER,
+                    ended_at      INTEGER,
+                    updated_at    INTEGER NOT NULL,
+                    FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+                );
+                CREATE TABLE work_item_run_events (
+                    id         TEXT PRIMARY KEY,
+                    run_id     TEXT NOT NULL,
+                    kind       TEXT NOT NULL,
+                    payload    TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(run_id) REFERENCES work_item_runs(id) ON DELETE CASCADE
+                );
+                CREATE TABLE work_item_decisions (
+                    id             TEXT PRIMARY KEY,
+                    run_id         TEXT NOT NULL,
+                    question       TEXT NOT NULL,
+                    options        TEXT NOT NULL,
+                    default_value  TEXT,
+                    status         TEXT NOT NULL DEFAULT 'pending',
+                    resolved_value TEXT,
+                    resolved_by    TEXT,
+                    created_at     INTEGER NOT NULL,
+                    resolved_at    INTEGER,
+                    updated_at     INTEGER NOT NULL,
+                    timeout_at     INTEGER,
+                    FOREIGN KEY(run_id) REFERENCES work_item_runs(id) ON DELETE CASCADE
+                );
+                PRAGMA user_version = 3;",
+            )
+            .unwrap();
+        }
+
+        let store = WorkItemStore::open(&path).unwrap();
+        let version: i64 =
+            store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(version, 4);
+        for column in [
+            "repo_path",
+            "agent_profile",
+            "base_branch",
+            "worktree_path",
+            "start_error",
+        ] {
+            assert!(table_has_column(&store.conn, "work_items", column).unwrap());
+        }
+        let item = store.get("missing").unwrap();
+        assert!(item.is_none());
     }
 
     #[test]
