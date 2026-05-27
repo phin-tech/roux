@@ -1,17 +1,18 @@
 use serde::Serialize;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 
 use roux_runtime::host::RuntimeHost;
-use roux_runtime::pty_service::{PtyOutputEvent, PTY_OUTPUT_DEFAULT_POLL_BYTES};
+use roux_runtime::pty_service::{PtyOutputEvent, PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES};
 
 use super::identity::{request_authorized, DaemonIdentity};
 use super::protocol::{Request, Response};
 use super::{
     bool_arg, handle_session_create_shell, kill_session_ptys, load_daemon_settings,
-    optional_nullable_string_arg, optional_string_arg,
+    optional_nullable_string_arg, optional_string_arg, parse_pty_env_request,
 };
 
 #[derive(Debug, Serialize)]
@@ -218,6 +219,7 @@ type ProfileDispatcher = for<'a> fn(
     &'a roux_core::WorkItem,
     &'a str,
     &'a str,
+    &'a DaemonIdentity,
 ) -> ProfileDispatchFuture<'a>;
 type AfterSessionCreatedHook = fn(&RuntimeHost, &str, &roux_core::Session);
 
@@ -226,8 +228,9 @@ fn real_profile_dispatcher<'a>(
     item: &'a roux_core::WorkItem,
     session_id: &'a str,
     profile_id: &'a str,
+    identity: &'a DaemonIdentity,
 ) -> ProfileDispatchFuture<'a> {
-    Box::pin(run_dispatched_profile(host, item, session_id, profile_id))
+    Box::pin(run_dispatched_profile(host, item, session_id, profile_id, identity))
 }
 
 fn real_planning_profile_dispatcher<'a>(
@@ -235,8 +238,9 @@ fn real_planning_profile_dispatcher<'a>(
     item: &'a roux_core::WorkItem,
     session_id: &'a str,
     profile_id: &'a str,
+    identity: &'a DaemonIdentity,
 ) -> ProfileDispatchFuture<'a> {
-    Box::pin(run_dispatched_planning_profile(host, item, session_id, profile_id))
+    Box::pin(run_dispatched_planning_profile(host, item, session_id, profile_id, identity))
 }
 
 async fn plan_work_item_run(
@@ -365,12 +369,12 @@ async fn plan_work_item_run_with_hooks(
             "branch": branch,
         }),
     );
-    start_work_item_run_output_monitor(host.clone(), run.id.clone(), session_id.clone());
-
     let mut dispatch_item = item.clone();
     dispatch_item.repo_path = Some(repo_path);
     dispatch_item.agent_profile = Some(profile_id.clone());
-    if let Err(err) = dispatch_profile(host, &dispatch_item, &session_id, &profile_id).await {
+    if let Err(err) =
+        dispatch_profile(host, &dispatch_item, &session_id, &profile_id, identity).await
+    {
         let _ = host.work_item_handle.set_run_status(
             &run.id,
             roux_core::WorkItemRunStatus::Failed,
@@ -382,6 +386,7 @@ async fn plan_work_item_run_with_hooks(
         );
         return Err(Response::err(err));
     }
+    start_work_item_run_output_monitor(host.clone(), run.id.clone(), session_id.clone());
 
     let _ = host.work_item_handle.append_run_event(
         &run.id,
@@ -745,8 +750,6 @@ async fn start_work_item_run_with_hooks(
             "branch": branch,
         }),
     );
-    start_work_item_run_output_monitor(host.clone(), run.id.clone(), session_id.clone());
-
     let mut dispatch_item = item.clone();
     dispatch_item.session_id = Some(session_id.clone());
     dispatch_item.worktree_path = worktree_path.map(str::to_string);
@@ -754,7 +757,9 @@ async fn start_work_item_run_with_hooks(
     dispatch_item.repo_path = Some(repo_path.clone());
     dispatch_item.base_branch = base_branch.clone();
 
-    if let Err(err) = dispatch_profile(host, &dispatch_item, &session_id, &profile_id).await {
+    if let Err(err) =
+        dispatch_profile(host, &dispatch_item, &session_id, &profile_id, identity).await
+    {
         let _ = host.work_item_handle.set_run_status(
             &run.id,
             roux_core::WorkItemRunStatus::Failed,
@@ -775,6 +780,7 @@ async fn start_work_item_run_with_hooks(
         );
         return Err(Response::err(err));
     }
+    start_work_item_run_output_monitor(host.clone(), run.id.clone(), session_id.clone());
 
     let _ = host.work_item_handle.append_run_event(
         &run.id,
@@ -1512,11 +1518,20 @@ async fn run_dispatched_profile(
     item: &roux_core::WorkItem,
     session_id: &str,
     profile_id: &str,
+    identity: &DaemonIdentity,
 ) -> Result<(), String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
     let settings = load_daemon_settings();
     let task_prompt = render_work_item_task_prompt(item, session.as_ref(), &settings);
-    run_dispatched_profile_with_task_prompt(host, item, session_id, profile_id, &task_prompt).await
+    run_dispatched_profile_with_task_prompt(
+        host,
+        item,
+        session_id,
+        profile_id,
+        identity,
+        &task_prompt,
+    )
+    .await
 }
 
 async fn run_dispatched_planning_profile(
@@ -1524,11 +1539,20 @@ async fn run_dispatched_planning_profile(
     item: &roux_core::WorkItem,
     session_id: &str,
     profile_id: &str,
+    identity: &DaemonIdentity,
 ) -> Result<(), String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
     let settings = load_daemon_settings();
     let task_prompt = render_work_item_planning_prompt(item, session.as_ref(), &settings);
-    run_dispatched_profile_with_task_prompt(host, item, session_id, profile_id, &task_prompt).await
+    run_dispatched_profile_with_task_prompt(
+        host,
+        item,
+        session_id,
+        profile_id,
+        identity,
+        &task_prompt,
+    )
+    .await
 }
 
 async fn run_dispatched_profile_with_task_prompt(
@@ -1536,26 +1560,70 @@ async fn run_dispatched_profile_with_task_prompt(
     item: &roux_core::WorkItem,
     session_id: &str,
     profile_id: &str,
+    identity: &DaemonIdentity,
     task_prompt: &str,
 ) -> Result<(), String> {
     let settings = load_daemon_settings();
     let Some(profile) = roux_core::providers::resolve_profile(profile_id, &settings) else {
         return Err(format!("agent profile not found: {profile_id}"));
     };
+    let session = host
+        .session_handle
+        .get(session_id)
+        .await
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| format!("session not found: {session_id}"))?;
 
     let append = render_dispatch_project_prompt(host, item, session_id, &profile, &settings).await;
     let append_opt = (!append.trim().is_empty()).then_some(append.as_str());
-    let task_opt = (!task_prompt.trim().is_empty()).then_some(task_prompt);
-
-    let Some(input) = roux_core::providers::profile_startup_input_with_initial_task(
-        &profile, append_opt, task_opt,
+    let Some(command) = roux_core::providers::profile_startup_command_with_initial_prompt(
+        &profile,
+        append_opt,
+        task_prompt,
     ) else {
-        return Err("agentProfile did not produce startup input".to_string());
+        return Err("agentProfile did not produce startup command".to_string());
     };
+
+    let primary_pty_id = session.primary_pty_id.clone().unwrap_or_else(|| session_id.to_string());
     host.pty_handle
-        .write(session_id, input.into_bytes())
+        .remove(&primary_pty_id)
         .await
-        .map_err(|err| format!("failed to dispatch task prompt to session: {err}"))
+        .map_err(|err| format!("failed to replace session shell for work item run: {err}"))?;
+
+    let working_dir = profile_working_dir(&profile, &session);
+    let env_args = serde_json::Value::Null;
+    host.pty_handle
+        .spawn_task(
+            command,
+            PtySpawnRequest {
+                id: Some(primary_pty_id),
+                working_dir: Some(working_dir),
+                session_id: Some(session_id.to_string()),
+                pane_id: Some(format!("{session_id}-main")),
+                project_id: item.project_id.clone(),
+                worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
+                env: parse_pty_env_request(&env_args, identity),
+                profile: Some(profile_id.to_string()),
+                role: roux_core::PtyRole::SessionPrimary,
+                ..PtySpawnRequest::default()
+            },
+        )
+        .await
+        .map(|_| ())
+        .map_err(|err| format!("failed to launch agent task in session: {err}"))
+}
+
+fn profile_working_dir(profile: &roux_core::SpawnProfile, session: &roux_core::Session) -> PathBuf {
+    let Some(cwd) = profile.cwd_override.as_deref().map(str::trim).filter(|cwd| !cwd.is_empty())
+    else {
+        return PathBuf::from(&session.worktree_path);
+    };
+    let cwd = PathBuf::from(cwd);
+    if cwd.is_absolute() {
+        cwd
+    } else {
+        PathBuf::from(&session.worktree_path).join(cwd)
+    }
 }
 
 fn render_work_item_planning_prompt(
@@ -2104,6 +2172,7 @@ mod tests {
         _item: &'a roux_core::WorkItem,
         _session_id: &'a str,
         _profile_id: &'a str,
+        _identity: &'a DaemonIdentity,
     ) -> ProfileDispatchFuture<'a> {
         Box::pin(async { Err("simulated prompt dispatch failure".to_string()) })
     }
@@ -2113,6 +2182,7 @@ mod tests {
         _item: &'a roux_core::WorkItem,
         _session_id: &'a str,
         _profile_id: &'a str,
+        _identity: &'a DaemonIdentity,
     ) -> ProfileDispatchFuture<'a> {
         Box::pin(async { Ok(()) })
     }
@@ -2558,6 +2628,20 @@ mod tests {
         assert_eq!(item.status, roux_core::WorkItemStatus::Doing);
         assert_eq!(item.agent_profile.as_deref(), Some("claude"));
         let session_id = item.session_id.clone().expect("started card session");
+        let ptys = host.pty_handle.list().await.unwrap();
+        let pty = ptys
+            .iter()
+            .find(|pty| pty.info.session_id.as_deref() == Some(session_id.as_str()))
+            .expect("started card pty");
+        assert_eq!(pty.kind, roux_runtime::pty_service::PtyKind::Task);
+        assert!(
+            pty.command
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Start work on this Roux board card."),
+            "agent command should include seeded work-item prompt: {:?}",
+            pty.command
+        );
         let _ = host.pty_handle.kill(&session_id).await;
 
         shutdown_host(host, joins).await;

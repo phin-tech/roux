@@ -55,8 +55,8 @@ Use the Kanban board to turn a written task into a daemon-owned agent run.
 - Cards without a repo/project show **Configure** instead of **Start**. Cards
   without an explicit agent use the Kanban default agent profile from settings.
 - **Start** creates or reuses the card worktree, creates a daemon session/PTY,
-  sends the task prompt to the selected agent, and only then moves the card to
-  **In Progress**.
+  launches the selected agent with the task prompt, and only then moves the
+  card to **In Progress**.
 - **Plan** starts a daemon-owned planning session without moving the card.
   **Retry planning** replaces a stale active planning run.
 - **Open terminal** attaches to the latest linked run/session without creating a

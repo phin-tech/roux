@@ -13,14 +13,14 @@ Kanban default agent profile from settings.
 
 Starting a configured card is daemon-owned. The daemon creates or reuses the
 card's dedicated worktree, creates a session/PTY for the selected autonomous
-agent profile, writes the generated task prompt into that PTY, and only then
-moves the card to **In Progress**. The card's `session_id` is latest-session
-display state only.
+agent profile, launches the agent with the generated task prompt as its initial
+prompt, and only then moves the card to **In Progress**. The card's
+`session_id` is latest-session display state only.
 
 Planning is daemon-owned too. **Plan** creates a planning session in the repo
-workspace and sends the planning prompt without moving the card or binding its
-implementation session. If the planning run is stale, **Retry planning** stops
-the active planning run and starts a fresh one.
+workspace and launches the agent with the planning prompt without moving the
+card or binding its implementation session. If the planning run is stale,
+**Retry planning** stops the active planning run and starts a fresh one.
 
 Settings -> Kanban controls the default autonomous agent profile, optional
 extra instructions appended to planning/implementation/review prompts, and the

@@ -693,8 +693,9 @@ Daemon-owned planning action. Requires `args.id`. Optional args: `repoPath`,
 `profile`, `name`, `worktreePath`, and `replaceActive`.
 
 The daemon creates or reuses one active planning run for the card, creates a
-planning session/PTY, generates a planning prompt, dispatches it to the PTY,
-records lifecycle events, and returns:
+planning session/PTY, generates a planning prompt, launches the selected
+autonomous agent with that prompt as its initial positional prompt, records
+lifecycle events, and returns:
 
 ```json
 {
@@ -728,9 +729,10 @@ Plain-shell and type-only profiles are not valid Start profiles.
 
 On success, the daemon creates or reuses the card's dedicated worktree, creates
 a daemon session/PTY, creates a `starting` `WorkItemRun`, appends lifecycle
-events for session creation and prompt dispatch, writes the generated task
-prompt to the PTY, transitions the run to `running`, binds the session to the
-card, moves the card to `doing`, clears `startError`, and returns:
+events for session creation and prompt dispatch, launches the selected
+autonomous agent with the generated task prompt as its initial positional
+prompt, transitions the run to `running`, binds the session to the card, moves
+the card to `doing`, clears `startError`, and returns:
 
 ```json
 {
