@@ -26,7 +26,7 @@
   import { applyLayoutToSession, resolveFirstLeafNono, type LayoutApplyError } from "$lib/panes/layoutRunner";
   import { initSessionWithProfile } from "$lib/panes/actions";
   import { settings } from "$lib/stores/settings";
-  import { dispatchWorkItem, moveWorkItem } from "$lib/stores/workItems";
+  import { startWorkItem } from "$lib/stores/workItems";
   import {
     profileList,
     type SpawnProfile,
@@ -862,7 +862,7 @@
         log(
           `Starting work item ${workItemStart.itemId}: repo=${repoPath}, target=${gitTarget?.label ?? "plain"}, name=${name}, profile=${profile.id}`,
         );
-        const sessionId = await dispatchWorkItem(workItemStart.itemId, {
+        const sessionId = await startWorkItem(workItemStart.itemId, {
           repoPath,
           name,
           worktreePath: worktreePathArg,
@@ -871,7 +871,6 @@
           base: defaultBase.base,
           fetchFirst: defaultBase.fetchFirst,
         });
-        await moveWorkItem(workItemStart.itemId, "doing", Date.now());
         await openSessionById(sessionId);
         resetAndClose();
         return;

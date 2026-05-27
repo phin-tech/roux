@@ -57,10 +57,10 @@ use watches::{
 };
 use work_items::{
     handle_work_item_create, handle_work_item_decision_create, handle_work_item_decision_resolve,
-    handle_work_item_decisions_list, handle_work_item_delete, handle_work_item_dispatch,
-    handle_work_item_import, handle_work_item_list, handle_work_item_move,
-    handle_work_item_run_dispatch, handle_work_item_run_events, handle_work_item_run_stop,
-    handle_work_item_runs_list, handle_work_item_update,
+    handle_work_item_decisions_list, handle_work_item_delete, handle_work_item_import,
+    handle_work_item_list, handle_work_item_move, handle_work_item_run_events,
+    handle_work_item_run_stop, handle_work_item_runs_list, handle_work_item_start,
+    handle_work_item_update,
     schedule_pending_work_item_decision_timeouts,
 };
 
@@ -255,8 +255,7 @@ async fn handle_request_with_watch_runner(
         "work-item-update" => handle_work_item_update(req, host).await,
         "work-item-move" => handle_work_item_move(req, host).await,
         "work-item-delete" => handle_work_item_delete(req, host).await,
-        "work-item-dispatch" => handle_work_item_dispatch(req, host, identity).await,
-        "work-item-run-dispatch" => handle_work_item_run_dispatch(req, host, identity).await,
+        "work-item-start" => handle_work_item_start(req, host, identity).await,
         "work-item-runs-list" => handle_work_item_runs_list(req, host).await,
         "work-item-run-events" => handle_work_item_run_events(req, host).await,
         "work-item-run-stop" => handle_work_item_run_stop(req, host).await,

@@ -6,7 +6,7 @@
     WORK_ITEM_COLUMNS,
     COLUMN_LABELS,
     moveWorkItem,
-    dispatchWorkItem,
+    startWorkItem,
     createWorkItem,
     pendingDecisionByItem,
     type WorkItemStatus,
@@ -52,8 +52,12 @@
     return rest;
   }
 
+  function needsStartConfig(item: WorkItem): boolean {
+    return !item.agentProfile || (!item.repoPath && !item.projectId);
+  }
+
   async function handleStart(id: string, item: WorkItem) {
-    if (!item.projectId) {
+    if (needsStartConfig(item)) {
       openWorkItemSessionStart({ itemId: item.id, title: item.title });
       return;
     }
@@ -61,12 +65,12 @@
     startingItemIds = { ...startingItemIds, [id]: true };
     startErrors = withoutKey(startErrors, id);
 
-    // Dispatch creates + binds a session and atomically moves the card to Doing.
+    // Start creates the session/worktree and moves the card after prompt dispatch.
     try {
-      await dispatchWorkItem(id);
+      await startWorkItem(id);
     } catch (err) {
       startErrors = { ...startErrors, [id]: formatWorkItemStartError(err) };
-      console.error("Failed to dispatch work item", err);
+      console.error("Failed to start work item", err);
     } finally {
       startingItemIds = withoutKey(startingItemIds, id);
     }
@@ -202,7 +206,7 @@
                 onEdit={openWorkItemEditor}
                 onDelete={handleDelete}
                 startPending={!!startingItemIds[item.id]}
-                startError={startErrors[item.id] ?? null}
+                startError={startErrors[item.id] ?? item.startError ?? null}
               />
             {/each}
           {:else}

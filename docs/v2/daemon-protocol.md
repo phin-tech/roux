@@ -3,7 +3,7 @@
 **Status:** Experimental v0. This document describes the protocol currently
 implemented by `roux daemon`; command names and payloads can still change.
 
-The daemon owns durable runtime state and process/PTy lifetimes. The desktop
+The daemon owns durable runtime state and process/PTY lifetimes. The desktop
 app is one client: it renders UI, attaches output streams, and forwards user
 input over the socket when a daemon is connected.
 
@@ -665,12 +665,15 @@ to one project.
 `work-item-create`
 
 Requires `args.title`. Optional: `args.body`, `args.status` (default `"todo"`),
-`args.projectId`, `args.parentId`, `args.sortOrder`. Returns the created item.
+`args.projectId`, `args.parentId`, `args.sortOrder`, `args.repoPath`,
+`args.agentProfile`, `args.baseBranch`, and `args.worktreePath`. Returns the
+created item.
 
 `work-item-update`
 
-Requires `args.id` and `args.title`. Optional: same fields as create. Returns
-the updated item or `404` if not found.
+Requires `args.id` and `args.title`. Optional: same fields as create. Updating
+start config clears the previous `startError`. Returns the updated item or
+`404` if not found.
 
 `work-item-move`
 
@@ -678,35 +681,40 @@ Requires `args.id` and `args.status`. Optional `args.sortOrder` (defaults to
 current `Date.now()` milliseconds when called from the frontend). Moves the
 card to the target column. Returns the updated item.
 
-Valid `status` values: `"todo"`, `"doing"`, `"review"`, `"done"`.
+Valid `status` values: `"todo"`, `"ready"`, `"doing"`, `"review"`, `"done"`.
 
 `work-item-delete`
 
 Requires `args.id`. Returns `{ "id": "..." }` on success.
 
-`work-item-dispatch`
+`work-item-start`
 
-Compatibility "Start" action. Requires `args.id`. Optional `args.repoPath`
-overrides the repo path; otherwise the item's project's first `repo_root` is
-used. Optional `args.name`, `args.worktreePath`, `args.branch`, `args.base`,
-`args.fetchFirst`, and `args.profile` are forwarded to `session-create-shell`.
-Creates a session via `session-create-shell` (named after the work item's title
-unless `args.name` is supplied, inheriting `projectId`), then binds it with
-`set_session` which fires `WorkItemEvent::SessionBound`, creates a
-`WorkItemRun`, and fires `WorkItemEvent::RunCreated`. Returns the new session
-record for older callers; `work-item-run-dispatch` is the source-of-truth
-variant.
+Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
+`repoPath`, `profile`, `name`, `worktreePath`, `branch`, `base`, and
+`fetchFirst`.
 
-`work-item-run-dispatch`
+The daemon rejects cards that already have an active run, cards without a repo
+path or project repo to derive from, and cards without an autonomous agent
+profile. Plain-shell and type-only profiles are not valid Start profiles.
 
-The run-owned "Start" action. Accepts the same args as `work-item-dispatch` but
-returns the created `WorkItemRun`. A card can have multiple runs; the card's
-`session_id` is maintained only as latest-session compatibility/display state.
-Successful dispatch moves the card to `doing` after the run is created.
-For known auto-run agent profiles (Claude/Codex), dispatch also writes the
-provider startup command and then sends a first task prompt built from the card
-title, description, and external link. Plain-shell and type-only profiles are
-left at the prompt.
+On success, the daemon creates or reuses the card's dedicated worktree, creates
+a daemon session/PTY, creates a `starting` `WorkItemRun`, appends lifecycle
+events for session creation and prompt dispatch, writes the generated task
+prompt to the PTY, transitions the run to `running`, binds the session to the
+card, moves the card to `doing`, clears `startError`, and returns:
+
+```json
+{
+  "item": {},
+  "run": {},
+  "session": {}
+}
+```
+
+If session/worktree creation succeeds but prompt dispatch fails, the daemon
+marks the run `failed`, records `startError` on the card, preserves the
+session/worktree for inspection, and returns an error response. Failures before
+a run exists leave the card in its current column and record `startError`.
 
 `work-item-runs-list`
 

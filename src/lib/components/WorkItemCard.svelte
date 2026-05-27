@@ -45,9 +45,10 @@
     draggable = false,
   }: Props = $props();
 
-  const COLUMN_OPTIONS: WorkItemStatus[] = ["todo", "doing", "review", "done"];
+  const COLUMN_OPTIONS: WorkItemStatus[] = ["todo", "ready", "doing", "review", "done"];
   const COLUMN_LABELS: Record<WorkItemStatus, string> = {
     todo: "To Do",
+    ready: "Ready",
     doing: "In Progress",
     review: "Review",
     done: "Done",
@@ -62,7 +63,8 @@
     disconnected: "bg-muted",
   };
 
-  const isDispatched = $derived(!!item.sessionId);
+  const hasSession = $derived(!!item.sessionId);
+  const isStartable = $derived(!!item.agentProfile && (!!item.repoPath || !!item.projectId));
   const hasMenuActions = $derived(!!onEdit || !!onDelete);
   const dotClass = $derived(
     sessionStatus ? (statusDotClasses[sessionStatus] ?? "bg-muted") : null,
@@ -115,7 +117,7 @@
   class:cursor-grab={draggable}
   class:active:cursor-grabbing={draggable}
   {draggable}
-  data-dispatched={isDispatched}
+  data-session-bound={hasSession}
   data-error={!!startError}
   data-blocked={!!pendingDecision}
   ondragstart={draggable
@@ -208,7 +210,7 @@
       </button>
     {/each}
 
-    {#if isDispatched && onOpen}
+    {#if hasSession && onOpen}
       <button
         class="ml-auto inline-flex h-6 items-center gap-1.5 rounded-md border border-accent-dim/30 bg-accent-dim/15 px-2 text-[10px] font-semibold text-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-accent-dim/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/60"
         onclick={() => item.sessionId && onOpen?.(item.sessionId)}
@@ -217,7 +219,7 @@
         <Terminal size={11} strokeWidth={2.2} />
         <span>Open terminal</span>
       </button>
-    {:else if !isDispatched && onStart}
+    {:else if !hasSession && onStart}
       <button
         class="ml-auto inline-flex h-6 items-center gap-1.5 rounded-md border border-accent-dim/30 bg-accent-dim/15 px-2 text-[10px] font-semibold text-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-accent-dim/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/60 disabled:cursor-wait disabled:opacity-60"
         onclick={() => onStart?.(item.id, item)}
@@ -226,7 +228,7 @@
         disabled={startPending}
       >
         <Play size={10} fill="currentColor" strokeWidth={2.2} />
-        <span>{startPending ? "Starting..." : "Start"}</span>
+        <span>{startPending ? "Starting..." : (isStartable ? "Start" : "Configure")}</span>
       </button>
     {/if}
   </div>
@@ -316,7 +318,7 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 
-  .work-card[data-dispatched="true"]::before {
+  .work-card[data-session-bound="true"]::before {
     background: var(--color-accent);
     box-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 44%, transparent);
   }

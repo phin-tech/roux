@@ -261,7 +261,7 @@ impl DaemonClient {
         self.sdk.work_item_delete(id).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn work_item_dispatch(
+    pub(crate) async fn work_item_start(
         &self,
         id: String,
         profile: Option<String>,
@@ -271,35 +271,9 @@ impl DaemonClient {
         branch: Option<String>,
         base: Option<String>,
         fetch_first: Option<bool>,
-    ) -> DaemonClientResult<String> {
+    ) -> DaemonClientResult<roux_core::WorkItemStartResult> {
         self.sdk
-            .work_item_dispatch(
-                id,
-                profile,
-                repo_path,
-                name,
-                worktree_path,
-                branch,
-                base,
-                fetch_first,
-            )
-            .await
-            .map_err(DaemonClientError::from)
-    }
-
-    pub(crate) async fn work_item_run_dispatch(
-        &self,
-        id: String,
-        profile: Option<String>,
-        repo_path: Option<String>,
-        name: Option<String>,
-        worktree_path: Option<String>,
-        branch: Option<String>,
-        base: Option<String>,
-        fetch_first: Option<bool>,
-    ) -> DaemonClientResult<roux_core::WorkItemRun> {
-        self.sdk
-            .work_item_run_dispatch(
+            .work_item_start(
                 id,
                 profile,
                 repo_path,

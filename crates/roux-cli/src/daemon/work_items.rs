@@ -1,4 +1,6 @@
 use serde::Serialize;
+use std::future::Future;
+use std::pin::Pin;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 
@@ -59,6 +61,11 @@ pub(super) async fn handle_work_item_create(req: Request, host: &RuntimeHost) ->
             .get("status")
             .and_then(|v| v.as_str())
             .and_then(roux_core::WorkItemStatus::from_str_opt),
+        repo_path: optional_string_arg(&req.args, &["repoPath", "repo_path"]),
+        agent_profile: optional_string_arg(&req.args, &["agentProfile", "agent_profile"]),
+        base_branch: optional_string_arg(&req.args, &["baseBranch", "base_branch", "base"]),
+        worktree_path: optional_string_arg(&req.args, &["worktreePath", "worktree_path"]),
+        start_error: optional_nullable_string_arg(&req.args, &["startError", "start_error"]),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
         external_ref: None,
@@ -92,6 +99,11 @@ pub(super) async fn handle_work_item_update(req: Request, host: &RuntimeHost) ->
             .get("status")
             .and_then(|v| v.as_str())
             .and_then(roux_core::WorkItemStatus::from_str_opt),
+        repo_path: optional_string_arg(&req.args, &["repoPath", "repo_path"]),
+        agent_profile: optional_string_arg(&req.args, &["agentProfile", "agent_profile"]),
+        base_branch: optional_string_arg(&req.args, &["baseBranch", "base_branch", "base"]),
+        worktree_path: optional_string_arg(&req.args, &["worktreePath", "worktree_path"]),
+        start_error: optional_nullable_string_arg(&req.args, &["startError", "start_error"]),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
         external_ref: None,
@@ -148,84 +160,191 @@ pub(super) async fn handle_work_item_delete(req: Request, host: &RuntimeHost) ->
     }
 }
 
-pub(super) async fn handle_work_item_dispatch(
+pub(super) async fn handle_work_item_start(
     req: Request,
     host: &RuntimeHost,
     identity: &DaemonIdentity,
 ) -> Response {
-    match dispatch_work_item_run(req, host, identity).await {
-        Ok(result) => Response::success(result.session),
-        Err(resp) => resp,
-    }
-}
-
-pub(super) async fn handle_work_item_run_dispatch(
-    req: Request,
-    host: &RuntimeHost,
-    identity: &DaemonIdentity,
-) -> Response {
-    match dispatch_work_item_run(req, host, identity).await {
-        Ok(result) => match serde_json::to_value(&result.run) {
+    match start_work_item_run(req, host, identity).await {
+        Ok(result) => match serde_json::to_value(result) {
             Ok(value) => Response::success(value),
-            Err(err) => Response::err(format!("failed to serialize work item run: {err}")),
+            Err(err) => Response::err(format!("failed to serialize work item start: {err}")),
         },
         Err(resp) => resp,
     }
 }
 
-struct WorkItemRunDispatch {
-    session: serde_json::Value,
-    run: roux_core::WorkItemRun,
+type ProfileDispatchFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+type ProfileDispatcher =
+    for<'a> fn(&'a RuntimeHost, &'a roux_core::WorkItem, &'a str, &'a str) -> ProfileDispatchFuture<'a>;
+
+fn real_profile_dispatcher<'a>(
+    host: &'a RuntimeHost,
+    item: &'a roux_core::WorkItem,
+    session_id: &'a str,
+    profile_id: &'a str,
+) -> ProfileDispatchFuture<'a> {
+    Box::pin(run_dispatched_profile(host, item, session_id, profile_id))
 }
 
-async fn dispatch_work_item_run(
+async fn start_work_item_run(
     req: Request,
     host: &RuntimeHost,
     identity: &DaemonIdentity,
-) -> Result<WorkItemRunDispatch, Response> {
+) -> Result<roux_core::WorkItemStartResult, Response> {
+    start_work_item_run_with_dispatcher(req, host, identity, real_profile_dispatcher).await
+}
+
+async fn start_work_item_run_with_dispatcher(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+    dispatch_profile: ProfileDispatcher,
+) -> Result<roux_core::WorkItemStartResult, Response> {
     let Some(item_id) = optional_string_arg(&req.args, &["id"]) else {
         return Err(Response::err("id required"));
     };
-    let item = match host.work_item_handle.get(&item_id) {
+    let mut item = match host.work_item_handle.get(&item_id) {
         Ok(Some(item)) => item,
         Ok(None) => return Err(Response::err("work item not found")),
         Err(err) => return Err(Response::err(err)),
     };
 
-    // Resolve repo_path: explicit arg -> project.repo_roots[0] -> error
+    match host.work_item_handle.has_active_run(&item_id) {
+        Ok(true) => {
+            return Err(record_start_failure_response(
+                host,
+                &item_id,
+                "work item already has an active run",
+                None,
+                None,
+                None,
+                None,
+                None,
+            ));
+        }
+        Ok(false) => {}
+        Err(err) => return Err(Response::err(err)),
+    }
+
+    let settings = load_daemon_settings();
+    let Some(profile_id) =
+        optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
+            .or_else(|| item.agent_profile.clone())
+    else {
+        return Err(record_start_failure_response(
+            host,
+            &item_id,
+            "agentProfile required",
+            None,
+            None,
+            None,
+            None,
+            None,
+        ));
+    };
+    let Some(profile) = roux_core::providers::resolve_profile(&profile_id, &settings) else {
+        return Err(record_start_failure_response(
+            host,
+            &item_id,
+            &format!("agent profile not found: {profile_id}"),
+            None,
+            None,
+            Some(&profile_id),
+            None,
+            None,
+        ));
+    };
+    if let Some(reason) = autonomous_profile_rejection_reason(&profile) {
+        return Err(record_start_failure_response(
+            host,
+            &item_id,
+            reason,
+            None,
+            None,
+            Some(&profile_id),
+            None,
+            None,
+        ));
+    }
+
+    // Resolve repo_path: explicit arg -> card repo_path -> project.repo_roots[0] -> error.
     let repo_path = if let Some(path) = optional_string_arg(&req.args, &["repoPath", "repo_path"]) {
+        path
+    } else if let Some(path) = item.repo_path.clone() {
         path
     } else if let Some(pid) = &item.project_id {
         match host.project_handle.get(pid).await {
             Ok(Some(project)) => match project.repo_roots.into_iter().next() {
                 Some(root) => root,
-                None => return Err(Response::err("project has no repo_roots")),
+                None => {
+                    return Err(record_start_failure_response(
+                        host,
+                        &item_id,
+                        "project has no repo_roots",
+                        None,
+                        None,
+                        Some(&profile_id),
+                        None,
+                        None,
+                    ));
+                }
             },
-            Ok(None) => return Err(Response::err("project not found")),
+            Ok(None) => {
+                return Err(record_start_failure_response(
+                    host,
+                    &item_id,
+                    "project not found",
+                    None,
+                    None,
+                    Some(&profile_id),
+                    None,
+                    None,
+                ));
+            }
             Err(err) => return Err(Response::err(err.to_string())),
         }
     } else {
-        return Err(Response::err("repoPath required (work item has no project)"));
+        return Err(record_start_failure_response(
+            host,
+            &item_id,
+            "repoPath or project required",
+            None,
+            None,
+            Some(&profile_id),
+            None,
+            None,
+        ));
     };
 
     let name = optional_string_arg(&req.args, &["name"]).unwrap_or_else(|| item.title.clone());
-    let worktree_path = optional_nullable_string_arg(&req.args, &["worktreePath", "worktree_path"]);
-    let branch =
+    let explicit_worktree_path =
+        optional_nullable_string_arg(&req.args, &["worktreePath", "worktree_path"]);
+    let requested_branch =
         optional_nullable_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"]);
-    let base = optional_nullable_string_arg(&req.args, &["base", "startPoint", "start_point"]);
+    let base = optional_nullable_string_arg(&req.args, &["base", "startPoint", "start_point"])
+        .or_else(|| item.base_branch.clone())
+        .or_else(|| Some("main".to_string()));
     let fetch_first = bool_arg(&req.args, &["fetchFirst", "fetch_first"]);
-
-    // Default to the built-in Claude agent when the caller didn't pick a
-    // profile, so a dispatched card actually runs an agent (not a bare shell).
-    // Callers (incl. the desktop board) can override via the `profile` arg.
-    let profile_id =
-        optional_string_arg(&req.args, &["profile"]).unwrap_or_else(|| "claude".to_string());
+    let worktree_path = explicit_worktree_path.or_else(|| {
+        if requested_branch.is_none() {
+            item.worktree_path.clone()
+        } else {
+            None
+        }
+    });
+    let branch = if worktree_path.is_some() {
+        requested_branch
+    } else {
+        requested_branch.or_else(|| Some(default_work_item_branch(&item)))
+    };
+    let base_branch = base.clone();
 
     let mut session_args = serde_json::json!({
-        "repoPath": repo_path,
+        "repoPath": repo_path.clone(),
         "name": name,
-        "projectId": item.project_id,
-        "profile": profile_id,
+        "projectId": item.project_id.clone(),
+        "profile": profile_id.clone(),
     });
     if let Some(worktree_path) = worktree_path {
         session_args["worktreePath"] = serde_json::Value::String(worktree_path);
@@ -249,6 +368,17 @@ async fn dispatch_work_item_run(
     };
     let session_resp = handle_session_create_shell(session_create_req, host, identity).await;
     if !session_resp.ok {
+        let message =
+            session_resp.error.clone().unwrap_or_else(|| "session creation failed".to_string());
+        let _ = host.work_item_handle.record_start_failure(
+            &item_id,
+            &message,
+            None,
+            None,
+            Some(&profile_id),
+            Some(&repo_path),
+            base_branch.as_deref(),
+        );
         return Err(session_resp);
     }
 
@@ -259,48 +389,204 @@ async fn dispatch_work_item_run(
         .and_then(|v| v.as_str())
         .map(str::to_string);
     let Some(session_id) = session_id else {
-        return Err(Response::err("session created but id missing from response"));
+        return Err(record_start_failure_response(
+            host,
+            &item_id,
+            "session created but id missing from response",
+            None,
+            None,
+            Some(&profile_id),
+            Some(&repo_path),
+            base_branch.as_deref(),
+        ));
     };
 
-    let session = host.session_handle.get(&session_id).await.ok().flatten();
-    let settings = load_daemon_settings();
-    let provider = roux_core::providers::resolve_profile(&profile_id, &settings)
-        .and_then(|profile| provider_slug(profile.provider).map(str::to_string));
-    let worktree_path = session.as_ref().map(|s| s.worktree_path.as_str());
-    let branch =
-        session.as_ref().map(|s| s.branch.as_str()).filter(|branch| !branch.trim().is_empty());
-    let run = match host.work_item_handle.dispatch_run(
+    let session = match host.session_handle.get(&session_id).await {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            return Err(record_start_failure_response(
+                host,
+                &item_id,
+                "session created but not found in daemon state",
+                Some(&session_id),
+                None,
+                Some(&profile_id),
+                Some(&repo_path),
+                base_branch.as_deref(),
+            ));
+        }
+        Err(err) => return Err(Response::err(err.to_string())),
+    };
+    let provider = provider_slug(profile.provider).map(str::to_string);
+    let worktree_path = Some(session.worktree_path.as_str());
+    let branch = (!session.branch.trim().is_empty()).then_some(session.branch.as_str());
+    let run = match host.work_item_handle.create_starting_run(
         &item_id,
-        &session_id,
+        Some(&session_id),
         provider.as_deref(),
         Some(&profile_id),
         worktree_path,
         branch,
-        item.sort_order,
     ) {
-        Ok(Some(run)) => run,
-        Ok(None) => {
-            kill_session_ptys(host, &session_id).await;
-            let _ = host.session_handle.remove(&session_id).await;
-            return Err(Response::err(
-                "work item was removed or already bound; session was rolled back",
-            ));
-        }
+        Ok(run) => run,
         Err(err) => {
-            kill_session_ptys(host, &session_id).await;
-            let _ = host.session_handle.remove(&session_id).await;
-            return Err(Response::err(format!("dispatch run failed, session rolled back: {err}")));
+            let _ = host.work_item_handle.record_start_failure(
+                &item_id,
+                &err,
+                Some(&session_id),
+                worktree_path,
+                Some(&profile_id),
+                Some(&repo_path),
+                base_branch.as_deref(),
+            );
+            return Err(Response::err(
+                format!("work item run create failed; session was preserved: {err}"),
+            ));
         }
     };
 
+    let _ = host.work_item_handle.append_run_event(
+        &run.id,
+        roux_core::WorkItemRunEventKind::Lifecycle,
+        serde_json::json!({
+            "stage": "sessionCreated",
+            "sessionId": session_id.clone(),
+            "worktreePath": worktree_path,
+            "branch": branch,
+        }),
+    );
     start_work_item_run_output_monitor(host.clone(), run.id.clone(), session_id.clone());
 
-    // Bring the agent to life in the now-bound session. Best-effort: the
-    // session is already created + bound, so a failure here just leaves a
-    // shell prompt rather than failing the dispatch.
-    run_dispatched_profile(host, &item, &session_id, &profile_id).await;
+    let mut dispatch_item = item.clone();
+    dispatch_item.session_id = Some(session_id.clone());
+    dispatch_item.worktree_path = worktree_path.map(str::to_string);
+    dispatch_item.agent_profile = Some(profile_id.clone());
+    dispatch_item.repo_path = Some(repo_path.clone());
+    dispatch_item.base_branch = base_branch.clone();
 
-    Ok(WorkItemRunDispatch { session: session_resp.data.unwrap_or(serde_json::Value::Null), run })
+    if let Err(err) = dispatch_profile(host, &dispatch_item, &session_id, &profile_id).await {
+        let _ = host.work_item_handle.set_run_status(
+            &run.id,
+            roux_core::WorkItemRunStatus::Failed,
+            serde_json::json!({
+                "reason": "promptDispatchFailed",
+                "message": err.clone(),
+                "sessionId": session_id.clone(),
+            }),
+        );
+        let _ = host.work_item_handle.record_start_failure(
+            &item_id,
+            &err,
+            Some(&session_id),
+            worktree_path,
+            Some(&profile_id),
+            Some(&repo_path),
+            base_branch.as_deref(),
+        );
+        return Err(Response::err(err));
+    }
+
+    let _ = host.work_item_handle.append_run_event(
+        &run.id,
+        roux_core::WorkItemRunEventKind::Lifecycle,
+        serde_json::json!({
+            "stage": "promptDispatched",
+            "sessionId": session_id.clone(),
+        }),
+    );
+    let run = match host.work_item_handle.set_run_status(
+        &run.id,
+        roux_core::WorkItemRunStatus::Running,
+        serde_json::json!({
+            "reason": "promptDispatched",
+            "sessionId": session_id.clone(),
+        }),
+    ) {
+        Ok(Some(run)) => run,
+        Ok(None) => host.work_item_handle.get_run(&run.id).ok().flatten().unwrap_or(run),
+        Err(_) => run,
+    };
+    item = match host.work_item_handle.complete_start(
+        &item_id,
+        &session_id,
+        worktree_path,
+        Some(&profile_id),
+        Some(&repo_path),
+        base_branch.as_deref(),
+        item.sort_order,
+    ) {
+        Ok(Some(item)) => item,
+        Ok(None) => return Err(Response::err("work item not found after prompt dispatch")),
+        Err(err) => return Err(Response::err(err)),
+    };
+
+    Ok(roux_core::WorkItemStartResult {
+        item,
+        session,
+        run,
+    })
+}
+
+fn record_start_failure_response(
+    host: &RuntimeHost,
+    item_id: &str,
+    message: &str,
+    session_id: Option<&str>,
+    worktree_path: Option<&str>,
+    agent_profile: Option<&str>,
+    repo_path: Option<&str>,
+    base_branch: Option<&str>,
+) -> Response {
+    let _ = host.work_item_handle.record_start_failure(
+        item_id,
+        message,
+        session_id,
+        worktree_path,
+        agent_profile,
+        repo_path,
+        base_branch,
+    );
+    Response::err(message.to_string())
+}
+
+fn autonomous_profile_rejection_reason(profile: &roux_core::SpawnProfile) -> Option<&'static str> {
+    if !matches!(profile.provider, Some(roux_core::Provider::Claude | roux_core::Provider::Codex)) {
+        return Some("agentProfile must be an autonomous Claude or Codex profile");
+    }
+    if matches!(profile.startup_behavior, Some(roux_core::StartupBehavior::TypeOnly)) {
+        return Some("agentProfile must auto-run instead of type-only");
+    }
+    if profile.startup_command.as_deref().map(str::trim).filter(|cmd| !cmd.is_empty()).is_none() {
+        return Some("agentProfile must define a startup command");
+    }
+    None
+}
+
+fn default_work_item_branch(item: &roux_core::WorkItem) -> String {
+    let short_id: String = item.id.chars().filter(|ch| ch.is_ascii_alphanumeric()).take(8).collect();
+    let short_id = if short_id.is_empty() { "item".to_string() } else { short_id };
+    let mut slug = String::new();
+    let mut last_was_dash = false;
+    for ch in item.title.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            last_was_dash = false;
+        } else if !last_was_dash && !slug.is_empty() {
+            slug.push('-');
+            last_was_dash = true;
+        }
+        if slug.len() >= 48 {
+            break;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        format!("roux/card-{short_id}")
+    } else {
+        format!("roux/card-{short_id}-{slug}")
+    }
 }
 
 fn provider_slug(provider: Option<roux_core::Provider>) -> Option<&'static str> {
@@ -919,35 +1205,55 @@ fn strip_ansi_sequences(input: &str) -> String {
 
 /// Type the resolved profile's startup sequence (env, setup, agent command
 /// with the project prompt folded in) into a freshly-dispatched session's PTY
-/// so the card runs an agent headlessly. Best-effort and silent on failure.
+/// so the card runs an agent headlessly.
 async fn run_dispatched_profile(
     host: &RuntimeHost,
     item: &roux_core::WorkItem,
     session_id: &str,
     profile_id: &str,
-) {
+) -> Result<(), String> {
     let settings = load_daemon_settings();
     let Some(profile) = roux_core::providers::resolve_profile(profile_id, &settings) else {
-        return;
+        return Err(format!("agent profile not found: {profile_id}"));
     };
 
     let append = render_dispatch_project_prompt(host, item, session_id, &profile, &settings).await;
     let append_opt = (!append.trim().is_empty()).then_some(append.as_str());
-    let task_prompt = render_work_item_task_prompt(item);
+    let session = host.session_handle.get(session_id).await.ok().flatten();
+    let task_prompt = render_work_item_task_prompt(item, session.as_ref());
     let task_opt = (!task_prompt.trim().is_empty()).then_some(task_prompt.as_str());
 
-    if let Some(input) = roux_core::providers::profile_startup_input_with_initial_task(
+    let Some(input) = roux_core::providers::profile_startup_input_with_initial_task(
         &profile, append_opt, task_opt,
-    ) {
-        let _ = host.pty_handle.write(session_id, input.into_bytes()).await;
-    }
+    ) else {
+        return Err("agentProfile did not produce startup input".to_string());
+    };
+    host.pty_handle
+        .write(session_id, input.into_bytes())
+        .await
+        .map_err(|err| format!("failed to dispatch task prompt to session: {err}"))
 }
 
-fn render_work_item_task_prompt(item: &roux_core::WorkItem) -> String {
+fn render_work_item_task_prompt(
+    item: &roux_core::WorkItem,
+    session: Option<&roux_core::Session>,
+) -> String {
     let title = sanitize_card_prompt_field(&item.title);
     let body = item.body.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
     let external_url =
         item.external_url.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
+    let repo_path = item.repo_path.as_deref().map(sanitize_card_prompt_field);
+    let worktree_path = session
+        .map(|session| sanitize_card_prompt_field(&session.worktree_path))
+        .or_else(|| item.worktree_path.as_deref().map(sanitize_card_prompt_field));
+    let branch = session
+        .map(|session| sanitize_card_prompt_field(&session.branch))
+        .filter(|branch| !branch.is_empty());
+    let base_branch = item.base_branch.as_deref().map(sanitize_card_prompt_field);
+    let agent_profile = item.agent_profile.as_deref().map(sanitize_card_prompt_field);
+    let session_id = session
+        .map(|session| sanitize_card_prompt_field(&session.id))
+        .or_else(|| item.session_id.as_deref().map(sanitize_card_prompt_field));
 
     let mut prompt = String::new();
     prompt.push_str("Start work on this Roux board card.\n\nTitle:\n");
@@ -960,8 +1266,29 @@ fn render_work_item_task_prompt(item: &roux_core::WorkItem) -> String {
         prompt.push_str("\n\nExternal link:\n");
         prompt.push_str(&external_url);
     }
+    prompt.push_str("\n\nExecution context:\n");
+    prompt.push_str("- Repository path: ");
+    prompt.push_str(repo_path.as_deref().unwrap_or("unknown"));
+    prompt.push_str("\n- Worktree path: ");
+    prompt.push_str(worktree_path.as_deref().unwrap_or("unknown"));
+    prompt.push_str("\n- Current branch: ");
+    prompt.push_str(branch.as_deref().unwrap_or("unknown"));
+    prompt.push_str("\n- Base branch: ");
+    prompt.push_str(base_branch.as_deref().unwrap_or("unspecified"));
+    prompt.push_str("\n- Agent profile: ");
+    prompt.push_str(agent_profile.as_deref().unwrap_or("unspecified"));
+    prompt.push_str("\n- Roux session id: ");
+    prompt.push_str(session_id.as_deref().unwrap_or("unknown"));
+
     prompt.push_str(
-        "\n\nInspect the repository, make the necessary changes, and report progress in this session.",
+        "\n\nInstructions:\n\
+         - Work in the worktree path above.\n\
+         - Treat the card description as the source of acceptance criteria when it includes them; otherwise infer the smallest useful acceptance criteria from the card.\n\
+         - Make the necessary code and documentation changes.\n\
+         - Commit changes unless the repository or user instructions clearly say not to.\n\
+         - Run the relevant tests/checks and report what passed, failed, or was not run.\n\
+         - If you need a human decision, emit one newline-delimited JSON object using this shape: {\"type\":\"decision\",\"question\":\"...\",\"options\":[{\"value\":\"...\",\"label\":\"...\"}],\"defaultValue\":\"...\",\"timeoutSeconds\":86400}.\n\
+         - When the work is complete, report the summary, tests, risks, and changed files, then request review. Do not mark the card done yourself.",
     );
     prompt
 }
@@ -1055,6 +1382,11 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
                 .get("status")
                 .and_then(|v| v.as_str())
                 .and_then(roux_core::WorkItemStatus::from_str_opt),
+            repo_path: optional_string_arg(item_val, &["repoPath", "repo_path"]),
+            agent_profile: optional_string_arg(item_val, &["agentProfile", "agent_profile"]),
+            base_branch: optional_string_arg(item_val, &["baseBranch", "base_branch", "base"]),
+            worktree_path: optional_string_arg(item_val, &["worktreePath", "worktree_path"]),
+            start_error: optional_nullable_string_arg(item_val, &["startError", "start_error"]),
             project_id: optional_string_arg(item_val, &["projectId", "project_id"]),
             parent_id: None, // resolved in second pass
             external_ref,
@@ -1102,6 +1434,11 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
                         title: existing.title,
                         body: existing.body,
                         status: Some(existing.status),
+                        repo_path: existing.repo_path,
+                        agent_profile: existing.agent_profile,
+                        base_branch: existing.base_branch,
+                        worktree_path: existing.worktree_path,
+                        start_error: existing.start_error,
                         project_id: existing.project_id,
                         parent_id: Some(parent_id.clone()),
                         external_ref: ext_ref,
@@ -1310,6 +1647,70 @@ mod tests {
     }
 
     #[cfg(not(windows))]
+    fn git(repo: &std::path::Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .expect("failed to invoke git");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(not(windows))]
+    fn init_repo(repo: &std::path::Path) {
+        std::fs::create_dir_all(repo).unwrap();
+        git(repo, &["init", "-q", "-b", "main"]);
+        git(repo, &["config", "user.email", "t@t.test"]);
+        git(repo, &["config", "user.name", "Test"]);
+        git(repo, &["commit", "--allow-empty", "-m", "init"]);
+    }
+
+    #[cfg(not(windows))]
+    async fn start_agent_work_item(
+        host: &RuntimeHost,
+        identity: &DaemonIdentity,
+        repo: &std::path::Path,
+        item_id: &str,
+    ) -> (String, String, serde_json::Value) {
+        let resp = handle_request(
+            req(
+                "work-item-start",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": repo,
+                    "profile": "claude",
+                }),
+            ),
+            host,
+            identity,
+        )
+        .await;
+        assert!(resp.ok, "work-item-start failed: {:?}", resp.error);
+        let data = resp.data.expect("start response");
+        let run_id = data["run"]["id"].as_str().unwrap().to_string();
+        let session_id = data["run"]["sessionId"].as_str().unwrap().to_string();
+        assert_eq!(data["item"]["status"], "doing");
+        (run_id, session_id, data)
+    }
+
+    fn failing_profile_dispatcher<'a>(
+        _host: &'a RuntimeHost,
+        _item: &'a roux_core::WorkItem,
+        _session_id: &'a str,
+        _profile_id: &'a str,
+    ) -> ProfileDispatchFuture<'a> {
+        Box::pin(async { Err("simulated prompt dispatch failure".to_string()) })
+    }
+
+    #[cfg(not(windows))]
     async fn spawn_task_work_item_run(
         host: &RuntimeHost,
         working_dir: &std::path::Path,
@@ -1369,7 +1770,12 @@ mod tests {
             title: "Fix tests\u{0007}".into(),
             body: Some("Handle failures\r\nthen report back\u{0003}".into()),
             status: roux_core::WorkItemStatus::Todo,
-            session_id: None,
+            repo_path: Some("/repo/main".into()),
+            agent_profile: Some("claude".into()),
+            base_branch: Some("main".into()),
+            worktree_path: Some("/repo/.worktrees/card".into()),
+            start_error: None,
+            session_id: Some("sess-1".into()),
             provider: None,
             external_id: None,
             external_url: Some("https://example.test/task\u{001b}".into()),
@@ -1379,12 +1785,43 @@ mod tests {
             created_at: 0,
             updated_at: 0,
         };
+        let session = roux_core::Session {
+            id: "sess-1".into(),
+            name: "Task session".into(),
+            repo_root: "/repo/main".into(),
+            worktree_path: "/repo/.worktrees/card".into(),
+            branch: "roux/card-wi1-fix-tests".into(),
+            is_worktree: true,
+            status: roux_core::SessionStatus::Idle,
+            model: None,
+            cost: None,
+            created_at: 0,
+            project_id: None,
+            is_git_repo: true,
+            name_override: None,
+            primary_pty_id: Some("sess-1".into()),
+            archived: false,
+            ended_at: None,
+            blueprint_id: None,
+            pinned_pr_url: None,
+            smol_machine_name: None,
+        };
 
-        let prompt = render_work_item_task_prompt(&item);
+        let prompt = render_work_item_task_prompt(&item, Some(&session));
 
         assert!(prompt.contains("Title:\nFix tests"));
         assert!(prompt.contains("Description:\nHandle failures\n\nthen report back"));
         assert!(prompt.contains("External link:\nhttps://example.test/task"));
+        assert!(prompt.contains("Repository path: /repo/main"));
+        assert!(prompt.contains("Worktree path: /repo/.worktrees/card"));
+        assert!(prompt.contains("Current branch: roux/card-wi1-fix-tests"));
+        assert!(prompt.contains("Base branch: main"));
+        assert!(prompt.contains("Agent profile: claude"));
+        assert!(prompt.contains("Roux session id: sess-1"));
+        assert!(prompt.contains("\"type\":\"decision\""));
+        assert!(prompt.contains("Run the relevant tests/checks"));
+        assert!(prompt.contains("request review"));
+        assert!(prompt.contains("Do not mark the card done yourself"));
         assert!(!prompt.contains('\u{0007}'));
         assert!(!prompt.contains('\u{0003}'));
         assert!(!prompt.contains('\u{001b}'));
@@ -1533,7 +1970,7 @@ mod tests {
             "work-item-update",
             "work-item-move",
             "work-item-delete",
-            "work-item-dispatch",
+            "work-item-start",
             "work-item-events",
         ] {
             assert!(caps.contains(&serde_json::json!(cap)), "missing capability: {cap}");
@@ -1544,11 +1981,12 @@ mod tests {
 
     #[cfg(not(windows))]
     #[tokio::test]
-    async fn daemon_work_item_dispatch_creates_session_and_binds_it() {
+    async fn daemon_work_item_start_creates_session_and_binds_it() {
         let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
-        // Create a work item
         let resp = handle_request(
             req("work-item-create", serde_json::json!({ "title": "Write tests" })),
             &host,
@@ -1558,73 +1996,34 @@ mod tests {
         assert!(resp.ok);
         let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
-        // Subscribe to work-item events before dispatch
-        let mut wi_rx = host.work_item_handle.subscribe_events();
-
-        // Dispatch - repoPath points to our temp dir which is a valid path
-        let resp = handle_request(
-            req(
-                "work-item-dispatch",
-                serde_json::json!({
-                    "id": item_id,
-                    "repoPath": dir.path(),
-                    "profile": "plain-shell",
-                }),
-            ),
-            &host,
-            &identity,
-        )
-        .await;
-        assert!(resp.ok, "dispatch failed: {:?}", resp.error);
-        let session_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        let (_run_id, session_id, data) =
+            start_agent_work_item(&host, &identity, &repo, &item_id).await;
+        assert_eq!(data["item"]["agentProfile"], "claude");
+        assert!(data["item"]["worktreePath"].as_str().unwrap().contains("roux-card"));
 
         // The work item should now have session_id bound
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
         assert_eq!(item.session_id.as_deref(), Some(session_id.as_str()), "session_id bound");
         assert_eq!(item.status, roux_core::WorkItemStatus::Doing);
 
-        // Session, run, and status events should have been broadcast.
-        let event = wi_rx.try_recv().expect("SessionBound event");
-        assert!(
-            matches!(&event, roux_core::WorkItemEvent::SessionBound { id, .. } if id == &item_id),
-            "expected SessionBound, got: {event:?}"
-        );
-        let event = wi_rx.try_recv().expect("RunCreated event");
-        assert!(
-            matches!(&event, roux_core::WorkItemEvent::RunCreated { run } if run.work_item_id == item_id && run.session_id.as_deref() == Some(session_id.as_str())),
-            "expected RunCreated, got: {event:?}"
-        );
-        let event = wi_rx.try_recv().expect("Moved event");
-        assert!(
-            matches!(
-                &event,
-                roux_core::WorkItemEvent::Moved {
-                    id,
-                    status: roux_core::WorkItemStatus::Doing,
-                    ..
-                } if id == &item_id
-            ),
-            "expected Moved, got: {event:?}"
-        );
-
-        // A card with a live binding cannot be dispatched again; otherwise the
+        // A card with a live binding cannot be started again; otherwise the
         // second session would orphan the first session from the board.
         let resp2 = handle_request(
             req(
-                "work-item-dispatch",
+                "work-item-start",
                 serde_json::json!({
                     "id": item_id,
-                    "repoPath": dir.path(),
-                    "profile": "plain-shell",
+                    "repoPath": repo,
+                    "profile": "claude",
                 }),
             ),
             &host,
             &identity,
         )
         .await;
-        assert!(!resp2.ok, "second dispatch should be rejected");
+        assert!(!resp2.ok, "second start should be rejected");
         assert!(
-            resp2.error.as_deref().unwrap_or_default().contains("already bound"),
+            resp2.error.as_deref().unwrap_or_default().contains("active run"),
             "unexpected error: {:?}",
             resp2.error
         );
@@ -1653,12 +2052,10 @@ mod tests {
 
     #[cfg(not(windows))]
     #[tokio::test]
-    async fn daemon_work_item_dispatch_defaults_to_agent_profile() {
-        // With no `profile` arg the dispatch resolves the built-in Claude
-        // agent and types its startup command into the PTY (best-effort). This
-        // exercises the resolve -> build-startup -> pty-write glue; we assert the
-        // dispatch still succeeds and binds (the agent run never fails it).
+    async fn daemon_work_item_start_requires_agent_profile() {
         let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
         let resp = handle_request(
@@ -1671,20 +2068,182 @@ mod tests {
 
         let resp = handle_request(
             req(
-                "work-item-dispatch",
+                "work-item-start",
                 serde_json::json!({
                     "id": item_id,
-                    "repoPath": dir.path(),
+                    "repoPath": repo,
                 }),
             ),
             &host,
             &identity,
         )
         .await;
-        assert!(resp.ok, "default-profile dispatch failed: {:?}", resp.error);
-        let session_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        assert!(!resp.ok, "start without agent profile should fail");
+        assert!(resp.error.as_deref().unwrap_or_default().contains("agentProfile required"));
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
-        assert_eq!(item.session_id.as_deref(), Some(session_id.as_str()));
+        assert_eq!(item.status, roux_core::WorkItemStatus::Todo);
+        assert_eq!(item.start_error.as_deref(), Some("agentProfile required"));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_start_requires_repo_or_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req(
+                "work-item-create",
+                serde_json::json!({
+                    "title": "Run the agent",
+                    "agentProfile": "claude",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req("work-item-start", serde_json::json!({ "id": item_id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(!resp.ok, "start without repo/project should fail");
+        assert!(resp.error.as_deref().unwrap_or_default().contains("repoPath or project required"));
+        let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
+        assert_eq!(item.status, roux_core::WorkItemStatus::Todo);
+        assert_eq!(item.start_error.as_deref(), Some("repoPath or project required"));
+        assert_eq!(item.agent_profile.as_deref(), Some("claude"));
+        assert!(host.work_item_handle.list_runs(Some(&item_id)).unwrap().is_empty());
+        assert!(host.session_handle.list().await.unwrap().is_empty());
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_start_rejects_non_autonomous_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run the agent" })),
+            &host,
+            &identity,
+        )
+        .await;
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req(
+                "work-item-start",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": repo,
+                    "profile": "plain-shell",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(!resp.ok, "plain shell profile should not be startable");
+        assert!(
+            resp.error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("autonomous Claude or Codex profile")
+        );
+        let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
+        assert_eq!(item.status, roux_core::WorkItemStatus::Todo);
+        assert!(
+            item.start_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("autonomous Claude or Codex profile")
+        );
+        assert!(host.work_item_handle.list_runs(Some(&item_id)).unwrap().is_empty());
+        assert!(host.session_handle.list().await.unwrap().is_empty());
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_start_prompt_dispatch_failure_preserves_session_and_worktree() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run card" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = start_work_item_run_with_dispatcher(
+            req(
+                "work-item-start",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": repo,
+                    "profile": "claude",
+                }),
+            ),
+            &host,
+            &identity,
+            failing_profile_dispatcher,
+        )
+        .await
+        .expect_err("prompt dispatch failure should return an error response");
+        assert!(!resp.ok);
+        assert_eq!(resp.error.as_deref(), Some("simulated prompt dispatch failure"));
+
+        let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
+        assert_eq!(item.status, roux_core::WorkItemStatus::Todo);
+        assert_eq!(item.start_error.as_deref(), Some("simulated prompt dispatch failure"));
+        let session_id = item.session_id.clone().expect("failed start should preserve session id");
+        let worktree_path =
+            item.worktree_path.clone().expect("failed start should preserve worktree path");
+        assert!(worktree_path.contains("roux-card"));
+
+        let runs = host.work_item_handle.list_runs(Some(&item_id)).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].status, roux_core::WorkItemRunStatus::Failed);
+        assert_eq!(runs[0].session_id.as_deref(), Some(session_id.as_str()));
+        assert_eq!(runs[0].worktree_path.as_deref(), Some(worktree_path.as_str()));
+
+        let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
+        assert_eq!(session.worktree_path, worktree_path);
+        let ptys = host.pty_handle.list().await.unwrap();
+        assert!(
+            ptys.iter()
+                .any(|pty| pty.info.session_id.as_deref() == Some(session_id.as_str())),
+            "failed start should keep the PTY available for inspection"
+        );
+
+        let events = host.work_item_handle.list_run_events(&runs[0].id).unwrap();
+        assert!(events.iter().any(|event| {
+            event.kind == roux_core::WorkItemRunEventKind::Lifecycle
+                && event.payload.get("stage").and_then(|stage| stage.as_str())
+                    == Some("sessionCreated")
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == roux_core::WorkItemRunEventKind::StatusChanged
+                && event.payload.get("reason").and_then(|reason| reason.as_str())
+                    == Some("promptDispatchFailed")
+        }));
 
         let _ = host.pty_handle.kill(&session_id).await;
         shutdown_host(host, joins).await;
@@ -1692,8 +2251,10 @@ mod tests {
 
     #[cfg(not(windows))]
     #[tokio::test]
-    async fn daemon_work_item_dispatch_forwards_session_target_args() {
+    async fn daemon_work_item_start_forwards_session_target_args() {
         let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
         let worktree = dir.path().join("existing-worktree");
         std::fs::create_dir_all(&worktree).unwrap();
         let (host, identity, joins) = make_host_and_identity(&dir).await;
@@ -1709,21 +2270,22 @@ mod tests {
 
         let resp = handle_request(
             req(
-                "work-item-dispatch",
+                "work-item-start",
                 serde_json::json!({
                     "id": item_id,
-                    "repoPath": dir.path(),
+                    "repoPath": repo,
                     "name": "Prompt-selected name",
                     "worktreePath": worktree,
-                    "profile": "plain-shell",
+                    "profile": "claude",
                 }),
             ),
             &host,
             &identity,
         )
         .await;
-        assert!(resp.ok, "dispatch failed: {:?}", resp.error);
-        let session_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        assert!(resp.ok, "start failed: {:?}", resp.error);
+        let session_id =
+            resp.data.as_ref().unwrap()["session"]["id"].as_str().unwrap().to_string();
 
         let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
         assert_eq!(session.name, "Prompt-selected name");
@@ -1735,8 +2297,10 @@ mod tests {
 
     #[cfg(not(windows))]
     #[tokio::test]
-    async fn daemon_work_item_run_dispatch_returns_run_and_lists_it() {
+    async fn daemon_work_item_start_returns_run_and_lists_it() {
         let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
         let resp = handle_request(
@@ -1750,21 +2314,23 @@ mod tests {
 
         let resp = handle_request(
             req(
-                "work-item-run-dispatch",
+                "work-item-start",
                 serde_json::json!({
                     "id": item_id,
-                    "repoPath": dir.path(),
-                    "profile": "plain-shell",
+                    "repoPath": repo,
+                    "profile": "claude",
                 }),
             ),
             &host,
             &identity,
         )
         .await;
-        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
-        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
-        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
-        assert_eq!(resp.data.as_ref().unwrap()["workItemId"], item_id);
+        assert!(resp.ok, "start failed: {:?}", resp.error);
+        let run_id = resp.data.as_ref().unwrap()["run"]["id"].as_str().unwrap().to_string();
+        let session_id =
+            resp.data.as_ref().unwrap()["run"]["sessionId"].as_str().unwrap().to_string();
+        assert_eq!(resp.data.as_ref().unwrap()["run"]["workItemId"], item_id);
+        assert_eq!(resp.data.as_ref().unwrap()["run"]["status"], "running");
 
         let resp = handle_request(
             req("work-item-runs-list", serde_json::json!({ "workItemId": item_id })),
@@ -1785,6 +2351,8 @@ mod tests {
     #[tokio::test]
     async fn daemon_work_item_run_output_detects_decision_prompt() {
         let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
         let resp = handle_request(
@@ -1796,25 +2364,12 @@ mod tests {
         assert!(resp.ok);
         let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
-        let resp = handle_request(
-            req(
-                "work-item-run-dispatch",
-                serde_json::json!({
-                    "id": item_id,
-                    "repoPath": dir.path(),
-                    "profile": "plain-shell",
-                }),
-            ),
-            &host,
-            &identity,
-        )
-        .await;
-        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
-        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
-        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+        let (run_id, session_id, _) =
+            start_agent_work_item(&host, &identity, &repo, &item_id).await;
 
         let line = r#"{"type":"decision","question":"Choose path?","options":[{"value":"existing","label":"Use existing"},{"value":"new","label":"Create new"}],"defaultValue":"existing"}"#;
-        host.pty_handle.write(&session_id, format!("{line}\n").into_bytes()).await.unwrap();
+        let mut parser = WorkItemRunOutputParser::default();
+        ingest_work_item_run_output(&host, &run_id, 0, format!("{line}\n").as_bytes(), &mut parser);
 
         let mut decisions = Vec::new();
         for _ in 0..40 {
@@ -1916,6 +2471,8 @@ mod tests {
     #[tokio::test]
     async fn daemon_work_item_run_stop_archives_session_and_records_event() {
         let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
         let resp = handle_request(
@@ -1927,22 +2484,8 @@ mod tests {
         assert!(resp.ok);
         let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
-        let resp = handle_request(
-            req(
-                "work-item-run-dispatch",
-                serde_json::json!({
-                    "id": item_id,
-                    "repoPath": dir.path(),
-                    "profile": "plain-shell",
-                }),
-            ),
-            &host,
-            &identity,
-        )
-        .await;
-        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
-        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
-        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+        let (run_id, session_id, _) =
+            start_agent_work_item(&host, &identity, &repo, &item_id).await;
 
         let resp = handle_request(
             req("work-item-run-stop", serde_json::json!({ "runId": run_id })),
@@ -1967,8 +2510,9 @@ mod tests {
         .await;
         assert!(resp.ok);
         let events = resp.data.as_ref().unwrap().as_array().unwrap();
-        assert_eq!(events.last().unwrap()["kind"], "statusChanged");
-        assert_eq!(events.last().unwrap()["payload"]["status"], "stopped");
+        assert!(events.iter().any(|event| {
+            event["kind"] == "statusChanged" && event["payload"]["status"] == "stopped"
+        }));
 
         shutdown_host(host, joins).await;
     }
@@ -1977,6 +2521,8 @@ mod tests {
     #[tokio::test]
     async fn daemon_work_item_run_stop_retries_cleanup_for_already_stopped_run() {
         let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
         let resp = handle_request(
@@ -1988,22 +2534,8 @@ mod tests {
         assert!(resp.ok);
         let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
-        let resp = handle_request(
-            req(
-                "work-item-run-dispatch",
-                serde_json::json!({
-                    "id": item_id,
-                    "repoPath": dir.path(),
-                    "profile": "plain-shell",
-                }),
-            ),
-            &host,
-            &identity,
-        )
-        .await;
-        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
-        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
-        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+        let (run_id, session_id, _) =
+            start_agent_work_item(&host, &identity, &repo, &item_id).await;
 
         host.work_item_handle
             .set_run_status(
@@ -2038,6 +2570,8 @@ mod tests {
     #[tokio::test]
     async fn terminal_work_item_run_stop_response_cleans_stopped_run_session() {
         let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
         let resp = handle_request(
@@ -2049,22 +2583,8 @@ mod tests {
         assert!(resp.ok);
         let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
-        let resp = handle_request(
-            req(
-                "work-item-run-dispatch",
-                serde_json::json!({
-                    "id": item_id,
-                    "repoPath": dir.path(),
-                    "profile": "plain-shell",
-                }),
-            ),
-            &host,
-            &identity,
-        )
-        .await;
-        assert!(resp.ok, "run dispatch failed: {:?}", resp.error);
-        let run_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
-        let session_id = resp.data.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+        let (run_id, session_id, _) =
+            start_agent_work_item(&host, &identity, &repo, &item_id).await;
 
         host.work_item_handle
             .set_run_status(

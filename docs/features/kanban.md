@@ -6,14 +6,24 @@ to the daemon-owned run state.
 
 ## Cards and Runs
 
-Each card can have many runs. Starting a card creates a new `WorkItemRun`, links
-it to a daemon session/PTy, moves the card to **In Progress**, and keeps the
-card's `session_id` as latest-session display state only.
+Each card can have many runs. Cards can be created as drafts without a repo or
+agent profile; those cards show **Configure** until they have enough daemon-owned
+start config.
+
+Starting a configured card is daemon-owned. The daemon creates or reuses the
+card's dedicated worktree, creates a session/PTY for the selected autonomous
+agent profile, writes the generated task prompt into that PTY, and only then
+moves the card to **In Progress**. The card's `session_id` is latest-session
+display state only.
 
 After a card has an active or previous run, the card shows **Open terminal**
 instead of **Start**. Opening the terminal attaches to the latest linked session;
 it does not create another run by itself. Starting again creates a separate run
 history entry rather than overwriting the prior attempt.
+
+If start fails before prompt dispatch completes, the card stays in **Todo** or
+**Ready**, records a visible `startError`, and preserves any created
+session/worktree for inspection or retry.
 
 Run history is persisted under the card and survives closing and reopening Roux.
 PTY exit updates the run lifecycle: exit code `0` marks it `done`; non-zero or
@@ -38,7 +48,7 @@ linked session, and unblocks the run when no other pending decisions remain.
 ## Deleting Cards
 
 Deleting a card deletes the card's daemon-owned run history, run events, and
-decision prompts from the board database. Session/PTy deletion is a separate
+decision prompts from the board database. Session/PTY deletion is a separate
 runtime-lifecycle decision surfaced by the app confirmation flow.
 
 ## CLI and MCP
@@ -47,9 +57,9 @@ The human CLI wraps the daemon work-item commands:
 
 ```bash
 roux work-item list
-roux work-item create "Fix login" --project <project-id>
-roux work-item move <card-id> doing
-roux work-item start <card-id> --profile claude --repo-path /path/to/repo
+roux work-item create "Fix login" --project <project-id> --agent-profile claude --repo-path /path/to/repo
+roux work-item move <card-id> ready
+roux work-item start <card-id>
 roux work-item runs --work-item <card-id>
 roux work-item events <run-id>
 roux work-item decision list --work-item <card-id>

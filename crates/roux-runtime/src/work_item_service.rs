@@ -156,6 +156,14 @@ impl WorkItemHandle {
         Ok(bound)
     }
 
+    pub fn has_active_run(&self, work_item_id: &str) -> Result<bool, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .has_active_run(work_item_id)
+            .map_err(|e| format!("work-item active run check: {e}"))
+    }
+
     pub fn upsert_by_external(&self, input: WorkItemInput) -> Result<WorkItem, String> {
         let id = Uuid::new_v4().to_string();
         let now = now_secs();
@@ -226,6 +234,113 @@ impl WorkItemHandle {
             .map_err(|e| format!("work-item run create: {e}"))?;
         self.broadcast(WorkItemEvent::RunCreated { run: run.clone() });
         Ok(run)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_starting_run(
+        &self,
+        work_item_id: &str,
+        session_id: Option<&str>,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+    ) -> Result<WorkItemRun, String> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_secs();
+        let run = self
+            .inner
+            .lock()
+            .unwrap()
+            .create_run_with_status(
+                id,
+                work_item_id,
+                session_id,
+                provider,
+                profile_id,
+                worktree_path,
+                branch,
+                WorkItemRunStatus::Starting,
+                now,
+            )
+            .map_err(|e| format!("work-item run create: {e}"))?;
+        self.broadcast(WorkItemEvent::RunCreated { run: run.clone() });
+        Ok(run)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_start_failure(
+        &self,
+        id: &str,
+        error: &str,
+        session_id: Option<&str>,
+        worktree_path: Option<&str>,
+        agent_profile: Option<&str>,
+        repo_path: Option<&str>,
+        base_branch: Option<&str>,
+    ) -> Result<Option<WorkItem>, String> {
+        let now = now_secs();
+        let item = self
+            .inner
+            .lock()
+            .unwrap()
+            .record_start_failure(
+                id,
+                error,
+                session_id,
+                worktree_path,
+                agent_profile,
+                repo_path,
+                base_branch,
+                now,
+            )
+            .map_err(|e| format!("work-item start failure: {e}"))?;
+        if let Some(ref item) = item {
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+        }
+        Ok(item)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn complete_start(
+        &self,
+        id: &str,
+        session_id: &str,
+        worktree_path: Option<&str>,
+        agent_profile: Option<&str>,
+        repo_path: Option<&str>,
+        base_branch: Option<&str>,
+        sort_order: f64,
+    ) -> Result<Option<WorkItem>, String> {
+        let now = now_secs();
+        let item = self
+            .inner
+            .lock()
+            .unwrap()
+            .complete_start(
+                id,
+                session_id,
+                worktree_path,
+                agent_profile,
+                repo_path,
+                base_branch,
+                sort_order,
+                now,
+            )
+            .map_err(|e| format!("work-item complete start: {e}"))?;
+        if let Some(ref item) = item {
+            self.broadcast(WorkItemEvent::SessionBound {
+                id: item.id.clone(),
+                session_id: session_id.to_string(),
+            });
+            self.broadcast(WorkItemEvent::Moved {
+                id: item.id.clone(),
+                status: item.status.clone(),
+                sort_order: item.sort_order,
+            });
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+        }
+        Ok(item)
     }
 
     #[allow(clippy::too_many_arguments)]

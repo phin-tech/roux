@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use roux_core::{
     WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemInput, WorkItemRun,
-    WorkItemRunEvent, WorkItemStatus,
+    WorkItemRunEvent, WorkItemStartResult, WorkItemStatus,
 };
 
 #[tauri::command]
@@ -79,15 +79,9 @@ pub(crate) async fn work_item_delete(
     }
 }
 
-/// Dispatch a work item to a freshly-created, bound session. The whole
-/// create-session + bind + rollback orchestration lives in the daemon
-/// (`handle_work_item_dispatch`); the desktop only forwards. Unlike the other
-/// work-item commands there is no desktop-local fallback: session/PTY creation
-/// for dispatch is daemon-owned, so without a daemon we surface a clear error
-/// rather than half-implement it locally. Returns the new session id.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn work_item_dispatch(
+pub(crate) async fn work_item_start(
     id: String,
     profile: Option<String>,
     repo_path: Option<String>,
@@ -97,10 +91,10 @@ pub(crate) async fn work_item_dispatch(
     base: Option<String>,
     fetch_first: Option<bool>,
     state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
-    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-dispatch")) {
+) -> Result<WorkItemStartResult, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-start")) {
         return client
-            .work_item_dispatch(
+            .work_item_start(
                 id,
                 profile,
                 repo_path,
@@ -113,41 +107,7 @@ pub(crate) async fn work_item_dispatch(
             .await
             .map_err(String::from);
     }
-    Err("Dispatching a work item requires a running daemon.".to_string())
-}
-
-/// Dispatch a work item and return the daemon-owned run record. Unlike the
-/// compatibility `work_item_dispatch`, this is the board source of truth.
-#[tauri::command]
-pub(crate) async fn work_item_run_dispatch(
-    id: String,
-    profile: Option<String>,
-    repo_path: Option<String>,
-    name: Option<String>,
-    worktree_path: Option<String>,
-    branch: Option<String>,
-    base: Option<String>,
-    fetch_first: Option<bool>,
-    state: tauri::State<'_, AppState>,
-) -> Result<WorkItemRun, String> {
-    if let Some(client) =
-        state.daemon_client.clone().filter(|c| c.supports("work-item-run-dispatch"))
-    {
-        return client
-            .work_item_run_dispatch(
-                id,
-                profile,
-                repo_path,
-                name,
-                worktree_path,
-                branch,
-                base,
-                fetch_first,
-            )
-            .await
-            .map_err(String::from);
-    }
-    Err("Dispatching a work item run requires a running daemon.".to_string())
+    Err("Starting a work item requires a running daemon.".to_string())
 }
 
 #[tauri::command]

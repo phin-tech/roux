@@ -52,8 +52,11 @@ The global OS notification toggle only controls macOS/desktop fan-out. Roux stil
 
 Use the Kanban board to turn a written task into a daemon-owned agent run.
 
-- **Start** creates a new run, links it to a daemon session/PTY, and moves the
-  card to **In Progress**.
+- Cards without a repo/project or autonomous agent profile show **Configure**
+  instead of **Start**.
+- **Start** creates or reuses the card worktree, creates a daemon session/PTY,
+  sends the task prompt to the selected agent, and only then moves the card to
+  **In Progress**.
 - **Open terminal** attaches to the latest linked run/session without creating a
   new run.
 - Blocked decision prompts appear on the card and detail view with numbered

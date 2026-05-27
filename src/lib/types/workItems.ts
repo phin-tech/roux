@@ -12,6 +12,7 @@ import type { WorkItem, WorkItemStatus } from "$lib/bindings";
 
 export type WorkItemRunStatus =
   | "queued"
+  | "starting"
   | "running"
   | "blocked"
   | "review"
@@ -36,6 +37,7 @@ export interface WorkItemRun {
 }
 
 export type WorkItemRunEventKind =
+  | "lifecycle"
   | "text"
   | "toolUse"
   | "toolResult"

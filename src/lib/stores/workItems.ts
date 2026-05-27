@@ -12,7 +12,7 @@ import {
   workItemUpdate as tauriWorkItemUpdate,
   workItemMove as tauriWorkItemMove,
   workItemDelete as tauriWorkItemDelete,
-  workItemRunDispatch as tauriWorkItemRunDispatch,
+  workItemStart as tauriWorkItemStart,
   workItemRunsList as tauriWorkItemRunsList,
   workItemRunStop as tauriWorkItemRunStop,
   workItemDecisionsList as tauriWorkItemDecisionsList,
@@ -29,10 +29,11 @@ export {
   type WorkItemStatus,
 };
 
-export const WORK_ITEM_COLUMNS: WorkItemStatus[] = ["todo", "doing", "review", "done"];
+export const WORK_ITEM_COLUMNS: WorkItemStatus[] = ["todo", "ready", "doing", "review", "done"];
 
 export const COLUMN_LABELS: Record<WorkItemStatus, string> = {
   todo: "To Do",
+  ready: "Ready",
   doing: "In Progress",
   review: "Review",
   done: "Done",
@@ -107,9 +108,11 @@ function bindSessionToWorkItem(id: string, sessionId: string): void {
   );
 }
 
-function markItemDoing(id: string): void {
+function upsertItem(item: WorkItem): void {
   workItems.update((list) =>
-    list.map((i) => (i.id === id ? { ...i, status: "doing" } : i)),
+    list.some((i) => i.id === item.id)
+      ? list.map((i) => (i.id === item.id ? item : i))
+      : [...list, item],
   );
 }
 
@@ -249,12 +252,10 @@ export async function deleteWorkItem(id: string): Promise<void> {
 }
 
 /**
- * Dispatch a work item: the daemon creates a session named after the item and
- * binds it. The returned session id is applied immediately so the board can
- * switch from Start to Open terminal without waiting for the broadcast event.
- * Throws if no daemon is connected.
+ * Start a work item: the daemon creates or reuses the worktree, creates a
+ * session, writes the task prompt, then returns the updated card/run/session.
  */
-export interface WorkItemDispatchOptions {
+export interface WorkItemStartOptions {
   profile?: string | null;
   repoPath?: string | null;
   name?: string | null;
@@ -264,18 +265,18 @@ export interface WorkItemDispatchOptions {
   fetchFirst?: boolean | null;
 }
 
-export async function dispatchWorkItem(
+export async function startWorkItem(
   id: string,
-  options: WorkItemDispatchOptions = {},
+  options: WorkItemStartOptions = {},
 ): Promise<string> {
-  const run = await tauriWorkItemRunDispatch(id, options);
-  upsertRun(run);
-  if (run.sessionId) {
-    markItemDoing(id);
-    bindSessionToWorkItem(id, run.sessionId);
-    return run.sessionId;
+  const result = await tauriWorkItemStart(id, options);
+  upsertItem(result.item);
+  upsertRun(result.run);
+  if (result.run.sessionId) {
+    bindSessionToWorkItem(id, result.run.sessionId);
+    return result.run.sessionId;
   }
-  throw new Error(`Work item run ${run.id} did not include a session id`);
+  throw new Error(`Work item run ${result.run.id} did not include a session id`);
 }
 
 export async function resolveWorkItemDecision(

@@ -53,6 +53,6 @@ pub use watch::*;
 pub use work_item::{
     ExternalRef, WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemDecisionStatus,
     WorkItemEvent, WorkItemInput, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind,
-    WorkItemRunStatus, WorkItemStatus,
+    WorkItemRunStatus, WorkItemStartResult, WorkItemStatus,
 };
 pub use worktree::{Worktree, WorktrunkMetadata};

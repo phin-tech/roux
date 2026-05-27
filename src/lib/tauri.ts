@@ -992,23 +992,22 @@ export async function workItemDelete(id: string): Promise<string> {
   return r.data;
 }
 
-// Dispatch a work item to a new bound session. The daemon owns the
-// create-session + bind orchestration; this only forwards. Returns the new
-// session id. Errors (e.g. "requires a running daemon") propagate to the UI.
-export async function workItemDispatch(
+export interface WorkItemStartOptions {
+  profile?: string | null;
+  repoPath?: string | null;
+  name?: string | null;
+  worktreePath?: string | null;
+  branch?: string | null;
+  base?: string | null;
+  fetchFirst?: boolean | null;
+}
+
+export async function workItemStart(
   id: string,
-  options: {
-    profile?: string | null;
-    repoPath?: string | null;
-    name?: string | null;
-    worktreePath?: string | null;
-    branch?: string | null;
-    base?: string | null;
-    fetchFirst?: boolean | null;
-  } = {},
-): Promise<string> {
+  options: WorkItemStartOptions = {},
+): Promise<import("$lib/bindings").WorkItemStartResult> {
   const { commands } = await import("$lib/bindings");
-  const r = await commands.workItemDispatch(
+  const r = await commands.workItemStart(
     id,
     options.profile ?? null,
     options.repoPath ?? null,
@@ -1020,32 +1019,6 @@ export async function workItemDispatch(
   );
   if (r.status === "error") throw new Error(r.error);
   return r.data;
-}
-
-export interface WorkItemDispatchOptions {
-  profile?: string | null;
-  repoPath?: string | null;
-  name?: string | null;
-  worktreePath?: string | null;
-  branch?: string | null;
-  base?: string | null;
-  fetchFirst?: boolean | null;
-}
-
-export async function workItemRunDispatch(
-  id: string,
-  options: WorkItemDispatchOptions = {},
-): Promise<import("./types/workItems").WorkItemRun> {
-  return invoke("work_item_run_dispatch", {
-    id,
-    profile: options.profile ?? null,
-    repoPath: options.repoPath ?? null,
-    name: options.name ?? null,
-    worktreePath: options.worktreePath ?? null,
-    branch: options.branch ?? null,
-    base: options.base ?? null,
-    fetchFirst: options.fetchFirst ?? null,
-  });
 }
 
 export async function workItemRunsList(

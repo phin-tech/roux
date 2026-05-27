@@ -414,7 +414,7 @@ enum WorkItemAction {
     Move {
         /// Work item id
         id: String,
-        /// Status: todo | doing | review | done
+        /// Status: todo | ready | doing | review | done
         status: String,
         /// Sort order within the destination column
         #[arg(long)]
@@ -469,9 +469,21 @@ struct WorkItemCreateArgs {
     /// Card body/description
     #[arg(short, long)]
     body: Option<String>,
-    /// Initial status: todo | doing | review | done
+    /// Initial status: todo | ready | doing | review | done
     #[arg(short, long)]
     status: Option<String>,
+    /// Repo path used when starting the card
+    #[arg(long)]
+    repo_path: Option<String>,
+    /// Autonomous agent profile used when starting the card
+    #[arg(long)]
+    agent_profile: Option<String>,
+    /// Base ref for the card's dedicated worktree
+    #[arg(long)]
+    base_branch: Option<String>,
+    /// Dedicated worktree path to reuse for the card
+    #[arg(long)]
+    worktree_path: Option<String>,
     /// Project id
     #[arg(short, long)]
     project: Option<String>,
@@ -493,9 +505,21 @@ struct WorkItemUpdateArgs {
     /// Card body/description
     #[arg(short, long)]
     body: Option<String>,
-    /// Status: todo | doing | review | done
+    /// Status: todo | ready | doing | review | done
     #[arg(short, long)]
     status: Option<String>,
+    /// Repo path used when starting the card
+    #[arg(long)]
+    repo_path: Option<String>,
+    /// Autonomous agent profile used when starting the card
+    #[arg(long)]
+    agent_profile: Option<String>,
+    /// Base ref for the card's dedicated worktree
+    #[arg(long)]
+    base_branch: Option<String>,
+    /// Dedicated worktree path to reuse for the card
+    #[arg(long)]
+    worktree_path: Option<String>,
     /// Project id
     #[arg(short, long)]
     project: Option<String>,
@@ -1368,6 +1392,14 @@ fn build_work_item_create_request(params: WorkItemCreateArgs) -> Value {
     args.insert("title".into(), Value::String(params.title));
     insert_optional_string(&mut args, "body", params.body);
     insert_optional_string(&mut args, "status", params.status);
+    if let Some(repo_path) = params.repo_path {
+        args.insert("repoPath".into(), Value::String(resolve_path(&repo_path)));
+    }
+    insert_optional_string(&mut args, "agentProfile", params.agent_profile);
+    insert_optional_string(&mut args, "baseBranch", params.base_branch);
+    if let Some(worktree_path) = params.worktree_path {
+        args.insert("worktreePath".into(), Value::String(resolve_path(&worktree_path)));
+    }
     insert_optional_string(&mut args, "projectId", params.project);
     insert_optional_string(&mut args, "parentId", params.parent);
     insert_optional_f64(&mut args, "sortOrder", params.sort_order);
@@ -1383,6 +1415,14 @@ fn build_work_item_update_request(params: WorkItemUpdateArgs) -> Value {
     args.insert("title".into(), Value::String(params.title));
     insert_optional_string(&mut args, "body", params.body);
     insert_optional_string(&mut args, "status", params.status);
+    if let Some(repo_path) = params.repo_path {
+        args.insert("repoPath".into(), Value::String(resolve_path(&repo_path)));
+    }
+    insert_optional_string(&mut args, "agentProfile", params.agent_profile);
+    insert_optional_string(&mut args, "baseBranch", params.base_branch);
+    if let Some(worktree_path) = params.worktree_path {
+        args.insert("worktreePath".into(), Value::String(resolve_path(&worktree_path)));
+    }
     insert_optional_string(&mut args, "projectId", params.project);
     insert_optional_string(&mut args, "parentId", params.parent);
     insert_optional_f64(&mut args, "sortOrder", params.sort_order);
@@ -1409,7 +1449,7 @@ fn build_work_item_start_request(params: WorkItemStartArgs) -> Value {
         args.insert("fetchFirst".into(), Value::Bool(true));
     }
     serde_json::json!({
-        "command": "work-item-run-dispatch",
+        "command": "work-item-start",
         "args": Value::Object(args),
     })
 }
@@ -2972,7 +3012,7 @@ mod tests {
     }
 
     #[test]
-    fn work_item_start_uses_run_dispatch_socket_command() {
+    fn work_item_start_uses_start_socket_command() {
         let request = build_work_item_start_request(WorkItemStartArgs {
             id: "wi-1".into(),
             profile: Some("claude".into()),
@@ -2984,7 +3024,7 @@ mod tests {
             fetch_first: true,
         });
 
-        assert_eq!(request["command"], "work-item-run-dispatch");
+        assert_eq!(request["command"], "work-item-start");
         assert_eq!(request["args"]["id"], "wi-1");
         assert_eq!(request["args"]["profile"], "claude");
         assert_eq!(request["args"]["repoPath"], "/repo");

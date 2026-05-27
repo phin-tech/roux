@@ -4,7 +4,7 @@ import BoardPanel from "../BoardPanel.svelte";
 import {
   itemsByColumn,
   moveWorkItem,
-  dispatchWorkItem,
+  startWorkItem,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { openWorkItemSessionStart } from "$lib/stores/ui";
@@ -29,9 +29,10 @@ if (typeof Element !== "undefined" && !Element.prototype.animate) {
 vi.mock("$lib/stores/workItems", async () => {
   const { writable } = await import("svelte/store");
   return {
-    WORK_ITEM_COLUMNS: ["todo", "doing", "review", "done"],
+    WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
+      ready: "Ready",
       doing: "In Progress",
       review: "Review",
       done: "Done",
@@ -39,7 +40,7 @@ vi.mock("$lib/stores/workItems", async () => {
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
     moveWorkItem: vi.fn().mockResolvedValue({}),
-    dispatchWorkItem: vi.fn().mockResolvedValue("sess-1"),
+    startWorkItem: vi.fn().mockResolvedValue("sess-1"),
     createWorkItem: vi.fn().mockResolvedValue({}),
   };
 });
@@ -71,6 +72,11 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     title: "Ship the board",
     body: null,
     status: "todo",
+    repoPath: null,
+    agentProfile: null,
+    baseBranch: null,
+    worktreePath: null,
+    startError: null,
     sessionId: null,
     provider: null,
     externalId: null,
@@ -86,7 +92,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
 
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
-  for (const col of ["todo", "doing", "review", "done"]) map.set(col, []);
+  for (const col of ["todo", "ready", "doing", "review", "done"]) map.set(col, []);
   for (const item of items) map.get(item.status)?.push(item);
   (itemsByColumn as ReturnType<typeof import("svelte/store").writable>).set(map);
 }
@@ -97,30 +103,30 @@ describe("BoardPanel", () => {
     seedColumns([]);
   });
 
-  it("Start dispatches without issuing a second move", async () => {
+  it("Start delegates to daemon start without issuing a second move", async () => {
     seedColumns([
       workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
-    ]);
+    ].map((item) => ({ ...item, agentProfile: "claude" } as WorkItem)));
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.click(screen.getByLabelText("Start work item"));
 
-    expect(dispatchWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
   it("shows an inline error when Start dispatch fails", async () => {
-    vi.mocked(dispatchWorkItem).mockRejectedValueOnce(
+    vi.mocked(startWorkItem).mockRejectedValueOnce(
       new Error("project not found"),
     );
     seedColumns([
       workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
-    ]);
+    ].map((item) => ({ ...item, agentProfile: "claude" } as WorkItem)));
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.click(screen.getByLabelText("Start work item"));
 
-    expect(dispatchWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
     await vi.waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         "The assigned project no longer exists.",
@@ -134,13 +140,14 @@ describe("BoardPanel", () => {
     seedColumns([item]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
+    expect(screen.getByText("Configure")).toBeTruthy();
     await fireEvent.click(screen.getByLabelText("Start work item"));
 
     expect(openWorkItemSessionStart).toHaveBeenCalledWith({
       itemId: "wi-1",
       title: "Wire task start",
     });
-    expect(dispatchWorkItem).not.toHaveBeenCalled();
+    expect(startWorkItem).not.toHaveBeenCalled();
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 

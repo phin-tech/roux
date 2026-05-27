@@ -170,6 +170,10 @@ pub struct WorkItemCreateParams {
     pub title: String,
     pub body: Option<String>,
     pub status: Option<String>,
+    pub repo_path: Option<String>,
+    pub agent_profile: Option<String>,
+    pub base_branch: Option<String>,
+    pub worktree_path: Option<String>,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
     pub sort_order: Option<f64>,
@@ -182,6 +186,10 @@ pub struct WorkItemUpdateParams {
     pub title: String,
     pub body: Option<String>,
     pub status: Option<String>,
+    pub repo_path: Option<String>,
+    pub agent_profile: Option<String>,
+    pub base_branch: Option<String>,
+    pub worktree_path: Option<String>,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
     pub sort_order: Option<f64>,
@@ -669,7 +677,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Start a Kanban board work item as a daemon-owned run. Returns the created WorkItemRun; repoPath/profile/worktree options are forwarded to session creation."
+        description = "Start a Kanban board work item as a daemon-owned autonomous run. Returns the updated card, run, and session after the daemon dispatches the task prompt."
     )]
     async fn roux_start_work_item(
         &self,
@@ -1445,6 +1453,10 @@ fn build_work_item_create_request(params: WorkItemCreateParams) -> Value {
     args.insert("title".into(), Value::String(params.title));
     insert_optional_string(&mut args, "body", params.body);
     insert_optional_string(&mut args, "status", params.status);
+    insert_optional_string(&mut args, "repoPath", params.repo_path);
+    insert_optional_string(&mut args, "agentProfile", params.agent_profile);
+    insert_optional_string(&mut args, "baseBranch", params.base_branch);
+    insert_optional_string(&mut args, "worktreePath", params.worktree_path);
     insert_optional_string(&mut args, "projectId", params.project_id);
     insert_optional_string(&mut args, "parentId", params.parent_id);
     insert_optional_f64(&mut args, "sortOrder", params.sort_order);
@@ -1460,6 +1472,10 @@ fn build_work_item_update_request(params: WorkItemUpdateParams) -> Value {
     args.insert("title".into(), Value::String(params.title));
     insert_optional_string(&mut args, "body", params.body);
     insert_optional_string(&mut args, "status", params.status);
+    insert_optional_string(&mut args, "repoPath", params.repo_path);
+    insert_optional_string(&mut args, "agentProfile", params.agent_profile);
+    insert_optional_string(&mut args, "baseBranch", params.base_branch);
+    insert_optional_string(&mut args, "worktreePath", params.worktree_path);
     insert_optional_string(&mut args, "projectId", params.project_id);
     insert_optional_string(&mut args, "parentId", params.parent_id);
     insert_optional_f64(&mut args, "sortOrder", params.sort_order);
@@ -1493,7 +1509,7 @@ fn build_work_item_start_request(params: WorkItemStartParams) -> Value {
         args.insert("fetchFirst".into(), Value::Bool(true));
     }
     json!({
-        "command": "work-item-run-dispatch",
+        "command": "work-item-start",
         "args": Value::Object(args),
     })
 }
@@ -1609,7 +1625,7 @@ mod tests {
     }
 
     #[test]
-    fn work_item_start_uses_run_dispatch_socket_command() {
+    fn work_item_start_uses_start_socket_command() {
         let request = build_work_item_start_request(WorkItemStartParams {
             id: "wi-1".into(),
             profile: Some("claude".into()),
@@ -1621,7 +1637,7 @@ mod tests {
             fetch_first: true,
         });
 
-        assert_eq!(request["command"], "work-item-run-dispatch");
+        assert_eq!(request["command"], "work-item-start");
         assert_eq!(request["args"]["id"], "wi-1");
         assert_eq!(request["args"]["profile"], "claude");
         assert_eq!(request["args"]["repoPath"], "/repo");

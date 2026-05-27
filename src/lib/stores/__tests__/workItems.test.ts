@@ -10,12 +10,12 @@ import {
   pendingDecisionByItem,
   runsByItem,
   applyWorkItemEvent,
-  dispatchWorkItem,
+  startWorkItem,
   stopWorkItemRun,
   WORK_ITEM_COLUMNS,
 } from "../workItems";
 import {
-  workItemRunDispatch as tauriWorkItemRunDispatch,
+  workItemStart as tauriWorkItemStart,
   workItemRunStop as tauriWorkItemRunStop,
 } from "$lib/tauri";
 import type { WorkItem } from "$lib/bindings";
@@ -27,7 +27,7 @@ vi.mock("$lib/tauri", () => ({
   workItemUpdate: vi.fn(),
   workItemMove: vi.fn(),
   workItemDelete: vi.fn(),
-  workItemRunDispatch: vi.fn(),
+  workItemStart: vi.fn(),
   workItemRunStop: vi.fn(),
   workItemRunsList: vi.fn().mockResolvedValue([]),
   workItemDecisionsList: vi.fn().mockResolvedValue([]),
@@ -42,6 +42,11 @@ function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
     title: "Test item",
     body: null,
     status: "todo",
+    repoPath: null,
+    agentProfile: null,
+    baseBranch: null,
+    worktreePath: null,
+    startError: null,
     sessionId: null,
     provider: null,
     externalId: null,
@@ -295,15 +300,19 @@ describe("workItems store", () => {
     });
   });
 
-  describe("dispatchWorkItem", () => {
+  describe("startWorkItem", () => {
     it("binds the returned session id immediately", async () => {
       const item = makeItem({ id: "wi-1", sessionId: null });
       workItems.set([item]);
-      vi.mocked(tauriWorkItemRunDispatch).mockResolvedValueOnce(makeRun());
+      vi.mocked(tauriWorkItemStart).mockResolvedValueOnce({
+        item: makeItem({ id: "wi-1", sessionId: "sess-1", status: "doing" }),
+        run: makeRun(),
+        session: {} as never,
+      });
 
-      await expect(dispatchWorkItem("wi-1")).resolves.toBe("sess-1");
+      await expect(startWorkItem("wi-1")).resolves.toBe("sess-1");
 
-      expect(tauriWorkItemRunDispatch).toHaveBeenCalledWith("wi-1", {});
+      expect(tauriWorkItemStart).toHaveBeenCalledWith("wi-1", {});
       expect(get(workItemRuns)).toHaveLength(1);
       expect(get(workItems)[0].sessionId).toBe("sess-1");
       expect(get(workItems)[0].status).toBe("doing");
@@ -312,9 +321,13 @@ describe("workItems store", () => {
     it("rejects when the daemon returns a run without a session id", async () => {
       const item = makeItem({ id: "wi-1", sessionId: null, status: "todo" });
       workItems.set([item]);
-      vi.mocked(tauriWorkItemRunDispatch).mockResolvedValueOnce(makeRun({ sessionId: null }));
+      vi.mocked(tauriWorkItemStart).mockResolvedValueOnce({
+        item,
+        run: makeRun({ sessionId: null }),
+        session: {} as never,
+      });
 
-      await expect(dispatchWorkItem("wi-1")).rejects.toThrow(
+      await expect(startWorkItem("wi-1")).rejects.toThrow(
         "Work item run run-1 did not include a session id",
       );
 
@@ -350,6 +363,7 @@ describe("workItems store", () => {
       const cols = get(itemsByColumn);
       expect(cols.get("todo")).toHaveLength(2);
       expect(cols.get("doing")).toHaveLength(1);
+      expect(cols.get("ready")).toHaveLength(0);
       expect(cols.get("review")).toHaveLength(0);
       expect(cols.get("done")).toHaveLength(0);
     });
