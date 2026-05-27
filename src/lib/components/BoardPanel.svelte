@@ -6,8 +6,11 @@
     COLUMN_LABELS,
     moveWorkItem,
     startWorkItem,
+    planWorkItem,
+    acceptWorkItemReview,
     createWorkItem,
     pendingDecisionByItem,
+    activePlanningRunByItem,
     type WorkItemStatus,
   } from "$lib/stores/workItems";
   import { sessionList } from "$lib/stores/sessions";
@@ -37,7 +40,10 @@
 
   let { visible, onclose, pinned = false, onTogglePin }: Props = $props();
   let startingItemIds = $state<Record<string, boolean>>({});
+  let planningItemIds = $state<Record<string, boolean>>({});
+  let acceptingItemIds = $state<Record<string, boolean>>({});
   let startErrors = $state<Record<string, string>>({});
+  let planErrors = $state<Record<string, string>>({});
   let deleteTarget = $state<WorkItem | null>(null);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
@@ -78,6 +84,40 @@
       console.error("Failed to start work item", err);
     } finally {
       startingItemIds = withoutKey(startingItemIds, id);
+    }
+  }
+
+  function formatPlanError(err: unknown): string {
+    const message = err instanceof Error ? err.message : String(err);
+    return message ? `Plan failed: ${message}` : "Plan failed.";
+  }
+
+  async function handlePlan(id: string, _item: WorkItem) {
+    if (planningItemIds[id]) return;
+    planningItemIds = { ...planningItemIds, [id]: true };
+    planErrors = withoutKey(planErrors, id);
+    try {
+      const sessionId = await planWorkItem(id);
+      await handleOpen(sessionId);
+    } catch (err) {
+      planErrors = { ...planErrors, [id]: formatPlanError(err) };
+      console.error("Failed to plan work item", err);
+    } finally {
+      planningItemIds = withoutKey(planningItemIds, id);
+    }
+  }
+
+  async function handleAcceptReview(id: string, _item: WorkItem) {
+    if (acceptingItemIds[id]) return;
+    acceptingItemIds = { ...acceptingItemIds, [id]: true };
+    startErrors = withoutKey(startErrors, id);
+    try {
+      await acceptWorkItemReview(id);
+    } catch (err) {
+      startErrors = { ...startErrors, [id]: "Failed to accept review." };
+      console.error("Failed to accept work item review", err);
+    } finally {
+      acceptingItemIds = withoutKey(acceptingItemIds, id);
     }
   }
 
@@ -156,17 +196,23 @@
             {#each items as item (item.id)}
               {@const sessionStatus = item.sessionId ? ($sessionStatusMap.get(item.sessionId) ?? null) : null}
               {@const pendingDecision = $pendingDecisionByItem.get(item.id) ?? null}
+              {@const planningRun = $activePlanningRunByItem.get(item.id) ?? null}
               <WorkItemCard
                 {item}
                 {sessionStatus}
                 {pendingDecision}
+                planningSessionId={planningRun?.sessionId ?? null}
                 onMove={handleMove}
                 onStart={handleStart}
+                onPlan={handlePlan}
                 onOpen={handleOpen}
                 onEdit={openWorkItemEditor}
                 onDelete={handleDelete}
+                onAcceptReview={handleAcceptReview}
                 startPending={!!startingItemIds[item.id]}
-                startError={startErrors[item.id] ?? item.startError ?? null}
+                planPending={!!planningItemIds[item.id]}
+                acceptPending={!!acceptingItemIds[item.id]}
+                startError={startErrors[item.id] ?? planErrors[item.id] ?? item.startError ?? null}
               />
             {/each}
           </div>

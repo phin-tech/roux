@@ -885,6 +885,25 @@ impl Roux {
         self.command(CommandRequest::new("work-item-start").args(args)).await
     }
 
+    pub async fn work_item_plan(
+        &self,
+        id: impl Into<String>,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+    ) -> RouxResult<roux_core::WorkItemPlanResult> {
+        let args = work_item_plan_args(id.into(), profile, repo_path, name, worktree_path);
+        self.command(CommandRequest::new("work-item-plan").args(args)).await
+    }
+
+    pub async fn work_item_review_accept(
+        &self,
+        id: impl Into<String>,
+    ) -> RouxResult<roux_core::WorkItemReviewAcceptResult> {
+        self.command(CommandRequest::new("work-item-review-accept").args(id_arg(id.into()))).await
+    }
+
     pub async fn work_item_runs_list(
         &self,
         work_item_id: Option<impl Into<String>>,
@@ -1160,6 +1179,29 @@ fn work_item_start_args(
     }
     if let Some(fetch_first) = fetch_first {
         args["fetchFirst"] = Value::Bool(fetch_first);
+    }
+    args
+}
+
+fn work_item_plan_args(
+    id: String,
+    profile: Option<String>,
+    repo_path: Option<String>,
+    name: Option<String>,
+    worktree_path: Option<String>,
+) -> Value {
+    let mut args = serde_json::json!({ "id": id });
+    if let Some(profile) = profile {
+        args["profile"] = Value::String(profile);
+    }
+    if let Some(repo_path) = repo_path {
+        args["repoPath"] = Value::String(repo_path);
+    }
+    if let Some(name) = name {
+        args["name"] = Value::String(name);
+    }
+    if let Some(worktree_path) = worktree_path {
+        args["worktreePath"] = Value::String(worktree_path);
     }
     args
 }

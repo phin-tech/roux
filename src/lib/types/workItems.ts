@@ -20,9 +20,12 @@ export type WorkItemRunStatus =
   | "stopped"
   | "done";
 
+export type WorkItemRunKind = "planning" | "implementation" | "review";
+
 export interface WorkItemRun {
   id: string;
   workItemId: string;
+  kind: WorkItemRunKind;
   sessionId: string | null;
   provider: string | null;
   profileId: string | null;

@@ -1,5 +1,7 @@
 <script lang="ts">
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
+  import Check from "@lucide/svelte/icons/check";
+  import ClipboardList from "@lucide/svelte/icons/clipboard-list";
   import MoreVertical from "@lucide/svelte/icons/more-vertical";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Play from "@lucide/svelte/icons/play";
@@ -18,15 +20,22 @@
     sessionStatus?: SessionStatus | null;
     onMove?: (id: string, status: WorkItemStatus) => void;
     onStart?: (id: string, item: WorkItem) => void;
+    /** Start or open a planning run for this work item. */
+    onPlan?: (id: string, item: WorkItem) => void;
     /** Open the card's bound session (by session id). */
     onOpen?: (sessionId: string) => void;
     /** Open the card editor (by work item id). */
     onEdit?: (id: string) => void;
     /** Delete the card (by work item id). */
     onDelete?: (id: string, item: WorkItem) => void;
+    /** Accept a review-requested implementation run. */
+    onAcceptReview?: (id: string, item: WorkItem) => void;
     startPending?: boolean;
+    planPending?: boolean;
+    acceptPending?: boolean;
     startError?: string | null;
     pendingDecision?: WorkItemDecision | null;
+    planningSessionId?: string | null;
     /** Opt-in card dragging. The full-screen board enables it; the sidebar leaves it off. */
     draggable?: boolean;
   }
@@ -36,12 +45,17 @@
     sessionStatus = null,
     onMove,
     onStart,
+    onPlan,
     onOpen,
     onEdit,
     onDelete,
+    onAcceptReview,
     startPending = false,
+    planPending = false,
+    acceptPending = false,
     startError = null,
     pendingDecision = null,
+    planningSessionId = null,
     draggable = false,
   }: Props = $props();
 
@@ -64,8 +78,9 @@
   };
 
   const hasSession = $derived(!!item.sessionId);
+  const hasPlanningSession = $derived(!!planningSessionId);
   const isStartable = $derived(!!item.agentProfile && (!!item.repoPath || !!item.projectId));
-  const hasMenuActions = $derived(!!onEdit || !!onDelete);
+  const hasMenuActions = $derived(!!onEdit || !!onPlan || !!onDelete || !!onAcceptReview);
   const dotClass = $derived(
     sessionStatus ? (statusDotClasses[sessionStatus] ?? "bg-muted") : null,
   );
@@ -99,9 +114,19 @@
     onEdit?.(item.id);
   }
 
+  function handlePlan(): void {
+    menuOpen = false;
+    onPlan?.(item.id, item);
+  }
+
   function handleDelete(): void {
     menuOpen = false;
     onDelete?.(item.id, item);
+  }
+
+  function handleAcceptReview(): void {
+    menuOpen = false;
+    onAcceptReview?.(item.id, item);
   }
 
   function handleWindowKeydown(event: KeyboardEvent): void {
@@ -199,7 +224,7 @@
 
   <div class="flex items-center gap-1.5 pt-0.5">
     <!-- Column quick-move buttons -->
-    {#each COLUMN_OPTIONS.filter((c) => c !== item.status) as col (col)}
+    {#each COLUMN_OPTIONS.filter((c) => c !== item.status && !(item.status === "review" && c === "done" && onAcceptReview)) as col (col)}
       <button
         class="inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] text-text-muted/80 transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
         onclick={() => onMove?.(item.id, col)}
@@ -218,6 +243,15 @@
       >
         <Terminal size={11} strokeWidth={2.2} />
         <span>Open terminal</span>
+      </button>
+    {:else if hasPlanningSession && onOpen}
+      <button
+        class="ml-auto inline-flex h-6 items-center gap-1.5 rounded-md border border-amber/30 bg-amber/10 px-2 text-[10px] font-semibold text-amber shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-amber/15 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber/50"
+        onclick={() => planningSessionId && onOpen?.(planningSessionId)}
+        aria-label="Open planning terminal"
+      >
+        <Terminal size={11} strokeWidth={2.2} />
+        <span>Open planning terminal</span>
       </button>
     {:else if !hasSession && onStart}
       <button
@@ -251,6 +285,30 @@
       >
         <Pencil size={13} strokeWidth={2.1} />
         <span>Edit card</span>
+      </button>
+    {/if}
+    {#if onPlan && !hasSession}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
+        onclick={handlePlan}
+        disabled={planPending}
+      >
+        <ClipboardList size={13} strokeWidth={2.1} />
+        <span>{planPending ? "Planning..." : "Plan"}</span>
+      </button>
+    {/if}
+    {#if onAcceptReview && item.status === "review"}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
+        onclick={handleAcceptReview}
+        disabled={acceptPending}
+      >
+        <Check size={13} strokeWidth={2.1} />
+        <span>{acceptPending ? "Accepting..." : "Accept done"}</span>
       </button>
     {/if}
     {#if onDelete}

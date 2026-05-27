@@ -26,9 +26,11 @@ If start fails before prompt dispatch completes, the card stays in **Todo** or
 session/worktree for inspection or retry.
 
 Run history is persisted under the card and survives closing and reopening Roux.
-PTY exit updates the run lifecycle: exit code `0` marks it `done`; non-zero or
-unknown exits mark it `failed`. Explicitly stopping a run marks it `stopped` and
-does not get overwritten by a later PTY exit.
+PTY exit updates the run lifecycle: exit code `0` on an implementation run moves
+the run and card to **Review**; non-zero or unknown exits mark the run `failed`.
+Explicitly stopping a run marks it `stopped` and does not get overwritten by a
+later PTY exit. Accepting review is a daemon command that moves both the
+reviewed run and card to **Done**.
 
 ## Decisions
 
@@ -58,8 +60,10 @@ The human CLI wraps the daemon work-item commands:
 ```bash
 roux work-item list
 roux work-item create "Fix login" --project <project-id> --agent-profile claude --repo-path /path/to/repo
+roux work-item plan <card-id>
 roux work-item move <card-id> ready
 roux work-item start <card-id>
+roux work-item accept <card-id>
 roux work-item runs --work-item <card-id>
 roux work-item events <run-id>
 roux work-item decision list --work-item <card-id>
@@ -69,8 +73,10 @@ roux work-item decision resolve <decision-id> <value>
 `roux kanban ...` is a visible alias for `roux work-item ...`.
 
 The MCP server exposes the same daemon-backed board surface with tools such as
-`roux_list_work_items`, `roux_create_work_item`, `roux_start_work_item`,
-`roux_list_work_item_runs`, and `roux_resolve_work_item_decision`.
+`roux_list_work_items`, `roux_create_work_item`, `roux_plan_work_item`,
+`roux_start_work_item`, `roux_accept_work_item_review`,
+`roux_list_work_item_runs`, and
+`roux_resolve_work_item_decision`.
 
 ## Related Protocol
 

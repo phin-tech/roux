@@ -187,11 +187,40 @@ impl WorkItemRunStatus {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkItemRunKind {
+    Planning,
+    #[default]
+    Implementation,
+    Review,
+}
+
+impl WorkItemRunKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Planning => "planning",
+            Self::Implementation => "implementation",
+            Self::Review => "review",
+        }
+    }
+
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "planning" => Some(Self::Planning),
+            "implementation" => Some(Self::Implementation),
+            "review" => Some(Self::Review),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkItemRun {
     pub id: String,
     pub work_item_id: String,
+    pub kind: WorkItemRunKind,
     pub session_id: Option<String>,
     pub provider: Option<String>,
     pub profile_id: Option<String>,
@@ -211,6 +240,21 @@ pub struct WorkItemStartResult {
     pub item: WorkItem,
     pub run: WorkItemRun,
     pub session: Session,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemPlanResult {
+    pub item: WorkItem,
+    pub run: WorkItemRun,
+    pub session: Session,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemReviewAcceptResult {
+    pub item: WorkItem,
+    pub run: WorkItemRun,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]

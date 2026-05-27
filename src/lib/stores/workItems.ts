@@ -13,6 +13,8 @@ import {
   workItemMove as tauriWorkItemMove,
   workItemDelete as tauriWorkItemDelete,
   workItemStart as tauriWorkItemStart,
+  workItemPlan as tauriWorkItemPlan,
+  workItemReviewAccept as tauriWorkItemReviewAccept,
   workItemRunsList as tauriWorkItemRunsList,
   workItemRunStop as tauriWorkItemRunStop,
   workItemDecisionsList as tauriWorkItemDecisionsList,
@@ -77,6 +79,15 @@ export const runsByItem = derived(workItemRuns, ($runs) => {
   }
   for (const runs of map.values()) {
     runs.reverse();
+  }
+  return map;
+});
+
+export const activePlanningRunByItem = derived(workItemRuns, ($runs) => {
+  const map = new Map<string, WorkItemRun>();
+  for (const run of $runs) {
+    if (run.kind !== "planning" || TERMINAL_RUN_STATUSES.has(run.status)) continue;
+    map.set(run.workItemId, run);
   }
   return map;
 });
@@ -277,6 +288,31 @@ export async function startWorkItem(
     return result.run.sessionId;
   }
   throw new Error(`Work item run ${result.run.id} did not include a session id`);
+}
+
+export interface WorkItemPlanOptions {
+  profile?: string | null;
+  repoPath?: string | null;
+  name?: string | null;
+  worktreePath?: string | null;
+}
+
+export async function planWorkItem(
+  id: string,
+  options: WorkItemPlanOptions = {},
+): Promise<string> {
+  const result = await tauriWorkItemPlan(id, options);
+  upsertItem(result.item);
+  upsertRun(result.run);
+  if (result.run.sessionId) return result.run.sessionId;
+  throw new Error(`Work item planning run ${result.run.id} did not include a session id`);
+}
+
+export async function acceptWorkItemReview(id: string): Promise<WorkItem> {
+  const result = await tauriWorkItemReviewAccept(id);
+  upsertItem(result.item);
+  upsertRun(result.run);
+  return result.item;
 }
 
 export async function resolveWorkItemDecision(

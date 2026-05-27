@@ -10,11 +10,15 @@ import {
   pendingDecisionByItem,
   runsByItem,
   applyWorkItemEvent,
+  acceptWorkItemReview,
+  planWorkItem,
   startWorkItem,
   stopWorkItemRun,
   WORK_ITEM_COLUMNS,
 } from "../workItems";
 import {
+  workItemPlan as tauriWorkItemPlan,
+  workItemReviewAccept as tauriWorkItemReviewAccept,
   workItemStart as tauriWorkItemStart,
   workItemRunStop as tauriWorkItemRunStop,
 } from "$lib/tauri";
@@ -27,6 +31,8 @@ vi.mock("$lib/tauri", () => ({
   workItemUpdate: vi.fn(),
   workItemMove: vi.fn(),
   workItemDelete: vi.fn(),
+  workItemPlan: vi.fn(),
+  workItemReviewAccept: vi.fn(),
   workItemStart: vi.fn(),
   workItemRunStop: vi.fn(),
   workItemRunsList: vi.fn().mockResolvedValue([]),
@@ -64,6 +70,7 @@ function makeRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
   return {
     id: "run-1",
     workItemId: "wi-1",
+    kind: "implementation",
     sessionId: "sess-1",
     provider: "claude",
     profileId: "claude",
@@ -334,6 +341,50 @@ describe("workItems store", () => {
       expect(get(workItemRuns)).toHaveLength(1);
       expect(get(workItems)[0].sessionId).toBeNull();
       expect(get(workItems)[0].status).toBe("todo");
+    });
+  });
+
+  describe("planWorkItem", () => {
+    it("stores the returned planning run without moving the card", async () => {
+      const item = makeItem({ id: "wi-1", sessionId: null, status: "todo" });
+      workItems.set([item]);
+      vi.mocked(tauriWorkItemPlan).mockResolvedValueOnce({
+        item,
+        run: makeRun({ kind: "planning", sessionId: "plan-sess-1" }),
+        session: {} as never,
+      });
+
+      await expect(planWorkItem("wi-1")).resolves.toBe("plan-sess-1");
+
+      expect(tauriWorkItemPlan).toHaveBeenCalledWith("wi-1", {});
+      expect(get(workItemRuns)[0]).toMatchObject({
+        kind: "planning",
+        sessionId: "plan-sess-1",
+      });
+      expect(get(workItems)[0].status).toBe("todo");
+      expect(get(workItems)[0].sessionId).toBeNull();
+    });
+  });
+
+  describe("acceptWorkItemReview", () => {
+    it("stores the daemon-accepted card and run", async () => {
+      const item = makeItem({ id: "wi-1", status: "review", sessionId: "sess-1" });
+      workItems.set([item]);
+      workItemRuns.set([makeRun({ id: "run-1", status: "review" })]);
+      vi.mocked(tauriWorkItemReviewAccept).mockResolvedValueOnce({
+        item: makeItem({ id: "wi-1", status: "done", sessionId: "sess-1" }),
+        run: makeRun({ id: "run-1", status: "done", endedAt: 5 }),
+      });
+
+      await expect(acceptWorkItemReview("wi-1")).resolves.toMatchObject({ status: "done" });
+
+      expect(tauriWorkItemReviewAccept).toHaveBeenCalledWith("wi-1");
+      expect(get(workItems)[0].status).toBe("done");
+      expect(get(workItemRuns)[0]).toMatchObject({
+        id: "run-1",
+        status: "done",
+        endedAt: 5,
+      });
     });
   });
 

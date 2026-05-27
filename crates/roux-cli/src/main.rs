@@ -425,9 +425,16 @@ enum WorkItemAction {
         /// Work item id
         id: String,
     },
+    /// Plan a work item with a daemon-owned planning run
+    Plan(WorkItemPlanArgs),
     /// Start a work item as a daemon-owned run
     #[command(alias = "dispatch")]
     Start(WorkItemStartArgs),
+    /// Accept a reviewed work item and move it to done
+    Accept {
+        /// Work item id
+        id: String,
+    },
     /// List work item runs
     Runs {
         /// Filter to one work item id
@@ -556,6 +563,24 @@ struct WorkItemStartArgs {
     /// Fetch before creating/checking out the worktree
     #[arg(long)]
     fetch_first: bool,
+}
+
+#[derive(Args)]
+struct WorkItemPlanArgs {
+    /// Work item id
+    id: String,
+    /// Spawn profile id, e.g. claude or codex
+    #[arg(short = 'P', long)]
+    profile: Option<String>,
+    /// Repo path override; otherwise the card/project repo or daemon cwd is used
+    #[arg(long)]
+    repo_path: Option<String>,
+    /// Session name override
+    #[arg(long)]
+    name: Option<String>,
+    /// Existing worktree path for the planning session
+    #[arg(long)]
+    worktree_path: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -1454,6 +1479,23 @@ fn build_work_item_start_request(params: WorkItemStartArgs) -> Value {
     })
 }
 
+fn build_work_item_plan_request(params: WorkItemPlanArgs) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(params.id));
+    insert_optional_string(&mut args, "profile", params.profile);
+    if let Some(repo_path) = params.repo_path {
+        args.insert("repoPath".into(), Value::String(resolve_path(&repo_path)));
+    }
+    insert_optional_string(&mut args, "name", params.name);
+    if let Some(worktree_path) = params.worktree_path {
+        args.insert("worktreePath".into(), Value::String(resolve_path(&worktree_path)));
+    }
+    serde_json::json!({
+        "command": "work-item-plan",
+        "args": Value::Object(args),
+    })
+}
+
 fn parse_work_item_decision_options(options: Vec<String>) -> Result<Value, String> {
     let mut parsed = Vec::with_capacity(options.len());
     for raw in options {
@@ -1556,7 +1598,14 @@ fn handle_work_item(action: WorkItemAction) {
                 "args": { "id": id },
             }));
         }
+        WorkItemAction::Plan(params) => run_socket_command(build_work_item_plan_request(params)),
         WorkItemAction::Start(params) => run_socket_command(build_work_item_start_request(params)),
+        WorkItemAction::Accept { id } => {
+            run_socket_command(serde_json::json!({
+                "command": "work-item-review-accept",
+                "args": { "id": id },
+            }));
+        }
         WorkItemAction::Runs { work_item } => {
             let mut args = serde_json::Map::new();
             insert_optional_string(&mut args, "workItemId", work_item);
@@ -3049,6 +3098,35 @@ mod tests {
 
         assert_eq!(request["args"]["repoPath"], resolve_path("."));
         assert_eq!(request["args"]["worktreePath"], resolve_path("./wt"));
+    }
+
+    #[test]
+    fn work_item_plan_uses_plan_socket_command_and_resolves_paths() {
+        let request = build_work_item_plan_request(WorkItemPlanArgs {
+            id: "wi-1".into(),
+            profile: Some("claude".into()),
+            repo_path: Some(".".into()),
+            name: Some("Plan login".into()),
+            worktree_path: Some("./wt".into()),
+        });
+
+        assert_eq!(request["command"], "work-item-plan");
+        assert_eq!(request["args"]["id"], "wi-1");
+        assert_eq!(request["args"]["profile"], "claude");
+        assert_eq!(request["args"]["repoPath"], resolve_path("."));
+        assert_eq!(request["args"]["name"], "Plan login");
+        assert_eq!(request["args"]["worktreePath"], resolve_path("./wt"));
+    }
+
+    #[test]
+    fn cli_parses_work_item_accept() {
+        let cli = Cli::try_parse_from(["roux", "work-item", "accept", "wi-1"]).unwrap();
+        match cli.command {
+            Commands::WorkItem { action: WorkItemAction::Accept { id } } => {
+                assert_eq!(id, "wi-1");
+            }
+            _ => panic!("expected WorkItem::Accept"),
+        }
     }
 
     #[test]

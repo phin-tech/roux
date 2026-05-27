@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use roux_core::{
     WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemEvent, WorkItemInput, WorkItemRun,
-    WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunStatus, WorkItemStatus,
+    WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus, WorkItemStatus,
 };
 
 use crate::work_item_store::WorkItemStore;
@@ -269,6 +269,39 @@ impl WorkItemHandle {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub fn create_planning_run(
+        &self,
+        work_item_id: &str,
+        session_id: Option<&str>,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+    ) -> Result<WorkItemRun, String> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_secs();
+        let run = self
+            .inner
+            .lock()
+            .unwrap()
+            .create_run_with_kind_status(
+                id,
+                work_item_id,
+                WorkItemRunKind::Planning,
+                session_id,
+                provider,
+                profile_id,
+                worktree_path,
+                branch,
+                WorkItemRunStatus::Starting,
+                now,
+            )
+            .map_err(|e| format!("work-item run create: {e}"))?;
+        self.broadcast(WorkItemEvent::RunCreated { run: run.clone() });
+        Ok(run)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn record_start_failure(
         &self,
         id: &str,
@@ -450,6 +483,39 @@ impl WorkItemHandle {
             self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
             self.broadcast(WorkItemEvent::RunEventAppended { event });
             Ok(Some(run))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn accept_review(
+        &self,
+        work_item_id: &str,
+        mut payload: serde_json::Value,
+    ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
+        let now = now_secs();
+        if let serde_json::Value::Object(ref mut object) = payload {
+            object.entry("status").or_insert_with(|| {
+                serde_json::Value::String(WorkItemRunStatus::Done.as_str().to_string())
+            });
+        }
+        let event_id = Uuid::new_v4().to_string();
+        let result = self
+            .inner
+            .lock()
+            .unwrap()
+            .accept_review(work_item_id, event_id, payload, now)
+            .map_err(|e| format!("work-item review accept: {e}"))?;
+        if let Some((item, run, event)) = result {
+            self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
+            self.broadcast(WorkItemEvent::RunEventAppended { event });
+            self.broadcast(WorkItemEvent::Moved {
+                id: item.id.clone(),
+                status: item.status.clone(),
+                sort_order: item.sort_order,
+            });
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+            Ok(Some((item, run)))
         } else {
             Ok(None)
         }

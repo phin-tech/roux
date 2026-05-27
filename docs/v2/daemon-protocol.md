@@ -687,6 +687,28 @@ Valid `status` values: `"todo"`, `"ready"`, `"doing"`, `"review"`, `"done"`.
 
 Requires `args.id`. Returns `{ "id": "..." }` on success.
 
+`work-item-plan`
+
+Daemon-owned planning action. Requires `args.id`. Optional args: `repoPath`,
+`profile`, `name`, and `worktreePath`.
+
+The daemon creates or reuses one active planning run for the card, creates a
+planning session/PTY, generates a planning prompt, dispatches it to the PTY,
+records lifecycle events, and returns:
+
+```json
+{
+  "item": {},
+  "run": { "kind": "planning" },
+  "session": {}
+}
+```
+
+Planning does not move the card to `doing` and does not bind the card's
+implementation `sessionId`. If an active planning run already exists, the
+daemon returns the existing planning run and session. If another active run
+exists, planning is rejected.
+
 `work-item-start`
 
 Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
@@ -716,19 +738,39 @@ marks the run `failed`, records `startError` on the card, preserves the
 session/worktree for inspection, and returns an error response. Failures before
 a run exists leave the card in its current column and record `startError`.
 
+`work-item-review-accept`
+
+Daemon-owned review acceptance. Requires `args.id` (also accepts
+`workItemId` / `work_item_id`). The daemon finds the card's review-requested
+implementation run, moves that run to `done`, appends a status-change event
+with `reason: "reviewAccepted"`, moves the card to `done`, and returns:
+
+```json
+{
+  "item": {},
+  "run": {}
+}
+```
+
+If the card has no implementation run in review, the daemon returns an error.
+The linked session remains available; cleanup is a separate explicit action.
+
 `work-item-runs-list`
 
 Optional `args.workItemId` / `args.work_item_id`. Returns persisted
-`WorkItemRun` rows, ordered by creation.
+`WorkItemRun` rows, ordered by creation. Runs include `kind`:
+`"planning"`, `"implementation"`, or `"review"`.
 
 `work-item-run-events`
 
 Requires `args.runId` / `args.run_id`. Returns append-only `WorkItemRunEvent`
 rows for that run in insertion order. For daemon-dispatched runs, the daemon
 attaches to the linked PTY and appends `text` events for observed output chunks.
-When the linked PTY exits, the daemon records a terminal `statusChanged` event:
-exit code `0` marks the run `done`; any non-zero or unknown exit marks it
-`failed`. Explicitly stopped runs are not overwritten by later PTY exit events.
+When the linked PTY exits, the daemon records a `statusChanged` event. For
+implementation runs, exit code `0` marks the run `review` and moves the card to
+`review`; any non-zero or unknown exit marks the run `failed`. Planning/review
+runs with exit code `0` are marked `done`. Explicitly stopped or already
+review-requested runs are not overwritten by later PTY exit events.
 
 `work-item-run-stop`
 

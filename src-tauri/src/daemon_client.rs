@@ -273,18 +273,30 @@ impl DaemonClient {
         fetch_first: Option<bool>,
     ) -> DaemonClientResult<roux_core::WorkItemStartResult> {
         self.sdk
-            .work_item_start(
-                id,
-                profile,
-                repo_path,
-                name,
-                worktree_path,
-                branch,
-                base,
-                fetch_first,
-            )
+            .work_item_start(id, profile, repo_path, name, worktree_path, branch, base, fetch_first)
             .await
             .map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_plan(
+        &self,
+        id: String,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+    ) -> DaemonClientResult<roux_core::WorkItemPlanResult> {
+        self.sdk
+            .work_item_plan(id, profile, repo_path, name, worktree_path)
+            .await
+            .map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_review_accept(
+        &self,
+        id: String,
+    ) -> DaemonClientResult<roux_core::WorkItemReviewAcceptResult> {
+        self.sdk.work_item_review_accept(id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn work_item_runs_list(

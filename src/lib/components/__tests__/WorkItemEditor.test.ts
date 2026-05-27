@@ -97,6 +97,7 @@ function workItemRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
   return {
     id: "run-1",
     workItemId: "wi-1",
+    kind: "implementation",
     sessionId: "sess-1",
     provider: "claude",
     profileId: "claude",

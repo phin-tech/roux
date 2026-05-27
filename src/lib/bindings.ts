@@ -396,6 +396,8 @@ export const commands = {
 	workItemUpdate: (id: string, input: WorkItemInput) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_update", { id, input })),
 	workItemMove: (id: string, status: WorkItemStatus, sortOrder: number) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_move", { id, status, sortOrder })),
 	workItemDelete: (id: string) => typedError<string, string>(__TAURI_INVOKE("work_item_delete", { id })),
+	workItemPlan: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null) => typedError<WorkItemPlanResult, string>(__TAURI_INVOKE("work_item_plan", { id, profile, repoPath, name, worktreePath })),
+	workItemReviewAccept: (id: string) => typedError<WorkItemReviewAcceptResult, string>(__TAURI_INVOKE("work_item_review_accept", { id })),
 	workItemStart: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, branch: string | null, base: string | null, fetchFirst: boolean | null) => typedError<WorkItemStartResult, string>(__TAURI_INVOKE("work_item_start", { id, profile, repoPath, name, worktreePath, branch, base, fetchFirst })),
 	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
 	notesWrite: (target: NotesTarget, content: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_write", { target, content, tags })),
@@ -1764,9 +1766,12 @@ export type WorkItem = {
 
 export type WorkItemRunStatus = "queued" | "starting" | "running" | "blocked" | "review" | "failed" | "stopped" | "done";
 
+export type WorkItemRunKind = "planning" | "implementation" | "review";
+
 export type WorkItemRun = {
 	id: string,
 	workItemId: string,
+	kind: WorkItemRunKind,
 	sessionId: string | null,
 	provider: string | null,
 	profileId: string | null,
@@ -1784,6 +1789,17 @@ export type WorkItemStartResult = {
 	item: WorkItem,
 	run: WorkItemRun,
 	session: Session,
+};
+
+export type WorkItemPlanResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+	session: Session,
+};
+
+export type WorkItemReviewAcceptResult = {
+	item: WorkItem,
+	run: WorkItemRun,
 };
 
 /**

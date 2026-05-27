@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import BoardPanel from "../BoardPanel.svelte";
 import {
   itemsByColumn,
+  acceptWorkItemReview,
   moveWorkItem,
+  planWorkItem,
   startWorkItem,
+  activePlanningRunByItem,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { openWorkItemSessionStart } from "$lib/stores/ui";
@@ -39,7 +42,10 @@ vi.mock("$lib/stores/workItems", async () => {
     },
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
+    activePlanningRunByItem: writable(new Map()),
+    acceptWorkItemReview: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
+    planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
     startWorkItem: vi.fn().mockResolvedValue("sess-1"),
     createWorkItem: vi.fn().mockResolvedValue({}),
   };
@@ -101,6 +107,7 @@ describe("BoardPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     seedColumns([]);
+    (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
   });
 
   it("Start delegates to daemon start without issuing a second move", async () => {
@@ -149,6 +156,35 @@ describe("BoardPanel", () => {
     });
     expect(startWorkItem).not.toHaveBeenCalled();
     expect(moveWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("starts planning from the card actions menu without moving the card", async () => {
+    const item = workItem({ id: "wi-1", title: "Plan me", sessionId: null });
+    seedColumns([item]);
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
+    await fireEvent.click(screen.getByText("Plan"));
+
+    expect(planWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(moveWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("accepts review from the card actions menu without directly moving the card", async () => {
+    const item = workItem({
+      id: "wi-review",
+      title: "Review me",
+      status: "review",
+      sessionId: "sess-1",
+    });
+    seedColumns([item]);
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
+    await fireEvent.click(screen.getByText("Accept done"));
+
+    expect(acceptWorkItemReview).toHaveBeenCalledWith("wi-review");
+    expect(moveWorkItem).not.toHaveBeenCalledWith("wi-review", "done", expect.any(Number));
   });
 
   it("opens a delete dialog from the right-click menu and deletes only the card", async () => {

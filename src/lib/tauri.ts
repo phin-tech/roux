@@ -1021,6 +1021,38 @@ export async function workItemStart(
   return r.data;
 }
 
+export interface WorkItemPlanOptions {
+  profile?: string | null;
+  repoPath?: string | null;
+  name?: string | null;
+  worktreePath?: string | null;
+}
+
+export async function workItemPlan(
+  id: string,
+  options: WorkItemPlanOptions = {},
+): Promise<import("$lib/bindings").WorkItemPlanResult> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemPlan(
+    id,
+    options.profile ?? null,
+    options.repoPath ?? null,
+    options.name ?? null,
+    options.worktreePath ?? null,
+  );
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function workItemReviewAccept(
+  id: string,
+): Promise<import("$lib/bindings").WorkItemReviewAcceptResult> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemReviewAccept(id);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
 export async function workItemRunsList(
   workItemId: string | null,
 ): Promise<import("./types/workItems").WorkItemRun[]> {

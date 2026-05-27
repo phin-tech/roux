@@ -24,6 +24,7 @@ const MCP_TOOL_NAMES: &[&str] = &[
     "roux_update_work_item",
     "roux_move_work_item",
     "roux_delete_work_item",
+    "roux_plan_work_item",
     "roux_start_work_item",
     "roux_list_work_item_runs",
     "roux_list_work_item_run_events",
@@ -199,7 +200,7 @@ pub struct WorkItemUpdateParams {
 #[serde(rename_all = "camelCase")]
 pub struct WorkItemMoveParams {
     pub id: String,
-    /// One of: todo | doing | review | done.
+    /// One of: todo | ready | doing | review | done.
     pub status: String,
     pub sort_order: Option<f64>,
 }
@@ -222,6 +223,16 @@ pub struct WorkItemStartParams {
     pub base: Option<String>,
     #[serde(default)]
     pub fetch_first: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemPlanParams {
+    pub id: String,
+    pub profile: Option<String>,
+    pub repo_path: Option<String>,
+    pub name: Option<String>,
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -633,7 +644,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Create a Kanban board work item. Status may be todo, doing, review, or done."
+        description = "Create a Kanban board work item. Status may be todo, ready, doing, review, or done."
     )]
     async fn roux_create_work_item(
         &self,
@@ -653,7 +664,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Move a Kanban board work item to a new status. Status may be todo, doing, review, or done."
+        description = "Move a Kanban board work item to a new status. Status may be todo, ready, doing, review, or done."
     )]
     async fn roux_move_work_item(
         &self,
@@ -677,6 +688,16 @@ impl RouxMcpServer {
     }
 
     #[tool(
+        description = "Plan a Kanban board work item as a daemon-owned planning run. Returns the card, planning run, and planning session after the daemon dispatches the planning prompt."
+    )]
+    async fn roux_plan_work_item(
+        &self,
+        Parameters(params): Parameters<WorkItemPlanParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_work_item_plan_request(params)).await
+    }
+
+    #[tool(
         description = "Start a Kanban board work item as a daemon-owned autonomous run. Returns the updated card, run, and session after the daemon dispatches the task prompt."
     )]
     async fn roux_start_work_item(
@@ -684,6 +705,20 @@ impl RouxMcpServer {
         Parameters(params): Parameters<WorkItemStartParams>,
     ) -> Result<CallToolResult, ErrorData> {
         call_socket(build_work_item_start_request(params)).await
+    }
+
+    #[tool(
+        description = "Accept a Kanban work item after review. Moves the reviewed implementation run to done and moves the card to Done."
+    )]
+    async fn roux_accept_work_item_review(
+        &self,
+        Parameters(params): Parameters<WorkItemIdParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(json!({
+            "command": "work-item-review-accept",
+            "args": { "id": params.id },
+        }))
+        .await
     }
 
     #[tool(description = "List daemon-owned runs for Kanban work items.")]
@@ -1514,6 +1549,19 @@ fn build_work_item_start_request(params: WorkItemStartParams) -> Value {
     })
 }
 
+fn build_work_item_plan_request(params: WorkItemPlanParams) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(params.id));
+    insert_optional_string(&mut args, "profile", params.profile);
+    insert_optional_string(&mut args, "repoPath", params.repo_path);
+    insert_optional_string(&mut args, "name", params.name);
+    insert_optional_string(&mut args, "worktreePath", params.worktree_path);
+    json!({
+        "command": "work-item-plan",
+        "args": Value::Object(args),
+    })
+}
+
 fn build_work_item_decision_create_request(
     params: WorkItemDecisionCreateParams,
 ) -> Result<Value, ErrorData> {
@@ -1645,6 +1693,24 @@ mod tests {
         assert_eq!(request["args"]["branch"], "feat/login");
         assert_eq!(request["args"]["base"], "origin/main");
         assert_eq!(request["args"]["fetchFirst"], true);
+    }
+
+    #[test]
+    fn work_item_plan_uses_plan_socket_command() {
+        let request = build_work_item_plan_request(WorkItemPlanParams {
+            id: "wi-1".into(),
+            profile: Some("claude".into()),
+            repo_path: Some("/repo".into()),
+            name: Some("Plan login".into()),
+            worktree_path: Some("/repo".into()),
+        });
+
+        assert_eq!(request["command"], "work-item-plan");
+        assert_eq!(request["args"]["id"], "wi-1");
+        assert_eq!(request["args"]["profile"], "claude");
+        assert_eq!(request["args"]["repoPath"], "/repo");
+        assert_eq!(request["args"]["name"], "Plan login");
+        assert_eq!(request["args"]["worktreePath"], "/repo");
     }
 
     #[test]

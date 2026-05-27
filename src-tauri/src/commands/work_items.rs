@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use roux_core::{
-    WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemInput, WorkItemRun,
-    WorkItemRunEvent, WorkItemStartResult, WorkItemStatus,
+    WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemInput, WorkItemPlanResult,
+    WorkItemReviewAcceptResult, WorkItemRun, WorkItemRunEvent, WorkItemStartResult, WorkItemStatus,
 };
 
 #[tauri::command]
@@ -94,20 +94,44 @@ pub(crate) async fn work_item_start(
 ) -> Result<WorkItemStartResult, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-start")) {
         return client
-            .work_item_start(
-                id,
-                profile,
-                repo_path,
-                name,
-                worktree_path,
-                branch,
-                base,
-                fetch_first,
-            )
+            .work_item_start(id, profile, repo_path, name, worktree_path, branch, base, fetch_first)
             .await
             .map_err(String::from);
     }
     Err("Starting a work item requires a running daemon.".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn work_item_plan(
+    id: String,
+    profile: Option<String>,
+    repo_path: Option<String>,
+    name: Option<String>,
+    worktree_path: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<WorkItemPlanResult, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-plan")) {
+        return client
+            .work_item_plan(id, profile, repo_path, name, worktree_path)
+            .await
+            .map_err(String::from);
+    }
+    Err("Planning a work item requires a running daemon.".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn work_item_review_accept(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<WorkItemReviewAcceptResult, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|c| c.supports("work-item-review-accept"))
+    {
+        return client.work_item_review_accept(id).await.map_err(String::from);
+    }
+    Err("Accepting work item review requires a running daemon.".to_string())
 }
 
 #[tauri::command]
