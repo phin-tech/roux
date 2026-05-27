@@ -21,7 +21,7 @@ enum WorkItemEventFrame {
     #[serde(rename = "ready")]
     Ready,
     #[serde(rename = "event")]
-    Event { event: roux_core::WorkItemEvent },
+    Event { event: Box<roux_core::WorkItemEvent> },
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
@@ -2022,7 +2022,11 @@ where
     loop {
         match rx.recv().await {
             Ok(event) => {
-                if !write_work_item_event_frame(writer, &WorkItemEventFrame::Event { event }).await
+                if !write_work_item_event_frame(
+                    writer,
+                    &WorkItemEventFrame::Event { event: Box::new(event) },
+                )
+                .await
                 {
                     return false;
                 }

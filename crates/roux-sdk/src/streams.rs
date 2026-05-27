@@ -58,7 +58,7 @@ pub enum WorkItemEventStreamFrame {
     #[serde(rename = "ready")]
     Ready,
     #[serde(rename = "event")]
-    Event { event: roux_core::WorkItemEvent },
+    Event { event: Box<roux_core::WorkItemEvent> },
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
