@@ -182,6 +182,19 @@ describe("workItems store", () => {
       expect(get(workItems)[0].sessionId).toBe("sess-1");
     });
 
+    it("does not bind planning run sessions to the card", () => {
+      const item = makeItem({ id: "wi-1", sessionId: null });
+      workItems.set([item]);
+
+      applyWorkItemEvent({
+        type: "runCreated",
+        run: makeRun({ kind: "planning", sessionId: "plan-sess-1" }),
+      });
+
+      expect(get(workItemRuns)).toHaveLength(1);
+      expect(get(workItems)[0].sessionId).toBeNull();
+    });
+
     it("treats the last stored run as latest even when timestamps match", () => {
       workItemRuns.set([
         makeRun({ id: "run-2", sessionId: "sess-2", createdAt: 1 }),
@@ -303,6 +316,23 @@ describe("workItems store", () => {
       });
 
       expect(get(workItemRuns)[0].status).toBe("done");
+      expect(get(pendingDecisionByItem).has("wi-1")).toBe(false);
+    });
+
+    it("does not revive a review run when its decision resolves", () => {
+      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "review" })]);
+      workItemDecisions.set([makeDecision()]);
+
+      applyWorkItemEvent({
+        type: "decisionResolved",
+        decision: makeDecision({
+          status: "resolved",
+          resolvedValue: "go",
+          resolvedAt: 3,
+        }),
+      });
+
+      expect(get(workItemRuns)[0].status).toBe("review");
       expect(get(pendingDecisionByItem).has("wi-1")).toBe(false);
     });
   });

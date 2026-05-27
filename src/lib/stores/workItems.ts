@@ -45,7 +45,12 @@ export const workItems = writable<WorkItem[]>([]);
 export const workItemRuns = writable<WorkItemRun[]>([]);
 export const workItemRunEvents = writable<WorkItemRunEvent[]>([]);
 export const workItemDecisions = writable<WorkItemDecision[]>([]);
-const TERMINAL_RUN_STATUSES = new Set<WorkItemRun["status"]>(["failed", "stopped", "done"]);
+const TERMINAL_RUN_STATUSES = new Set<WorkItemRun["status"]>([
+  "review",
+  "failed",
+  "stopped",
+  "done",
+]);
 
 export const itemsByColumn = derived(workItems, ($items) => {
   const map = new Map<WorkItemStatus, WorkItem[]>();
@@ -178,7 +183,7 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       break;
     case "runCreated":
       upsertRun(event.run);
-      if (event.run.sessionId) {
+      if (event.run.kind === "implementation" && event.run.sessionId) {
         bindSessionToWorkItem(event.run.workItemId, event.run.sessionId);
       }
       break;
