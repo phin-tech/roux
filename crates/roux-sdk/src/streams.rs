@@ -54,11 +54,12 @@ pub enum SubscriptionEventStreamFrame {
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum WorkItemEventStreamFrame {
     #[serde(rename = "ready")]
     Ready,
     #[serde(rename = "event")]
-    Event { event: Box<roux_core::WorkItemEvent> },
+    Event { event: roux_core::WorkItemEvent },
     #[serde(rename = "warning")]
     Warning { message: String },
     #[serde(rename = "error")]
