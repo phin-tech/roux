@@ -48,7 +48,7 @@ impl WorkItemStore {
              PRAGMA foreign_keys=ON;
              PRAGMA busy_timeout=5000;",
         )?;
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let mut version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         if version < 1 {
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS work_items (
@@ -82,6 +82,7 @@ impl WorkItemStore {
                     ON work_items(status);
                 PRAGMA user_version = 1;",
             )?;
+            version = 1;
         }
         if version < 2 {
             conn.execute_batch(
@@ -137,6 +138,7 @@ impl WorkItemStore {
                     ON work_item_decisions(status);
                 PRAGMA user_version = 2;",
             )?;
+            version = 2;
         }
         if version < 3 {
             conn.execute_batch(
@@ -146,16 +148,19 @@ impl WorkItemStore {
                     WHERE status = 'pending' AND timeout_at IS NOT NULL;
                 PRAGMA user_version = 3;",
             )?;
+            version = 3;
         }
         if (1..4).contains(&version) {
-            conn.execute_batch(
-                "ALTER TABLE work_items ADD COLUMN repo_path TEXT;
-                ALTER TABLE work_items ADD COLUMN agent_profile TEXT;
-                ALTER TABLE work_items ADD COLUMN base_branch TEXT;
-                ALTER TABLE work_items ADD COLUMN worktree_path TEXT;
-                ALTER TABLE work_items ADD COLUMN start_error TEXT;
-                PRAGMA user_version = 4;",
-            )?;
+            if !table_has_column(&conn, "work_items", "repo_path")? {
+                conn.execute_batch(
+                    "ALTER TABLE work_items ADD COLUMN repo_path TEXT;
+                    ALTER TABLE work_items ADD COLUMN agent_profile TEXT;
+                    ALTER TABLE work_items ADD COLUMN base_branch TEXT;
+                    ALTER TABLE work_items ADD COLUMN worktree_path TEXT;
+                    ALTER TABLE work_items ADD COLUMN start_error TEXT;",
+                )?;
+            }
+            conn.execute_batch("PRAGMA user_version = 4;")?;
         }
         Ok(WorkItemStore { conn })
     }
@@ -1071,6 +1076,18 @@ fn row_to_work_item_decision(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkIt
     })
 }
 
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> SqlResult<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1097,7 +1114,26 @@ mod tests {
         let store = WorkItemStore::open_in_memory().unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
+    }
+
+    #[test]
+    fn fresh_database_reopens_without_duplicate_v4_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("board.db");
+        {
+            let store = WorkItemStore::open(&path).unwrap();
+            let version: i64 =
+                store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+            assert_eq!(version, 4);
+            assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
+        }
+
+        let store = WorkItemStore::open(&path).unwrap();
+        let version: i64 =
+            store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(version, 4);
+        assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
     }
 
     #[test]
@@ -1299,10 +1335,30 @@ mod tests {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         store.create("i-1".into(), input("Task"), 1000).unwrap();
         store
-            .create_run("run-2".into(), "i-1", Some("sess-2"), None, None, None, None, 1100)
+            .create_run_with_status(
+                "run-2".into(),
+                "i-1",
+                Some("sess-2"),
+                None,
+                None,
+                None,
+                None,
+                WorkItemRunStatus::Done,
+                1100,
+            )
             .unwrap();
         store
-            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .create_run_with_status(
+                "run-1".into(),
+                "i-1",
+                Some("sess-1"),
+                None,
+                None,
+                None,
+                None,
+                WorkItemRunStatus::Failed,
+                1100,
+            )
             .unwrap();
 
         let runs = store.list_runs(Some("i-1")).unwrap();

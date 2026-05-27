@@ -177,6 +177,7 @@ pub(super) async fn handle_work_item_start(
 type ProfileDispatchFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 type ProfileDispatcher =
     for<'a> fn(&'a RuntimeHost, &'a roux_core::WorkItem, &'a str, &'a str) -> ProfileDispatchFuture<'a>;
+type AfterSessionCreatedHook = fn(&RuntimeHost, &str, &roux_core::Session);
 
 fn real_profile_dispatcher<'a>(
     host: &'a RuntimeHost,
@@ -187,19 +188,29 @@ fn real_profile_dispatcher<'a>(
     Box::pin(run_dispatched_profile(host, item, session_id, profile_id))
 }
 
+fn noop_after_session_created(_: &RuntimeHost, _: &str, _: &roux_core::Session) {}
+
 async fn start_work_item_run(
     req: Request,
     host: &RuntimeHost,
     identity: &DaemonIdentity,
 ) -> Result<roux_core::WorkItemStartResult, Response> {
-    start_work_item_run_with_dispatcher(req, host, identity, real_profile_dispatcher).await
+    start_work_item_run_with_hooks(
+        req,
+        host,
+        identity,
+        real_profile_dispatcher,
+        noop_after_session_created,
+    )
+    .await
 }
 
-async fn start_work_item_run_with_dispatcher(
+async fn start_work_item_run_with_hooks(
     req: Request,
     host: &RuntimeHost,
     identity: &DaemonIdentity,
     dispatch_profile: ProfileDispatcher,
+    after_session_created: AfterSessionCreatedHook,
 ) -> Result<roux_core::WorkItemStartResult, Response> {
     let Some(item_id) = optional_string_arg(&req.args, &["id"]) else {
         return Err(Response::err("id required"));
@@ -417,6 +428,7 @@ async fn start_work_item_run_with_dispatcher(
         }
         Err(err) => return Err(Response::err(err.to_string())),
     };
+    after_session_created(host, &item_id, &session);
     let provider = provider_slug(profile.provider).map(str::to_string);
     let worktree_path = Some(session.worktree_path.as_str());
     let branch = (!session.branch.trim().is_empty()).then_some(session.branch.as_str());
@@ -430,15 +442,17 @@ async fn start_work_item_run_with_dispatcher(
     ) {
         Ok(run) => run,
         Err(err) => {
-            let _ = host.work_item_handle.record_start_failure(
-                &item_id,
-                &err,
-                Some(&session_id),
-                worktree_path,
-                Some(&profile_id),
-                Some(&repo_path),
-                base_branch.as_deref(),
-            );
+            if !err.contains("active work item run already exists") {
+                let _ = host.work_item_handle.record_start_failure(
+                    &item_id,
+                    &err,
+                    Some(&session_id),
+                    worktree_path,
+                    Some(&profile_id),
+                    Some(&repo_path),
+                    base_branch.as_deref(),
+                );
+            }
             return Err(Response::err(
                 format!("work item run create failed; session was preserved: {err}"),
             ));
@@ -1710,6 +1724,23 @@ mod tests {
         Box::pin(async { Err("simulated prompt dispatch failure".to_string()) })
     }
 
+    fn create_active_run_after_session_created(
+        host: &RuntimeHost,
+        item_id: &str,
+        _session: &roux_core::Session,
+    ) {
+        host.work_item_handle
+            .create_starting_run(
+                item_id,
+                Some("winning-session"),
+                Some("claude"),
+                Some("claude"),
+                Some("/winning-worktree"),
+                Some("winning-branch"),
+            )
+            .expect("winning start should create an active run");
+    }
+
     #[cfg(not(windows))]
     async fn spawn_task_work_item_run(
         host: &RuntimeHost,
@@ -2192,7 +2223,7 @@ mod tests {
         assert!(resp.ok);
         let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
-        let resp = start_work_item_run_with_dispatcher(
+        let resp = start_work_item_run_with_hooks(
             req(
                 "work-item-start",
                 serde_json::json!({
@@ -2204,6 +2235,7 @@ mod tests {
             &host,
             &identity,
             failing_profile_dispatcher,
+            noop_after_session_created,
         )
         .await
         .expect_err("prompt dispatch failure should return an error response");
@@ -2246,6 +2278,64 @@ mod tests {
         }));
 
         let _ = host.pty_handle.kill(&session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_start_race_does_not_bind_losing_session_to_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run card" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let resp = start_work_item_run_with_hooks(
+            req(
+                "work-item-start",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": repo,
+                    "profile": "claude",
+                }),
+            ),
+            &host,
+            &identity,
+            real_profile_dispatcher,
+            create_active_run_after_session_created,
+        )
+        .await
+        .expect_err("losing start should fail when another run wins the race");
+        assert!(!resp.ok);
+        assert!(
+            resp.error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("active work item run already exists")
+        );
+
+        let sessions = host.session_handle.list().await.unwrap();
+        assert_eq!(sessions.len(), 1, "losing start session should be preserved");
+        let losing_session_id = sessions[0].id.clone();
+        let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
+        assert_ne!(item.session_id.as_deref(), Some(losing_session_id.as_str()));
+        assert_ne!(item.worktree_path.as_deref(), Some(sessions[0].worktree_path.as_str()));
+        assert!(item.start_error.is_none());
+
+        let runs = host.work_item_handle.list_runs(Some(&item_id)).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].session_id.as_deref(), Some("winning-session"));
+        assert_eq!(runs[0].status, roux_core::WorkItemRunStatus::Starting);
+
+        let _ = host.pty_handle.kill(&losing_session_id).await;
         shutdown_host(host, joins).await;
     }
 
