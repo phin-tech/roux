@@ -16,6 +16,7 @@
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { THEME_DEFINITIONS, getAllTerminalThemeDefinitions } from "$lib/themes";
   import { userTerminalThemes, loadUserTerminalThemes } from "$lib/stores/userTerminalThemes";
+  import { profileList, type SpawnProfile } from "$lib/panes/profiles";
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import {
     getRuntimeStatus,
@@ -30,6 +31,8 @@
     CodexNotificationConfigPreview,
     GpuAcceleration,
     IntegrationDetection,
+    KanbanSettings,
+    KanbanStartupSidebar,
     McpHostConfigPreview,
     McpStatus,
     OnPaneCloseMode,
@@ -51,17 +54,19 @@
   import Wrench from "@lucide/svelte/icons/wrench";
   import Plug from "@lucide/svelte/icons/plug";
   import NotebookPen from "@lucide/svelte/icons/notebook-pen";
+  import ClipboardList from "@lucide/svelte/icons/clipboard-list";
   import FlaskConical from "@lucide/svelte/icons/flask-conical";
   import X from "@lucide/svelte/icons/x";
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
   import { EXPERIMENTS, EXPERIMENT_DEFAULTS } from "$lib/experiments";
 
-  type CategoryId = "general" | "sessions" | "terminal" | "claude" | "notes" | "integrations" | "notifications" | "keyboard" | "experiments" | "advanced";
+  type CategoryId = "general" | "sessions" | "terminal" | "kanban" | "claude" | "notes" | "integrations" | "notifications" | "keyboard" | "experiments" | "advanced";
 
   const CATEGORIES: { id: CategoryId; label: string; icon: typeof Settings }[] = [
     { id: "general", label: "General", icon: Settings },
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "terminal", label: "Terminal", icon: TerminalIcon },
+    { id: "kanban", label: "Kanban", icon: ClipboardList },
     { id: "claude", label: "Claude", icon: Sparkles },
     { id: "notes", label: "Notes", icon: NotebookPen },
     { id: "integrations", label: "Integrations", icon: Plug },
@@ -75,6 +80,26 @@
     { id: "kill", label: "Kill" },
     { id: "detach", label: "Detach" },
   ] as const;
+
+  const KANBAN_DEFAULTS: KanbanSettings = {
+    defaultAgentProfile: "claude",
+    planningPromptAppend: "",
+    implementationPromptAppend: "",
+    reviewPromptAppend: "",
+    startupSidebar: "restore",
+  };
+
+  const autonomousProfiles = $derived(
+    $profileList.filter((profile: SpawnProfile) => {
+      const provider = profile.provider ?? null;
+      const command = profile.startupCommand?.trim() ?? "";
+      return (
+        (provider === "claude" || provider === "codex") &&
+        profile.startupBehavior !== "typeOnly" &&
+        command.length > 0
+      );
+    }),
+  );
 
   let selected = $state<CategoryId>("general");
 
@@ -211,6 +236,17 @@
       title: "Select Shell Binary",
     });
     if (selected) updateSetting("shellBinaryPath", selected as string);
+  }
+
+  function kanbanSettings(): KanbanSettings {
+    return { ...KANBAN_DEFAULTS, ...($settings.kanban ?? {}) };
+  }
+
+  function updateKanban<K extends keyof KanbanSettings>(
+    key: K,
+    value: KanbanSettings[K],
+  ): void {
+    updateSetting("kanban", { ...kanbanSettings(), [key]: value });
   }
 
   let ghDetection = $state<IntegrationDetection | null>(null);
@@ -940,6 +976,76 @@
                 <option value="main">main</option>
                 <option value="originMain">origin/main</option>
               </select>
+            </div>
+          {:else if selected === "kanban"}
+            {@const kanban = kanbanSettings()}
+            <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="text-[13px]">Default agent</div>
+                  <div class="mt-0.5 text-[11px] text-text-muted">Used when a card has no agent profile. Card settings and command arguments still win.</div>
+                </div>
+                <select
+                  class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6 max-w-[14rem]"
+                  value={kanban.defaultAgentProfile}
+                  onchange={(e) => updateKanban("defaultAgentProfile", e.currentTarget.value)}
+                >
+                  {#if autonomousProfiles.length === 0}
+                    <option value="claude">Claude</option>
+                  {:else}
+                    {#each autonomousProfiles as profile (profile.id)}
+                      <option value={profile.id}>{profile.name}</option>
+                    {/each}
+                  {/if}
+                </select>
+              </div>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between py-2">
+              <div>
+                <div class="text-[13px]">Open on launch</div>
+                <div class="mt-0.5 text-[11px] text-text-muted">Choose which sidebar Roux shows after settings load.</div>
+              </div>
+              <select
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                value={kanban.startupSidebar}
+                onchange={(e) => updateKanban("startupSidebar", e.currentTarget.value as KanbanStartupSidebar)}
+              >
+                <option value="restore">Restore previous</option>
+                <option value="sessions">Sessions</option>
+                <option value="kanban">Kanban</option>
+                <option value="none">None</option>
+              </select>
+            </div>
+
+            <div class="py-2">
+              <div class="text-[13px]">Planning instructions</div>
+              <div class="mt-0.5 text-[11px] text-text-muted">Appended after Roux's required planning prompt.</div>
+              <textarea
+                class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+                value={kanban.planningPromptAppend}
+                oninput={(e) => updateKanban("planningPromptAppend", e.currentTarget.value)}
+              ></textarea>
+            </div>
+
+            <div class="py-2">
+              <div class="text-[13px]">Implementation instructions</div>
+              <div class="mt-0.5 text-[11px] text-text-muted">Appended after Roux's required Start prompt.</div>
+              <textarea
+                class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+                value={kanban.implementationPromptAppend}
+                oninput={(e) => updateKanban("implementationPromptAppend", e.currentTarget.value)}
+              ></textarea>
+            </div>
+
+            <div class="py-2">
+              <div class="text-[13px]">Review handoff instructions</div>
+              <div class="mt-0.5 text-[11px] text-text-muted">Included in the implementation prompt until automated review runs exist.</div>
+              <textarea
+                class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+                value={kanban.reviewPromptAppend}
+                oninput={(e) => updateKanban("reviewPromptAppend", e.currentTarget.value)}
+              ></textarea>
             </div>
           {:else if selected === "terminal"}
             {@const allTerminalThemes = getAllTerminalThemeDefinitions($userTerminalThemes)}

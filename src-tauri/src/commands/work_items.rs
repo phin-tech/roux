@@ -109,11 +109,12 @@ pub(crate) async fn work_item_plan(
     repo_path: Option<String>,
     name: Option<String>,
     worktree_path: Option<String>,
+    replace_active: bool,
     state: tauri::State<'_, AppState>,
 ) -> Result<WorkItemPlanResult, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-plan")) {
         return client
-            .work_item_plan(id, profile, repo_path, name, worktree_path)
+            .work_item_plan(id, profile, repo_path, name, worktree_path, replace_active)
             .await
             .map_err(String::from);
     }

@@ -581,6 +581,9 @@ struct WorkItemPlanArgs {
     /// Existing worktree path for the planning session
     #[arg(long)]
     worktree_path: Option<String>,
+    /// Stop any active planning run and create a fresh one
+    #[arg(long)]
+    replace_active: bool,
 }
 
 #[derive(Subcommand)]
@@ -1489,6 +1492,9 @@ fn build_work_item_plan_request(params: WorkItemPlanArgs) -> Value {
     insert_optional_string(&mut args, "name", params.name);
     if let Some(worktree_path) = params.worktree_path {
         args.insert("worktreePath".into(), Value::String(resolve_path(&worktree_path)));
+    }
+    if params.replace_active {
+        args.insert("replaceActive".into(), Value::Bool(true));
     }
     serde_json::json!({
         "command": "work-item-plan",
@@ -3108,6 +3114,7 @@ mod tests {
             repo_path: Some(".".into()),
             name: Some("Plan login".into()),
             worktree_path: Some("./wt".into()),
+            replace_active: true,
         });
 
         assert_eq!(request["command"], "work-item-plan");
@@ -3116,6 +3123,7 @@ mod tests {
         assert_eq!(request["args"]["repoPath"], resolve_path("."));
         assert_eq!(request["args"]["name"], "Plan login");
         assert_eq!(request["args"]["worktreePath"], resolve_path("./wt"));
+        assert_eq!(request["args"]["replaceActive"], true);
     }
 
     #[test]

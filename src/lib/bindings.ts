@@ -396,7 +396,7 @@ export const commands = {
 	workItemUpdate: (id: string, input: WorkItemInput) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_update", { id, input })),
 	workItemMove: (id: string, status: WorkItemStatus, sortOrder: number) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_move", { id, status, sortOrder })),
 	workItemDelete: (id: string) => typedError<string, string>(__TAURI_INVOKE("work_item_delete", { id })),
-	workItemPlan: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null) => typedError<WorkItemPlanResult, string>(__TAURI_INVOKE("work_item_plan", { id, profile, repoPath, name, worktreePath })),
+	workItemPlan: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, replaceActive: boolean) => typedError<WorkItemPlanResult, string>(__TAURI_INVOKE("work_item_plan", { id, profile, repoPath, name, worktreePath, replaceActive })),
 	workItemReviewAccept: (id: string) => typedError<WorkItemReviewAcceptResult, string>(__TAURI_INVOKE("work_item_review_accept", { id })),
 	workItemStart: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, branch: string | null, base: string | null, fetchFirst: boolean | null) => typedError<WorkItemStartResult, string>(__TAURI_INVOKE("work_item_start", { id, profile, repoPath, name, worktreePath, branch, base, fetchFirst })),
 	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
@@ -690,6 +690,16 @@ export type IntegrationDetection = {
 };
 
 export type KeepOpen = "always" | "on-error" | "never";
+
+export type KanbanSettings = {
+	defaultAgentProfile: string,
+	planningPromptAppend: string,
+	implementationPromptAppend: string,
+	reviewPromptAppend: string,
+	startupSidebar: KanbanStartupSidebar,
+};
+
+export type KanbanStartupSidebar = "restore" | "sessions" | "kanban" | "none";
 
 // How a bound key is matched against a `KeyboardEvent`.
 export type KeyRef =
@@ -1434,6 +1444,7 @@ export type RouxSettings = {
 	mcpLastConfiguredHost?: string | null,
 	// Unix epoch milliseconds for the last successful MCP host config write.
 	mcpLastConfiguredAtMs?: number | null,
+	kanban?: KanbanSettings,
 	// Runtime feature flags. See `ExperimentsConfig`.
 	experiments?: ExperimentsConfig,
 };
@@ -1736,15 +1747,24 @@ export type WorkItem = {
 	title: string,
 	body: string | null,
 	status: WorkItemStatus,
-	// Repo to use when starting the card. If unset, the daemon derives it from the attached project.
+	/**
+	 *  Repo to use when starting the card. If unset, the daemon derives it from
+	 *  the attached project.
+	 */
 	repoPath: string | null,
 	// Autonomous agent profile used by daemon-owned Start.
 	agentProfile: string | null,
 	// Base ref for the card's dedicated implementation worktree.
 	baseBranch: string | null,
-	// Dedicated implementation worktree path. Set by daemon Start and reused by retries/restarts unless the user explicitly chooses a fresh start.
+	/**
+	 *  Dedicated implementation worktree path. Set by daemon Start and reused
+	 *  by retries/restarts unless the user explicitly chooses a fresh start.
+	 */
 	worktreePath: string | null,
-	// Last daemon-owned Start failure. The frontend renders this as the card-level start error; cleared by successful Start/config updates.
+	/**
+	 *  Last daemon-owned Start failure. The frontend renders this as the
+	 *  card-level start error; cleared by successful Start/config updates.
+	 */
 	startError: string | null,
 	// Bound agent session — set when `work-item-start` succeeds.
 	sessionId: string | null,
@@ -1764,9 +1784,35 @@ export type WorkItem = {
 	updatedAt: number,
 };
 
-export type WorkItemRunStatus = "queued" | "starting" | "running" | "blocked" | "review" | "failed" | "stopped" | "done";
+/**
+ *  Input shape for creating / importing a work item. All fields except
+ *  `title` are optional; the store fills defaults.
+ */
+export type WorkItemInput = {
+	title: string,
+	body?: string | null,
+	status?: WorkItemStatus | null,
+	repoPath?: string | null,
+	agentProfile?: string | null,
+	baseBranch?: string | null,
+	worktreePath?: string | null,
+	startError?: string | null,
+	projectId?: string | null,
+	parentId?: string | null,
+	externalRef?: ExternalRef | null,
+	sortOrder?: number | null,
+};
 
-export type WorkItemRunKind = "planning" | "implementation" | "review";
+export type WorkItemPlanResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+	session: Session,
+};
+
+export type WorkItemReviewAcceptResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+};
 
 export type WorkItemRun = {
 	id: string,
@@ -1785,40 +1831,14 @@ export type WorkItemRun = {
 	updatedAt: number,
 };
 
+export type WorkItemRunKind = "planning" | "implementation" | "review";
+
+export type WorkItemRunStatus = "queued" | "starting" | "running" | "blocked" | "review" | "failed" | "stopped" | "done";
+
 export type WorkItemStartResult = {
 	item: WorkItem,
 	run: WorkItemRun,
 	session: Session,
-};
-
-export type WorkItemPlanResult = {
-	item: WorkItem,
-	run: WorkItemRun,
-	session: Session,
-};
-
-export type WorkItemReviewAcceptResult = {
-	item: WorkItem,
-	run: WorkItemRun,
-};
-
-/**
- *  Input shape for creating / importing a work item. All fields except
- *  `title` are optional; the store fills defaults.
- */
-export type WorkItemInput = {
-	title: string,
-	body?: string | null,
-	status?: WorkItemStatus | null,
-	repoPath?: string | null,
-	agentProfile?: string | null,
-	baseBranch?: string | null,
-	worktreePath?: string | null,
-	startError?: string | null,
-	projectId?: string | null,
-	parentId?: string | null,
-	externalRef?: ExternalRef | null,
-	sortOrder?: number | null,
 };
 
 // Board column / workflow position of a work item.

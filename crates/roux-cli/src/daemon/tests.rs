@@ -2469,6 +2469,99 @@ async fn daemon_top_level_send_writes_to_session_primary_pty() {
 
 #[cfg(not(windows))]
 #[tokio::test]
+async fn daemon_pty_shell_accepts_cr_separated_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let services = RuntimeHostConfig {
+        initial_sessions: Vec::new(),
+        session_persist_path: dir.path().join("sessions.json"),
+        initial_projects: Vec::new(),
+        project_persist_path: dir.path().join("projects.json"),
+        initial_watches: Vec::new(),
+        watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
+    }
+    .build();
+    let (host, joins) = services.spawn_with(tokio::spawn);
+    let identity = DaemonIdentity::new_for_test("/tmp/roux.sock");
+
+    let start = handle_request(
+        Request {
+            command: "daemon-pty-spawn-shell".to_string(),
+            session_id: None,
+            pane_id: None,
+            auth_token: None,
+            args: serde_json::json!({
+                "id": "cr-shell",
+                "workingDir": dir.path(),
+                "sessionId": "session-cr",
+                "paneId": "pane-cr",
+                "role": "sessionPrimary",
+                "profile": "plain-shell",
+            }),
+        },
+        &host,
+        &identity,
+    )
+    .await;
+    assert!(start.ok, "shell pty start failed: {:?}", start.error);
+
+    let write = handle_request(
+        Request {
+            command: "daemon-pty-write".to_string(),
+            session_id: None,
+            pane_id: None,
+            auth_token: None,
+            args: serde_json::json!({
+                "id": "cr-shell",
+                "data": "printf '__ROUX_ONE__\\n'\rprintf '__ROUX_TWO__\\n'\r",
+            }),
+        },
+        &host,
+        &identity,
+    )
+    .await;
+    assert!(write.ok, "write failed: {:?}", write.error);
+
+    let mut output = None;
+    for _ in 0..100 {
+        let poll = handle_request(
+            Request {
+                command: "daemon-pty-output".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({ "id": "cr-shell", "maxBytes": 4096 }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(poll.ok, "poll failed: {:?}", poll.error);
+        let data = poll.data.unwrap();
+        let text = data["output"].as_str().unwrap_or("");
+        if text.contains("__ROUX_ONE__") && text.contains("__ROUX_TWO__") {
+            output = Some(data);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    output.expect("CR-separated commands should both execute in daemon shell PTY");
+
+    let _ = host.pty_handle.kill("cr-shell").await;
+    host.process_handle.shutdown().await;
+    host.pty_handle.shutdown().await;
+    host.watch_handle.shutdown().await;
+    host.session_handle.shutdown().await;
+    host.project_handle.shutdown().await;
+    drop(host);
+    for join in joins {
+        join.await.unwrap();
+    }
+}
+
+#[cfg(not(windows))]
+#[tokio::test]
 async fn daemon_pty_spawn_request_populates_runtime_env() {
     let dir = tempfile::tempdir().unwrap();
     let services = RuntimeHostConfig {

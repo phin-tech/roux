@@ -690,7 +690,7 @@ Requires `args.id`. Returns `{ "id": "..." }` on success.
 `work-item-plan`
 
 Daemon-owned planning action. Requires `args.id`. Optional args: `repoPath`,
-`profile`, `name`, and `worktreePath`.
+`profile`, `name`, `worktreePath`, and `replaceActive`.
 
 The daemon creates or reuses one active planning run for the card, creates a
 planning session/PTY, generates a planning prompt, dispatches it to the PTY,
@@ -706,8 +706,14 @@ records lifecycle events, and returns:
 
 Planning does not move the card to `doing` and does not bind the card's
 implementation `sessionId`. If an active planning run already exists, the
-daemon returns the existing planning run and session. If another active run
+daemon returns the existing planning run and session by default. With
+`replaceActive: true`, the daemon stops the existing active planning run,
+cleans up its session, and creates a fresh planning run. If another active run
 exists, planning is rejected.
+
+Planning profile resolution is request `profile`, then card `agentProfile`,
+then `settings.kanban.defaultAgentProfile`. The generated planning prompt
+includes `settings.kanban.planningPromptAppend` when configured.
 
 `work-item-start`
 
@@ -715,9 +721,10 @@ Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
 `repoPath`, `profile`, `name`, `worktreePath`, `branch`, `base`, and
 `fetchFirst`.
 
-The daemon rejects cards that already have an active run, cards without a repo
-path or project repo to derive from, and cards without an autonomous agent
-profile. Plain-shell and type-only profiles are not valid Start profiles.
+The daemon rejects cards that already have an active run and cards without a
+repo path or project repo to derive from. Start profile resolution is request
+`profile`, then card `agentProfile`, then `settings.kanban.defaultAgentProfile`.
+Plain-shell and type-only profiles are not valid Start profiles.
 
 On success, the daemon creates or reuses the card's dedicated worktree, creates
 a daemon session/PTY, creates a `starting` `WorkItemRun`, appends lifecycle
@@ -732,6 +739,10 @@ card, moves the card to `doing`, clears `startError`, and returns:
   "session": {}
 }
 ```
+
+The generated implementation prompt includes
+`settings.kanban.implementationPromptAppend` when configured. The review
+handoff prompt includes `settings.kanban.reviewPromptAppend`.
 
 If session/worktree creation succeeds but prompt dispatch fails, the daemon
 marks the run `failed`, records `startError` on the card, preserves the

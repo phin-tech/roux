@@ -261,26 +261,32 @@ async fn plan_work_item_run_with_hooks(
         Ok(None) => return Err(Response::err("work item not found")),
         Err(err) => return Err(Response::err(err)),
     };
+    let replace_active = bool_arg(&req.args, &["replaceActive", "replace_active"]).unwrap_or(false);
 
     if let Some(run) = active_work_item_run(host, &item_id)? {
         if run.kind == roux_core::WorkItemRunKind::Planning {
-            let Some(session_id) = run.session_id.as_deref() else {
-                return Err(Response::err("active planning run has no session"));
-            };
-            let session = match host.session_handle.get(session_id).await {
-                Ok(Some(session)) => session,
-                Ok(None) => return Err(Response::err("active planning session not found")),
-                Err(err) => return Err(Response::err(err.to_string())),
-            };
-            return Ok(roux_core::WorkItemPlanResult { item, run, session });
+            if replace_active {
+                stop_planning_run_for_replacement(host, &run).await?;
+            } else {
+                let Some(session_id) = run.session_id.as_deref() else {
+                    return Err(Response::err("active planning run has no session"));
+                };
+                let session = match host.session_handle.get(session_id).await {
+                    Ok(Some(session)) => session,
+                    Ok(None) => return Err(Response::err("active planning session not found")),
+                    Err(err) => return Err(Response::err(err.to_string())),
+                };
+                return Ok(roux_core::WorkItemPlanResult { item, run, session });
+            }
+        } else {
+            return Err(Response::err("work item already has an active run"));
         }
-        return Err(Response::err("work item already has an active run"));
     }
 
     let settings = load_daemon_settings();
     let profile_id = optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
         .or_else(|| item.agent_profile.clone())
-        .unwrap_or_else(|| "claude".to_string());
+        .unwrap_or_else(|| settings.kanban.default_agent_profile.clone());
     let Some(profile) = roux_core::providers::resolve_profile(&profile_id, &settings) else {
         return Err(Response::err(format!("agent profile not found: {profile_id}")));
     };
@@ -401,6 +407,33 @@ async fn plan_work_item_run_with_hooks(
     Ok(roux_core::WorkItemPlanResult { item, session, run })
 }
 
+async fn stop_planning_run_for_replacement(
+    host: &RuntimeHost,
+    run: &roux_core::WorkItemRun,
+) -> Result<(), Response> {
+    let stopped_run = match host.work_item_handle.set_run_status(
+        &run.id,
+        roux_core::WorkItemRunStatus::Stopped,
+        serde_json::json!({
+            "reason": "replan",
+            "sessionId": run.session_id.clone(),
+        }),
+    ) {
+        Ok(Some(run)) => run,
+        Ok(None) => match host.work_item_handle.get_run(&run.id) {
+            Ok(Some(run)) if run.status == roux_core::WorkItemRunStatus::Stopped => run,
+            Ok(Some(_)) => return Err(Response::err("active planning run status was not updated")),
+            Ok(None) => return Err(Response::err("active planning run not found")),
+            Err(err) => return Err(Response::err(err)),
+        },
+        Err(err) => return Err(Response::err(err)),
+    };
+    if let Some(session_id) = stopped_run.session_id.as_deref() {
+        cleanup_stopped_work_item_run_session(host, session_id).await?;
+    }
+    Ok(())
+}
+
 fn active_work_item_run(
     host: &RuntimeHost,
     item_id: &str,
@@ -494,21 +527,9 @@ async fn start_work_item_run_with_hooks(
     }
 
     let settings = load_daemon_settings();
-    let Some(profile_id) =
-        optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
-            .or_else(|| item.agent_profile.clone())
-    else {
-        return Err(record_start_failure_response(
-            host,
-            &item_id,
-            "agentProfile required",
-            None,
-            None,
-            None,
-            None,
-            None,
-        ));
-    };
+    let profile_id = optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
+        .or_else(|| item.agent_profile.clone())
+        .unwrap_or_else(|| settings.kanban.default_agent_profile.clone());
     let Some(profile) = roux_core::providers::resolve_profile(&profile_id, &settings) else {
         return Err(record_start_failure_response(
             host,
@@ -1493,7 +1514,8 @@ async fn run_dispatched_profile(
     profile_id: &str,
 ) -> Result<(), String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
-    let task_prompt = render_work_item_task_prompt(item, session.as_ref());
+    let settings = load_daemon_settings();
+    let task_prompt = render_work_item_task_prompt(item, session.as_ref(), &settings);
     run_dispatched_profile_with_task_prompt(host, item, session_id, profile_id, &task_prompt).await
 }
 
@@ -1504,7 +1526,8 @@ async fn run_dispatched_planning_profile(
     profile_id: &str,
 ) -> Result<(), String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
-    let task_prompt = render_work_item_planning_prompt(item, session.as_ref());
+    let settings = load_daemon_settings();
+    let task_prompt = render_work_item_planning_prompt(item, session.as_ref(), &settings);
     run_dispatched_profile_with_task_prompt(host, item, session_id, profile_id, &task_prompt).await
 }
 
@@ -1538,6 +1561,7 @@ async fn run_dispatched_profile_with_task_prompt(
 fn render_work_item_planning_prompt(
     item: &roux_core::WorkItem,
     session: Option<&roux_core::Session>,
+    settings: &roux_core::RouxSettings,
 ) -> String {
     let title = sanitize_card_prompt_field(&item.title);
     let body = item.body.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
@@ -1578,12 +1602,18 @@ fn render_work_item_planning_prompt(
          - Produce a concise plan that can be copied back onto the card.\n\
          - If you need a human decision, emit one newline-delimited JSON object using this shape: {\"type\":\"decision\",\"question\":\"...\",\"options\":[{\"value\":\"...\",\"label\":\"...\"}],\"defaultValue\":\"...\",\"timeoutSeconds\":86400}.",
     );
+    append_custom_prompt_section(
+        &mut prompt,
+        "Additional planning instructions",
+        &settings.kanban.planning_prompt_append,
+    );
     prompt
 }
 
 fn render_work_item_task_prompt(
     item: &roux_core::WorkItem,
     session: Option<&roux_core::Session>,
+    settings: &roux_core::RouxSettings,
 ) -> String {
     let title = sanitize_card_prompt_field(&item.title);
     let body = item.body.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
@@ -1637,7 +1667,28 @@ fn render_work_item_task_prompt(
          - If you need a human decision, emit one newline-delimited JSON object using this shape: {\"type\":\"decision\",\"question\":\"...\",\"options\":[{\"value\":\"...\",\"label\":\"...\"}],\"defaultValue\":\"...\",\"timeoutSeconds\":86400}.\n\
          - When the work is complete, report the summary, tests, risks, and changed files, then request review. Do not mark the card done yourself.",
     );
+    append_custom_prompt_section(
+        &mut prompt,
+        "Additional implementation instructions",
+        &settings.kanban.implementation_prompt_append,
+    );
+    append_custom_prompt_section(
+        &mut prompt,
+        "Additional review handoff instructions",
+        &settings.kanban.review_prompt_append,
+    );
     prompt
+}
+
+fn append_custom_prompt_section(prompt: &mut String, heading: &str, value: &str) {
+    let value = sanitize_card_prompt_field(value);
+    if value.is_empty() {
+        return;
+    }
+    prompt.push_str("\n\n");
+    prompt.push_str(heading);
+    prompt.push_str(":\n");
+    prompt.push_str(&value);
 }
 
 fn sanitize_card_prompt_field(value: &str) -> String {
@@ -2180,7 +2231,11 @@ mod tests {
             smol_machine_name: None,
         };
 
-        let prompt = render_work_item_task_prompt(&item, Some(&session));
+        let prompt = render_work_item_task_prompt(
+            &item,
+            Some(&session),
+            &roux_core::RouxSettings::default(),
+        );
 
         assert!(prompt.contains("Title:\nFix tests"));
         assert!(prompt.contains("Description:\nHandle failures\n\nthen report back"));
@@ -2198,6 +2253,53 @@ mod tests {
         assert!(!prompt.contains('\u{0007}'));
         assert!(!prompt.contains('\u{0003}'));
         assert!(!prompt.contains('\u{001b}'));
+    }
+
+    #[test]
+    fn work_item_prompts_append_kanban_custom_instructions() {
+        let item = roux_core::WorkItem {
+            id: "wi-1".into(),
+            project_id: None,
+            title: "Fix tests".into(),
+            body: None,
+            status: roux_core::WorkItemStatus::Todo,
+            parent_id: None,
+            agent_profile: Some("claude".into()),
+            repo_path: Some("/repo/main".into()),
+            base_branch: Some("main".into()),
+            worktree_path: None,
+            start_error: None,
+            session_id: None,
+            provider: None,
+            external_id: None,
+            external_url: None,
+            sort_order: 0.0,
+            pinned_pr_url: None,
+            cost: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let settings = roux_core::RouxSettings {
+            kanban: roux_core::KanbanSettings {
+                planning_prompt_append: "Ask about release timing.".into(),
+                implementation_prompt_append: "Use narrow commits.".into(),
+                review_prompt_append: "Summarize review risks.".into(),
+                ..roux_core::KanbanSettings::default()
+            },
+            ..roux_core::RouxSettings::default()
+        };
+
+        let plan_prompt = render_work_item_planning_prompt(&item, None, &settings);
+        assert!(
+            plan_prompt.contains("Additional planning instructions:\nAsk about release timing.")
+        );
+
+        let task_prompt = render_work_item_task_prompt(&item, None, &settings);
+        assert!(
+            task_prompt.contains("Additional implementation instructions:\nUse narrow commits.")
+        );
+        assert!(task_prompt
+            .contains("Additional review handoff instructions:\nSummarize review risks."));
     }
 
     #[tokio::test]
@@ -2425,7 +2527,7 @@ mod tests {
 
     #[cfg(not(windows))]
     #[tokio::test]
-    async fn daemon_work_item_start_requires_agent_profile() {
+    async fn daemon_work_item_start_uses_kanban_default_agent_profile() {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
         init_repo(&repo);
@@ -2451,11 +2553,12 @@ mod tests {
             &identity,
         )
         .await;
-        assert!(!resp.ok, "start without agent profile should fail");
-        assert!(resp.error.as_deref().unwrap_or_default().contains("agentProfile required"));
+        assert!(resp.ok, "start without card agent should use Kanban default");
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
-        assert_eq!(item.status, roux_core::WorkItemStatus::Todo);
-        assert_eq!(item.start_error.as_deref(), Some("agentProfile required"));
+        assert_eq!(item.status, roux_core::WorkItemStatus::Doing);
+        assert_eq!(item.agent_profile.as_deref(), Some("claude"));
+        let session_id = item.session_id.clone().expect("started card session");
+        let _ = host.pty_handle.kill(&session_id).await;
 
         shutdown_host(host, joins).await;
     }
@@ -2890,6 +2993,77 @@ mod tests {
         assert_eq!(sessions.len(), 1);
 
         let _ = host.pty_handle.kill(&first_session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_plan_replace_active_stops_existing_planning_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Clarify card" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let first = plan_work_item_run_with_hooks(
+            req(
+                "work-item-plan",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": repo,
+                    "profile": "claude",
+                }),
+            ),
+            &host,
+            &identity,
+            successful_profile_dispatcher,
+        )
+        .await
+        .expect("first plan should succeed");
+        let first_run_id = first.run.id.clone();
+        let first_session_id = first.run.session_id.clone().expect("planning run session id");
+
+        let second = plan_work_item_run_with_hooks(
+            req(
+                "work-item-plan",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": repo,
+                    "profile": "claude",
+                    "replaceActive": true,
+                }),
+            ),
+            &host,
+            &identity,
+            successful_profile_dispatcher,
+        )
+        .await
+        .expect("replacement plan should succeed");
+        let second_session_id = second.run.session_id.clone().expect("replacement session id");
+        assert_ne!(second.run.id, first_run_id);
+        assert_ne!(second_session_id, first_session_id);
+
+        let first_run = host.work_item_handle.get_run(&first_run_id).unwrap().unwrap();
+        assert_eq!(first_run.status, roux_core::WorkItemRunStatus::Stopped);
+        let first_session = host.session_handle.get(&first_session_id).await.unwrap().unwrap();
+        assert!(first_session.archived);
+
+        let runs = host.work_item_handle.list_runs(Some(&item_id)).unwrap();
+        assert_eq!(runs.len(), 2);
+        assert_eq!(
+            runs.iter().filter(|run| run.status == roux_core::WorkItemRunStatus::Running).count(),
+            1
+        );
+
+        let _ = host.pty_handle.kill(&second_session_id).await;
         shutdown_host(host, joins).await;
     }
 

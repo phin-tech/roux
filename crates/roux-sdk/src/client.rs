@@ -892,8 +892,10 @@ impl Roux {
         repo_path: Option<String>,
         name: Option<String>,
         worktree_path: Option<String>,
+        replace_active: bool,
     ) -> RouxResult<roux_core::WorkItemPlanResult> {
-        let args = work_item_plan_args(id.into(), profile, repo_path, name, worktree_path);
+        let args =
+            work_item_plan_args(id.into(), profile, repo_path, name, worktree_path, replace_active);
         self.command(CommandRequest::new("work-item-plan").args(args)).await
     }
 
@@ -1189,6 +1191,7 @@ fn work_item_plan_args(
     repo_path: Option<String>,
     name: Option<String>,
     worktree_path: Option<String>,
+    replace_active: bool,
 ) -> Value {
     let mut args = serde_json::json!({ "id": id });
     if let Some(profile) = profile {
@@ -1202,6 +1205,9 @@ fn work_item_plan_args(
     }
     if let Some(worktree_path) = worktree_path {
         args["worktreePath"] = Value::String(worktree_path);
+    }
+    if replace_active {
+        args["replaceActive"] = Value::Bool(true);
     }
     args
 }
@@ -1396,5 +1402,26 @@ fn insert_optional_string(
 ) {
     if let Some(value) = value {
         args.insert(key.into(), Value::String(value));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn work_item_plan_args_include_replace_active_when_requested() {
+        let args = work_item_plan_args(
+            "wi-1".to_string(),
+            Some("claude".to_string()),
+            Some("/repo".to_string()),
+            Some("Plan".to_string()),
+            Some("/repo".to_string()),
+            true,
+        );
+
+        assert_eq!(args["id"], "wi-1");
+        assert_eq!(args["profile"], "claude");
+        assert_eq!(args["replaceActive"], true);
     }
 }

@@ -21,7 +21,7 @@
     onMove?: (id: string, status: WorkItemStatus) => void;
     onStart?: (id: string, item: WorkItem) => void;
     /** Start or open a planning run for this work item. */
-    onPlan?: (id: string, item: WorkItem) => void;
+    onPlan?: (id: string, item: WorkItem, replaceActive?: boolean) => void;
     /** Open the card's bound session (by session id). */
     onOpen?: (sessionId: string) => void;
     /** Open the card editor (by work item id). */
@@ -117,6 +117,11 @@
   function handlePlan(): void {
     menuOpen = false;
     onPlan?.(item.id, item);
+  }
+
+  function handleReplan(): void {
+    menuOpen = false;
+    onPlan?.(item.id, item, true);
   }
 
   function handleDelete(): void {
@@ -287,7 +292,7 @@
         <span>Edit card</span>
       </button>
     {/if}
-    {#if onPlan && !hasSession}
+    {#if onPlan && !hasSession && !hasPlanningSession}
       <button
         type="button"
         role="menuitem"
@@ -297,6 +302,18 @@
       >
         <ClipboardList size={13} strokeWidth={2.1} />
         <span>{planPending ? "Planning..." : "Plan"}</span>
+      </button>
+    {/if}
+    {#if onPlan && hasPlanningSession && !hasSession}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
+        onclick={handleReplan}
+        disabled={planPending}
+      >
+        <ClipboardList size={13} strokeWidth={2.1} />
+        <span>{planPending ? "Replanning..." : "Retry planning"}</span>
       </button>
     {/if}
     {#if onAcceptReview && item.status === "review"}

@@ -285,9 +285,10 @@ impl DaemonClient {
         repo_path: Option<String>,
         name: Option<String>,
         worktree_path: Option<String>,
+        replace_active: bool,
     ) -> DaemonClientResult<roux_core::WorkItemPlanResult> {
         self.sdk
-            .work_item_plan(id, profile, repo_path, name, worktree_path)
+            .work_item_plan(id, profile, repo_path, name, worktree_path, replace_active)
             .await
             .map_err(DaemonClientError::from)
     }

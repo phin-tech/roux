@@ -92,12 +92,14 @@
     return message ? `Plan failed: ${message}` : "Plan failed.";
   }
 
-  async function handlePlan(id: string, _item: WorkItem) {
+  async function handlePlan(id: string, _item: WorkItem, replaceActive = false) {
     if (planningItemIds[id]) return;
     planningItemIds = { ...planningItemIds, [id]: true };
     planErrors = withoutKey(planErrors, id);
     try {
-      const sessionId = await planWorkItem(id);
+      const sessionId = replaceActive
+        ? await planWorkItem(id, { replaceActive: true })
+        : await planWorkItem(id);
       await handleOpen(sessionId);
     } catch (err) {
       planErrors = { ...planErrors, [id]: formatPlanError(err) };

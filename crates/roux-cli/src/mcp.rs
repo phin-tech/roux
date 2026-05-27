@@ -233,6 +233,8 @@ pub struct WorkItemPlanParams {
     pub repo_path: Option<String>,
     pub name: Option<String>,
     pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub replace_active: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1556,6 +1558,9 @@ fn build_work_item_plan_request(params: WorkItemPlanParams) -> Value {
     insert_optional_string(&mut args, "repoPath", params.repo_path);
     insert_optional_string(&mut args, "name", params.name);
     insert_optional_string(&mut args, "worktreePath", params.worktree_path);
+    if params.replace_active {
+        args.insert("replaceActive".into(), Value::Bool(true));
+    }
     json!({
         "command": "work-item-plan",
         "args": Value::Object(args),
@@ -1703,6 +1708,7 @@ mod tests {
             repo_path: Some("/repo".into()),
             name: Some("Plan login".into()),
             worktree_path: Some("/repo".into()),
+            replace_active: true,
         });
 
         assert_eq!(request["command"], "work-item-plan");
@@ -1711,6 +1717,7 @@ mod tests {
         assert_eq!(request["args"]["repoPath"], "/repo");
         assert_eq!(request["args"]["name"], "Plan login");
         assert_eq!(request["args"]["worktreePath"], "/repo");
+        assert_eq!(request["args"]["replaceActive"], true);
     }
 
     #[test]

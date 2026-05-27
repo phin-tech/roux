@@ -1026,6 +1026,7 @@ export interface WorkItemPlanOptions {
   repoPath?: string | null;
   name?: string | null;
   worktreePath?: string | null;
+  replaceActive?: boolean;
 }
 
 export async function workItemPlan(
@@ -1039,6 +1040,7 @@ export async function workItemPlan(
     options.repoPath ?? null,
     options.name ?? null,
     options.worktreePath ?? null,
+    options.replaceActive ?? false,
   );
   if (r.status === "error") throw new Error(r.error);
   return r.data;

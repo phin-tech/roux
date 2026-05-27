@@ -5,6 +5,7 @@ import {
   itemsByColumn,
   acceptWorkItemReview,
   moveWorkItem,
+  planWorkItem,
   startWorkItem,
   createWorkItem,
   activePlanningRunByItem,
@@ -289,6 +290,39 @@ describe("BoardFullscreen", () => {
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
     await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
+  });
+
+  it("replans an active planning run from the card actions menu", async () => {
+    seedColumns([workItem({ id: "wi-plan", status: "todo", sessionId: null })]);
+    (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-plan",
+          {
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "plan-sess-1",
+            provider: "claude",
+            profileId: "claude",
+            status: "running",
+            worktreePath: "/repo",
+            branch: "main",
+            cost: null,
+            createdAt: 1,
+            startedAt: 1,
+            endedAt: null,
+            updatedAt: 1,
+          },
+        ],
+      ]),
+    );
+    render(BoardFullscreen);
+
+    await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
+    await fireEvent.click(screen.getByText("Retry planning"));
+
+    expect(planWorkItem).toHaveBeenCalledWith("wi-plan", { replaceActive: true });
   });
 
   it("quick-adds a card to the column it was typed in", async () => {

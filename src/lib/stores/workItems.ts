@@ -300,6 +300,7 @@ export interface WorkItemPlanOptions {
   repoPath?: string | null;
   name?: string | null;
   worktreePath?: string | null;
+  replaceActive?: boolean;
 }
 
 export async function planWorkItem(

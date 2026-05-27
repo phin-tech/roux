@@ -102,6 +102,7 @@
     armPaneHints,
     hidePaneHints,
     activeSidebar,
+    applyStartupSidebarPreference,
     openSidebar,
     closeSidebar,
     toggleSidebar,
@@ -523,6 +524,7 @@
     });
 
     const loadedSettings = await initSettings();
+    applyStartupSidebarPreference(loadedSettings.kanban?.startupSidebar ?? "restore");
     void loadUserTerminalThemes();
     await initLogging(loadedSettings.enableLogging ?? false);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
