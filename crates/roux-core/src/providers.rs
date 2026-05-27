@@ -8,6 +8,8 @@
 
 use crate::{ProfileSource, Provider, RouxSettings, SpawnProfile, StartupBehavior};
 
+const PTY_ENTER: char = '\r';
+
 /// Assemble the built-in profile registry: one or more profiles from each
 /// provider plus the catch-all "Plain shell". Ordering matches display order;
 /// `Plain shell` goes last so users see named agents first.
@@ -118,22 +120,23 @@ pub fn profile_startup_input(
 
     let mut out = String::new();
     if let Some(cwd) = cwd {
-        out.push_str(&format!("cd {}\n", shell_single_quote(cwd)));
+        out.push_str(&format!("cd {}", shell_single_quote(cwd)));
+        out.push(PTY_ENTER);
     }
     // env is a BTreeMap, so iteration order is already deterministic (sorted).
     for (name, value) in env {
-        out.push_str(&format!("export {}={}\n", name, shell_single_quote(value)));
+        out.push_str(&format!("export {}={}", name, shell_single_quote(value)));
+        out.push(PTY_ENTER);
     }
     if let Some(setup) = setup {
-        out.push_str(setup);
-        out.push('\n');
+        push_pty_command(&mut out, setup);
     }
     if has_startup {
         out.push_str(&startup);
         // typeOnly leaves the command at the prompt for the user to run; for
         // any other behavior (incl. the default) auto-run it.
         if !matches!(profile.startup_behavior, Some(StartupBehavior::TypeOnly)) {
-            out.push('\n');
+            out.push(PTY_ENTER);
         }
     }
     Some(out)
@@ -162,12 +165,26 @@ pub fn profile_startup_input_with_initial_task(
         return Some(input);
     }
 
-    if !input.ends_with('\n') {
-        input.push('\n');
+    if input.ends_with('\n') {
+        input.pop();
+        input.push(PTY_ENTER);
+    } else if !input.ends_with(PTY_ENTER) {
+        input.push(PTY_ENTER);
     }
     input.push_str(task);
-    input.push('\n');
+    input.push(PTY_ENTER);
     Some(input)
+}
+
+fn push_pty_command(out: &mut String, command: &str) {
+    let normalized = command.replace("\r\n", "\n").replace('\r', "\n");
+    for (index, line) in normalized.split('\n').enumerate() {
+        if index > 0 {
+            out.push(PTY_ENTER);
+        }
+        out.push_str(line);
+    }
+    out.push(PTY_ENTER);
 }
 
 /// Splice `prompt` into a startup command using the provider-appropriate flag
@@ -332,21 +349,21 @@ mod tests {
     #[test]
     fn claude_startup_input_auto_runs_the_command() {
         let profile = claude_default_profiles(&RouxSettings::default()).remove(0);
-        assert_eq!(profile_startup_input(&profile, None), Some("claude\n".to_string()));
+        assert_eq!(profile_startup_input(&profile, None), Some("claude\r".to_string()));
     }
 
     #[test]
     fn claude_startup_input_folds_in_append_system_prompt() {
         let profile = claude_default_profiles(&RouxSettings::default()).remove(0);
         let input = profile_startup_input(&profile, Some("Be terse")).unwrap();
-        assert_eq!(input, "claude --append-system-prompt 'Be terse'\n");
+        assert_eq!(input, "claude --append-system-prompt 'Be terse'\r");
     }
 
     #[test]
     fn codex_startup_input_uses_instructions_flag() {
         let profile = codex_default_profiles(&RouxSettings::default()).remove(0);
         let input = profile_startup_input(&profile, Some("ship it")).unwrap();
-        assert_eq!(input, "codex -c instructions='ship it'\n");
+        assert_eq!(input, "codex -c instructions='ship it'\r");
     }
 
     #[test]
@@ -370,7 +387,7 @@ mod tests {
         };
         let input = profile_startup_input(&profile, None).unwrap();
         // Invalid env name dropped; valid one exported (quoted), then setup, then startup.
-        assert_eq!(input, "export FOO='bar baz'\nnpm ci\nrun\n");
+        assert_eq!(input, "export FOO='bar baz'\rnpm ci\rrun\r");
     }
 
     #[test]
@@ -398,7 +415,7 @@ mod tests {
         let input =
             profile_startup_input_with_initial_task(&profile, Some("Be terse"), Some("Fix it"))
                 .unwrap();
-        assert_eq!(input, "claude --append-system-prompt 'Be terse'\nFix it\n");
+        assert_eq!(input, "claude --append-system-prompt 'Be terse'\rFix it\r");
     }
 
     #[test]
@@ -451,7 +468,7 @@ mod tests {
         };
         assert_eq!(
             profile_startup_input_with_initial_task(&profile, None, Some("Fix it")),
-            Some("run-agent\n".to_string()),
+            Some("run-agent\r".to_string()),
         );
     }
 }
