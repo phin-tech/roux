@@ -44,9 +44,18 @@ reviewed run and card to **Done**.
 
 ## Decisions
 
-Agents can emit structured decision prompts as newline-delimited JSON. Roux
-persists those prompts as `WorkItemDecision` rows under the run, marks the run
-blocked, and shows the decision on both the card and detail view.
+Agents should ask for human choices through the Roux decision command:
+
+```bash
+roux work-item decision create <run-id> "Which path should I take?" \
+  --option existing="Use existing code" \
+  --option new="Create a new path" \
+  --default-value existing \
+  --timeout-seconds 86400
+```
+
+Roux persists those prompts as `WorkItemDecision` rows under the run, marks the
+run blocked, and shows the decision on both the card and detail view.
 
 The card shows the blocked question plus numbered choices. The detail view shows
 the same choices as buttons. Choosing an option resolves the decision, records
@@ -76,6 +85,7 @@ roux work-item start <card-id>
 roux work-item accept <card-id>
 roux work-item runs --work-item <card-id>
 roux work-item events <run-id>
+roux work-item decision create <run-id> "Question?" --option yes=Yes --option no=No
 roux work-item decision list --work-item <card-id>
 roux work-item decision resolve <decision-id> <value>
 ```

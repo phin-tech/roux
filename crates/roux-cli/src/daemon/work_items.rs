@@ -219,6 +219,7 @@ type ProfileDispatcher = for<'a> fn(
     &'a roux_core::WorkItem,
     &'a str,
     &'a str,
+    &'a str,
     &'a DaemonIdentity,
 ) -> ProfileDispatchFuture<'a>;
 type AfterSessionCreatedHook = fn(&RuntimeHost, &str, &roux_core::Session);
@@ -226,21 +227,23 @@ type AfterSessionCreatedHook = fn(&RuntimeHost, &str, &roux_core::Session);
 fn real_profile_dispatcher<'a>(
     host: &'a RuntimeHost,
     item: &'a roux_core::WorkItem,
+    run_id: &'a str,
     session_id: &'a str,
     profile_id: &'a str,
     identity: &'a DaemonIdentity,
 ) -> ProfileDispatchFuture<'a> {
-    Box::pin(run_dispatched_profile(host, item, session_id, profile_id, identity))
+    Box::pin(run_dispatched_profile(host, item, run_id, session_id, profile_id, identity))
 }
 
 fn real_planning_profile_dispatcher<'a>(
     host: &'a RuntimeHost,
     item: &'a roux_core::WorkItem,
+    run_id: &'a str,
     session_id: &'a str,
     profile_id: &'a str,
     identity: &'a DaemonIdentity,
 ) -> ProfileDispatchFuture<'a> {
-    Box::pin(run_dispatched_planning_profile(host, item, session_id, profile_id, identity))
+    Box::pin(run_dispatched_planning_profile(host, item, run_id, session_id, profile_id, identity))
 }
 
 async fn plan_work_item_run(
@@ -372,8 +375,15 @@ async fn plan_work_item_run_with_hooks(
     let mut dispatch_item = item.clone();
     dispatch_item.repo_path = Some(repo_path);
     dispatch_item.agent_profile = Some(profile_id.clone());
-    if let Err(err) =
-        dispatch_profile(host, &dispatch_item, &session_id, &profile_id, identity).await
+    if let Err(err) = dispatch_profile(
+        host,
+        &dispatch_item,
+        &run.id,
+        &session_id,
+        &profile_id,
+        identity,
+    )
+    .await
     {
         let _ = host.work_item_handle.set_run_status(
             &run.id,
@@ -757,8 +767,15 @@ async fn start_work_item_run_with_hooks(
     dispatch_item.repo_path = Some(repo_path.clone());
     dispatch_item.base_branch = base_branch.clone();
 
-    if let Err(err) =
-        dispatch_profile(host, &dispatch_item, &session_id, &profile_id, identity).await
+    if let Err(err) = dispatch_profile(
+        host,
+        &dispatch_item,
+        &run.id,
+        &session_id,
+        &profile_id,
+        identity,
+    )
+    .await
     {
         let _ = host.work_item_handle.set_run_status(
             &run.id,
@@ -1516,13 +1533,14 @@ fn strip_ansi_sequences(input: &str) -> String {
 async fn run_dispatched_profile(
     host: &RuntimeHost,
     item: &roux_core::WorkItem,
+    run_id: &str,
     session_id: &str,
     profile_id: &str,
     identity: &DaemonIdentity,
 ) -> Result<(), String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
     let settings = load_daemon_settings();
-    let task_prompt = render_work_item_task_prompt(item, session.as_ref(), &settings);
+    let task_prompt = render_work_item_task_prompt(item, run_id, session.as_ref(), &settings);
     run_dispatched_profile_with_task_prompt(
         host,
         item,
@@ -1537,13 +1555,14 @@ async fn run_dispatched_profile(
 async fn run_dispatched_planning_profile(
     host: &RuntimeHost,
     item: &roux_core::WorkItem,
+    run_id: &str,
     session_id: &str,
     profile_id: &str,
     identity: &DaemonIdentity,
 ) -> Result<(), String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
     let settings = load_daemon_settings();
-    let task_prompt = render_work_item_planning_prompt(item, session.as_ref(), &settings);
+    let task_prompt = render_work_item_planning_prompt(item, run_id, session.as_ref(), &settings);
     run_dispatched_profile_with_task_prompt(
         host,
         item,
@@ -1628,9 +1647,12 @@ fn profile_working_dir(profile: &roux_core::SpawnProfile, session: &roux_core::S
 
 fn render_work_item_planning_prompt(
     item: &roux_core::WorkItem,
+    run_id: &str,
     session: Option<&roux_core::Session>,
     settings: &roux_core::RouxSettings,
 ) -> String {
+    let item_id = sanitize_card_prompt_field(&item.id);
+    let run_id = sanitize_card_prompt_field(run_id);
     let title = sanitize_card_prompt_field(&item.title);
     let body = item.body.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
     let external_url =
@@ -1655,7 +1677,11 @@ fn render_work_item_planning_prompt(
         prompt.push_str(&external_url);
     }
     prompt.push_str("\n\nPlanning context:\n");
-    prompt.push_str("- Repository path: ");
+    prompt.push_str("- Roux work item id: ");
+    prompt.push_str(if item_id.is_empty() { "unknown" } else { &item_id });
+    prompt.push_str("\n- Roux run id: ");
+    prompt.push_str(if run_id.is_empty() { "unknown" } else { &run_id });
+    prompt.push_str("\n- Repository path: ");
     prompt.push_str(repo_path.as_deref().unwrap_or("unspecified"));
     prompt.push_str("\n- Planning workspace: ");
     prompt.push_str(worktree_path.as_deref().unwrap_or("unknown"));
@@ -1668,7 +1694,7 @@ fn render_work_item_planning_prompt(
          - Identify likely files, systems, risks, and test strategy.\n\
          - Suggest project/repo, autonomous agent profile, and base branch when they are missing.\n\
          - Produce a concise plan that can be copied back onto the card.\n\
-         - If you need a human decision, emit one newline-delimited JSON object using this shape: {\"type\":\"decision\",\"question\":\"...\",\"options\":[{\"value\":\"...\",\"label\":\"...\"}],\"defaultValue\":\"...\",\"timeoutSeconds\":86400}.",
+         - If you need a human decision, create a Roux card decision with `roux work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No` and wait for the answer in this session.",
     );
     append_custom_prompt_section(
         &mut prompt,
@@ -1680,9 +1706,12 @@ fn render_work_item_planning_prompt(
 
 fn render_work_item_task_prompt(
     item: &roux_core::WorkItem,
+    run_id: &str,
     session: Option<&roux_core::Session>,
     settings: &roux_core::RouxSettings,
 ) -> String {
+    let item_id = sanitize_card_prompt_field(&item.id);
+    let run_id = sanitize_card_prompt_field(run_id);
     let title = sanitize_card_prompt_field(&item.title);
     let body = item.body.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
     let external_url =
@@ -1712,7 +1741,11 @@ fn render_work_item_task_prompt(
         prompt.push_str(&external_url);
     }
     prompt.push_str("\n\nExecution context:\n");
-    prompt.push_str("- Repository path: ");
+    prompt.push_str("- Roux work item id: ");
+    prompt.push_str(if item_id.is_empty() { "unknown" } else { &item_id });
+    prompt.push_str("\n- Roux run id: ");
+    prompt.push_str(if run_id.is_empty() { "unknown" } else { &run_id });
+    prompt.push_str("\n- Repository path: ");
     prompt.push_str(repo_path.as_deref().unwrap_or("unknown"));
     prompt.push_str("\n- Worktree path: ");
     prompt.push_str(worktree_path.as_deref().unwrap_or("unknown"));
@@ -1732,7 +1765,7 @@ fn render_work_item_task_prompt(
          - Make the necessary code and documentation changes.\n\
          - Commit changes unless the repository or user instructions clearly say not to.\n\
          - Run the relevant tests/checks and report what passed, failed, or was not run.\n\
-         - If you need a human decision, emit one newline-delimited JSON object using this shape: {\"type\":\"decision\",\"question\":\"...\",\"options\":[{\"value\":\"...\",\"label\":\"...\"}],\"defaultValue\":\"...\",\"timeoutSeconds\":86400}.\n\
+         - If you need a human decision, create a Roux card decision with `roux work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No` and wait for the answer in this session.\n\
          - When the work is complete, report the summary, tests, risks, and changed files, then request review. Do not mark the card done yourself.",
     );
     append_custom_prompt_section(
@@ -2170,6 +2203,7 @@ mod tests {
     fn failing_profile_dispatcher<'a>(
         _host: &'a RuntimeHost,
         _item: &'a roux_core::WorkItem,
+        _run_id: &'a str,
         _session_id: &'a str,
         _profile_id: &'a str,
         _identity: &'a DaemonIdentity,
@@ -2180,6 +2214,7 @@ mod tests {
     fn successful_profile_dispatcher<'a>(
         _host: &'a RuntimeHost,
         _item: &'a roux_core::WorkItem,
+        _run_id: &'a str,
         _session_id: &'a str,
         _profile_id: &'a str,
         _identity: &'a DaemonIdentity,
@@ -2303,6 +2338,7 @@ mod tests {
 
         let prompt = render_work_item_task_prompt(
             &item,
+            "run-1",
             Some(&session),
             &roux_core::RouxSettings::default(),
         );
@@ -2310,13 +2346,16 @@ mod tests {
         assert!(prompt.contains("Title:\nFix tests"));
         assert!(prompt.contains("Description:\nHandle failures\n\nthen report back"));
         assert!(prompt.contains("External link:\nhttps://example.test/task"));
+        assert!(prompt.contains("Roux work item id: wi-1"));
+        assert!(prompt.contains("Roux run id: run-1"));
         assert!(prompt.contains("Repository path: /repo/main"));
         assert!(prompt.contains("Worktree path: /repo/.worktrees/card"));
         assert!(prompt.contains("Current branch: roux/card-wi1-fix-tests"));
         assert!(prompt.contains("Base branch: main"));
         assert!(prompt.contains("Agent profile: claude"));
         assert!(prompt.contains("Roux session id: sess-1"));
-        assert!(prompt.contains("\"type\":\"decision\""));
+        assert!(prompt.contains("roux work-item decision create"));
+        assert!(!prompt.contains("\"type\":\"decision\""));
         assert!(prompt.contains("Run the relevant tests/checks"));
         assert!(prompt.contains("request review"));
         assert!(prompt.contains("Do not mark the card done yourself"));
@@ -2359,12 +2398,16 @@ mod tests {
             ..roux_core::RouxSettings::default()
         };
 
-        let plan_prompt = render_work_item_planning_prompt(&item, None, &settings);
+        let plan_prompt = render_work_item_planning_prompt(&item, "plan-run-1", None, &settings);
+        assert!(plan_prompt.contains("Roux work item id: wi-1"));
+        assert!(plan_prompt.contains("Roux run id: plan-run-1"));
         assert!(
             plan_prompt.contains("Additional planning instructions:\nAsk about release timing.")
         );
+        assert!(plan_prompt.contains("roux work-item decision create"));
+        assert!(!plan_prompt.contains("\"type\":\"decision\""));
 
-        let task_prompt = render_work_item_task_prompt(&item, None, &settings);
+        let task_prompt = render_work_item_task_prompt(&item, "run-1", None, &settings);
         assert!(
             task_prompt.contains("Additional implementation instructions:\nUse narrow commits.")
         );

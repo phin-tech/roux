@@ -810,8 +810,10 @@ decision `timedOut`, records `resolvedBy: "timeout"` and the default as
 decision remains, and writes the default value plus a newline to the linked
 session just like a clicked answer.
 
-Daemon-dispatched run output is also scanned for newline-delimited JSON decision
-events. Supported first-pass shapes include:
+Agent, CLI, and MCP integrations should create decisions through
+`work-item-decision-create` rather than terminal-output conventions. The daemon
+also scans run output for newline-delimited JSON decision events as a
+compatibility path. Supported first-pass shapes include:
 
 ```json
 {"type":"decision","question":"Choose path?","options":[{"value":"existing","label":"Use existing"},{"value":"new","label":"Create new"}],"defaultValue":"existing","timeoutSeconds":86400}
