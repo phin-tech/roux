@@ -2,7 +2,6 @@
   import { Command } from "bits-ui";
   import { tick } from "svelte";
   import { fade, scale } from "svelte/transition";
-  import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
   import {
     createSessionShell,
@@ -40,9 +39,8 @@
   import type { WorkItemSessionStartRequest } from "$lib/stores/ui";
   import ProfileCustomEditor from "./ProfileCustomEditor.svelte";
   import WorktreeRowContent from "./WorktreeRowContent.svelte";
-  import RepoAutoComplete from "./RepoAutoComplete.svelte";
+  import RepoPickerField from "./RepoPickerField.svelte";
   import { commands } from "$lib/bindings";
-  import { buildQuickPickOptions, type RepoQuickPickOption } from "$lib/repos/quickPick";
 
   interface Props {
     visible: boolean;
@@ -88,8 +86,6 @@
   let error = $state("");
   let creating = $state(false);
   let rootRepoPaths = $state<string[]>([]);
-  let rootReposLoading = $state(false);
-  let rootReposError = $state("");
   let layoutPickOpen = $state(false);
   let profilePickInput = $state("");
   let profilePickOpen = $state(false);
@@ -179,9 +175,6 @@
     cancelNonoPickerDeferredClose();
   });
 
-  let quickPickOptions = $derived.by<RepoQuickPickOption[]>(() =>
-    buildQuickPickOptions(rootRepoPaths),
-  );
   let filteredWorktrees = $derived.by<Worktree[]>(() => {
     const q = worktreeFilterInput.trim().toLowerCase();
     if (!q) return worktrees;
@@ -486,7 +479,7 @@
       await cloneRepo(parsed.owner, parsed.repo, target);
       if (seq !== prLookupSeq) return;
       repoPath = target;
-      await loadRootRepoOptions();
+      rootRepoPaths = rootRepoPaths.includes(target) ? rootRepoPaths : [...rootRepoPaths, target];
       await detectGitRepo(target);
       if (seq !== prLookupSeq) return;
       await runFetchPrBranch(prInfo, target, seq);
@@ -530,15 +523,6 @@
     const base = slug ? `pr-${info.number}-${slug}` : `pr-${info.number}`;
     return base.slice(0, 40).replace(/-+$/g, "");
   }
-
-  $effect(() => {
-    const rootsKey = compatSettings.repoRoots.join("\n");
-    const excludeWorktrees = compatSettings.excludeWorktreesFromRepoRoots;
-    if (!visible) return;
-    void rootsKey;
-    void excludeWorktrees;
-    loadRootRepoOptions();
-  });
 
   $effect(() => {
     if (!visible) return;
@@ -612,29 +596,6 @@
       worktrunkDetection = await commands.cmdDetectWorktrunk(repoPath || null);
     } catch {
       worktrunkDetection = { binaryPath: null, version: null, hasConfig: false };
-    }
-  }
-
-  async function loadRootRepoOptions() {
-    const roots = compatSettings.repoRoots.map((r) => r.trim()).filter(Boolean);
-    const excludeWorktrees = compatSettings.excludeWorktreesFromRepoRoots;
-    if (roots.length === 0) {
-      rootRepoPaths = [];
-      rootReposError = "";
-      return;
-    }
-    rootReposLoading = true;
-    rootReposError = "";
-    try {
-      rootRepoPaths = await invoke<string[]>("list_git_repos_in_roots", {
-        roots,
-        excludeWorktrees,
-      });
-    } catch (e) {
-      rootRepoPaths = [];
-      rootReposError = String(e);
-    } finally {
-      rootReposLoading = false;
     }
   }
 
@@ -993,7 +954,6 @@
     selectedProfileId = "claude";
     inlineProfile = null;
     showCustomEditor = false;
-    rootReposError = "";
     prUrl = "";
     prLookup = "idle";
     prInfo = null;
@@ -1115,34 +1075,17 @@
           </div>
         {/if}
 
-        <!-- Repo picker -->
-        <div class="flex flex-col gap-1.5">
-          <label
-            for="new-session-repo-picker"
-            class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
-          >
-            Repository
-          </label>
-          <RepoAutoComplete
-            id="new-session-repo-picker"
-            bind:value={repoPath}
-            options={quickPickOptions}
-            placeholder="Type path or search configured repo roots"
-            loading={rootReposLoading}
-            hasConfiguredRoots={compatSettings.repoRoots.length > 0}
-            showRefresh
-            showBrowse
-            onrefresh={loadRootRepoOptions}
-            onbrowse={pickRepo}
-            onselect={(path, label) => { void selectQuickPick(path, label); }}
-            onenter={onRepoPickerEnter}
-          />
-          {#if rootReposError}
-            <p class="text-[11px] text-red">{rootReposError}</p>
-          {:else if compatSettings.repoRoots.length > 0 && !rootReposLoading && rootRepoPaths.length === 0}
-            <p class="text-[11px] text-text-muted">No git repositories found under configured roots.</p>
-          {/if}
-        </div>
+        <RepoPickerField
+          id="new-session-repo-picker"
+          bind:value={repoPath}
+          enabled={visible}
+          onbrowse={pickRepo}
+          onrepos={(paths) => (rootRepoPaths = paths)}
+          onselect={(path, label) => {
+            void selectQuickPick(path, label);
+          }}
+          onenter={onRepoPickerEnter}
+        />
 
         <!-- Non-git directory notice -->
         {#if repoPath && !isGitRepo}

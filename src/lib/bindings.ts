@@ -689,17 +689,17 @@ export type IntegrationDetection = {
 	version: string | null,
 };
 
-export type KeepOpen = "always" | "on-error" | "never";
-
 export type KanbanSettings = {
-	defaultAgentProfile: string,
-	planningPromptAppend: string,
-	implementationPromptAppend: string,
-	reviewPromptAppend: string,
-	startupSidebar: KanbanStartupSidebar,
+	defaultAgentProfile?: string,
+	planningPromptAppend?: string,
+	implementationPromptAppend?: string,
+	reviewPromptAppend?: string,
+	startupSidebar?: KanbanStartupSidebar,
 };
 
 export type KanbanStartupSidebar = "restore" | "sessions" | "kanban" | "none";
+
+export type KeepOpen = "always" | "on-error" | "never";
 
 // How a bound key is matched against a `KeyboardEvent`.
 export type KeyRef =
@@ -1762,6 +1762,13 @@ export type WorkItem = {
 	 */
 	worktreePath: string | null,
 	/**
+	 *  Requested branch for the implementation worktree. When set, Start
+	 *  creates or reuses that branch instead of generating one from the card.
+	 */
+	branch: string | null,
+	// Run `git fetch origin` before resolving `base_branch` for Start.
+	fetchFirst: boolean | null,
+	/**
 	 *  Last daemon-owned Start failure. The frontend renders this as the
 	 *  card-level start error; cleared by successful Start/config updates.
 	 */
@@ -1796,6 +1803,8 @@ export type WorkItemInput = {
 	agentProfile?: string | null,
 	baseBranch?: string | null,
 	worktreePath?: string | null,
+	branch?: string | null,
+	fetchFirst?: boolean | null,
 	startError?: string | null,
 	projectId?: string | null,
 	parentId?: string | null,

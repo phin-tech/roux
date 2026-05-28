@@ -17,9 +17,13 @@ if (typeof Element !== "undefined" && !Element.prototype.animate) {
       removeEventListener() {},
     }) as unknown as Animation;
 }
-import { editingWorkItemId } from "$lib/stores/ui";
+if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = vi.fn();
+}
+import { editingWorkItemId, newWorkItemEditor } from "$lib/stores/ui";
 import {
   runsByItem,
+  createWorkItem,
   stopWorkItemRun,
   workItems,
   updateWorkItem,
@@ -29,12 +33,23 @@ import { projects } from "$lib/stores/projects";
 import type { WorkItem } from "$lib/bindings";
 import type { WorkItemRun } from "$lib/types/workItems";
 
+const invokeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: invokeMock,
+}));
+
 vi.mock("$lib/stores/ui", async () => {
   const { writable } = await import("svelte/store");
   const editingWorkItemId = writable<string | null>(null);
+  const newWorkItemEditor = writable(null);
   return {
     editingWorkItemId,
-    closeWorkItemEditor: vi.fn(() => editingWorkItemId.set(null)),
+    newWorkItemEditor,
+    closeWorkItemEditor: vi.fn(() => {
+      editingWorkItemId.set(null);
+      newWorkItemEditor.set(null);
+    }),
   };
 });
 
@@ -44,6 +59,7 @@ vi.mock("$lib/stores/workItems", async () => {
     workItems: writable<WorkItem[]>([]),
     pendingDecisionByItem: writable(new Map()),
     runsByItem: writable(new Map()),
+    createWorkItem: vi.fn().mockResolvedValue({}),
     updateWorkItem: vi.fn().mockResolvedValue({}),
     resolveWorkItemDecision: vi.fn().mockResolvedValue({}),
     stopWorkItemRun: vi.fn().mockResolvedValue({}),
@@ -67,11 +83,63 @@ vi.mock("$lib/stores/projects", async () => {
   return { projects: writable([]) };
 });
 
+vi.mock("$lib/stores/settings", async () => {
+  const { writable } = await import("svelte/store");
+  return {
+    settings: writable({
+      defaultProjectPath: "/default/repo",
+      repoRoots: ["/default/repo", "/other/repo"],
+    }),
+  };
+});
+
+vi.mock("$lib/panes/profiles", async () => {
+  const { writable } = await import("svelte/store");
+  return {
+    profileList: writable([
+      {
+        id: "claude",
+        name: "Claude",
+        setupCommand: null,
+        startupCommand: null,
+        startupBehavior: null,
+        env: null,
+        cwdOverride: null,
+        icon: null,
+        provider: "claude",
+        nonoProfile: null,
+        nonoAllowDirs: null,
+        source: "builtin",
+      },
+      {
+        id: "codex",
+        name: "Codex",
+        setupCommand: null,
+        startupCommand: null,
+        startupBehavior: null,
+        env: null,
+        cwdOverride: null,
+        icon: null,
+        provider: "codex",
+        nonoProfile: null,
+        nonoAllowDirs: null,
+        source: "builtin",
+      },
+    ]),
+  };
+});
+
+vi.mock("$lib/tauri", () => ({
+  listWorktrees: vi.fn().mockResolvedValue([]),
+}));
+
 function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
     id: "wi-1",
     projectId: null,
     parentId: null,
+    branch: null,
+    fetchFirst: null,
     title: "Ship the board",
     body: null,
     status: "todo",
@@ -116,14 +184,16 @@ function workItemRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
 describe("WorkItemEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invokeMock.mockResolvedValue(["/workspace/roux", "/workspace/kanbots"]);
     (workItems as ReturnType<typeof import("svelte/store").writable>).set([
       workItem(),
     ]);
     (projects as ReturnType<typeof import("svelte/store").writable>).set([
-      { id: "proj-1", name: "Roux" },
+      { id: "proj-1", name: "Roux", repoRoots: ["/repo"], contextPaths: [], sessionBlueprints: [], projectPrompt: "" },
     ]);
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
     editingWorkItemId.set(null);
+    newWorkItemEditor.set(null);
   });
 
   it("renders nothing when no card is being edited", () => {
@@ -149,10 +219,16 @@ describe("WorkItemEditor", () => {
       body: "",
       status: "todo",
       projectId: "proj-1",
+      repoPath: null,
+      agentProfile: "claude",
+      worktreePath: null,
+      branch: null,
+      baseBranch: null,
+      fetchFirst: null,
     });
   });
 
-  it("offers None only while the card is unassigned (no clearing once set)", async () => {
+  it("allows clearing an assigned project", async () => {
     (workItems as ReturnType<typeof import("svelte/store").writable>).set([
       workItem({ id: "wi-1", projectId: "proj-1" }),
     ]);
@@ -160,12 +236,75 @@ describe("WorkItemEditor", () => {
     editingWorkItemId.set("wi-1");
     await screen.findByText("Edit card");
 
-    // Card already has a project → the picker must not offer "None".
-    const options = Array.from(
-      screen.getByRole("combobox", { name: "Project" }).querySelectorAll("option"),
-    ).map((o) => o.textContent);
-    expect(options).not.toContain("None");
-    expect(options).toContain("Roux");
+    const projectSelect = screen.getByRole("combobox", { name: "Project" });
+    await fireEvent.change(projectSelect, { target: { value: "" } });
+    await fireEvent.click(screen.getByText("Save"));
+
+    expect(updateWorkItem).toHaveBeenCalledWith(
+      "wi-1",
+      expect.objectContaining({ projectId: null }),
+    );
+  });
+
+  it("creates a new card with default repo and Claude profile", async () => {
+    render(WorkItemEditor);
+    newWorkItemEditor.set({ status: "review" });
+
+    const titleInput = (await screen.findByLabelText("Title")) as HTMLInputElement;
+    await fireEvent.input(titleInput, { target: { value: "Review the PR" } });
+    await fireEvent.click(screen.getByText("Create"));
+
+    expect(createWorkItem).toHaveBeenCalledWith({
+      title: "Review the PR",
+      body: "",
+      status: "review",
+      projectId: null,
+      repoPath: "/default/repo",
+      agentProfile: "claude",
+      worktreePath: null,
+      branch: null,
+      baseBranch: null,
+      fetchFirst: null,
+      sortOrder: expect.any(Number),
+    });
+  });
+
+  it("loads repository picker options from discovered repos under configured roots", async () => {
+    render(WorkItemEditor);
+    newWorkItemEditor.set({ status: "todo" });
+
+    await fireEvent.input(await screen.findByDisplayValue("/default/repo"), {
+      target: { value: "" },
+    });
+
+    expect(await screen.findByText("workspace/roux")).toBeTruthy();
+    expect(invokeMock).toHaveBeenCalledWith("list_git_repos_in_roots", {
+      roots: ["/default/repo", "/other/repo"],
+      excludeWorktrees: true,
+    });
+  });
+
+  it("saves a new branch from origin main with fetch first", async () => {
+    render(WorkItemEditor);
+    newWorkItemEditor.set({ status: "todo" });
+
+    const titleInput = (await screen.findByLabelText("Title")) as HTMLInputElement;
+    await fireEvent.input(titleInput, { target: { value: "Use origin main" } });
+    await fireEvent.input(screen.getByPlaceholderText("main, feat/my-branch, or existing path"), {
+      target: { value: "feat/origin-card" },
+    });
+    await fireEvent.change(screen.getByLabelText("Branch from"), {
+      target: { value: "originMain" },
+    });
+    await fireEvent.click(screen.getByText("Create"));
+
+    expect(createWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branch: "feat/origin-card",
+        baseBranch: "origin/main",
+        fetchFirst: true,
+      }),
+    );
   });
 
   it("opens the delete dialog and deletes only the card", async () => {

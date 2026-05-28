@@ -8,15 +8,21 @@
     startWorkItem,
     planWorkItem,
     acceptWorkItemReview,
-    createWorkItem,
     pendingDecisionByItem,
     activePlanningRunByItem,
+    runsByItem,
     type WorkItemStatus,
+    type WorkItemRun,
   } from "$lib/stores/workItems";
   import { sessionList } from "$lib/stores/sessions";
   import type { SessionStatus } from "$lib/types";
   import Maximize2 from "@lucide/svelte/icons/maximize-2";
-  import { openBoardFullscreen, openWorkItemEditor, openWorkItemSessionStart } from "$lib/stores/ui";
+  import {
+    openBoardFullscreen,
+    openNewWorkItemEditor,
+    openWorkItemEditor,
+    openWorkItemSessionStart,
+  } from "$lib/stores/ui";
   import { openSessionById } from "$lib/panes/openSession";
   import { formatWorkItemStartError } from "$lib/board/startErrors";
   import {
@@ -65,6 +71,20 @@
 
   function needsStartConfig(item: WorkItem): boolean {
     return !item.agentProfile || (!item.repoPath && !item.projectId);
+  }
+
+  function attachedSessionIdsForItem(
+    item: WorkItem,
+    runs: WorkItemRun[],
+    planningSessionId: string | null,
+  ): string[] {
+    const ids = new Set<string>();
+    if (item.sessionId) ids.add(item.sessionId);
+    if (planningSessionId) ids.add(planningSessionId);
+    for (const run of runs) {
+      if (run.sessionId) ids.add(run.sessionId);
+    }
+    return [...ids];
   }
 
   async function handleStart(id: string, item: WorkItem) {
@@ -150,9 +170,8 @@
     }
   }
 
-  async function handleCreate(title: string, status: WorkItemStatus) {
-    // The card lands in the store via the broadcast `created` event.
-    await createWorkItem({ title, status, sortOrder: Date.now() });
+  function handleCreate(status: WorkItemStatus) {
+    openNewWorkItemEditor({ status });
   }
 </script>
 
@@ -199,11 +218,18 @@
               {@const sessionStatus = item.sessionId ? ($sessionStatusMap.get(item.sessionId) ?? null) : null}
               {@const pendingDecision = $pendingDecisionByItem.get(item.id) ?? null}
               {@const planningRun = $activePlanningRunByItem.get(item.id) ?? null}
+              {@const itemRuns = $runsByItem.get(item.id) ?? []}
+              {@const attachedSessionIds = attachedSessionIdsForItem(
+                item,
+                itemRuns,
+                planningRun?.sessionId ?? null,
+              )}
               <WorkItemCard
                 {item}
                 {sessionStatus}
                 {pendingDecision}
                 planningSessionId={planningRun?.sessionId ?? null}
+                {attachedSessionIds}
                 onMove={handleMove}
                 onStart={handleStart}
                 onPlan={handlePlan}
@@ -222,7 +248,7 @@
           <p class="px-1 text-xs text-text-muted/50">Empty</p>
         {/if}
         <div class="mt-1.5">
-          <AddCardInput onCreate={(title) => handleCreate(title, col)} />
+          <AddCardInput onCreate={() => handleCreate(col)} />
         </div>
       </section>
     {/each}

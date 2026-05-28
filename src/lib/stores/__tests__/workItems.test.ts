@@ -45,6 +45,8 @@ function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
     id: crypto.randomUUID(),
     projectId: null,
     parentId: null,
+    branch: null,
+    fetchFirst: null,
     title: "Test item",
     body: null,
     status: "todo",

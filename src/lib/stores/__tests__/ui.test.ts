@@ -7,6 +7,8 @@ import {
   boardFullscreen,
   closeBoardFullscreen,
   editingWorkItemId,
+  newWorkItemEditor,
+  openNewWorkItemEditor,
   openWorkItemEditor,
   closeWorkItemEditor,
   closePinned,
@@ -344,5 +346,19 @@ describe("editingWorkItemId", () => {
     expect(get(editingWorkItemId)).toBe("wi-2");
     closeWorkItemEditor();
     expect(get(editingWorkItemId)).toBeNull();
+  });
+
+  it("separates create mode from editing mode", () => {
+    openNewWorkItemEditor({ status: "review" });
+    expect(get(editingWorkItemId)).toBeNull();
+    expect(get(newWorkItemEditor)).toEqual({ status: "review" });
+
+    openWorkItemEditor("wi-1");
+    expect(get(newWorkItemEditor)).toBeNull();
+    expect(get(editingWorkItemId)).toBe("wi-1");
+
+    closeWorkItemEditor();
+    expect(get(editingWorkItemId)).toBeNull();
+    expect(get(newWorkItemEditor)).toBeNull();
   });
 });

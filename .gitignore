@@ -40,3 +40,5 @@ site/
 .mkdocs-venv/
 docs/.venv/
 docs/__pycache__/
+# roborev snapshots
+/.roborev/

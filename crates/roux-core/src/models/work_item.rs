@@ -77,6 +77,11 @@ pub struct WorkItem {
     /// Dedicated implementation worktree path. Set by daemon Start and reused
     /// by retries/restarts unless the user explicitly chooses a fresh start.
     pub worktree_path: Option<String>,
+    /// Requested branch for the implementation worktree. When set, Start
+    /// creates or reuses that branch instead of generating one from the card.
+    pub branch: Option<String>,
+    /// Run `git fetch origin` before resolving `base_branch` for Start.
+    pub fetch_first: Option<bool>,
     /// Last daemon-owned Start failure. The frontend renders this as the
     /// card-level start error; cleared by successful Start/config updates.
     pub start_error: Option<String>,
@@ -114,6 +119,10 @@ pub struct WorkItemInput {
     pub base_branch: Option<String>,
     #[serde(default)]
     pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default, alias = "fetch_first")]
+    pub fetch_first: Option<bool>,
     #[serde(default)]
     pub start_error: Option<String>,
     #[serde(default)]

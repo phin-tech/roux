@@ -222,12 +222,26 @@ export function toggleBoardFullscreen(): void {
  */
 export const editingWorkItemId = writable<string | null>(null);
 
+export interface NewWorkItemEditorRequest {
+  status: "todo" | "ready" | "doing" | "review" | "done";
+  title?: string;
+}
+
+export const newWorkItemEditor = writable<NewWorkItemEditorRequest | null>(null);
+
 export function openWorkItemEditor(id: string): void {
+  newWorkItemEditor.set(null);
   editingWorkItemId.set(id);
+}
+
+export function openNewWorkItemEditor(request: NewWorkItemEditorRequest): void {
+  editingWorkItemId.set(null);
+  newWorkItemEditor.set(request);
 }
 
 export function closeWorkItemEditor(): void {
   editingWorkItemId.set(null);
+  newWorkItemEditor.set(null);
 }
 
 export interface WorkItemSessionStartRequest {

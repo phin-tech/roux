@@ -18,6 +18,22 @@ function getInput(): HTMLInputElement {
 }
 
 describe("RepoAutoComplete focus suppression after selection", () => {
+  it("keeps the dropdown closed until the picker is active", async () => {
+    render(RepoAutoComplete, {
+      props: {
+        value: "",
+        options,
+        hasConfiguredRoots: true,
+        onselect: vi.fn(),
+      },
+    });
+
+    expect(getOptionItems().length).toBe(0);
+
+    await fireEvent.focus(getInput());
+    await waitFor(() => expect(getOptionItems().length).toBe(2));
+  });
+
   it("does not reopen the dropdown when the caller programmatically refocuses the input after a selection", async () => {
     const onselect = vi.fn();
     render(RepoAutoComplete, {
@@ -29,6 +45,7 @@ describe("RepoAutoComplete focus suppression after selection", () => {
       },
     });
 
+    await fireEvent.focus(getInput());
     await waitFor(() => expect(getOptionItems().length).toBe(2));
 
     await fireEvent.click(getOptionItems()[0]);
@@ -51,6 +68,7 @@ describe("RepoAutoComplete focus suppression after selection", () => {
       },
     });
 
+    await fireEvent.focus(getInput());
     await waitFor(() => expect(getOptionItems().length).toBe(2));
 
     await fireEvent.click(getOptionItems()[0]);
@@ -77,6 +95,7 @@ describe("RepoAutoComplete focus suppression after selection", () => {
       },
     });
 
+    await fireEvent.focus(getInput());
     await waitFor(() => expect(getOptionItems().length).toBe(2));
 
     await fireEvent.click(getOptionItems()[0]);

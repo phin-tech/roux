@@ -62,6 +62,8 @@ impl WorkItemStore {
                     agent_profile TEXT,
                     base_branch TEXT,
                     worktree_path TEXT,
+                    branch      TEXT,
+                    fetch_first INTEGER,
                     start_error TEXT,
                     session_id  TEXT,
                     provider    TEXT,
@@ -156,6 +158,8 @@ impl WorkItemStore {
             add_column_if_missing(&conn, "work_items", "agent_profile", "TEXT")?;
             add_column_if_missing(&conn, "work_items", "base_branch", "TEXT")?;
             add_column_if_missing(&conn, "work_items", "worktree_path", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "branch", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "fetch_first", "INTEGER")?;
             add_column_if_missing(&conn, "work_items", "start_error", "TEXT")?;
             conn.execute_batch("PRAGMA user_version = 4;")?;
             version = 4;
@@ -169,13 +173,16 @@ impl WorkItemStore {
             )?;
             conn.execute_batch("PRAGMA user_version = 5;")?;
         }
+        add_column_if_missing(&conn, "work_items", "branch", "TEXT")?;
+        add_column_if_missing(&conn, "work_items", "fetch_first", "INTEGER")?;
         Ok(WorkItemStore { conn })
     }
 
     pub fn list(&self, project_id: Option<&str>) -> SqlResult<Vec<WorkItem>> {
         let sql = if project_id.is_some() {
             "SELECT id, project_id, parent_id, title, body, status, repo_path,
-                    agent_profile, base_branch, worktree_path, start_error, session_id,
+                    agent_profile, base_branch, worktree_path, branch, fetch_first,
+                    start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
                     cost, created_at, updated_at
              FROM work_items
@@ -183,7 +190,8 @@ impl WorkItemStore {
              ORDER BY sort_order, created_at"
         } else {
             "SELECT id, project_id, parent_id, title, body, status, repo_path,
-                    agent_profile, base_branch, worktree_path, start_error, session_id,
+                    agent_profile, base_branch, worktree_path, branch, fetch_first,
+                    start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
                     cost, created_at, updated_at
              FROM work_items
@@ -204,7 +212,8 @@ impl WorkItemStore {
         self.conn
             .query_row(
                 "SELECT id, project_id, parent_id, title, body, status, repo_path,
-                        agent_profile, base_branch, worktree_path, start_error, session_id,
+                        agent_profile, base_branch, worktree_path, branch, fetch_first,
+                        start_error, session_id,
                         provider, external_id, external_url, sort_order, pinned_pr_url,
                         cost, created_at, updated_at
                  FROM work_items WHERE id = ?1",
@@ -222,9 +231,10 @@ impl WorkItemStore {
         self.conn.execute(
             "INSERT INTO work_items
              (id, project_id, parent_id, title, body, status, repo_path,
-              agent_profile, base_branch, worktree_path, start_error, provider,
-              external_id, external_url, sort_order, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+              agent_profile, base_branch, worktree_path, branch, fetch_first,
+              start_error, provider, external_id, external_url, sort_order,
+              created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 id,
                 input.project_id,
@@ -236,6 +246,8 @@ impl WorkItemStore {
                 input.agent_profile,
                 input.base_branch,
                 input.worktree_path,
+                input.branch,
+                input.fetch_first,
                 input.start_error,
                 provider,
                 external_id,
@@ -260,7 +272,9 @@ impl WorkItemStore {
             || input.repo_path.is_some()
             || input.agent_profile.is_some()
             || input.base_branch.is_some()
-            || input.worktree_path.is_some();
+            || input.worktree_path.is_some()
+            || input.branch.is_some()
+            || input.fetch_first.is_some();
         self.conn.execute(
             "UPDATE work_items SET
                 title       = ?2,
@@ -270,14 +284,16 @@ impl WorkItemStore {
                 agent_profile = COALESCE(?6, agent_profile),
                 base_branch = COALESCE(?7, base_branch),
                 worktree_path = COALESCE(?8, worktree_path),
-                start_error = CASE WHEN ?17 THEN ?9 ELSE start_error END,
-                project_id  = COALESCE(?10, project_id),
-                parent_id   = COALESCE(?11, parent_id),
-                provider    = COALESCE(?12, provider),
-                external_id = COALESCE(?13, external_id),
-                external_url = COALESCE(?14, external_url),
-                sort_order  = COALESCE(?15, sort_order),
-                updated_at  = ?16
+                branch      = COALESCE(?9, branch),
+                fetch_first = COALESCE(?10, fetch_first),
+                start_error = CASE WHEN ?19 THEN ?11 ELSE start_error END,
+                project_id  = COALESCE(?12, project_id),
+                parent_id   = COALESCE(?13, parent_id),
+                provider    = COALESCE(?14, provider),
+                external_id = COALESCE(?15, external_id),
+                external_url = COALESCE(?16, external_url),
+                sort_order  = COALESCE(?17, sort_order),
+                updated_at  = ?18
              WHERE id = ?1",
             params![
                 id,
@@ -288,6 +304,8 @@ impl WorkItemStore {
                 input.agent_profile,
                 input.base_branch,
                 input.worktree_path,
+                input.branch,
+                input.fetch_first,
                 input.start_error,
                 input.project_id,
                 input.parent_id,
@@ -1127,16 +1145,18 @@ fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
         agent_profile: row.get(7)?,
         base_branch: row.get(8)?,
         worktree_path: row.get(9)?,
-        start_error: row.get(10)?,
-        session_id: row.get(11)?,
-        provider: row.get(12)?,
-        external_id: row.get(13)?,
-        external_url: row.get(14)?,
-        sort_order: row.get(15)?,
-        pinned_pr_url: row.get(16)?,
-        cost: row.get(17)?,
-        created_at: row.get::<_, i64>(18)? as u64,
-        updated_at: row.get::<_, i64>(19)? as u64,
+        branch: row.get(10)?,
+        fetch_first: row.get(11)?,
+        start_error: row.get(12)?,
+        session_id: row.get(13)?,
+        provider: row.get(14)?,
+        external_id: row.get(15)?,
+        external_url: row.get(16)?,
+        sort_order: row.get(17)?,
+        pinned_pr_url: row.get(18)?,
+        cost: row.get(19)?,
+        created_at: row.get::<_, i64>(20)? as u64,
+        updated_at: row.get::<_, i64>(21)? as u64,
     })
 }
 
@@ -1265,6 +1285,8 @@ mod tests {
                 store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
             assert_eq!(version, 5);
             assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
+            assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
+            assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
             assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
         }
 
@@ -1273,6 +1295,8 @@ mod tests {
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
         assert_eq!(version, 5);
         assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
+        assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
+        assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
         assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
     }
 
@@ -1349,8 +1373,15 @@ mod tests {
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
         assert_eq!(version, 5);
-        for column in ["repo_path", "agent_profile", "base_branch", "worktree_path", "start_error"]
-        {
+        for column in [
+            "repo_path",
+            "agent_profile",
+            "base_branch",
+            "worktree_path",
+            "branch",
+            "fetch_first",
+            "start_error",
+        ] {
             assert!(table_has_column(&store.conn, "work_items", column).unwrap());
         }
         assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
@@ -1361,14 +1392,26 @@ mod tests {
     #[test]
     fn create_and_get_round_trip() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
-        let item = store.create("i-1".into(), input("Fix bug"), 1000).unwrap();
+        let mut input = input("Fix bug");
+        input.repo_path = Some("/repo".into());
+        input.agent_profile = Some("claude".into());
+        input.base_branch = Some("origin/main".into());
+        input.branch = Some("feat/fix-bug".into());
+        input.fetch_first = Some(true);
+        let item = store.create("i-1".into(), input, 1000).unwrap();
         assert_eq!(item.id, "i-1");
         assert_eq!(item.title, "Fix bug");
         assert_eq!(item.status, WorkItemStatus::Todo);
+        assert_eq!(item.repo_path.as_deref(), Some("/repo"));
+        assert_eq!(item.agent_profile.as_deref(), Some("claude"));
+        assert_eq!(item.base_branch.as_deref(), Some("origin/main"));
+        assert_eq!(item.branch.as_deref(), Some("feat/fix-bug"));
+        assert_eq!(item.fetch_first, Some(true));
         assert_eq!(item.created_at, 1000);
 
         let fetched = store.get("i-1").unwrap().unwrap();
         assert_eq!(fetched.title, "Fix bug");
+        assert_eq!(fetched.branch.as_deref(), Some("feat/fix-bug"));
     }
 
     #[test]
@@ -1402,9 +1445,17 @@ mod tests {
 
         let mut upd = input("New");
         upd.body = Some("body text".into());
+        upd.agent_profile = Some("codex".into());
+        upd.base_branch = Some("main".into());
+        upd.branch = Some("feat/new".into());
+        upd.fetch_first = Some(false);
         let updated = store.update("i-1", upd, 2000).unwrap().unwrap();
         assert_eq!(updated.title, "New");
         assert_eq!(updated.body.as_deref(), Some("body text"));
+        assert_eq!(updated.agent_profile.as_deref(), Some("codex"));
+        assert_eq!(updated.base_branch.as_deref(), Some("main"));
+        assert_eq!(updated.branch.as_deref(), Some("feat/new"));
+        assert_eq!(updated.fetch_first, Some(false));
         assert_eq!(updated.updated_at, 2000);
     }
 
@@ -1420,9 +1471,9 @@ mod tests {
         assert_eq!(renamed.start_error.as_deref(), Some("missing repo"));
 
         let mut repo_update = input("New");
-        repo_update.repo_path = Some("/repo".into());
+        repo_update.branch = Some("feat/new".into());
         let updated = store.update("i-1", repo_update, 3000).unwrap().unwrap();
-        assert_eq!(updated.repo_path.as_deref(), Some("/repo"));
+        assert_eq!(updated.branch.as_deref(), Some("feat/new"));
         assert_eq!(updated.start_error, None);
     }
 

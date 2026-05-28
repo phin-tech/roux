@@ -66,6 +66,8 @@ pub(super) async fn handle_work_item_create(req: Request, host: &RuntimeHost) ->
         agent_profile: optional_string_arg(&req.args, &["agentProfile", "agent_profile"]),
         base_branch: optional_string_arg(&req.args, &["baseBranch", "base_branch", "base"]),
         worktree_path: optional_string_arg(&req.args, &["worktreePath", "worktree_path"]),
+        branch: optional_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"]),
+        fetch_first: bool_arg(&req.args, &["fetchFirst", "fetch_first"]),
         start_error: optional_nullable_string_arg(&req.args, &["startError", "start_error"]),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
@@ -104,6 +106,8 @@ pub(super) async fn handle_work_item_update(req: Request, host: &RuntimeHost) ->
         agent_profile: optional_string_arg(&req.args, &["agentProfile", "agent_profile"]),
         base_branch: optional_string_arg(&req.args, &["baseBranch", "base_branch", "base"]),
         worktree_path: optional_string_arg(&req.args, &["worktreePath", "worktree_path"]),
+        branch: optional_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"]),
+        fetch_first: bool_arg(&req.args, &["fetchFirst", "fetch_first"]),
         start_error: optional_nullable_string_arg(&req.args, &["startError", "start_error"]),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
@@ -623,11 +627,12 @@ async fn start_work_item_run_with_hooks(
     let explicit_worktree_path =
         optional_nullable_string_arg(&req.args, &["worktreePath", "worktree_path"]);
     let requested_branch =
-        optional_nullable_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"]);
+        optional_nullable_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"])
+            .or_else(|| item.branch.clone());
     let base = optional_nullable_string_arg(&req.args, &["base", "startPoint", "start_point"])
         .or_else(|| item.base_branch.clone())
         .or_else(|| Some("main".to_string()));
-    let fetch_first = bool_arg(&req.args, &["fetchFirst", "fetch_first"]);
+    let fetch_first = bool_arg(&req.args, &["fetchFirst", "fetch_first"]).or(item.fetch_first);
     let worktree_path = explicit_worktree_path.or_else(|| {
         if requested_branch.is_none() {
             item.worktree_path.clone()
@@ -1548,6 +1553,7 @@ async fn run_dispatched_profile(
         profile_id,
         identity,
         &task_prompt,
+        false,
     )
     .await
 }
@@ -1570,6 +1576,7 @@ async fn run_dispatched_planning_profile(
         profile_id,
         identity,
         &task_prompt,
+        true,
     )
     .await
 }
@@ -1581,10 +1588,16 @@ async fn run_dispatched_profile_with_task_prompt(
     profile_id: &str,
     identity: &DaemonIdentity,
     task_prompt: &str,
+    planning: bool,
 ) -> Result<(), String> {
     let settings = load_daemon_settings();
     let Some(profile) = roux_core::providers::resolve_profile(profile_id, &settings) else {
         return Err(format!("agent profile not found: {profile_id}"));
+    };
+    let profile = if planning {
+        roux_core::providers::profile_with_planning_constraints(&profile)
+    } else {
+        profile
     };
     let session = host
         .session_handle
@@ -1683,6 +1696,7 @@ fn render_work_item_planning_prompt(
     let session_id = session
         .map(|session| sanitize_card_prompt_field(&session.id))
         .or_else(|| item.session_id.as_deref().map(sanitize_card_prompt_field));
+    let roux_cli_path = sanitize_card_prompt_field(&resolve_roux_cli_prompt_path());
 
     let mut prompt = String::new();
     prompt.push_str("Plan this Roux board card before implementation.\n\nTitle:\n");
@@ -1706,6 +1720,11 @@ fn render_work_item_planning_prompt(
     prompt.push_str(worktree_path.as_deref().unwrap_or("unknown"));
     prompt.push_str("\n- Roux session id: ");
     prompt.push_str(session_id.as_deref().unwrap_or("unknown"));
+    prompt.push_str("\n- Roux CLI path: ");
+    prompt.push_str(&roux_cli_path);
+    prompt.push_str("\n- Roux CLI help: `");
+    prompt.push_str(&roux_cli_path);
+    prompt.push_str(" --help`");
     prompt.push_str(
         "\n\nInstructions:\n\
          - Do not implement the task yet unless the user explicitly asks you to.\n\
@@ -1713,7 +1732,8 @@ fn render_work_item_planning_prompt(
          - Identify likely files, systems, risks, and test strategy.\n\
          - Suggest project/repo, autonomous agent profile, and base branch when they are missing.\n\
          - Produce a concise plan that can be copied back onto the card.\n\
-         - If you need a human decision, create a Roux card decision with `roux work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No` and wait for the answer in this session.",
+         - If you need a human decision, ask in this session and wait for the answer here.\n\
+         - For structured decisions that must be tracked on the card, the Roux CLI is still available: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.",
     );
     append_custom_prompt_section(
         &mut prompt,
@@ -1747,6 +1767,7 @@ fn render_work_item_task_prompt(
     let session_id = session
         .map(|session| sanitize_card_prompt_field(&session.id))
         .or_else(|| item.session_id.as_deref().map(sanitize_card_prompt_field));
+    let roux_cli_path = sanitize_card_prompt_field(&resolve_roux_cli_prompt_path());
 
     let mut prompt = String::new();
     prompt.push_str("Start work on this Roux board card.\n\nTitle:\n");
@@ -1776,6 +1797,11 @@ fn render_work_item_task_prompt(
     prompt.push_str(agent_profile.as_deref().unwrap_or("unspecified"));
     prompt.push_str("\n- Roux session id: ");
     prompt.push_str(session_id.as_deref().unwrap_or("unknown"));
+    prompt.push_str("\n- Roux CLI path: ");
+    prompt.push_str(&roux_cli_path);
+    prompt.push_str("\n- Roux CLI help: `");
+    prompt.push_str(&roux_cli_path);
+    prompt.push_str(" --help`");
 
     prompt.push_str(
         "\n\nInstructions:\n\
@@ -1784,7 +1810,8 @@ fn render_work_item_task_prompt(
          - Make the necessary code and documentation changes.\n\
          - Commit changes unless the repository or user instructions clearly say not to.\n\
          - Run the relevant tests/checks and report what passed, failed, or was not run.\n\
-         - If you need a human decision, create a Roux card decision with `roux work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No` and wait for the answer in this session.\n\
+         - If you need a human decision, ask in this session and wait for the answer here.\n\
+         - For structured decisions that must be tracked on the card, the Roux CLI is still available: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.\n\
          - When the work is complete, report the summary, tests, risks, and changed files, then request review. Do not mark the card done yourself.",
     );
     append_custom_prompt_section(
@@ -1809,6 +1836,16 @@ fn append_custom_prompt_section(prompt: &mut String, heading: &str, value: &str)
     prompt.push_str(heading);
     prompt.push_str(":\n");
     prompt.push_str(&value);
+}
+
+fn resolve_roux_cli_prompt_path() -> String {
+    std::env::var("ROUX_CLI")
+        .ok()
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .or_else(|| std::env::current_exe().ok().map(|path| path.to_string_lossy().into_owned()))
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| "roux".to_string())
 }
 
 fn sanitize_card_prompt_field(value: &str) -> String {
@@ -1904,6 +1941,8 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
             agent_profile: optional_string_arg(item_val, &["agentProfile", "agent_profile"]),
             base_branch: optional_string_arg(item_val, &["baseBranch", "base_branch", "base"]),
             worktree_path: optional_string_arg(item_val, &["worktreePath", "worktree_path"]),
+            branch: optional_string_arg(item_val, &["branch", "worktreeBranch", "worktree_branch"]),
+            fetch_first: bool_arg(item_val, &["fetchFirst", "fetch_first"]),
             start_error: optional_nullable_string_arg(item_val, &["startError", "start_error"]),
             project_id: optional_string_arg(item_val, &["projectId", "project_id"]),
             parent_id: None, // resolved in second pass
@@ -1956,6 +1995,8 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
                         agent_profile: existing.agent_profile,
                         base_branch: existing.base_branch,
                         worktree_path: existing.worktree_path,
+                        branch: existing.branch,
+                        fetch_first: existing.fetch_first,
                         start_error: existing.start_error,
                         project_id: existing.project_id,
                         parent_id: Some(parent_id.clone()),
@@ -2326,6 +2367,8 @@ mod tests {
             agent_profile: Some("claude".into()),
             base_branch: Some("main".into()),
             worktree_path: Some("/repo/.worktrees/card".into()),
+            branch: Some("roux/card".into()),
+            fetch_first: Some(false),
             start_error: None,
             session_id: Some("sess-1".into()),
             provider: None,
@@ -2377,7 +2420,10 @@ mod tests {
         assert!(prompt.contains("Base branch: main"));
         assert!(prompt.contains("Agent profile: claude"));
         assert!(prompt.contains("Roux session id: sess-1"));
-        assert!(prompt.contains("roux work-item decision create"));
+        assert!(prompt.contains("Roux CLI path:"));
+        assert!(prompt.contains("Roux CLI help:"));
+        assert!(prompt.contains("ask in this session"));
+        assert!(prompt.contains("work-item decision create"));
         assert!(!prompt.contains("\"type\":\"decision\""));
         assert!(prompt.contains("Run the relevant tests/checks"));
         assert!(prompt.contains("request review"));
@@ -2400,6 +2446,8 @@ mod tests {
             repo_path: Some("/repo/main".into()),
             base_branch: Some("main".into()),
             worktree_path: None,
+            branch: None,
+            fetch_first: None,
             start_error: None,
             session_id: None,
             provider: None,
@@ -2427,7 +2475,9 @@ mod tests {
         assert!(
             plan_prompt.contains("Additional planning instructions:\nAsk about release timing.")
         );
-        assert!(plan_prompt.contains("roux work-item decision create"));
+        assert!(plan_prompt.contains("Roux CLI path:"));
+        assert!(plan_prompt.contains("ask in this session"));
+        assert!(plan_prompt.contains("work-item decision create"));
         assert!(!plan_prompt.contains("\"type\":\"decision\""));
 
         let task_prompt = render_work_item_task_prompt(&item, "run-1", None, &settings);
