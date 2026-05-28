@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use roux_core::{
     WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemEvent, WorkItemInput, WorkItemRun,
-    WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunStatus, WorkItemStatus,
+    WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus, WorkItemStatus,
 };
 
 use crate::work_item_store::WorkItemStore;
@@ -156,6 +156,14 @@ impl WorkItemHandle {
         Ok(bound)
     }
 
+    pub fn has_active_run(&self, work_item_id: &str) -> Result<bool, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .has_active_run(work_item_id)
+            .map_err(|e| format!("work-item active run check: {e}"))
+    }
+
     pub fn upsert_by_external(&self, input: WorkItemInput) -> Result<WorkItem, String> {
         let id = Uuid::new_v4().to_string();
         let now = now_secs();
@@ -226,6 +234,146 @@ impl WorkItemHandle {
             .map_err(|e| format!("work-item run create: {e}"))?;
         self.broadcast(WorkItemEvent::RunCreated { run: run.clone() });
         Ok(run)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_starting_run(
+        &self,
+        work_item_id: &str,
+        session_id: Option<&str>,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+    ) -> Result<WorkItemRun, String> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_secs();
+        let run = self
+            .inner
+            .lock()
+            .unwrap()
+            .create_run_with_status(
+                id,
+                work_item_id,
+                session_id,
+                provider,
+                profile_id,
+                worktree_path,
+                branch,
+                WorkItemRunStatus::Starting,
+                now,
+            )
+            .map_err(|e| format!("work-item run create: {e}"))?;
+        self.broadcast(WorkItemEvent::RunCreated { run: run.clone() });
+        Ok(run)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_planning_run(
+        &self,
+        work_item_id: &str,
+        session_id: Option<&str>,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+    ) -> Result<WorkItemRun, String> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_secs();
+        let run = self
+            .inner
+            .lock()
+            .unwrap()
+            .create_run_with_kind_status(
+                id,
+                work_item_id,
+                WorkItemRunKind::Planning,
+                session_id,
+                provider,
+                profile_id,
+                worktree_path,
+                branch,
+                WorkItemRunStatus::Starting,
+                now,
+            )
+            .map_err(|e| format!("work-item run create: {e}"))?;
+        self.broadcast(WorkItemEvent::RunCreated { run: run.clone() });
+        Ok(run)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_start_failure(
+        &self,
+        id: &str,
+        error: &str,
+        session_id: Option<&str>,
+        worktree_path: Option<&str>,
+        agent_profile: Option<&str>,
+        repo_path: Option<&str>,
+        base_branch: Option<&str>,
+    ) -> Result<Option<WorkItem>, String> {
+        let now = now_secs();
+        let item = self
+            .inner
+            .lock()
+            .unwrap()
+            .record_start_failure(
+                id,
+                error,
+                session_id,
+                worktree_path,
+                agent_profile,
+                repo_path,
+                base_branch,
+                now,
+            )
+            .map_err(|e| format!("work-item start failure: {e}"))?;
+        if let Some(ref item) = item {
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+        }
+        Ok(item)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn complete_start(
+        &self,
+        id: &str,
+        session_id: &str,
+        worktree_path: Option<&str>,
+        agent_profile: Option<&str>,
+        repo_path: Option<&str>,
+        base_branch: Option<&str>,
+        sort_order: f64,
+    ) -> Result<Option<WorkItem>, String> {
+        let now = now_secs();
+        let item = self
+            .inner
+            .lock()
+            .unwrap()
+            .complete_start(
+                id,
+                session_id,
+                worktree_path,
+                agent_profile,
+                repo_path,
+                base_branch,
+                sort_order,
+                now,
+            )
+            .map_err(|e| format!("work-item complete start: {e}"))?;
+        if let Some(ref item) = item {
+            self.broadcast(WorkItemEvent::SessionBound {
+                id: item.id.clone(),
+                session_id: session_id.to_string(),
+            });
+            self.broadcast(WorkItemEvent::Moved {
+                id: item.id.clone(),
+                status: item.status.clone(),
+                sort_order: item.sort_order,
+            });
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+        }
+        Ok(item)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -335,6 +483,64 @@ impl WorkItemHandle {
             self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
             self.broadcast(WorkItemEvent::RunEventAppended { event });
             Ok(Some(run))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Recover transient start records left behind by a daemon crash before
+    /// the profile dispatch completed. This is intended to run during daemon
+    /// startup before the socket accepts new start/plan requests.
+    pub fn fail_starting_runs_after_restart(&self) -> Result<Vec<WorkItemRun>, String> {
+        let starting_runs = self
+            .list_runs(None)?
+            .into_iter()
+            .filter(|run| run.status == WorkItemRunStatus::Starting)
+            .collect::<Vec<_>>();
+        let mut recovered = Vec::new();
+        for run in starting_runs {
+            if let Some(updated) = self.set_run_status(
+                &run.id,
+                WorkItemRunStatus::Failed,
+                serde_json::json!({
+                    "reason": "daemonRestartedBeforeRunStarted",
+                    "previousStatus": WorkItemRunStatus::Starting.as_str(),
+                }),
+            )? {
+                recovered.push(updated);
+            }
+        }
+        Ok(recovered)
+    }
+
+    pub fn accept_review(
+        &self,
+        work_item_id: &str,
+        mut payload: serde_json::Value,
+    ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
+        let now = now_secs();
+        if let serde_json::Value::Object(ref mut object) = payload {
+            object.entry("status").or_insert_with(|| {
+                serde_json::Value::String(WorkItemRunStatus::Done.as_str().to_string())
+            });
+        }
+        let event_id = Uuid::new_v4().to_string();
+        let result = self
+            .inner
+            .lock()
+            .unwrap()
+            .accept_review(work_item_id, event_id, payload, now)
+            .map_err(|e| format!("work-item review accept: {e}"))?;
+        if let Some((item, run, event)) = result {
+            self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
+            self.broadcast(WorkItemEvent::RunEventAppended { event });
+            self.broadcast(WorkItemEvent::Moved {
+                id: item.id.clone(),
+                status: item.status.clone(),
+                sort_order: item.sort_order,
+            });
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+            Ok(Some((item, run)))
         } else {
             Ok(None)
         }
@@ -574,6 +780,35 @@ mod tests {
         let event = rx.try_recv().expect("RunEventAppended event should be broadcast");
         assert!(matches!(
             event,
+            WorkItemEvent::RunEventAppended {
+                event: WorkItemRunEvent { kind: WorkItemRunEventKind::StatusChanged, .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn restart_recovery_fails_starting_runs_and_unblocks_card() {
+        let handle = WorkItemHandle::in_memory();
+        let item = handle.create(input("Task")).unwrap();
+        let run = handle
+            .create_starting_run(&item.id, Some("sess-1"), None, Some("claude"), None, None)
+            .unwrap();
+        assert_eq!(run.status, WorkItemRunStatus::Starting);
+        assert!(handle.has_active_run(&item.id).unwrap());
+        let mut rx = handle.subscribe_events();
+
+        let recovered = handle.fail_starting_runs_after_restart().unwrap();
+
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].id, run.id);
+        assert_eq!(recovered[0].status, WorkItemRunStatus::Failed);
+        assert!(!handle.has_active_run(&item.id).unwrap());
+        assert!(matches!(
+            rx.try_recv().expect("RunUpdated should be broadcast"),
+            WorkItemEvent::RunUpdated { .. }
+        ));
+        assert!(matches!(
+            rx.try_recv().expect("RunEventAppended should be broadcast"),
             WorkItemEvent::RunEventAppended {
                 event: WorkItemRunEvent { kind: WorkItemRunEventKind::StatusChanged, .. }
             }

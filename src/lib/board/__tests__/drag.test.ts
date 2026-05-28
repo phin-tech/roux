@@ -19,6 +19,11 @@ function item(overrides: Partial<WorkItem> = {}): WorkItem {
     title: "Ship the board",
     body: null,
     status: "todo",
+    repoPath: null,
+    agentProfile: null,
+    baseBranch: null,
+    worktreePath: null,
+    startError: null,
     sessionId: null,
     provider: null,
     externalId: null,
@@ -73,6 +78,16 @@ describe("Work item drag data", () => {
 
     clearDraggedWorkItem();
     expect(get(draggedWorkItem)).toBeNull();
+  });
+
+  it("accepts Ready as a valid drag source column", () => {
+    const transfer = dataTransfer();
+
+    expect(writeWorkItemDragData(transfer, item({ status: "ready" }))).toBe(true);
+    expect(readWorkItemDragData(transfer)).toEqual({
+      itemId: "wi-1",
+      fromStatus: "ready",
+    });
   });
 
   it("returns false / null for a missing DataTransfer", () => {

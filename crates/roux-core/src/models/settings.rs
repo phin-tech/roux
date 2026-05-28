@@ -236,6 +236,47 @@ pub struct ManagedProxyConfig {
     pub bind: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum KanbanStartupSidebar {
+    #[default]
+    Restore,
+    Sessions,
+    Kanban,
+    None,
+}
+
+fn default_kanban_agent_profile() -> String {
+    "claude".to_string()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KanbanSettings {
+    #[serde(default = "default_kanban_agent_profile")]
+    pub default_agent_profile: String,
+    #[serde(default)]
+    pub planning_prompt_append: String,
+    #[serde(default)]
+    pub implementation_prompt_append: String,
+    #[serde(default)]
+    pub review_prompt_append: String,
+    #[serde(default)]
+    pub startup_sidebar: KanbanStartupSidebar,
+}
+
+impl Default for KanbanSettings {
+    fn default() -> Self {
+        Self {
+            default_agent_profile: default_kanban_agent_profile(),
+            planning_prompt_append: String::new(),
+            implementation_prompt_append: String::new(),
+            review_prompt_append: String::new(),
+            startup_sidebar: KanbanStartupSidebar::Restore,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RouxSettings {
@@ -454,6 +495,8 @@ pub struct RouxSettings {
     /// Unix epoch milliseconds for the last successful MCP host config write.
     #[serde(default)]
     pub mcp_last_configured_at_ms: Option<u64>,
+    #[serde(default)]
+    pub kanban: KanbanSettings,
     /// Runtime feature flags. See `ExperimentsConfig`.
     #[serde(default)]
     pub experiments: ExperimentsConfig,
@@ -522,6 +565,7 @@ impl Default for RouxSettings {
             mcp_enabled: false,
             mcp_last_configured_host: None,
             mcp_last_configured_at_ms: None,
+            kanban: KanbanSettings::default(),
             experiments: ExperimentsConfig::default(),
         }
     }
@@ -537,6 +581,14 @@ impl RouxSettings {
         for profile in &mut s.spawn_profiles {
             profile.source = ProfileSource::User;
         }
+        s.kanban.default_agent_profile = s.kanban.default_agent_profile.trim().to_string();
+        if s.kanban.default_agent_profile.is_empty() {
+            s.kanban.default_agent_profile = default_kanban_agent_profile();
+        }
+        s.kanban.planning_prompt_append = s.kanban.planning_prompt_append.trim().to_string();
+        s.kanban.implementation_prompt_append =
+            s.kanban.implementation_prompt_append.trim().to_string();
+        s.kanban.review_prompt_append = s.kanban.review_prompt_append.trim().to_string();
         s.repo_roots = normalize_repo_roots(&s.repo_roots);
         s.library_pinned_repos = normalize_repo_roots(&s.library_pinned_repos);
         if s.library_sources.is_empty() && !s.library_pinned_repos.is_empty() {
@@ -836,6 +888,36 @@ mod tests {
         }"#;
         let parsed: RouxSettings = serde_json::from_str(legacy).unwrap();
         assert!(parsed.agent_completion_notifications_enabled);
+    }
+
+    #[test]
+    fn settings_without_kanban_defaults_to_usable_board_defaults() {
+        let legacy = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.5,
+            "taskPanelCollapsed": true
+        }"#;
+        let parsed: RouxSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(parsed.kanban.default_agent_profile, "claude");
+        assert_eq!(parsed.kanban.startup_sidebar, super::KanbanStartupSidebar::Restore);
+        assert!(parsed.kanban.planning_prompt_append.is_empty());
+        assert!(parsed.kanban.implementation_prompt_append.is_empty());
+        assert!(parsed.kanban.review_prompt_append.is_empty());
     }
 
     #[test]

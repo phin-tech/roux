@@ -130,6 +130,22 @@ export function toggleSidebar(id: SidebarId): void {
   clearNotesOverrideIfLeaving(id);
 }
 
+export type StartupSidebarPreference = "restore" | "sessions" | "kanban" | "none";
+
+export function applyStartupSidebarPreference(preference: StartupSidebarPreference): void {
+  if (preference === "restore") return;
+  boardFullscreen.set(false);
+  if (preference === "none") {
+    sidebarState.set({ pinned: null, active: null });
+    clearNotesOverrideIfLeaving(null);
+    return;
+  }
+  const pinned: SidebarId = preference === "kanban" ? "board" : "sessions";
+  showSidebar();
+  sidebarState.set({ pinned, active: null });
+  clearNotesOverrideIfLeaving(pinned);
+}
+
 export function pinSidebar(id: SidebarId): void {
   if (!PINNABLE_SIDEBARS.has(id)) return;
   showSidebar();

@@ -136,6 +136,32 @@ import SettingsPanel from "../SettingsPanel.svelte";
 import { settings } from "$lib/stores/settings";
 import { getRuntimeStatus, updateSettings } from "$lib/tauri";
 
+describe("SettingsPanel Kanban tab", () => {
+  beforeEach(() => {
+    settings.set({ ...DEFAULT_SETTINGS });
+    vi.mocked(updateSettings).mockClear();
+  });
+
+  it("persists Kanban prompt and startup settings", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.change(screen.getByDisplayValue("Restore previous"), {
+      target: { value: "kanban" },
+    });
+    await fireEvent.input(screen.getByText("Planning instructions").parentElement!.querySelector("textarea")!, {
+      target: { value: "Ask for acceptance criteria." },
+    });
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalled();
+    });
+    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
+    expect(lastCall[0].kanban?.startupSidebar).toBe("kanban");
+    expect(lastCall[0].kanban?.planningPromptAppend).toBe("Ask for acceptance criteria.");
+  });
+});
+
 describe("SettingsPanel MCP integration", () => {
   beforeEach(() => {
     settings.set({ ...DEFAULT_SETTINGS, mcpEnabled: true });

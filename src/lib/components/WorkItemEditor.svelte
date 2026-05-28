@@ -137,7 +137,7 @@
   }
 
   function isStoppableRun(status: string): boolean {
-    return status === "queued" || status === "running" || status === "blocked";
+    return status === "queued" || status === "starting" || status === "running" || status === "blocked";
   }
 
   function runLabel(createdAt: number): string {

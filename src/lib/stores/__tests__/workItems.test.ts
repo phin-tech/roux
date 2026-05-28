@@ -10,12 +10,16 @@ import {
   pendingDecisionByItem,
   runsByItem,
   applyWorkItemEvent,
-  dispatchWorkItem,
+  acceptWorkItemReview,
+  planWorkItem,
+  startWorkItem,
   stopWorkItemRun,
   WORK_ITEM_COLUMNS,
 } from "../workItems";
 import {
-  workItemRunDispatch as tauriWorkItemRunDispatch,
+  workItemPlan as tauriWorkItemPlan,
+  workItemReviewAccept as tauriWorkItemReviewAccept,
+  workItemStart as tauriWorkItemStart,
   workItemRunStop as tauriWorkItemRunStop,
 } from "$lib/tauri";
 import type { WorkItem } from "$lib/bindings";
@@ -27,7 +31,9 @@ vi.mock("$lib/tauri", () => ({
   workItemUpdate: vi.fn(),
   workItemMove: vi.fn(),
   workItemDelete: vi.fn(),
-  workItemRunDispatch: vi.fn(),
+  workItemPlan: vi.fn(),
+  workItemReviewAccept: vi.fn(),
+  workItemStart: vi.fn(),
   workItemRunStop: vi.fn(),
   workItemRunsList: vi.fn().mockResolvedValue([]),
   workItemDecisionsList: vi.fn().mockResolvedValue([]),
@@ -42,6 +48,11 @@ function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
     title: "Test item",
     body: null,
     status: "todo",
+    repoPath: null,
+    agentProfile: null,
+    baseBranch: null,
+    worktreePath: null,
+    startError: null,
     sessionId: null,
     provider: null,
     externalId: null,
@@ -59,6 +70,7 @@ function makeRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
   return {
     id: "run-1",
     workItemId: "wi-1",
+    kind: "implementation",
     sessionId: "sess-1",
     provider: "claude",
     profileId: "claude",
@@ -168,6 +180,19 @@ describe("workItems store", () => {
 
       expect(get(workItemRuns)).toHaveLength(1);
       expect(get(workItems)[0].sessionId).toBe("sess-1");
+    });
+
+    it("does not bind planning run sessions to the card", () => {
+      const item = makeItem({ id: "wi-1", sessionId: null });
+      workItems.set([item]);
+
+      applyWorkItemEvent({
+        type: "runCreated",
+        run: makeRun({ kind: "planning", sessionId: "plan-sess-1" }),
+      });
+
+      expect(get(workItemRuns)).toHaveLength(1);
+      expect(get(workItems)[0].sessionId).toBeNull();
     });
 
     it("treats the last stored run as latest even when timestamps match", () => {
@@ -293,17 +318,38 @@ describe("workItems store", () => {
       expect(get(workItemRuns)[0].status).toBe("done");
       expect(get(pendingDecisionByItem).has("wi-1")).toBe(false);
     });
+
+    it("does not revive a review run when its decision resolves", () => {
+      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "review" })]);
+      workItemDecisions.set([makeDecision()]);
+
+      applyWorkItemEvent({
+        type: "decisionResolved",
+        decision: makeDecision({
+          status: "resolved",
+          resolvedValue: "go",
+          resolvedAt: 3,
+        }),
+      });
+
+      expect(get(workItemRuns)[0].status).toBe("review");
+      expect(get(pendingDecisionByItem).has("wi-1")).toBe(false);
+    });
   });
 
-  describe("dispatchWorkItem", () => {
+  describe("startWorkItem", () => {
     it("binds the returned session id immediately", async () => {
       const item = makeItem({ id: "wi-1", sessionId: null });
       workItems.set([item]);
-      vi.mocked(tauriWorkItemRunDispatch).mockResolvedValueOnce(makeRun());
+      vi.mocked(tauriWorkItemStart).mockResolvedValueOnce({
+        item: makeItem({ id: "wi-1", sessionId: "sess-1", status: "doing" }),
+        run: makeRun(),
+        session: {} as never,
+      });
 
-      await expect(dispatchWorkItem("wi-1")).resolves.toBe("sess-1");
+      await expect(startWorkItem("wi-1")).resolves.toBe("sess-1");
 
-      expect(tauriWorkItemRunDispatch).toHaveBeenCalledWith("wi-1", {});
+      expect(tauriWorkItemStart).toHaveBeenCalledWith("wi-1", {});
       expect(get(workItemRuns)).toHaveLength(1);
       expect(get(workItems)[0].sessionId).toBe("sess-1");
       expect(get(workItems)[0].status).toBe("doing");
@@ -312,15 +358,63 @@ describe("workItems store", () => {
     it("rejects when the daemon returns a run without a session id", async () => {
       const item = makeItem({ id: "wi-1", sessionId: null, status: "todo" });
       workItems.set([item]);
-      vi.mocked(tauriWorkItemRunDispatch).mockResolvedValueOnce(makeRun({ sessionId: null }));
+      vi.mocked(tauriWorkItemStart).mockResolvedValueOnce({
+        item,
+        run: makeRun({ sessionId: null }),
+        session: {} as never,
+      });
 
-      await expect(dispatchWorkItem("wi-1")).rejects.toThrow(
+      await expect(startWorkItem("wi-1")).rejects.toThrow(
         "Work item run run-1 did not include a session id",
       );
 
       expect(get(workItemRuns)).toHaveLength(1);
       expect(get(workItems)[0].sessionId).toBeNull();
       expect(get(workItems)[0].status).toBe("todo");
+    });
+  });
+
+  describe("planWorkItem", () => {
+    it("stores the returned planning run without moving the card", async () => {
+      const item = makeItem({ id: "wi-1", sessionId: null, status: "todo" });
+      workItems.set([item]);
+      vi.mocked(tauriWorkItemPlan).mockResolvedValueOnce({
+        item,
+        run: makeRun({ kind: "planning", sessionId: "plan-sess-1" }),
+        session: {} as never,
+      });
+
+      await expect(planWorkItem("wi-1")).resolves.toBe("plan-sess-1");
+
+      expect(tauriWorkItemPlan).toHaveBeenCalledWith("wi-1", {});
+      expect(get(workItemRuns)[0]).toMatchObject({
+        kind: "planning",
+        sessionId: "plan-sess-1",
+      });
+      expect(get(workItems)[0].status).toBe("todo");
+      expect(get(workItems)[0].sessionId).toBeNull();
+    });
+  });
+
+  describe("acceptWorkItemReview", () => {
+    it("stores the daemon-accepted card and run", async () => {
+      const item = makeItem({ id: "wi-1", status: "review", sessionId: "sess-1" });
+      workItems.set([item]);
+      workItemRuns.set([makeRun({ id: "run-1", status: "review" })]);
+      vi.mocked(tauriWorkItemReviewAccept).mockResolvedValueOnce({
+        item: makeItem({ id: "wi-1", status: "done", sessionId: "sess-1" }),
+        run: makeRun({ id: "run-1", status: "done", endedAt: 5 }),
+      });
+
+      await expect(acceptWorkItemReview("wi-1")).resolves.toMatchObject({ status: "done" });
+
+      expect(tauriWorkItemReviewAccept).toHaveBeenCalledWith("wi-1");
+      expect(get(workItems)[0].status).toBe("done");
+      expect(get(workItemRuns)[0]).toMatchObject({
+        id: "run-1",
+        status: "done",
+        endedAt: 5,
+      });
     });
   });
 
@@ -350,6 +444,7 @@ describe("workItems store", () => {
       const cols = get(itemsByColumn);
       expect(cols.get("todo")).toHaveLength(2);
       expect(cols.get("doing")).toHaveLength(1);
+      expect(cols.get("ready")).toHaveLength(0);
       expect(cols.get("review")).toHaveLength(0);
       expect(cols.get("done")).toHaveLength(0);
     });

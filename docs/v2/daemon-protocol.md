@@ -3,7 +3,7 @@
 **Status:** Experimental v0. This document describes the protocol currently
 implemented by `roux daemon`; command names and payloads can still change.
 
-The daemon owns durable runtime state and process/PTy lifetimes. The desktop
+The daemon owns durable runtime state and process/PTY lifetimes. The desktop
 app is one client: it renders UI, attaches output streams, and forwards user
 input over the socket when a daemon is connected.
 
@@ -665,12 +665,15 @@ to one project.
 `work-item-create`
 
 Requires `args.title`. Optional: `args.body`, `args.status` (default `"todo"`),
-`args.projectId`, `args.parentId`, `args.sortOrder`. Returns the created item.
+`args.projectId`, `args.parentId`, `args.sortOrder`, `args.repoPath`,
+`args.agentProfile`, `args.baseBranch`, and `args.worktreePath`. Returns the
+created item.
 
 `work-item-update`
 
-Requires `args.id` and `args.title`. Optional: same fields as create. Returns
-the updated item or `404` if not found.
+Requires `args.id` and `args.title`. Optional: same fields as create. Updating
+start config clears the previous `startError`. Returns the updated item or
+`404` if not found.
 
 `work-item-move`
 
@@ -678,49 +681,109 @@ Requires `args.id` and `args.status`. Optional `args.sortOrder` (defaults to
 current `Date.now()` milliseconds when called from the frontend). Moves the
 card to the target column. Returns the updated item.
 
-Valid `status` values: `"todo"`, `"doing"`, `"review"`, `"done"`.
+Valid `status` values: `"todo"`, `"ready"`, `"doing"`, `"review"`, `"done"`.
 
 `work-item-delete`
 
 Requires `args.id`. Returns `{ "id": "..." }` on success.
 
-`work-item-dispatch`
+`work-item-plan`
 
-Compatibility "Start" action. Requires `args.id`. Optional `args.repoPath`
-overrides the repo path; otherwise the item's project's first `repo_root` is
-used. Optional `args.name`, `args.worktreePath`, `args.branch`, `args.base`,
-`args.fetchFirst`, and `args.profile` are forwarded to `session-create-shell`.
-Creates a session via `session-create-shell` (named after the work item's title
-unless `args.name` is supplied, inheriting `projectId`), then binds it with
-`set_session` which fires `WorkItemEvent::SessionBound`, creates a
-`WorkItemRun`, and fires `WorkItemEvent::RunCreated`. Returns the new session
-record for older callers; `work-item-run-dispatch` is the source-of-truth
-variant.
+Daemon-owned planning action. Requires `args.id`. Optional args: `repoPath`,
+`profile`, `name`, `worktreePath`, and `replaceActive`.
 
-`work-item-run-dispatch`
+The daemon creates or reuses one active planning run for the card, creates a
+planning session/PTY, generates a planning prompt, launches the selected
+autonomous agent with that prompt as its initial positional prompt, records
+lifecycle events, and returns:
 
-The run-owned "Start" action. Accepts the same args as `work-item-dispatch` but
-returns the created `WorkItemRun`. A card can have multiple runs; the card's
-`session_id` is maintained only as latest-session compatibility/display state.
-Successful dispatch moves the card to `doing` after the run is created.
-For known auto-run agent profiles (Claude/Codex), dispatch also writes the
-provider startup command and then sends a first task prompt built from the card
-title, description, and external link. Plain-shell and type-only profiles are
-left at the prompt.
+```json
+{
+  "item": {},
+  "run": { "kind": "planning" },
+  "session": {}
+}
+```
+
+Planning does not move the card to `doing` and does not bind the card's
+implementation `sessionId`. If an active planning run already exists, the
+daemon returns the existing planning run and session by default. With
+`replaceActive: true`, the daemon stops the existing active planning run,
+cleans up its session, and creates a fresh planning run. If another active run
+exists, planning is rejected.
+
+Planning profile resolution is request `profile`, then card `agentProfile`,
+then `settings.kanban.defaultAgentProfile`. The generated planning prompt
+includes `settings.kanban.planningPromptAppend` when configured.
+
+`work-item-start`
+
+Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
+`repoPath`, `profile`, `name`, `worktreePath`, `branch`, `base`, and
+`fetchFirst`.
+
+The daemon rejects cards that already have an active run and cards without a
+repo path or project repo to derive from. Start profile resolution is request
+`profile`, then card `agentProfile`, then `settings.kanban.defaultAgentProfile`.
+Plain-shell and type-only profiles are not valid Start profiles.
+
+On success, the daemon creates or reuses the card's dedicated worktree, creates
+a daemon session/PTY, creates a `starting` `WorkItemRun`, appends lifecycle
+events for session creation and prompt dispatch, launches the selected
+autonomous agent with the generated task prompt as its initial positional
+prompt, transitions the run to `running`, binds the session to the card, moves
+the card to `doing`, clears `startError`, and returns:
+
+```json
+{
+  "item": {},
+  "run": {},
+  "session": {}
+}
+```
+
+The generated implementation prompt includes
+`settings.kanban.implementationPromptAppend` when configured. The review
+handoff prompt includes `settings.kanban.reviewPromptAppend`.
+
+If session/worktree creation succeeds but prompt dispatch fails, the daemon
+marks the run `failed`, records `startError` on the card, preserves the
+session/worktree for inspection, and returns an error response. Failures before
+a run exists leave the card in its current column and record `startError`.
+
+`work-item-review-accept`
+
+Daemon-owned review acceptance. Requires `args.id` (also accepts
+`workItemId` / `work_item_id`). The daemon finds the card's review-requested
+implementation run, moves that run to `done`, appends a status-change event
+with `reason: "reviewAccepted"`, moves the card to `done`, and returns:
+
+```json
+{
+  "item": {},
+  "run": {}
+}
+```
+
+If the card has no implementation run in review, the daemon returns an error.
+The linked session remains available; cleanup is a separate explicit action.
 
 `work-item-runs-list`
 
 Optional `args.workItemId` / `args.work_item_id`. Returns persisted
-`WorkItemRun` rows, ordered by creation.
+`WorkItemRun` rows, ordered by creation. Runs include `kind`:
+`"planning"`, `"implementation"`, or `"review"`.
 
 `work-item-run-events`
 
 Requires `args.runId` / `args.run_id`. Returns append-only `WorkItemRunEvent`
 rows for that run in insertion order. For daemon-dispatched runs, the daemon
 attaches to the linked PTY and appends `text` events for observed output chunks.
-When the linked PTY exits, the daemon records a terminal `statusChanged` event:
-exit code `0` marks the run `done`; any non-zero or unknown exit marks it
-`failed`. Explicitly stopped runs are not overwritten by later PTY exit events.
+When the linked PTY exits, the daemon records a `statusChanged` event. For
+implementation runs, exit code `0` marks the run `review` and moves the card to
+`review`; any non-zero or unknown exit marks the run `failed`. Planning/review
+runs with exit code `0` are marked `done`. Explicitly stopped or already
+review-requested runs are not overwritten by later PTY exit events.
 
 `work-item-run-stop`
 
@@ -747,8 +810,10 @@ decision `timedOut`, records `resolvedBy: "timeout"` and the default as
 decision remains, and writes the default value plus a newline to the linked
 session just like a clicked answer.
 
-Daemon-dispatched run output is also scanned for newline-delimited JSON decision
-events. Supported first-pass shapes include:
+Agent, CLI, and MCP integrations should create decisions through
+`work-item-decision-create` rather than terminal-output conventions. The daemon
+also scans run output for newline-delimited JSON decision events as a
+compatibility path. Supported first-pass shapes include:
 
 ```json
 {"type":"decision","question":"Choose path?","options":[{"value":"existing","label":"Use existing"},{"value":"new","label":"Create new"}],"defaultValue":"existing","timeoutSeconds":86400}

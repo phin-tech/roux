@@ -12,6 +12,7 @@ import type { WorkItem, WorkItemStatus } from "$lib/bindings";
 
 export type WorkItemRunStatus =
   | "queued"
+  | "starting"
   | "running"
   | "blocked"
   | "review"
@@ -19,9 +20,12 @@ export type WorkItemRunStatus =
   | "stopped"
   | "done";
 
+export type WorkItemRunKind = "planning" | "implementation" | "review";
+
 export interface WorkItemRun {
   id: string;
   workItemId: string;
+  kind: WorkItemRunKind;
   sessionId: string | null;
   provider: string | null;
   profileId: string | null;
@@ -36,6 +40,7 @@ export interface WorkItemRun {
 }
 
 export type WorkItemRunEventKind =
+  | "lifecycle"
   | "text"
   | "toolUse"
   | "toolResult"

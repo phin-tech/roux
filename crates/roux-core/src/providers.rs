@@ -8,6 +8,8 @@
 
 use crate::{ProfileSource, Provider, RouxSettings, SpawnProfile, StartupBehavior};
 
+const PTY_ENTER: char = '\r';
+
 /// Assemble the built-in profile registry: one or more profiles from each
 /// provider plus the catch-all "Plain shell". Ordering matches display order;
 /// `Plain shell` goes last so users see named agents first.
@@ -118,22 +120,23 @@ pub fn profile_startup_input(
 
     let mut out = String::new();
     if let Some(cwd) = cwd {
-        out.push_str(&format!("cd {}\n", shell_single_quote(cwd)));
+        out.push_str(&format!("cd {}", shell_single_quote(cwd)));
+        out.push(PTY_ENTER);
     }
     // env is a BTreeMap, so iteration order is already deterministic (sorted).
     for (name, value) in env {
-        out.push_str(&format!("export {}={}\n", name, shell_single_quote(value)));
+        out.push_str(&format!("export {}={}", name, shell_single_quote(value)));
+        out.push(PTY_ENTER);
     }
     if let Some(setup) = setup {
-        out.push_str(setup);
-        out.push('\n');
+        push_pty_command(&mut out, setup);
     }
     if has_startup {
         out.push_str(&startup);
         // typeOnly leaves the command at the prompt for the user to run; for
         // any other behavior (incl. the default) auto-run it.
         if !matches!(profile.startup_behavior, Some(StartupBehavior::TypeOnly)) {
-            out.push('\n');
+            out.push(PTY_ENTER);
         }
     }
     Some(out)
@@ -162,12 +165,82 @@ pub fn profile_startup_input_with_initial_task(
         return Some(input);
     }
 
-    if !input.ends_with('\n') {
-        input.push('\n');
+    if input.ends_with('\n') {
+        input.pop();
+        input.push(PTY_ENTER);
+    } else if !input.ends_with(PTY_ENTER) {
+        input.push(PTY_ENTER);
     }
     input.push_str(task);
-    input.push('\n');
+    input.push(PTY_ENTER);
     Some(input)
+}
+
+/// Build a non-interactive shell command that starts a supported autonomous
+/// agent with `initial_task_prompt` as the initial positional prompt. This is
+/// used by daemon-owned work-item runs where there is no real terminal frontend
+/// to answer interactive shell capability probes before Roux types input.
+pub fn profile_startup_command_with_initial_prompt(
+    profile: &SpawnProfile,
+    append_system_prompt: Option<&str>,
+    initial_task_prompt: &str,
+) -> Option<String> {
+    let task = initial_task_prompt.trim();
+    if task.is_empty() {
+        return None;
+    }
+    if matches!(profile.startup_behavior, Some(StartupBehavior::TypeOnly)) {
+        return None;
+    }
+    if !matches!(profile.provider, Some(Provider::Claude) | Some(Provider::Codex)) {
+        return None;
+    }
+
+    let base_startup = profile.startup_command.as_deref().unwrap_or("").trim();
+    if base_startup.is_empty() {
+        return None;
+    }
+    let startup = append_agent_system_prompt(
+        base_startup,
+        profile.provider,
+        append_system_prompt.unwrap_or("").trim(),
+    );
+    let startup = format!("{startup} {}", shell_single_quote(task));
+
+    let env: Vec<(&String, &String)> = profile
+        .env
+        .as_ref()
+        .map(|m| m.iter().filter(|(name, _)| is_valid_env_name(name)).collect())
+        .unwrap_or_default();
+    let setup = profile.setup_command.as_deref().map(str::trim).filter(|s| !s.is_empty());
+
+    let mut out = String::new();
+    for (name, value) in env {
+        out.push_str(&format!("export {}={}", name, shell_single_quote(value)));
+        out.push('\n');
+    }
+    if let Some(setup) = setup {
+        push_shell_command(&mut out, setup);
+    }
+    out.push_str(&startup);
+    Some(out)
+}
+
+fn push_pty_command(out: &mut String, command: &str) {
+    let normalized = command.replace("\r\n", "\n").replace('\r', "\n");
+    for (index, line) in normalized.split('\n').enumerate() {
+        if index > 0 {
+            out.push(PTY_ENTER);
+        }
+        out.push_str(line);
+    }
+    out.push(PTY_ENTER);
+}
+
+fn push_shell_command(out: &mut String, command: &str) {
+    let normalized = command.replace("\r\n", "\n").replace('\r', "\n");
+    out.push_str(normalized.trim());
+    out.push('\n');
 }
 
 /// Splice `prompt` into a startup command using the provider-appropriate flag
@@ -332,21 +405,21 @@ mod tests {
     #[test]
     fn claude_startup_input_auto_runs_the_command() {
         let profile = claude_default_profiles(&RouxSettings::default()).remove(0);
-        assert_eq!(profile_startup_input(&profile, None), Some("claude\n".to_string()));
+        assert_eq!(profile_startup_input(&profile, None), Some("claude\r".to_string()));
     }
 
     #[test]
     fn claude_startup_input_folds_in_append_system_prompt() {
         let profile = claude_default_profiles(&RouxSettings::default()).remove(0);
         let input = profile_startup_input(&profile, Some("Be terse")).unwrap();
-        assert_eq!(input, "claude --append-system-prompt 'Be terse'\n");
+        assert_eq!(input, "claude --append-system-prompt 'Be terse'\r");
     }
 
     #[test]
     fn codex_startup_input_uses_instructions_flag() {
         let profile = codex_default_profiles(&RouxSettings::default()).remove(0);
         let input = profile_startup_input(&profile, Some("ship it")).unwrap();
-        assert_eq!(input, "codex -c instructions='ship it'\n");
+        assert_eq!(input, "codex -c instructions='ship it'\r");
     }
 
     #[test]
@@ -370,7 +443,7 @@ mod tests {
         };
         let input = profile_startup_input(&profile, None).unwrap();
         // Invalid env name dropped; valid one exported (quoted), then setup, then startup.
-        assert_eq!(input, "export FOO='bar baz'\nnpm ci\nrun\n");
+        assert_eq!(input, "export FOO='bar baz'\rnpm ci\rrun\r");
     }
 
     #[test]
@@ -398,7 +471,7 @@ mod tests {
         let input =
             profile_startup_input_with_initial_task(&profile, Some("Be terse"), Some("Fix it"))
                 .unwrap();
-        assert_eq!(input, "claude --append-system-prompt 'Be terse'\nFix it\n");
+        assert_eq!(input, "claude --append-system-prompt 'Be terse'\rFix it\r");
     }
 
     #[test]
@@ -451,7 +524,91 @@ mod tests {
         };
         assert_eq!(
             profile_startup_input_with_initial_task(&profile, None, Some("Fix it")),
-            Some("run-agent\n".to_string()),
+            Some("run-agent\r".to_string()),
         );
+    }
+
+    #[test]
+    fn initial_prompt_command_seeds_claude_positional_prompt() {
+        let profile = claude_default_profiles(&RouxSettings::default()).remove(0);
+        let command =
+            profile_startup_command_with_initial_prompt(&profile, Some("Be terse"), "Fix it")
+                .unwrap();
+        assert_eq!(command, "claude --append-system-prompt 'Be terse' 'Fix it'");
+    }
+
+    #[test]
+    fn initial_prompt_command_seeds_codex_positional_prompt() {
+        let profile = codex_default_profiles(&RouxSettings::default()).remove(0);
+        let command =
+            profile_startup_command_with_initial_prompt(&profile, Some("Be terse"), "Fix it")
+                .unwrap();
+        assert_eq!(command, "codex -c instructions='Be terse' 'Fix it'");
+    }
+
+    #[test]
+    fn initial_prompt_command_quotes_multiline_task_prompt() {
+        let profile = claude_default_profiles(&RouxSettings::default()).remove(0);
+        let command = profile_startup_command_with_initial_prompt(
+            &profile,
+            None,
+            "Plan this\nit's important",
+        )
+        .unwrap();
+        assert_eq!(command, "claude 'Plan this\nit'\\''s important'");
+    }
+
+    #[test]
+    fn initial_prompt_command_preserves_env_and_setup_before_agent() {
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("FOO".to_string(), "bar baz".to_string());
+        env.insert("not valid".to_string(), "skip".to_string());
+        let profile = SpawnProfile {
+            id: "custom-claude".into(),
+            name: "Custom Claude".into(),
+            setup_command: Some("echo setup".into()),
+            startup_command: Some("claude --dangerously-skip-permissions".into()),
+            startup_behavior: None,
+            env: Some(env),
+            cwd_override: None,
+            icon: None,
+            provider: Some(Provider::Claude),
+            nono_profile: None,
+            nono_allow_dirs: None,
+            source: ProfileSource::User,
+        };
+        let command =
+            profile_startup_command_with_initial_prompt(&profile, Some("Be terse"), "Fix it")
+                .unwrap();
+        assert_eq!(
+            command,
+            "export FOO='bar baz'\necho setup\nclaude --dangerously-skip-permissions --append-system-prompt 'Be terse' 'Fix it'",
+        );
+    }
+
+    #[test]
+    fn initial_prompt_command_rejects_plain_and_type_only_profiles() {
+        assert!(profile_startup_command_with_initial_prompt(
+            &plain_shell_profile(),
+            None,
+            "Fix it"
+        )
+        .is_none());
+
+        let profile = SpawnProfile {
+            id: "to".into(),
+            name: "TypeOnly".into(),
+            setup_command: None,
+            startup_command: Some("claude".into()),
+            startup_behavior: Some(StartupBehavior::TypeOnly),
+            env: None,
+            cwd_override: None,
+            icon: None,
+            provider: Some(Provider::Claude),
+            nono_profile: None,
+            nono_allow_dirs: None,
+            source: ProfileSource::User,
+        };
+        assert!(profile_startup_command_with_initial_prompt(&profile, None, "Fix it").is_none());
     }
 }

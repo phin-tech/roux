@@ -396,15 +396,9 @@ export const commands = {
 	workItemUpdate: (id: string, input: WorkItemInput) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_update", { id, input })),
 	workItemMove: (id: string, status: WorkItemStatus, sortOrder: number) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_move", { id, status, sortOrder })),
 	workItemDelete: (id: string) => typedError<string, string>(__TAURI_INVOKE("work_item_delete", { id })),
-	/**
-	 *  Dispatch a work item to a freshly-created, bound session. The whole
-	 *  create-session + bind + rollback orchestration lives in the daemon
-	 *  (`handle_work_item_dispatch`); the desktop only forwards. Unlike the other
-	 *  work-item commands there is no desktop-local fallback: session/PTY creation
-	 *  for dispatch is daemon-owned, so without a daemon we surface a clear error
-	 *  rather than half-implement it locally. Returns the new session id.
-	 */
-	workItemDispatch: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, branch: string | null, base: string | null, fetchFirst: boolean | null) => typedError<string, string>(__TAURI_INVOKE("work_item_dispatch", { id, profile, repoPath, name, worktreePath, branch, base, fetchFirst })),
+	workItemPlan: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, replaceActive: boolean) => typedError<WorkItemPlanResult, string>(__TAURI_INVOKE("work_item_plan", { id, profile, repoPath, name, worktreePath, replaceActive })),
+	workItemReviewAccept: (id: string) => typedError<WorkItemReviewAcceptResult, string>(__TAURI_INVOKE("work_item_review_accept", { id })),
+	workItemStart: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, branch: string | null, base: string | null, fetchFirst: boolean | null) => typedError<WorkItemStartResult, string>(__TAURI_INVOKE("work_item_start", { id, profile, repoPath, name, worktreePath, branch, base, fetchFirst })),
 	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
 	notesWrite: (target: NotesTarget, content: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_write", { target, content, tags })),
 	notesAppend: (target: NotesTarget, content: string, timestamped: boolean, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_append", { target, content, timestamped, tags })),
@@ -696,6 +690,16 @@ export type IntegrationDetection = {
 };
 
 export type KeepOpen = "always" | "on-error" | "never";
+
+export type KanbanSettings = {
+	defaultAgentProfile: string,
+	planningPromptAppend: string,
+	implementationPromptAppend: string,
+	reviewPromptAppend: string,
+	startupSidebar: KanbanStartupSidebar,
+};
+
+export type KanbanStartupSidebar = "restore" | "sessions" | "kanban" | "none";
 
 // How a bound key is matched against a `KeyboardEvent`.
 export type KeyRef =
@@ -1440,6 +1444,7 @@ export type RouxSettings = {
 	mcpLastConfiguredHost?: string | null,
 	// Unix epoch milliseconds for the last successful MCP host config write.
 	mcpLastConfiguredAtMs?: number | null,
+	kanban?: KanbanSettings,
 	// Runtime feature flags. See `ExperimentsConfig`.
 	experiments?: ExperimentsConfig,
 };
@@ -1733,7 +1738,7 @@ export type WatchScope = { type: "global" } | { type: "session"; sessionId: stri
 /**
  *  A durable unit of intended work. Cards outlive the sessions that run
  *  them — a card is born with no session (`Todo`) and session binding is
- *  set by the explicit `work-item-dispatch` action.
+ *  set by daemon-owned `work-item-start` after prompt dispatch succeeds.
  */
 export type WorkItem = {
 	id: string,
@@ -1742,7 +1747,26 @@ export type WorkItem = {
 	title: string,
 	body: string | null,
 	status: WorkItemStatus,
-	// Bound agent session — set when `work-item-dispatch` fires.
+	/**
+	 *  Repo to use when starting the card. If unset, the daemon derives it from
+	 *  the attached project.
+	 */
+	repoPath: string | null,
+	// Autonomous agent profile used by daemon-owned Start.
+	agentProfile: string | null,
+	// Base ref for the card's dedicated implementation worktree.
+	baseBranch: string | null,
+	/**
+	 *  Dedicated implementation worktree path. Set by daemon Start and reused
+	 *  by retries/restarts unless the user explicitly chooses a fresh start.
+	 */
+	worktreePath: string | null,
+	/**
+	 *  Last daemon-owned Start failure. The frontend renders this as the
+	 *  card-level start error; cleared by successful Start/config updates.
+	 */
+	startError: string | null,
+	// Bound agent session — set when `work-item-start` succeeds.
 	sessionId: string | null,
 	/**
 	 *  External system identity fields (provider, external_id, external_url)
@@ -1768,14 +1792,57 @@ export type WorkItemInput = {
 	title: string,
 	body?: string | null,
 	status?: WorkItemStatus | null,
+	repoPath?: string | null,
+	agentProfile?: string | null,
+	baseBranch?: string | null,
+	worktreePath?: string | null,
+	startError?: string | null,
 	projectId?: string | null,
 	parentId?: string | null,
 	externalRef?: ExternalRef | null,
 	sortOrder?: number | null,
 };
 
+export type WorkItemPlanResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+	session: Session,
+};
+
+export type WorkItemReviewAcceptResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+};
+
+export type WorkItemRun = {
+	id: string,
+	workItemId: string,
+	kind: WorkItemRunKind,
+	sessionId: string | null,
+	provider: string | null,
+	profileId: string | null,
+	status: WorkItemRunStatus,
+	worktreePath: string | null,
+	branch: string | null,
+	cost: number | null,
+	createdAt: number,
+	startedAt: number | null,
+	endedAt: number | null,
+	updatedAt: number,
+};
+
+export type WorkItemRunKind = "planning" | "implementation" | "review";
+
+export type WorkItemRunStatus = "queued" | "starting" | "running" | "blocked" | "review" | "failed" | "stopped" | "done";
+
+export type WorkItemStartResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+	session: Session,
+};
+
 // Board column / workflow position of a work item.
-export type WorkItemStatus = "todo" | "doing" | "review" | "done";
+export type WorkItemStatus = "todo" | "ready" | "doing" | "review" | "done";
 
 export type Worktree = {
 	path: string,

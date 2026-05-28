@@ -3,9 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import BoardFullscreen from "../BoardFullscreen.svelte";
 import {
   itemsByColumn,
+  acceptWorkItemReview,
   moveWorkItem,
-  dispatchWorkItem,
+  planWorkItem,
+  startWorkItem,
   createWorkItem,
+  activePlanningRunByItem,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { closeBoardFullscreen, openWorkItemSessionStart } from "$lib/stores/ui";
@@ -34,17 +37,21 @@ if (typeof Element !== "undefined" && !Element.prototype.animate) {
 vi.mock("$lib/stores/workItems", async () => {
   const { writable } = await import("svelte/store");
   return {
-    WORK_ITEM_COLUMNS: ["todo", "doing", "review", "done"],
+    WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
+      ready: "Ready",
       doing: "In Progress",
       review: "Review",
       done: "Done",
     },
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
+    activePlanningRunByItem: writable(new Map()),
+    acceptWorkItemReview: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
-    dispatchWorkItem: vi.fn().mockResolvedValue("sess-1"),
+    planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
+    startWorkItem: vi.fn().mockResolvedValue("sess-1"),
     createWorkItem: vi.fn().mockResolvedValue({}),
   };
 });
@@ -76,6 +83,11 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     title: "Ship the board",
     body: null,
     status: "todo",
+    repoPath: null,
+    agentProfile: null,
+    baseBranch: null,
+    worktreePath: null,
+    startError: null,
     sessionId: null,
     provider: null,
     externalId: null,
@@ -91,7 +103,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
 
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
-  for (const col of ["todo", "doing", "review", "done"]) map.set(col, []);
+  for (const col of ["todo", "ready", "doing", "review", "done"]) map.set(col, []);
   for (const item of items) map.get(item.status)?.push(item);
   (itemsByColumn as ReturnType<typeof import("svelte/store").writable>).set(map);
 }
@@ -109,12 +121,14 @@ describe("BoardFullscreen", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     seedColumns([]);
+    (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
   });
 
   it("renders one section per column with labels", () => {
     render(BoardFullscreen);
-    expect(screen.getAllByTestId("board-column")).toHaveLength(4);
+    expect(screen.getAllByTestId("board-column")).toHaveLength(5);
     expect(screen.getByText("To Do")).toBeTruthy();
+    expect(screen.getByText("Ready")).toBeTruthy();
     expect(screen.getByText("In Progress")).toBeTruthy();
     expect(screen.getByText("Review")).toBeTruthy();
     expect(screen.getByText("Done")).toBeTruthy();
@@ -150,30 +164,30 @@ describe("BoardFullscreen", () => {
     expect(closeBoardFullscreen).toHaveBeenCalled();
   });
 
-  it("Start dispatches without issuing a second move", async () => {
+  it("Start delegates to daemon start without issuing a second move", async () => {
     seedColumns([
       workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
-    ]);
+    ].map((item) => ({ ...item, agentProfile: "claude" } as WorkItem)));
     render(BoardFullscreen);
 
     await fireEvent.click(screen.getByLabelText("Start work item"));
 
-    expect(dispatchWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
   it("shows an inline error when Start dispatch fails", async () => {
-    vi.mocked(dispatchWorkItem).mockRejectedValueOnce(
+    vi.mocked(startWorkItem).mockRejectedValueOnce(
       new Error("project not found"),
     );
     seedColumns([
       workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
-    ]);
+    ].map((item) => ({ ...item, agentProfile: "claude" } as WorkItem)));
     render(BoardFullscreen);
 
     await fireEvent.click(screen.getByLabelText("Start work item"));
 
-    expect(dispatchWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
     await vi.waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         "The assigned project no longer exists.",
@@ -187,13 +201,14 @@ describe("BoardFullscreen", () => {
     seedColumns([item]);
     render(BoardFullscreen);
 
+    expect(screen.getByText("Configure")).toBeTruthy();
     await fireEvent.click(screen.getByLabelText("Start work item"));
 
     expect(openWorkItemSessionStart).toHaveBeenCalledWith({
       itemId: "wi-1",
       title: "Wire task start",
     });
-    expect(dispatchWorkItem).not.toHaveBeenCalled();
+    expect(startWorkItem).not.toHaveBeenCalled();
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
@@ -217,12 +232,97 @@ describe("BoardFullscreen", () => {
     ]);
     render(BoardFullscreen);
 
-    // Dispatched cards show Open terminal, not Start.
+    // Session-bound cards show Open terminal, not Start.
     expect(screen.queryByLabelText("Start work item")).toBeNull();
     await fireEvent.click(screen.getByLabelText("Open terminal"));
 
     expect(openSessionById).toHaveBeenCalledWith("sess-1");
     await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
+  });
+
+  it("accepts review from the card actions menu without directly moving the card", async () => {
+    seedColumns([
+      workItem({
+        id: "wi-review",
+        title: "Review me",
+        status: "review",
+        sessionId: "sess-1",
+      }),
+    ]);
+    render(BoardFullscreen);
+
+    await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
+    await fireEvent.click(screen.getByText("Accept done"));
+
+    expect(acceptWorkItemReview).toHaveBeenCalledWith("wi-review");
+    expect(moveWorkItem).not.toHaveBeenCalledWith("wi-review", "done", expect.any(Number));
+  });
+
+  it("shows Open planning terminal for an active planning run", async () => {
+    seedColumns([workItem({ id: "wi-plan", status: "todo", sessionId: null })]);
+    (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-plan",
+          {
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "plan-sess-1",
+            provider: "claude",
+            profileId: "claude",
+            status: "running",
+            worktreePath: "/repo",
+            branch: "main",
+            cost: null,
+            createdAt: 1,
+            startedAt: 1,
+            endedAt: null,
+            updatedAt: 1,
+          },
+        ],
+      ]),
+    );
+    render(BoardFullscreen);
+
+    expect(screen.queryByLabelText("Start work item")).toBeNull();
+    await fireEvent.click(screen.getByLabelText("Open planning terminal"));
+
+    expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
+    await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
+  });
+
+  it("replans an active planning run from the card actions menu", async () => {
+    seedColumns([workItem({ id: "wi-plan", status: "todo", sessionId: null })]);
+    (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-plan",
+          {
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "plan-sess-1",
+            provider: "claude",
+            profileId: "claude",
+            status: "running",
+            worktreePath: "/repo",
+            branch: "main",
+            cost: null,
+            createdAt: 1,
+            startedAt: 1,
+            endedAt: null,
+            updatedAt: 1,
+          },
+        ],
+      ]),
+    );
+    render(BoardFullscreen);
+
+    await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
+    await fireEvent.click(screen.getByText("Retry planning"));
+
+    expect(planWorkItem).toHaveBeenCalledWith("wi-plan", { replaceActive: true });
   });
 
   it("quick-adds a card to the column it was typed in", async () => {

@@ -1,12 +1,15 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::session::Session;
+
 /// Board column / workflow position of a work item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkItemStatus {
     #[default]
     Todo,
+    Ready,
     Doing,
     Review,
     Done,
@@ -16,6 +19,7 @@ impl WorkItemStatus {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Todo => "todo",
+            Self::Ready => "ready",
             Self::Doing => "doing",
             Self::Review => "review",
             Self::Done => "done",
@@ -25,6 +29,7 @@ impl WorkItemStatus {
     pub fn from_str_opt(s: &str) -> Option<Self> {
         match s {
             "todo" => Some(Self::Todo),
+            "ready" => Some(Self::Ready),
             "doing" => Some(Self::Doing),
             "review" => Some(Self::Review),
             "done" => Some(Self::Done),
@@ -52,7 +57,7 @@ pub struct ExternalRef {
 
 /// A durable unit of intended work. Cards outlive the sessions that run
 /// them — a card is born with no session (`Todo`) and session binding is
-/// set by the explicit `work-item-dispatch` action.
+/// set by daemon-owned `work-item-start` after prompt dispatch succeeds.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkItem {
@@ -62,7 +67,20 @@ pub struct WorkItem {
     pub title: String,
     pub body: Option<String>,
     pub status: WorkItemStatus,
-    /// Bound agent session — set when `work-item-dispatch` fires.
+    /// Repo to use when starting the card. If unset, the daemon derives it from
+    /// the attached project.
+    pub repo_path: Option<String>,
+    /// Autonomous agent profile used by daemon-owned Start.
+    pub agent_profile: Option<String>,
+    /// Base ref for the card's dedicated implementation worktree.
+    pub base_branch: Option<String>,
+    /// Dedicated implementation worktree path. Set by daemon Start and reused
+    /// by retries/restarts unless the user explicitly chooses a fresh start.
+    pub worktree_path: Option<String>,
+    /// Last daemon-owned Start failure. The frontend renders this as the
+    /// card-level start error; cleared by successful Start/config updates.
+    pub start_error: Option<String>,
+    /// Bound agent session — set when `work-item-start` succeeds.
     pub session_id: Option<String>,
     /// External system identity fields (provider, external_id, external_url)
     /// are de-normalised onto the item so the frontend never needs to
@@ -88,6 +106,16 @@ pub struct WorkItemInput {
     pub body: Option<String>,
     #[serde(default)]
     pub status: Option<WorkItemStatus>,
+    #[serde(default)]
+    pub repo_path: Option<String>,
+    #[serde(default)]
+    pub agent_profile: Option<String>,
+    #[serde(default)]
+    pub base_branch: Option<String>,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub start_error: Option<String>,
     #[serde(default)]
     pub project_id: Option<String>,
     #[serde(default)]
@@ -120,6 +148,7 @@ pub enum WorkItemEvent {
 #[serde(rename_all = "camelCase")]
 pub enum WorkItemRunStatus {
     Queued,
+    Starting,
     #[default]
     Running,
     Blocked,
@@ -133,6 +162,7 @@ impl WorkItemRunStatus {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Queued => "queued",
+            Self::Starting => "starting",
             Self::Running => "running",
             Self::Blocked => "blocked",
             Self::Review => "review",
@@ -145,6 +175,7 @@ impl WorkItemRunStatus {
     pub fn from_str_opt(s: &str) -> Option<Self> {
         match s {
             "queued" => Some(Self::Queued),
+            "starting" => Some(Self::Starting),
             "running" => Some(Self::Running),
             "blocked" => Some(Self::Blocked),
             "review" => Some(Self::Review),
@@ -156,11 +187,40 @@ impl WorkItemRunStatus {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkItemRunKind {
+    Planning,
+    #[default]
+    Implementation,
+    Review,
+}
+
+impl WorkItemRunKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Planning => "planning",
+            Self::Implementation => "implementation",
+            Self::Review => "review",
+        }
+    }
+
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "planning" => Some(Self::Planning),
+            "implementation" => Some(Self::Implementation),
+            "review" => Some(Self::Review),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkItemRun {
     pub id: String,
     pub work_item_id: String,
+    pub kind: WorkItemRunKind,
     pub session_id: Option<String>,
     pub provider: Option<String>,
     pub profile_id: Option<String>,
@@ -174,9 +234,33 @@ pub struct WorkItemRun {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemStartResult {
+    pub item: WorkItem,
+    pub run: WorkItemRun,
+    pub session: Session,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemPlanResult {
+    pub item: WorkItem,
+    pub run: WorkItemRun,
+    pub session: Session,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemReviewAcceptResult {
+    pub item: WorkItem,
+    pub run: WorkItemRun,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkItemRunEventKind {
+    Lifecycle,
     Text,
     ToolUse,
     ToolResult,
@@ -191,6 +275,7 @@ pub enum WorkItemRunEventKind {
 impl WorkItemRunEventKind {
     pub fn as_str(&self) -> &str {
         match self {
+            Self::Lifecycle => "lifecycle",
             Self::Text => "text",
             Self::ToolUse => "tool_use",
             Self::ToolResult => "tool_result",
@@ -205,6 +290,7 @@ impl WorkItemRunEventKind {
 
     pub fn from_str_opt(s: &str) -> Option<Self> {
         match s {
+            "lifecycle" => Some(Self::Lifecycle),
             "text" => Some(Self::Text),
             "tool_use" => Some(Self::ToolUse),
             "tool_result" => Some(Self::ToolResult),
@@ -289,6 +375,7 @@ mod tests {
     fn work_item_status_round_trips() {
         for (s, expected) in [
             ("todo", WorkItemStatus::Todo),
+            ("ready", WorkItemStatus::Ready),
             ("doing", WorkItemStatus::Doing),
             ("review", WorkItemStatus::Review),
             ("done", WorkItemStatus::Done),
@@ -316,6 +403,7 @@ mod tests {
     fn work_item_run_status_round_trips() {
         for (s, expected) in [
             ("queued", WorkItemRunStatus::Queued),
+            ("starting", WorkItemRunStatus::Starting),
             ("running", WorkItemRunStatus::Running),
             ("blocked", WorkItemRunStatus::Blocked),
             ("review", WorkItemRunStatus::Review),

@@ -39,9 +39,10 @@ pub use project::{Project, ProjectUpdate, SessionBlueprint};
 pub use pty::{PtyInfo, PtyRole, PtyStatus};
 pub use session::{map_hook_status, Session, SessionStatus, SessionStatusEvent};
 pub use settings::{
-    CursorStyle, ExampleVariant, ExperimentsConfig, GroupBy, LibrarySource, LibrarySourceKind,
-    ManagedProxyConfig, RouxSettings, SkillSyncMode, StatusBarPosition, TabPosition, UpdateChannel,
-    WorktreeCleanupMode, WorktreeDefaultBase, WorktreeProvider,
+    CursorStyle, ExampleVariant, ExperimentsConfig, GroupBy, KanbanSettings, KanbanStartupSidebar,
+    LibrarySource, LibrarySourceKind, ManagedProxyConfig, RouxSettings, SkillSyncMode,
+    StatusBarPosition, TabPosition, UpdateChannel, WorktreeCleanupMode, WorktreeDefaultBase,
+    WorktreeProvider,
 };
 pub use subscription::{BusSubscription, BusSubscriptionEvent};
 pub use task::{KeepOpen, TaskDefinition, TaskGroup};
@@ -52,7 +53,8 @@ pub use user_terminal_themes::{
 pub use watch::*;
 pub use work_item::{
     ExternalRef, WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemDecisionStatus,
-    WorkItemEvent, WorkItemInput, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind,
-    WorkItemRunStatus, WorkItemStatus,
+    WorkItemEvent, WorkItemInput, WorkItemPlanResult, WorkItemReviewAcceptResult, WorkItemRun,
+    WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus,
+    WorkItemStartResult, WorkItemStatus,
 };
 pub use worktree::{Worktree, WorktrunkMetadata};

@@ -17,8 +17,7 @@ pub enum ProjectPromptError {
 fn last_path_segment(path: &str) -> String {
     path.replace('\\', "/")
         .split('/')
-        .filter(|s| !s.is_empty())
-        .next_back()
+        .rfind(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| path.to_string())
 }

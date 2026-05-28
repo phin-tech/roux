@@ -860,12 +860,8 @@ impl Roux {
             .ok_or_else(|| RouxError::Command("missing id in delete response".to_string()))
     }
 
-    /// Dispatch a work item: the daemon creates a shell session named after
-    /// the item, binds it (broadcasting `SessionBound`), and rolls the session
-    /// back if binding fails. Returns the created session id.
-    ///
-    /// `profile` is forwarded to session creation; `None` yields a plain shell.
-    pub async fn work_item_dispatch(
+    #[allow(clippy::too_many_arguments)]
+    pub async fn work_item_start(
         &self,
         id: impl Into<String>,
         profile: Option<String>,
@@ -875,50 +871,8 @@ impl Roux {
         branch: Option<String>,
         base: Option<String>,
         fetch_first: Option<bool>,
-    ) -> RouxResult<String> {
-        let mut args = serde_json::json!({ "id": id.into() });
-        if let Some(profile) = profile {
-            args["profile"] = serde_json::Value::String(profile);
-        }
-        if let Some(repo_path) = repo_path {
-            args["repoPath"] = serde_json::Value::String(repo_path);
-        }
-        if let Some(name) = name {
-            args["name"] = serde_json::Value::String(name);
-        }
-        if let Some(worktree_path) = worktree_path {
-            args["worktreePath"] = serde_json::Value::String(worktree_path);
-        }
-        if let Some(branch) = branch {
-            args["branch"] = serde_json::Value::String(branch);
-        }
-        if let Some(base) = base {
-            args["base"] = serde_json::Value::String(base);
-        }
-        if let Some(fetch_first) = fetch_first {
-            args["fetchFirst"] = serde_json::Value::Bool(fetch_first);
-        }
-        let value: Value =
-            self.command(CommandRequest::new("work-item-dispatch").args(args)).await?;
-        value
-            .get("id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .ok_or_else(|| RouxError::Command("missing id in dispatch response".to_string()))
-    }
-
-    pub async fn work_item_run_dispatch(
-        &self,
-        id: impl Into<String>,
-        profile: Option<String>,
-        repo_path: Option<String>,
-        name: Option<String>,
-        worktree_path: Option<String>,
-        branch: Option<String>,
-        base: Option<String>,
-        fetch_first: Option<bool>,
-    ) -> RouxResult<roux_core::WorkItemRun> {
-        let args = work_item_dispatch_args(
+    ) -> RouxResult<roux_core::WorkItemStartResult> {
+        let args = work_item_start_args(
             id.into(),
             profile,
             repo_path,
@@ -928,7 +882,28 @@ impl Roux {
             base,
             fetch_first,
         );
-        self.command(CommandRequest::new("work-item-run-dispatch").args(args)).await
+        self.command(CommandRequest::new("work-item-start").args(args)).await
+    }
+
+    pub async fn work_item_plan(
+        &self,
+        id: impl Into<String>,
+        profile: Option<String>,
+        repo_path: Option<String>,
+        name: Option<String>,
+        worktree_path: Option<String>,
+        replace_active: bool,
+    ) -> RouxResult<roux_core::WorkItemPlanResult> {
+        let args =
+            work_item_plan_args(id.into(), profile, repo_path, name, worktree_path, replace_active);
+        self.command(CommandRequest::new("work-item-plan").args(args)).await
+    }
+
+    pub async fn work_item_review_accept(
+        &self,
+        id: impl Into<String>,
+    ) -> RouxResult<roux_core::WorkItemReviewAcceptResult> {
+        self.command(CommandRequest::new("work-item-review-accept").args(id_arg(id.into()))).await
     }
 
     pub async fn work_item_runs_list(
@@ -1175,7 +1150,7 @@ fn optional_repo_path_args(repo_path: Option<String>) -> Value {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn work_item_dispatch_args(
+fn work_item_start_args(
     id: String,
     profile: Option<String>,
     repo_path: Option<String>,
@@ -1206,6 +1181,33 @@ fn work_item_dispatch_args(
     }
     if let Some(fetch_first) = fetch_first {
         args["fetchFirst"] = Value::Bool(fetch_first);
+    }
+    args
+}
+
+fn work_item_plan_args(
+    id: String,
+    profile: Option<String>,
+    repo_path: Option<String>,
+    name: Option<String>,
+    worktree_path: Option<String>,
+    replace_active: bool,
+) -> Value {
+    let mut args = serde_json::json!({ "id": id });
+    if let Some(profile) = profile {
+        args["profile"] = Value::String(profile);
+    }
+    if let Some(repo_path) = repo_path {
+        args["repoPath"] = Value::String(repo_path);
+    }
+    if let Some(name) = name {
+        args["name"] = Value::String(name);
+    }
+    if let Some(worktree_path) = worktree_path {
+        args["worktreePath"] = Value::String(worktree_path);
+    }
+    if replace_active {
+        args["replaceActive"] = Value::Bool(true);
     }
     args
 }
@@ -1400,5 +1402,26 @@ fn insert_optional_string(
 ) {
     if let Some(value) = value {
         args.insert(key.into(), Value::String(value));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn work_item_plan_args_include_replace_active_when_requested() {
+        let args = work_item_plan_args(
+            "wi-1".to_string(),
+            Some("claude".to_string()),
+            Some("/repo".to_string()),
+            Some("Plan".to_string()),
+            Some("/repo".to_string()),
+            true,
+        );
+
+        assert_eq!(args["id"], "wi-1");
+        assert_eq!(args["profile"], "claude");
+        assert_eq!(args["replaceActive"], true);
     }
 }

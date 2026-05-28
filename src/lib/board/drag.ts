@@ -2,7 +2,13 @@ import { writable } from "svelte/store";
 import type { WorkItem, WorkItemStatus } from "$lib/bindings";
 
 export const WORK_ITEM_DRAG_MIME = "application/x-roux-work-item";
-const WORK_ITEM_STATUSES = new Set<WorkItemStatus>(["todo", "doing", "review", "done"]);
+const WORK_ITEM_STATUSES = new Set<WorkItemStatus>([
+  "todo",
+  "ready",
+  "doing",
+  "review",
+  "done",
+]);
 
 export interface WorkItemDragPayload {
   itemId: string;

@@ -139,6 +139,13 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   mcpEnabled: false,
   mcpLastConfiguredHost: null,
   mcpLastConfiguredAtMs: null,
+  kanban: {
+    defaultAgentProfile: "claude",
+    planningPromptAppend: "",
+    implementationPromptAppend: "",
+    reviewPromptAppend: "",
+    startupSidebar: "restore",
+  },
   experiments: EXPERIMENT_DEFAULTS,
 };
 

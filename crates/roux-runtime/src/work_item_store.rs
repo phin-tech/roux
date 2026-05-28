@@ -15,8 +15,8 @@ use serde_json::Value;
 
 use roux_core::{
     ExternalRef, WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemDecisionStatus,
-    WorkItemInput, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunStatus,
-    WorkItemStatus,
+    WorkItemInput, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind,
+    WorkItemRunStatus, WorkItemStatus,
 };
 
 pub struct WorkItemStore {
@@ -48,7 +48,7 @@ impl WorkItemStore {
              PRAGMA foreign_keys=ON;
              PRAGMA busy_timeout=5000;",
         )?;
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let mut version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         if version < 1 {
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS work_items (
@@ -58,6 +58,11 @@ impl WorkItemStore {
                     title       TEXT NOT NULL,
                     body        TEXT,
                     status      TEXT NOT NULL DEFAULT 'todo',
+                    repo_path   TEXT,
+                    agent_profile TEXT,
+                    base_branch TEXT,
+                    worktree_path TEXT,
+                    start_error TEXT,
                     session_id  TEXT,
                     provider    TEXT,
                     external_id TEXT,
@@ -77,12 +82,14 @@ impl WorkItemStore {
                     ON work_items(status);
                 PRAGMA user_version = 1;",
             )?;
+            version = 1;
         }
         if version < 2 {
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS work_item_runs (
                     id            TEXT PRIMARY KEY,
                     work_item_id  TEXT NOT NULL,
+                    kind          TEXT NOT NULL DEFAULT 'implementation',
                     session_id    TEXT,
                     provider      TEXT,
                     profile_id    TEXT,
@@ -132,6 +139,7 @@ impl WorkItemStore {
                     ON work_item_decisions(status);
                 PRAGMA user_version = 2;",
             )?;
+            version = 2;
         }
         if version < 3 {
             conn.execute_batch(
@@ -141,20 +149,41 @@ impl WorkItemStore {
                     WHERE status = 'pending' AND timeout_at IS NOT NULL;
                 PRAGMA user_version = 3;",
             )?;
+            version = 3;
+        }
+        if (1..4).contains(&version) {
+            add_column_if_missing(&conn, "work_items", "repo_path", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "agent_profile", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "base_branch", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "worktree_path", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "start_error", "TEXT")?;
+            conn.execute_batch("PRAGMA user_version = 4;")?;
+            version = 4;
+        }
+        if version < 5 {
+            add_column_if_missing(
+                &conn,
+                "work_item_runs",
+                "kind",
+                "TEXT NOT NULL DEFAULT 'implementation'",
+            )?;
+            conn.execute_batch("PRAGMA user_version = 5;")?;
         }
         Ok(WorkItemStore { conn })
     }
 
     pub fn list(&self, project_id: Option<&str>) -> SqlResult<Vec<WorkItem>> {
         let sql = if project_id.is_some() {
-            "SELECT id, project_id, parent_id, title, body, status, session_id,
+            "SELECT id, project_id, parent_id, title, body, status, repo_path,
+                    agent_profile, base_branch, worktree_path, start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
                     cost, created_at, updated_at
              FROM work_items
              WHERE project_id = ?1
              ORDER BY sort_order, created_at"
         } else {
-            "SELECT id, project_id, parent_id, title, body, status, session_id,
+            "SELECT id, project_id, parent_id, title, body, status, repo_path,
+                    agent_profile, base_branch, worktree_path, start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
                     cost, created_at, updated_at
              FROM work_items
@@ -174,7 +203,8 @@ impl WorkItemStore {
     pub fn get(&self, id: &str) -> SqlResult<Option<WorkItem>> {
         self.conn
             .query_row(
-                "SELECT id, project_id, parent_id, title, body, status, session_id,
+                "SELECT id, project_id, parent_id, title, body, status, repo_path,
+                        agent_profile, base_branch, worktree_path, start_error, session_id,
                         provider, external_id, external_url, sort_order, pinned_pr_url,
                         cost, created_at, updated_at
                  FROM work_items WHERE id = ?1",
@@ -191,9 +221,10 @@ impl WorkItemStore {
 
         self.conn.execute(
             "INSERT INTO work_items
-             (id, project_id, parent_id, title, body, status, provider,
+             (id, project_id, parent_id, title, body, status, repo_path,
+              agent_profile, base_branch, worktree_path, start_error, provider,
               external_id, external_url, sort_order, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 id,
                 input.project_id,
@@ -201,6 +232,11 @@ impl WorkItemStore {
                 input.title,
                 input.body,
                 status,
+                input.repo_path,
+                input.agent_profile,
+                input.base_branch,
+                input.worktree_path,
+                input.start_error,
                 provider,
                 external_id,
                 external_url,
@@ -220,24 +256,39 @@ impl WorkItemStore {
     ) -> SqlResult<Option<WorkItem>> {
         let status = input.status.as_ref().map(|s| s.as_str().to_string());
         let (provider, external_id, external_url) = split_external_ref(input.external_ref.as_ref());
+        let update_start_error = input.start_error.is_some()
+            || input.repo_path.is_some()
+            || input.agent_profile.is_some()
+            || input.base_branch.is_some()
+            || input.worktree_path.is_some();
         self.conn.execute(
             "UPDATE work_items SET
                 title       = ?2,
                 body        = COALESCE(?3, body),
                 status      = COALESCE(?4, status),
-                project_id  = COALESCE(?5, project_id),
-                parent_id   = COALESCE(?6, parent_id),
-                provider    = COALESCE(?7, provider),
-                external_id = COALESCE(?8, external_id),
-                external_url = COALESCE(?9, external_url),
-                sort_order  = COALESCE(?10, sort_order),
-                updated_at  = ?11
+                repo_path   = COALESCE(?5, repo_path),
+                agent_profile = COALESCE(?6, agent_profile),
+                base_branch = COALESCE(?7, base_branch),
+                worktree_path = COALESCE(?8, worktree_path),
+                start_error = CASE WHEN ?17 THEN ?9 ELSE start_error END,
+                project_id  = COALESCE(?10, project_id),
+                parent_id   = COALESCE(?11, parent_id),
+                provider    = COALESCE(?12, provider),
+                external_id = COALESCE(?13, external_id),
+                external_url = COALESCE(?14, external_url),
+                sort_order  = COALESCE(?15, sort_order),
+                updated_at  = ?16
              WHERE id = ?1",
             params![
                 id,
                 input.title,
                 input.body,
                 status,
+                input.repo_path,
+                input.agent_profile,
+                input.base_branch,
+                input.worktree_path,
+                input.start_error,
                 input.project_id,
                 input.parent_id,
                 provider,
@@ -245,6 +296,7 @@ impl WorkItemStore {
                 external_url,
                 input.sort_order,
                 now as i64,
+                update_start_error,
             ],
         )?;
         self.get(id)
@@ -278,6 +330,81 @@ impl WorkItemStore {
         self.conn.execute(
             "UPDATE work_items SET session_id = ?2, updated_at = ?3 WHERE id = ?1",
             params![id, session_id, now as i64],
+        )?;
+        self.get(id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_start_failure(
+        &mut self,
+        id: &str,
+        error: &str,
+        session_id: Option<&str>,
+        worktree_path: Option<&str>,
+        agent_profile: Option<&str>,
+        repo_path: Option<&str>,
+        base_branch: Option<&str>,
+        now: u64,
+    ) -> SqlResult<Option<WorkItem>> {
+        self.conn.execute(
+            "UPDATE work_items SET
+                start_error = ?2,
+                session_id = COALESCE(?3, session_id),
+                worktree_path = COALESCE(?4, worktree_path),
+                agent_profile = COALESCE(?5, agent_profile),
+                repo_path = COALESCE(?6, repo_path),
+                base_branch = COALESCE(?7, base_branch),
+                updated_at = ?8
+             WHERE id = ?1",
+            params![
+                id,
+                error,
+                session_id,
+                worktree_path,
+                agent_profile,
+                repo_path,
+                base_branch,
+                now as i64,
+            ],
+        )?;
+        self.get(id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn complete_start(
+        &mut self,
+        id: &str,
+        session_id: &str,
+        worktree_path: Option<&str>,
+        agent_profile: Option<&str>,
+        repo_path: Option<&str>,
+        base_branch: Option<&str>,
+        sort_order: f64,
+        now: u64,
+    ) -> SqlResult<Option<WorkItem>> {
+        self.conn.execute(
+            "UPDATE work_items SET
+                session_id = ?2,
+                status = ?3,
+                sort_order = ?4,
+                worktree_path = COALESCE(?5, worktree_path),
+                agent_profile = COALESCE(?6, agent_profile),
+                repo_path = COALESCE(?7, repo_path),
+                base_branch = COALESCE(?8, base_branch),
+                start_error = NULL,
+                updated_at = ?9
+             WHERE id = ?1",
+            params![
+                id,
+                session_id,
+                WorkItemStatus::Doing.as_str(),
+                sort_order,
+                worktree_path,
+                agent_profile,
+                repo_path,
+                base_branch,
+                now as i64,
+            ],
         )?;
         self.get(id)
     }
@@ -332,12 +459,13 @@ impl WorkItemStore {
         }
         tx.execute(
             "INSERT INTO work_item_runs
-             (id, work_item_id, session_id, provider, profile_id, status,
+             (id, work_item_id, kind, session_id, provider, profile_id, status,
               worktree_path, branch, created_at, started_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 run_id,
                 work_item_id,
+                WorkItemRunKind::Implementation.as_str(),
                 session_id,
                 provider,
                 profile_id,
@@ -354,6 +482,23 @@ impl WorkItemStore {
         let item = self.get(work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let run = self.get_run(&run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         Ok(Some((item, run)))
+    }
+
+    pub fn has_active_run(&self, work_item_id: &str) -> SqlResult<bool> {
+        self.conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM work_item_runs
+                WHERE work_item_id = ?1
+                  AND status NOT IN (?2, ?3, ?4)
+            )",
+            params![
+                work_item_id,
+                WorkItemRunStatus::Done.as_str(),
+                WorkItemRunStatus::Failed.as_str(),
+                WorkItemRunStatus::Stopped.as_str(),
+            ],
+            |row| row.get(0),
+        )
     }
 
     /// Upsert by `(provider, external_id)`: insert if no match, otherwise
@@ -409,32 +554,117 @@ impl WorkItemStore {
         branch: Option<&str>,
         now: u64,
     ) -> SqlResult<WorkItemRun> {
-        self.conn.execute(
+        self.create_run_with_status(
+            id,
+            work_item_id,
+            session_id,
+            provider,
+            profile_id,
+            worktree_path,
+            branch,
+            WorkItemRunStatus::Running,
+            now,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_run_with_status(
+        &mut self,
+        id: String,
+        work_item_id: &str,
+        session_id: Option<&str>,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+        status: WorkItemRunStatus,
+        now: u64,
+    ) -> SqlResult<WorkItemRun> {
+        self.create_run_with_kind_status(
+            id,
+            work_item_id,
+            WorkItemRunKind::Implementation,
+            session_id,
+            provider,
+            profile_id,
+            worktree_path,
+            branch,
+            status,
+            now,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_run_with_kind_status(
+        &mut self,
+        id: String,
+        work_item_id: &str,
+        kind: WorkItemRunKind,
+        session_id: Option<&str>,
+        provider: Option<&str>,
+        profile_id: Option<&str>,
+        worktree_path: Option<&str>,
+        branch: Option<&str>,
+        status: WorkItemRunStatus,
+        now: u64,
+    ) -> SqlResult<WorkItemRun> {
+        let is_terminal = matches!(
+            status,
+            WorkItemRunStatus::Failed | WorkItemRunStatus::Stopped | WorkItemRunStatus::Done
+        );
+        let started_at = (status == WorkItemRunStatus::Running).then_some(now as i64);
+        let tx = self.conn.transaction()?;
+        if !is_terminal {
+            let active: bool = tx.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM work_item_runs
+                    WHERE work_item_id = ?1
+                      AND status NOT IN (?2, ?3, ?4)
+                )",
+                params![
+                    work_item_id,
+                    WorkItemRunStatus::Done.as_str(),
+                    WorkItemRunStatus::Failed.as_str(),
+                    WorkItemRunStatus::Stopped.as_str(),
+                ],
+                |row| row.get(0),
+            )?;
+            if active {
+                tx.rollback()?;
+                return Err(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                    Some("active work item run already exists".into()),
+                ));
+            }
+        }
+        tx.execute(
             "INSERT INTO work_item_runs
-             (id, work_item_id, session_id, provider, profile_id, status,
+             (id, work_item_id, kind, session_id, provider, profile_id, status,
               worktree_path, branch, created_at, started_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 id,
                 work_item_id,
+                kind.as_str(),
                 session_id,
                 provider,
                 profile_id,
-                WorkItemRunStatus::Running.as_str(),
+                status.as_str(),
                 worktree_path,
                 branch,
                 now as i64,
-                now as i64,
+                started_at,
                 now as i64,
             ],
         )?;
+        tx.commit()?;
         self.get_run(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
     pub fn get_run(&self, id: &str) -> SqlResult<Option<WorkItemRun>> {
         self.conn
             .query_row(
-                "SELECT id, work_item_id, session_id, provider, profile_id, status,
+                "SELECT id, work_item_id, kind, session_id, provider, profile_id, status,
                         worktree_path, branch, cost, created_at, started_at, ended_at, updated_at
                  FROM work_item_runs
                  WHERE id = ?1",
@@ -446,13 +676,13 @@ impl WorkItemStore {
 
     pub fn list_runs(&self, work_item_id: Option<&str>) -> SqlResult<Vec<WorkItemRun>> {
         let sql = if work_item_id.is_some() {
-            "SELECT id, work_item_id, session_id, provider, profile_id, status,
+            "SELECT id, work_item_id, kind, session_id, provider, profile_id, status,
                     worktree_path, branch, cost, created_at, started_at, ended_at, updated_at
              FROM work_item_runs
              WHERE work_item_id = ?1
              ORDER BY rowid"
         } else {
-            "SELECT id, work_item_id, session_id, provider, profile_id, status,
+            "SELECT id, work_item_id, kind, session_id, provider, profile_id, status,
                     worktree_path, branch, cost, created_at, started_at, ended_at, updated_at
              FROM work_item_runs
              ORDER BY rowid"
@@ -522,24 +752,31 @@ impl WorkItemStore {
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let is_terminal = matches!(
             status,
-            WorkItemRunStatus::Failed | WorkItemRunStatus::Stopped | WorkItemRunStatus::Done
+            WorkItemRunStatus::Review
+                | WorkItemRunStatus::Failed
+                | WorkItemRunStatus::Stopped
+                | WorkItemRunStatus::Done
         );
+        let is_running = status == WorkItemRunStatus::Running;
         let tx = self.conn.transaction()?;
         let changed = tx.execute(
             "UPDATE work_item_runs
              SET status = ?2,
                  updated_at = ?3,
-                 ended_at = CASE WHEN ?4 THEN COALESCE(ended_at, ?3) ELSE ended_at END
+                 ended_at = CASE WHEN ?4 THEN COALESCE(ended_at, ?3) ELSE ended_at END,
+                 started_at = CASE WHEN ?9 THEN COALESCE(started_at, ?3) ELSE started_at END
              WHERE id = ?1
-               AND status NOT IN (?5, ?6, ?7)",
+               AND status NOT IN (?5, ?6, ?7, ?8)",
             params![
                 id,
                 status.as_str(),
                 now as i64,
                 is_terminal,
+                WorkItemRunStatus::Review.as_str(),
                 WorkItemRunStatus::Done.as_str(),
                 WorkItemRunStatus::Failed.as_str(),
                 WorkItemRunStatus::Stopped.as_str(),
+                is_running,
             ],
         )?;
         if changed == 0 {
@@ -562,6 +799,82 @@ impl WorkItemStore {
         let run = self.get_run(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let event = self.get_run_event(&event_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         Ok(Some((run, event)))
+    }
+
+    pub fn accept_review(
+        &mut self,
+        work_item_id: &str,
+        event_id: String,
+        payload: Value,
+        now: u64,
+    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent)>> {
+        if self.get(work_item_id)?.is_none() {
+            return Ok(None);
+        }
+        let payload = serde_json::to_string(&payload)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        let tx = self.conn.transaction()?;
+        let run_id = tx
+            .query_row(
+                "SELECT id
+                 FROM work_item_runs
+                 WHERE work_item_id = ?1
+                   AND kind = ?2
+                   AND status = ?3
+                 ORDER BY updated_at DESC, rowid DESC
+                 LIMIT 1",
+                params![
+                    work_item_id,
+                    WorkItemRunKind::Implementation.as_str(),
+                    WorkItemRunStatus::Review.as_str(),
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(run_id) = run_id else {
+            tx.rollback()?;
+            return Ok(None);
+        };
+        let changed = tx.execute(
+            "UPDATE work_item_runs
+             SET status = ?2,
+                 updated_at = ?3,
+                 ended_at = COALESCE(ended_at, ?3)
+             WHERE id = ?1 AND status = ?4",
+            params![
+                run_id,
+                WorkItemRunStatus::Done.as_str(),
+                now as i64,
+                WorkItemRunStatus::Review.as_str(),
+            ],
+        )?;
+        if changed == 0 {
+            tx.rollback()?;
+            return Ok(None);
+        }
+        tx.execute(
+            "UPDATE work_items
+             SET status = ?2, updated_at = ?3
+             WHERE id = ?1",
+            params![work_item_id, WorkItemStatus::Done.as_str(), now as i64],
+        )?;
+        tx.execute(
+            "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                event_id,
+                run_id,
+                WorkItemRunEventKind::StatusChanged.as_str(),
+                payload,
+                now as i64,
+            ],
+        )?;
+        tx.commit()?;
+
+        let item = self.get(work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let run = self.get_run(&run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let event = self.get_run_event(&event_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        Ok(Some((item, run, event)))
     }
 
     pub fn create_decision(
@@ -810,35 +1123,43 @@ fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
         title: row.get(3)?,
         body: row.get(4)?,
         status,
-        session_id: row.get(6)?,
-        provider: row.get(7)?,
-        external_id: row.get(8)?,
-        external_url: row.get(9)?,
-        sort_order: row.get(10)?,
-        pinned_pr_url: row.get(11)?,
-        cost: row.get(12)?,
-        created_at: row.get::<_, i64>(13)? as u64,
-        updated_at: row.get::<_, i64>(14)? as u64,
+        repo_path: row.get(6)?,
+        agent_profile: row.get(7)?,
+        base_branch: row.get(8)?,
+        worktree_path: row.get(9)?,
+        start_error: row.get(10)?,
+        session_id: row.get(11)?,
+        provider: row.get(12)?,
+        external_id: row.get(13)?,
+        external_url: row.get(14)?,
+        sort_order: row.get(15)?,
+        pinned_pr_url: row.get(16)?,
+        cost: row.get(17)?,
+        created_at: row.get::<_, i64>(18)? as u64,
+        updated_at: row.get::<_, i64>(19)? as u64,
     })
 }
 
 fn row_to_work_item_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItemRun> {
-    let status_str: String = row.get(5)?;
+    let kind_str: String = row.get(2)?;
+    let kind = WorkItemRunKind::from_str_opt(&kind_str).unwrap_or_default();
+    let status_str: String = row.get(6)?;
     let status = WorkItemRunStatus::from_str_opt(&status_str).unwrap_or_default();
     Ok(WorkItemRun {
         id: row.get(0)?,
         work_item_id: row.get(1)?,
-        session_id: row.get(2)?,
-        provider: row.get(3)?,
-        profile_id: row.get(4)?,
+        kind,
+        session_id: row.get(3)?,
+        provider: row.get(4)?,
+        profile_id: row.get(5)?,
         status,
-        worktree_path: row.get(6)?,
-        branch: row.get(7)?,
-        cost: row.get(8)?,
-        created_at: row.get::<_, i64>(9)? as u64,
-        started_at: row.get::<_, Option<i64>>(10)?.map(|value| value as u64),
-        ended_at: row.get::<_, Option<i64>>(11)?.map(|value| value as u64),
-        updated_at: row.get::<_, i64>(12)? as u64,
+        worktree_path: row.get(7)?,
+        branch: row.get(8)?,
+        cost: row.get(9)?,
+        created_at: row.get::<_, i64>(10)? as u64,
+        started_at: row.get::<_, Option<i64>>(11)?.map(|value| value as u64),
+        ended_at: row.get::<_, Option<i64>>(12)?.map(|value| value as u64),
+        updated_at: row.get::<_, i64>(13)? as u64,
     })
 }
 
@@ -881,6 +1202,30 @@ fn row_to_work_item_decision(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkIt
     })
 }
 
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> SqlResult<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> SqlResult<()> {
+    if !table_has_column(conn, table, column)? {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition};"))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -907,7 +1252,110 @@ mod tests {
         let store = WorkItemStore::open_in_memory().unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 5);
+    }
+
+    #[test]
+    fn fresh_database_reopens_without_duplicate_v4_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("board.db");
+        {
+            let store = WorkItemStore::open(&path).unwrap();
+            let version: i64 =
+                store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+            assert_eq!(version, 5);
+            assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
+            assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
+        }
+
+        let store = WorkItemStore::open(&path).unwrap();
+        let version: i64 =
+            store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(version, 5);
+        assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
+        assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
+    }
+
+    #[test]
+    fn v4_migration_repairs_partially_added_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("board.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE work_items (
+                    id          TEXT PRIMARY KEY,
+                    project_id  TEXT,
+                    parent_id   TEXT,
+                    title       TEXT NOT NULL,
+                    body        TEXT,
+                    status      TEXT NOT NULL DEFAULT 'todo',
+                    repo_path   TEXT,
+                    session_id  TEXT,
+                    provider    TEXT,
+                    external_id TEXT,
+                    external_url TEXT,
+                    sort_order  REAL NOT NULL DEFAULT 0,
+                    pinned_pr_url TEXT,
+                    cost        REAL,
+                    created_at  INTEGER NOT NULL,
+                    updated_at  INTEGER NOT NULL
+                );
+                CREATE TABLE work_item_runs (
+                    id            TEXT PRIMARY KEY,
+                    work_item_id  TEXT NOT NULL,
+                    session_id    TEXT,
+                    provider      TEXT,
+                    profile_id    TEXT,
+                    status        TEXT NOT NULL DEFAULT 'running',
+                    worktree_path TEXT,
+                    branch        TEXT,
+                    cost          REAL,
+                    created_at    INTEGER NOT NULL,
+                    started_at    INTEGER,
+                    ended_at      INTEGER,
+                    updated_at    INTEGER NOT NULL,
+                    FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+                );
+                CREATE TABLE work_item_run_events (
+                    id         TEXT PRIMARY KEY,
+                    run_id     TEXT NOT NULL,
+                    kind       TEXT NOT NULL,
+                    payload    TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(run_id) REFERENCES work_item_runs(id) ON DELETE CASCADE
+                );
+                CREATE TABLE work_item_decisions (
+                    id             TEXT PRIMARY KEY,
+                    run_id         TEXT NOT NULL,
+                    question       TEXT NOT NULL,
+                    options        TEXT NOT NULL,
+                    default_value  TEXT,
+                    status         TEXT NOT NULL DEFAULT 'pending',
+                    resolved_value TEXT,
+                    resolved_by    TEXT,
+                    created_at     INTEGER NOT NULL,
+                    resolved_at    INTEGER,
+                    updated_at     INTEGER NOT NULL,
+                    timeout_at     INTEGER,
+                    FOREIGN KEY(run_id) REFERENCES work_item_runs(id) ON DELETE CASCADE
+                );
+                PRAGMA user_version = 3;",
+            )
+            .unwrap();
+        }
+
+        let store = WorkItemStore::open(&path).unwrap();
+        let version: i64 =
+            store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(version, 5);
+        for column in ["repo_path", "agent_profile", "base_branch", "worktree_path", "start_error"]
+        {
+            assert!(table_has_column(&store.conn, "work_items", column).unwrap());
+        }
+        assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
+        let item = store.get("missing").unwrap();
+        assert!(item.is_none());
     }
 
     #[test]
@@ -958,6 +1406,24 @@ mod tests {
         assert_eq!(updated.title, "New");
         assert_eq!(updated.body.as_deref(), Some("body text"));
         assert_eq!(updated.updated_at, 2000);
+    }
+
+    #[test]
+    fn update_preserves_start_error_unless_start_config_changes() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        let mut item = input("Old");
+        item.start_error = Some("missing repo".into());
+        store.create("i-1".into(), item, 1000).unwrap();
+
+        let renamed = store.update("i-1", input("New"), 2000).unwrap().unwrap();
+        assert_eq!(renamed.title, "New");
+        assert_eq!(renamed.start_error.as_deref(), Some("missing repo"));
+
+        let mut repo_update = input("New");
+        repo_update.repo_path = Some("/repo".into());
+        let updated = store.update("i-1", repo_update, 3000).unwrap().unwrap();
+        assert_eq!(updated.repo_path.as_deref(), Some("/repo"));
+        assert_eq!(updated.start_error, None);
     }
 
     #[test]
@@ -1096,6 +1562,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(run.work_item_id, "i-1");
+        assert_eq!(run.kind, roux_core::WorkItemRunKind::Implementation);
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Running);
         assert_eq!(run.session_id.as_deref(), Some("sess-1"));
 
@@ -1109,10 +1576,30 @@ mod tests {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         store.create("i-1".into(), input("Task"), 1000).unwrap();
         store
-            .create_run("run-2".into(), "i-1", Some("sess-2"), None, None, None, None, 1100)
+            .create_run_with_status(
+                "run-2".into(),
+                "i-1",
+                Some("sess-2"),
+                None,
+                None,
+                None,
+                None,
+                WorkItemRunStatus::Done,
+                1100,
+            )
             .unwrap();
         store
-            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .create_run_with_status(
+                "run-1".into(),
+                "i-1",
+                Some("sess-1"),
+                None,
+                None,
+                None,
+                None,
+                WorkItemRunStatus::Failed,
+                1100,
+            )
             .unwrap();
 
         let runs = store.list_runs(Some("i-1")).unwrap();

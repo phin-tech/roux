@@ -6,9 +6,12 @@
     WORK_ITEM_COLUMNS,
     COLUMN_LABELS,
     moveWorkItem,
-    dispatchWorkItem,
+    startWorkItem,
+    planWorkItem,
+    acceptWorkItemReview,
     createWorkItem,
     pendingDecisionByItem,
+    activePlanningRunByItem,
     type WorkItemStatus,
   } from "$lib/stores/workItems";
   import { sessionList } from "$lib/stores/sessions";
@@ -38,7 +41,10 @@
   // Column currently under a valid drag, for the drop-target highlight.
   let dragOverColumn = $state<WorkItemStatus | null>(null);
   let startingItemIds = $state<Record<string, boolean>>({});
+  let planningItemIds = $state<Record<string, boolean>>({});
+  let acceptingItemIds = $state<Record<string, boolean>>({});
   let startErrors = $state<Record<string, string>>({});
+  let planErrors = $state<Record<string, string>>({});
   let deleteTarget = $state<WorkItem | null>(null);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
@@ -52,8 +58,12 @@
     return rest;
   }
 
+  function needsStartConfig(item: WorkItem): boolean {
+    return !item.agentProfile || (!item.repoPath && !item.projectId);
+  }
+
   async function handleStart(id: string, item: WorkItem) {
-    if (!item.projectId) {
+    if (needsStartConfig(item)) {
       openWorkItemSessionStart({ itemId: item.id, title: item.title });
       return;
     }
@@ -61,14 +71,50 @@
     startingItemIds = { ...startingItemIds, [id]: true };
     startErrors = withoutKey(startErrors, id);
 
-    // Dispatch creates + binds a session and atomically moves the card to Doing.
+    // Start creates the session/worktree and moves the card after prompt dispatch.
     try {
-      await dispatchWorkItem(id);
+      await startWorkItem(id);
     } catch (err) {
       startErrors = { ...startErrors, [id]: formatWorkItemStartError(err) };
-      console.error("Failed to dispatch work item", err);
+      console.error("Failed to start work item", err);
     } finally {
       startingItemIds = withoutKey(startingItemIds, id);
+    }
+  }
+
+  function formatPlanError(err: unknown): string {
+    const message = err instanceof Error ? err.message : String(err);
+    return message ? `Plan failed: ${message}` : "Plan failed.";
+  }
+
+  async function handlePlan(id: string, _item: WorkItem, replaceActive = false) {
+    if (planningItemIds[id]) return;
+    planningItemIds = { ...planningItemIds, [id]: true };
+    planErrors = withoutKey(planErrors, id);
+    try {
+      const sessionId = replaceActive
+        ? await planWorkItem(id, { replaceActive: true })
+        : await planWorkItem(id);
+      await handleOpen(sessionId);
+    } catch (err) {
+      planErrors = { ...planErrors, [id]: formatPlanError(err) };
+      console.error("Failed to plan work item", err);
+    } finally {
+      planningItemIds = withoutKey(planningItemIds, id);
+    }
+  }
+
+  async function handleAcceptReview(id: string, _item: WorkItem) {
+    if (acceptingItemIds[id]) return;
+    acceptingItemIds = { ...acceptingItemIds, [id]: true };
+    startErrors = withoutKey(startErrors, id);
+    try {
+      await acceptWorkItemReview(id);
+    } catch (err) {
+      startErrors = { ...startErrors, [id]: "Failed to accept review." };
+      console.error("Failed to accept work item review", err);
+    } finally {
+      acceptingItemIds = withoutKey(acceptingItemIds, id);
     }
   }
 
@@ -191,18 +237,24 @@
                 ? ($sessionStatusMap.get(item.sessionId) ?? null)
                 : null}
               {@const pendingDecision = $pendingDecisionByItem.get(item.id) ?? null}
+              {@const planningRun = $activePlanningRunByItem.get(item.id) ?? null}
               <WorkItemCard
                 {item}
                 {sessionStatus}
                 {pendingDecision}
+                planningSessionId={planningRun?.sessionId ?? null}
                 draggable
                 onMove={handleMove}
                 onStart={handleStart}
+                onPlan={handlePlan}
                 onOpen={handleOpen}
                 onEdit={openWorkItemEditor}
                 onDelete={handleDelete}
+                onAcceptReview={handleAcceptReview}
                 startPending={!!startingItemIds[item.id]}
-                startError={startErrors[item.id] ?? null}
+                planPending={!!planningItemIds[item.id]}
+                acceptPending={!!acceptingItemIds[item.id]}
+                startError={startErrors[item.id] ?? planErrors[item.id] ?? item.startError ?? null}
               />
             {/each}
           {:else}
