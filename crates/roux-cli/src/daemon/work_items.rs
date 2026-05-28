@@ -1611,7 +1611,8 @@ async fn run_dispatched_profile_with_task_prompt(
 
     let working_dir = profile_working_dir(&profile, &session);
     let env_args = serde_json::Value::Null;
-    host.pty_handle
+    match host
+        .pty_handle
         .spawn_task(
             command,
             PtySpawnRequest {
@@ -1628,8 +1629,26 @@ async fn run_dispatched_profile_with_task_prompt(
             },
         )
         .await
-        .map(|_| ())
-        .map_err(|err| format!("failed to launch agent task in session: {err}"))
+    {
+        Ok(_) => Ok(()),
+        Err(err) => Err(cleanup_failed_agent_launch_session(host, session_id, err).await),
+    }
+}
+
+async fn cleanup_failed_agent_launch_session(
+    host: &RuntimeHost,
+    session_id: &str,
+    err: impl std::fmt::Display,
+) -> String {
+    kill_session_ptys(host, session_id).await;
+    let archive_result = host.session_handle.archive(session_id).await;
+    let mut message = format!("failed to launch agent task in session: {err}");
+    if let Err(archive_err) = archive_result {
+        message.push_str(&format!("; additionally failed to archive session: {archive_err}"));
+    } else {
+        message.push_str("; session archived after failed agent launch");
+    }
+    message
 }
 
 fn profile_working_dir(profile: &roux_core::SpawnProfile, session: &roux_core::Session) -> PathBuf {
@@ -2851,6 +2870,54 @@ mod tests {
         }));
 
         let _ = host.pty_handle.kill(&session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn failed_agent_launch_cleanup_archives_session_and_ptys() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let response = handle_session_create_shell(
+            Request {
+                command: "session-create-shell".to_string(),
+                session_id: None,
+                pane_id: None,
+                auth_token: None,
+                args: serde_json::json!({
+                    "id": "session-a",
+                    "repoPath": dir.path(),
+                    "name": "Daemon Session",
+                    "profile": "plain-shell",
+                }),
+            },
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(response.ok, "session create failed: {:?}", response.error);
+        let session_id = response.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+        let ptys = host.pty_handle.list().await.unwrap();
+        assert!(
+            ptys.iter().any(|pty| pty.info.session_id.as_deref() == Some(session_id.as_str())),
+            "session shell should create a primary PTY before cleanup"
+        );
+
+        let error =
+            cleanup_failed_agent_launch_session(&host, &session_id, "simulated spawn failure")
+                .await;
+        assert!(error.contains("failed to launch agent task in session"));
+        assert!(error.contains("session archived after failed agent launch"));
+        let ptys = host.pty_handle.list().await.unwrap();
+        assert!(
+            !ptys.iter().any(|pty| pty.info.session_id.as_deref() == Some(session_id.as_str())),
+            "failed agent launch cleanup should not leave dangling session PTYs"
+        );
+        let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
+        assert!(session.archived);
+        assert!(session.primary_pty_id.is_none());
+
         shutdown_host(host, joins).await;
     }
 
