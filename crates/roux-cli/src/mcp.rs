@@ -26,6 +26,7 @@ const MCP_TOOL_NAMES: &[&str] = &[
     "roux_delete_work_item",
     "roux_plan_work_item",
     "roux_start_work_item",
+    "roux_accept_work_item_review",
     "roux_list_work_item_runs",
     "roux_list_work_item_run_events",
     "roux_stop_work_item_run",
@@ -1573,6 +1574,12 @@ fn build_work_item_decision_create_request(
     if params.options.is_empty() {
         return Err(McpToolError::InvalidParams("options must not be empty").into());
     }
+    let has_timeout = params.timeout_at.is_some()
+        || params.timeout_seconds.is_some()
+        || params.timeout_ms.is_some();
+    if has_timeout && params.default_value.is_none() {
+        return Err(McpToolError::InvalidParams("timeout requires defaultValue").into());
+    }
     let mut args = serde_json::Map::new();
     args.insert("runId".into(), Value::String(params.run_id));
     args.insert("question".into(), Value::String(params.question));
@@ -1624,6 +1631,7 @@ mod tests {
         assert!(MCP_TOOL_NAMES.contains(&"roux_send_text"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_get_latest_output"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_start_work_item"));
+        assert!(MCP_TOOL_NAMES.contains(&"roux_accept_work_item_review"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_resolve_work_item_decision"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_run_command"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_kill_pty"));
@@ -1734,6 +1742,22 @@ mod tests {
         .expect_err("empty options should fail");
 
         assert!(err.to_string().contains("options must not be empty"));
+    }
+
+    #[test]
+    fn work_item_decision_create_timeout_requires_default_value() {
+        let err = build_work_item_decision_create_request(WorkItemDecisionCreateParams {
+            run_id: "run-1".into(),
+            question: "Ship?".into(),
+            options: vec![WorkItemDecisionOptionParam { value: "yes".into(), label: "Yes".into() }],
+            default_value: None,
+            timeout_at: None,
+            timeout_seconds: Some(60),
+            timeout_ms: None,
+        })
+        .expect_err("timeout without default should fail");
+
+        assert!(err.to_string().contains("timeout requires defaultValue"));
     }
 
     #[test]

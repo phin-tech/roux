@@ -99,6 +99,18 @@ pub async fn run() -> Result<(), String> {
     .build();
 
     let (host, joins) = services.spawn_with(tokio::spawn);
+    match host.work_item_handle.fail_starting_runs_after_restart() {
+        Ok(recovered) if !recovered.is_empty() => {
+            log.write(&format!(
+                "Recovered {} stale starting work-item run(s) after restart",
+                recovered.len()
+            ));
+        }
+        Ok(_) => {}
+        Err(err) => {
+            log.write(&format!("Warning: failed to recover stale starting work-item runs: {err}"));
+        }
+    }
     if let Err(err) = schedule_pending_work_item_decision_timeouts(host.clone()).await {
         log.write(&format!("Warning: failed to schedule pending work item decisions: {err}"));
     }

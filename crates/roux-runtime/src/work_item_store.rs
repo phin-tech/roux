@@ -256,6 +256,11 @@ impl WorkItemStore {
     ) -> SqlResult<Option<WorkItem>> {
         let status = input.status.as_ref().map(|s| s.as_str().to_string());
         let (provider, external_id, external_url) = split_external_ref(input.external_ref.as_ref());
+        let update_start_error = input.start_error.is_some()
+            || input.repo_path.is_some()
+            || input.agent_profile.is_some()
+            || input.base_branch.is_some()
+            || input.worktree_path.is_some();
         self.conn.execute(
             "UPDATE work_items SET
                 title       = ?2,
@@ -265,7 +270,7 @@ impl WorkItemStore {
                 agent_profile = COALESCE(?6, agent_profile),
                 base_branch = COALESCE(?7, base_branch),
                 worktree_path = COALESCE(?8, worktree_path),
-                start_error = ?9,
+                start_error = CASE WHEN ?17 THEN ?9 ELSE start_error END,
                 project_id  = COALESCE(?10, project_id),
                 parent_id   = COALESCE(?11, parent_id),
                 provider    = COALESCE(?12, provider),
@@ -291,6 +296,7 @@ impl WorkItemStore {
                 external_url,
                 input.sort_order,
                 now as i64,
+                update_start_error,
             ],
         )?;
         self.get(id)
@@ -1400,6 +1406,24 @@ mod tests {
         assert_eq!(updated.title, "New");
         assert_eq!(updated.body.as_deref(), Some("body text"));
         assert_eq!(updated.updated_at, 2000);
+    }
+
+    #[test]
+    fn update_preserves_start_error_unless_start_config_changes() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        let mut item = input("Old");
+        item.start_error = Some("missing repo".into());
+        store.create("i-1".into(), item, 1000).unwrap();
+
+        let renamed = store.update("i-1", input("New"), 2000).unwrap().unwrap();
+        assert_eq!(renamed.title, "New");
+        assert_eq!(renamed.start_error.as_deref(), Some("missing repo"));
+
+        let mut repo_update = input("New");
+        repo_update.repo_path = Some("/repo".into());
+        let updated = store.update("i-1", repo_update, 3000).unwrap().unwrap();
+        assert_eq!(updated.repo_path.as_deref(), Some("/repo"));
+        assert_eq!(updated.start_error, None);
     }
 
     #[test]

@@ -1519,6 +1519,12 @@ fn parse_work_item_decision_options(options: Vec<String>) -> Result<Value, Strin
 fn build_work_item_decision_create_request(
     params: WorkItemDecisionCreateArgs,
 ) -> Result<Value, String> {
+    let has_timeout = params.timeout_at.is_some()
+        || params.timeout_seconds.is_some()
+        || params.timeout_ms.is_some();
+    if has_timeout && params.default_value.is_none() {
+        return Err("decision timeout requires --default-value".to_string());
+    }
     let mut args = serde_json::Map::new();
     args.insert("runId".into(), Value::String(params.run_id));
     args.insert("question".into(), Value::String(params.question));
@@ -3146,6 +3152,22 @@ mod tests {
         assert_eq!(options[0]["label"], "Ship it");
         assert_eq!(options[1]["value"], "hold");
         assert_eq!(options[1]["label"], "hold");
+    }
+
+    #[test]
+    fn work_item_decision_create_timeout_requires_default_value() {
+        let err = build_work_item_decision_create_request(WorkItemDecisionCreateArgs {
+            run_id: "run-1".into(),
+            question: "Ship?".into(),
+            options: vec!["yes=Yes".into()],
+            default_value: None,
+            timeout_at: None,
+            timeout_seconds: Some(60),
+            timeout_ms: None,
+        })
+        .expect_err("timeout without default should fail");
+
+        assert!(err.contains("--default-value"));
     }
 
     #[test]

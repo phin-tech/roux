@@ -488,6 +488,31 @@ impl WorkItemHandle {
         }
     }
 
+    /// Recover transient start records left behind by a daemon crash before
+    /// the profile dispatch completed. This is intended to run during daemon
+    /// startup before the socket accepts new start/plan requests.
+    pub fn fail_starting_runs_after_restart(&self) -> Result<Vec<WorkItemRun>, String> {
+        let starting_runs = self
+            .list_runs(None)?
+            .into_iter()
+            .filter(|run| run.status == WorkItemRunStatus::Starting)
+            .collect::<Vec<_>>();
+        let mut recovered = Vec::new();
+        for run in starting_runs {
+            if let Some(updated) = self.set_run_status(
+                &run.id,
+                WorkItemRunStatus::Failed,
+                serde_json::json!({
+                    "reason": "daemonRestartedBeforeRunStarted",
+                    "previousStatus": WorkItemRunStatus::Starting.as_str(),
+                }),
+            )? {
+                recovered.push(updated);
+            }
+        }
+        Ok(recovered)
+    }
+
     pub fn accept_review(
         &self,
         work_item_id: &str,
@@ -755,6 +780,35 @@ mod tests {
         let event = rx.try_recv().expect("RunEventAppended event should be broadcast");
         assert!(matches!(
             event,
+            WorkItemEvent::RunEventAppended {
+                event: WorkItemRunEvent { kind: WorkItemRunEventKind::StatusChanged, .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn restart_recovery_fails_starting_runs_and_unblocks_card() {
+        let handle = WorkItemHandle::in_memory();
+        let item = handle.create(input("Task")).unwrap();
+        let run = handle
+            .create_starting_run(&item.id, Some("sess-1"), None, Some("claude"), None, None)
+            .unwrap();
+        assert_eq!(run.status, WorkItemRunStatus::Starting);
+        assert!(handle.has_active_run(&item.id).unwrap());
+        let mut rx = handle.subscribe_events();
+
+        let recovered = handle.fail_starting_runs_after_restart().unwrap();
+
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].id, run.id);
+        assert_eq!(recovered[0].status, WorkItemRunStatus::Failed);
+        assert!(!handle.has_active_run(&item.id).unwrap());
+        assert!(matches!(
+            rx.try_recv().expect("RunUpdated should be broadcast"),
+            WorkItemEvent::RunUpdated { .. }
+        ));
+        assert!(matches!(
+            rx.try_recv().expect("RunEventAppended should be broadcast"),
             WorkItemEvent::RunEventAppended {
                 event: WorkItemRunEvent { kind: WorkItemRunEventKind::StatusChanged, .. }
             }
