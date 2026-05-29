@@ -190,7 +190,7 @@ describe("closeSession", () => {
 
     expect(saveLivePaneStateRaw).toHaveBeenCalledWith(
       session.id,
-      4,
+      5,
       { kind: "leaf", paneId: `${session.id}-main` },
       [`${session.id}-main`],
     );
