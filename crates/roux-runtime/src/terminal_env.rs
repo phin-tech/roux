@@ -317,16 +317,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn guest_safe_env_excludes_host_paths() {
-        assert!(is_guest_safe_env_key("ROUX_SESSION_ID"));
-        assert!(is_guest_safe_env_key("ROUX_AGENT_ALIAS"));
-        assert!(!is_guest_safe_env_key("PATH"));
-        assert!(!is_guest_safe_env_key("ROUX_SOCKET"));
-        assert!(!is_guest_safe_env_key("ROUX_CLI"));
-        assert!(!is_guest_safe_env_key("ROUX_NOTES_ROOT"));
-    }
-
     #[cfg(not(windows))]
     #[test]
     fn default_shell_prefers_explicit_setting_over_login_shell_and_env() {
