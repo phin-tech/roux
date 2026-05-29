@@ -567,7 +567,7 @@
           type="button"
           class={primaryButton}
           onclick={handleSave}
-          disabled={saving}
+          disabled={saving || worktreesLoading}
         >
           {saving ? "Saving..." : isCreating ? "Create" : "Save"}
         </button>
