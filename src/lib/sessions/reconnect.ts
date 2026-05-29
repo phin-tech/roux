@@ -90,8 +90,6 @@ function ensurePrimaryPaneForReconnect(
       spawnProfileRef,
       provider: descriptor?.provider,
       providerSessionId: descriptor?.providerSessionId,
-      nonoProfile: descriptor?.nonoProfile,
-      nonoAllowDirs: descriptor?.nonoAllowDirs,
       notesScope: descriptor?.notesScope,
       notesViewMode: descriptor?.notesViewMode,
       restoreError: undefined,
@@ -109,8 +107,6 @@ function ensurePrimaryPaneForReconnect(
       spawnProfileRef,
       provider: descriptor?.provider,
       providerSessionId: descriptor?.providerSessionId,
-      nonoProfile: descriptor?.nonoProfile,
-      nonoAllowDirs: descriptor?.nonoAllowDirs,
       notesScope: descriptor?.notesScope,
       notesViewMode: descriptor?.notesViewMode,
     });
@@ -286,8 +282,6 @@ async function rehydratePane(
         descriptor.workingDir ?? sessionWorktreePath,
         sessionId,
         paneId,
-        descriptor.nonoProfile ?? null,
-        descriptor.nonoAllowDirs ?? null,
         profileId,
       );
       createPane({
@@ -303,8 +297,6 @@ async function rehydratePane(
         spawnProfileRef: descriptor.spawnProfileRef,
         provider: descriptor.provider,
         providerSessionId: descriptor.providerSessionId,
-        nonoProfile: descriptor.nonoProfile,
-        nonoAllowDirs: descriptor.nonoAllowDirs,
       });
     } catch (e) {
       const errMsg = String(e);
@@ -318,8 +310,6 @@ async function rehydratePane(
         spawnProfileRef: descriptor.spawnProfileRef,
         provider: descriptor.provider,
         providerSessionId: descriptor.providerSessionId,
-        nonoProfile: descriptor.nonoProfile,
-        nonoAllowDirs: descriptor.nonoAllowDirs,
       });
       updateInstance(paneId, { restoreError: errMsg });
     }
@@ -351,18 +341,12 @@ async function reconnectPrimaryPaneOnly(
     );
   }
 
-  // Read nono config from the live primary pane instance so the respawn
-  // lands in the same sandbox the pane started in.
   const instance = getInstance(primaryPaneId);
-  const nonoProfile = instance?.nonoProfile ?? null;
-  const nonoAllowDirs = instance?.nonoAllowDirs ?? null;
   const profile = resolveProfileRef(instance?.spawnProfileRef);
 
   replacePty(primaryPaneId, session.id);
   const updated = await reconnectSessionShellPty(
     session.id,
-    nonoProfile,
-    nonoAllowDirs,
     profile?.id ?? null,
   );
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
@@ -606,8 +590,6 @@ export async function retryShellPane(paneId: string, sessionId: string): Promise
       instance.workingDir ?? "",
       sessionId,
       paneId,
-      instance.nonoProfile ?? null,
-      instance.nonoAllowDirs ?? null,
       profileId,
     );
     updateInstance(paneId, { ptyId, restoreError: undefined });

@@ -43,10 +43,6 @@ async function spawnShellPaneWithProfile(
 
   const ptyId = crypto.randomUUID();
   const paneId = crypto.randomUUID();
-  const nonoProfile = profile.nonoProfile ?? undefined;
-  const nonoAllowDirs = profile.nonoAllowDirs?.length
-    ? profile.nonoAllowDirs
-    : undefined;
   log(
     `Split ${direction} with profile "${profile.id}": pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`,
   );
@@ -56,8 +52,6 @@ async function spawnShellPaneWithProfile(
       session.worktreePath,
       session.id,
       paneId,
-      nonoProfile,
-      nonoAllowDirs,
       profile.id,
     );
   } catch (e) {
@@ -75,8 +69,6 @@ async function spawnShellPaneWithProfile(
     type: "shell",
     ptyId,
     spawnProfileRef,
-    nonoProfile,
-    nonoAllowDirs,
   });
   if (!newPaneId) return;
 
@@ -253,7 +245,7 @@ export function registerPaneCommands() {
       const paneId = crypto.randomUUID();
       log(`Split horizontal: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
       try {
-        await spawnShell(ptyId, session.worktreePath, session.id, paneId, null, null, "shell");
+        await spawnShell(ptyId, session.worktreePath, session.id, paneId, "shell");
       } catch (e) {
         logError("Failed to spawn shell for horizontal split", e);
         return;
@@ -285,7 +277,7 @@ export function registerPaneCommands() {
       const paneId = crypto.randomUUID();
       log(`Split vertical: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
       try {
-        await spawnShell(ptyId, session.worktreePath, session.id, paneId, null, null, "shell");
+        await spawnShell(ptyId, session.worktreePath, session.id, paneId, "shell");
       } catch (e) {
         logError("Failed to spawn shell for vertical split", e);
         return;

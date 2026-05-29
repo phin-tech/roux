@@ -13,8 +13,6 @@ import { reconnectSession } from "$lib/sessions/reconnect";
 
 /**
  * Create a worktree-backed session that launches the built-in Claude profile.
- * Resolves the profile's nono config up-front so the primary shell is
- * nono-wrapped from the start, matching the layout/dialog paths.
  *
  * `base` is the git starting point for the new branch ("main", "origin/main",
  * or the session's current branch). When `fetchFirst` is true, the backend
@@ -31,18 +29,13 @@ async function createWorktreeClaudeSession(
   const { runProfileInPane } = await import("$lib/panes/profileRunner");
   const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
   const profile = resolveProfileRef(profileRef);
-  const nonoProfile = profile?.nonoProfile ?? undefined;
-  const nonoAllowDirs = profile?.nonoAllowDirs ?? undefined;
 
   const newSession = await createSessionShell(
     repo, name, null, branch,
-    { nonoProfile, nonoAllowDirs, profile: "claude", base, fetchFirst },
+    { profile: "claude", base, fetchFirst },
   );
   addSession(newSession);
-  const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {
-    nonoProfile,
-    nonoAllowDirs,
-  });
+  const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(mainPaneId);
   if (profile) await runProfileInPane(newSession.id, profile);

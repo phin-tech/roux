@@ -33,11 +33,6 @@ export async function spawnBlueprintForProject(
   const { runProfileInPane } = await import("$lib/panes/profileRunner");
   const profileRef: SpawnProfileRef = { kind: "registered", id: bp.spawnProfile };
   const profile = resolveProfileRef(profileRef);
-  const nonoProfile = bp.nonoProfile ?? profile?.nonoProfile ?? undefined;
-  const nonoAllowDirs =
-    bp.nonoAllowDirs && bp.nonoAllowDirs.length > 0
-      ? bp.nonoAllowDirs
-      : profile?.nonoAllowDirs ?? undefined;
 
   const blueprintId = opts.blueprintId === undefined ? bp.id : opts.blueprintId;
 
@@ -47,8 +42,6 @@ export async function spawnBlueprintForProject(
     bp.worktreePath ?? null,
     bp.branch ?? null,
     {
-      nonoProfile,
-      nonoAllowDirs,
       profile: bp.spawnProfile,
       base: bp.base ?? null,
       fetchFirst: bp.fetchFirst ?? false,
@@ -72,10 +65,7 @@ export async function spawnBlueprintForProject(
     });
   }
 
-  const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {
-    nonoProfile,
-    nonoAllowDirs,
-  });
+  const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(mainPaneId);
   if (profile) {

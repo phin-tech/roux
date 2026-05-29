@@ -33,8 +33,6 @@ export interface PaneDescriptor {
   spawnProfileRef?: SpawnProfileRef;
   provider?: Provider;
   providerSessionId?: string;
-  nonoProfile?: string;
-  nonoAllowDirs?: string[];
   notesScope?: NotesScope;
   notesViewMode?: "edit" | "read";
 }

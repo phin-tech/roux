@@ -6,8 +6,6 @@
   import {
     createSessionShell,
     listWorktrees,
-    checkNonoInstalled,
-    listNonoProfiles,
     checkIsGitRepo,
     gitInit,
     killSession,
@@ -19,7 +17,7 @@
   } from "$lib/tauri";
   import { addSession, removeSession } from "$lib/stores/sessions";
   import { layoutList, type LayoutSpec } from "$lib/panes/layouts";
-  import { applyLayoutToSession, resolveFirstLeafNono, type LayoutApplyError } from "$lib/panes/layoutRunner";
+  import { applyLayoutToSession, resolveFirstLeafInfo, type LayoutApplyError } from "$lib/panes/layoutRunner";
   import { initSessionWithProfile } from "$lib/panes/actions";
   import { settings } from "$lib/stores/settings";
   import { startWorkItem } from "$lib/stores/workItems";
@@ -86,8 +84,6 @@
   let layoutPickOpen = $state(false);
   let profilePickInput = $state("");
   let profilePickOpen = $state(false);
-  let nonoPickInput = $state("");
-  let nonoPickOpen = $state(false);
   const pickerShellClass = "relative min-w-0 rounded-md border border-border bg-bg-deep";
   const pickerInputRowClass = "flex min-w-0 items-center gap-2 border-b border-border px-2 py-1.5";
   const pickerInputClass =
@@ -106,7 +102,6 @@
   let worktreePickerCloseT: ReturnType<typeof setTimeout> | null = null;
   let layoutPickerCloseT: ReturnType<typeof setTimeout> | null = null;
   let profilePickerCloseT: ReturnType<typeof setTimeout> | null = null;
-  let nonoPickerCloseT: ReturnType<typeof setTimeout> | null = null;
 
   function cancelWorktreePickerDeferredClose() {
     if (worktreePickerCloseT != null) {
@@ -150,26 +145,11 @@
     }, 150);
   }
 
-  function cancelNonoPickerDeferredClose() {
-    if (nonoPickerCloseT != null) {
-      clearTimeout(nonoPickerCloseT);
-      nonoPickerCloseT = null;
-    }
-  }
-  function armNonoPickerDeferredClose() {
-    cancelNonoPickerDeferredClose();
-    nonoPickerCloseT = setTimeout(() => {
-      nonoPickerCloseT = null;
-      nonoPickOpen = false;
-    }, 150);
-  }
-
   $effect(() => {
     if (visible) return;
     cancelWorktreePickerDeferredClose();
     cancelLayoutPickerDeferredClose();
     cancelProfilePickerDeferredClose();
-    cancelNonoPickerDeferredClose();
   });
 
   let filteredWorktrees = $derived.by<Worktree[]>(() => {
@@ -203,11 +183,6 @@
       ? `${pickerListClass} max-h-40 overflow-y-scroll`
       : `${pickerListClass} overflow-y-visible`,
   );
-  let nonoOptions = $derived.by<{ value: string; label: string }[]>(() => [
-    { value: "", label: "None (bare claude)" },
-    ...nonoProfiles.map((profile) => ({ value: profile, label: profile })),
-  ]);
-
   $effect(() => {
     const len = filteredWorktrees.length;
     if (len === 0) {
@@ -250,11 +225,6 @@
     return $profileList.find((p) => p.id === selectedProfileId) ?? null;
   });
 
-  // Nono sandbox integration
-  let nonoInstalled = $state(false);
-  let nonoProfiles = $state<string[]>([]);
-  let selectedNonoProfile = $state<string | null>(null);
-
   // PR URL integration (gh CLI). The input is hidden unless gh is present.
   let ghInstalled = $state(false);
   let prUrl = $state("");
@@ -293,7 +263,7 @@
     };
   });
 
-  // Check for nono on mount and detect git repo for default path
+  // Detect git repo for default path
   $effect(() => {
     if (visible) {
       if (workItemStart && seededWorkItemStartId !== workItemStart.itemId) {
@@ -306,14 +276,6 @@
           inlineProfile = null;
         }
       }
-      checkNonoInstalled().then((installed) => {
-        nonoInstalled = installed;
-        if (installed) {
-          listNonoProfiles().then((profiles) => {
-            nonoProfiles = profiles;
-          });
-        }
-      });
       checkGhInstalled().then((installed) => {
         ghInstalled = installed;
       });
@@ -517,9 +479,6 @@
           : "Custom…";
       }
     }
-    if (!nonoPickOpen) {
-      nonoPickInput = selectedNonoProfile ?? "None (bare claude)";
-    }
   });
 
   async function autofocusOnOpen() {
@@ -634,12 +593,6 @@
     profilePickOpen = true;
   }
 
-  function selectNonoOption(value: string, label: string) {
-    selectedNonoProfile = value === "" ? null : value;
-    nonoPickInput = label;
-    nonoPickOpen = false;
-  }
-
   function handleDialogKeydown(e: KeyboardEvent) {
     if (!visible || showCustomEditor) return;
     if (e.key === "Escape") {
@@ -743,10 +696,7 @@
         log(
           `Creating new session: repo=${repoPath}, target=${gitTarget?.label ?? "plain"}, name=${name}, layout=${selectedLayout.id}`,
         );
-        // Resolve the first leaf's effective nono up-front — the session's
-        // primary PTY is spawned now by createSessionShell, not by the
-        // layout walker (which only spawns PTYs for leaves 2..N).
-        const firstLeafInfo = resolveFirstLeafNono(selectedLayout);
+        const firstLeafInfo = resolveFirstLeafInfo(selectedLayout);
         const defaultBase = resolveDefaultBase();
         const session = await createSessionShell(
           repoPath,
@@ -754,8 +704,6 @@
           worktreePathArg,
           branchArg,
           {
-            nonoProfile: firstLeafInfo.nonoProfile ?? undefined,
-            nonoAllowDirs: firstLeafInfo.nonoAllowDirs ?? undefined,
             initialSize,
             profile: firstLeafInfo.profileId ?? undefined,
             base: defaultBase.base,
@@ -787,11 +735,6 @@
         `Creating new session: repo=${repoPath}, target=${gitTarget?.label ?? "plain"}, name=${name}, profile=${profile.id}`,
       );
 
-      // Effective nono: dialog dropdown takes precedence over the profile's
-      // own nono_profile. In either case we thread along the profile's
-      // allow_dirs — they describe what that profile needs to work, and
-      // aren't tied to a specific sandbox profile name.
-      const effectiveNono = resolveNonoForProfile(profile, selectedNonoProfile);
       const defaultBase = resolveDefaultBase();
 
       if (workItemStart) {
@@ -812,16 +755,14 @@
         return;
       }
 
-      // Spawn a shell (optionally nono-wrapped), then type the profile's
-      // setup / startup commands into it after the PTY is attached.
+      // Spawn a shell, then type the profile's setup / startup commands into
+      // it after the PTY is attached.
       const session = await createSessionShell(
         repoPath,
         name,
         worktreePathArg,
         branchArg,
         {
-          nonoProfile: effectiveNono.nonoProfile,
-          nonoAllowDirs: effectiveNono.nonoAllowDirs,
           initialSize,
           profile: profile.id,
           base: defaultBase.base,
@@ -839,7 +780,7 @@
           ? { kind: "inline", profile: profile }
           : { kind: "registered", id: profile.id };
 
-      const mainPaneId = initSessionWithProfile(session.id, profileRef, effectiveNono);
+      const mainPaneId = initSessionWithProfile(session.id, profileRef);
       const { connectPaneTerminal } = await import("$lib/panes/terminals");
       await connectPaneTerminal(mainPaneId);
 
@@ -854,39 +795,6 @@
     } finally {
       creating = false;
     }
-  }
-
-  /**
-   * Resolve the effective nono for the non-layout creation path.
-   *
-   * - Dialog dropdown wins when set: the user is explicit about which
-   *   sandbox profile wraps the shell. We still pass the profile's
-   *   allow_dirs because they describe what the spawn profile itself
-   *   needs (e.g. a scratch dir) — they aren't coupled to a specific
-   *   sandbox profile name.
-   * - Otherwise fall back to whatever nono the SpawnProfile declares.
-   */
-  function resolveNonoForProfile(
-    profile: SpawnProfile,
-    dialogNonoProfile: string | null,
-  ): { nonoProfile: string | undefined; nonoAllowDirs: string[] | undefined } {
-    if (dialogNonoProfile) {
-      return {
-        nonoProfile: dialogNonoProfile,
-        nonoAllowDirs: profile.nonoAllowDirs?.length
-          ? profile.nonoAllowDirs
-          : undefined,
-      };
-    }
-    if (profile.nonoProfile) {
-      return {
-        nonoProfile: profile.nonoProfile,
-        nonoAllowDirs: profile.nonoAllowDirs?.length
-          ? profile.nonoAllowDirs
-          : undefined,
-      };
-    }
-    return { nonoProfile: undefined, nonoAllowDirs: undefined };
   }
 
   function renderLayoutError(err: LayoutApplyError): string {
@@ -920,7 +828,6 @@
     sessionName = "";
     isGitRepo = false;
     error = "";
-    selectedNonoProfile = null;
     selectedLayoutId = "";
     selectedProfileId = "claude";
     inlineProfile = null;
@@ -940,8 +847,6 @@
     layoutPickOpen = false;
     profilePickInput = "";
     profilePickOpen = false;
-    nonoPickInput = "";
-    nonoPickOpen = false;
     worktreeFilterInput = "";
     worktreePickOpen = true;
     worktreeActiveIndex = 0;
@@ -1314,72 +1219,6 @@
               </p>
             {/if}
           </div>
-
-          <!-- Nono sandbox profile -->
-          {#if nonoInstalled}
-            <div class="flex flex-col gap-1.5">
-              <label
-                for="new-session-nono"
-                class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
-              >
-                Sandbox Profile
-                <span class="font-normal normal-case tracking-normal">(nono.sh)</span>
-              </label>
-              <div
-                class={pickerShellClass}
-                onfocusin={cancelNonoPickerDeferredClose}
-                onfocusout={(e) => {
-                  const shell = e.currentTarget as HTMLElement;
-                  if (!focusLeavingElement(shell, e.relatedTarget)) return;
-                  armNonoPickerDeferredClose();
-                }}
-              >
-                <Command.Root shouldFilter={true} loop={true} vimBindings={true}>
-                  <div class={pickerInputRowClass}>
-                    <Command.Input
-                      id="new-session-nono"
-                      bind:value={nonoPickInput}
-                      placeholder="Pick sandbox profile"
-                      class={pickerInputClass}
-                      onfocus={() => { nonoPickInput = ""; nonoPickOpen = true; }}
-                      oninput={() => { nonoPickOpen = true; }}
-                      onkeydown={(e) => {
-                        if (e.key !== "Enter") return;
-                        const match = findOptionMatch(nonoPickInput, nonoOptions);
-                        if (!match) return;
-                        e.preventDefault();
-                        selectNonoOption(match.value, match.label);
-                      }}
-                    />
-                  </div>
-                  {#if nonoPickOpen}
-                    <Command.List class={`${pickerListClass} max-h-32`}>
-                      <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
-                        No matching sandbox profiles
-                      </Command.Empty>
-                      <Command.Group>
-                        <Command.GroupItems>
-                          {#each nonoOptions as option (option.value)}
-                            <Command.Item
-                              value={option.label}
-                              keywords={[option.value]}
-                              onSelect={() => selectNonoOption(option.value, option.label)}
-                              class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
-                            >
-                              <span class="truncate text-[12px] text-text-primary">{option.label}</span>
-                              {#if (selectedNonoProfile ?? "") === option.value}
-                                <span class="ml-2 text-[10px] text-accent">selected</span>
-                              {/if}
-                            </Command.Item>
-                          {/each}
-                        </Command.GroupItems>
-                      </Command.Group>
-                    </Command.List>
-                  {/if}
-                </Command.Root>
-              </div>
-            </div>
-          {/if}
 
         {/if}
 

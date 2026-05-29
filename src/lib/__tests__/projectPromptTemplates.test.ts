@@ -52,8 +52,6 @@ function blueprint(overrides: Partial<SessionBlueprint> = {}): SessionBlueprint 
     spawnProfile: "claude",
     base: null,
     fetchFirst: false,
-    nonoProfile: null,
-    nonoAllowDirs: [],
     ...overrides,
   };
 }
@@ -69,8 +67,6 @@ function profile(overrides: Partial<SpawnProfile> = {}): SpawnProfile {
     cwdOverride: null,
     icon: null,
     provider: "claude",
-    nonoProfile: null,
-    nonoAllowDirs: null,
     source: "builtin",
     ...overrides,
   };

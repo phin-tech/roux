@@ -64,7 +64,7 @@ export const commands = {
 	cmdReadAutomationHookLog: (path: string) => typedError<string, string>(__TAURI_INVOKE("cmd_read_automation_hook_log", { path })),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
-	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, nonoProfile, nonoAllowDirs, profile, initialSize })),
+	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, profile, initialSize })),
 	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId, profile, initialSize })),
 	/**
 	 *  Archive a session (soft-delete). The frontend command name is retained
@@ -129,9 +129,7 @@ export const commands = {
 	 *  shell is ready. Used for every non-claude profile in the new-session
 	 *  picker (Codex, Plain shell, user profiles, inline Custom…).
 	 */
-	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, opts: {
-	nonoProfile?: string | null,
-	nonoAllowDirs?: string[] | null,
+createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, opts: {
 	/**
 	 *  Spawn-profile id (`claude`, `codex`, user-profile id, …). Passed to
 	 *  the PTY env so agents wake up under the right profile.
@@ -167,7 +165,7 @@ export const commands = {
 	 *  this call returns, so agents come back up the same way they were
 	 *  originally launched via `create_session_shell`.
 	 */
-	reconnectSessionShell: (id: string, nonoProfile: string | null, nonoAllowDirs: string[] | null, profile: string | null, initialSize: [number, number] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, nonoProfile, nonoAllowDirs, profile, initialSize })),
+	reconnectSessionShell: (id: string, profile: string | null, initialSize: [number, number] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, profile, initialSize })),
 	/**
 	 *  Active sessions only — archived rows are excluded. The history view
 	 *  uses `list_archived_sessions` for those.
@@ -232,8 +230,6 @@ export const commands = {
 	cmdPreviewCodexNotificationConfig: () => typedError<CodexNotificationConfigPreview, string>(__TAURI_INVOKE("cmd_preview_codex_notification_config")),
 	cmdConfigureCodexNotificationConfig: () => typedError<null, string>(__TAURI_INVOKE("cmd_configure_codex_notification_config")),
 	runSetup: () => typedError<null, string>(__TAURI_INVOKE("run_setup")),
-	checkNonoInstalled: () => __TAURI_INVOKE<boolean>("check_nono_installed"),
-	listNonoProfiles: () => __TAURI_INVOKE<string[]>("list_nono_profiles"),
 	checkDoctorStatus: () => __TAURI_INVOKE<DoctorStatus>("check_doctor_status"),
 	reinstallCli: () => typedError<null, string>(__TAURI_INVOKE("reinstall_cli")),
 	reinstallHooks: () => typedError<null, string>(__TAURI_INVOKE("reinstall_hooks")),
@@ -400,8 +396,6 @@ export type CodexNotificationConfigPreview = {
  *  share the same set of optional configuration.
  */
 export type CreateShellOpts = {
-	nonoProfile?: string | null,
-	nonoAllowDirs?: string[] | null,
 	/**
 	 *  Spawn-profile id (`claude`, `codex`, user-profile id, …). Passed to
 	 *  the PTY env so agents wake up under the right profile.
@@ -635,11 +629,7 @@ export type KeymapWarning = {
  *  not implement `Eq`. Tests use `PartialEq` with exact float values, which
  *  is fine because sizes come directly from literal tokens in the KDL source.
  */
-export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null;
-// Optional nono sandbox profile name (e.g. "default", "permissive").
-nono_profile?: string | null;
-// Optional allow_dir entries from a `nono_flags` child block.
-nono_allow_dirs?: string[] | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
+export type LayoutPaneNode = { kind: "leaf"; profile_ref: LayoutProfileRef; name?: string | null; size?: number | null; cwd?: string | null } | { kind: "split"; direction: LayoutSplitDirection; size?: number | null; children: LayoutPaneNode[] };
 
 /**
  *  How a leaf pane references a spawn profile. Registered ids are looked up
@@ -1307,8 +1297,6 @@ export type SessionBlueprint = {
 	spawnProfile: string,
 	base?: string | null,
 	fetchFirst?: boolean,
-	nonoProfile?: string | null,
-	nonoAllowDirs?: string[],
 };
 
 export type SessionStatus = "idle" | "thinking" | "generating" | "error" | "disconnected" | "attention";
@@ -1352,8 +1340,6 @@ export type SpawnProfile = {
 	cwdOverride?: string | null,
 	icon?: string | null,
 	provider?: Provider | null,
-	nonoProfile?: string | null,
-	nonoAllowDirs?: string[] | null,
 	source: ProfileSource,
 };
 

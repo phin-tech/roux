@@ -18,8 +18,8 @@ not installed, and never mutate the main repository's HEAD.
 
 A new optional text input titled **"PR URL (optional)"** is added at the top of
 `NewSessionDialog`, above the existing repo/branch section. The input is
-rendered only when the `gh` CLI is detected at dialog-open time (matching the
-existing `checkNonoInstalled` pattern — no blocking modal, no first-run wizard).
+rendered only when the `gh` CLI is detected at dialog-open time, with no
+blocking modal and no first-run wizard.
 
 The input accepts:
 

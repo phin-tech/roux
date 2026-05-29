@@ -30,7 +30,6 @@ This page tracks major shipped features across Roux's full history.
 - **Session layouts**: KDL-based multi-pane templates at session creation.
 - **Leader mode**: Vimish command surface (`cmd+;`) for pane/session workflows.
 - **CLI expansion**: stronger scripting and agent-to-agent control paths.
-- **Nono integration**: layout-level sandbox wrapping with allow-dir controls.
 - **Settings redesign**: category-based settings modal with clearer organization.
 - **Status bar positioning**: top/bottom status bar placement setting.
 

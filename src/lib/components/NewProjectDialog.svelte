@@ -230,8 +230,6 @@
       spawnProfile: profile,
       base: base || null,
       fetchFirst: defaultFetchFirst,
-      nonoProfile: null,
-      nonoAllowDirs: [],
     }));
     blueprints = [...blueprints, ...seeded];
     error = "";
@@ -295,8 +293,6 @@
         spawnProfile: defaultProfileId,
         base: null,
         fetchFirst: false,
-        nonoProfile: null,
-        nonoAllowDirs: [],
       },
     ];
   }
@@ -368,7 +364,6 @@
         branch: bp.branch?.trim() || null,
         base: bp.base?.trim() || null,
         worktreePath: bp.worktreePath?.trim() || null,
-        nonoProfile: bp.nonoProfile?.trim() || null,
       }));
       const trimmedPrompt = projectPrompt.trim();
       if (isEdit && project) {
