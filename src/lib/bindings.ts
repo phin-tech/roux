@@ -129,7 +129,7 @@ export const commands = {
 	 *  shell is ready. Used for every non-claude profile in the new-session
 	 *  picker (Codex, Plain shell, user profiles, inline Custom…).
 	 */
-createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, opts: {
+	createSessionShell: (repoPath: string, name: string, worktreePath: string | null, branch: string | null, opts: {
 	/**
 	 *  Spawn-profile id (`claude`, `codex`, user-profile id, …). Passed to
 	 *  the PTY env so agents wake up under the right profile.
