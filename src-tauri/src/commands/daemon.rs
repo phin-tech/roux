@@ -146,8 +146,6 @@ pub(crate) async fn daemon_pty_spawn_shell(
             session_id,
             pane_id,
             profile,
-            None,
-            Vec::new(),
             initial_size,
         )
         .await

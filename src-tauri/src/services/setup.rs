@@ -1,9 +1,5 @@
 use std::ffi::{OsStr, OsString};
 
-pub(crate) fn is_command_available(command: &str) -> bool {
-    crate::platform::find_executable_on_path(command).is_some()
-}
-
 pub(crate) fn nonempty_path(value: Option<&str>) -> Option<String> {
     value.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
 }

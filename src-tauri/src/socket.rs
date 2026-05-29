@@ -790,7 +790,6 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
         &path,
         &name,
         SessionTarget::Repo,
-        None,
         None, // profile - CLI-initiated, frontend will set via profile runner
         // CLI-initiated sessions have no pane context yet.
         None,
@@ -1001,7 +1000,6 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         project_id.as_deref(),
         worktree_env.as_deref(),
         None, // notes env snapshot — wired only from session creation path
-        None,
         None,
         crate::pty::PtyRole::Secondary,
         None, // profile — CLI-spawned, unknown
