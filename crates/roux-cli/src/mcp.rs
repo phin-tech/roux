@@ -2,7 +2,8 @@ use rmcp::{
     handler::server::wrapper::Parameters, model::CallToolResult, schemars::JsonSchema, tool,
     tool_router, transport::stdio, ErrorData, ServiceExt,
 };
-use serde::{Deserialize, Serialize};
+use serde::de;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 
 #[cfg(test)]
@@ -195,12 +196,20 @@ pub struct WorkItemUpdateParams {
     pub agent_profile: Option<String>,
     pub base_branch: Option<String>,
     pub worktree_path: Option<String>,
-    pub branch: Option<String>,
-    #[serde(default)]
-    pub fetch_first: bool,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    pub branch: Option<Option<String>>,
+    pub fetch_first: Option<bool>,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
     pub sort_order: Option<f64>,
+}
+
+fn deserialize_nullable_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some).map_err(de::Error::custom)
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1475,6 +1484,23 @@ fn insert_optional_string(
     }
 }
 
+fn insert_optional_nullable_string(
+    args: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: Option<Option<String>>,
+) {
+    if let Some(value) = value {
+        match value {
+            Some(value) => {
+                args.insert(key.into(), Value::String(value));
+            }
+            None => {
+                args.insert(key.into(), Value::Null);
+            }
+        }
+    }
+}
+
 fn insert_optional_f64(args: &mut serde_json::Map<String, Value>, key: &str, value: Option<f64>) {
     if let Some(value) = value {
         if let Some(number) = serde_json::Number::from_f64(value) {
@@ -1524,9 +1550,9 @@ fn build_work_item_update_request(params: WorkItemUpdateParams) -> Value {
     insert_optional_string(&mut args, "agentProfile", params.agent_profile);
     insert_optional_string(&mut args, "baseBranch", params.base_branch);
     insert_optional_string(&mut args, "worktreePath", params.worktree_path);
-    insert_optional_string(&mut args, "branch", params.branch);
-    if params.fetch_first {
-        args.insert("fetchFirst".into(), Value::Bool(true));
+    insert_optional_nullable_string(&mut args, "branch", params.branch);
+    if let Some(fetch_first) = params.fetch_first {
+        args.insert("fetchFirst".into(), Value::Bool(fetch_first));
     }
     insert_optional_string(&mut args, "projectId", params.project_id);
     insert_optional_string(&mut args, "parentId", params.parent_id);
@@ -1720,6 +1746,29 @@ mod tests {
         assert_eq!(request["args"]["branch"], "feat/login");
         assert_eq!(request["args"]["base"], "origin/main");
         assert_eq!(request["args"]["fetchFirst"], true);
+    }
+
+    #[test]
+    fn work_item_update_preserves_explicit_branch_null_and_fetch_false() {
+        let request = build_work_item_update_request(WorkItemUpdateParams {
+            id: "wi-1".into(),
+            title: "Fix login".into(),
+            body: None,
+            status: None,
+            repo_path: None,
+            agent_profile: None,
+            base_branch: None,
+            worktree_path: None,
+            branch: Some(None),
+            fetch_first: Some(false),
+            project_id: None,
+            parent_id: None,
+            sort_order: None,
+        });
+
+        assert_eq!(request["command"], "work-item-update");
+        assert!(request["args"]["branch"].is_null());
+        assert_eq!(request["args"]["fetchFirst"], false);
     }
 
     #[test]

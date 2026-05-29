@@ -534,11 +534,11 @@ struct WorkItemUpdateArgs {
     #[arg(long)]
     worktree_path: Option<String>,
     /// Branch name for card worktree creation
-    #[arg(long)]
-    branch: Option<String>,
-    /// Fetch before creating/checking out the card worktree
-    #[arg(long)]
-    fetch_first: bool,
+    #[arg(long, num_args = 0..=1)]
+    branch: Option<Option<String>>,
+    /// Fetch before creating/checking out the card worktree; pass --fetch-first=false to disable
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    fetch_first: Option<bool>,
     /// Project id
     #[arg(short, long)]
     project: Option<String>,
@@ -1419,6 +1419,23 @@ fn insert_optional_string(
     }
 }
 
+fn insert_optional_nullable_string(
+    args: &mut serde_json::Map<String, Value>,
+    key: &str,
+    value: Option<Option<String>>,
+) {
+    if let Some(value) = value {
+        match value {
+            Some(value) => {
+                args.insert(key.into(), Value::String(value));
+            }
+            None => {
+                args.insert(key.into(), Value::Null);
+            }
+        }
+    }
+}
+
 fn insert_optional_f64(args: &mut serde_json::Map<String, Value>, key: &str, value: Option<f64>) {
     if let Some(value) = value {
         if let Some(number) = serde_json::Number::from_f64(value) {
@@ -1467,9 +1484,9 @@ fn build_work_item_update_request(params: WorkItemUpdateArgs) -> Value {
     if let Some(worktree_path) = params.worktree_path {
         args.insert("worktreePath".into(), Value::String(resolve_path(&worktree_path)));
     }
-    insert_optional_string(&mut args, "branch", params.branch);
-    if params.fetch_first {
-        args.insert("fetchFirst".into(), Value::Bool(true));
+    insert_optional_nullable_string(&mut args, "branch", params.branch);
+    if let Some(fetch_first) = params.fetch_first {
+        args.insert("fetchFirst".into(), Value::Bool(fetch_first));
     }
     insert_optional_string(&mut args, "projectId", params.project);
     insert_optional_string(&mut args, "parentId", params.parent);
@@ -3059,6 +3076,30 @@ mod tests {
                 assert_eq!(sort_order, Some(42.5));
             }
             _ => panic!("expected WorkItem::Create"),
+        }
+    }
+
+    #[test]
+    fn work_item_update_can_clear_branch_and_disable_fetch_first() {
+        let cli = Cli::try_parse_from([
+            "roux",
+            "work-item",
+            "update",
+            "wi-1",
+            "--title",
+            "Fix login",
+            "--branch",
+            "--fetch-first=false",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::WorkItem {
+                action: WorkItemAction::Update(WorkItemUpdateArgs { branch, fetch_first, .. }),
+            } => {
+                assert_eq!(branch, Some(None));
+                assert_eq!(fetch_first, Some(false));
+            }
+            _ => panic!("expected WorkItem::Update"),
         }
     }
 
