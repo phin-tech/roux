@@ -25,7 +25,6 @@ pub struct CreateSessionShell {
     pub initial_size: Option<(u16, u16)>,
     pub project_id: Option<String>,
     pub blueprint_id: Option<String>,
-    pub smol_machine_name: Option<String>,
     pub notes: Option<NotesEnv>,
 }
 
@@ -72,7 +71,6 @@ impl CreateSessionShell {
         insert_initial_size(&mut args, self.initial_size);
         insert_optional_string(&mut args, "projectId", self.project_id);
         insert_optional_string(&mut args, "blueprintId", self.blueprint_id);
-        insert_optional_string(&mut args, "smolMachineName", self.smol_machine_name);
         insert_notes_env(&mut args, self.notes);
         Value::Object(args)
     }

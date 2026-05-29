@@ -43,12 +43,6 @@ pub(crate) struct CreateShellOpts {
     /// blueprint row when the live session is up.
     #[serde(default)]
     pub blueprint_id: Option<String>,
-    /// Smol-machine binding for this session. When set, the session's
-    /// primary PTY (and every subsequent shell pane) runs inside the
-    /// named VM via `smolvm machine exec`. Empty/missing means the
-    /// session runs on the host as usual.
-    #[serde(default)]
-    pub smol_machine_name: Option<String>,
 }
 
 pub(crate) fn abort_daemon_attach_task(state: &AppState, id: &str) -> Result<(), String> {
@@ -421,23 +415,6 @@ pub(crate) async fn set_session_pinned_pr_url(
     client.set_session_pinned_pr_url(session_id, normalized).await.map_err(Into::into)
 }
 
-/// Bind (or clear) a smol machine for a session. When set, every PTY
-/// spawned for this session runs via `smolvm machine exec --name <n> ...`
-/// inside the named VM instead of on the host. Pass `None` (or empty) to
-/// unbind. The empty-string normalization happens in
-/// `SessionHandle::set_smol_machine_name`'s service handler so the wire
-/// shape stays simple.
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn set_session_smol_machine(
-    session_id: String,
-    machine_name: Option<String>,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    let client = required_daemon_client_ref(&state)?;
-    client.set_session_smol_machine(session_id, machine_name).await.map_err(Into::into)
-}
-
 /// Re-read the session's worktree branch via `git rev-parse` and update the
 /// stored value if it changed. Returns the current branch (whether or not it
 /// changed). The frontend calls this on a low-frequency tick so PR discovery
@@ -489,9 +466,6 @@ pub(crate) async fn create_session_shell(
     } else {
         svc::SessionTarget::Repo
     };
-
-    let smol_machine_name =
-        opts.smol_machine_name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
 
     let client = required_daemon_client(&state)?;
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -547,7 +521,6 @@ pub(crate) async fn create_session_shell(
             initial_size,
             project_id: opts.project_id,
             blueprint_id: opts.blueprint_id,
-            smol_machine_name,
             notes: Some(notes),
         })
         .await

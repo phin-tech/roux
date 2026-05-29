@@ -185,7 +185,6 @@ describe("applyLayoutToSession", () => {
     // runProfileInPane called with the resolved profile
     expect(runProfileInPane).toHaveBeenCalledTimes(1);
     expect(runProfileInPane).toHaveBeenCalledWith("s1", claude, {
-      smolMachineName: null,
     });
 
     // Focus set to main pane
@@ -230,7 +229,6 @@ describe("applyLayoutToSession", () => {
     // runProfileInPane called twice
     expect(runProfileInPane).toHaveBeenCalledTimes(2);
     expect(runProfileInPane).toHaveBeenCalledWith("s2", claude, {
-      smolMachineName: null,
     });
   });
 
@@ -295,7 +293,6 @@ describe("applyLayoutToSession", () => {
     // runProfileInPane called with the inline profile verbatim
     expect(runProfileInPane).toHaveBeenCalledTimes(1);
     expect(runProfileInPane).toHaveBeenCalledWith("s4", inlineProfile, {
-      smolMachineName: null,
     });
 
     // Pane's spawnProfileRef is inline
@@ -519,7 +516,6 @@ describe("applyLayoutToSession", () => {
     // Both leaves get profile commands
     expect(runProfileInPane).toHaveBeenCalledTimes(2);
     expect(runProfileInPane).toHaveBeenCalledWith("s9", claude, {
-      smolMachineName: null,
     });
   });
 

@@ -27,7 +27,6 @@ fn make_session(id: &str) -> roux_core::Session {
         ended_at: None,
         blueprint_id: None,
         pinned_pr_url: None,
-        smol_machine_name: None,
     }
 }
 
@@ -2057,24 +2056,9 @@ async fn daemon_project_and_session_metadata_commands_mutate_runtime_state() {
     .await;
     assert!(set_pinned.ok, "session-set-pinned-pr-url failed: {:?}", set_pinned.error);
 
-    let set_smol = handle_request(
-        Request {
-            command: "session-set-smol-machine".to_string(),
-            session_id: Some("s1".to_string()),
-            pane_id: None,
-            auth_token: None,
-            args: serde_json::json!({ "machineName": "vm-a" }),
-        },
-        &host,
-        &identity,
-    )
-    .await;
-    assert!(set_smol.ok, "session-set-smol-machine failed: {:?}", set_smol.error);
-
     let session = host.session_handle.get("s1").await.unwrap().unwrap();
     assert_eq!(session.project_id.as_deref(), Some(project_id.as_str()));
     assert_eq!(session.pinned_pr_url.as_deref(), Some("https://github.com/o/r/pull/1"));
-    assert_eq!(session.smol_machine_name.as_deref(), Some("vm-a"));
 
     let remove_project = handle_request(
         Request {

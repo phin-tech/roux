@@ -121,8 +121,7 @@ pub fn codex_default_profiles(_settings: &RouxSettings) -> Vec<SpawnProfile> {
 /// life: `cd` override, env exports, setup command, then the startup command
 /// (with `append_system_prompt` folded in per provider). Returns `None` when
 /// the profile has nothing to run (e.g. plain shell), so callers leave the
-/// shell at its prompt. Mirrors the frontend `runProfileInPane` ordering; the
-/// smol-VM preflight there is a desktop-only concern and is not reproduced.
+/// shell at its prompt. Mirrors the frontend `runProfileInPane` ordering.
 pub fn profile_startup_input(
     profile: &SpawnProfile,
     append_system_prompt: Option<&str>,

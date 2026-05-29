@@ -34,7 +34,6 @@ pub(crate) struct AppState {
     pub(crate) mailbox_manager: MailboxManager,
     pub(crate) subscription_manager: SubscriptionManager,
     pub(crate) pending_replies: PendingReplies,
-    pub(crate) managed_proxy: Arc<crate::services::managed_proxy::ManagedProxyState>,
 }
 
 pub(crate) fn required_daemon_client(

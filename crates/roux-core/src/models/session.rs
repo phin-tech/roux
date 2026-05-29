@@ -109,15 +109,6 @@ pub struct Session {
     /// cases where the local branch was renamed after the PR was opened.
     #[serde(default)]
     pub pinned_pr_url: Option<String>,
-    /// When set, every PTY spawned for this session runs via
-    /// `smolvm machine exec --name <smol_machine_name> ...` inside the
-    /// named smol VM instead of on the host. Cleared by invoking the
-    /// `set_session_smol_machine` Tauri command with a `None` machine
-    /// name. Field outlives a smolvm uninstall — spawn-time defense in
-    /// `pty.rs` falls back to a clear "smolvm not installed" error
-    /// rather than silently running on host.
-    #[serde(default)]
-    pub smol_machine_name: Option<String>,
 }
 
 #[cfg(test)]

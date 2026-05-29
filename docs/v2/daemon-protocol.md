@@ -112,7 +112,7 @@ Supported `args`:
 - `fetchFirst`: run `git fetch origin` before resolving `base`.
 - `profile`: spawn profile id.
 - `initialSize`: `[cols, rows]`.
-- `projectId`, `blueprintId`, `smolMachineName`.
+- `projectId`, `blueprintId`.
 - `nonoProfile`, `nonoAllowDirs`.
 - `notesEnv`: notes env snapshot for the primary PTY.
 
@@ -167,12 +167,6 @@ session's project id in daemon-owned session metadata.
 
 Requires `session_id`, with nullable `args.url`. Sets or clears the session's
 pinned PR URL in daemon-owned session metadata.
-
-`session-set-smol-machine`
-
-Requires `session_id`, with nullable `args.machineName`. Sets or clears the
-session's smol-machine binding in daemon-owned session metadata. Future PTY
-spawns for that session inherit the binding from the daemon session record.
 
 `session-panes-list`
 

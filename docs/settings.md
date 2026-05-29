@@ -12,7 +12,7 @@ Settings are grouped into categories in a sidebar modal. Changes are persisted a
 - **Sessions** — close/reconnect behavior, default project path, repo roots quick-pick sources, worktree base template, worktree cleanup mode, and the New Worktree default starting point.
 - **Terminal** — independent terminal theme selection, user-imported `.itermcolors` themes, font, scrollback, cursor, and GPU acceleration settings.
 - **Claude** — binary path override, default model, additional flags.
-- **Integrations** — GitHub CLI (`gh`) path override, Smol Machines binary path, and managed-proxy lifecycle config.
+- **Integrations** — GitHub CLI (`gh`) and worktree tooling path overrides.
 - **Agent Integrations** — Roux MCP enablement and supported MCP host setup.
 - **Notifications** — OS notification master switch, test notification trigger, and Claude/Codex agent notification setup.
 - **Keyboard** — toggles for Option-pane and Command-session hint overlays.
@@ -60,18 +60,6 @@ The **Agent Integrations** section configures Roux for MCP hosts such as Claude 
 Roux reads an existing host config before writing. It preserves unrelated config and unknown fields on Roux's own server entry, skips writes when the entry is already current, and writes updates atomically.
 
 For v1, MCP exposes useful inspection and safe action tools by default. It does not expose arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, or broad filesystem mutation.
-
-## Smol Machines
-
-Under **Integrations → Smol Machines**, two related controls bundle the [Smol Machines](features/smol-machines.md) integration's host-side config:
-
-- **smolvm binary path** (`smolvmBinaryPath`) — overrides the auto-detected `smolvm` on `$PATH`. Leave blank to use whichever `smolvm` Roux finds first. The whole integration (sidebar icon, panel, session bindings) hides itself when no binary is detected.
-- **Managed HTTP proxy** (`managedProxy`) — optional. Lets Roux orchestrate a host-side HTTP proxy that the guest VM routes through. Configure a **command**, **port**, and optional **bind address**. Examples (Roux ships no proxy code; pick whatever you've installed):
-    - `tinyproxy -d -c ~/.config/roux/tinyproxy.conf` on port `8888`
-    - `mitmdump --mode regular --listen-port 8888` on port `8888`
-    - `squid -N -f /path/to/squid.conf` on port `3128`
-
-When configured, the Smol Machines panel header shows a Shield toggle. Roux spawns the command via `sh -lc`, polls the listen socket up to 5 seconds to confirm it bound, and SIGTERM/SIGKILLs on stop and on app quit. The create form's "Host HTTP proxy URL" auto-fills with `http://<bind>:<port>` when the proxy is running.
 
 ## Notifications
 

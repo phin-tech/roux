@@ -38,7 +38,6 @@ function session(overrides: Partial<Session> = {}): Session {
     endedAt: null,
     blueprintId: "bp-api",
     pinnedPrUrl: null,
-    smolMachineName: null,
     ...overrides,
   };
 }

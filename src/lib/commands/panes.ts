@@ -100,7 +100,6 @@ async function spawnShellPaneWithProfile(
     );
     await runProfileInPane(ptyId, profile, {
       ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
-      smolMachineName: session.smolMachineName ?? null,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

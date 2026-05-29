@@ -79,7 +79,6 @@ nav:
       - Projects: features/projects.md
       - Layouts: features/layouts.md
       - Worktrees: features/worktrees.md
-      - Smol Machines: features/smol-machines.md
       - Library: features/library.md
       - Notifications: features/notifications.md
       - Mailbox & Bus: features/mailbox.md

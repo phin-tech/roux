@@ -93,11 +93,6 @@ enum SessionMsg {
         url: Option<String>,
         reply: oneshot::Sender<()>,
     },
-    SetSmolMachineName {
-        id: String,
-        machine_name: Option<String>,
-        reply: oneshot::Sender<()>,
-    },
     Shutdown {
         reply: oneshot::Sender<()>,
     },
@@ -231,20 +226,6 @@ impl SessionHandle {
     ) -> Result<(), ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.send(SessionMsg::SetPinnedPrUrl { id: id.to_string(), url, reply: reply_tx })?;
-        reply_rx.await.map_err(|_| ServiceError)
-    }
-
-    pub async fn set_smol_machine_name(
-        &self,
-        id: &str,
-        machine_name: Option<String>,
-    ) -> Result<(), ServiceError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(SessionMsg::SetSmolMachineName {
-            id: id.to_string(),
-            machine_name,
-            reply: reply_tx,
-        })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 
@@ -398,18 +379,6 @@ async fn service_loop(
                         }
                         let _ = reply.send(());
                     }
-                    Some(SessionMsg::SetSmolMachineName { id, machine_name, reply }) => {
-                        if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
-                            // Empty strings normalize to None — the frontend
-                            // sometimes round-trips "" through form state and
-                            // we don't want to persist that as the binding.
-                            s.smol_machine_name = machine_name
-                                .map(|n| n.trim().to_string())
-                                .filter(|n| !n.is_empty());
-                            dirty = true;
-                        }
-                        let _ = reply.send(());
-                    }
                     Some(SessionMsg::Shutdown { reply }) => {
                         if dirty {
                             persist_to_disk(&sessions, &persist_path);
@@ -523,7 +492,6 @@ mod tests {
             ended_at: None,
             blueprint_id: None,
             pinned_pr_url: None,
-            smol_machine_name: None,
         }
     }
 
@@ -769,7 +737,6 @@ mod tests {
             .set_pinned_pr_url("missing", Some("https://github.com/o/r/pull/1".to_string()))
             .await
             .unwrap();
-        handle.set_smol_machine_name("missing", Some("vm-a".to_string())).await.unwrap();
 
         handle.shutdown().await;
         join.await.unwrap();

@@ -40,7 +40,7 @@ pub use pty::{PtyInfo, PtyRole, PtyStatus};
 pub use session::{map_hook_status, Session, SessionStatus, SessionStatusEvent};
 pub use settings::{
     CursorStyle, ExampleVariant, ExperimentsConfig, GroupBy, KanbanSettings, KanbanStartupSidebar,
-    LibrarySource, LibrarySourceKind, ManagedProxyConfig, RouxSettings, SkillSyncMode,
+    LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode,
     StatusBarPosition, TabPosition, UpdateChannel, WorktreeCleanupMode, WorktreeDefaultBase,
     WorktreeProvider,
 };

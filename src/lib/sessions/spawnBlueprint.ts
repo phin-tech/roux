@@ -86,7 +86,6 @@ export async function spawnBlueprintForProject(
     );
     await runProfileInPane(newSession.id, profile, {
       ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
-      smolMachineName: newSession.smolMachineName ?? null,
     });
   }
   return newSession;

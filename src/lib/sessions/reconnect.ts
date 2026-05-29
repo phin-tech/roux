@@ -388,7 +388,6 @@ async function reconnectPrimaryPaneOnly(
       );
       await runProfileInPane(session.id, effectiveProfile, {
         ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
-        smolMachineName: session.smolMachineName ?? null,
       });
     } catch (e) {
       log(
@@ -420,7 +419,6 @@ async function replayRestoredPaneProfile(
     );
     await runProfileInPane(instance.ptyId, effectiveProfile, {
       ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
-      smolMachineName: session.smolMachineName ?? null,
     });
   } catch (e) {
     log(`replayRestoredPaneProfile(${paneId}): profile "${profile.id}" replay failed — ${e}`);

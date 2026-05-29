@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::terminal_env::{self, NonoConfig, SmolvmExec};
+use crate::terminal_env::NonoConfig;
 
 pub const DEFAULT_PTY_COLS: u16 = 80;
 pub const DEFAULT_PTY_ROWS: u16 = 24;
@@ -37,7 +37,6 @@ pub struct ShellSpawnPlanInputs<'a> {
     pub roux_env: &'a [(String, String)],
     pub worktree_path: Option<&'a str>,
     pub nono: Option<&'a NonoConfig>,
-    pub smolvm: Option<&'a SmolvmExec>,
     pub initial_size: Option<(u16, u16)>,
 }
 
@@ -47,7 +46,6 @@ pub struct TaskSpawnPlanInputs<'a> {
     pub shell: &'a str,
     pub roux_env: &'a [(String, String)],
     pub worktree_path: Option<&'a str>,
-    pub smolvm: Option<&'a SmolvmExec>,
     pub initial_size: Option<(u16, u16)>,
 }
 
@@ -57,16 +55,7 @@ pub fn pty_dimensions(initial: Option<(u16, u16)>) -> PtyDimensions {
 }
 
 pub fn shell_spawn_plan(inputs: ShellSpawnPlanInputs<'_>) -> PtySpawnPlan {
-    let mut command = if let Some(smolvm) = inputs.smolvm {
-        let mut args = smolvm_exec_args(smolvm, inputs.worktree_path, inputs.roux_env);
-        args.push(smolvm.guest_shell.clone());
-        PtyCommandPlan {
-            program: smolvm.binary.clone(),
-            args,
-            env: inputs.roux_env.to_vec(),
-            cwd: inputs.working_dir.to_string(),
-        }
-    } else if let Some(nono) = inputs.nono {
+    let mut command = if let Some(nono) = inputs.nono {
         let mut args = vec![
             "run".to_string(),
             "--profile".to_string(),
@@ -100,54 +89,14 @@ pub fn shell_spawn_plan(inputs: ShellSpawnPlanInputs<'_>) -> PtySpawnPlan {
 }
 
 pub fn task_spawn_plan(inputs: TaskSpawnPlanInputs<'_>) -> PtySpawnPlan {
-    let command = if let Some(smolvm) = inputs.smolvm {
-        let mut args = smolvm_exec_args(smolvm, inputs.worktree_path, inputs.roux_env);
-        args.push(smolvm.guest_shell.clone());
-        args.push("-c".to_string());
-        args.push(inputs.command.to_string());
-        PtyCommandPlan {
-            program: smolvm.binary.clone(),
-            args,
-            env: inputs.roux_env.to_vec(),
-            cwd: inputs.working_dir.to_string(),
-        }
-    } else {
-        PtyCommandPlan {
-            program: PathBuf::from(inputs.shell),
-            args: task_command_args(inputs.shell, inputs.command),
-            env: inputs.roux_env.to_vec(),
-            cwd: inputs.working_dir.to_string(),
-        }
+    let command = PtyCommandPlan {
+        program: PathBuf::from(inputs.shell),
+        args: task_command_args(inputs.shell, inputs.command),
+        env: inputs.roux_env.to_vec(),
+        cwd: inputs.working_dir.to_string(),
     };
 
     PtySpawnPlan { size: pty_dimensions(inputs.initial_size), command }
-}
-
-fn smolvm_exec_args(
-    smolvm: &SmolvmExec,
-    worktree_path: Option<&str>,
-    roux_env: &[(String, String)],
-) -> Vec<String> {
-    let mut args = vec![
-        "machine".to_string(),
-        "exec".to_string(),
-        "--name".to_string(),
-        smolvm.machine_name.clone(),
-        "-i".to_string(),
-        "-t".to_string(),
-    ];
-    if let Some(wt) = worktree_path.filter(|path| !path.is_empty()) {
-        args.push("--workdir".to_string());
-        args.push(wt.to_string());
-    }
-    for (key, value) in roux_env {
-        if terminal_env::is_guest_safe_env_key(key) {
-            args.push("-e".to_string());
-            args.push(format!("{key}={value}"));
-        }
-    }
-    args.push("--".to_string());
-    args
 }
 
 fn append_shell_command_flags(args: &mut Vec<String>, shell: &str) {
@@ -235,7 +184,6 @@ mod tests {
             roux_env: &env,
             worktree_path: None,
             nono: Some(&nono),
-            smolvm: None,
             initial_size: Some((132, 37)),
         });
 
@@ -260,52 +208,6 @@ mod tests {
         assert_eq!(plan.command.cwd, "/work/project");
     }
 
-    #[test]
-    fn shell_plan_prefers_smolvm_and_filters_guest_env() {
-        let env = roux_env();
-        let nono = NonoConfig { profile: "ignored".to_string(), allow_dirs: vec![] };
-        let smolvm = SmolvmExec {
-            binary: PathBuf::from("/opt/smolvm"),
-            machine_name: "dev".to_string(),
-            guest_shell: "/bin/bash".to_string(),
-        };
-
-        let plan = shell_spawn_plan(ShellSpawnPlanInputs {
-            working_dir: "/host/project",
-            shell: "/bin/zsh",
-            roux_env: &env,
-            worktree_path: Some("/guest/project"),
-            nono: Some(&nono),
-            smolvm: Some(&smolvm),
-            initial_size: None,
-        });
-
-        assert_eq!(plan.command.program, PathBuf::from("/opt/smolvm"));
-        assert_eq!(
-            plan.command.args,
-            vec![
-                "machine",
-                "exec",
-                "--name",
-                "dev",
-                "-i",
-                "-t",
-                "--workdir",
-                "/guest/project",
-                "-e",
-                "TERM=xterm-256color",
-                "-e",
-                "ROUX_SESSION_ID=session-a",
-                "-e",
-                "ROUX_AGENT_ALIAS=builder",
-                "--",
-                "/bin/bash",
-            ]
-        );
-        assert_eq!(plan.command.env, env);
-        assert_eq!(plan.command.cwd, "/host/project");
-    }
-
     #[cfg(not(windows))]
     #[test]
     fn task_plan_uses_shell_command_on_unix() {
@@ -317,7 +219,6 @@ mod tests {
             shell: "/bin/zsh",
             roux_env: &env,
             worktree_path: None,
-            smolvm: None,
             initial_size: Some((90, 20)),
         });
 
@@ -325,50 +226,5 @@ mod tests {
         assert_eq!(plan.command.program, PathBuf::from("/bin/zsh"));
         assert_eq!(plan.command.args, vec!["-c", "cargo test"]);
         assert_eq!(plan.command.env, env);
-    }
-
-    #[test]
-    fn task_plan_smolvm_execs_guest_shell_command() {
-        let env = roux_env();
-        let smolvm = SmolvmExec {
-            binary: PathBuf::from("/opt/smolvm"),
-            machine_name: "dev".to_string(),
-            guest_shell: "/bin/bash".to_string(),
-        };
-
-        let plan = task_spawn_plan(TaskSpawnPlanInputs {
-            command: "npm test",
-            working_dir: "/host/project",
-            shell: "/bin/zsh",
-            roux_env: &env,
-            worktree_path: Some("/guest/project"),
-            smolvm: Some(&smolvm),
-            initial_size: None,
-        });
-
-        assert_eq!(plan.command.program, PathBuf::from("/opt/smolvm"));
-        assert_eq!(
-            plan.command.args,
-            vec![
-                "machine",
-                "exec",
-                "--name",
-                "dev",
-                "-i",
-                "-t",
-                "--workdir",
-                "/guest/project",
-                "-e",
-                "TERM=xterm-256color",
-                "-e",
-                "ROUX_SESSION_ID=session-a",
-                "-e",
-                "ROUX_AGENT_ALIAS=builder",
-                "--",
-                "/bin/bash",
-                "-c",
-                "npm test",
-            ]
-        );
     }
 }
