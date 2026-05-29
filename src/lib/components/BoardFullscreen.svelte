@@ -9,14 +9,20 @@
     startWorkItem,
     planWorkItem,
     acceptWorkItemReview,
-    createWorkItem,
     pendingDecisionByItem,
     activePlanningRunByItem,
+    runsByItem,
     type WorkItemStatus,
+    type WorkItemRun,
   } from "$lib/stores/workItems";
   import { sessionList } from "$lib/stores/sessions";
   import type { SessionStatus } from "$lib/types";
-  import { closeBoardFullscreen, openWorkItemEditor, openWorkItemSessionStart } from "$lib/stores/ui";
+  import {
+    closeBoardFullscreen,
+    openNewWorkItemEditor,
+    openWorkItemEditor,
+    openWorkItemSessionStart,
+  } from "$lib/stores/ui";
   import { openSessionById } from "$lib/panes/openSession";
   import { formatWorkItemStartError } from "$lib/board/startErrors";
   import {
@@ -60,6 +66,20 @@
 
   function needsStartConfig(item: WorkItem): boolean {
     return !item.agentProfile || (!item.repoPath && !item.projectId);
+  }
+
+  function attachedSessionIdsForItem(
+    item: WorkItem,
+    runs: WorkItemRun[],
+    planningSessionId: string | null,
+  ): string[] {
+    const ids = new Set<string>();
+    if (item.sessionId) ids.add(item.sessionId);
+    if (planningSessionId) ids.add(planningSessionId);
+    for (const run of runs) {
+      if (run.sessionId) ids.add(run.sessionId);
+    }
+    return [...ids];
   }
 
   async function handleStart(id: string, item: WorkItem) {
@@ -118,9 +138,8 @@
     }
   }
 
-  async function handleCreate(title: string, status: WorkItemStatus) {
-    // The card lands in the store via the broadcast `created` event.
-    await createWorkItem({ title, status, sortOrder: Date.now() });
+  function handleCreate(status: WorkItemStatus) {
+    openNewWorkItemEditor({ status });
   }
 
   function handleDelete(_id: string, item: WorkItem) {
@@ -238,11 +257,18 @@
                 : null}
               {@const pendingDecision = $pendingDecisionByItem.get(item.id) ?? null}
               {@const planningRun = $activePlanningRunByItem.get(item.id) ?? null}
+              {@const itemRuns = $runsByItem.get(item.id) ?? []}
+              {@const attachedSessionIds = attachedSessionIdsForItem(
+                item,
+                itemRuns,
+                planningRun?.sessionId ?? null,
+              )}
               <WorkItemCard
                 {item}
                 {sessionStatus}
                 {pendingDecision}
                 planningSessionId={planningRun?.sessionId ?? null}
+                {attachedSessionIds}
                 draggable
                 onMove={handleMove}
                 onStart={handleStart}
@@ -263,7 +289,7 @@
         </div>
 
         <div class="shrink-0 px-2 pb-2 pt-1">
-          <AddCardInput onCreate={(title) => handleCreate(title, col)} />
+          <AddCardInput onCreate={() => handleCreate(col)} />
         </div>
       </section>
     {/each}

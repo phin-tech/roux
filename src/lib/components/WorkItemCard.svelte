@@ -1,7 +1,9 @@
 <script lang="ts">
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
+  import Bot from "@lucide/svelte/icons/bot";
   import Check from "@lucide/svelte/icons/check";
   import ClipboardList from "@lucide/svelte/icons/clipboard-list";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
   import MoreVertical from "@lucide/svelte/icons/more-vertical";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Play from "@lucide/svelte/icons/play";
@@ -10,10 +12,13 @@
   import type { WorkItem, WorkItemStatus } from "$lib/bindings";
   import type { WorkItemDecision } from "$lib/types/workItems";
   import type { SessionStatus } from "$lib/types";
+  import { profileList } from "$lib/panes/profiles";
   import {
     clearDraggedWorkItem,
     writeWorkItemDragData,
   } from "$lib/board/drag";
+  import { unreadBySession } from "$lib/stores/notifications";
+  import { projects } from "$lib/stores/projects";
 
   interface Props {
     item: WorkItem;
@@ -36,6 +41,7 @@
     startError?: string | null;
     pendingDecision?: WorkItemDecision | null;
     planningSessionId?: string | null;
+    attachedSessionIds?: string[];
     /** Opt-in card dragging. The full-screen board enables it; the sidebar leaves it off. */
     draggable?: boolean;
   }
@@ -56,6 +62,7 @@
     startError = null,
     pendingDecision = null,
     planningSessionId = null,
+    attachedSessionIds = [],
     draggable = false,
   }: Props = $props();
 
@@ -84,6 +91,57 @@
   const dotClass = $derived(
     sessionStatus ? (statusDotClasses[sessionStatus] ?? "bg-muted") : null,
   );
+  const projectLabel = $derived(
+    item.projectId ? ($projects.find((p) => p.id === item.projectId)?.name ?? "Project") : null,
+  );
+  const profileLabel = $derived(
+    item.agentProfile
+      ? ($profileList.find((profile) => profile.id === item.agentProfile)?.name ?? item.agentProfile)
+      : null,
+  );
+  const targetLabel = $derived.by(() => {
+    const path = item.worktreePath ?? item.repoPath;
+    if (!path) return null;
+    const segments = path.replaceAll("\\", "/").split("/").filter(Boolean);
+    return segments.slice(-2).join("/") || path;
+  });
+  const branchLabel = $derived(item.branch ?? null);
+  const attentionSessionId = $derived(
+    pendingDecision ? (planningSessionId ?? item.sessionId ?? null) : null,
+  );
+  const allAttachedSessionIds = $derived.by(() => {
+    const ids = new Set<string>();
+    if (item.sessionId) ids.add(item.sessionId);
+    if (planningSessionId) ids.add(planningSessionId);
+    for (const sessionId of attachedSessionIds) {
+      if (sessionId) ids.add(sessionId);
+    }
+    return [...ids];
+  });
+  const unreadActivity = $derived.by(() => {
+    let count = 0;
+    let sessionCount = 0;
+    let targetSessionId: string | null = null;
+    for (const sessionId of allAttachedSessionIds) {
+      const sessionUnread = $unreadBySession.get(sessionId) ?? 0;
+      if (sessionUnread <= 0) continue;
+      count += sessionUnread;
+      sessionCount += 1;
+      targetSessionId ??= sessionId;
+    }
+    return { count, sessionCount, targetSessionId };
+  });
+  const unreadActivityTitle = $derived(
+    unreadActivity.sessionCount > 1
+      ? `${unreadActivity.count} unread notification${unreadActivity.count === 1 ? "" : "s"} across ${unreadActivity.sessionCount} attached sessions`
+      : `${unreadActivity.count} unread notification${unreadActivity.count === 1 ? "" : "s"}`,
+  );
+  const attentionButtonRight = $derived(hasMenuActions ? "2rem" : "0.375rem");
+  const liveStatusRight = $derived(
+    hasMenuActions ? (pendingDecision ? "3.5rem" : "2rem") : (pendingDecision ? "2rem" : "0.5rem"),
+  );
+  const chipClass =
+    "inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border-subtle/70 bg-bg-deep/55 px-1.5 py-0.5 text-[10px] leading-4 text-text-muted";
 
   let menuOpen = $state(false);
   let menuX = $state(0);
@@ -134,6 +192,18 @@
     onAcceptReview?.(item.id, item);
   }
 
+  function handleAttentionOpen(event: MouseEvent): void {
+    event.stopPropagation();
+    if (!attentionSessionId) return;
+    onOpen?.(attentionSessionId);
+  }
+
+  function handleUnreadActivityOpen(event: MouseEvent): void {
+    event.stopPropagation();
+    if (!unreadActivity.targetSessionId) return;
+    onOpen?.(unreadActivity.targetSessionId);
+  }
+
   function handleWindowKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") menuOpen = false;
   }
@@ -162,8 +232,7 @@
   {#if dotClass}
     <span
       class="absolute top-3 flex h-2 w-2"
-      class:right-8={hasMenuActions}
-      class:right-2={!hasMenuActions}
+      style={`right: ${liveStatusRight};`}
       role="img"
       aria-label="live status"
     >
@@ -172,6 +241,20 @@
       ></span>
       <span class="relative inline-flex h-2 w-2 rounded-full {dotClass}"></span>
     </span>
+  {/if}
+
+  {#if pendingDecision}
+    <button
+      type="button"
+      class="absolute top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-accent-dim/35 bg-accent-dim/15 text-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-accent-dim/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/60 disabled:cursor-default disabled:opacity-60"
+      style={`right: ${attentionButtonRight};`}
+      aria-label="Open session with pending question"
+      title={pendingDecision.question}
+      onclick={handleAttentionOpen}
+      disabled={!attentionSessionId || !onOpen}
+    >
+      <ClipboardList size={13} strokeWidth={2.2} />
+    </button>
   {/if}
 
   {#if hasMenuActions}
@@ -187,39 +270,59 @@
     </button>
   {/if}
 
-  {#if onEdit}
-    <button
-      type="button"
-      class="pr-4 text-left text-[13px] font-semibold leading-snug text-text-primary transition-colors hover:text-accent focus-visible:outline-none"
-      onclick={() => onEdit?.(item.id)}
-      aria-label="Edit card"
-    >
-      {item.title}
-    </button>
-  {:else}
-    <p class="pr-4 text-[13px] font-semibold leading-snug text-text-primary">{item.title}</p>
-  {/if}
+  <div class="flex min-w-0 items-start gap-2 pr-16">
+    {#if onEdit}
+      <button
+        type="button"
+        class="min-w-0 flex-1 text-left text-[13px] font-semibold leading-snug text-text-primary transition-colors hover:text-accent focus-visible:outline-none"
+        onclick={() => onEdit?.(item.id)}
+        aria-label="Edit card"
+      >
+        {item.title}
+      </button>
+    {:else}
+      <p class="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-text-primary">{item.title}</p>
+    {/if}
+    {#if unreadActivity.count > 0}
+      <button
+        type="button"
+        class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-accent-dim/30 px-1 text-[9px] font-semibold tabular-nums text-accent transition-colors hover:bg-accent-dim/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-default disabled:opacity-70"
+        title={unreadActivityTitle}
+        aria-label="Open session with unread activity"
+        onclick={handleUnreadActivityOpen}
+        disabled={!unreadActivity.targetSessionId || !onOpen}
+      >{unreadActivity.count > 99 ? "99+" : unreadActivity.count}</button>
+    {/if}
+  </div>
 
   {#if item.body}
     <p class="line-clamp-2 text-[11px] leading-4 text-text-muted">{item.body}</p>
   {/if}
 
-  {#if pendingDecision}
-    <div class="rounded-md border border-amber/30 bg-amber/10 px-2 py-1.5">
-      <p class="text-[10px] font-semibold uppercase text-amber">Blocked</p>
-      <p class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-text-secondary">
-        {pendingDecision.question}
-      </p>
-      <div class="mt-1.5 flex flex-col gap-1">
-        {#each pendingDecision.options as option, index (option.value)}
-          <div class="flex min-w-0 items-center gap-1.5 text-[10px] leading-4 text-text-secondary">
-            <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-amber/20 font-semibold text-amber">
-              {index + 1}
-            </span>
-            <span class="truncate">{option.label}</span>
-          </div>
-        {/each}
-      </div>
+  {#if projectLabel || profileLabel || targetLabel || branchLabel}
+    <div class="flex flex-wrap gap-1.5">
+      {#if projectLabel}
+        <span class={chipClass}>
+          <span class="truncate">{projectLabel}</span>
+        </span>
+      {/if}
+      {#if profileLabel}
+        <span class={chipClass}>
+          <Bot size={10} strokeWidth={2.2} class="shrink-0" />
+          <span class="truncate">{profileLabel}</span>
+        </span>
+      {/if}
+      {#if targetLabel}
+        <span class={chipClass} title={item.worktreePath ?? item.repoPath ?? undefined}>
+          <span class="truncate font-mono">{targetLabel}</span>
+        </span>
+      {/if}
+      {#if branchLabel}
+        <span class={chipClass}>
+          <GitBranch size={10} strokeWidth={2.2} class="shrink-0" />
+          <span class="truncate font-mono">{branchLabel}</span>
+        </span>
+      {/if}
     </div>
   {/if}
 
@@ -408,12 +511,12 @@
   }
 
   .work-card[data-blocked="true"] {
-    border-color: color-mix(in srgb, var(--color-amber) 38%, var(--color-border));
+    border-color: color-mix(in srgb, var(--color-accent) 34%, var(--color-border));
   }
 
   .work-card[data-blocked="true"]::before {
-    background: var(--color-amber);
-    box-shadow: 0 0 18px color-mix(in srgb, var(--color-amber) 38%, transparent);
+    background: var(--color-accent);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 34%, transparent);
   }
 
   @media (prefers-reduced-motion: reduce) {

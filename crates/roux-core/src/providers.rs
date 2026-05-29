@@ -31,6 +31,34 @@ pub fn resolve_profile(id: &str, settings: &RouxSettings) -> Option<SpawnProfile
     builtin_profiles(settings).into_iter().find(|p| p.id == id)
 }
 
+/// Return a copy of `profile` constrained for card planning runs. Planning
+/// sessions should inspect, ask questions, and produce a plan without editing
+/// files. Execution runs keep the original profile unchanged.
+pub fn profile_with_planning_constraints(profile: &SpawnProfile) -> SpawnProfile {
+    let mut profile = profile.clone();
+    let Some(startup) = profile
+        .startup_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|startup| !startup.is_empty())
+    else {
+        return profile;
+    };
+    let extra_args: &[&str] = match profile.provider {
+        Some(Provider::Claude) => &["--permission-mode", "plan"],
+        Some(Provider::Codex) => &["--sandbox", "read-only", "--ask-for-approval", "never"],
+        _ => return profile,
+    };
+
+    let mut command = startup.to_string();
+    for arg in extra_args {
+        command.push(' ');
+        command.push_str(&shell_quote(arg));
+    }
+    profile.startup_command = Some(command);
+    profile
+}
+
 /// Default profiles contributed by the Claude provider: the stock `claude`
 /// command with the user's configured binary path, default model, and
 /// additional flags stitched in.
@@ -544,6 +572,32 @@ mod tests {
             profile_startup_command_with_initial_prompt(&profile, Some("Be terse"), "Fix it")
                 .unwrap();
         assert_eq!(command, "codex -c instructions='Be terse' 'Fix it'");
+    }
+
+    #[test]
+    fn planning_constraints_force_claude_plan_permission_mode() {
+        let profile =
+            profile_with_planning_constraints(&claude_default_profiles(&RouxSettings::default())[0]);
+        let command =
+            profile_startup_command_with_initial_prompt(&profile, Some("Be terse"), "Plan it")
+                .unwrap();
+        assert_eq!(
+            command,
+            "claude --permission-mode plan --append-system-prompt 'Be terse' 'Plan it'",
+        );
+    }
+
+    #[test]
+    fn planning_constraints_force_codex_read_only_without_approval() {
+        let profile =
+            profile_with_planning_constraints(&codex_default_profiles(&RouxSettings::default())[0]);
+        let command =
+            profile_startup_command_with_initial_prompt(&profile, Some("Be terse"), "Plan it")
+                .unwrap();
+        assert_eq!(
+            command,
+            "codex --sandbox read-only --ask-for-approval never -c instructions='Be terse' 'Plan it'",
+        );
     }
 
     #[test]

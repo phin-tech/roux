@@ -16,6 +16,8 @@ function item(overrides: Partial<WorkItem> = {}): WorkItem {
     id: "wi-1",
     projectId: null,
     parentId: null,
+    branch: null,
+    fetchFirst: null,
     title: "Ship the board",
     body: null,
     status: "todo",

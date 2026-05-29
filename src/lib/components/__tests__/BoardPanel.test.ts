@@ -8,6 +8,7 @@ import {
   planWorkItem,
   startWorkItem,
   activePlanningRunByItem,
+  runsByItem,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { openWorkItemSessionStart } from "$lib/stores/ui";
@@ -43,6 +44,7 @@ vi.mock("$lib/stores/workItems", async () => {
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
+    runsByItem: writable(new Map()),
     acceptWorkItemReview: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
     planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
@@ -62,6 +64,7 @@ vi.mock("$lib/stores/sessions", async () => {
 
 vi.mock("$lib/stores/ui", () => ({
   openBoardFullscreen: vi.fn(),
+  openNewWorkItemEditor: vi.fn(),
   openWorkItemEditor: vi.fn(),
   openWorkItemSessionStart: vi.fn(),
 }));
@@ -82,6 +85,8 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     agentProfile: null,
     baseBranch: null,
     worktreePath: null,
+    branch: null,
+    fetchFirst: null,
     startError: null,
     sessionId: null,
     provider: null,
@@ -108,6 +113,7 @@ describe("BoardPanel", () => {
     vi.clearAllMocks();
     seedColumns([]);
     (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
   });
 
   it("Start delegates to daemon start without issuing a second move", async () => {

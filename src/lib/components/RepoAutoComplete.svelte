@@ -58,7 +58,8 @@
     onbrowse,
   }: Props = $props();
 
-  let pickerOpen = $state(true);
+  let pickerOpen = $state(false);
+  let pickerActive = $state(false);
   let closeT: ReturnType<typeof setTimeout> | null = null;
   // One-shot guard: swallows the next focus event after a selection so a
   // programmatic refocus by the caller doesn't immediately re-pop the dropdown.
@@ -74,12 +75,14 @@
     cancelDeferredClose();
     closeT = setTimeout(() => {
       closeT = null;
+      pickerActive = false;
       pickerOpen = false;
     }, 150);
   }
 
   function handleSelect(path: string, label: string) {
     onselect(path, label);
+    pickerActive = false;
     pickerOpen = false;
     suppressNextFocusOpen = true;
   }
@@ -90,6 +93,7 @@
       handleSelect(match.path, match.label);
       return;
     }
+    pickerActive = false;
     pickerOpen = false;
     suppressNextFocusOpen = true;
     onenter?.(value);
@@ -109,8 +113,15 @@
 </script>
 
 <div
-  class={pickerShellClass}
-  onfocusin={cancelDeferredClose}
+  class={`${pickerShellClass} transition-colors ${
+    pickerActive
+      ? "border-accent-dim/60 bg-bg-deep"
+      : "border-border-subtle bg-bg-deep/45"
+  }`}
+  onfocusin={() => {
+    pickerActive = true;
+    cancelDeferredClose();
+  }}
   onfocusout={(e) => {
     const shell = e.currentTarget as HTMLElement;
     if (!focusLeavingElement(shell, e.relatedTarget)) return;

@@ -7,14 +7,22 @@ import {
   moveWorkItem,
   planWorkItem,
   startWorkItem,
-  createWorkItem,
   activePlanningRunByItem,
+  pendingDecisionByItem,
+  runsByItem,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
-import { closeBoardFullscreen, openWorkItemSessionStart } from "$lib/stores/ui";
+import {
+  closeBoardFullscreen,
+  openNewWorkItemEditor,
+  openWorkItemSessionStart,
+} from "$lib/stores/ui";
 import { openSessionById } from "$lib/panes/openSession";
 import { WORK_ITEM_DRAG_MIME } from "$lib/board/drag";
 import type { WorkItem } from "$lib/bindings";
+import type { Notification } from "$lib/types";
+import type { WorkItemRun } from "$lib/types/workItems";
+import { notifications } from "$lib/stores/notifications";
 
 // jsdom lacks the Web Animations API that Svelte's transition:fade/scale use.
 if (typeof Element !== "undefined" && !Element.prototype.animate) {
@@ -48,6 +56,7 @@ vi.mock("$lib/stores/workItems", async () => {
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
+    runsByItem: writable(new Map()),
     acceptWorkItemReview: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
     planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
@@ -67,6 +76,7 @@ vi.mock("$lib/stores/sessions", async () => {
 
 vi.mock("$lib/stores/ui", () => ({
   closeBoardFullscreen: vi.fn(),
+  openNewWorkItemEditor: vi.fn(),
   openWorkItemEditor: vi.fn(),
   openWorkItemSessionStart: vi.fn(),
 }));
@@ -87,6 +97,8 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     agentProfile: null,
     baseBranch: null,
     worktreePath: null,
+    branch: null,
+    fetchFirst: null,
     startError: null,
     sessionId: null,
     provider: null,
@@ -99,6 +111,42 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     updatedAt: 0,
     ...overrides,
   } as WorkItem;
+}
+
+function workItemRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
+  return {
+    id: "run-1",
+    workItemId: "wi-1",
+    kind: "implementation",
+    sessionId: "sess-1",
+    provider: "claude",
+    profileId: "claude",
+    status: "running",
+    worktreePath: "/repo",
+    branch: "main",
+    cost: null,
+    createdAt: 1,
+    startedAt: 1,
+    endedAt: null,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function notification(overrides: Partial<Notification> = {}): Notification {
+  return {
+    id: "notification-1",
+    createdAt: 1,
+    level: "info",
+    source: { type: "internal" },
+    title: "Heads up",
+    subtitle: null,
+    body: null,
+    sessionId: "sess-1",
+    read: false,
+    actions: [],
+    ...overrides,
+  };
 }
 
 function seedColumns(items: WorkItem[]) {
@@ -122,6 +170,9 @@ describe("BoardFullscreen", () => {
     vi.clearAllMocks();
     seedColumns([]);
     (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
+    (pendingDecisionByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
+    notifications.set([]);
   });
 
   it("renders one section per column with labels", () => {
@@ -212,6 +263,47 @@ describe("BoardFullscreen", () => {
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
+  it("shows unread activity from any attached run session and opens that session", async () => {
+    seedColumns([workItem({ id: "wi-activity", title: "Needs attention" })]);
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-activity",
+          [
+            workItemRun({
+              id: "run-plan",
+              workItemId: "wi-activity",
+              kind: "planning",
+              sessionId: "plan-sess-1",
+              status: "stopped",
+            }),
+            workItemRun({
+              id: "run-impl",
+              workItemId: "wi-activity",
+              kind: "implementation",
+              sessionId: "impl-sess-1",
+            }),
+          ],
+        ],
+      ]),
+    );
+    notifications.set([
+      notification({ id: "n-plan", sessionId: "plan-sess-1" }),
+      notification({ id: "n-impl", sessionId: "impl-sess-1" }),
+      notification({ id: "n-other", sessionId: "other-sess" }),
+    ]);
+    render(BoardFullscreen);
+
+    const badge = screen.getByLabelText("Open session with unread activity");
+    expect(badge.textContent).toBe("2");
+    expect(screen.getByTitle("2 unread notifications across 2 attached sessions")).toBe(badge);
+
+    await fireEvent.click(badge);
+
+    expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
+    await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
+  });
+
   it("does not delete from the right-click menu when the delete dialog is canceled", async () => {
     seedColumns([workItem({ id: "wi-delete", title: "Keep me" })]);
     render(BoardFullscreen);
@@ -292,6 +384,61 @@ describe("BoardFullscreen", () => {
     await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
   });
 
+  it("routes pending question attention to the planning session without rendering the question body", async () => {
+    seedColumns([workItem({ id: "wi-plan", status: "todo", sessionId: null })]);
+    (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-plan",
+          {
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "plan-sess-1",
+            provider: "claude",
+            profileId: "claude",
+            status: "blocked",
+            worktreePath: "/repo",
+            branch: "main",
+            cost: null,
+            createdAt: 1,
+            startedAt: 1,
+            endedAt: null,
+            updatedAt: 1,
+          },
+        ],
+      ]),
+    );
+    (pendingDecisionByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-plan",
+          {
+            id: "decision-1",
+            runId: "run-plan",
+            question: "What should the report include?",
+            options: [{ value: "github", label: "GitHub activity" }],
+            defaultValue: null,
+            timeoutAt: null,
+            status: "pending",
+            resolvedValue: null,
+            resolvedBy: null,
+            createdAt: 1,
+            resolvedAt: null,
+            updatedAt: 1,
+          },
+        ],
+      ]),
+    );
+    render(BoardFullscreen);
+
+    expect(screen.queryByText("What should the report include?")).toBeNull();
+    await fireEvent.click(screen.getByLabelText("Open session with pending question"));
+
+    expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
+    await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
+  });
+
   it("replans an active planning run from the card actions menu", async () => {
     seedColumns([workItem({ id: "wi-plan", status: "todo", sessionId: null })]);
     (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(
@@ -325,7 +472,7 @@ describe("BoardFullscreen", () => {
     expect(planWorkItem).toHaveBeenCalledWith("wi-plan", { replaceActive: true });
   });
 
-  it("quick-adds a card to the column it was typed in", async () => {
+  it("opens the new card editor for the selected column", async () => {
     render(BoardFullscreen);
 
     // The Review column's add button (4 columns → 4 add buttons).
@@ -335,16 +482,6 @@ describe("BoardFullscreen", () => {
     ) as HTMLButtonElement;
     await fireEvent.click(addButton);
 
-    const input = reviewColumn.querySelector(
-      '[aria-label="New card title"]',
-    ) as HTMLInputElement;
-    await fireEvent.input(input, { target: { value: "Review the PR" } });
-    await fireEvent.keyDown(input, { key: "Enter" });
-
-    expect(createWorkItem).toHaveBeenCalledWith({
-      title: "Review the PR",
-      status: "review",
-      sortOrder: expect.any(Number),
-    });
+    expect(openNewWorkItemEditor).toHaveBeenCalledWith({ status: "review" });
   });
 });

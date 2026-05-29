@@ -53,8 +53,8 @@ pub use user_terminal_themes::{
 pub use watch::*;
 pub use work_item::{
     ExternalRef, WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemDecisionStatus,
-    WorkItemEvent, WorkItemInput, WorkItemPlanResult, WorkItemReviewAcceptResult, WorkItemRun,
-    WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus,
-    WorkItemStartResult, WorkItemStatus,
+    WorkItemEvent, WorkItemInput, WorkItemInputPresence, WorkItemPlanResult,
+    WorkItemReviewAcceptResult, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind,
+    WorkItemRunKind, WorkItemRunStatus, WorkItemStartResult, WorkItemStatus,
 };
 pub use worktree::{Worktree, WorktrunkMetadata};
