@@ -20,7 +20,6 @@ export type SidebarId =
   | "tasks"
   | "docs"
   | "sessions"
-  | "smolMachines"
   | "worktrunk"
   | "board";
 
@@ -32,7 +31,6 @@ export const PINNABLE_SIDEBARS: ReadonlySet<SidebarId> = new Set<SidebarId>([
   "tasks",
   "notifications",
   "mailbox",
-  "smolMachines",
   "worktrunk",
   "board",
 ]);

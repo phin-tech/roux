@@ -13,7 +13,7 @@ use roux_runtime::automation_hooks::{
 use roux_runtime::host::{RuntimeHost, RuntimeHostConfig};
 use roux_runtime::process_service::PROCESS_OUTPUT_DEFAULT_POLL_BYTES;
 use roux_runtime::pty_service::{PtyEnvRequest, PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES};
-use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs, SmolvmExec};
+use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs};
 use roux_runtime::watch_runner::WatchRunner;
 
 use crate::{daemon_log::DaemonLog, paths, platform};
@@ -196,7 +196,6 @@ async fn handle_request_with_watch_runner(
         "session-rename" => handle_session_rename(req, host).await,
         "session-set-project" => handle_session_set_project(req, host).await,
         "session-set-pinned-pr-url" => handle_session_set_pinned_pr_url(req, host).await,
-        "session-set-smol-machine" => handle_session_set_smol_machine(req, host).await,
         "alias-set" => handle_alias_set(req, identity).await,
         "alias-unset" => handle_alias_unset(req, identity).await,
         "alias-claim" => handle_alias_claim(req, identity).await,
@@ -391,20 +390,6 @@ async fn handle_session_set_pinned_pr_url(req: Request, host: &RuntimeHost) -> R
     }
 }
 
-async fn handle_session_set_smol_machine(req: Request, host: &RuntimeHost) -> Response {
-    let Some(session_id) = request_session_id(&req) else {
-        return Response::err("session_id required");
-    };
-    let machine_name = optional_nullable_string_arg(&req.args, &["machineName", "machine_name"]);
-    match host.session_handle.set_smol_machine_name(session_id, machine_name.clone()).await {
-        Ok(()) => Response::success(serde_json::json!({
-            "session_id": session_id,
-            "machine_name": machine_name,
-        })),
-        Err(err) => Response::err(err.to_string()),
-    }
-}
-
 async fn handle_cli_session_create(
     req: Request,
     host: &RuntimeHost,
@@ -549,20 +534,7 @@ async fn handle_session_create_shell(
         .or_else(|| req.args.get("blueprint_id"))
         .and_then(|blueprint_id| blueprint_id.as_str())
         .map(str::to_string);
-    let smol_machine_name = req
-        .args
-        .get("smolMachineName")
-        .or_else(|| req.args.get("smol_machine_name"))
-        .and_then(|smol| smol.as_str())
-        .map(str::trim)
-        .filter(|smol| !smol.is_empty())
-        .map(str::to_string);
     let nono = parse_nono_config(&req.args);
-    let smolvm = match build_daemon_smolvm_exec_for_session(&settings, smol_machine_name.as_deref())
-    {
-        Ok(smolvm) => smolvm,
-        Err(err) => return Response::err(err),
-    };
 
     let spawn = host
         .pty_handle
@@ -575,7 +547,6 @@ async fn handle_session_create_shell(
             worktree_path: owns_worktree.then(|| work_dir.clone()),
             notes: parse_notes_env(&req.args),
             nono,
-            smolvm,
             env: parse_pty_env_request(&req.args, identity),
             profile: profile.clone(),
             initial_size,
@@ -609,7 +580,6 @@ async fn handle_session_create_shell(
         ended_at: None,
         blueprint_id,
         pinned_pr_url: None,
-        smol_machine_name,
     };
 
     if let Err(err) = host.session_handle.add(session.clone()).await {
@@ -639,13 +609,6 @@ async fn handle_session_reconnect_shell(
         Ok(None) => return Response::err("session not found"),
         Err(err) => return Response::err(err.to_string()),
     };
-    let settings = load_daemon_settings();
-    let smolvm =
-        match build_daemon_smolvm_exec_for_session(&settings, session.smol_machine_name.as_deref())
-        {
-            Ok(smolvm) => smolvm,
-            Err(err) => return Response::err(err),
-        };
     let primary_pty_id = session.primary_pty_id.as_deref().unwrap_or(&session.id).to_string();
     let _ = host.pty_handle.remove(&primary_pty_id).await;
     let pane_id = format!("{}-main", session.id);
@@ -662,7 +625,6 @@ async fn handle_session_reconnect_shell(
             worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
             notes: parse_notes_env(&req.args),
             nono: parse_nono_config(&req.args),
-            smolvm,
             env: parse_pty_env_request(&req.args, identity),
             profile,
             initial_size,
@@ -1405,13 +1367,6 @@ async fn handle_session_panes_create(
             worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
             notes: parse_notes_env(&req.args),
             nono: parse_nono_config(&req.args),
-            smolvm: match build_daemon_smolvm_exec_for_session(
-                &load_daemon_settings(),
-                session.smol_machine_name.as_deref(),
-            ) {
-                Ok(smolvm) => smolvm,
-                Err(err) => return Response::err(err),
-            },
             env: parse_pty_env_request(&req.args, identity),
             profile: Some(profile.to_string()),
             initial_size: parse_initial_size(&req.args),
@@ -1758,7 +1713,6 @@ async fn parse_pty_spawn_request(
             .map(str::to_string),
         notes: parse_notes_env(&req.args),
         nono: parse_nono_config(&req.args),
-        smolvm: None,
         env: parse_pty_env_request(&req.args, identity),
         profile: req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string),
         initial_size: parse_initial_size(&req.args),
@@ -1785,10 +1739,6 @@ async fn apply_session_spawn_bindings(
     if request.worktree_path.is_none() && session.is_worktree {
         request.worktree_path = Some(session.worktree_path.clone());
     }
-    request.smolvm = build_daemon_smolvm_exec_for_session(
-        &load_daemon_settings(),
-        session.smol_machine_name.as_deref(),
-    )?;
     Ok(())
 }
 
@@ -1805,27 +1755,6 @@ fn parse_nono_config(args: &Value) -> Option<NonoConfig> {
     Some(NonoConfig { profile, allow_dirs })
 }
 
-fn build_daemon_smolvm_exec_for_session(
-    settings: &roux_core::RouxSettings,
-    smol_machine_name: Option<&str>,
-) -> Result<Option<SmolvmExec>, String> {
-    let Some(name) = smol_machine_name.map(str::trim).filter(|name| !name.is_empty()) else {
-        return Ok(None);
-    };
-    let override_path =
-        settings.smolvm_binary_path.as_deref().map(str::trim).filter(|p| !p.is_empty());
-    let detection = roux_core::smolvm::detect(override_path);
-    let Some(binary_path) = detection.binary_path else {
-        return Err(format!(
-            "session is bound to smol machine '{name}', but smolvm is not installed; unbind or install smolvm to continue"
-        ));
-    };
-    Ok(Some(SmolvmExec {
-        binary: PathBuf::from(binary_path),
-        machine_name: name.to_string(),
-        guest_shell: "/bin/sh".to_string(),
-    }))
-}
 
 fn parse_pty_env_request(args: &Value, identity: &DaemonIdentity) -> PtyEnvRequest {
     let current_exe = std::env::current_exe().ok();

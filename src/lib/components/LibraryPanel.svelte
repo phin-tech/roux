@@ -62,7 +62,7 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let filter = $state("");
-  let typeFilter = $state<"all" | "prompt" | "skill" | "smolvmScript">("all");
+  let typeFilter = $state<"all" | "prompt" | "skill">("all");
   let view = $state<"items" | "sources">("items");
   let variableValues = $state<Record<string, string>>({});
   let variableErrors = $state<Record<string, string>>({});
@@ -532,15 +532,6 @@
               <Plus size={12} />
               Skill
             </button>
-            <button
-              type="button"
-              class="flex cursor-pointer items-center gap-1 rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-primary hover:border-accent hover:text-accent"
-              title="New smolvm install script (agent + distro install line)"
-              onclick={() => newItem("smolvmScript")}
-            >
-              <Plus size={12} />
-              Smolvm
-            </button>
           </div>
         </div>
 
@@ -556,7 +547,6 @@
             { id: "all", label: "All", count: items.length },
             { id: "prompt", label: "Prompts", count: itemCountForType("prompt") },
             { id: "skill", label: "Skills", count: itemCountForType("skill") },
-            { id: "smolvmScript", label: "Smolvm", count: itemCountForType("smolvmScript") },
           ] as const as type}
             <button
               type="button"

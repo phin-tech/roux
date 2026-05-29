@@ -31,7 +31,7 @@ use roux_runtime::pty_registry::PtySessionRegistry;
 use roux_runtime::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
 use roux_runtime::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
 use roux_runtime::terminal_env;
-pub use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs, SmolvmExec};
+pub use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs};
 
 const GATE_QUIET: Duration = Duration::from_millis(200);
 const GATE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -477,28 +477,11 @@ impl PtyManager {
         worktree_path: Option<&str>,
         notes: Option<&NotesEnvInputs>,
         nono: Option<&NonoConfig>,
-        smolvm: Option<&SmolvmExec>,
         initial_size: Option<(u16, u16)>,
         role: PtyRole,
         profile: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
-        // When the session is bound to a smol machine, ensure it's
-        // running before opening any PTY. Failing here surfaces as a
-        // clean PtyError that the caller can render in the dead-pane
-        // view rather than a blank pane that silently never connects.
-        if let Some(smol) = smolvm {
-            ensure_machine_running(&smol.binary, &smol.machine_name).map_err(|err| {
-                PtyError::SpawnShell {
-                    source: anyhow::anyhow!(
-                        "smol machine '{}' could not be made ready: {}",
-                        smol.machine_name,
-                        err
-                    ),
-                }
-            })?;
-        }
-
         let shell = resolve_default_shell();
         let user_path = get_user_path();
         let roux_env =
@@ -509,7 +492,6 @@ impl PtyManager {
             roux_env: &roux_env,
             worktree_path,
             nono,
-            smolvm,
             initial_size,
         });
 
@@ -520,19 +502,16 @@ impl PtyManager {
             .map_err(|source| PtyError::OpenPty { source })?;
 
         let nono_label = nono.map(|n| format!(" (nono profile={})", n.profile)).unwrap_or_default();
-        let smol_label =
-            smolvm.map(|s| format!(" (smol machine={})", s.machine_name)).unwrap_or_default();
         let pane_label = pane_id.map(|p| format!(", pane '{}'", p)).unwrap_or_default();
         let session_label = session_id.map(|s| format!(", session '{}'", s)).unwrap_or_default();
         rlog!(
-            "Spawning shell '{}' for PTY '{}'{}{} in '{}'{}{}",
+            "Spawning shell '{}' for PTY '{}'{}{} in '{}'{}",
             shell,
             id,
             pane_label,
             session_label,
             working_dir,
-            nono_label,
-            smol_label
+            nono_label
         );
 
         let cmd = command_builder_from_plan(&spawn_plan.command);
@@ -653,28 +632,11 @@ impl PtyManager {
         project_id: Option<&str>,
         worktree_path: Option<&str>,
         notes: Option<&NotesEnvInputs>,
-        smolvm: Option<&SmolvmExec>,
         initial_size: Option<(u16, u16)>,
         role: PtyRole,
         profile: Option<&str>,
         app: tauri::AppHandle,
     ) -> Result<(), PtyError> {
-        // Same readiness gate as `spawn_shell`: when the session is
-        // bound to a smol machine, ensure it's running before opening
-        // the PTY so a stopped VM surfaces as a clean error rather
-        // than a blank pane.
-        if let Some(smol) = smolvm {
-            ensure_machine_running(&smol.binary, &smol.machine_name).map_err(|err| {
-                PtyError::SpawnTask {
-                    source: anyhow::anyhow!(
-                        "smol machine '{}' could not be made ready: {}",
-                        smol.machine_name,
-                        err
-                    ),
-                }
-            })?;
-        }
-
         let shell = resolve_default_shell();
         let user_path = get_user_path();
         let roux_env =
@@ -685,7 +647,6 @@ impl PtyManager {
             shell: &shell,
             roux_env: &roux_env,
             worktree_path,
-            smolvm,
             initial_size,
         });
 
@@ -1094,8 +1055,7 @@ fn roux_cli_shim() -> Option<(String, String)> {
 }
 
 /// Build common Roux env vars with the Tauri-owned socket, CLI shim, and
-/// persisted alias lookup. The runtime planner decides whether each pair
-/// becomes process env or a guest-safe smolvm `-e KEY=VAL` flag.
+/// persisted alias lookup.
 fn roux_env_pairs(
     user_path: &str,
     session_id: Option<&str>,
@@ -1145,29 +1105,6 @@ fn lookup_pane_alias(pane_id: &str) -> Option<String> {
         .into_iter()
         .find(|a| a.pane_id.as_deref() == Some(pane_id))
         .map(|a| a.alias)
-}
-
-/// Make sure a smol machine is running before we exec into it.
-///
-/// Lists machines, finds the named entry, and runs `smolvm machine
-/// start --name <n>` when its state isn't already running/starting.
-/// `start` is idempotent — running it on a live machine is a no-op —
-/// so the only failure cases are "machine doesn't exist" or the
-/// underlying CLI itself failing. Both surface as a typed error so the
-/// caller can render a clean dead-pane message instead of opening a
-/// blank PTY that quietly disconnects.
-fn ensure_machine_running(binary: &std::path::Path, name: &str) -> Result<(), String> {
-    let machines = roux_smolvm::list_machines(binary).map_err(|e| e.to_string())?;
-    let m = machines
-        .iter()
-        .find(|m| m.name == name)
-        .ok_or_else(|| format!("smol machine '{name}' not found (was it deleted?)"))?;
-    let state = m.state.to_lowercase();
-    if state.contains("running") || state.contains("starting") {
-        return Ok(());
-    }
-    rlog!("smol machine '{}' is '{}', auto-starting before exec", name, m.state);
-    roux_smolvm::start_machine(binary, name).map_err(|e| e.to_string())
 }
 
 /// Get the user's login shell PATH by invoking the same shell Roux would use

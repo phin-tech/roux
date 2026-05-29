@@ -469,7 +469,6 @@
       await connectPaneTerminal(mainPaneId);
       if (profile)
         await runProfileInPane(session.id, profile, {
-          smolMachineName: session.smolMachineName ?? null,
         });
       closeContextMenu();
     } catch (e) {

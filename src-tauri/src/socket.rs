@@ -796,7 +796,6 @@ async fn handle_app_open(req: Request, app: &tauri::AppHandle) -> Response {
         None,
         None, // project_id - CLI sessions are unattached
         None, // blueprint_id
-        None, // smol_machine_name - CLI sessions don't bind at create time
         Some(&state.automation_hooks),
         app,
     )
@@ -942,7 +941,6 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         None,
         None, // project_id - CLI sessions are unattached
         None, // blueprint_id
-        None, // smol_machine_name - CLI sessions don't bind at create time
         Some(&state.automation_hooks),
         app,
     )
@@ -1008,28 +1006,6 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
     let pane_id = crypto_random_uuid();
     let pty_id = crypto_random_uuid();
 
-    // Inherit the session's smol-machine binding (if any) so CLI-spawned
-    // shells land inside the same VM as the primary pane. A bound
-    // session whose smolvm has been uninstalled fails loud rather than
-    // silently running on the host.
-    let smolvm = match session_record.as_ref().and_then(|s| s.smol_machine_name.as_deref()) {
-        Some(name) if !name.trim().is_empty() => {
-            match crate::services::smolvm::resolve_smolvm_binary() {
-                Some(install) => Some(crate::pty::SmolvmExec {
-                    binary: install.path,
-                    machine_name: name.trim().to_string(),
-                    guest_shell: "/bin/sh".to_string(),
-                }),
-                None => {
-                    return Response::err(format!(
-                        "session is bound to smol machine '{name}', but smolvm is not installed"
-                    ));
-                }
-            }
-        }
-        _ => None,
-    };
-
     if let Err(e) = state.pty_manager.spawn_shell(
         &pty_id,
         &working_dir,
@@ -1039,7 +1015,6 @@ async fn handle_shell(req: Request, app: &tauri::AppHandle) -> Response {
         worktree_env.as_deref(),
         None, // notes env snapshot — wired only from session creation path
         None,
-        smolvm.as_ref(),
         None,
         crate::pty::PtyRole::Secondary,
         None, // profile — CLI-spawned, unknown
@@ -1115,29 +1090,6 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
     );
 
-    // Inherit the session's smol-machine binding so `roux run` lands
-    // inside the same VM as the primary pane and shells. Mirrors the
-    // smolvm hookup in `handle_shell` above; without this, a bound
-    // session running `roux run <cmd>` would silently execute on the
-    // host and bypass the guest's network / rootfs / process tree.
-    let smolvm = match session_record.as_ref().and_then(|s| s.smol_machine_name.as_deref()) {
-        Some(name) if !name.trim().is_empty() => {
-            match crate::services::smolvm::resolve_smolvm_binary() {
-                Some(install) => Some(crate::pty::SmolvmExec {
-                    binary: install.path,
-                    machine_name: name.trim().to_string(),
-                    guest_shell: "/bin/sh".to_string(),
-                }),
-                None => {
-                    return Response::err(format!(
-                        "session is bound to smol machine '{name}', but smolvm is not installed"
-                    ));
-                }
-            }
-        }
-        _ => None,
-    };
-
     let pre_context = crate::automation_hooks::HookContext {
         repo_path: Some(working_dir.clone()),
         worktree_path: Some(working_dir.clone()),
@@ -1165,7 +1117,6 @@ async fn handle_run(req: Request, app: &tauri::AppHandle) -> Response {
         project_id.as_deref(),
         worktree_env.as_deref(),
         None, // notes env snapshot — wired only from session creation path
-        smolvm.as_ref(),
         None,
         crate::pty::PtyRole::Secondary,
         Some("task"),
@@ -2814,7 +2765,6 @@ mod tests {
             ended_at: None,
             blueprint_id: None,
             pinned_pr_url: None,
-            smol_machine_name: None,
         }
     }
 
@@ -3395,7 +3345,6 @@ mod tests {
             ended_at: None,
             blueprint_id: None,
             pinned_pr_url: None,
-            smol_machine_name: None,
         }
     }
 

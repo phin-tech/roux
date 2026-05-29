@@ -9,11 +9,9 @@
   import Inbox from "@lucide/svelte/icons/inbox";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import Trees from "@lucide/svelte/icons/trees";
-  import Container from "@lucide/svelte/icons/container";
   import Kanban from "@lucide/svelte/icons/kanban";
   import Pin from "@lucide/svelte/icons/pin";
   import { worktrunkDetection } from "$lib/stores/worktrunkDetection";
-  import { smolvmDetection } from "$lib/stores/smolvmDetection";
   import type { Component } from "svelte";
   import {
     activeSidebar,
@@ -37,9 +35,8 @@
     icon: Component<{ size?: number; class?: string }>;
   }
 
-  // Static rail items. The Worktrunk and Smol Machines icons are
-  // appended dynamically below only when their respective binaries are
-  // detected — users without those CLIs installed see no extra icons.
+  // Static rail items. The Worktrunk icon is appended dynamically below
+  // only when its binary is detected.
   const baseDockItems: Item[] = [
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "notes", label: "Notes", icon: StickyNote },
@@ -56,15 +53,9 @@
     label: "Worktrunk",
     icon: Trees,
   };
-  const smolMachinesItem: Item = {
-    id: "smolMachines",
-    label: "Smol Machines",
-    icon: Container,
-  };
 
   let dockItems = $derived.by<Item[]>(() => {
     const items = [...baseDockItems];
-    if ($smolvmDetection.binaryPath) items.push(smolMachinesItem);
     if ($worktrunkDetection.binaryPath) items.push(worktrunkItem);
     return items;
   });

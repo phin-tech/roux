@@ -31,15 +31,6 @@ impl NonoConfig {
     }
 }
 
-/// Smolvm exec configuration for a shell PTY. When present, the shell is
-/// spawned inside `smolvm machine exec --name <machine_name> -it -- <guest_shell>`.
-#[derive(Debug, Clone)]
-pub struct SmolvmExec {
-    pub binary: PathBuf,
-    pub machine_name: String,
-    pub guest_shell: String,
-}
-
 /// Pre-computed inputs for the `ROUX_*_NOTES_*` env vars. Callers resolve
 /// slugs and project context before handing these values to terminal spawn.
 #[derive(Debug, Clone, Default)]
@@ -133,20 +124,6 @@ pub fn roux_env_pairs_with_warnings(inputs: RouxEnvInputs<'_>) -> RouxEnvOutput 
         warnings.extend(notes_env_pairs(n, &mut pairs));
     }
     RouxEnvOutput { pairs, warnings }
-}
-
-/// True for env keys that are meaningful inside a smolvm guest.
-pub fn is_guest_safe_env_key(key: &str) -> bool {
-    matches!(
-        key,
-        "TERM"
-            | "COLORTERM"
-            | "ROUX_SESSION"
-            | "ROUX_SESSION_ID"
-            | "ROUX_PANE_ID"
-            | "ROUX_PROJECT_ID"
-            | "ROUX_AGENT_ALIAS"
-    )
 }
 
 pub fn notes_env_pairs(
@@ -338,16 +315,6 @@ mod tests {
             TerminalEnvWarning::ProjectContextPathsJoinFailed { path_count: 1, error }
                 if !error.is_empty()
         ));
-    }
-
-    #[test]
-    fn guest_safe_env_excludes_host_paths() {
-        assert!(is_guest_safe_env_key("ROUX_SESSION_ID"));
-        assert!(is_guest_safe_env_key("ROUX_AGENT_ALIAS"));
-        assert!(!is_guest_safe_env_key("PATH"));
-        assert!(!is_guest_safe_env_key("ROUX_SOCKET"));
-        assert!(!is_guest_safe_env_key("ROUX_CLI"));
-        assert!(!is_guest_safe_env_key("ROUX_NOTES_ROOT"));
     }
 
     #[cfg(not(windows))]

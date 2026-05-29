@@ -55,98 +55,6 @@ export const commands = {
 	 */
 	cmdOpenTerminalAt: (path: string) => typedError<null, string>(__TAURI_INVOKE("cmd_open_terminal_at", { path })),
 	cmdOpenPathInFinder: (path: string) => typedError<null, string>(__TAURI_INVOKE("cmd_open_path_in_finder", { path })),
-	cmdDetectSmolvm: () => __TAURI_INVOKE<SmolvmDetection>("cmd_detect_smolvm"),
-	cmdListSmolMachines: () => typedError<SmolMachine[], string>(__TAURI_INVOKE("cmd_list_smol_machines")),
-	cmdStartSmolMachine: (name: string) => typedError<null, string>(__TAURI_INVOKE("cmd_start_smol_machine", { name })),
-	cmdStopSmolMachine: (name: string) => typedError<null, string>(__TAURI_INVOKE("cmd_stop_smol_machine", { name })),
-	cmdDeleteSmolMachine: (name: string) => typedError<null, string>(__TAURI_INVOKE("cmd_delete_smol_machine", { name })),
-	cmdCreateSmolMachine: (request: SmolMachineCreateRequest) => typedError<null, string>(__TAURI_INVOKE("cmd_create_smol_machine", { request })),
-	/**
-	 *  `which`-style probe inside a guest. Returns the resolved guest path
-	 *  when the binary is on the guest's PATH, `None` when it isn't, or an
-	 *  error string when the smolvm CLI itself fails. Used by the
-	 *  frontend's profile-replay preflight (see `profileRunner.ts`) to
-	 *  short-circuit `claude`/`codex` startup commands when the agent
-	 *  isn't installed in the guest.
-	 */
-	cmdCheckSmolvmBinary: (machineName: string, binary: string) => typedError<string | null, string>(__TAURI_INVOKE("cmd_check_smolvm_binary", { machineName, binary })),
-	/**
-	 *  Install a known agent inside a smol machine. v1 supports `"claude"`
-	 *  and `"codex"` (case-insensitive). The install pipeline reads
-	 *  `~/.config/roux/smolvm-bootstraps.toml` if present so users can
-	 *  customize prereqs / install commands / distro mapping without
-	 *  rebuilding Roux. Missing or malformed file falls back to
-	 *  hardcoded defaults.
-	 *
-	 *  Synchronous from the user's perspective — the panel shows a
-	 *  spinner until the install finishes (typically <60s).
-	 */
-	cmdInstallSmolvmAgent: (machineName: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("cmd_install_smolvm_agent", { machineName, agent })),
-	/**
-	 *  Persist an agent install by writing into the machine's linked
-	 *  Smolfile `[dev].init`. When no Smolfile is linked, returns
-	 *  `NeedsRecreate` so the frontend can prompt the user before any
-	 *  destructive action.
-	 */
-	cmdInstallSmolvmAgentPersist: (machineName: string, agent: string) => typedError<PersistOutcome, string>(__TAURI_INVOKE("cmd_install_smolvm_agent_persist", { machineName, agent })),
-	/**
-	 *  Destructive: regenerate the machine from a Roux-managed Smolfile.
-	 *  Only called after the user confirms the modal that follows
-	 *  `PersistOutcome::NeedsRecreate`. Stops + deletes + recreates +
-	 *  starts the machine; records the new Smolfile link so subsequent
-	 *  "Persist via Smolfile" calls take the in-place append path.
-	 *
-	 *  Best-effort with breadcrumbs: if recreate fails after delete, the
-	 *  generated Smolfile path is in the error message so the user can
-	 *  recover via `smolvm machine create <name> -s <path>`.
-	 */
-	cmdInstallSmolvmAgentRecreate: (machineName: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("cmd_install_smolvm_agent_recreate", { machineName, agent })),
-	/**
-	 *  Returns the Smolfile path for each machine that has one linked
-	 *  (via Roux's create form or the recreate flow). The frontend uses
-	 *  this to show whether "Persist via Smolfile" will take the append
-	 *  path or the recreate path before the user clicks.
-	 */
-	cmdListSmolMachineSmolfiles: () => typedError<{ [key in string]: string }, string>(__TAURI_INVOKE("cmd_list_smol_machine_smolfiles")),
-	/**
-	 *  Open the smolvm bootstrap config file in the user's default
-	 *  editor. Creates the file (with current built-in defaults as a
-	 *  pre-populated starter) if it doesn't exist yet, so the user has
-	 *  something concrete to edit.
-	 */
-	cmdOpenSmolvmBootstrapConfig: () => typedError<string, string>(__TAURI_INVOKE("cmd_open_smolvm_bootstrap_config")),
-	/**
-	 *  Start the user-configured managed HTTP proxy. No-op if already
-	 *  running. Returns the live status so the UI can update without a
-	 *  follow-up `cmd_managed_proxy_status` round-trip.
-	 *
-	 *  `RouxSettings.managed_proxy` must be set; otherwise returns a
-	 *  typed error pointing the user at Settings → Smol Machines.
-	 */
-	cmdStartManagedProxy: () => typedError<ManagedProxyStatus, string>(__TAURI_INVOKE("cmd_start_managed_proxy")),
-	cmdStopManagedProxy: () => typedError<ManagedProxyStatus, string>(__TAURI_INVOKE("cmd_stop_managed_proxy")),
-	cmdManagedProxyStatus: () => __TAURI_INVOKE<ManagedProxyStatus>("cmd_managed_proxy_status"),
-	/**
-	 *  Check whether `worktree_path` is reachable inside `machine_name`'s
-	 *  guest. "Reachable" means: the linked Smolfile contains a
-	 *  `[dev].volumes` entry whose host side is a path-prefix of
-	 *  `worktree_path`. Same-path mapping (host == guest) is the common
-	 *  case, which makes `--workdir <host_path>` resolve identically
-	 *  inside the guest.
-	 */
-	cmdCheckWorktreeMount: (machineName: string, worktreePath: string) => typedError<WorktreeMountCheck, string>(__TAURI_INVOKE("cmd_check_worktree_mount", { machineName, worktreePath })),
-	/**
-	 *  Append a `host:guest[:ro]` spec to the linked Smolfile's
-	 *  `[dev].volumes`. Idempotent — `AlreadyPresent` when the exact spec
-	 *  is already there. Errors when the machine has no linked Smolfile
-	 *  (frontend should skip the mount UX in that case).
-	 *
-	 *  The spec takes effect on the next `smolvm machine create` for the
-	 *  machine — smolvm volumes are baked at create time. The caller is
-	 *  expected to inform the user that a recreate (or the existing
-	 *  recreate flow) is required to apply it.
-	 */
-	cmdAppendWorktreeMount: (machineName: string, spec: string) => typedError<MountAppendOutcome, string>(__TAURI_INVOKE("cmd_append_worktree_mount", { machineName, spec })),
 	cmdListAutomationHooks: (repoPath: string | null) => typedError<HookListItem[], string>(__TAURI_INVOKE("cmd_list_automation_hooks", { repoPath })),
 	cmdPreviewAutomationHooks: (request: HookRunRequest) => typedError<HookPreviewItem[], string>(__TAURI_INVOKE("cmd_preview_automation_hooks", { request })),
 	cmdRunAutomationHook: (request: HookRunRequest) => typedError<HookRunSummary, string>(__TAURI_INVOKE("cmd_run_automation_hook", { request })),
@@ -200,15 +108,6 @@ export const commands = {
 	 */
 	setSessionPinnedPrUrl: (sessionId: string, url: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_pinned_pr_url", { sessionId, url })),
 	/**
-	 *  Bind (or clear) a smol machine for a session. When set, every PTY
-	 *  spawned for this session runs via `smolvm machine exec --name <n> ...`
-	 *  inside the named VM instead of on the host. Pass `None` (or empty) to
-	 *  unbind. The empty-string normalization happens in
-	 *  `SessionHandle::set_smol_machine_name`'s service handler so the wire
-	 *  shape stays simple.
-	 */
-	setSessionSmolMachine: (sessionId: string, machineName: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_smol_machine", { sessionId, machineName })),
-	/**
 	 *  Re-read the session's worktree branch via `git rev-parse` and update the
 	 *  stored value if it changed. Returns the current branch (whether or not it
 	 *  changed). The frontend calls this on a low-frequency tick so PR discovery
@@ -261,13 +160,6 @@ export const commands = {
 	 *  blueprint row when the live session is up.
 	 */
 	blueprintId?: string | null,
-	/**
-	 *  Smol-machine binding for this session. When set, the session's
-	 *  primary PTY (and every subsequent shell pane) runs inside the
-	 *  named VM via `smolvm machine exec`. Empty/missing means the
-	 *  session runs on the host as usual.
-	 */
-	smolMachineName?: string | null,
 } | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, opts })),
 	/**
 	 *  Respawns a plain shell in the session's primary PTY. The frontend
@@ -538,13 +430,6 @@ export type CreateShellOpts = {
 	 *  blueprint row when the live session is up.
 	 */
 	blueprintId?: string | null,
-	/**
-	 *  Smol-machine binding for this session. When set, the session's
-	 *  primary PTY (and every subsequent shell pane) runs inside the
-	 *  named VM via `smolvm machine exec`. Empty/missing means the
-	 *  session runs on the host as usual.
-	 */
-	smolMachineName?: string | null,
 };
 
 export type CreateWatchConfig = {
@@ -811,53 +696,6 @@ export type LibrarySource = {
 
 export type LibrarySourceKind = "localRepo" | "gitRepo";
 
-/**
- *  Optional host-side HTTP proxy that Roux can start/stop on behalf
- *  of the user. Roux does **not** ship or bundle a proxy — `command`
- *  is whatever the user has installed (tinyproxy, mitmproxy, squid,
- *  custom). Lifecycle is managed by `services::managed_proxy`.
- */
-export type ManagedProxyConfig = {
-	/**
-	 *  Shell command Roux runs to start the proxy. Spawned via the
-	 *  user's login shell so PATH / aliases / `~/.config/...` refs
-	 *  resolve. Example: `tinyproxy -d -c ~/.config/roux/tinyproxy.conf`.
-	 */
-	command: string,
-	/**
-	 *  Port the proxy listens on. Roux polls this to verify start
-	 *  success and uses it to construct the auto-fill URL.
-	 */
-	port: number,
-	/**
-	 *  Bind address the proxy listens on. Defaults to `127.0.0.1`
-	 *  when unset. Use `192.168.x.x` only if the proxy must accept
-	 *  connections from the smolvm guest's NAT subnet.
-	 */
-	bind?: string | null,
-};
-
-/**
- *  Snapshot of the managed proxy's runtime state. Surfaced to the
- *  frontend via `cmd_managed_proxy_status`.
- */
-export type ManagedProxyStatus = {
-	/**
-	 *  `true` when a managed proxy child is alive and the listen
-	 *  socket has accepted at least one probe connection. `false`
-	 *  includes both "never started" and "started then crashed".
-	 */
-	running: boolean,
-	port: number | null,
-	bind: string | null,
-	pid: number | null,
-	/**
-	 *  stderr tail captured when the child failed to start or
-	 *  exited unexpectedly. Cleared on successful start.
-	 */
-	lastError: string | null,
-};
-
 export type McpHostConfigPreview = {
 	host: McpHostId,
 	label: string,
@@ -896,16 +734,6 @@ export type McpStatus = {
  *  compare against at match time; the stored form is platform-neutral.
  */
 export type Modifier = "cmd" | "ctrl" | "alt" | "shift";
-
-export type MountAppendOutcome = {
-	/**
-	 *  `"appended"` when a new line was added; `"alreadyPresent"` when
-	 *  the exact spec was already in `[dev].volumes`.
-	 */
-	kind: string,
-	// Absolute path to the Smolfile that was (or wasn't) modified.
-	smolfilePath: string,
-};
 
 export type NotesRead = {
 	path: string,
@@ -1032,24 +860,6 @@ export type ParsedKeymap = {
 	prefixes: Prefix[],
 	warnings: KeymapWarning[],
 };
-
-/**
- *  Outcome of `cmd_install_smolvm_agent_persist`. Mirrors
- *  `roux_smolvm::AppendOutcome` plus a `NeedsRecreate` variant the
- *  frontend uses to render the "create Smolfile + recreate machine"
- *  confirm modal.
- */
-export type PersistOutcome =
-// Line was appended to an existing Smolfile.
-{ kind: "appended"; smolfile_path: string } |
-// An identical line was already present; file untouched.
-{ kind: "alreadyPresent"; smolfile_path: string } |
-/**
- *  The machine has no linked Smolfile. The frontend should show a
- *  confirm modal explaining the create + recreate flow, then call
- *  `cmd_install_smolvm_agent_recreate` if the user confirms.
- */
-{ kind: "needsRecreate"; proposed_smolfile_path: string; image: string | null; script: string };
 
 export type PrCheckDetails = {
 	name: string,
@@ -1270,20 +1080,6 @@ export type RouxSettings = {
 	 */
 	worktrunkBinaryPath?: string | null,
 	/**
-	 *  Absolute path to the `smolvm` (smol machines) binary. Same motivation
-	 *  as `worktrunk_binary_path` — GUI apps inherit a minimal PATH on macOS.
-	 *  When unset, Roux resolves via PATH and falls back to "smolvm not
-	 *  installed" (the activity rail icon and integration UI hide entirely).
-	 */
-	smolvmBinaryPath?: string | null,
-	/**
-	 *  Optional managed HTTP proxy. Lets Roux start/stop a user-
-	 *  installed proxy (tinyproxy, mitmproxy, etc.) and point smol
-	 *  VMs at it for outbound network. None = feature off; the smol
-	 *  machines panel hides the start/stop toggle.
-	 */
-	managedProxy?: ManagedProxyConfig | null,
-	/**
 	 *  Absolute path to the shell binary for terminal panes and login-shell
 	 *  PATH discovery. When set and non-empty, overrides automatic resolution
 	 *  from the OS login shell, then $SHELL.
@@ -1494,16 +1290,6 @@ export type Session = {
 	 *  cases where the local branch was renamed after the PR was opened.
 	 */
 	pinnedPrUrl?: string | null,
-	/**
-	 *  When set, every PTY spawned for this session runs via
-	 *  `smolvm machine exec --name <smol_machine_name> ...` inside the
-	 *  named smol VM instead of on the host. Cleared by invoking the
-	 *  `set_session_smol_machine` Tauri command with a `None` machine
-	 *  name. Field outlives a smolvm uninstall — spawn-time defense in
-	 *  `pty.rs` falls back to a clear "smolvm not installed" error
-	 *  rather than silently running on host.
-	 */
-	smolMachineName?: string | null,
 };
 
 /**
@@ -1545,70 +1331,6 @@ export type SetupStatus = {
  *    for that sync run and emits a one-time toast event.
  */
 export type SkillSyncMode = "off" | "copy" | "symlink";
-
-/**
- *  Wire-shape of one smol machine. Mirrors `roux_smolvm::SmolMachine` but
- *  derives `specta::Type` so it appears in the generated TS bindings.
- */
-export type SmolMachine = {
-	name: string,
-	state: string,
-	image: string | null,
-	cpus: number | null,
-	memoryMib: number | null,
-	createdAt: string | null,
-	ephemeral: boolean,
-	network: boolean,
-	// `true` when the host's SSH agent is forwarded into the guest.
-	sshAgent: boolean,
-};
-
-/**
- *  Wire-shape of a create-machine request. Mirrors `roux_smolvm::CreateOpts`
- *  but holds owned values so it can travel across the IPC boundary as a
- *  single specta-typed Tauri argument.
- */
-export type SmolMachineCreateRequest = {
-	name: string,
-	smolfilePath: string | null,
-	image: string | null,
-	network: boolean,
-	/**
-	 *  Forward the host's SSH agent into the guest so `git clone
-	 *  git@…` works inside the VM. Private keys never leave the
-	 *  host — the hypervisor enforces it. Default `false`; the create
-	 *  form has a checkbox.
-	 */
-	sshAgent?: boolean,
-	/**
-	 *  HTTP(S) proxy URL the guest should route outbound requests
-	 *  through. When set and no Smolfile is provided, Roux generates
-	 *  a managed Smolfile that exports `HTTP_PROXY` / `HTTPS_PROXY`
-	 *  in the guest. When the user provides their own Smolfile, this
-	 *  field is silently ignored — their Smolfile is authoritative
-	 *  and they're expected to wire the proxy env themselves.
-	 */
-	hostProxyUrl?: string | null,
-	/**
-	 *  Host paths to mount into the guest as `host:guest[:ro]` specs.
-	 *  Each entry is forwarded verbatim to `smolvm machine create -v`.
-	 *  Defaults to empty. The panel UI uses this for Phase 2.9
-	 *  worktree mounts; same-path mounting (`/Users/me/code/foo:
-	 *  /Users/me/code/foo`) lets `--workdir <host_worktree>` resolve
-	 *  inside the VM.
-	 */
-	volumes?: string[],
-};
-
-/**
- *  Return-shape for the activity-rail detection probe. Mirrors
- *  `IntegrationDetection` in `commands::setup` but lives here so the
- *  smol-machines bindings stay self-contained.
- */
-export type SmolvmDetection = {
-	binaryPath: string | null,
-	version: string | null,
-};
 
 /**
  *  A named recipe for launching something inside a shell pane. Orthogonal to
@@ -1886,34 +1608,6 @@ export type WorktreeCleanupMode = "never" | "prompt" | "always";
  *  - `OriginMain` — the remote `origin/main`, with a `git fetch origin` first
  */
 export type WorktreeDefaultBase = "currentBranch" | "main" | "originMain";
-
-/**
- *  Result of [`cmd_check_worktree_mount`]. Tells the panel whether
- *  the session's worktree is reachable from inside the VM via an
- *  existing `[dev].volumes` mount in the linked Smolfile.
- *
- *  `Mounted` and `NoLinkedSmolfile` mean "no action surfaced" — the
- *  frontend won't show a banner. `NotMounted` is the only case that
- *  triggers the auto-mount UX.
- */
-export type WorktreeMountCheck =
-/**
- *  Worktree path is covered by an existing volume spec. The
- *  matching host side is returned for diagnostic display.
- */
-{ kind: "mounted"; host: string } |
-/**
- *  The Smolfile exists, but no volume spec covers the worktree.
- *  `proposedSpec` is the same-path mount Roux would append if the
- *  user accepts the auto-mount.
- */
-{ kind: "notMounted"; smolfile_path: string; proposed_spec: string } |
-/**
- *  The machine has no linked Smolfile — Roux can't auto-mount
- *  without one. The frontend should keep quiet in this case;
- *  users with a manually-managed machine know what they're doing.
- */
-{ kind: "noLinkedSmolfile" };
 
 /**
  *  Which backend Roux uses to create worktrees.

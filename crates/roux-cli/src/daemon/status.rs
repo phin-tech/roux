@@ -33,7 +33,6 @@ pub(super) async fn handle_daemon_status(
         "session-rename",
         "session-set-project",
         "session-set-pinned-pr-url",
-        "session-set-smol-machine",
         "alias-set",
         "alias-unset",
         "alias-claim",

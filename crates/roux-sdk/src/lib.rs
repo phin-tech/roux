@@ -411,7 +411,6 @@ mod tests {
                 initial_size: Some((100, 30)),
                 project_id: Some("project-a".to_string()),
                 blueprint_id: Some("blueprint-a".to_string()),
-                smol_machine_name: Some("vm-a".to_string()),
                 notes: Some(NotesEnv {
                     vault_root: "/vault".to_string(),
                     session_slug: "feature-demo--sessio".to_string(),
@@ -437,7 +436,6 @@ mod tests {
         assert_eq!(request["args"]["initialSize"], serde_json::json!([100, 30]));
         assert_eq!(request["args"]["projectId"], "project-a");
         assert_eq!(request["args"]["blueprintId"], "blueprint-a");
-        assert_eq!(request["args"]["smolMachineName"], "vm-a");
         assert_eq!(request["args"]["notesEnv"]["vaultRoot"], "/vault");
         assert_eq!(request["args"]["notesEnv"]["contextPaths"][0], "/repo/docs");
     }
@@ -653,8 +651,7 @@ mod tests {
             "endedAt": null,
             "projectId": "project-a",
             "blueprintId": "blueprint-a",
-            "pinnedPrUrl": null,
-            "smolMachineName": "vm-a"
+            "pinnedPrUrl": null
         })
         .to_string()
     }

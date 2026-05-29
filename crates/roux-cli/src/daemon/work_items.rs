@@ -2409,7 +2409,6 @@ mod tests {
             ended_at: None,
             blueprint_id: None,
             pinned_pr_url: None,
-            smol_machine_name: None,
         };
 
         let prompt = render_work_item_task_prompt(

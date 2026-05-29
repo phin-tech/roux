@@ -78,7 +78,6 @@ pub(crate) struct DaemonCreateSessionShellRequest {
     pub(crate) initial_size: Option<(u16, u16)>,
     pub(crate) project_id: Option<String>,
     pub(crate) blueprint_id: Option<String>,
-    pub(crate) smol_machine_name: Option<String>,
     pub(crate) notes: Option<NotesEnvInputs>,
 }
 
@@ -667,17 +666,6 @@ impl DaemonClient {
         self.sdk.set_session_pinned_pr_url(session_id, url).await.map_err(DaemonClientError::from)
     }
 
-    pub(crate) async fn set_session_smol_machine(
-        &self,
-        session_id: String,
-        machine_name: Option<String>,
-    ) -> DaemonClientResult<()> {
-        self.sdk
-            .set_session_smol_machine(session_id, machine_name)
-            .await
-            .map_err(DaemonClientError::from)
-    }
-
     pub(crate) async fn create_session_shell(
         &self,
         request: DaemonCreateSessionShellRequest,
@@ -697,7 +685,6 @@ impl DaemonClient {
                 initial_size: request.initial_size,
                 project_id: request.project_id,
                 blueprint_id: request.blueprint_id,
-                smol_machine_name: request.smol_machine_name,
                 notes: request.notes.map(sdk_notes_env),
             })
             .await

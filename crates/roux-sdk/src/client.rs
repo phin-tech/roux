@@ -584,20 +584,6 @@ impl Roux {
             .await
     }
 
-    pub async fn set_session_smol_machine(
-        &self,
-        session_id: impl Into<String>,
-        machine_name: Option<String>,
-    ) -> RouxResult<()> {
-        self.session_optional_value(
-            session_id.into(),
-            "session-set-smol-machine",
-            "machineName",
-            machine_name,
-        )
-        .await
-    }
-
     async fn session_optional_value(
         &self,
         session_id: String,

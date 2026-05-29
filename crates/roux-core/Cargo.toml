@@ -15,7 +15,6 @@ thiserror = "2"
 dirs = "6"
 kdl = "6.5"
 plist = "1"
-roux-smolvm = { path = "../roux-smolvm" }
 roux-worktrunk = { path = "../roux-worktrunk" }
 
 [dev-dependencies]
