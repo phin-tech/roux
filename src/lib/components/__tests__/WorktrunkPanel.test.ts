@@ -28,8 +28,6 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 vi.mock("$lib/panes/profiles", () => ({
   resolveProfileRef: vi.fn().mockReturnValue({
     id: "claude",
-    nonoProfile: null,
-    nonoAllowDirs: null,
   }),
 }));
 vi.mock("$lib/panes/profileRunner", () => ({

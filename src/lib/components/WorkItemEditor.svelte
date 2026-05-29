@@ -84,8 +84,6 @@
         cwdOverride: null,
         icon: null,
         provider: "claude",
-        nonoProfile: null,
-        nonoAllowDirs: null,
         source: "builtin",
       });
     }

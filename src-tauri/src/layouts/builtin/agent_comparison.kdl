@@ -1,6 +1,6 @@
 layout {
     name "Agent comparison"
-    description "Claude and Codex side-by-side (nono wrapping not applied in v1)"
+    description "Claude and Codex side-by-side"
 
     pane split_direction="horizontal" {
         pane profile="claude" name="claude" size=50

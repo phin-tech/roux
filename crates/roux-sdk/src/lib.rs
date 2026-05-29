@@ -406,8 +406,6 @@ mod tests {
                 base: Some("origin/main".to_string()),
                 fetch_first: true,
                 profile: Some("plain-shell".to_string()),
-                nono_profile: Some("strict".to_string()),
-                nono_allow_dirs: vec!["/tmp".to_string()],
                 initial_size: Some((100, 30)),
                 project_id: Some("project-a".to_string()),
                 blueprint_id: Some("blueprint-a".to_string()),
@@ -431,8 +429,6 @@ mod tests {
         assert_eq!(request["args"]["base"], "origin/main");
         assert_eq!(request["args"]["fetchFirst"], true);
         assert_eq!(request["args"]["profile"], "plain-shell");
-        assert_eq!(request["args"]["nonoProfile"], "strict");
-        assert_eq!(request["args"]["nonoAllowDirs"][0], "/tmp");
         assert_eq!(request["args"]["initialSize"], serde_json::json!([100, 30]));
         assert_eq!(request["args"]["projectId"], "project-a");
         assert_eq!(request["args"]["blueprintId"], "blueprint-a");
@@ -469,8 +465,6 @@ mod tests {
             .block_on(client.reconnect_session_shell(ReconnectSessionShell {
                 id: "session-a".to_string(),
                 profile: Some("plain-shell".to_string()),
-                nono_profile: Some("strict".to_string()),
-                nono_allow_dirs: vec!["/tmp".to_string()],
                 initial_size: Some((120, 40)),
                 notes: Some(NotesEnv {
                     vault_root: "/vault".to_string(),
@@ -488,8 +482,6 @@ mod tests {
         assert_eq!(request["command"], "session-reconnect-shell");
         assert_eq!(request["session_id"], "session-a");
         assert_eq!(request["args"]["profile"], "plain-shell");
-        assert_eq!(request["args"]["nonoProfile"], "strict");
-        assert_eq!(request["args"]["nonoAllowDirs"][0], "/tmp");
         assert_eq!(request["args"]["initialSize"], serde_json::json!([120, 40]));
         assert_eq!(request["args"]["notesEnv"]["vaultRoot"], "/vault");
     }

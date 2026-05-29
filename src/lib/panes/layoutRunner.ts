@@ -29,8 +29,6 @@ interface LeafInfo {
   spawnProfileRef: SpawnProfileRef;
   name: string | undefined;
   isFirst: boolean;
-  nonoProfile: string | undefined;
-  nonoAllowDirs: string[] | undefined;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -75,25 +73,6 @@ function collectLeaves(
         spawnProfileRef = { kind: "inline", profile: ref.profile };
       }
 
-      // Nono resolution: layout leaf wins, profile is fallback
-      let nonoProfile: string | undefined;
-      let nonoAllowDirs: string[] | undefined;
-
-      const leafNono = n.nono_profile;
-      const profileNono = profile.nonoProfile;
-
-      if (leafNono) {
-        nonoProfile = leafNono;
-        // Merge allow_dirs: leaf dirs + profile dirs (union)
-        const leafDirs = n.nono_allow_dirs ?? [];
-        const profileDirs = profile.nonoAllowDirs ?? [];
-        const merged = [...new Set([...leafDirs, ...profileDirs])];
-        nonoAllowDirs = merged.length > 0 ? merged : undefined;
-      } else if (profileNono) {
-        nonoProfile = profileNono;
-        nonoAllowDirs = profile.nonoAllowDirs?.length ? profile.nonoAllowDirs : undefined;
-      }
-
       const isFirst = leaves.length === 0;
       const paneId = isFirst ? `${sessionId}-main` : crypto.randomUUID();
       const ptyId = isFirst ? sessionId : crypto.randomUUID();
@@ -105,8 +84,6 @@ function collectLeaves(
         spawnProfileRef,
         name: n.name ?? undefined,
         isFirst,
-        nonoProfile,
-        nonoAllowDirs,
       });
       return null;
     }
@@ -208,7 +185,7 @@ export async function applyLayoutToSession(
   for (const leaf of leaves) {
     if (leaf.isFirst) continue;
     try {
-      await spawnShell(leaf.ptyId, session.worktreePath, session.id, leaf.paneId, leaf.nonoProfile, leaf.nonoAllowDirs, leaf.profile.id);
+      await spawnShell(leaf.ptyId, session.worktreePath, session.id, leaf.paneId, leaf.profile.id);
       spawned.push(leaf.ptyId);
     } catch (e) {
       // Step 5: Unwind on failure
@@ -236,8 +213,6 @@ export async function applyLayoutToSession(
       ptyId: leaf.ptyId,
       name: leaf.name,
       spawnProfileRef: leaf.spawnProfileRef,
-      nonoProfile: leaf.nonoProfile,
-      nonoAllowDirs: leaf.nonoAllowDirs,
     });
   }
 
@@ -310,22 +285,11 @@ function node(layout: LayoutSpec): LayoutPaneNode {
   return layout.root;
 }
 
-/**
- * Resolve the effective nono (profile + allow_dirs) for the first leaf of a
- * layout. Used by the new-session dialog so the session's primary PTY —
- * which is spawned by `createSessionShell` BEFORE `applyLayoutToSession`
- * runs — actually honors nono set on the first leaf (or its profile).
- *
- * Mirrors the leaf-wins-over-profile + union-of-allow_dirs resolution used
- * by `collectLeaves`.
- */
 export interface FirstLeafInfo {
-  nonoProfile: string | undefined;
-  nonoAllowDirs: string[] | undefined;
   profileId: string | undefined;
 }
 
-export function resolveFirstLeafNono(layout: LayoutSpec): FirstLeafInfo {
+export function resolveFirstLeafInfo(layout: LayoutSpec): FirstLeafInfo {
   function findFirstLeaf(n: LayoutPaneNode): LayoutPaneNode | null {
     if (n.kind === "leaf") return n;
     for (const c of n.children) {
@@ -337,40 +301,10 @@ export function resolveFirstLeafNono(layout: LayoutSpec): FirstLeafInfo {
 
   const leaf = findFirstLeaf(layout.root);
   if (!leaf || leaf.kind !== "leaf") {
-    return { nonoProfile: undefined, nonoAllowDirs: undefined, profileId: undefined };
+    return { profileId: undefined };
   }
 
-  const registry = get(profileRegistry);
-  let profile: SpawnProfile | null = null;
   const ref = leaf.profile_ref;
   const profileId = ref.kind === "registered" ? ref.id : ref.profile.id;
-
-  if (ref.kind === "registered") {
-    profile = registry.get(ref.id) ?? null;
-  } else {
-    profile = ref.profile;
-  }
-
-  const leafNono = leaf.nono_profile;
-  const profileNono = profile?.nonoProfile ?? null;
-
-  if (leafNono) {
-    const leafDirs = leaf.nono_allow_dirs ?? [];
-    const profileDirs = profile?.nonoAllowDirs ?? [];
-    const merged = [...new Set([...leafDirs, ...profileDirs])];
-    return {
-      nonoProfile: leafNono,
-      nonoAllowDirs: merged.length > 0 ? merged : undefined,
-      profileId,
-    };
-  } else if (profileNono) {
-    return {
-      nonoProfile: profileNono,
-      nonoAllowDirs: profile?.nonoAllowDirs?.length
-        ? profile.nonoAllowDirs
-        : undefined,
-      profileId,
-    };
-  }
-  return { nonoProfile: undefined, nonoAllowDirs: undefined, profileId };
+  return { profileId };
 }

@@ -147,8 +147,7 @@ pub(crate) enum SessionTarget<'a> {
     NewWorktree { branch: &'a str, start_point: Option<&'a str>, fetch_first: bool },
 }
 
-/// Create a session with a plain shell in its primary PTY. The shell is
-/// optionally wrapped in `nono run` via [`NonoConfig`]. The frontend
+/// Create a session with a plain shell in its primary PTY. The frontend
 /// attaches a spawn profile and writes setup / startup commands into the
 /// shell after it comes up. This is the one and only session creation
 /// path.
@@ -163,7 +162,6 @@ pub(crate) async fn create_session_shell(
     repo_path: &str,
     name: &str,
     target: SessionTarget<'_>,
-    nono: Option<&crate::pty::NonoConfig>,
     profile: Option<&str>,
     initial_size: Option<(u16, u16)>,
     project_id: Option<&str>,
@@ -266,7 +264,6 @@ pub(crate) async fn create_session_shell(
         project_id,
         worktree_env,
         notes_env.as_ref(),
-        nono,
         initial_size,
         crate::pty::PtyRole::SessionPrimary,
         profile,
@@ -335,18 +332,16 @@ pub(crate) async fn create_session_shell(
     Ok(session)
 }
 
-/// Reconnect a session by respawning its primary shell PTY, optionally
-/// nono-wrapped. The frontend re-runs the pane's profile commands into
-/// the fresh shell after this call, so agents come back up by typing
-/// their startup command. Kills the old PTY first so the session id is
-/// free for a fresh `spawn_shell`.
+/// Reconnect a session by respawning its primary shell PTY. The frontend
+/// re-runs the pane's profile commands into the fresh shell after this call,
+/// so agents come back up by typing their startup command. Kills the old PTY
+/// first so the session id is free for a fresh `spawn_shell`.
 pub(crate) async fn reconnect_session_shell(
     pty_manager: &PtyManager,
     session_handle: &SessionHandle,
     project_handle: &crate::project_service::ProjectHandle,
     settings: &RouxSettings,
     id: &str,
-    nono: Option<&crate::pty::NonoConfig>,
     profile: Option<&str>,
     initial_size: Option<(u16, u16)>,
     app: &tauri::AppHandle,
@@ -381,7 +376,6 @@ pub(crate) async fn reconnect_session_shell(
             session.project_id.as_deref(),
             worktree_env,
             notes_env.as_ref(),
-            nono,
             initial_size,
             crate::pty::PtyRole::SessionPrimary,
             profile,

@@ -12,7 +12,7 @@ Roux supports native Windows x64 local builds with an unsigned per-user NSIS ins
 - Go Task.
 - Optional: PowerShell 7 (`pwsh`). Roux falls back to Windows PowerShell and then `cmd.exe`.
 
-WSL session mode, ARM64 Windows, auto-update, code signing, and Windows `nono` profile support are not part of the first Windows milestone.
+WSL session mode, ARM64 Windows, auto-update, and code signing are not part of the first Windows milestone.
 
 ## Development
 
@@ -59,4 +59,3 @@ The NSIS installer uses Tauri's `currentUser` install mode, so it installs per u
 - Claude hooks are installed by the app using an absolute quoted path to the bundled `roux.exe`.
 - Uninstall leaves the user's Claude settings alone in v1.
 - Native Windows Claude is required. Roux does not fall back to WSL Claude in v1.
-- `nono` is checked opportunistically, but Windows `nono` profile support is deferred until a supported `nono.exe` flow is validated.

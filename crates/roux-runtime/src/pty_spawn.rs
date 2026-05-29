@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use crate::terminal_env::NonoConfig;
-
 pub const DEFAULT_PTY_COLS: u16 = 80;
 pub const DEFAULT_PTY_ROWS: u16 = 24;
 
@@ -36,7 +34,6 @@ pub struct ShellSpawnPlanInputs<'a> {
     pub shell: &'a str,
     pub roux_env: &'a [(String, String)],
     pub worktree_path: Option<&'a str>,
-    pub nono: Option<&'a NonoConfig>,
     pub initial_size: Option<(u16, u16)>,
 }
 
@@ -55,32 +52,11 @@ pub fn pty_dimensions(initial: Option<(u16, u16)>) -> PtyDimensions {
 }
 
 pub fn shell_spawn_plan(inputs: ShellSpawnPlanInputs<'_>) -> PtySpawnPlan {
-    let mut command = if let Some(nono) = inputs.nono {
-        let mut args = vec![
-            "run".to_string(),
-            "--profile".to_string(),
-            nono.profile.clone(),
-            "--allow-cwd".to_string(),
-        ];
-        for dir in nono.resolved_allow_dirs(inputs.working_dir) {
-            args.push("--allow-dir".to_string());
-            args.push(dir);
-        }
-        args.push("--".to_string());
-        args.push(inputs.shell.to_string());
-        PtyCommandPlan {
-            program: PathBuf::from("nono"),
-            args,
-            env: inputs.roux_env.to_vec(),
-            cwd: inputs.working_dir.to_string(),
-        }
-    } else {
-        PtyCommandPlan {
-            program: PathBuf::from(inputs.shell),
-            args: Vec::new(),
-            env: inputs.roux_env.to_vec(),
-            cwd: inputs.working_dir.to_string(),
-        }
+    let mut command = PtyCommandPlan {
+        program: PathBuf::from(inputs.shell),
+        args: Vec::new(),
+        env: inputs.roux_env.to_vec(),
+        cwd: inputs.working_dir.to_string(),
     };
 
     append_shell_command_flags(&mut command.args, inputs.shell);
@@ -171,39 +147,20 @@ mod tests {
     }
 
     #[test]
-    fn shell_plan_wraps_nono_with_resolved_allow_dirs() {
+    fn shell_plan_uses_configured_shell() {
         let env = roux_env();
-        let nono = NonoConfig {
-            profile: "sandbox".to_string(),
-            allow_dirs: vec!["relative".to_string(), "/absolute".to_string()],
-        };
 
         let plan = shell_spawn_plan(ShellSpawnPlanInputs {
             working_dir: "/work/project",
             shell: "/bin/zsh",
             roux_env: &env,
             worktree_path: None,
-            nono: Some(&nono),
             initial_size: Some((132, 37)),
         });
 
         assert_eq!(plan.size, PtyDimensions { cols: 132, rows: 37 });
-        assert_eq!(plan.command.program, PathBuf::from("nono"));
-        assert_eq!(
-            plan.command.args,
-            vec![
-                "run",
-                "--profile",
-                "sandbox",
-                "--allow-cwd",
-                "--allow-dir",
-                "/work/project/relative",
-                "--allow-dir",
-                "/absolute",
-                "--",
-                "/bin/zsh",
-            ]
-        );
+        assert_eq!(plan.command.program, PathBuf::from("/bin/zsh"));
+        assert!(plan.command.args.is_empty());
         assert_eq!(plan.command.env, env);
         assert_eq!(plan.command.cwd, "/work/project");
     }

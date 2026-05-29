@@ -26,8 +26,6 @@ export interface InitialPtySize {
 }
 
 export interface CreateSessionShellOpts {
-  nonoProfile?: string | null;
-  nonoAllowDirs?: string[] | null;
   initialSize?: InitialPtySize | null;
   /**
    * Spawn-profile id (`claude`, `codex`, user-profile id). Threaded into the
@@ -113,8 +111,6 @@ export async function createSessionShell(
   opts: CreateSessionShellOpts = {},
 ): Promise<Session> {
   const {
-    nonoProfile,
-    nonoAllowDirs,
     initialSize,
     profile,
     base,
@@ -128,8 +124,6 @@ export async function createSessionShell(
     worktreePath,
     branch,
     opts: {
-      nonoProfile: nonoProfile ?? null,
-      nonoAllowDirs: nonoAllowDirs ?? null,
       profile: profile ?? null,
       initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
       base: base ?? null,
@@ -160,15 +154,11 @@ export async function killPty(id: string): Promise<void> {
  */
 export async function reconnectSessionShellPty(
   id: string,
-  nonoProfile?: string | null,
-  nonoAllowDirs?: string[] | null,
   profile?: string | null,
   initialSize?: InitialPtySize | null,
 ): Promise<Session> {
   return invoke("reconnect_session_shell", {
     id,
-    nonoProfile: nonoProfile ?? null,
-    nonoAllowDirs: nonoAllowDirs ?? null,
     profile: profile ?? null,
     initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
   });
@@ -211,8 +201,6 @@ export async function spawnShell(
   workingDir: string,
   sessionId: string | null,
   paneId: string | null,
-  nonoProfile?: string | null,
-  nonoAllowDirs?: string[] | null,
   profile?: string | null,
   initialSize?: InitialPtySize | null,
 ): Promise<void> {
@@ -221,8 +209,6 @@ export async function spawnShell(
     workingDir,
     sessionId,
     paneId,
-    nonoProfile: nonoProfile ?? null,
-    nonoAllowDirs: nonoAllowDirs ?? null,
     profile: profile ?? null,
     initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
   });
@@ -627,15 +613,6 @@ export async function reinstallSkill(): Promise<void> {
 
 export async function installAllMissing(): Promise<void> {
   return invoke("install_all_missing");
-}
-
-// Nono sandbox integration
-export async function checkNonoInstalled(): Promise<boolean> {
-  return invoke("check_nono_installed");
-}
-
-export async function listNonoProfiles(): Promise<string[]> {
-  return invoke("list_nono_profiles");
 }
 
 // GitHub PR integration
@@ -1340,8 +1317,6 @@ export interface PaneDescriptorPayload {
   spawnProfileRef?: SpawnProfileRef;
   provider?: "claude" | "codex";
   providerSessionId?: string;
-  nonoProfile?: string;
-  nonoAllowDirs?: string[];
   notesScope?: NotesScope;
   notesViewMode?: "edit" | "read";
   sessionId?: string;

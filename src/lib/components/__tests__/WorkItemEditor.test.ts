@@ -107,8 +107,6 @@ vi.mock("$lib/panes/profiles", async () => {
         cwdOverride: null,
         icon: null,
         provider: "claude",
-        nonoProfile: null,
-        nonoAllowDirs: null,
         source: "builtin",
       },
       {
@@ -121,8 +119,6 @@ vi.mock("$lib/panes/profiles", async () => {
         cwdOverride: null,
         icon: null,
         provider: "codex",
-        nonoProfile: null,
-        nonoAllowDirs: null,
         source: "builtin",
       },
     ]),

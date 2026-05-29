@@ -113,7 +113,6 @@ Supported `args`:
 - `profile`: spawn profile id.
 - `initialSize`: `[cols, rows]`.
 - `projectId`, `blueprintId`.
-- `nonoProfile`, `nonoAllowDirs`.
 - `notesEnv`: notes env snapshot for the primary PTY.
 
 Returns the created session. If daemon PTY spawn fails after creating a new
@@ -123,7 +122,7 @@ worktree, the daemon attempts to remove the worktree before returning an error.
 
 Requires `session_id`. Respawns the primary PTY using the existing session
 record and returns the updated session. Supported `args`: `profile`,
-`nonoProfile`, `nonoAllowDirs`, `initialSize`, `notesEnv`.
+`initialSize`, `notesEnv`.
 
 `session-archive`
 

@@ -118,7 +118,7 @@ describe("restoreSessionPanes", () => {
 
   it("restores persisted split panes and reattaches each live PTY", async () => {
     const payload: PaneStatePayload = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -171,7 +171,7 @@ describe("restoreSessionPanes", () => {
 
   it("auto-respawns a fresh PTY for non-primary shell panes whose persisted PTY is gone", async () => {
     const payload: PaneStatePayload = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -229,7 +229,7 @@ describe("restoreSessionPanes", () => {
     resolveProfileRefMock.mockReturnValue(profile);
 
     const payload: PaneStatePayload = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -272,7 +272,7 @@ describe("restoreSessionPanes", () => {
     spawnShellMock.mockRejectedValueOnce(new Error("No such file or directory"));
 
     const payload: PaneStatePayload = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -314,7 +314,7 @@ describe("restoreSessionPanes", () => {
 
   it("does not auto-respawn when live PTY inventory is unknown", async () => {
     const payload: PaneStatePayload = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -353,7 +353,7 @@ describe("restoreSessionPanes", () => {
 
   it("restores panes but does not attach PTYs when live inventory is unknown", async () => {
     const payload: PaneStatePayload = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -392,7 +392,7 @@ describe("restoreSessionPanes", () => {
 
   it("strips known-stale command panes from restored layouts", async () => {
     const payload: PaneStatePayload = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -436,7 +436,7 @@ describe("restoreSessionPanes", () => {
 
   it("falls back to a primary pane when persisted state has no session primary descriptor", async () => {
     const payload: PaneStatePayload = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "leaf",
         paneId: "stale-shell",

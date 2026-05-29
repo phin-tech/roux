@@ -54,8 +54,6 @@ export function initSessionWithProfile(
   sessionId: string,
   spawnProfileRef: SpawnProfileRef,
   extras?: {
-    nonoProfile?: string;
-    nonoAllowDirs?: string[];
     provider?: CreatePaneOpts["provider"];
     providerSessionId?: string;
   },
@@ -69,8 +67,6 @@ export function initSessionWithProfile(
       spawnProfileRef,
       provider: extras?.provider,
       providerSessionId: extras?.providerSessionId,
-      nonoProfile: extras?.nonoProfile,
-      nonoAllowDirs: extras?.nonoAllowDirs,
       sessionId,
     });
   }

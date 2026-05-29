@@ -37,8 +37,6 @@ pub struct SpawnShell {
     pub(crate) session_id: Option<String>,
     pub(crate) pane_id: Option<String>,
     pub(crate) profile: Option<String>,
-    pub(crate) nono_profile: Option<String>,
-    pub(crate) nono_allow_dirs: Vec<String>,
     pub(crate) initial_size: Option<(u16, u16)>,
 }
 
@@ -72,8 +70,6 @@ impl Roux {
             session_id: None,
             pane_id: None,
             profile: None,
-            nono_profile: None,
-            nono_allow_dirs: Vec::new(),
             initial_size: None,
         }
     }
@@ -338,16 +334,6 @@ impl SpawnShell {
         self
     }
 
-    pub fn nono_profile(mut self, profile: impl Into<String>) -> Self {
-        self.nono_profile = Some(profile.into());
-        self
-    }
-
-    pub fn nono_allow_dirs(mut self, allow_dirs: Vec<String>) -> Self {
-        self.nono_allow_dirs = allow_dirs;
-        self
-    }
-
     pub fn initial_size(mut self, cols: u16, rows: u16) -> Self {
         self.initial_size = Some((cols, rows));
         self
@@ -375,12 +361,6 @@ impl SpawnShell {
         }
         if let Some(profile) = self.profile {
             args.insert("profile".into(), Value::String(profile));
-        }
-        if let Some(nono_profile) = self.nono_profile {
-            args.insert("nonoProfile".into(), Value::String(nono_profile));
-        }
-        if !self.nono_allow_dirs.is_empty() {
-            args.insert("nonoAllowDirs".into(), serde_json::json!(self.nono_allow_dirs));
         }
         if let Some((cols, rows)) = self.initial_size {
             args.insert("initialSize".into(), serde_json::json!([cols, rows]));

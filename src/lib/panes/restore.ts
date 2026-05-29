@@ -82,8 +82,6 @@ export async function restoreSessionPanes(
           spawnProfileRef: d.spawnProfileRef,
           provider: d.provider,
           providerSessionId: d.providerSessionId,
-          nonoProfile: d.nonoProfile,
-          nonoAllowDirs: d.nonoAllowDirs,
         });
         respawnedPanes.set(d.id, { ptyId: result.ptyId, profile: result.profile });
       } else {
@@ -97,8 +95,6 @@ export async function restoreSessionPanes(
           spawnProfileRef: d.spawnProfileRef,
           provider: d.provider,
           providerSessionId: d.providerSessionId,
-          nonoProfile: d.nonoProfile,
-          nonoAllowDirs: d.nonoAllowDirs,
         });
         updateInstance(d.id, { restoreError: result.message });
       }
@@ -116,8 +112,6 @@ export async function restoreSessionPanes(
       spawnProfileRef: d.spawnProfileRef,
       provider: d.provider,
       providerSessionId: d.providerSessionId,
-      nonoProfile: d.nonoProfile,
-      nonoAllowDirs: d.nonoAllowDirs,
       notesScope: d.notesScope,
       notesViewMode: d.notesViewMode,
     });
@@ -197,8 +191,6 @@ function initPrimaryPane(
   const paneId = initSessionWithProfile(sessionId, profileRef, {
     provider: descriptor?.provider,
     providerSessionId: descriptor?.providerSessionId,
-    nonoProfile: descriptor?.nonoProfile,
-    nonoAllowDirs: descriptor?.nonoAllowDirs,
   });
   if (descriptor) {
     updateInstance(paneId, {
@@ -254,8 +246,6 @@ async function respawnStaleShell(
       descriptor.workingDir ?? session.worktreePath,
       session.id,
       descriptor.id,
-      descriptor.nonoProfile ?? null,
-      descriptor.nonoAllowDirs ?? null,
       profileId,
     );
     return { kind: "ok", ptyId: freshPtyId, profile };
@@ -318,8 +308,6 @@ function createPrimaryPane(
     spawnProfileRef: spawnProfileRef ?? { kind: "registered", id: "claude" },
     provider: descriptor.provider,
     providerSessionId: descriptor.providerSessionId,
-    nonoProfile: descriptor.nonoProfile,
-    nonoAllowDirs: descriptor.nonoAllowDirs,
     notesScope: descriptor.notesScope,
     notesViewMode: descriptor.notesViewMode,
   });

@@ -52,7 +52,7 @@ describe("persistence — Tauri-backed API", () => {
   describe("loadPaneState", () => {
     it("returns parsed payload when Tauri call resolves with valid data", async () => {
       const payload: PaneStatePayload = {
-        schemaVersion: 4,
+        schemaVersion: 5,
         layout: { kind: "leaf", paneId: "s1-main" },
         descriptors: [{ id: "s1-main", type: "shell", ptyId: "s1" }],
       };
@@ -94,9 +94,29 @@ describe("persistence — Tauri-backed API", () => {
       expect(result).toBeNull();
     });
 
-    it("drops payloads with null children before they reach the renderer", async () => {
+    it("drops v4 pane state that may contain removed nono sandbox fields", async () => {
       vi.mocked(loadPaneStateRaw).mockResolvedValue({
         schemaVersion: 4,
+        layout: { kind: "leaf", paneId: "s1-main" },
+        descriptors: [
+          {
+            id: "s1-main",
+            type: "shell",
+            ptyId: "s1",
+            nonoProfile: "strict",
+            nonoAllowDirs: ["/tmp/scratch"],
+          },
+        ],
+      } as unknown);
+
+      const result = await loadPaneState("s1");
+
+      expect(result).toBeNull();
+    });
+
+    it("drops payloads with null children before they reach the renderer", async () => {
+      vi.mocked(loadPaneStateRaw).mockResolvedValue({
+        schemaVersion: 5,
         layout: {
           kind: "split",
           direction: "h",
@@ -115,7 +135,7 @@ describe("persistence — Tauri-backed API", () => {
 
     it("drops payloads with activeIndex outside stacked children", async () => {
       vi.mocked(loadPaneStateRaw).mockResolvedValue({
-        schemaVersion: 4,
+        schemaVersion: 5,
         layout: {
           kind: "split",
           direction: "h",
@@ -142,7 +162,7 @@ describe("persistence — Tauri-backed API", () => {
     it("delegates to Tauri with session id and payload", async () => {
       vi.mocked(savePaneStateRaw).mockResolvedValue(undefined);
       const payload: PaneStatePayload = {
-        schemaVersion: 4,
+        schemaVersion: 5,
         layout: { kind: "leaf", paneId: "s1-main" },
         descriptors: [{ id: "s1-main", type: "shell", ptyId: "s1" }],
       };
@@ -224,7 +244,7 @@ describe("persistence — Tauri-backed API", () => {
       expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
       expect(saveLivePaneStateRaw).toHaveBeenCalledWith(
         "s1",
-        4,
+        5,
         {
           kind: "split",
           direction: "h",
@@ -260,7 +280,7 @@ describe("persistence — Tauri-backed API", () => {
         string[],
       ];
       expect(sessionId).toBe("s1");
-      expect(schemaVersion).toBe(4);
+      expect(schemaVersion).toBe(5);
       expect(layout).toEqual({ kind: "leaf", paneId: "s1-shell" });
       expect(paneIds).toEqual(["s1-shell"]);
     });
@@ -281,7 +301,7 @@ describe("persistence — Tauri-backed API", () => {
 
       expect(saveLivePaneStateRaw).toHaveBeenCalledWith(
         "s1",
-        4,
+        5,
         { kind: "leaf", paneId: "doc-1" },
         ["doc-1"],
       );
@@ -328,7 +348,7 @@ describe("persistence — Tauri-backed API", () => {
       expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
       expect(saveLivePaneStateRaw).toHaveBeenCalledWith(
         "s1",
-        4,
+        5,
         {
           kind: "split",
           direction: "h",
@@ -364,7 +384,7 @@ describe("persistence — Tauri-backed API", () => {
         string[],
       ];
       expect(sessionId).toBe("s1");
-      expect(schemaVersion).toBe(4);
+      expect(schemaVersion).toBe(5);
       expect(layout).toEqual({ kind: "leaf", paneId: "s1-shell" });
       expect(paneIds).toEqual(["s1-shell"]);
     });

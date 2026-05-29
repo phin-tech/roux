@@ -1,36 +1,5 @@
 use std::path::{Path, PathBuf};
 
-/// Nono sandbox configuration for a shell PTY. When present, the shell is
-/// spawned inside `nono run` with the given profile and directory allowances.
-#[derive(Debug, Clone)]
-pub struct NonoConfig {
-    pub profile: String,
-    pub allow_dirs: Vec<String>,
-}
-
-impl NonoConfig {
-    /// Resolve `~` to the user's home directory and relative paths against
-    /// `working_dir`. Nono receives arguments directly, so shell expansion is
-    /// not available at spawn time.
-    pub fn resolved_allow_dirs(&self, working_dir: &str) -> Vec<String> {
-        let home = dirs::home_dir();
-        self.allow_dirs
-            .iter()
-            .filter_map(|d| {
-                if d == "~" {
-                    home.as_ref().map(|h| h.to_string_lossy().into_owned())
-                } else if let Some(tail) = d.strip_prefix("~/") {
-                    home.as_ref().map(|h| h.join(tail).to_string_lossy().into_owned())
-                } else if Path::new(d).is_absolute() {
-                    Some(d.clone())
-                } else {
-                    Some(Path::new(working_dir).join(d).to_string_lossy().into_owned())
-                }
-            })
-            .collect()
-    }
-}
-
 /// Pre-computed inputs for the `ROUX_*_NOTES_*` env vars. Callers resolve
 /// slugs and project context before handing these values to terminal spawn.
 #[derive(Debug, Clone, Default)]
@@ -349,41 +318,4 @@ mod tests {
         assert_eq!(shell, "/bin/bash");
     }
 
-    #[test]
-    fn resolved_allow_dirs_expands_tilde() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["~/data".into()] };
-        let resolved = nono.resolved_allow_dirs("/work");
-        assert!(resolved[0].starts_with('/'), "should be absolute: {}", resolved[0]);
-        assert!(resolved[0].ends_with("/data"), "should end with /data: {}", resolved[0]);
-        assert!(!resolved[0].contains('~'), "should not contain tilde: {}", resolved[0]);
-    }
-
-    #[test]
-    fn resolved_allow_dirs_resolves_relative() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["local/dir".into()] };
-        let resolved = nono.resolved_allow_dirs("/work/project");
-        assert_eq!(resolved[0], "/work/project/local/dir");
-    }
-
-    #[test]
-    fn resolved_allow_dirs_passes_absolute_through() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["/tmp/scratch".into()] };
-        let resolved = nono.resolved_allow_dirs("/work");
-        assert_eq!(resolved[0], "/tmp/scratch");
-    }
-
-    #[test]
-    fn resolved_allow_dirs_handles_bare_tilde() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["~".into()] };
-        let resolved = nono.resolved_allow_dirs("/work");
-        let home = dirs::home_dir().unwrap();
-        assert_eq!(resolved[0], home.to_string_lossy());
-    }
-
-    #[test]
-    fn resolved_allow_dirs_handles_empty() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec![] };
-        let resolved = nono.resolved_allow_dirs("/work");
-        assert!(resolved.is_empty());
-    }
 }

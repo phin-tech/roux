@@ -804,12 +804,6 @@ enum SessionAction {
         /// Extra flag passed to the agent binary (repeatable; values may begin with --)
         #[arg(short = 'f', long = "flag", allow_hyphen_values = true)]
         flags: Vec<String>,
-        /// Nono sandbox profile name
-        #[arg(long)]
-        nono_profile: Option<String>,
-        /// Extra directory to allow under nono (repeatable)
-        #[arg(long = "nono-allow-dir")]
-        nono_allow_dirs: Vec<String>,
         /// Text to send to the session's primary PTY immediately after it starts
         /// (with a trailing Enter). Handy for kicking off an agent task at
         /// creation time without a separate `session send` call.
@@ -2538,8 +2532,6 @@ fn main() {
                 from,
                 profile,
                 flags,
-                nono_profile,
-                nono_allow_dirs,
                 prompt,
             } => {
                 // Default working_dir to the current directory when the caller
@@ -2571,15 +2563,6 @@ fn main() {
                     args.insert(
                         "flags".into(),
                         Value::Array(flags.into_iter().map(Value::String).collect()),
-                    );
-                }
-                if let Some(p) = nono_profile {
-                    args.insert("nono_profile".into(), Value::String(p));
-                }
-                if !nono_allow_dirs.is_empty() {
-                    args.insert(
-                        "nono_allow_dirs".into(),
-                        Value::Array(nono_allow_dirs.into_iter().map(Value::String).collect()),
                     );
                 }
                 if let Some(p) = prompt {
@@ -3386,12 +3369,6 @@ mod tests {
             "--debug",
             "-f",
             "--model=opus",
-            "--nono-profile",
-            "strict",
-            "--nono-allow-dir",
-            "~/work",
-            "--nono-allow-dir",
-            "/tmp",
         ])
         .unwrap();
         match cli.command {
@@ -3403,8 +3380,6 @@ mod tests {
                         from,
                         profile,
                         flags,
-                        nono_profile,
-                        nono_allow_dirs,
                         working_dir,
                         prompt,
                     },
@@ -3414,8 +3389,6 @@ mod tests {
                 assert!(from.is_none());
                 assert_eq!(profile.as_deref(), Some("claude"));
                 assert_eq!(flags, vec!["--debug", "--model=opus"]);
-                assert_eq!(nono_profile.as_deref(), Some("strict"));
-                assert_eq!(nono_allow_dirs, vec!["~/work", "/tmp"]);
                 assert!(working_dir.is_none());
                 assert!(prompt.is_none());
             }

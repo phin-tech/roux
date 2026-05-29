@@ -55,9 +55,6 @@ export interface PaneInstance {
   provider?: Provider;
   providerSessionId?: string;
 
-  nonoProfile?: string;
-  nonoAllowDirs?: string[];
-
   // Set when a shell pane failed to spawn during session restore.
   // Causes PaneShell to render the DeadPaneView instead of xterm.
   // Not persisted — only lives in runtime state.
@@ -89,8 +86,6 @@ export interface CreatePaneOpts {
   spawnProfileRef?: SpawnProfileRef;
   provider?: Provider;
   providerSessionId?: string;
-  nonoProfile?: string;
-  nonoAllowDirs?: string[];
   notesScope?: NotesScope;
   notesViewMode?: "edit" | "read";
   sessionId?: string;
@@ -118,8 +113,6 @@ function toPaneRecord(instance: PaneInstance): PaneRecordPayload {
     spawnProfileRef: instance.spawnProfileRef,
     provider: instance.provider,
     providerSessionId: instance.providerSessionId,
-    nonoProfile: instance.nonoProfile,
-    nonoAllowDirs: instance.nonoAllowDirs,
     notesScope: instance.notesScope,
     notesViewMode: instance.notesViewMode,
     sessionId: instance.sessionId,
@@ -128,16 +121,6 @@ function toPaneRecord(instance: PaneInstance): PaneRecordPayload {
 
 function syncPaneRecord(instance: PaneInstance): void {
   void upsertPaneRecord(toPaneRecord(instance)).catch(() => {});
-}
-
-function stringArraysEqual(a: string[] | undefined, b: string[] | undefined): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
 }
 
 // Field-level diff against PaneInstance — replaces a prior double
@@ -156,10 +139,8 @@ function paneRecordChanged(before: PaneInstance, after: PaneInstance): boolean {
     before.spawnProfileRef !== after.spawnProfileRef ||
     before.provider !== after.provider ||
     before.providerSessionId !== after.providerSessionId ||
-    before.nonoProfile !== after.nonoProfile ||
     before.notesScope !== after.notesScope ||
     before.notesViewMode !== after.notesViewMode ||
-    !stringArraysEqual(before.nonoAllowDirs, after.nonoAllowDirs) ||
     before.sessionId !== after.sessionId
   );
 }
@@ -198,8 +179,6 @@ export function createPane(opts: CreatePaneOpts): string {
     spawnProfileRef: opts.spawnProfileRef,
     provider: opts.provider,
     providerSessionId: opts.providerSessionId,
-    nonoProfile: opts.nonoProfile,
-    nonoAllowDirs: opts.nonoAllowDirs,
     commandStatus: "idle",
     commandExitCode: null,
     commandStartedAt: null,

@@ -440,20 +440,14 @@
       const name = repo.split("/").pop() + "-" + branch;
       log(`Creating worktree session: repo=${repo}, branch=${branch}`);
 
-      // Resolve Claude profile's nono config up-front so the primary shell
-      // is sandboxed from the start (matches the layout/dialog paths).
       const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
       const { resolveProfileRef } = await import("$lib/panes/profiles");
       const { runProfileInPane } = await import("$lib/panes/profileRunner");
       const profile = resolveProfileRef(profileRef);
-      const nonoProfile = profile?.nonoProfile ?? undefined;
-      const nonoAllowDirs = profile?.nonoAllowDirs ?? undefined;
 
       const session = await createSessionShell(
         repo, name, null, branch,
         {
-          nonoProfile,
-          nonoAllowDirs,
           profile: "claude",
           base: worktreeBase,
           fetchFirst: worktreeFetchFirst,
@@ -461,10 +455,7 @@
       );
       log(`Worktree session created: ${session.id}`);
       addSession(session);
-      const mainPaneId = initSessionWithProfile(session.id, profileRef, {
-        nonoProfile,
-        nonoAllowDirs,
-      });
+      const mainPaneId = initSessionWithProfile(session.id, profileRef);
       const { connectPaneTerminal } = await import("$lib/panes/terminals");
       await connectPaneTerminal(mainPaneId);
       if (profile)

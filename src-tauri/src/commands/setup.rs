@@ -172,18 +172,6 @@ pub(crate) fn run_setup() -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn check_nono_installed() -> bool {
-    svc::is_command_available("nono")
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn list_nono_profiles() -> Vec<String> {
-    svc::list_nono_profiles()
-}
-
 // ── Doctor panel ─────────────────────────────────────────────────────────────
 
 #[derive(serde::Serialize, specta::Type)]

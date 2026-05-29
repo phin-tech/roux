@@ -399,8 +399,6 @@
       const { connectPaneTerminal } = await import("$lib/panes/terminals");
       const profileRef = { kind: "registered" as const, id: "claude" };
       const profile = resolveProfileRef(profileRef);
-      const nonoProfile = profile?.nonoProfile ?? undefined;
-      const nonoAllowDirs = profile?.nonoAllowDirs ?? undefined;
 
       const name = wt.branch || currentRepo.split("/").pop() || "shell";
       const newSession = await createSessionShell(
@@ -408,13 +406,10 @@
         name,
         wt.path,
         wt.branch,
-        { nonoProfile, nonoAllowDirs, profile: "claude" },
+        { profile: "claude" },
       );
       addSession(newSession);
-      const mainPaneId = initSessionWithProfile(newSession.id, profileRef, {
-        nonoProfile,
-        nonoAllowDirs,
-      });
+      const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
       await connectPaneTerminal(mainPaneId);
       if (profile)
         await runProfileInPane(newSession.id, profile, {

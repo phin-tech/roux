@@ -73,7 +73,7 @@ function makePayloadWithShells(sessionId: string, shells: Array<{ id: string; wo
     ...shells.map((s) => ({ kind: "leaf" as const, paneId: s.id })),
   ];
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     layout: { kind: "split", direction: "h" as const, children },
     descriptors: [
       // The session-primary pane is a shell whose ptyId matches the
@@ -97,8 +97,6 @@ function makeProfile(overrides: Partial<SpawnProfile> = {}): SpawnProfile {
     cwdOverride: undefined,
     env: {},
     icon: null,
-    nonoProfile: null,
-    nonoAllowDirs: [],
     ...overrides,
   };
 }
@@ -129,7 +127,7 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null);
   });
 
   it("invokes reconnect with extra flags without error", async () => {
@@ -142,7 +140,7 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await reconnectSession(session, ["--resume", "abc123"]);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null);
   });
 
   it("continues a Claude primary profile with claude --continue", async () => {
@@ -182,7 +180,7 @@ describe("reconnectSession — existing behavior preserved", () => {
     addSession(session);
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: { kind: "leaf", paneId: mainId },
       descriptors: [
         {
@@ -362,8 +360,6 @@ describe("reconnectSession — existing behavior preserved", () => {
           startupBehavior: "autoRun",
           cwdOverride: null,
           env: {},
-          nonoProfile: null,
-          nonoAllowDirs: [],
         },
       },
     });
@@ -372,8 +368,6 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     expect(reconnectSessionShellPty).toHaveBeenCalledWith(
       session.id,
-      null,
-      null,
       "custom-inline",
     );
   });
@@ -471,7 +465,7 @@ describe("reconnectSession — full rehydration", () => {
     initSession(session.id);
 
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: { kind: "leaf", paneId: `${session.id}-main` },
       descriptors: [{ id: `${session.id}-main`, type: "shell", ptyId: session.id }],
     } satisfies PaneStatePayload);
@@ -488,7 +482,7 @@ describe("reconnectSession — full rehydration", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null);
     expect(get(sessionLayouts).get(session.id)).toEqual({
       kind: "leaf",
       paneId: `${session.id}-main`,
@@ -506,14 +500,12 @@ describe("reconnectSession — full rehydration", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null);
     expect(spawnShell).toHaveBeenCalledWith(
       expect.any(String),
       "/repo/a",
       session.id,
       "shell-a",
-      null,
-      null,
       null,
     );
     const tree = get(sessionLayouts).get(session.id);
@@ -539,8 +531,8 @@ describe("reconnectSession — full rehydration", () => {
     await reconnectSession(session);
 
     expect(spawnShell).toHaveBeenCalledTimes(2);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a", null, null, null);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b", null, null, null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a", null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b", null);
 
     const instances = get(paneInstances);
     expect(instances.has("shell-a")).toBe(true);
@@ -555,7 +547,7 @@ describe("reconnectSession — full rehydration", () => {
     addSession(session);
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -685,7 +677,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -722,7 +714,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -780,7 +772,7 @@ describe("reconnectSession — full rehydration", () => {
     } satisfies PaneStatePayload["layout"];
 
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: restoredLayout,
       descriptors: [
         { id: mainId, type: "shell", ptyId: session.id },
@@ -837,8 +829,6 @@ describe("reconnectSession — full rehydration", () => {
       "/repo/app",
       session.id,
       "shell-pane",
-      null,
-      null,
       "plain-shell",
     );
   });
@@ -850,7 +840,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -881,7 +871,7 @@ describe("reconnectSession — full rehydration", () => {
     const mainId = `${session.id}-main`;
     // Corrupt: leaf in tree with no matching descriptor
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -911,7 +901,7 @@ describe("reconnectSession — full rehydration", () => {
 
     const mainId = `${session.id}-main`;
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
-      schemaVersion: 4,
+      schemaVersion: 5,
       layout: {
         kind: "split",
         direction: "h",
@@ -956,7 +946,7 @@ describe("retryShellPane", () => {
 
     await retryShellPane(paneId, "sess-1");
 
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId, null, null, null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId, null);
     const inst = get(paneInstances).get(paneId);
     expect(inst?.restoreError).toBeUndefined();
   });

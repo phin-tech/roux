@@ -54,10 +54,6 @@ pub struct SessionBlueprint {
     pub base: Option<String>,
     #[serde(default)]
     pub fetch_first: bool,
-    #[serde(default)]
-    pub nono_profile: Option<String>,
-    #[serde(default)]
-    pub nono_allow_dirs: Vec<String>,
 }
 
 #[cfg(test)]
@@ -96,8 +92,6 @@ mod tests {
                 spawn_profile: "claude".into(),
                 base: None,
                 fetch_first: false,
-                nono_profile: None,
-                nono_allow_dirs: Vec::new(),
             }],
             project_prompt: "always cite the spec".into(),
         };
