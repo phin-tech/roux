@@ -387,7 +387,7 @@ mod tests {
 
     fn minimal_payload() -> serde_json::Value {
         json!({
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "layout": { "kind": "leaf", "paneId": "sess1-main" },
             "descriptors": [
                 { "id": "sess1-main", "type": "shell", "ptyId": "sess1" }
@@ -527,7 +527,7 @@ mod tests {
     fn load_does_not_overwrite_explicit_provider_session_id_with_status_file() {
         let dir = tempfile::tempdir().unwrap();
         let payload = json!({
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "layout": { "kind": "leaf", "paneId": "sess1-main" },
             "descriptors": [
                 {
@@ -601,7 +601,7 @@ mod tests {
         fs::write(
             &path,
             serde_json::to_string(
-                &json!({ "version": 999, "data": { "schemaVersion": 4, "layout": { "kind": "leaf", "paneId": "sess1-main" }, "descriptors": [] } }),
+                &json!({ "version": 999, "data": { "schemaVersion": 5, "layout": { "kind": "leaf", "paneId": "sess1-main" }, "descriptors": [] } }),
             )
             .unwrap(),
         )
@@ -675,7 +675,7 @@ mod tests {
     fn save_rejects_invalid_pane_descriptor_type() {
         let dir = tempfile::tempdir().unwrap();
         let payload = json!({
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "layout": { "kind": "leaf", "paneId": "sess1-main" },
             "descriptors": [
                 { "id": "sess1-main", "type": "claude", "ptyId": "sess1" }
@@ -695,7 +695,7 @@ mod tests {
             serde_json::to_string(&json!({
                 "version": 1,
                 "data": {
-                    "schemaVersion": 4,
+                    "schemaVersion": 5,
                     "layout": { "kind": "leaf", "paneId": "sess1-main" },
                     "descriptors": [
                         { "id": "sess1-main", "type": "claude", "ptyId": "sess1" }
@@ -724,14 +724,14 @@ mod tests {
     fn load_returns_latest_after_overwrite() {
         let dir = tempfile::tempdir().unwrap();
         let first = json!({
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "layout": { "kind": "leaf", "paneId": "sess1-main" },
             "descriptors": [
                 { "id": "sess1-main", "type": "shell", "ptyId": "sess1", "name": "first" }
             ]
         });
         let second = json!({
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "layout": { "kind": "leaf", "paneId": "sess1-main" },
             "descriptors": [
                 { "id": "sess1-main", "type": "shell", "ptyId": "sess1", "name": "second" }
@@ -765,7 +765,7 @@ mod tests {
         save_live_to(
             dir.path(),
             "sess1",
-            4,
+            5,
             json!({ "kind": "leaf", "paneId": "sess1-main" }),
             descriptors,
         )
@@ -775,7 +775,7 @@ mod tests {
         assert_eq!(
             loaded,
             json!({
-                "schemaVersion": 4,
+                "schemaVersion": 5,
                 "layout": { "kind": "leaf", "paneId": "sess1-main" },
                 "descriptors": [
                     {
@@ -840,7 +840,7 @@ mod tests {
     fn roundtrip_preserves_stacked_split_metadata() {
         let dir = tempfile::tempdir().unwrap();
         let payload = json!({
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "layout": {
                 "kind": "split",
                 "direction": "h",

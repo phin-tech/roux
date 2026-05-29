@@ -16,11 +16,11 @@ import { log } from "$lib/logging";
 /**
  * Pane-state schema version. Bump when descriptors or payload shape change
  * in a way that would confuse the loader. Phase 4 moved off the legacy
- * `claude` pane type and added `spawnProfileRef`, so old payloads are
- * rejected on load and the session restores empty — this is acceptable per
- * the spec's no-backcompat scope rule.
+ * `claude` pane type and added `spawnProfileRef`; version 5 removes nono
+ * sandbox fields, so old payloads are rejected on load instead of restoring
+ * sandboxed panes as unsandboxed shells.
  */
-export const PANE_STATE_SCHEMA_VERSION = 4;
+export const PANE_STATE_SCHEMA_VERSION = 5;
 
 export interface PaneDescriptor {
   id: string;
