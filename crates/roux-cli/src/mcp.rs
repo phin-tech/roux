@@ -176,6 +176,9 @@ pub struct WorkItemCreateParams {
     pub agent_profile: Option<String>,
     pub base_branch: Option<String>,
     pub worktree_path: Option<String>,
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub fetch_first: bool,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
     pub sort_order: Option<f64>,
@@ -192,6 +195,9 @@ pub struct WorkItemUpdateParams {
     pub agent_profile: Option<String>,
     pub base_branch: Option<String>,
     pub worktree_path: Option<String>,
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub fetch_first: bool,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
     pub sort_order: Option<f64>,
@@ -1495,6 +1501,10 @@ fn build_work_item_create_request(params: WorkItemCreateParams) -> Value {
     insert_optional_string(&mut args, "agentProfile", params.agent_profile);
     insert_optional_string(&mut args, "baseBranch", params.base_branch);
     insert_optional_string(&mut args, "worktreePath", params.worktree_path);
+    insert_optional_string(&mut args, "branch", params.branch);
+    if params.fetch_first {
+        args.insert("fetchFirst".into(), Value::Bool(true));
+    }
     insert_optional_string(&mut args, "projectId", params.project_id);
     insert_optional_string(&mut args, "parentId", params.parent_id);
     insert_optional_f64(&mut args, "sortOrder", params.sort_order);
@@ -1514,6 +1524,10 @@ fn build_work_item_update_request(params: WorkItemUpdateParams) -> Value {
     insert_optional_string(&mut args, "agentProfile", params.agent_profile);
     insert_optional_string(&mut args, "baseBranch", params.base_branch);
     insert_optional_string(&mut args, "worktreePath", params.worktree_path);
+    insert_optional_string(&mut args, "branch", params.branch);
+    if params.fetch_first {
+        args.insert("fetchFirst".into(), Value::Bool(true));
+    }
     insert_optional_string(&mut args, "projectId", params.project_id);
     insert_optional_string(&mut args, "parentId", params.parent_id);
     insert_optional_f64(&mut args, "sortOrder", params.sort_order);

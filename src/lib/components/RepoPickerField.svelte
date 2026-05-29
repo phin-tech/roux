@@ -43,6 +43,7 @@
   let repoPaths = $state<string[]>([]);
   let loading = $state(false);
   let error = $state("");
+  let refreshSeq = 0;
 
   const compatSettings = $derived.by<{
     repoRoots: string[];
@@ -73,10 +74,12 @@
   });
 
   async function refreshRepos() {
+    const seq = ++refreshSeq;
     const roots = compatSettings.repoRoots.map((r) => r.trim()).filter(Boolean);
     if (roots.length === 0) {
       repoPaths = [];
       error = "";
+      loading = false;
       onrepos?.([]);
       return;
     }
@@ -87,14 +90,16 @@
         roots,
         excludeWorktrees: compatSettings.excludeWorktreesFromRepoRoots,
       });
+      if (seq !== refreshSeq) return;
       repoPaths = paths;
       onrepos?.(paths);
     } catch (e) {
+      if (seq !== refreshSeq) return;
       repoPaths = [];
       error = String(e);
       onrepos?.([]);
     } finally {
-      loading = false;
+      if (seq === refreshSeq) loading = false;
     }
   }
 </script>

@@ -2,6 +2,7 @@ import { derived, get, writable, type Readable } from "svelte/store";
 import { sessionLayouts, collectVisibleLeafIds } from "$lib/panes/layout";
 import { activeSessionId } from "$lib/stores/sessions";
 import { showSidebar } from "$lib/stores/sidebarLayout";
+import type { WorkItemStatus } from "$lib/stores/workItems";
 
 /**
  * Global sidebar slots. The docked sidebar has a pin slot (for lightweight,
@@ -223,7 +224,7 @@ export function toggleBoardFullscreen(): void {
 export const editingWorkItemId = writable<string | null>(null);
 
 export interface NewWorkItemEditorRequest {
-  status: "todo" | "ready" | "doing" | "review" | "done";
+  status: WorkItemStatus;
   title?: string;
 }
 

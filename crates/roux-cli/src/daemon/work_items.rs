@@ -5,6 +5,7 @@ use std::pin::Pin;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 
+use roux_core::WorkItemInputPresence;
 use roux_runtime::host::RuntimeHost;
 use roux_runtime::pty_service::{PtyOutputEvent, PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES};
 
@@ -77,6 +78,7 @@ pub(super) async fn handle_work_item_create(req: Request, host: &RuntimeHost) ->
             .get("sortOrder")
             .or_else(|| req.args.get("sort_order"))
             .and_then(|v| v.as_f64()),
+        field_presence: work_item_input_presence(&req.args),
     };
     match host.work_item_handle.create(input) {
         Ok(item) => match serde_json::to_value(&item) {
@@ -117,6 +119,7 @@ pub(super) async fn handle_work_item_update(req: Request, host: &RuntimeHost) ->
             .get("sortOrder")
             .or_else(|| req.args.get("sort_order"))
             .and_then(|v| v.as_f64()),
+        field_presence: work_item_input_presence(&req.args),
     };
     match host.work_item_handle.update(&id, input) {
         Ok(Some(item)) => match serde_json::to_value(&item) {
@@ -126,6 +129,25 @@ pub(super) async fn handle_work_item_update(req: Request, host: &RuntimeHost) ->
         Ok(None) => Response::err("work item not found"),
         Err(err) => Response::err(err),
     }
+}
+
+fn work_item_input_presence(args: &serde_json::Value) -> WorkItemInputPresence {
+    WorkItemInputPresence {
+        body: has_arg(args, &["body"]),
+        repo_path: has_arg(args, &["repoPath", "repo_path"]),
+        agent_profile: has_arg(args, &["agentProfile", "agent_profile"]),
+        base_branch: has_arg(args, &["baseBranch", "base_branch", "base"]),
+        worktree_path: has_arg(args, &["worktreePath", "worktree_path"]),
+        branch: has_arg(args, &["branch", "worktreeBranch", "worktree_branch"]),
+        fetch_first: has_arg(args, &["fetchFirst", "fetch_first"]),
+        start_error: has_arg(args, &["startError", "start_error"]),
+        project_id: has_arg(args, &["projectId", "project_id"]),
+        parent_id: has_arg(args, &["parentId", "parent_id"]),
+    }
+}
+
+fn has_arg(args: &serde_json::Value, names: &[&str]) -> bool {
+    names.iter().any(|name| args.get(*name).is_some())
 }
 
 pub(super) async fn handle_work_item_move(req: Request, host: &RuntimeHost) -> Response {
@@ -379,15 +401,8 @@ async fn plan_work_item_run_with_hooks(
     let mut dispatch_item = item.clone();
     dispatch_item.repo_path = Some(repo_path);
     dispatch_item.agent_profile = Some(profile_id.clone());
-    if let Err(err) = dispatch_profile(
-        host,
-        &dispatch_item,
-        &run.id,
-        &session_id,
-        &profile_id,
-        identity,
-    )
-    .await
+    if let Err(err) =
+        dispatch_profile(host, &dispatch_item, &run.id, &session_id, &profile_id, identity).await
     {
         let _ = host.work_item_handle.set_run_status(
             &run.id,
@@ -772,15 +787,8 @@ async fn start_work_item_run_with_hooks(
     dispatch_item.repo_path = Some(repo_path.clone());
     dispatch_item.base_branch = base_branch.clone();
 
-    if let Err(err) = dispatch_profile(
-        host,
-        &dispatch_item,
-        &run.id,
-        &session_id,
-        &profile_id,
-        identity,
-    )
-    .await
+    if let Err(err) =
+        dispatch_profile(host, &dispatch_item, &run.id, &session_id, &profile_id, identity).await
     {
         let _ = host.work_item_handle.set_run_status(
             &run.id,
@@ -1948,6 +1956,7 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
             parent_id: None, // resolved in second pass
             external_ref,
             sort_order: None,
+            field_presence: work_item_input_presence(item_val),
         };
         // Both paths are silent during import; a single Imported event is
         // broadcast at the end so subscribers see one consistent batch signal.
@@ -2002,6 +2011,7 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
                         parent_id: Some(parent_id.clone()),
                         external_ref: ext_ref,
                         sort_order: Some(existing.sort_order),
+                        field_presence: Default::default(),
                     };
                     if let Err(err) = host.work_item_handle.update_silent(&item_id, update) {
                         second_pass_errors.push(format!("parent link for {item_id}: {err}"));

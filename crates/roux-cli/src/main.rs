@@ -491,6 +491,12 @@ struct WorkItemCreateArgs {
     /// Dedicated worktree path to reuse for the card
     #[arg(long)]
     worktree_path: Option<String>,
+    /// Branch name for card worktree creation
+    #[arg(long)]
+    branch: Option<String>,
+    /// Fetch before creating/checking out the card worktree
+    #[arg(long)]
+    fetch_first: bool,
     /// Project id
     #[arg(short, long)]
     project: Option<String>,
@@ -527,6 +533,12 @@ struct WorkItemUpdateArgs {
     /// Dedicated worktree path to reuse for the card
     #[arg(long)]
     worktree_path: Option<String>,
+    /// Branch name for card worktree creation
+    #[arg(long)]
+    branch: Option<String>,
+    /// Fetch before creating/checking out the card worktree
+    #[arg(long)]
+    fetch_first: bool,
     /// Project id
     #[arg(short, long)]
     project: Option<String>,
@@ -1428,6 +1440,10 @@ fn build_work_item_create_request(params: WorkItemCreateArgs) -> Value {
     if let Some(worktree_path) = params.worktree_path {
         args.insert("worktreePath".into(), Value::String(resolve_path(&worktree_path)));
     }
+    insert_optional_string(&mut args, "branch", params.branch);
+    if params.fetch_first {
+        args.insert("fetchFirst".into(), Value::Bool(true));
+    }
     insert_optional_string(&mut args, "projectId", params.project);
     insert_optional_string(&mut args, "parentId", params.parent);
     insert_optional_f64(&mut args, "sortOrder", params.sort_order);
@@ -1450,6 +1466,10 @@ fn build_work_item_update_request(params: WorkItemUpdateArgs) -> Value {
     insert_optional_string(&mut args, "baseBranch", params.base_branch);
     if let Some(worktree_path) = params.worktree_path {
         args.insert("worktreePath".into(), Value::String(resolve_path(&worktree_path)));
+    }
+    insert_optional_string(&mut args, "branch", params.branch);
+    if params.fetch_first {
+        args.insert("fetchFirst".into(), Value::Bool(true));
     }
     insert_optional_string(&mut args, "projectId", params.project);
     insert_optional_string(&mut args, "parentId", params.parent);

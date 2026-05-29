@@ -173,8 +173,6 @@ impl WorkItemStore {
             )?;
             conn.execute_batch("PRAGMA user_version = 5;")?;
         }
-        add_column_if_missing(&conn, "work_items", "branch", "TEXT")?;
-        add_column_if_missing(&conn, "work_items", "fetch_first", "INTEGER")?;
         Ok(WorkItemStore { conn })
     }
 
@@ -266,29 +264,58 @@ impl WorkItemStore {
         input: WorkItemInput,
         now: u64,
     ) -> SqlResult<Option<WorkItem>> {
+        let Some(existing) = self.get(id)? else {
+            return Ok(None);
+        };
         let status = input.status.as_ref().map(|s| s.as_str().to_string());
         let (provider, external_id, external_url) = split_external_ref(input.external_ref.as_ref());
-        let update_start_error = input.start_error.is_some()
-            || input.repo_path.is_some()
-            || input.agent_profile.is_some()
-            || input.base_branch.is_some()
-            || input.worktree_path.is_some()
-            || input.branch.is_some()
-            || input.fetch_first.is_some();
+        let repo_path_present = input.repo_path_present();
+        let agent_profile_present = input.agent_profile_present();
+        let base_branch_present = input.base_branch_present();
+        let worktree_path_present = input.worktree_path_present();
+        let branch_present = input.branch_present();
+        let fetch_first_present = input.fetch_first_present();
+        let update_start_error = input.start_error_present()
+            || string_field_changed(
+                repo_path_present,
+                input.repo_path.as_deref(),
+                existing.repo_path.as_deref(),
+            )
+            || string_field_changed(
+                agent_profile_present,
+                input.agent_profile.as_deref(),
+                existing.agent_profile.as_deref(),
+            )
+            || string_field_changed(
+                base_branch_present,
+                input.base_branch.as_deref(),
+                existing.base_branch.as_deref(),
+            )
+            || string_field_changed(
+                worktree_path_present,
+                input.worktree_path.as_deref(),
+                existing.worktree_path.as_deref(),
+            )
+            || string_field_changed(
+                branch_present,
+                input.branch.as_deref(),
+                existing.branch.as_deref(),
+            )
+            || option_field_changed(fetch_first_present, input.fetch_first, existing.fetch_first);
         self.conn.execute(
             "UPDATE work_items SET
                 title       = ?2,
-                body        = COALESCE(?3, body),
+                body        = CASE WHEN ?20 THEN ?3 ELSE body END,
                 status      = COALESCE(?4, status),
-                repo_path   = COALESCE(?5, repo_path),
-                agent_profile = COALESCE(?6, agent_profile),
-                base_branch = COALESCE(?7, base_branch),
-                worktree_path = COALESCE(?8, worktree_path),
-                branch      = COALESCE(?9, branch),
-                fetch_first = COALESCE(?10, fetch_first),
+                repo_path   = CASE WHEN ?21 THEN ?5 ELSE repo_path END,
+                agent_profile = CASE WHEN ?22 THEN ?6 ELSE agent_profile END,
+                base_branch = CASE WHEN ?23 THEN ?7 ELSE base_branch END,
+                worktree_path = CASE WHEN ?24 THEN ?8 ELSE worktree_path END,
+                branch      = CASE WHEN ?25 THEN ?9 ELSE branch END,
+                fetch_first = CASE WHEN ?26 THEN ?10 ELSE fetch_first END,
                 start_error = CASE WHEN ?19 THEN ?11 ELSE start_error END,
-                project_id  = COALESCE(?12, project_id),
-                parent_id   = COALESCE(?13, parent_id),
+                project_id  = CASE WHEN ?27 THEN ?12 ELSE project_id END,
+                parent_id   = CASE WHEN ?28 THEN ?13 ELSE parent_id END,
                 provider    = COALESCE(?14, provider),
                 external_id = COALESCE(?15, external_id),
                 external_url = COALESCE(?16, external_url),
@@ -315,6 +342,15 @@ impl WorkItemStore {
                 input.sort_order,
                 now as i64,
                 update_start_error,
+                input.body_present(),
+                repo_path_present,
+                agent_profile_present,
+                base_branch_present,
+                worktree_path_present,
+                branch_present,
+                fetch_first_present,
+                input.project_id_present(),
+                input.parent_id_present(),
             ],
         )?;
         self.get(id)
@@ -1131,6 +1167,14 @@ fn split_external_ref(r: Option<&ExternalRef>) -> (Option<String>, Option<String
     }
 }
 
+fn string_field_changed(present: bool, next: Option<&str>, current: Option<&str>) -> bool {
+    present && next != current
+}
+
+fn option_field_changed<T: PartialEq>(present: bool, next: Option<T>, current: Option<T>) -> bool {
+    present && next != current
+}
+
 fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
     let status_str: String = row.get(5)?;
     let status = WorkItemStatus::from_str_opt(&status_str).unwrap_or_default();
@@ -1460,15 +1504,57 @@ mod tests {
     }
 
     #[test]
+    fn update_clears_nullable_fields_when_json_null_is_present() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        let mut item = input("Old");
+        item.project_id = Some("p-1".into());
+        item.repo_path = Some("/repo".into());
+        item.agent_profile = Some("claude".into());
+        item.base_branch = Some("origin/main".into());
+        item.worktree_path = Some("/repo/.worktrees/old".into());
+        item.branch = Some("feat/old".into());
+        item.fetch_first = Some(true);
+        item.start_error = Some("missing repo".into());
+        store.create("i-1".into(), item, 1000).unwrap();
+
+        let upd: WorkItemInput = serde_json::from_value(serde_json::json!({
+            "title": "New",
+            "projectId": null,
+            "repoPath": null,
+            "baseBranch": null,
+            "worktreePath": null,
+            "branch": null,
+            "fetchFirst": null
+        }))
+        .unwrap();
+        let updated = store.update("i-1", upd, 2000).unwrap().unwrap();
+
+        assert_eq!(updated.title, "New");
+        assert_eq!(updated.project_id, None);
+        assert_eq!(updated.repo_path, None);
+        assert_eq!(updated.base_branch, None);
+        assert_eq!(updated.worktree_path, None);
+        assert_eq!(updated.branch, None);
+        assert_eq!(updated.fetch_first, None);
+        assert_eq!(updated.start_error, None);
+    }
+
+    #[test]
     fn update_preserves_start_error_unless_start_config_changes() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         let mut item = input("Old");
         item.start_error = Some("missing repo".into());
+        item.agent_profile = Some("claude".into());
         store.create("i-1".into(), item, 1000).unwrap();
 
         let renamed = store.update("i-1", input("New"), 2000).unwrap().unwrap();
         assert_eq!(renamed.title, "New");
         assert_eq!(renamed.start_error.as_deref(), Some("missing repo"));
+
+        let mut same_config = input("Newer");
+        same_config.agent_profile = Some("claude".into());
+        let same = store.update("i-1", same_config, 2500).unwrap().unwrap();
+        assert_eq!(same.start_error.as_deref(), Some("missing repo"));
 
         let mut repo_update = input("New");
         repo_update.branch = Some("feat/new".into());

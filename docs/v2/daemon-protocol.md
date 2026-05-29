@@ -666,14 +666,17 @@ to one project.
 
 Requires `args.title`. Optional: `args.body`, `args.status` (default `"todo"`),
 `args.projectId`, `args.parentId`, `args.sortOrder`, `args.repoPath`,
-`args.agentProfile`, `args.baseBranch`, and `args.worktreePath`. Returns the
-created item.
+`args.agentProfile`, `args.baseBranch`, `args.worktreePath`, `args.branch`
+(also accepted as `worktreeBranch` / `worktree_branch`), and `args.fetchFirst`
+(also accepted as `fetch_first`). Returns the created item.
 
 `work-item-update`
 
 Requires `args.id` and `args.title`. Optional: same fields as create. Updating
-start config clears the previous `startError`. Returns the updated item or
-`404` if not found.
+start config clears the previous `startError`; fields omitted from `args` are
+left unchanged, while explicit `null` clears nullable fields such as
+`projectId`, `repoPath`, `baseBranch`, `worktreePath`, `branch`, and
+`fetchFirst`. Returns the updated item or `404` if not found.
 
 `work-item-move`
 

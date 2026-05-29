@@ -1,4 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::de;
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
 use super::session::Session;
@@ -103,36 +105,239 @@ pub struct WorkItem {
 
 /// Input shape for creating / importing a work item. All fields except
 /// `title` are optional; the store fills defaults.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorkItemInputPresence {
+    pub body: bool,
+    pub repo_path: bool,
+    pub agent_profile: bool,
+    pub base_branch: bool,
+    pub worktree_path: bool,
+    pub branch: bool,
+    pub fetch_first: bool,
+    pub start_error: bool,
+    pub project_id: bool,
+    pub parent_id: bool,
+}
+
+/// Input shape for creating / importing a work item. All fields except
+/// `title` are optional; the store fills defaults.
+#[derive(Debug, Clone, Default, specta::Type)]
 pub struct WorkItemInput {
     pub title: String,
-    #[serde(default)]
     pub body: Option<String>,
-    #[serde(default)]
     pub status: Option<WorkItemStatus>,
-    #[serde(default)]
     pub repo_path: Option<String>,
-    #[serde(default)]
     pub agent_profile: Option<String>,
-    #[serde(default)]
     pub base_branch: Option<String>,
-    #[serde(default)]
     pub worktree_path: Option<String>,
-    #[serde(default)]
     pub branch: Option<String>,
-    #[serde(default, alias = "fetch_first")]
     pub fetch_first: Option<bool>,
-    #[serde(default)]
     pub start_error: Option<String>,
-    #[serde(default)]
     pub project_id: Option<String>,
-    #[serde(default)]
     pub parent_id: Option<String>,
-    #[serde(default)]
     pub external_ref: Option<ExternalRef>,
-    #[serde(default)]
     pub sort_order: Option<f64>,
+    #[specta(skip)]
+    pub field_presence: WorkItemInputPresence,
+}
+
+impl WorkItemInput {
+    pub fn body_present(&self) -> bool {
+        self.field_presence.body || self.body.is_some()
+    }
+
+    pub fn repo_path_present(&self) -> bool {
+        self.field_presence.repo_path || self.repo_path.is_some()
+    }
+
+    pub fn agent_profile_present(&self) -> bool {
+        self.field_presence.agent_profile || self.agent_profile.is_some()
+    }
+
+    pub fn base_branch_present(&self) -> bool {
+        self.field_presence.base_branch || self.base_branch.is_some()
+    }
+
+    pub fn worktree_path_present(&self) -> bool {
+        self.field_presence.worktree_path || self.worktree_path.is_some()
+    }
+
+    pub fn branch_present(&self) -> bool {
+        self.field_presence.branch || self.branch.is_some()
+    }
+
+    pub fn fetch_first_present(&self) -> bool {
+        self.field_presence.fetch_first || self.fetch_first.is_some()
+    }
+
+    pub fn start_error_present(&self) -> bool {
+        self.field_presence.start_error || self.start_error.is_some()
+    }
+
+    pub fn project_id_present(&self) -> bool {
+        self.field_presence.project_id || self.project_id.is_some()
+    }
+
+    pub fn parent_id_present(&self) -> bool {
+        self.field_presence.parent_id || self.parent_id.is_some()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkItemInputSerde {
+    title: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    body: Option<Option<String>>,
+    #[serde(default)]
+    status: Option<WorkItemStatus>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    repo_path: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    agent_profile: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    base_branch: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    worktree_path: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    branch: Option<Option<String>>,
+    #[serde(default, alias = "fetch_first", deserialize_with = "deserialize_nullable_field")]
+    fetch_first: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    start_error: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    project_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    parent_id: Option<Option<String>>,
+    #[serde(default)]
+    external_ref: Option<ExternalRef>,
+    #[serde(default)]
+    sort_order: Option<f64>,
+}
+
+fn deserialize_nullable_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some).map_err(de::Error::custom)
+}
+
+impl<'de> Deserialize<'de> for WorkItemInput {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = WorkItemInputSerde::deserialize(deserializer)?;
+        Ok(Self {
+            title: raw.title,
+            body: raw.body.clone().flatten(),
+            status: raw.status,
+            repo_path: raw.repo_path.clone().flatten(),
+            agent_profile: raw.agent_profile.clone().flatten(),
+            base_branch: raw.base_branch.clone().flatten(),
+            worktree_path: raw.worktree_path.clone().flatten(),
+            branch: raw.branch.clone().flatten(),
+            fetch_first: raw.fetch_first.flatten(),
+            start_error: raw.start_error.clone().flatten(),
+            project_id: raw.project_id.clone().flatten(),
+            parent_id: raw.parent_id.clone().flatten(),
+            external_ref: raw.external_ref,
+            sort_order: raw.sort_order,
+            field_presence: WorkItemInputPresence {
+                body: raw.body.is_some(),
+                repo_path: raw.repo_path.is_some(),
+                agent_profile: raw.agent_profile.is_some(),
+                base_branch: raw.base_branch.is_some(),
+                worktree_path: raw.worktree_path.is_some(),
+                branch: raw.branch.is_some(),
+                fetch_first: raw.fetch_first.is_some(),
+                start_error: raw.start_error.is_some(),
+                project_id: raw.project_id.is_some(),
+                parent_id: raw.parent_id.is_some(),
+            },
+        })
+    }
+}
+
+impl Serialize for WorkItemInput {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("title", &self.title)?;
+        serialize_optional_entry(&mut map, "body", &self.body, self.body_present())?;
+        serialize_optional_entry(&mut map, "status", &self.status, self.status.is_some())?;
+        serialize_optional_entry(&mut map, "repoPath", &self.repo_path, self.repo_path_present())?;
+        serialize_optional_entry(
+            &mut map,
+            "agentProfile",
+            &self.agent_profile,
+            self.agent_profile_present(),
+        )?;
+        serialize_optional_entry(
+            &mut map,
+            "baseBranch",
+            &self.base_branch,
+            self.base_branch_present(),
+        )?;
+        serialize_optional_entry(
+            &mut map,
+            "worktreePath",
+            &self.worktree_path,
+            self.worktree_path_present(),
+        )?;
+        serialize_optional_entry(&mut map, "branch", &self.branch, self.branch_present())?;
+        serialize_optional_entry(
+            &mut map,
+            "fetchFirst",
+            &self.fetch_first,
+            self.fetch_first_present(),
+        )?;
+        serialize_optional_entry(
+            &mut map,
+            "startError",
+            &self.start_error,
+            self.start_error_present(),
+        )?;
+        serialize_optional_entry(
+            &mut map,
+            "projectId",
+            &self.project_id,
+            self.project_id_present(),
+        )?;
+        serialize_optional_entry(&mut map, "parentId", &self.parent_id, self.parent_id_present())?;
+        serialize_optional_entry(
+            &mut map,
+            "externalRef",
+            &self.external_ref,
+            self.external_ref.is_some(),
+        )?;
+        serialize_optional_entry(
+            &mut map,
+            "sortOrder",
+            &self.sort_order,
+            self.sort_order.is_some(),
+        )?;
+        map.end()
+    }
+}
+
+fn serialize_optional_entry<S, T>(
+    map: &mut S,
+    key: &'static str,
+    value: &Option<T>,
+    present: bool,
+) -> Result<(), S::Error>
+where
+    S: SerializeMap,
+    T: Serialize,
+{
+    if present {
+        map.serialize_entry(key, value)?;
+    }
+    Ok(())
 }
 
 /// Broadcast event emitted after every successful mutation.
