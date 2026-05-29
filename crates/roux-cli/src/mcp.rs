@@ -89,9 +89,6 @@ pub struct CreateSessionParams {
     /// `git fetch origin` first. Ignored when `worktree_branch` is not set.
     pub start_point: Option<String>,
     pub profile: Option<String>,
-    pub nono_profile: Option<String>,
-    #[serde(default)]
-    pub nono_allow_dirs: Vec<String>,
     /// Text to send to the session's primary PTY immediately after it starts
     /// (with a trailing Enter). CLI-equivalent: `--prompt`.
     pub prompt: Option<String>,
@@ -1401,15 +1398,6 @@ fn build_create_session_request(params: CreateSessionParams) -> Value {
     }
     if let Some(profile) = params.profile {
         args.insert("profile".into(), Value::String(profile));
-    }
-    if let Some(nono_profile) = params.nono_profile {
-        args.insert("nono_profile".into(), Value::String(nono_profile));
-    }
-    if !params.nono_allow_dirs.is_empty() {
-        args.insert(
-            "nono_allow_dirs".into(),
-            Value::Array(params.nono_allow_dirs.into_iter().map(Value::String).collect()),
-        );
     }
     if let Some(prompt) = params.prompt {
         args.insert("prompt".into(), Value::String(prompt));

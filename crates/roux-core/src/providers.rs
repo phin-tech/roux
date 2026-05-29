@@ -73,8 +73,6 @@ pub fn claude_default_profiles(settings: &RouxSettings) -> Vec<SpawnProfile> {
         cwd_override: None,
         icon: None,
         provider: Some(Provider::Claude),
-        nono_profile: None,
-        nono_allow_dirs: None,
         source: ProfileSource::Builtin,
     }]
 }
@@ -111,8 +109,6 @@ pub fn codex_default_profiles(_settings: &RouxSettings) -> Vec<SpawnProfile> {
         cwd_override: None,
         icon: None,
         provider: Some(Provider::Codex),
-        nono_profile: None,
-        nono_allow_dirs: None,
         source: ProfileSource::Builtin,
     }]
 }
@@ -314,8 +310,6 @@ fn plain_shell_profile() -> SpawnProfile {
         cwd_override: None,
         icon: None,
         provider: None,
-        nono_profile: None,
-        nono_allow_dirs: None,
         source: ProfileSource::Builtin,
     }
 }
@@ -464,8 +458,6 @@ mod tests {
             cwd_override: None,
             icon: None,
             provider: None,
-            nono_profile: None,
-            nono_allow_dirs: None,
             source: ProfileSource::User,
         };
         let input = profile_startup_input(&profile, None).unwrap();
@@ -485,8 +477,6 @@ mod tests {
             cwd_override: None,
             icon: None,
             provider: Some(Provider::Claude),
-            nono_profile: None,
-            nono_allow_dirs: None,
             source: ProfileSource::User,
         };
         assert_eq!(profile_startup_input(&profile, None), Some("claude".to_string()));
@@ -523,8 +513,6 @@ mod tests {
             cwd_override: None,
             icon: None,
             provider: Some(Provider::Claude),
-            nono_profile: None,
-            nono_allow_dirs: None,
             source: ProfileSource::User,
         };
         assert_eq!(
@@ -545,8 +533,6 @@ mod tests {
             cwd_override: None,
             icon: None,
             provider: None,
-            nono_profile: None,
-            nono_allow_dirs: None,
             source: ProfileSource::User,
         };
         assert_eq!(
@@ -626,8 +612,6 @@ mod tests {
             cwd_override: None,
             icon: None,
             provider: Some(Provider::Claude),
-            nono_profile: None,
-            nono_allow_dirs: None,
             source: ProfileSource::User,
         };
         let command =
@@ -658,8 +642,6 @@ mod tests {
             cwd_override: None,
             icon: None,
             provider: Some(Provider::Claude),
-            nono_profile: None,
-            nono_allow_dirs: None,
             source: ProfileSource::User,
         };
         assert!(profile_startup_command_with_initial_prompt(&profile, None, "Fix it").is_none());

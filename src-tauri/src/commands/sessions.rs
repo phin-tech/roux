@@ -15,10 +15,6 @@ static NEXT_DAEMON_ATTACH_TASK_TOKEN: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug, Default, Deserialize, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateShellOpts {
-    #[serde(default)]
-    pub nono_profile: Option<String>,
-    #[serde(default)]
-    pub nono_allow_dirs: Option<Vec<String>>,
     /// Spawn-profile id (`claude`, `codex`, user-profile id, …). Passed to
     /// the PTY env so agents wake up under the right profile.
     #[serde(default)]
@@ -145,16 +141,11 @@ pub(crate) async fn spawn_shell(
     working_dir: String,
     session_id: Option<String>,
     pane_id: Option<String>,
-    nono_profile: Option<String>,
-    nono_allow_dirs: Option<Vec<String>>,
     profile: Option<String>,
     initial_size: Option<(u16, u16)>,
     state: tauri::State<'_, AppState>,
     _app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let daemon_nono_profile = nono_profile.clone();
-    let daemon_nono_allow_dirs = nono_allow_dirs.clone().unwrap_or_default();
-
     let client = required_daemon_client(&state)?;
     client
         .spawn_daemon_pty_shell(
@@ -163,8 +154,6 @@ pub(crate) async fn spawn_shell(
             session_id,
             pane_id,
             profile,
-            daemon_nono_profile,
-            daemon_nono_allow_dirs,
             initial_size,
         )
         .await?;
@@ -445,14 +434,9 @@ pub(crate) async fn create_session_shell(
     state: tauri::State<'_, AppState>,
     _app: tauri::AppHandle,
 ) -> Result<Session, String> {
-    use crate::pty::NonoConfig;
     let opts = opts.unwrap_or_default();
     // Clone before await — the MutexGuard is not Send.
     let settings = state.settings.lock().unwrap().clone();
-    let nono = opts.nono_profile.map(|profile| NonoConfig {
-        profile,
-        allow_dirs: opts.nono_allow_dirs.unwrap_or_default(),
-    });
     let initial_size = opts.initial_size;
 
     let target = if let Some(ref wt_path) = worktree_path {
@@ -513,11 +497,6 @@ pub(crate) async fn create_session_shell(
             base: daemon_base,
             fetch_first: daemon_fetch_first,
             profile: opts.profile,
-            nono_profile: nono.as_ref().map(|config| config.profile.clone()),
-            nono_allow_dirs: nono
-                .as_ref()
-                .map(|config| config.allow_dirs.clone())
-                .unwrap_or_default(),
             initial_size,
             project_id: opts.project_id,
             blueprint_id: opts.blueprint_id,
@@ -535,16 +514,11 @@ pub(crate) async fn create_session_shell(
 #[specta::specta]
 pub(crate) async fn reconnect_session_shell(
     id: String,
-    nono_profile: Option<String>,
-    nono_allow_dirs: Option<Vec<String>>,
     profile: Option<String>,
     initial_size: Option<(u16, u16)>,
     state: tauri::State<'_, AppState>,
     _app: tauri::AppHandle,
 ) -> Result<Session, String> {
-    use crate::pty::NonoConfig;
-    let nono = nono_profile
-        .map(|profile| NonoConfig { profile, allow_dirs: nono_allow_dirs.unwrap_or_default() });
     let settings = state.settings.lock().map_err(|e| e.to_string())?.clone();
     let client = required_daemon_client(&state)?;
     let session = client.get_session(id.clone()).await?;
@@ -567,11 +541,6 @@ pub(crate) async fn reconnect_session_shell(
         .reconnect_session_shell(crate::daemon_client::DaemonReconnectSessionShellRequest {
             id,
             profile,
-            nono_profile: nono.as_ref().map(|config| config.profile.clone()),
-            nono_allow_dirs: nono
-                .as_ref()
-                .map(|config| config.allow_dirs.clone())
-                .unwrap_or_default(),
             initial_size,
             notes: Some(notes),
         })

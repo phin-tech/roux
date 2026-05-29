@@ -31,7 +31,7 @@ use roux_runtime::pty_registry::PtySessionRegistry;
 use roux_runtime::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
 use roux_runtime::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
 use roux_runtime::terminal_env;
-pub use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs};
+pub use roux_runtime::terminal_env::NotesEnvInputs;
 
 const GATE_QUIET: Duration = Duration::from_millis(200);
 const GATE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -476,7 +476,6 @@ impl PtyManager {
         project_id: Option<&str>,
         worktree_path: Option<&str>,
         notes: Option<&NotesEnvInputs>,
-        nono: Option<&NonoConfig>,
         initial_size: Option<(u16, u16)>,
         role: PtyRole,
         profile: Option<&str>,
@@ -491,7 +490,6 @@ impl PtyManager {
             shell: &shell,
             roux_env: &roux_env,
             worktree_path,
-            nono,
             initial_size,
         });
 
@@ -501,17 +499,15 @@ impl PtyManager {
             .openpty(pty_size_from_dimensions(spawn_plan.size))
             .map_err(|source| PtyError::OpenPty { source })?;
 
-        let nono_label = nono.map(|n| format!(" (nono profile={})", n.profile)).unwrap_or_default();
         let pane_label = pane_id.map(|p| format!(", pane '{}'", p)).unwrap_or_default();
         let session_label = session_id.map(|s| format!(", session '{}'", s)).unwrap_or_default();
         rlog!(
-            "Spawning shell '{}' for PTY '{}'{}{} in '{}'{}",
+            "Spawning shell '{}' for PTY '{}'{}{} in '{}'",
             shell,
             id,
             pane_label,
             session_label,
-            working_dir,
-            nono_label
+            working_dir
         );
 
         let cmd = command_builder_from_plan(&spawn_plan.command);
@@ -1464,49 +1460,6 @@ mod flusher_lifecycle_tests {
             lifecycle_rx.recv_timeout(Duration::from_millis(100)),
             Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected)
         ));
-    }
-}
-
-#[cfg(test)]
-mod nono_tests {
-    use super::*;
-
-    #[test]
-    fn resolved_allow_dirs_expands_tilde() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["~/data".into()] };
-        let resolved = nono.resolved_allow_dirs("/work");
-        assert!(resolved[0].starts_with('/'), "should be absolute: {}", resolved[0]);
-        assert!(resolved[0].ends_with("/data"), "should end with /data: {}", resolved[0]);
-        assert!(!resolved[0].contains('~'), "should not contain tilde: {}", resolved[0]);
-    }
-
-    #[test]
-    fn resolved_allow_dirs_resolves_relative() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["local/dir".into()] };
-        let resolved = nono.resolved_allow_dirs("/work/project");
-        assert_eq!(resolved[0], "/work/project/local/dir");
-    }
-
-    #[test]
-    fn resolved_allow_dirs_passes_absolute_through() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["/tmp/scratch".into()] };
-        let resolved = nono.resolved_allow_dirs("/work");
-        assert_eq!(resolved[0], "/tmp/scratch");
-    }
-
-    #[test]
-    fn resolved_allow_dirs_handles_bare_tilde() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec!["~".into()] };
-        let resolved = nono.resolved_allow_dirs("/work");
-        let home = dirs::home_dir().unwrap();
-        assert_eq!(resolved[0], home.to_string_lossy());
-    }
-
-    #[test]
-    fn resolved_allow_dirs_handles_empty() {
-        let nono = NonoConfig { profile: "test".into(), allow_dirs: vec![] };
-        let resolved = nono.resolved_allow_dirs("/work");
-        assert!(resolved.is_empty());
     }
 }
 

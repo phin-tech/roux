@@ -865,13 +865,6 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         .and_then(|f| f.as_array())
         .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
-    let nono_profile = req.args.get("nono_profile").and_then(|p| p.as_str()).map(|s| s.to_string());
-    let nono_allow_dirs: Vec<String> = req
-        .args
-        .get("nono_allow_dirs")
-        .and_then(|f| f.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default();
 
     // Resolve repo_path: explicit working_dir wins so a caller inside another
     // session can target a different repo. Fall back to the caller session's
@@ -923,11 +916,6 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         );
     }
 
-    let nono_config = nono_profile.as_ref().map(|p| crate::pty::NonoConfig {
-        profile: p.clone(),
-        allow_dirs: nono_allow_dirs.clone(),
-    });
-
     let session = match svc::create_session_shell(
         &state.pty_manager,
         &state.runtime.session_handle,
@@ -936,7 +924,6 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
         &repo_path,
         &name,
         target,
-        nono_config.as_ref(),
         Some(&profile),
         None,
         None, // project_id - CLI sessions are unattached
@@ -2681,9 +2668,7 @@ mod tests {
                 "name": "feat-x",
                 "worktree_branch": "feat/x",
                 "profile": "claude",
-                "flags": ["--debug", "--model=opus"],
-                "nono_profile": "strict",
-                "nono_allow_dirs": ["~/work", "/tmp"]
+                "flags": ["--debug", "--model=opus"]
             }
         }"#;
         let req: Request = serde_json::from_str(json).unwrap();
@@ -2691,7 +2676,6 @@ mod tests {
         assert_eq!(req.args["worktree_branch"], "feat/x");
         assert_eq!(req.args["profile"], "claude");
         assert_eq!(req.args["flags"].as_array().unwrap().len(), 2);
-        assert_eq!(req.args["nono_allow_dirs"].as_array().unwrap().len(), 2);
     }
 
     #[test]
@@ -2737,8 +2721,6 @@ mod tests {
             spawn_profile_ref: None,
             provider: None,
             provider_session_id: None,
-            nono_profile: None,
-            nono_allow_dirs: None,
             notes_scope: None,
             notes_view_mode: None,
             session_id: None,
@@ -3204,8 +3186,6 @@ mod tests {
             cwd_override: None,
             icon: None,
             provider: None,
-            nono_profile: None,
-            nono_allow_dirs: None,
             source: roux_core::ProfileSource::User,
         });
         assert!(validate_profile_id("my-profile", &settings).is_ok());
@@ -3224,8 +3204,6 @@ mod tests {
             cwd_override: None,
             icon: None,
             provider: None,
-            nono_profile: None,
-            nono_allow_dirs: None,
             source: roux_core::ProfileSource::User,
         });
         let err = validate_profile_id("typo", &settings).unwrap_err();

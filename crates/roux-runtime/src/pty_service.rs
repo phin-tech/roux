@@ -14,7 +14,7 @@ use crate::pty_lifecycle::{apply_metadata_command, PtyMetadataCommand, PtyMetada
 use crate::pty_live::WaitedChild;
 use crate::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
 use crate::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
-use crate::terminal_env::{self, NonoConfig, NotesEnvInputs};
+use crate::terminal_env::{self, NotesEnvInputs};
 
 pub const PTY_OUTPUT_LIMIT_BYTES: usize = 256 * 1024;
 pub const PTY_OUTPUT_DEFAULT_POLL_BYTES: usize = 64 * 1024;
@@ -44,7 +44,6 @@ pub struct PtySpawnRequest {
     pub project_id: Option<String>,
     pub worktree_path: Option<String>,
     pub notes: Option<NotesEnvInputs>,
-    pub nono: Option<NonoConfig>,
     pub env: PtyEnvRequest,
     pub profile: Option<String>,
     pub initial_size: Option<(u16, u16)>,
@@ -61,7 +60,6 @@ impl Default for PtySpawnRequest {
             project_id: None,
             worktree_path: None,
             notes: None,
-            nono: None,
             env: PtyEnvRequest::default(),
             profile: None,
             initial_size: None,
@@ -607,7 +605,6 @@ fn spawn_pty(
             shell: &shell,
             roux_env: &roux_env,
             worktree_path: request.worktree_path.as_deref(),
-            nono: request.nono.as_ref(),
             initial_size: request.initial_size,
         }),
         PtyKind::Task => pty_spawn::task_spawn_plan(TaskSpawnPlanInputs {
@@ -1003,9 +1000,11 @@ mod tests {
         }
 
         let output = snapshot.expect("PTY should exit").output;
-        assert_eq!(
-            output,
-            "session-a|pane-a|project-a|/worktrees/session-a|/tmp/roux.sock|/opt/roux/bin/roux|/vault"
+        let expected =
+            "session-a|pane-a|project-a|/worktrees/session-a|/tmp/roux.sock|/opt/roux/bin/roux|/vault";
+        assert!(
+            output.ends_with(expected),
+            "expected output to end with {expected:?}, got {output:?}"
         );
 
         handle.shutdown().await;

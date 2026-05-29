@@ -88,10 +88,6 @@ struct PersistedPaneDescriptor {
     #[serde(skip_serializing_if = "Option::is_none")]
     provider_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    nono_profile: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    nono_allow_dirs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     notes_scope: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     notes_view_mode: Option<String>,
@@ -761,8 +757,6 @@ mod tests {
             spawn_profile_ref: None,
             provider: None,
             provider_session_id: None,
-            nono_profile: None,
-            nono_allow_dirs: None,
             notes_scope: None,
             notes_view_mode: None,
             session_id: None,
@@ -819,8 +813,6 @@ mod tests {
             spawn_profile_ref: None,
             provider: None,
             provider_session_id: None,
-            nono_profile: None,
-            nono_allow_dirs: None,
             notes_scope: None,
             notes_view_mode: None,
             session_id: None,

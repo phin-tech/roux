@@ -73,8 +73,6 @@ pub(crate) struct DaemonCreateSessionShellRequest {
     pub(crate) base: Option<String>,
     pub(crate) fetch_first: bool,
     pub(crate) profile: Option<String>,
-    pub(crate) nono_profile: Option<String>,
-    pub(crate) nono_allow_dirs: Vec<String>,
     pub(crate) initial_size: Option<(u16, u16)>,
     pub(crate) project_id: Option<String>,
     pub(crate) blueprint_id: Option<String>,
@@ -85,8 +83,6 @@ pub(crate) struct DaemonCreateSessionShellRequest {
 pub(crate) struct DaemonReconnectSessionShellRequest {
     pub(crate) id: String,
     pub(crate) profile: Option<String>,
-    pub(crate) nono_profile: Option<String>,
-    pub(crate) nono_allow_dirs: Vec<String>,
     pub(crate) initial_size: Option<(u16, u16)>,
     pub(crate) notes: Option<NotesEnvInputs>,
 }
@@ -680,8 +676,6 @@ impl DaemonClient {
                 base: request.base,
                 fetch_first: request.fetch_first,
                 profile: request.profile,
-                nono_profile: request.nono_profile,
-                nono_allow_dirs: request.nono_allow_dirs,
                 initial_size: request.initial_size,
                 project_id: request.project_id,
                 blueprint_id: request.blueprint_id,
@@ -699,8 +693,6 @@ impl DaemonClient {
             .reconnect_session_shell(roux_sdk::ReconnectSessionShell {
                 id: request.id,
                 profile: request.profile,
-                nono_profile: request.nono_profile,
-                nono_allow_dirs: request.nono_allow_dirs,
                 initial_size: request.initial_size,
                 notes: request.notes.map(sdk_notes_env),
             })
@@ -851,8 +843,6 @@ impl DaemonClient {
         session_id: Option<String>,
         pane_id: Option<String>,
         profile: Option<String>,
-        nono_profile: Option<String>,
-        nono_allow_dirs: Vec<String>,
         initial_size: Option<(u16, u16)>,
     ) -> DaemonClientResult<PtyRecord> {
         let mut spawn = self.sdk.spawn_shell();
@@ -870,12 +860,6 @@ impl DaemonClient {
         }
         if let Some(profile) = profile {
             spawn = spawn.profile(profile);
-        }
-        if let Some(nono_profile) = nono_profile {
-            spawn = spawn.nono_profile(nono_profile);
-        }
-        if !nono_allow_dirs.is_empty() {
-            spawn = spawn.nono_allow_dirs(nono_allow_dirs);
         }
         if let Some((cols, rows)) = initial_size {
             spawn = spawn.initial_size(cols, rows);

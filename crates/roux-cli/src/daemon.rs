@@ -13,7 +13,7 @@ use roux_runtime::automation_hooks::{
 use roux_runtime::host::{RuntimeHost, RuntimeHostConfig};
 use roux_runtime::process_service::PROCESS_OUTPUT_DEFAULT_POLL_BYTES;
 use roux_runtime::pty_service::{PtyEnvRequest, PtySpawnRequest, PTY_OUTPUT_DEFAULT_POLL_BYTES};
-use roux_runtime::terminal_env::{NonoConfig, NotesEnvInputs};
+use roux_runtime::terminal_env::NotesEnvInputs;
 use roux_runtime::watch_runner::WatchRunner;
 
 use crate::{daemon_log::DaemonLog, paths, platform};
@@ -534,8 +534,6 @@ async fn handle_session_create_shell(
         .or_else(|| req.args.get("blueprint_id"))
         .and_then(|blueprint_id| blueprint_id.as_str())
         .map(str::to_string);
-    let nono = parse_nono_config(&req.args);
-
     let spawn = host
         .pty_handle
         .spawn_shell(PtySpawnRequest {
@@ -546,7 +544,6 @@ async fn handle_session_create_shell(
             project_id: project_id.clone(),
             worktree_path: owns_worktree.then(|| work_dir.clone()),
             notes: parse_notes_env(&req.args),
-            nono,
             env: parse_pty_env_request(&req.args, identity),
             profile: profile.clone(),
             initial_size,
@@ -624,7 +621,6 @@ async fn handle_session_reconnect_shell(
             project_id: session.project_id.clone(),
             worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
             notes: parse_notes_env(&req.args),
-            nono: parse_nono_config(&req.args),
             env: parse_pty_env_request(&req.args, identity),
             profile,
             initial_size,
@@ -1366,7 +1362,6 @@ async fn handle_session_panes_create(
             project_id: session.project_id.clone(),
             worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
             notes: parse_notes_env(&req.args),
-            nono: parse_nono_config(&req.args),
             env: parse_pty_env_request(&req.args, identity),
             profile: Some(profile.to_string()),
             initial_size: parse_initial_size(&req.args),
@@ -1712,7 +1707,6 @@ async fn parse_pty_spawn_request(
             .and_then(|worktree_path| worktree_path.as_str())
             .map(str::to_string),
         notes: parse_notes_env(&req.args),
-        nono: parse_nono_config(&req.args),
         env: parse_pty_env_request(&req.args, identity),
         profile: req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string),
         initial_size: parse_initial_size(&req.args),
@@ -1740,19 +1734,6 @@ async fn apply_session_spawn_bindings(
         request.worktree_path = Some(session.worktree_path.clone());
     }
     Ok(())
-}
-
-fn parse_nono_config(args: &Value) -> Option<NonoConfig> {
-    let profile = optional_string_arg(args, &["nonoProfile", "nono_profile"])?;
-    let allow_dirs = args
-        .get("nonoAllowDirs")
-        .or_else(|| args.get("nono_allow_dirs"))
-        .and_then(|dirs| dirs.as_array())
-        .map(|dirs| {
-            dirs.iter().filter_map(|dir| dir.as_str()).map(str::to_string).collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    Some(NonoConfig { profile, allow_dirs })
 }
 
 

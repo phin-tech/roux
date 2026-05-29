@@ -20,8 +20,6 @@ pub struct CreateSessionShell {
     pub base: Option<String>,
     pub fetch_first: bool,
     pub profile: Option<String>,
-    pub nono_profile: Option<String>,
-    pub nono_allow_dirs: Vec<String>,
     pub initial_size: Option<(u16, u16)>,
     pub project_id: Option<String>,
     pub blueprint_id: Option<String>,
@@ -32,8 +30,6 @@ pub struct CreateSessionShell {
 pub struct ReconnectSessionShell {
     pub id: String,
     pub profile: Option<String>,
-    pub nono_profile: Option<String>,
-    pub nono_allow_dirs: Vec<String>,
     pub initial_size: Option<(u16, u16)>,
     pub notes: Option<NotesEnv>,
 }
@@ -64,10 +60,6 @@ impl CreateSessionShell {
             args.insert("fetchFirst".into(), Value::Bool(true));
         }
         insert_optional_string(&mut args, "profile", self.profile);
-        insert_optional_string(&mut args, "nonoProfile", self.nono_profile);
-        if !self.nono_allow_dirs.is_empty() {
-            args.insert("nonoAllowDirs".into(), serde_json::json!(self.nono_allow_dirs));
-        }
         insert_initial_size(&mut args, self.initial_size);
         insert_optional_string(&mut args, "projectId", self.project_id);
         insert_optional_string(&mut args, "blueprintId", self.blueprint_id);
@@ -80,10 +72,6 @@ impl ReconnectSessionShell {
     pub(crate) fn into_args(self) -> Value {
         let mut args = serde_json::Map::new();
         insert_optional_string(&mut args, "profile", self.profile);
-        insert_optional_string(&mut args, "nonoProfile", self.nono_profile);
-        if !self.nono_allow_dirs.is_empty() {
-            args.insert("nonoAllowDirs".into(), serde_json::json!(self.nono_allow_dirs));
-        }
         insert_initial_size(&mut args, self.initial_size);
         insert_notes_env(&mut args, self.notes);
         Value::Object(args)
