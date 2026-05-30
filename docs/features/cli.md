@@ -60,6 +60,7 @@ If the Roux app is not running, socket-backed commands fail with a direct `Roux 
 - Push notifications (`roux notify`)
 - Emit hook status transitions and run automation hooks (`roux hook`)
 - Read, append, write, or search the multi-scoped notes vault (`roux notes <scope> <verb>` — experimental; see [Notes](notes.md))
+- Attach, list, or read session/work item documents (`roux document ...`; alias `roux doc`)
 
 ## Context-aware defaults
 
@@ -183,10 +184,17 @@ The v1 MCP server exposes inspection and safe action tools:
 - `roux_search_notes`
 - `roux_append_notes`
 - `roux_notes_vault_root`
+- `roux_attach_document`
+- `roux_list_documents`
+- `roux_get_document`
 
 The v1 server intentionally does not expose arbitrary shell execution, PTY kill, worktree removal, permanent session deletion, or broad filesystem mutation.
 
 `roux_get_latest_output` returns the exact PTY replay bytes as `replay_bytes_base64`. It also includes `text` when the replay bytes are valid UTF-8; clients that need byte-for-byte fidelity should decode `replay_bytes_base64`. When the daemon owns the socket, the tool reads retained daemon PTY replay instead of GUI-owned terminal state.
+
+The document tools attach and read daemon-owned text documents for sessions
+and Kanban work items. They are intended for plans, handoffs, and reference
+text that needs a stable id and can be retrieved from another session.
 
 ### `roux daemon`
 
@@ -427,6 +435,30 @@ Global commands:
 
 - `root`
 - `search`
+
+### `roux document`
+
+Attach and read daemon-owned text documents for a session or Kanban work item.
+Use this for plan snapshots, handoffs, and reference text that an agent should
+be able to retrieve from another session by id. `roux doc` is an alias.
+
+```sh
+roux document attach --session "$ROUX_SESSION_ID" --title "Plan" --text "Implement the narrow plan."
+roux document attach --work-item "$WORK_ITEM_ID" --title "Plan" --file ./plan.md --mime-type text/markdown
+roux document list --session "$ROUX_SESSION_ID"
+roux document list --work-item "$WORK_ITEM_ID"
+roux document get "$DOCUMENT_ID"
+```
+
+`attach` requires exactly one target (`--session` or `--work-item`) and exactly
+one source (`--text` or `--file`). File attachments snapshot the current UTF-8
+file contents into the daemon store; later file edits do not mutate the
+attachment.
+
+Each attachment returns a `documentId` shaped like
+`<session-or-work-item-id>.<attachment-id>`. `get` accepts the full
+`documentId`, the raw attachment id, or prefixed forms such as
+`session/<documentId>` and `work-item/<documentId>`.
 
 ## Scripting & agent-to-agent examples
 

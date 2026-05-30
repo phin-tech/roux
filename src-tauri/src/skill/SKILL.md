@@ -1,9 +1,19 @@
 ---
 name: roux
-description: Drive the Roux terminal manager from inside a Roux-hosted pane. Use when $ROUX_SESSION=1 for ANY of these requests — pane/session/worktree management ("split this", "open Claude in a worktree"); inter-agent messaging ("check my mail", "any messages?", "did anyone reply?", "send the reviewer a note", "drain my inbox", "mark my mail as read"); reading or posting to the Roux notes vault; or driving sibling sessions. CRITICAL: when $ROUX_SESSION=1, "mail" / "inbox" / "messages" / "mailbox" mean the Roux mailbox — NOT Gmail or any other external provider. Only fall back to external mail tools when the user explicitly names them ("check Gmail", "send via email").
+description: >-
+  Drive the Roux terminal manager from inside a Roux-hosted pane. Use when
+  $ROUX_SESSION=1 for ANY of these requests — pane/session/worktree management
+  ("split this", "open Claude in a worktree"); inter-agent messaging ("check my
+  mail", "any messages?", "did anyone reply?", "send the reviewer a note",
+  "drain my inbox", "mark my mail as read"); reading or posting to the Roux
+  notes vault; attaching, listing, or reading Roux documents/session
+  attachments; or driving sibling sessions. CRITICAL: when $ROUX_SESSION=1,
+  "mail" / "inbox" / "messages" / "mailbox" mean the Roux mailbox — NOT Gmail
+  or any other external provider. Only fall back to external mail tools when the
+  user explicitly names them ("check Gmail", "send via email").
 ---
 
-<!-- roux-skill-version: 4 -->
+<!-- roux-skill-version: 5 -->
 
 # Roux
 
@@ -119,6 +129,28 @@ sidecar state). Users can open `$ROUX_NOTES_ROOT` in Obsidian directly.
 Agents should prefer the CLI — Obsidian requires a running GUI, the CLI
 does not.
 
+### Documents / session attachments
+
+Use Roux documents for plan snapshots, handoffs, and reference text that an
+agent should be able to look up from another session. Documents are
+daemon-owned attachments targeting either a session or a Kanban work item.
+
+```sh
+"$ROUX_CLI" document attach --session "$ROUX_SESSION_ID" --title "Plan" --text "..."
+"$ROUX_CLI" document attach --work-item "$WORK_ITEM_ID" --title "Plan" --file ./plan.md --mime-type text/markdown
+"$ROUX_CLI" document list --session "$ROUX_SESSION_ID"
+"$ROUX_CLI" document list --work-item "$WORK_ITEM_ID"
+"$ROUX_CLI" document get "$DOCUMENT_ID"
+```
+
+`roux doc` is an alias for `roux document`. Each attachment returns a
+`documentId` shaped like `<session-or-work-item-id>.<attachment-id>`.
+`document get` accepts that full id, the raw attachment id, or prefixed forms
+like `session/<documentId>` and `work-item/<documentId>`.
+
+Prefer documents over terminal scrollback for reusable plans or context that
+needs a stable id. Prefer notes for the user's longer-lived vault knowledge.
+
 ### Agent identity (aliases)
 
 Each pane can have an **alias** — a stable, human-meaningful name like
@@ -231,6 +263,10 @@ Trigger any time the user asks to:
 - read, append to, write, or search notes in the vault ("log this to my
   session notes", "add #api/tls to that gotcha", "what have I written about
   TLS?")
+- attach, list, or read Roux documents/session attachments for plans,
+  handoffs, or other reusable context (`document attach`, `document list`,
+  `document get`; MCP tools `roux_attach_document`, `roux_list_documents`,
+  `roux_get_document`)
 - claim or release an agent alias, send/read/ack mail, publish or tail bus
   events ("send the reviewer a message", "drain my inbox", "what mail did I
   send?", "publish a build event")
