@@ -5,11 +5,7 @@ import type { ExperimentsConfig, RouxSettings } from "./bindings";
 // `ExperimentsConfig` will fail to compile here until a default is supplied,
 // keeping `RequiredExperiments` consumers (e.g. the SettingsPanel fallback,
 // `readExperiments()`) honest about what they can read.
-export const EXPERIMENT_DEFAULTS: Required<ExperimentsConfig> = {
-  exampleFlag: false,
-  exampleVariant: "a",
-  simplifiedSessionTabs: false,
-};
+export const EXPERIMENT_DEFAULTS: Required<ExperimentsConfig> = {};
 
 // Re-export generated types
 export type { RouxSettings };

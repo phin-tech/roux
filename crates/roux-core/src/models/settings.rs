@@ -189,31 +189,13 @@ pub enum GpuAcceleration {
     Off,
 }
 
-/// No-op variant used to verify the enum-experiment pipeline end to end.
-/// Replace or remove once a real enum experiment lands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
-#[serde(rename_all = "camelCase")]
-pub enum ExampleVariant {
-    #[default]
-    A,
-    B,
-    C,
-}
-
 /// Runtime feature flags surfaced under Settings → Experiments. Each field is
 /// either a `bool` (toggle) or a small enum (multi-choice). Adding a field
 /// here also requires adding a registry entry in `src/lib/experiments.ts` so
 /// the UI knows how to render it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
-pub struct ExperimentsConfig {
-    #[serde(default)]
-    pub example_flag: bool,
-    #[serde(default)]
-    pub example_variant: ExampleVariant,
-    #[serde(default)]
-    pub simplified_session_tabs: bool,
-}
+pub struct ExperimentsConfig {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
@@ -778,8 +760,8 @@ mod theme_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        stable_source_id, ExampleVariant, ExperimentsConfig, LibrarySource, LibrarySourceKind,
-        RouxSettings, SkillSyncMode, UpdateChannel,
+        stable_source_id, LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode,
+        UpdateChannel,
     };
 
     #[test]
@@ -977,58 +959,6 @@ mod tests {
     fn settings_default_skill_sync_is_off() {
         let settings = RouxSettings::default();
         assert_eq!(settings.library_skill_sync_default, SkillSyncMode::Off);
-    }
-
-    #[test]
-    fn settings_without_experiments_deserializes_with_default() {
-        // Pre-existing settings.json files written before the experiments
-        // field existed must continue to load with all flags off.
-        let json = r#"{
-            "tabPosition": "left",
-            "tabWidth": 260,
-            "fontSize": 14,
-            "fontFamily": "monospace",
-            "lineHeight": 1.2,
-            "scrollback": 5000,
-            "cursorStyle": "block",
-            "cursorBlink": true,
-            "defaultProjectPath": null,
-            "confirmOnClose": true,
-            "restoreSessionsOnLaunch": true,
-            "worktreeBasePath": null,
-            "cleanupWorktreesOnClose": false,
-            "theme": "deep-blue",
-            "defaultModel": null,
-            "additionalFlags": [],
-            "taskPanelSplit": 0.4,
-            "taskPanelCollapsed": false
-        }"#;
-
-        let settings: RouxSettings = serde_json::from_str(json).unwrap();
-        assert!(!settings.experiments.example_flag);
-        assert_eq!(settings.experiments.example_variant, ExampleVariant::A);
-    }
-
-    #[test]
-    fn experiments_partial_payload_fills_missing_with_defaults() {
-        // A flag added later (e.g. only `exampleVariant` set, `exampleFlag`
-        // absent) must not fail deserialization — each inner field is
-        // `#[serde(default)]`.
-        let json = r#"{ "exampleVariant": "c" }"#;
-        let exp: ExperimentsConfig = serde_json::from_str(json).unwrap();
-        assert!(!exp.example_flag);
-        assert_eq!(exp.example_variant, ExampleVariant::C);
-        assert!(!exp.simplified_session_tabs);
-    }
-
-    #[test]
-    fn experiments_default_simplified_session_tabs_off() {
-        // Legacy settings written before `simplifiedSessionTabs` existed must
-        // deserialize cleanly with the flag defaulting to `false`.
-        let json = r#"{ "exampleFlag": true }"#;
-        let exp: ExperimentsConfig = serde_json::from_str(json).unwrap();
-        assert!(exp.example_flag);
-        assert!(!exp.simplified_session_tabs);
     }
 
     #[test]

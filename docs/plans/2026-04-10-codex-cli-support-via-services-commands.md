@@ -1,5 +1,7 @@
 # Codex CLI Support Via Services/Commands Separation
 
+> **Status:** Partially superseded by `docs/superpowers/specs/2026-04-11-spawn-profiles-and-agent-integration-design.md`. The provider-aware PTY spawn path and `Session.provider` field are gone; the install / status-normalization / notification work survives.
+
 ## Summary
 Implement Codex support as a provider-aware extension of the new Rust layering, not as more Claude-specific conditionals. Tauri commands stay thin. All provider decisions, hook installation, hook payload normalization, status routing, and notification policy live in services or dedicated provider modules.
 
