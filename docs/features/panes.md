@@ -20,7 +20,7 @@ Available command-palette actions include:
 - **Split Right → Claude**
 - **Split Right → Codex**
 
-The profile-driven path is what lets a new pane start as more than a plain shell. A profile can attach setup commands, startup commands, environment variables, and optional sandbox settings before you start using the pane.
+The profile-driven path is what lets a new pane start as more than a plain shell. A profile can attach setup commands, startup commands, and environment variables before you start using the pane.
 
 This is the fastest way to drop a second agent or a specialized shell next to the current pane without opening the New Session dialog.
 
