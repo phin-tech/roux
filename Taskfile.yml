@@ -16,6 +16,10 @@ includes:
 tasks:
   dev:
     desc: "Run Tauri in development mode (also rebuilds and restarts the Roux daemon)"
+    env:
+      # Keep `task dev` isolated from normal Roux state while allowing
+      # callers to point at a different test root explicitly.
+      ROUX_BASE_PATH: '{{.ROUX_BASE_PATH | default (printf "%s/.config/roux-dev" .HOME)}}'
     cmds:
       - task: frontend:ensure
       - task: cli:install
@@ -129,6 +133,8 @@ tasks:
 
   cli:restart-dev-daemon:
     desc: "Restart the freshly built debug Roux daemon for Tauri dev"
+    env:
+      ROUX_BASE_PATH: '{{.ROUX_BASE_PATH | default (printf "%s/.config/roux-dev" .HOME)}}'
     cmds:
       - cmd: target/debug/roux daemon restart
         platforms: [darwin, linux]

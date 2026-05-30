@@ -76,25 +76,14 @@ pub(crate) fn load_socket_auth_token() -> Option<String> {
 }
 
 fn socket_path() -> PathBuf {
-    roux_config_dir().join("roux.sock")
+    roux_core::paths::roux_config_dir().join("roux.sock")
 }
 
 #[cfg(windows)]
 fn socket_addr_file_path() -> PathBuf {
-    roux_config_dir().join("roux-socket-addr")
+    roux_core::paths::roux_config_dir().join("roux-socket-addr")
 }
 
 fn socket_auth_token_file_path() -> PathBuf {
-    roux_config_dir().join("roux-socket-token")
-}
-
-fn roux_config_dir() -> PathBuf {
-    home_dir_or_temp().join(".config").join("roux")
-}
-
-fn home_dir_or_temp() -> PathBuf {
-    dirs::home_dir()
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .filter(|path| path.is_absolute())
-        .unwrap_or_else(std::env::temp_dir)
+    roux_core::paths::roux_config_dir().join("roux-socket-token")
 }

@@ -4182,7 +4182,6 @@ dependencies = [
 name = "roux-sdk"
 version = "0.1.0"
 dependencies = [
- "dirs",
  "roux-core",
  "serde",
  "serde_json",
