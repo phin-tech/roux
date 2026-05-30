@@ -12,11 +12,13 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use roux_core::{
-    WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemEvent, WorkItemInput, WorkItemRun,
+    Attachment, AttachmentDocument, AttachmentInput, AttachmentTargetKind, WorkItem,
+    WorkItemDecision, WorkItemDecisionOption, WorkItemEvent, WorkItemInput, WorkItemRun,
     WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus, WorkItemStatus,
 };
 
@@ -117,6 +119,41 @@ impl WorkItemHandle {
             self.broadcast(WorkItemEvent::Deleted { id: id.to_string() });
         }
         Ok(deleted)
+    }
+
+    pub fn create_attachment(&self, input: AttachmentInput) -> Result<Attachment, String> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_secs();
+        let byte_len = input.content.as_bytes().len() as u64;
+        let sha256 = sha256_hex(input.content.as_bytes());
+        self.inner
+            .lock()
+            .unwrap()
+            .create_attachment(id, input, byte_len, sha256, now)
+            .map_err(|e| format!("attachment create: {e}"))
+    }
+
+    pub fn list_attachments(
+        &self,
+        target_kind: Option<AttachmentTargetKind>,
+        target_id: Option<&str>,
+    ) -> Result<Vec<Attachment>, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .list_attachments(target_kind, target_id)
+            .map_err(|e| format!("attachment list: {e}"))
+    }
+
+    pub fn get_attachment_document(
+        &self,
+        document_id: &str,
+    ) -> Result<Option<AttachmentDocument>, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .get_attachment_document(document_id)
+            .map_err(|e| format!("attachment get: {e}"))
     }
 
     pub fn set_session(&self, id: &str, session_id: &str) -> Result<Option<WorkItem>, String> {
@@ -655,10 +692,18 @@ impl WorkItemHandle {
     }
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use roux_core::{ExternalRef, WorkItemInput};
+    use roux_core::{
+        AttachmentContentKind, AttachmentInput, AttachmentTargetKind, ExternalRef, WorkItemInput,
+    };
 
     fn input(title: &str) -> WorkItemInput {
         WorkItemInput { title: title.to_string(), ..Default::default() }
@@ -894,5 +939,30 @@ mod tests {
         let items = handle.list(None).unwrap();
         assert_eq!(items.len(), 1, "no duplicate on re-import");
         assert_eq!(items[0].title, "Updated");
+    }
+
+    #[test]
+    fn create_attachment_can_be_retrieved_by_document_id() {
+        let handle = WorkItemHandle::in_memory();
+        let attachment = handle
+            .create_attachment(AttachmentInput {
+                target_kind: AttachmentTargetKind::Session,
+                target_id: "session-1".into(),
+                title: Some("Plan".into()),
+                content_kind: AttachmentContentKind::Text,
+                content: "Implement the plan".into(),
+                mime_type: Some("text/markdown".into()),
+                source_path: None,
+            })
+            .unwrap();
+
+        assert!(attachment.document_id.starts_with("session-1."));
+
+        let document = handle
+            .get_attachment_document(&attachment.document_id)
+            .unwrap()
+            .expect("attachment should be found by document id");
+        assert_eq!(document.attachment.id, attachment.id);
+        assert_eq!(document.content, "Implement the plan");
     }
 }

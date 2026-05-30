@@ -56,7 +56,8 @@ use watches::{
     handle_watch_replace, handle_watch_resume,
 };
 use work_items::{
-    handle_work_item_create, handle_work_item_decision_create, handle_work_item_decision_resolve,
+    handle_document_attach, handle_document_get, handle_document_list, handle_work_item_create,
+    handle_work_item_decision_create, handle_work_item_decision_resolve,
     handle_work_item_decisions_list, handle_work_item_delete, handle_work_item_import,
     handle_work_item_list, handle_work_item_move, handle_work_item_plan,
     handle_work_item_review_accept, handle_work_item_run_events, handle_work_item_run_stop,
@@ -276,6 +277,9 @@ async fn handle_request_with_watch_runner(
         "work-item-decisions-list" => handle_work_item_decisions_list(req, host).await,
         "work-item-decision-resolve" => handle_work_item_decision_resolve(req, host).await,
         "work-item-import" => handle_work_item_import(req, host).await,
+        "document-attach" => handle_document_attach(req, host).await,
+        "document-list" => handle_document_list(req, host).await,
+        "document-get" => handle_document_get(req, host).await,
         "worktree-list" => handle_worktree_list(req).await,
         "worktree-create" => handle_worktree_create(req).await,
         "worktree-remove" => handle_worktree_remove(req).await,
@@ -1735,7 +1739,6 @@ async fn apply_session_spawn_bindings(
     }
     Ok(())
 }
-
 
 fn parse_pty_env_request(args: &Value, identity: &DaemonIdentity) -> PtyEnvRequest {
     let current_exe = std::env::current_exe().ok();

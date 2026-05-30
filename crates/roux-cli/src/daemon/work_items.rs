@@ -187,6 +187,110 @@ pub(super) async fn handle_work_item_delete(req: Request, host: &RuntimeHost) ->
     }
 }
 
+pub(super) async fn handle_document_attach(req: Request, host: &RuntimeHost) -> Response {
+    let Some(target_kind) = optional_string_arg(&req.args, &["targetKind", "target_kind"]) else {
+        return Response::err("targetKind required");
+    };
+    let Some(target_kind) = roux_core::AttachmentTargetKind::from_str_opt(&target_kind) else {
+        return Response::err(format!("unknown targetKind: {target_kind}"));
+    };
+    let Some(target_id) = optional_string_arg(&req.args, &["targetId", "target_id"]) else {
+        return Response::err("targetId required");
+    };
+    let Some(content) = optional_string_arg(&req.args, &["content"]) else {
+        return Response::err("content required");
+    };
+    let content_kind = match optional_string_arg(&req.args, &["contentKind", "content_kind"]) {
+        Some(kind) => match roux_core::AttachmentContentKind::from_str_opt(&kind) {
+            Some(kind) => kind,
+            None => return Response::err(format!("unknown contentKind: {kind}")),
+        },
+        None => roux_core::AttachmentContentKind::Text,
+    };
+
+    if let Err(err) = validate_attachment_target(host, &target_kind, &target_id).await {
+        return Response::err(err);
+    }
+
+    let input = roux_core::AttachmentInput {
+        target_kind,
+        target_id,
+        title: optional_string_arg(&req.args, &["title"]),
+        content_kind,
+        content,
+        mime_type: optional_string_arg(&req.args, &["mimeType", "mime_type"]),
+        source_path: optional_string_arg(&req.args, &["sourcePath", "source_path"]),
+    };
+    match host.work_item_handle.create_attachment(input) {
+        Ok(attachment) => match serde_json::to_value(&attachment) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize document attachment: {err}")),
+        },
+        Err(err) => Response::err(err),
+    }
+}
+
+pub(super) async fn handle_document_list(req: Request, host: &RuntimeHost) -> Response {
+    let target_kind = match optional_string_arg(&req.args, &["targetKind", "target_kind"]) {
+        Some(kind) => match roux_core::AttachmentTargetKind::from_str_opt(&kind) {
+            Some(kind) => Some(kind),
+            None => return Response::err(format!("unknown targetKind: {kind}")),
+        },
+        None => None,
+    };
+    let target_id = optional_string_arg(&req.args, &["targetId", "target_id"]);
+    match host.work_item_handle.list_attachments(target_kind, target_id.as_deref()) {
+        Ok(attachments) => match serde_json::to_value(&attachments) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize document attachments: {err}")),
+        },
+        Err(err) => Response::err(err),
+    }
+}
+
+pub(super) async fn handle_document_get(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id", "documentId", "document_id"]) else {
+        return Response::err("id required");
+    };
+    match host.work_item_handle.get_attachment_document(&id) {
+        Ok(Some(document)) => match serde_json::to_value(&document) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize document: {err}")),
+        },
+        Ok(None) => Response::err("document not found"),
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn validate_attachment_target(
+    host: &RuntimeHost,
+    target_kind: &roux_core::AttachmentTargetKind,
+    target_id: &str,
+) -> Result<(), String> {
+    match target_kind {
+        roux_core::AttachmentTargetKind::Session => {
+            if host
+                .session_handle
+                .get(target_id)
+                .await
+                .map_err(|_| "session service unavailable".to_string())?
+                .is_some()
+            {
+                Ok(())
+            } else {
+                Err("session not found".to_string())
+            }
+        }
+        roux_core::AttachmentTargetKind::WorkItem => {
+            if host.work_item_handle.get(target_id)?.is_some() {
+                Ok(())
+            } else {
+                Err("work item not found".to_string())
+            }
+        }
+    }
+}
+
 pub(super) async fn handle_work_item_start(
     req: Request,
     host: &RuntimeHost,
@@ -2219,6 +2323,29 @@ mod tests {
         }
     }
 
+    fn session(id: &str) -> roux_core::Session {
+        roux_core::Session {
+            id: id.to_string(),
+            name: format!("Session {id}"),
+            repo_root: "/repo".to_string(),
+            worktree_path: "/repo".to_string(),
+            branch: "main".to_string(),
+            is_worktree: false,
+            status: roux_core::SessionStatus::Idle,
+            model: None,
+            cost: None,
+            created_at: 0,
+            project_id: None,
+            is_git_repo: false,
+            name_override: None,
+            primary_pty_id: None,
+            archived: false,
+            ended_at: None,
+            blueprint_id: None,
+            pinned_pr_url: None,
+        }
+    }
+
     #[cfg(not(windows))]
     fn git(repo: &std::path::Path, args: &[&str]) {
         let output = std::process::Command::new("git")
@@ -2576,6 +2703,46 @@ mod tests {
         let resp =
             handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
         assert_eq!(resp.data.unwrap().as_array().unwrap().len(), 0);
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_document_attach_and_get_for_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        host.session_handle.add(session("sess-1")).await.unwrap();
+
+        let resp = handle_request(
+            req(
+                "document-attach",
+                serde_json::json!({
+                    "targetKind": "session",
+                    "targetId": "sess-1",
+                    "title": "Plan",
+                    "contentKind": "text",
+                    "content": "Use the narrow implementation plan.",
+                    "mimeType": "text/markdown",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "document attach should succeed: {:?}", resp.error);
+        let document_id = resp.data.as_ref().unwrap()["documentId"].as_str().unwrap().to_string();
+        assert!(document_id.starts_with("sess-1."));
+
+        let resp = handle_request(
+            req("document-get", serde_json::json!({ "id": document_id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "document get should succeed: {:?}", resp.error);
+        let document = resp.data.as_ref().unwrap();
+        assert_eq!(document["attachment"]["targetKind"], "session");
+        assert_eq!(document["content"], "Use the narrow implementation plan.");
 
         shutdown_host(host, joins).await;
     }

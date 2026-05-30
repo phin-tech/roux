@@ -735,6 +735,10 @@ export type {
 // channel payload, so it lives outside the generated bindings.
 export type { WorkItemEvent } from "./types/workItems";
 export type {
+  Attachment,
+  AttachmentDocument,
+  AttachmentInput,
+  AttachmentTargetKind,
   WorkItemDecision,
   WorkItemDecisionOption,
   WorkItemRun,
@@ -894,6 +898,25 @@ export async function workItemDecisionResolve(
   resolvedBy: string | null = null,
 ): Promise<import("./types/workItems").WorkItemDecision> {
   return invoke("work_item_decision_resolve", { id, value, resolvedBy });
+}
+
+export async function documentAttach(
+  input: import("./types/workItems").AttachmentInput,
+): Promise<import("./types/workItems").Attachment> {
+  return invoke("document_attach", { input });
+}
+
+export async function documentList(
+  targetKind: import("./types/workItems").AttachmentTargetKind | null = null,
+  targetId: string | null = null,
+): Promise<import("./types/workItems").Attachment[]> {
+  return invoke("document_list", { targetKind, targetId });
+}
+
+export async function documentGet(
+  id: string,
+): Promise<import("./types/workItems").AttachmentDocument> {
+  return invoke("document_get", { id });
 }
 
 export async function setSessionNameOverride(

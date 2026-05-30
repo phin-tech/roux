@@ -1,6 +1,10 @@
 import { writable, derived, get } from "svelte/store";
 import type { WorkItem, WorkItemInput, WorkItemStatus } from "$lib/bindings";
 import type {
+  Attachment,
+  AttachmentDocument,
+  AttachmentInput,
+  AttachmentTargetKind,
   WorkItemDecision,
   WorkItemEvent,
   WorkItemRun,
@@ -19,10 +23,17 @@ import {
   workItemRunStop as tauriWorkItemRunStop,
   workItemDecisionsList as tauriWorkItemDecisionsList,
   workItemDecisionResolve as tauriWorkItemDecisionResolve,
+  documentAttach as tauriDocumentAttach,
+  documentList as tauriDocumentList,
+  documentGet as tauriDocumentGet,
 } from "$lib/tauri";
 
 export {
   type WorkItem,
+  type Attachment,
+  type AttachmentDocument,
+  type AttachmentInput,
+  type AttachmentTargetKind,
   type WorkItemDecision,
   type WorkItemEvent,
   type WorkItemInput,
@@ -335,6 +346,21 @@ export async function stopWorkItemRun(runId: string): Promise<WorkItemRun> {
   const run = await tauriWorkItemRunStop(runId);
   upsertRun(run);
   return run;
+}
+
+export async function attachDocument(input: AttachmentInput): Promise<Attachment> {
+  return tauriDocumentAttach(input);
+}
+
+export async function listDocuments(
+  targetKind: AttachmentTargetKind | null = null,
+  targetId: string | null = null,
+): Promise<Attachment[]> {
+  return tauriDocumentList(targetKind, targetId);
+}
+
+export async function getDocument(id: string): Promise<AttachmentDocument> {
+  return tauriDocumentGet(id);
 }
 
 export function getWorkItemSnapshot(id: string): WorkItem | undefined {

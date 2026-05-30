@@ -1,4 +1,5 @@
 mod alias;
+mod attachment;
 mod event;
 mod events;
 mod keymap;
@@ -19,6 +20,9 @@ mod worktree;
 pub use alias::{
     canonical_alias_name, is_reserved_alias, validate_alias_name, validate_user_alias_name,
     AgentAlias, AliasEvent, AliasMember, AliasNameError, ConsumptionMode, RESERVED_ALIASES,
+};
+pub use attachment::{
+    Attachment, AttachmentContentKind, AttachmentDocument, AttachmentInput, AttachmentTargetKind,
 };
 pub use event::{Event, EventBuilder, EventKind, EventValidationError, MailboxEvent, ReadState};
 pub use events::{RouxCommand, SessionExitPayload, SessionExitReason};

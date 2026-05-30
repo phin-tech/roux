@@ -81,6 +81,39 @@ export interface WorkItemDecision {
   updatedAt: number;
 }
 
+export type AttachmentTargetKind = "session" | "workItem";
+export type AttachmentContentKind = "text" | "file";
+
+export interface Attachment {
+  id: string;
+  documentId: string;
+  targetKind: AttachmentTargetKind;
+  targetId: string;
+  title: string | null;
+  contentKind: AttachmentContentKind;
+  mimeType: string | null;
+  sourcePath: string | null;
+  byteLen: number;
+  sha256: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AttachmentDocument {
+  attachment: Attachment;
+  content: string;
+}
+
+export interface AttachmentInput {
+  targetKind: AttachmentTargetKind;
+  targetId: string;
+  title?: string | null;
+  contentKind: AttachmentContentKind;
+  content: string;
+  mimeType?: string | null;
+  sourcePath?: string | null;
+}
+
 export type WorkItemEvent =
   | { type: "created"; item: WorkItem }
   | { type: "updated"; item: WorkItem }
