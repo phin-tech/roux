@@ -126,11 +126,14 @@ impl WorkItemHandle {
         let now = now_secs();
         let byte_len = input.content.len() as u64;
         let sha256 = sha256_hex(input.content.as_bytes());
-        self.inner
+        let attachment = self
+            .inner
             .lock()
             .unwrap()
             .create_attachment(id, input, byte_len, sha256, now)
-            .map_err(|e| format!("attachment create: {e}"))
+            .map_err(|e| format!("attachment create: {e}"))?;
+        self.broadcast(WorkItemEvent::DocumentAttached { attachment: attachment.clone() });
+        Ok(attachment)
     }
 
     pub fn list_attachments(
@@ -138,6 +141,9 @@ impl WorkItemHandle {
         target_kind: Option<AttachmentTargetKind>,
         target_id: Option<&str>,
     ) -> Result<Vec<Attachment>, String> {
+        if target_id.is_some() && target_kind.is_none() {
+            return Err("targetKind required when targetId is provided".to_string());
+        }
         self.inner
             .lock()
             .unwrap()
@@ -964,5 +970,32 @@ mod tests {
             .expect("attachment should be found by document id");
         assert_eq!(document.attachment.id, attachment.id);
         assert_eq!(document.content, "Implement the plan");
+    }
+
+    #[test]
+    fn create_attachment_broadcasts_document_attached_event() {
+        let handle = WorkItemHandle::in_memory();
+        let mut rx = handle.subscribe_events();
+
+        let attachment = handle
+            .create_attachment(AttachmentInput {
+                target_kind: AttachmentTargetKind::WorkItem,
+                target_id: "item-1".into(),
+                title: Some("Plan".into()),
+                content_kind: AttachmentContentKind::Text,
+                content: "Use the plan".into(),
+                mime_type: Some("text/markdown".into()),
+                source_path: None,
+            })
+            .unwrap();
+
+        let event = rx.try_recv().expect("DocumentAttached event should be broadcast");
+        match event {
+            WorkItemEvent::DocumentAttached { attachment: event_attachment } => {
+                assert_eq!(event_attachment.id, attachment.id);
+                assert_eq!(event_attachment.document_id, attachment.document_id);
+            }
+            other => panic!("expected DocumentAttached, got {other:?}"),
+        }
     }
 }

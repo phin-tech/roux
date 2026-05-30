@@ -120,6 +120,7 @@ export type WorkItemEvent =
   | { type: "moved"; id: string; status: WorkItemStatus; sortOrder: number }
   | { type: "deleted"; id: string }
   | { type: "imported"; ids: string[] }
+  | { type: "documentAttached"; attachment: Attachment }
   | { type: "sessionBound"; id: string; sessionId: string }
   | { type: "runCreated"; run: WorkItemRun }
   | { type: "runUpdated"; run: WorkItemRun }

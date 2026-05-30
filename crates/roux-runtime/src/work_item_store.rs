@@ -195,7 +195,9 @@ impl WorkItemStore {
                     ON attachments(target_kind, target_id, created_at);
                 PRAGMA user_version = 6;",
             )?;
+            version = 6;
         }
+        debug_assert!(version >= 6);
         Ok(WorkItemStore { conn })
     }
 
@@ -1524,7 +1526,7 @@ mod tests {
         let store = WorkItemStore::open_in_memory().unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -1535,7 +1537,7 @@ mod tests {
             let store = WorkItemStore::open(&path).unwrap();
             let version: i64 =
                 store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-            assert_eq!(version, 5);
+            assert_eq!(version, 6);
             assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
@@ -1545,7 +1547,7 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
         assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
@@ -1624,7 +1626,7 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
         for column in [
             "repo_path",
             "agent_profile",

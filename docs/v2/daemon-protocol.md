@@ -903,8 +903,10 @@ metadata, including `documentId`.
 
 `document-list`
 
-Optional `args.targetKind` and `args.targetId` filter to one target. Returns
-attachment metadata without document content.
+Optional `args.targetKind` and `args.targetId` filter to one target. When
+`targetId` is supplied, `targetKind` is required to avoid mixing session and
+work item attachments with the same id. Returns attachment metadata without
+document content.
 
 `document-get`
 

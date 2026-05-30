@@ -239,6 +239,9 @@ pub(super) async fn handle_document_list(req: Request, host: &RuntimeHost) -> Re
         None => None,
     };
     let target_id = optional_string_arg(&req.args, &["targetId", "target_id"]);
+    if target_id.is_some() && target_kind.is_none() {
+        return Response::err("targetKind required when targetId is provided");
+    }
     match host.work_item_handle.list_attachments(target_kind, target_id.as_deref()) {
         Ok(attachments) => match serde_json::to_value(&attachments) {
             Ok(value) => Response::success(value),
@@ -2743,6 +2746,23 @@ mod tests {
         let document = resp.data.as_ref().unwrap();
         assert_eq!(document["attachment"]["targetKind"], "session");
         assert_eq!(document["content"], "Use the narrow implementation plan.");
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_document_list_rejects_target_id_without_kind() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("document-list", serde_json::json!({ "targetId": "ambiguous-id" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(!resp.ok, "targetId without targetKind should fail");
+        assert!(resp.error.as_deref().unwrap_or("").contains("targetKind required"));
 
         shutdown_host(host, joins).await;
     }

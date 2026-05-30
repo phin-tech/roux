@@ -189,6 +189,8 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
         console.error("Failed to hydrate imported work items", err);
       });
       break;
+    case "documentAttached":
+      break;
     case "sessionBound":
       bindSessionToWorkItem(event.id, event.sessionId);
       break;
