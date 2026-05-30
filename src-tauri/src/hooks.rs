@@ -99,7 +99,9 @@ fn cli_version_at(path: &Path) -> Option<String> {
 /// previously installed copy, so an mtime gate silently skipped real updates
 /// and left a stale CLI on disk (the "click install, it flashes, still says to
 /// install" bug). Using the bundled version here keeps the installer's notion
-/// of "current" identical to the doctor panel's, so they never disagree.
+/// of "current" identical to the doctor panel's, so they never disagree. This
+/// intentionally also replaces an installed CLI with a newer version than the
+/// bundle: the desktop app owns the companion CLI version it launches.
 #[cfg(not(windows))]
 fn should_install_cli(
     target_exists: bool,
@@ -193,10 +195,15 @@ fn atomic_install_cli(source: &Path, target: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = target.parent().ok_or("install target has no parent directory")?;
-    let staged = dir.join(format!(".{}.tmp", platform::roux_cli_file_name()));
+    let target_name =
+        target.file_name().ok_or("install target has no file name")?.to_string_lossy();
+    let staged = dir.join(format!(".{target_name}.tmp"));
     let _ = fs::remove_file(&staged);
 
-    fs::copy(source, &staged).map_err(|e| format!("Failed to stage roux: {}", e))?;
+    fs::copy(source, &staged).map_err(|e| {
+        let _ = fs::remove_file(&staged);
+        format!("Failed to stage roux: {}", e)
+    })?;
 
     let mut perms = fs::metadata(&staged).map_err(|e| e.to_string())?.permissions();
     perms.set_mode(0o755);
@@ -567,6 +574,10 @@ mod tests {
         // replaced regardless of file mtimes.
         assert!(should_install_cli(true, Some("0.5.2"), "0.5.3"));
         assert!(should_install_cli(true, Some("0.5.3-pre"), "0.5.3"));
+        // The bundled desktop version owns the installed companion CLI, so a
+        // newer installed CLI is also replaced to keep app and CLI contracts in
+        // sync.
+        assert!(should_install_cli(true, Some("0.5.4"), "0.5.3"));
     }
 
     #[cfg(not(windows))]
@@ -601,6 +612,21 @@ mod tests {
         // No staged temp file left behind.
         let staged = dir.path().join(format!(".{}.tmp", platform::roux_cli_file_name()));
         assert!(!staged.exists());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn atomic_install_cli_stages_next_to_requested_target_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source-roux");
+        let target = dir.path().join("roux-custom");
+        fs::write(&source, b"new-binary").unwrap();
+
+        atomic_install_cli(&source, &target).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"new-binary");
+        assert!(!dir.path().join(".roux-custom.tmp").exists());
+        assert!(!dir.path().join(format!(".{}.tmp", platform::roux_cli_file_name())).exists());
     }
 
     #[cfg(not(windows))]
