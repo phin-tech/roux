@@ -1,6 +1,7 @@
 use crate::state::AppState;
 use roux_core::{
-    WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemInput, WorkItemPlanResult,
+    Attachment, AttachmentDocument, AttachmentInput, AttachmentTargetKind, WorkItem,
+    WorkItemDecision, WorkItemDecisionOption, WorkItemInput, WorkItemPlanResult,
     WorkItemReviewAcceptResult, WorkItemRun, WorkItemRunEvent, WorkItemStartResult, WorkItemStatus,
 };
 
@@ -229,4 +230,76 @@ pub(crate) async fn work_item_decision_resolve(
         .work_item_handle
         .resolve_decision(&id, &value, resolved_by.as_deref())?
         .ok_or_else(|| "decision not found".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn document_attach(
+    input: AttachmentInput,
+    state: tauri::State<'_, AppState>,
+) -> Result<Attachment, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("document-attach")) {
+        return client.document_attach(input).await.map_err(String::from);
+    }
+    validate_document_target(&state, &input.target_kind, &input.target_id).await?;
+    state.runtime.work_item_handle.create_attachment(input)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn document_list(
+    target_kind: Option<AttachmentTargetKind>,
+    target_id: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Attachment>, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("document-list")) {
+        return client.document_list(target_kind, target_id).await.map_err(String::from);
+    }
+    state.runtime.work_item_handle.list_attachments(target_kind, target_id.as_deref())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn document_get(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<AttachmentDocument, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("document-get")) {
+        return client.document_get(id).await.map_err(String::from);
+    }
+    state
+        .runtime
+        .work_item_handle
+        .get_attachment_document(&id)?
+        .ok_or_else(|| "document not found".to_string())
+}
+
+async fn validate_document_target(
+    state: &AppState,
+    target_kind: &AttachmentTargetKind,
+    target_id: &str,
+) -> Result<(), String> {
+    match target_kind {
+        AttachmentTargetKind::Session => {
+            if state
+                .runtime
+                .session_handle
+                .get(target_id)
+                .await
+                .map_err(|_| "session service unavailable".to_string())?
+                .is_some()
+            {
+                Ok(())
+            } else {
+                Err("session not found".to_string())
+            }
+        }
+        AttachmentTargetKind::WorkItem => {
+            if state.runtime.work_item_handle.get(target_id)?.is_some() {
+                Ok(())
+            } else {
+                Err("work item not found".to_string())
+            }
+        }
+    }
 }

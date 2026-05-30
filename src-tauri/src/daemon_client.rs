@@ -349,6 +349,28 @@ impl DaemonClient {
             .map_err(DaemonClientError::from)
     }
 
+    pub(crate) async fn document_attach(
+        &self,
+        input: roux_core::AttachmentInput,
+    ) -> DaemonClientResult<roux_core::Attachment> {
+        self.sdk.document_attach(input).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn document_list(
+        &self,
+        target_kind: Option<roux_core::AttachmentTargetKind>,
+        target_id: Option<String>,
+    ) -> DaemonClientResult<Vec<roux_core::Attachment>> {
+        self.sdk.document_list(target_kind, target_id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn document_get(
+        &self,
+        id: String,
+    ) -> DaemonClientResult<roux_core::AttachmentDocument> {
+        self.sdk.document_get(id).await.map_err(DaemonClientError::from)
+    }
+
     pub(crate) async fn list_aliases(
         &self,
         project_id: Option<String>,

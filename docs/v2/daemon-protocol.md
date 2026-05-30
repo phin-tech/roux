@@ -649,6 +649,7 @@ Frames:
 
 Work items are durable intent cards stored in `~/.config/roux/board.db`
 (SQLite). They track kanban workflow status independent of session activity.
+Session/work item document attachments are stored in the same daemon-owned DB.
 
 `work-item-list`
 
@@ -863,6 +864,54 @@ Frame shapes (newline-delimited JSON, `"type"` tag):
 - `{ "type": "event", "event": { ... } }` — one frame per `WorkItemEvent`
   (created/updated/moved/deleted/imported/sessionBound).
 - `{ "type": "warning", "message": "..." }` — broadcast buffer overflowed.
+
+## Document Commands
+
+Documents are daemon-owned text attachments for either a session or a Kanban
+work item. They are intended for plans, handoffs, reference notes, and other
+agent-readable context that should be addressable outside the originating
+session.
+
+Each attachment has:
+
+- `id`: globally unique attachment id.
+- `documentId`: fully qualified id in the form `<targetId>.<attachmentId>`.
+- `targetKind`: `"session"` or `"workItem"`.
+- `targetId`: the session id or work item id.
+
+Document lookup accepts either `id` or `documentId`. Prefixes
+`session/<documentId>` and `work-item/<documentId>` are also accepted.
+
+`document-attach`
+
+Requires `args.targetKind`, `args.targetId`, and `args.content`. Optional:
+`args.title`, `args.contentKind` (`"text"` default, `"file"` for UTF-8 file
+snapshots), `args.mimeType`, and `args.sourcePath`. The daemon validates that
+the target session or work item exists before writing. Returns the attachment
+metadata, including `documentId`.
+
+```json
+{
+  "targetKind": "session",
+  "targetId": "session-1",
+  "title": "Plan",
+  "contentKind": "text",
+  "content": "Implement the narrow plan.",
+  "mimeType": "text/markdown"
+}
+```
+
+`document-list`
+
+Optional `args.targetKind` and `args.targetId` filter to one target. When
+`targetId` is supplied, `targetKind` is required to avoid mixing session and
+work item attachments with the same id. Returns attachment metadata without
+document content.
+
+`document-get`
+
+Requires `args.id` (also accepts `args.documentId` / `args.document_id`).
+Returns `{ "attachment": { ... }, "content": "..." }`.
 
 ## PTY Commands
 

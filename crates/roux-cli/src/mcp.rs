@@ -35,6 +35,9 @@ const MCP_TOOL_NAMES: &[&str] = &[
     "roux_list_work_item_decisions",
     "roux_resolve_work_item_decision",
     "roux_import_work_items",
+    "roux_attach_document",
+    "roux_list_documents",
+    "roux_get_document",
 ];
 
 #[derive(Debug)]
@@ -302,6 +305,31 @@ pub struct WorkItemImportParams {
     pub items: Option<Vec<Value>>,
     /// Path to a JSON file containing { "items": [...] }.
     pub path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentAttachParams {
+    pub session_id: Option<String>,
+    pub work_item_id: Option<String>,
+    pub title: Option<String>,
+    pub content: String,
+    pub content_kind: Option<String>,
+    pub mime_type: Option<String>,
+    pub source_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentListParams {
+    pub session_id: Option<String>,
+    pub work_item_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentGetParams {
+    pub id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -828,6 +856,40 @@ impl RouxMcpServer {
         Parameters(params): Parameters<WorkItemImportParams>,
     ) -> Result<CallToolResult, ErrorData> {
         call_socket(build_work_item_import_request(params)?).await
+    }
+
+    #[tool(
+        description = "Attach a text document to a Roux session or Kanban work item. Pass exactly one of sessionId or workItemId."
+    )]
+    async fn roux_attach_document(
+        &self,
+        Parameters(params): Parameters<DocumentAttachParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_document_attach_request(params)?).await
+    }
+
+    #[tool(
+        description = "List attached Roux documents. Optionally filter by exactly one of sessionId or workItemId."
+    )]
+    async fn roux_list_documents(
+        &self,
+        Parameters(params): Parameters<DocumentListParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_document_list_request(params)?).await
+    }
+
+    #[tool(
+        description = "Read an attached Roux document by attachment id or fully qualified document id."
+    )]
+    async fn roux_get_document(
+        &self,
+        Parameters(params): Parameters<DocumentGetParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(json!({
+            "command": "document-get",
+            "args": { "id": params.id },
+        }))
+        .await
     }
 
     #[tool(
@@ -1650,6 +1712,58 @@ fn build_work_item_import_request(params: WorkItemImportParams) -> Result<Value,
     }))
 }
 
+fn document_target_args(
+    session_id: Option<String>,
+    work_item_id: Option<String>,
+    required: bool,
+) -> Result<serde_json::Map<String, Value>, ErrorData> {
+    let mut args = serde_json::Map::new();
+    match (session_id, work_item_id) {
+        (Some(session_id), None) => {
+            args.insert("targetKind".into(), Value::String("session".into()));
+            args.insert("targetId".into(), Value::String(session_id));
+        }
+        (None, Some(work_item_id)) => {
+            args.insert("targetKind".into(), Value::String("workItem".into()));
+            args.insert("targetId".into(), Value::String(work_item_id));
+        }
+        (None, None) if !required => {}
+        (None, None) => {
+            return Err(McpToolError::InvalidParams("sessionId or workItemId required").into());
+        }
+        (Some(_), Some(_)) => {
+            return Err(
+                McpToolError::InvalidParams("pass only one of sessionId or workItemId").into()
+            );
+        }
+    }
+    Ok(args)
+}
+
+fn build_document_attach_request(params: DocumentAttachParams) -> Result<Value, ErrorData> {
+    let mut args = document_target_args(params.session_id, params.work_item_id, true)?;
+    args.insert(
+        "contentKind".into(),
+        Value::String(params.content_kind.unwrap_or_else(|| "text".into())),
+    );
+    args.insert("content".into(), Value::String(params.content));
+    insert_optional_string(&mut args, "title", params.title);
+    insert_optional_string(&mut args, "mimeType", params.mime_type);
+    insert_optional_string(&mut args, "sourcePath", params.source_path);
+    Ok(json!({
+        "command": "document-attach",
+        "args": Value::Object(args),
+    }))
+}
+
+fn build_document_list_request(params: DocumentListParams) -> Result<Value, ErrorData> {
+    let args = document_target_args(params.session_id, params.work_item_id, false)?;
+    Ok(json!({
+        "command": "document-list",
+        "args": Value::Object(args),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1833,6 +1947,27 @@ mod tests {
     }
 
     #[test]
+    fn document_attach_builds_socket_request() {
+        let request = build_document_attach_request(DocumentAttachParams {
+            session_id: Some("sess-1".into()),
+            work_item_id: None,
+            title: Some("Plan".into()),
+            content: "Use the plan.".into(),
+            content_kind: None,
+            mime_type: Some("text/markdown".into()),
+            source_path: None,
+        })
+        .expect("document attach request should build");
+
+        assert_eq!(request["command"], "document-attach");
+        assert_eq!(request["args"]["targetKind"], "session");
+        assert_eq!(request["args"]["targetId"], "sess-1");
+        assert_eq!(request["args"]["contentKind"], "text");
+        assert_eq!(request["args"]["content"], "Use the plan.");
+        assert_eq!(request["args"]["mimeType"], "text/markdown");
+    }
+
+    #[test]
     fn work_item_tools_are_registered() {
         let tools = RouxMcpServer::tool_router().list_all();
         let names = tools.iter().map(|tool| tool.name.as_ref()).collect::<Vec<_>>();
@@ -1840,6 +1975,9 @@ mod tests {
         assert!(names.contains(&"roux_list_work_items"));
         assert!(names.contains(&"roux_start_work_item"));
         assert!(names.contains(&"roux_resolve_work_item_decision"));
+        assert!(names.contains(&"roux_attach_document"));
+        assert!(names.contains(&"roux_list_documents"));
+        assert!(names.contains(&"roux_get_document"));
     }
 
     #[test]
