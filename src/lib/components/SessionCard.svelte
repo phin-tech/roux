@@ -63,6 +63,13 @@
       ? session.branch
       : null,
   );
+  let secondaryContext = $derived(
+    contextualSecondary &&
+      contextualSecondary !== primaryLabel &&
+      contextualSecondary !== displayName
+      ? contextualSecondary
+      : null,
+  );
   let branchParts = $derived.by(() => {
     const shouldSplitBranchPrimary =
       session.isWorktree && !hasCustomName && primaryLabel.includes("/");
@@ -124,7 +131,7 @@
     computeEffectiveSessionStatus(session.status, agentAggregate),
   );
 
-  let showRow2 = $derived(Boolean(secondaryBranch || contextualSecondary));
+  let showRow2 = $derived(Boolean(secondaryBranch || secondaryContext));
 
   let detailLabel = $derived(
     session.isGitRepo && session.branch
@@ -238,16 +245,16 @@
             class="min-w-0 truncate font-mono text-text-muted"
             title={secondaryBranch}
           >{secondaryBranch}</span>
-          {#if contextualSecondary}
+          {#if secondaryContext}
             <span class="shrink-0 text-text-muted">·</span>
           {/if}
         {/if}
-        {#if contextualSecondary}
+        {#if secondaryContext}
           <span
             data-testid="session-secondary-context"
             class="min-w-0 truncate"
-            title={contextualSecondary}
-          >{contextualSecondary}</span>
+            title={secondaryContext}
+          >{secondaryContext}</span>
         {/if}
       </div>
     {/if}

@@ -57,8 +57,11 @@
   import FlaskConical from "@lucide/svelte/icons/flask-conical";
   import X from "@lucide/svelte/icons/x";
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
-  import { EXPERIMENTS, EXPERIMENT_DEFAULTS } from "$lib/experiments";
-  import type { ExperimentsConfig } from "$lib/bindings";
+  import {
+    EXPERIMENTS,
+    currentExperimentValue,
+    withExperimentValue,
+  } from "$lib/experiments";
 
   type CategoryId = "general" | "sessions" | "terminal" | "kanban" | "claude" | "notes" | "integrations" | "notifications" | "keyboard" | "experiments" | "advanced";
 
@@ -1759,16 +1762,16 @@
                   <div class="text-[11px] text-text-muted mt-0.5">{exp.description}</div>
                 </div>
                 {#if exp.kind === "boolean"}
-                  {@const current = (($settings.experiments as Record<string, unknown> | undefined)?.[exp.id] ?? EXPERIMENT_DEFAULTS[exp.id]) as boolean}
+                  {@const current = currentExperimentValue($settings.experiments, exp.id) as boolean}
                   <button
                     aria-label="Toggle {exp.label}"
                     class="w-9 h-5 rounded-full relative cursor-pointer transition-all border shrink-0
                       {current ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
                     onclick={() =>
-                      updateSetting("experiments", {
-                        ...$settings.experiments,
-                        [exp.id]: !current,
-                      } as ExperimentsConfig)}
+                      updateSetting(
+                        "experiments",
+                        withExperimentValue($settings.experiments, exp.id, !current),
+                      )}
                   >
                     <div
                       class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
@@ -1776,16 +1779,20 @@
                     ></div>
                   </button>
                 {:else}
-                  {@const current = (($settings.experiments as Record<string, unknown> | undefined)?.[exp.id] ?? EXPERIMENT_DEFAULTS[exp.id]) as string}
+                  {@const current = currentExperimentValue($settings.experiments, exp.id) as string}
                   <select
                     aria-label="Select {exp.label}"
                     class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6 shrink-0"
                     value={current}
                     onchange={(e) =>
-                      updateSetting("experiments", {
-                        ...$settings.experiments,
-                        [exp.id]: e.currentTarget.value as (typeof exp.options)[number]["value"],
-                      } as ExperimentsConfig)}
+                      updateSetting(
+                        "experiments",
+                        withExperimentValue(
+                          $settings.experiments,
+                          exp.id,
+                          e.currentTarget.value,
+                        ),
+                      )}
                   >
                     {#each exp.options as opt}
                       <option value={opt.value}>{opt.label}</option>

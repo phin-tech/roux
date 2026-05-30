@@ -4,8 +4,36 @@ import { EXPERIMENT_DEFAULTS } from "$lib/types";
 import type { ExperimentsConfig } from "$lib/bindings";
 
 type RequiredExperiments = Required<ExperimentsConfig>;
+type GeneratedExperimentId = string extends keyof RequiredExperiments
+  ? never
+  : keyof RequiredExperiments;
 
-export type ExperimentDef =
+type BooleanExperimentId = {
+  [K in GeneratedExperimentId]: RequiredExperiments[K] extends boolean ? K : never;
+}[GeneratedExperimentId];
+
+type EnumExperimentId = Exclude<GeneratedExperimentId, BooleanExperimentId>;
+
+type BooleanExperimentDef<K extends BooleanExperimentId = BooleanExperimentId> = {
+  kind: "boolean";
+  id: K;
+  label: string;
+  description: string;
+};
+
+type EnumExperimentDef<K extends EnumExperimentId = EnumExperimentId> = {
+  kind: "enum";
+  id: K;
+  label: string;
+  description: string;
+  options: ReadonlyArray<{ value: RequiredExperiments[K]; label: string }>;
+};
+
+type RegisteredExperimentDef =
+  | BooleanExperimentDef
+  | EnumExperimentDef;
+
+type EmptyExperimentDef =
   | {
       kind: "boolean";
       id: string;
@@ -20,9 +48,24 @@ export type ExperimentDef =
       options: ReadonlyArray<{ value: string; label: string }>;
     };
 
-// Adding a new flag to `ExperimentsConfig` (Rust side) should be accompanied by
-// a new entry here so the UI knows how to render it.
-const EXPERIMENT_DEFS: Record<string, ExperimentDef> = {};
+export type ExperimentDef = [GeneratedExperimentId] extends [never]
+  ? EmptyExperimentDef
+  : RegisteredExperimentDef;
+
+type ExperimentRegistry = [GeneratedExperimentId] extends [never]
+  ? Record<string, never>
+  : { [K in GeneratedExperimentId]:
+      K extends BooleanExperimentId
+        ? BooleanExperimentDef<K>
+        : K extends EnumExperimentId
+          ? EnumExperimentDef<K>
+          : never
+    };
+
+// Indexed by id so adding a new flag to `ExperimentsConfig` (Rust side) without
+// adding a registry entry here is a TypeScript error. The `Record<string, never>`
+// branch matches specta's empty-struct binding while there are no experiments.
+const EXPERIMENT_DEFS = {} satisfies ExperimentRegistry;
 
 export const EXPERIMENTS: ReadonlyArray<ExperimentDef> = Object.values(EXPERIMENT_DEFS);
 
@@ -42,9 +85,30 @@ export const experimentValues: Readable<RequiredExperiments> = derived(
 );
 
 export function isExperimentEnabled(id: string): boolean {
-  return Boolean((readExperiments() as Record<string, unknown>)[id]);
+  return Boolean(readExperimentValue(id));
 }
 
 export function getExperimentValue<T = unknown>(id: string): T {
-  return (readExperiments() as Record<string, unknown>)[id] as T;
+  return readExperimentValue(id) as T;
+}
+
+export function readExperimentValue(id: string): unknown {
+  return readExperiments()[id as keyof RequiredExperiments];
+}
+
+export function currentExperimentValue(
+  experiments: ExperimentsConfig | undefined,
+  id: string,
+): unknown {
+  return { ...EXPERIMENT_DEFAULTS, ...(experiments ?? {}) }[
+    id as keyof RequiredExperiments
+  ];
+}
+
+export function withExperimentValue(
+  experiments: ExperimentsConfig | undefined,
+  id: string,
+  value: unknown,
+): ExperimentsConfig {
+  return { ...(experiments ?? {}), [id]: value } as ExperimentsConfig;
 }
