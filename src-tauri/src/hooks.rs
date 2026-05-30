@@ -1,6 +1,12 @@
 use serde_json::{json, Value};
+#[cfg(not(windows))]
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(not(windows))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::platform;
 
@@ -111,6 +117,49 @@ fn should_install_cli(
     !target_exists || installed_version != Some(bundled_version)
 }
 
+#[cfg(not(windows))]
+static CLI_STAGE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(not(windows))]
+#[derive(Debug)]
+enum CliInstallError {
+    MissingTargetParent,
+    MissingTargetFileName,
+    Stage { path: PathBuf, source: std::io::Error },
+    Metadata { path: PathBuf, source: std::io::Error },
+    Permissions { path: PathBuf, source: std::io::Error },
+    Rename { staged: PathBuf, target: PathBuf, source: std::io::Error },
+}
+
+#[cfg(not(windows))]
+impl fmt::Display for CliInstallError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingTargetParent => write!(f, "install target has no parent directory"),
+            Self::MissingTargetFileName => write!(f, "install target has no file name"),
+            Self::Stage { path, source } => {
+                write!(f, "Failed to stage roux at {}: {}", path.display(), source)
+            }
+            Self::Metadata { path, source } => {
+                write!(f, "Failed to read staged roux metadata at {}: {}", path.display(), source)
+            }
+            Self::Permissions { path, source } => {
+                write!(f, "Failed to set staged roux permissions at {}: {}", path.display(), source)
+            }
+            Self::Rename { staged, target, source } => write!(
+                f,
+                "Failed to install roux from {} to {}: {}",
+                staged.display(),
+                target.display(),
+                source
+            ),
+        }
+    }
+}
+
+#[cfg(not(windows))]
+impl std::error::Error for CliInstallError {}
+
 /// Where the CLI is actually installed right now, if anywhere — mirrors
 /// [`cli_is_installed`] but returns the path so callers can exec it.
 fn installed_cli_path() -> Option<PathBuf> {
@@ -174,7 +223,7 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
         let target_exists = target.exists();
         let installed = if target_exists { cli_version_at(&target) } else { None };
         if should_install_cli(target_exists, installed.as_deref(), bundled_cli_version()) {
-            atomic_install_cli(&source, &target)?;
+            atomic_install_cli(&source, &target).map_err(|e| e.to_string())?;
             eprintln!("Installed roux CLI to {}", target.display());
         }
         install_cli_compat_alias(&target, &compat_target)?;
@@ -191,28 +240,40 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
 /// running (the running process keeps its already-open inode) and never leaves
 /// a half-written binary on failure.
 #[cfg(not(windows))]
-fn atomic_install_cli(source: &Path, target: &Path) -> Result<(), String> {
+fn atomic_install_cli(source: &Path, target: &Path) -> Result<(), CliInstallError> {
     use std::os::unix::fs::PermissionsExt;
 
-    let dir = target.parent().ok_or("install target has no parent directory")?;
-    let target_name =
-        target.file_name().ok_or("install target has no file name")?.to_string_lossy();
-    let staged = dir.join(format!(".{target_name}.tmp"));
-    let _ = fs::remove_file(&staged);
+    let dir = target.parent().ok_or(CliInstallError::MissingTargetParent)?;
+    let staged = unique_cli_stage_path(dir, target)?;
 
     fs::copy(source, &staged).map_err(|e| {
         let _ = fs::remove_file(&staged);
-        format!("Failed to stage roux: {}", e)
+        CliInstallError::Stage { path: staged.clone(), source: e }
     })?;
 
-    let mut perms = fs::metadata(&staged).map_err(|e| e.to_string())?.permissions();
+    let mut perms = fs::metadata(&staged)
+        .map_err(|e| CliInstallError::Metadata { path: staged.clone(), source: e })?
+        .permissions();
     perms.set_mode(0o755);
-    fs::set_permissions(&staged, perms).map_err(|e| e.to_string())?;
+    fs::set_permissions(&staged, perms).map_err(|e| {
+        let _ = fs::remove_file(&staged);
+        CliInstallError::Permissions { path: staged.clone(), source: e }
+    })?;
 
     fs::rename(&staged, target).map_err(|e| {
         let _ = fs::remove_file(&staged);
-        format!("Failed to install roux: {}", e)
+        CliInstallError::Rename { staged, target: target.to_path_buf(), source: e }
     })
+}
+
+#[cfg(not(windows))]
+fn unique_cli_stage_path(dir: &Path, target: &Path) -> Result<PathBuf, CliInstallError> {
+    let target_name =
+        target.file_name().ok_or(CliInstallError::MissingTargetFileName)?.to_string_lossy();
+    let nonce = CLI_STAGE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+
+    Ok(dir.join(format!(".{target_name}.{}.{}.{}.tmp", std::process::id(), timestamp, nonce)))
 }
 
 #[cfg(not(windows))]
@@ -627,6 +688,20 @@ mod tests {
         assert_eq!(fs::read(&target).unwrap(), b"new-binary");
         assert!(!dir.path().join(".roux-custom.tmp").exists());
         assert!(!dir.path().join(format!(".{}.tmp", platform::roux_cli_file_name())).exists());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn cli_stage_paths_are_unique_per_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("roux");
+
+        let first = unique_cli_stage_path(dir.path(), &target).unwrap();
+        let second = unique_cli_stage_path(dir.path(), &target).unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(first.parent(), Some(dir.path()));
+        assert_eq!(second.parent(), Some(dir.path()));
     }
 
     #[cfg(not(windows))]
