@@ -3,6 +3,7 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
+use super::attachment::Attachment;
 use super::session::Session;
 
 /// Board column / workflow position of a work item.
@@ -349,6 +350,7 @@ pub enum WorkItemEvent {
     Moved { id: String, status: WorkItemStatus, sort_order: f64 },
     Deleted { id: String },
     Imported { ids: Vec<String> },
+    DocumentAttached { attachment: Attachment },
     SessionBound { id: String, session_id: String },
     RunCreated { run: WorkItemRun },
     RunUpdated { run: WorkItemRun },

@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand};
 use serde_json::Value;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
@@ -98,6 +98,12 @@ enum Commands {
     Notes {
         #[command(subcommand)]
         action: NotesAction,
+    },
+    /// Attach and read session/work item documents
+    #[command(visible_alias = "doc")]
+    Document {
+        #[command(subcommand)]
+        action: DocumentAction,
     },
     /// Push a notification into Roux's notification service
     Notify {
@@ -467,6 +473,62 @@ enum WorkItemAction {
     },
     /// Stream work item board events as JSON lines
     Watch,
+}
+
+#[derive(Subcommand)]
+enum DocumentAction {
+    /// Attach text or a UTF-8 file snapshot to a session or work item
+    Attach(DocumentAttachArgs),
+    /// List attached documents
+    List(DocumentListArgs),
+    /// Read an attached document by id
+    Get {
+        /// Attachment id or fully qualified document id
+        id: String,
+    },
+}
+
+#[derive(Args)]
+#[command(group(
+    ArgGroup::new("document_attach_target")
+        .required(true)
+        .args(["session", "work_item"])
+))]
+#[command(group(
+    ArgGroup::new("document_attach_source")
+        .required(true)
+        .args(["text", "file"])
+))]
+struct DocumentAttachArgs {
+    /// Session id to attach this document to
+    #[arg(short, long)]
+    session: Option<String>,
+    /// Work item id to attach this document to
+    #[arg(short = 'w', long = "work-item")]
+    work_item: Option<String>,
+    /// Human-readable title for the document
+    #[arg(long)]
+    title: Option<String>,
+    /// Inline text content to attach
+    #[arg(long)]
+    text: Option<String>,
+    /// UTF-8 file whose current contents should be attached
+    #[arg(long)]
+    file: Option<String>,
+    /// MIME type hint for consumers
+    #[arg(long = "mime-type")]
+    mime_type: Option<String>,
+}
+
+#[derive(Args)]
+#[command(group(ArgGroup::new("document_list_target").args(["session", "work_item"])))]
+struct DocumentListArgs {
+    /// Filter to one session id
+    #[arg(short, long)]
+    session: Option<String>,
+    /// Filter to one work item id
+    #[arg(short = 'w', long = "work-item")]
+    work_item: Option<String>,
 }
 
 #[derive(Args)]
@@ -1604,9 +1666,86 @@ fn build_work_item_import_request(
     }))
 }
 
+fn build_document_attach_request(params: DocumentAttachArgs) -> Result<Value, String> {
+    let (target_kind, target_id) = match (params.session, params.work_item) {
+        (Some(session), None) => ("session", session),
+        (None, Some(work_item)) => ("workItem", work_item),
+        _ => return Err("document attach requires exactly one of --session or --work-item".into()),
+    };
+    let (content_kind, content, source_path) = match (params.text, params.file) {
+        (Some(text), None) => ("text", text, None),
+        (None, Some(path)) => {
+            let resolved = resolve_path(&path);
+            let content = fs::read_to_string(&resolved)
+                .map_err(|err| format!("read document file {resolved}: {err}"))?;
+            ("file", content, Some(resolved))
+        }
+        _ => return Err("document attach requires exactly one of --text or --file".into()),
+    };
+    let mut args = serde_json::Map::new();
+    args.insert("targetKind".into(), Value::String(target_kind.into()));
+    args.insert("targetId".into(), Value::String(target_id));
+    args.insert("contentKind".into(), Value::String(content_kind.into()));
+    args.insert("content".into(), Value::String(content));
+    insert_optional_string(&mut args, "title", params.title);
+    insert_optional_string(&mut args, "mimeType", params.mime_type);
+    insert_optional_string(&mut args, "sourcePath", source_path);
+    Ok(serde_json::json!({
+        "command": "document-attach",
+        "args": Value::Object(args),
+    }))
+}
+
+fn build_document_list_request(params: DocumentListArgs) -> Result<Value, String> {
+    let mut args = serde_json::Map::new();
+    match (params.session, params.work_item) {
+        (Some(session), None) => {
+            args.insert("targetKind".into(), Value::String("session".into()));
+            args.insert("targetId".into(), Value::String(session));
+        }
+        (None, Some(work_item)) => {
+            args.insert("targetKind".into(), Value::String("workItem".into()));
+            args.insert("targetId".into(), Value::String(work_item));
+        }
+        (None, None) => {}
+        _ => return Err("document list accepts only one of --session or --work-item".into()),
+    }
+    Ok(serde_json::json!({
+        "command": "document-list",
+        "args": Value::Object(args),
+    }))
+}
+
+fn build_document_get_request(id: String) -> Value {
+    serde_json::json!({
+        "command": "document-get",
+        "args": { "id": id },
+    })
+}
+
 fn exit_with_input_error(message: impl std::fmt::Display) -> ! {
     eprintln!("Error: {message}");
     std::process::exit(2);
+}
+
+fn handle_document(action: DocumentAction) {
+    match action {
+        DocumentAction::Attach(params) => {
+            let request = match build_document_attach_request(params) {
+                Ok(request) => request,
+                Err(err) => exit_with_input_error(err),
+            };
+            run_socket_command(request);
+        }
+        DocumentAction::List(params) => {
+            let request = match build_document_list_request(params) {
+                Ok(request) => request,
+                Err(err) => exit_with_input_error(err),
+            };
+            run_socket_command(request);
+        }
+        DocumentAction::Get { id } => run_socket_command(build_document_get_request(id)),
+    }
 }
 
 fn handle_work_item(action: WorkItemAction) {
@@ -2752,6 +2891,7 @@ fn main() {
             }));
         }
 
+        Commands::Document { action } => handle_document(action),
         Commands::Notes { action } => handle_notes(action),
     }
 }
@@ -3233,6 +3373,71 @@ mod tests {
 
         assert_eq!(request["command"], "work-item-import");
         assert_eq!(request["args"]["path"], resolve_path("items.json"));
+    }
+
+    #[test]
+    fn cli_parses_document_attach_text() {
+        let cli = Cli::try_parse_from([
+            "roux",
+            "document",
+            "attach",
+            "--session",
+            "sess-1",
+            "--title",
+            "Plan",
+            "--text",
+            "Use the plan.",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Document {
+                action:
+                    DocumentAction::Attach(DocumentAttachArgs {
+                        session,
+                        work_item,
+                        title,
+                        text,
+                        file,
+                        ..
+                    }),
+            } => {
+                assert_eq!(session.as_deref(), Some("sess-1"));
+                assert_eq!(work_item, None);
+                assert_eq!(title.as_deref(), Some("Plan"));
+                assert_eq!(text.as_deref(), Some("Use the plan."));
+                assert_eq!(file, None);
+            }
+            _ => panic!("expected Document::Attach"),
+        }
+    }
+
+    #[test]
+    fn document_attach_text_uses_socket_command() {
+        let request = build_document_attach_request(DocumentAttachArgs {
+            session: Some("sess-1".into()),
+            work_item: None,
+            title: Some("Plan".into()),
+            text: Some("Use the plan.".into()),
+            file: None,
+            mime_type: Some("text/markdown".into()),
+        })
+        .expect("text document request should build");
+
+        assert_eq!(request["command"], "document-attach");
+        assert_eq!(request["args"]["targetKind"], "session");
+        assert_eq!(request["args"]["targetId"], "sess-1");
+        assert_eq!(request["args"]["title"], "Plan");
+        assert_eq!(request["args"]["contentKind"], "text");
+        assert_eq!(request["args"]["content"], "Use the plan.");
+        assert_eq!(request["args"]["mimeType"], "text/markdown");
+    }
+
+    #[test]
+    fn document_get_uses_socket_command() {
+        let request = build_document_get_request("sess-1.att-1".to_string());
+
+        assert_eq!(request["command"], "document-get");
+        assert_eq!(request["args"]["id"], "sess-1.att-1");
     }
 
     #[test]

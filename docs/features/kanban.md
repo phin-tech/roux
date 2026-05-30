@@ -92,11 +92,25 @@ roux work-item decision resolve <decision-id> <value>
 
 `roux kanban ...` is a visible alias for `roux work-item ...`.
 
+Plans and handoffs that should stay attached to a card can be stored as Roux
+documents:
+
+```bash
+roux document attach --work-item <card-id> --title "Plan" --file ./plan.md --mime-type text/markdown
+roux document list --work-item <card-id>
+roux document get <document-id>
+```
+
+The returned `documentId` is stable and can be retrieved from another session
+or MCP client. Use card documents for reusable plan snapshots and references;
+use run events for chronological execution history.
+
 The MCP server exposes the same daemon-backed board surface with tools such as
 `roux_list_work_items`, `roux_create_work_item`, `roux_plan_work_item`,
 `roux_start_work_item`, `roux_accept_work_item_review`,
 `roux_list_work_item_runs`, and
-`roux_resolve_work_item_decision`.
+`roux_resolve_work_item_decision`. It also exposes document tools:
+`roux_attach_document`, `roux_list_documents`, and `roux_get_document`.
 
 ## Related Protocol
 

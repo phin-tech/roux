@@ -10,10 +10,11 @@
 
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
+use rusqlite::{params, types::Type, Connection, OptionalExtension, Result as SqlResult};
 use serde_json::Value;
 
 use roux_core::{
+    Attachment, AttachmentContentKind, AttachmentDocument, AttachmentInput, AttachmentTargetKind,
     ExternalRef, WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemDecisionStatus,
     WorkItemInput, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind,
     WorkItemRunStatus, WorkItemStatus,
@@ -172,7 +173,31 @@ impl WorkItemStore {
                 "TEXT NOT NULL DEFAULT 'implementation'",
             )?;
             conn.execute_batch("PRAGMA user_version = 5;")?;
+            version = 5;
         }
+        if version < 6 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS attachments (
+                    id           TEXT PRIMARY KEY,
+                    target_kind  TEXT NOT NULL,
+                    target_id    TEXT NOT NULL,
+                    title        TEXT,
+                    content_kind TEXT NOT NULL,
+                    content      TEXT NOT NULL,
+                    mime_type    TEXT,
+                    source_path  TEXT,
+                    byte_len     INTEGER NOT NULL,
+                    sha256       TEXT NOT NULL,
+                    created_at   INTEGER NOT NULL,
+                    updated_at   INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS attachments_target
+                    ON attachments(target_kind, target_id, created_at);
+                PRAGMA user_version = 6;",
+            )?;
+            version = 6;
+        }
+        debug_assert!(version >= 6);
         Ok(WorkItemStore { conn })
     }
 
@@ -373,6 +398,130 @@ impl WorkItemStore {
     pub fn delete(&mut self, id: &str) -> SqlResult<bool> {
         let changed = self.conn.execute("DELETE FROM work_items WHERE id = ?1", params![id])?;
         Ok(changed > 0)
+    }
+
+    pub fn create_attachment(
+        &mut self,
+        id: String,
+        input: AttachmentInput,
+        byte_len: u64,
+        sha256: String,
+        now: u64,
+    ) -> SqlResult<Attachment> {
+        self.conn.execute(
+            "INSERT INTO attachments
+             (id, target_kind, target_id, title, content_kind, content, mime_type, source_path,
+              byte_len, sha256, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                id,
+                input.target_kind.as_str(),
+                input.target_id,
+                input.title,
+                input.content_kind.as_str(),
+                input.content,
+                input.mime_type,
+                input.source_path,
+                byte_len as i64,
+                sha256,
+                now as i64,
+                now as i64,
+            ],
+        )?;
+        self.get_attachment(&id)?.ok_or_else(|| rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn get_attachment(&self, id: &str) -> SqlResult<Option<Attachment>> {
+        self.conn
+            .query_row(
+                "SELECT id, target_kind, target_id, title, content_kind, mime_type, source_path,
+                        byte_len, sha256, created_at, updated_at
+                 FROM attachments
+                 WHERE id = ?1",
+                params![id],
+                row_to_attachment,
+            )
+            .optional()
+    }
+
+    pub fn list_attachments(
+        &self,
+        target_kind: Option<AttachmentTargetKind>,
+        target_id: Option<&str>,
+    ) -> SqlResult<Vec<Attachment>> {
+        match (target_kind, target_id) {
+            (Some(kind), Some(target_id)) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, target_kind, target_id, title, content_kind, mime_type,
+                            source_path, byte_len, sha256, created_at, updated_at
+                     FROM attachments
+                     WHERE target_kind = ?1 AND target_id = ?2
+                     ORDER BY created_at, rowid",
+                )?;
+                let rows = stmt.query_map(params![kind.as_str(), target_id], row_to_attachment)?;
+                rows.collect()
+            }
+            (Some(kind), None) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, target_kind, target_id, title, content_kind, mime_type,
+                            source_path, byte_len, sha256, created_at, updated_at
+                     FROM attachments
+                     WHERE target_kind = ?1
+                     ORDER BY created_at, rowid",
+                )?;
+                let rows = stmt.query_map(params![kind.as_str()], row_to_attachment)?;
+                rows.collect()
+            }
+            (None, Some(target_id)) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, target_kind, target_id, title, content_kind, mime_type,
+                            source_path, byte_len, sha256, created_at, updated_at
+                     FROM attachments
+                     WHERE target_id = ?1
+                     ORDER BY created_at, rowid",
+                )?;
+                let rows = stmt.query_map(params![target_id], row_to_attachment)?;
+                rows.collect()
+            }
+            (None, None) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, target_kind, target_id, title, content_kind, mime_type,
+                            source_path, byte_len, sha256, created_at, updated_at
+                     FROM attachments
+                     ORDER BY created_at, rowid",
+                )?;
+                let rows = stmt.query_map([], row_to_attachment)?;
+                rows.collect()
+            }
+        }
+    }
+
+    pub fn get_attachment_document(
+        &self,
+        document_id: &str,
+    ) -> SqlResult<Option<AttachmentDocument>> {
+        let Some(lookup) = parse_document_lookup(document_id) else {
+            return Ok(None);
+        };
+        let (target_id, attachment_id) = lookup;
+        let sql = if target_id.is_some() {
+            "SELECT id, target_kind, target_id, title, content_kind, mime_type, source_path,
+                    byte_len, sha256, created_at, updated_at, content
+             FROM attachments
+             WHERE target_id = ?1 AND id = ?2"
+        } else {
+            "SELECT id, target_kind, target_id, title, content_kind, mime_type, source_path,
+                    byte_len, sha256, created_at, updated_at, content
+             FROM attachments
+             WHERE id = ?1"
+        };
+        if let Some(target_id) = target_id {
+            self.conn
+                .query_row(sql, params![target_id, attachment_id], row_to_attachment_document)
+                .optional()
+        } else {
+            self.conn.query_row(sql, params![attachment_id], row_to_attachment_document).optional()
+        }
     }
 
     pub fn set_session(
@@ -1266,6 +1415,67 @@ fn row_to_work_item_decision(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkIt
     })
 }
 
+fn row_to_attachment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Attachment> {
+    let target_kind_str: String = row.get(1)?;
+    let target_kind = AttachmentTargetKind::from_str_opt(&target_kind_str).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            1,
+            Type::Text,
+            format!("unknown attachment target kind: {target_kind_str}").into(),
+        )
+    })?;
+    let content_kind_str: String = row.get(4)?;
+    let content_kind = AttachmentContentKind::from_str_opt(&content_kind_str).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            4,
+            Type::Text,
+            format!("unknown attachment content kind: {content_kind_str}").into(),
+        )
+    })?;
+    let id: String = row.get(0)?;
+    let target_id: String = row.get(2)?;
+    Ok(Attachment {
+        document_id: attachment_document_id(&target_id, &id),
+        id,
+        target_kind,
+        target_id,
+        title: row.get(3)?,
+        content_kind,
+        mime_type: row.get(5)?,
+        source_path: row.get(6)?,
+        byte_len: row.get::<_, i64>(7)? as u64,
+        sha256: row.get(8)?,
+        created_at: row.get::<_, i64>(9)? as u64,
+        updated_at: row.get::<_, i64>(10)? as u64,
+    })
+}
+
+fn row_to_attachment_document(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttachmentDocument> {
+    Ok(AttachmentDocument { attachment: row_to_attachment(row)?, content: row.get(11)? })
+}
+
+fn attachment_document_id(target_id: &str, attachment_id: &str) -> String {
+    format!("{target_id}.{attachment_id}")
+}
+
+fn parse_document_lookup(raw: &str) -> Option<(Option<&str>, &str)> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let trimmed = trimmed
+        .strip_prefix("session/")
+        .or_else(|| trimmed.strip_prefix("work-item/"))
+        .or_else(|| trimmed.strip_prefix("workItem/"))
+        .unwrap_or(trimmed);
+    match trimmed.rsplit_once('.') {
+        Some((target_id, attachment_id)) if !target_id.is_empty() && !attachment_id.is_empty() => {
+            Some((Some(target_id), attachment_id))
+        }
+        _ => Some((None, trimmed)),
+    }
+}
+
 fn table_has_column(conn: &Connection, table: &str, column: &str) -> SqlResult<bool> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let mut rows = stmt.query([])?;
@@ -1316,7 +1526,7 @@ mod tests {
         let store = WorkItemStore::open_in_memory().unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -1327,7 +1537,7 @@ mod tests {
             let store = WorkItemStore::open(&path).unwrap();
             let version: i64 =
                 store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-            assert_eq!(version, 5);
+            assert_eq!(version, 6);
             assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
@@ -1337,7 +1547,7 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
         assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
@@ -1416,7 +1626,7 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
         for column in [
             "repo_path",
             "agent_profile",

@@ -974,6 +974,40 @@ impl Roux {
         self.command(CommandRequest::new("work-item-decision-resolve").args(args)).await
     }
 
+    pub async fn document_attach(
+        &self,
+        input: roux_core::AttachmentInput,
+    ) -> RouxResult<roux_core::Attachment> {
+        self.command(
+            CommandRequest::new("document-attach")
+                .args(serde_json::to_value(input).map_err(RouxError::Decode)?),
+        )
+        .await
+    }
+
+    pub async fn document_list(
+        &self,
+        target_kind: Option<roux_core::AttachmentTargetKind>,
+        target_id: Option<String>,
+    ) -> RouxResult<Vec<roux_core::Attachment>> {
+        let mut args = serde_json::Map::new();
+        if let Some(target_kind) = target_kind {
+            args.insert("targetKind".into(), serde_json::Value::String(target_kind.to_string()));
+        }
+        if let Some(target_id) = target_id {
+            args.insert("targetId".into(), serde_json::Value::String(target_id));
+        }
+        self.command(CommandRequest::new("document-list").args(serde_json::Value::Object(args)))
+            .await
+    }
+
+    pub async fn document_get(
+        &self,
+        id: impl Into<String>,
+    ) -> RouxResult<roux_core::AttachmentDocument> {
+        self.command(CommandRequest::new("document-get").args(id_arg(id.into()))).await
+    }
+
     pub async fn command<T>(&self, request: CommandRequest) -> RouxResult<T>
     where
         T: DeserializeOwned + Send + 'static,
