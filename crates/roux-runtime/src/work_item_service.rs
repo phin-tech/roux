@@ -124,7 +124,7 @@ impl WorkItemHandle {
     pub fn create_attachment(&self, input: AttachmentInput) -> Result<Attachment, String> {
         let id = Uuid::new_v4().to_string();
         let now = now_secs();
-        let byte_len = input.content.as_bytes().len() as u64;
+        let byte_len = input.content.len() as u64;
         let sha256 = sha256_hex(input.content.as_bytes());
         self.inner
             .lock()
