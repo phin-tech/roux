@@ -1,6 +1,12 @@
 use serde_json::{json, Value};
+#[cfg(not(windows))]
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(not(windows))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::platform;
 
@@ -77,14 +83,82 @@ pub fn bundled_cli_version() -> &'static str {
 /// Exec the installed `roux --version` and return the semver segment of
 /// its output. Clap prints `"roux X.Y.Z"`.
 pub fn installed_cli_version() -> Option<String> {
-    let path = installed_cli_path()?;
-    let output = std::process::Command::new(&path).arg("--version").output().ok()?;
+    cli_version_at(&installed_cli_path()?)
+}
+
+/// Exec `<path> --version` and return the trailing token clap prints
+/// (`"roux X.Y.Z"` → `"X.Y.Z"`). `None` if the binary is missing or unrunnable.
+fn cli_version_at(path: &Path) -> Option<String> {
+    let output = std::process::Command::new(path).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
     let stdout = String::from_utf8(output.stdout).ok()?;
     stdout.split_whitespace().last().map(str::to_string)
 }
+
+/// Decide whether the bundled CLI should be (re)written over whatever is
+/// installed at the target path.
+///
+/// Version is the source of truth — file mtime is intentionally NOT used. A
+/// freshly downloaded app bundle can carry an *older* binary mtime than a
+/// previously installed copy, so an mtime gate silently skipped real updates
+/// and left a stale CLI on disk (the "click install, it flashes, still says to
+/// install" bug). Using the bundled version here keeps the installer's notion
+/// of "current" identical to the doctor panel's, so they never disagree. This
+/// intentionally also replaces an installed CLI with a newer version than the
+/// bundle: the desktop app owns the companion CLI version it launches.
+#[cfg(not(windows))]
+fn should_install_cli(
+    target_exists: bool,
+    installed_version: Option<&str>,
+    bundled_version: &str,
+) -> bool {
+    !target_exists || installed_version != Some(bundled_version)
+}
+
+#[cfg(not(windows))]
+static CLI_STAGE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(not(windows))]
+#[derive(Debug)]
+enum CliInstallError {
+    MissingTargetParent,
+    MissingTargetFileName,
+    Stage { path: PathBuf, source: std::io::Error },
+    Metadata { path: PathBuf, source: std::io::Error },
+    Permissions { path: PathBuf, source: std::io::Error },
+    Rename { staged: PathBuf, target: PathBuf, source: std::io::Error },
+}
+
+#[cfg(not(windows))]
+impl fmt::Display for CliInstallError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingTargetParent => write!(f, "install target has no parent directory"),
+            Self::MissingTargetFileName => write!(f, "install target has no file name"),
+            Self::Stage { path, source } => {
+                write!(f, "Failed to stage roux at {}: {}", path.display(), source)
+            }
+            Self::Metadata { path, source } => {
+                write!(f, "Failed to read staged roux metadata at {}: {}", path.display(), source)
+            }
+            Self::Permissions { path, source } => {
+                write!(f, "Failed to set staged roux permissions at {}: {}", path.display(), source)
+            }
+            Self::Rename { staged, target, source } => write!(
+                f,
+                "Failed to install roux from {} to {}: {}",
+                staged.display(),
+                target.display(),
+                source
+            ),
+        }
+    }
+}
+
+#[cfg(not(windows))]
+impl std::error::Error for CliInstallError {}
 
 /// Where the CLI is actually installed right now, if anywhere — mirrors
 /// [`cli_is_installed`] but returns the path so callers can exec it.
@@ -143,27 +217,13 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
     let source = sibling_cli_path().ok_or("Could not find roux next to roux desktop binary")?;
 
     if source.exists() {
-        // Only copy if source is newer or target doesn't exist
-        let should_copy = if target.exists() {
-            let src_modified = fs::metadata(&source).and_then(|m| m.modified()).ok();
-            let tgt_modified = fs::metadata(&target).and_then(|m| m.modified()).ok();
-            match (src_modified, tgt_modified) {
-                (Some(s), Some(t)) => s > t,
-                _ => true,
-            }
-        } else {
-            true
-        };
-
-        if should_copy {
-            fs::copy(&source, &target).map_err(|e| format!("Failed to copy roux: {}", e))?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let mut perms = fs::metadata(&target).map_err(|e| e.to_string())?.permissions();
-                perms.set_mode(0o755);
-                fs::set_permissions(&target, perms).map_err(|e| e.to_string())?;
-            }
+        // Replace the installed CLI whenever its version differs from the
+        // bundled one (or it's missing). See `should_install_cli` for why mtime
+        // is deliberately not used here.
+        let target_exists = target.exists();
+        let installed = if target_exists { cli_version_at(&target) } else { None };
+        if should_install_cli(target_exists, installed.as_deref(), bundled_cli_version()) {
+            atomic_install_cli(&source, &target).map_err(|e| e.to_string())?;
             eprintln!("Installed roux CLI to {}", target.display());
         }
         install_cli_compat_alias(&target, &compat_target)?;
@@ -172,6 +232,48 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
 
     // Fallback: try to find it anywhere
     roux_cli_path()
+}
+
+/// Copy `source` over `target` atomically: stage a temp file next to the
+/// target, mark it executable, then `rename` it into place. The rename is a
+/// same-filesystem atomic swap, so it's safe even when the current `roux` is
+/// running (the running process keeps its already-open inode) and never leaves
+/// a half-written binary on failure.
+#[cfg(not(windows))]
+fn atomic_install_cli(source: &Path, target: &Path) -> Result<(), CliInstallError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = target.parent().ok_or(CliInstallError::MissingTargetParent)?;
+    let staged = unique_cli_stage_path(dir, target)?;
+
+    fs::copy(source, &staged).map_err(|e| {
+        let _ = fs::remove_file(&staged);
+        CliInstallError::Stage { path: staged.clone(), source: e }
+    })?;
+
+    let mut perms = fs::metadata(&staged)
+        .map_err(|e| CliInstallError::Metadata { path: staged.clone(), source: e })?
+        .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&staged, perms).map_err(|e| {
+        let _ = fs::remove_file(&staged);
+        CliInstallError::Permissions { path: staged.clone(), source: e }
+    })?;
+
+    fs::rename(&staged, target).map_err(|e| {
+        let _ = fs::remove_file(&staged);
+        CliInstallError::Rename { staged, target: target.to_path_buf(), source: e }
+    })
+}
+
+#[cfg(not(windows))]
+fn unique_cli_stage_path(dir: &Path, target: &Path) -> Result<PathBuf, CliInstallError> {
+    let target_name =
+        target.file_name().ok_or(CliInstallError::MissingTargetFileName)?.to_string_lossy();
+    let nonce = CLI_STAGE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+
+    Ok(dir.join(format!(".{target_name}.{}.{}.{}.tmp", std::process::id(), timestamp, nonce)))
 }
 
 #[cfg(not(windows))]
@@ -518,6 +620,88 @@ mod tests {
         let command =
             hook_command(Path::new("C:\\Users\\Sam\\App Data\\Roux\\roux.exe"), "working");
         assert_eq!(command, "\"C:\\\\Users\\\\Sam\\\\App Data\\\\Roux\\\\roux.exe\" hook working");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn installs_cli_when_target_missing() {
+        assert!(should_install_cli(false, None, "0.5.3"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn installs_cli_when_installed_version_differs() {
+        // The reported bug: an older / pre-release CLI is installed and must be
+        // replaced regardless of file mtimes.
+        assert!(should_install_cli(true, Some("0.5.2"), "0.5.3"));
+        assert!(should_install_cli(true, Some("0.5.3-pre"), "0.5.3"));
+        // The bundled desktop version owns the installed companion CLI, so a
+        // newer installed CLI is also replaced to keep app and CLI contracts in
+        // sync.
+        assert!(should_install_cli(true, Some("0.5.4"), "0.5.3"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn skips_cli_install_when_versions_match() {
+        // Keeps startup idempotent: no copy when already current.
+        assert!(!should_install_cli(true, Some("0.5.3"), "0.5.3"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn installs_cli_when_installed_version_unknown() {
+        // Present but unrunnable / corrupt → reinstall to be safe.
+        assert!(should_install_cli(true, None, "0.5.3"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn atomic_install_cli_replaces_contents_and_sets_exec_perms() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source-roux");
+        let target = dir.path().join(platform::roux_cli_file_name());
+        fs::write(&source, b"new-binary").unwrap();
+        fs::write(&target, b"old-binary").unwrap();
+
+        atomic_install_cli(&source, &target).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"new-binary");
+        assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o755);
+        // No staged temp file left behind.
+        let staged = dir.path().join(format!(".{}.tmp", platform::roux_cli_file_name()));
+        assert!(!staged.exists());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn atomic_install_cli_stages_next_to_requested_target_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source-roux");
+        let target = dir.path().join("roux-custom");
+        fs::write(&source, b"new-binary").unwrap();
+
+        atomic_install_cli(&source, &target).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"new-binary");
+        assert!(!dir.path().join(".roux-custom.tmp").exists());
+        assert!(!dir.path().join(format!(".{}.tmp", platform::roux_cli_file_name())).exists());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn cli_stage_paths_are_unique_per_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("roux");
+
+        let first = unique_cli_stage_path(dir.path(), &target).unwrap();
+        let second = unique_cli_stage_path(dir.path(), &target).unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(first.parent(), Some(dir.path()));
+        assert_eq!(second.parent(), Some(dir.path()));
     }
 
     #[cfg(not(windows))]
