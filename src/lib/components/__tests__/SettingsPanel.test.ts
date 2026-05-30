@@ -234,62 +234,6 @@ describe("SettingsPanel agent notification setup", () => {
   });
 });
 
-describe("SettingsPanel Experiments tab", () => {
-  beforeEach(() => {
-    settings.set({ ...DEFAULT_SETTINGS });
-    vi.mocked(updateSettings).mockClear();
-  });
-
-  it("renders boolean and enum experiments at their declared defaults", async () => {
-    render(SettingsPanel, { visible: true, onclose: vi.fn() });
-
-    await fireEvent.click(screen.getByRole("button", { name: "Experiments" }));
-
-    const toggle = await screen.findByRole("button", { name: "Toggle Example flag" });
-    expect(toggle).toBeDefined();
-
-    const select = (await screen.findByRole("combobox", {
-      name: "Select Example variant",
-    })) as HTMLSelectElement;
-    expect(select.value).toBe("a");
-  });
-
-  it("toggling a boolean experiment persists the new value", async () => {
-    render(SettingsPanel, { visible: true, onclose: vi.fn() });
-
-    await fireEvent.click(screen.getByRole("button", { name: "Experiments" }));
-    await fireEvent.click(
-      await screen.findByRole("button", { name: "Toggle Example flag" }),
-    );
-
-    await waitFor(() => {
-      expect(updateSettings).toHaveBeenCalled();
-    });
-    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
-    expect(lastCall[0].experiments?.exampleFlag).toBe(true);
-    // Sibling enum value must be preserved through the spread.
-    expect(lastCall[0].experiments?.exampleVariant).toBe("a");
-  });
-
-  it("changing an enum experiment persists the new variant", async () => {
-    render(SettingsPanel, { visible: true, onclose: vi.fn() });
-
-    await fireEvent.click(screen.getByRole("button", { name: "Experiments" }));
-    const select = (await screen.findByRole("combobox", {
-      name: "Select Example variant",
-    })) as HTMLSelectElement;
-
-    await fireEvent.change(select, { target: { value: "c" } });
-
-    await waitFor(() => {
-      expect(updateSettings).toHaveBeenCalled();
-    });
-    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
-    expect(lastCall[0].experiments?.exampleVariant).toBe("c");
-    expect(lastCall[0].experiments?.exampleFlag).toBe(false);
-  });
-});
-
 describe("SettingsPanel runtime debug", () => {
   beforeEach(() => {
     settings.set({ ...DEFAULT_SETTINGS });

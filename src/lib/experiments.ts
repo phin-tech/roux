@@ -5,62 +5,26 @@ import type { ExperimentsConfig } from "$lib/bindings";
 
 type RequiredExperiments = Required<ExperimentsConfig>;
 
-type BoolExperimentId = {
-  [K in keyof RequiredExperiments]: RequiredExperiments[K] extends boolean ? K : never;
-}[keyof RequiredExperiments];
-
-type EnumExperimentId = Exclude<keyof RequiredExperiments, BoolExperimentId>;
-
-type ExperimentDefFor<K extends keyof RequiredExperiments> =
-  RequiredExperiments[K] extends boolean
-    ? { kind: "boolean"; id: K; label: string; description: string }
-    : {
-        kind: "enum";
-        id: K;
-        label: string;
-        description: string;
-        options: ReadonlyArray<{ value: RequiredExperiments[K]; label: string }>;
-      };
-
 export type ExperimentDef =
-  | ExperimentDefFor<BoolExperimentId>
-  | ExperimentDefFor<EnumExperimentId>;
+  | {
+      kind: "boolean";
+      id: string;
+      label: string;
+      description: string;
+    }
+  | {
+      kind: "enum";
+      id: string;
+      label: string;
+      description: string;
+      options: ReadonlyArray<{ value: string; label: string }>;
+    };
 
-// Indexed by id so adding a new flag to `ExperimentsConfig` (Rust side) without
-// adding a registry entry here is a TypeScript error — the UI can't silently
-// miss a flag.
-const EXPERIMENT_DEFS: { [K in keyof RequiredExperiments]: ExperimentDefFor<K> } = {
-  exampleFlag: {
-    kind: "boolean",
-    id: "exampleFlag",
-    label: "Example flag",
-    description:
-      "No-op flag for verifying the boolean experiments pipeline. Safe to remove once a real experiment lands.",
-  },
-  exampleVariant: {
-    kind: "enum",
-    id: "exampleVariant",
-    label: "Example variant",
-    description:
-      "No-op multi-choice flag for verifying the enum experiments pipeline. Safe to remove once a real experiment lands.",
-    options: [
-      { value: "a", label: "Variant A" },
-      { value: "b", label: "Variant B" },
-      { value: "c", label: "Variant C" },
-    ],
-  },
-  simplifiedSessionTabs: {
-    kind: "boolean",
-    id: "simplifiedSessionTabs",
-    label: "Simplified session tabs",
-    description:
-      "Replace the session sidebar's per-tab metadata chips with a single contextual line (worktree or repo name, depending on the current grouping).",
-  },
-};
+// Adding a new flag to `ExperimentsConfig` (Rust side) should be accompanied by
+// a new entry here so the UI knows how to render it.
+const EXPERIMENT_DEFS: Record<string, ExperimentDef> = {};
 
-export const EXPERIMENTS: ReadonlyArray<ExperimentDef> = Object.values(
-  EXPERIMENT_DEFS,
-) as ExperimentDef[];
+export const EXPERIMENTS: ReadonlyArray<ExperimentDef> = Object.values(EXPERIMENT_DEFS);
 
 export { EXPERIMENT_DEFAULTS };
 
@@ -77,12 +41,10 @@ export const experimentValues: Readable<RequiredExperiments> = derived(
   ($s) => ({ ...EXPERIMENT_DEFAULTS, ...($s.experiments ?? {}) }),
 );
 
-export function isExperimentEnabled(id: BoolExperimentId): boolean {
-  return readExperiments()[id];
+export function isExperimentEnabled(id: string): boolean {
+  return Boolean((readExperiments() as Record<string, unknown>)[id]);
 }
 
-export function getExperimentValue<K extends keyof RequiredExperiments>(
-  id: K,
-): RequiredExperiments[K] {
-  return readExperiments()[id];
+export function getExperimentValue<T = unknown>(id: string): T {
+  return (readExperiments() as Record<string, unknown>)[id] as T;
 }

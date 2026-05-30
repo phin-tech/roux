@@ -461,22 +461,12 @@ export type DoctorStatus = {
 };
 
 /**
- *  No-op variant used to verify the enum-experiment pipeline end to end.
- *  Replace or remove once a real enum experiment lands.
- */
-export type ExampleVariant = "a" | "b" | "c";
-
-/**
  *  Runtime feature flags surfaced under Settings → Experiments. Each field is
  *  either a `bool` (toggle) or a small enum (multi-choice). Adding a field
  *  here also requires adding a registry entry in `src/lib/experiments.ts` so
  *  the UI knows how to render it.
  */
-export type ExperimentsConfig = {
-	exampleFlag?: boolean,
-	exampleVariant?: ExampleVariant,
-	simplifiedSessionTabs?: boolean,
-};
+export type ExperimentsConfig = Record<string, never>;
 
 /**
  *  Pointer to an item's identity in an external system (e.g. a future
