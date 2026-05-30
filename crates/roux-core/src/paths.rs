@@ -13,10 +13,21 @@ pub fn roux_config_dir() -> PathBuf {
     roux_config_dir_from(std::env::var_os(ROUX_BASE_PATH_ENV).map(PathBuf::from), home_dir())
 }
 
+/// The built-in default root, `~/.config/roux`, ignoring any
+/// `ROUX_BASE_PATH` override.
+///
+/// Use this only when you need the canonical location independent of the
+/// override — e.g. deciding whether a legacy directory differs from the
+/// default. For the effective root that callers should read/write, use
+/// [`roux_config_dir`].
 pub fn default_roux_config_dir() -> PathBuf {
     home_dir_or_temp_from(home_dir()).join(".config").join("roux")
 }
 
+/// The `ROUX_BASE_PATH` override, if set to an absolute directory path.
+///
+/// Returns `None` when the variable is unset, empty, or relative (the cases
+/// where [`roux_config_dir`] falls back to [`default_roux_config_dir`]).
 pub fn roux_base_path_override() -> Option<PathBuf> {
     roux_base_path_override_from(std::env::var_os(ROUX_BASE_PATH_ENV).map(PathBuf::from))
 }

@@ -1068,12 +1068,10 @@ pub fn hook_run_to_value(summary: HookRunSummary) -> Value {
 }
 
 fn default_config_root() -> PathBuf {
-    dirs::home_dir()
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .filter(|path| path.is_absolute())
-        .unwrap_or_else(std::env::temp_dir)
-        .join(".config")
-        .join("roux")
+    // Route through the shared policy so user hooks, approvals, and hook logs
+    // honor ROUX_BASE_PATH and stay isolated under `task dev` instead of
+    // reading/writing the real `~/.config/roux`.
+    roux_core::paths::roux_config_dir()
 }
 
 #[cfg(test)]
@@ -1089,6 +1087,23 @@ mod tests {
             HookSourceKind::Project,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn default_config_root_honors_shared_path_policy() {
+        // Guards against regressing to a hand-rolled `~/.config/roux` root that
+        // ignores ROUX_BASE_PATH. Delegating to the shared helper is what keeps
+        // automation hook state isolated under `task dev`.
+        assert_eq!(default_config_root(), roux_core::paths::roux_config_dir());
+    }
+
+    #[test]
+    fn manager_paths_live_under_the_configured_root() {
+        let root = TempDir::new().unwrap();
+        let manager = AutomationHookManager::from_config_root(root.path());
+        assert!(manager.user_config_path.starts_with(root.path()));
+        assert!(manager.approval_path.starts_with(root.path()));
+        assert!(manager.log_dir.starts_with(root.path()));
     }
 
     #[test]
