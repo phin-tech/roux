@@ -215,9 +215,8 @@ fn main() {
         commands::work_items::work_item_plan,
         commands::work_items::work_item_review_accept,
         commands::work_items::work_item_start,
-        commands::work_items::document_attach,
-        commands::work_items::document_list,
-        commands::work_items::document_get,
+        // Document attachment commands are intentionally omitted from Specta:
+        // the frontend hand-types them and calls raw invoke() wrappers.
         commands::notes::notes_read,
         commands::notes::notes_write,
         commands::notes::notes_append,
