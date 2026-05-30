@@ -16,13 +16,14 @@
 
 use std::path::{Path, PathBuf};
 
-/// Root directory for all Roux state: `~/.config/roux`.
+/// Root directory for all Roux state.
 ///
-/// Callers append their own subpath, e.g. `roux_config_dir().join("settings.json")`
-/// or `roux_config_dir().join("logs").join("roux.log")`.
+/// Defaults to `~/.config/roux`, unless `ROUX_BASE_PATH` points at an
+/// absolute directory path. Callers append their own subpath, e.g.
+/// `roux_config_dir().join("settings.json")` or
+/// `roux_config_dir().join("logs").join("roux.log")`.
 pub fn roux_config_dir() -> PathBuf {
-    let home = home_dir_or_temp();
-    home.join(".config").join("roux")
+    roux_core::paths::roux_config_dir()
 }
 
 /// Default on-disk location for the Obsidian-compatible notes vault.
@@ -59,8 +60,12 @@ fn home_dir_or_temp_from(home: Option<PathBuf>) -> PathBuf {
 /// macOS, which is where settings / sessions / logs lived before the
 /// `~/.config/roux` unification.
 pub fn legacy_config_dir() -> Option<PathBuf> {
+    if roux_core::paths::roux_base_path_override().is_some() {
+        return None;
+    }
+
     let legacy = dirs::config_dir()?.join("roux");
-    if legacy == roux_config_dir() {
+    if legacy == roux_core::paths::default_roux_config_dir() {
         None
     } else {
         Some(legacy)
@@ -160,8 +165,8 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn roux_config_dir_is_under_dotconfig_roux() {
-        let dir = roux_config_dir();
+    fn default_roux_config_dir_is_under_dotconfig_roux() {
+        let dir = roux_core::paths::default_roux_config_dir();
         // The last two components are always `.config` then `roux`
         // regardless of whose $HOME we're running under.
         let tail: Vec<_> = dir

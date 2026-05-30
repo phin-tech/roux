@@ -16,7 +16,7 @@ struct AliasesFile {
 }
 
 pub fn persistence_path() -> PathBuf {
-    roux_config_dir().join("aliases.json")
+    roux_core::paths::roux_config_dir().join("aliases.json")
 }
 
 pub fn load_aliases() -> Vec<AgentAlias> {
@@ -52,14 +52,6 @@ pub fn save_to_path(entries: &[AgentAlias], path: &Path) -> std::io::Result<()> 
     let envelope = AliasesFile { version: SCHEMA_VERSION, data: entries.to_vec() };
     let json = serde_json::to_string_pretty(&envelope)?;
     fs::write(path, json)
-}
-
-fn roux_config_dir() -> PathBuf {
-    let home = dirs::home_dir()
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .filter(|path| path.is_absolute())
-        .unwrap_or_else(std::env::temp_dir);
-    home.join(".config").join("roux")
 }
 
 #[cfg(test)]

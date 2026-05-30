@@ -57,11 +57,11 @@ struct ReadStateFile {
 }
 
 pub fn events_path() -> PathBuf {
-    roux_config_dir().join("events.jsonl")
+    roux_core::paths::roux_config_dir().join("events.jsonl")
 }
 
 pub fn read_state_path() -> PathBuf {
-    roux_config_dir().join("read_state.json")
+    roux_core::paths::roux_config_dir().join("read_state.json")
 }
 
 pub fn load_events() -> Vec<Event> {
@@ -205,14 +205,6 @@ pub fn save_read_state_to(path: &Path, states: &[ReadState]) -> io::Result<()> {
     let envelope = ReadStateFile { version: READ_STATE_SCHEMA_VERSION, data: states.to_vec() };
     let json = serde_json::to_string_pretty(&envelope)?;
     fs::write(path, json)
-}
-
-fn roux_config_dir() -> PathBuf {
-    let home = dirs::home_dir()
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .filter(|path| path.is_absolute())
-        .unwrap_or_else(std::env::temp_dir);
-    home.join(".config").join("roux")
 }
 
 #[cfg(test)]
