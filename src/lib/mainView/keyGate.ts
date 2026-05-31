@@ -1,4 +1,7 @@
 import type { Command } from "$lib/commands/registry";
+import { eventTargetIsEditable } from "$lib/keymap/editableTarget";
+
+export { eventTargetIsEditable };
 
 export function commandBlockedByMainView(command: Command | undefined): boolean {
   if (!command) return false;
@@ -19,10 +22,4 @@ export function eventTargetIsMainViewKeyboardOwner(target: EventTarget | null): 
 
 export function mainViewTargetShouldBypassAppKeymap(target: EventTarget | null): boolean {
   return eventTargetIsMainViewKeyboardOwner(target) && eventTargetIsEditable(target);
-}
-
-export function eventTargetIsEditable(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  const editable = target.closest("input, textarea, select, [contenteditable='true']");
-  return editable !== null;
 }

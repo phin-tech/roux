@@ -18,6 +18,7 @@
     openLibraryEdit,
     openLibraryNew,
   } from "$lib/stores/libraryWindow";
+  import { eventTargetIsEditable } from "$lib/keymap/editableTarget";
   import LibraryItemEditor from "./LibraryItemEditor.svelte";
 
   let items = $state<LibraryItem[]>([]);
@@ -122,7 +123,7 @@
   function handleKeydown(e: KeyboardEvent) {
     if (!visible) return;
     if (e.key === "Escape") {
-      if (isEditableTarget(e.target)) return;
+      if (eventTargetIsEditable(e.target)) return;
       e.preventDefault();
       closeSafely();
       return;
@@ -130,11 +131,6 @@
     if (e.key === "Tab") {
       trapFocus(e);
     }
-  }
-
-  function isEditableTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
-    return Boolean(target.closest("input, textarea, select, [contenteditable='true'], .cm-editor"));
   }
 
   function focusableElements(): HTMLElement[] {

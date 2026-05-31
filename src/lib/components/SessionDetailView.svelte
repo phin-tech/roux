@@ -57,16 +57,19 @@
   $effect(() => {
     const currentSession = session;
     const targetId = currentSession ? sessionId : null;
-    if (documentTargetId !== targetId) {
-      documentTargetId = targetId;
-      documentOpenGeneration += 1;
-      documentLoadingId = null;
-      selectedDocument = null;
-    }
+    if (documentTargetId === targetId) return;
+
+    documentTargetId = targetId;
+    documentOpenGeneration += 1;
+    documentLoadingId = null;
+    selectedDocument = null;
+
     if (!currentSession) {
       documents = [];
+      documentsLoading = false;
       return;
     }
+
     void refreshDocuments(sessionId);
   });
 
@@ -229,7 +232,7 @@
             {#if session.status === "disconnected"}
               <button
                 type="button"
-                class="inline-flex h-8 items-center gap-1.5 rounded border border-accent-dim/30 bg-accent-dim/15 px-3 text-xs font-semibold text-accent transition-colors hover:bg-accent-dim/24 disabled:cursor-wait disabled:opacity-60"
+                class="inline-flex h-8 items-center gap-1.5 rounded border border-accent-dim/30 bg-accent-dim/15 px-3 text-xs font-semibold text-accent transition-colors hover:bg-accent-dim/24 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
                 onclick={handleContinue}
                 disabled={reconnecting}
                 aria-label="Continue session"

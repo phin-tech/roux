@@ -258,6 +258,9 @@ describe("SessionDetailView", () => {
         session.id === "session-1" ? { ...session, status: "generating" } : session,
       ),
     }));
+    await tick();
+
+    expect(listDocuments).toHaveBeenCalledTimes(1);
 
     resolveDocument?.({ attachment, content: "Still current content" });
     await new Promise((resolve) => setTimeout(resolve, 0));

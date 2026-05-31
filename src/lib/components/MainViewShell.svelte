@@ -33,7 +33,7 @@
     </div>
     <button
       type="button"
-      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
       onclick={onclose}
       aria-label={closeLabel}
       title={`${closeLabel} (Esc)`}
