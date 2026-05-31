@@ -164,7 +164,7 @@ jobs:
           fi
           VERSION="${TAG#v}"
 
-          RELEASE_JSON="$(gh release view "$TAG" --repo "$ROUX_REPO" --json assets,isPrerelease)"
+          RELEASE_JSON="$(gh release view "$TAG" --repo "$ROUX_REPO" --json isPrerelease)"
           IS_PRERELEASE="$(jq -r '.isPrerelease' <<< "$RELEASE_JSON")"
 
           if [[ "$IS_PRERELEASE" == "true" ]]; then
@@ -191,12 +191,8 @@ jobs:
           SOURCE_SHA="$(curl -fsSL "$SOURCE_URL" | shasum -a 256 | awk '{print $1}')"
 
           DMG_ASSET="Roux_${VERSION}_aarch64.dmg"
-          DMG_SHA="$(jq -r --arg name "$DMG_ASSET" '.assets[] | select(.name == $name) | .digest // ""' <<< "$RELEASE_JSON")"
-          DMG_SHA="${DMG_SHA#sha256:}"
-          if [[ -z "$DMG_SHA" || "$DMG_SHA" == "null" ]]; then
-            echo "Missing release asset digest for ${DMG_ASSET}" >&2
-            exit 1
-          fi
+          DMG_URL="https://github.com/${ROUX_REPO}/releases/download/${TAG}/${DMG_ASSET}"
+          DMG_SHA="$(curl -fsSL "$DMG_URL" | shasum -a 256 | awk '{print $1}')"
 
           mkdir -p homebrew-tap/Formula homebrew-tap/Casks
 
@@ -269,7 +265,6 @@ jobs:
           end
           EOF
 
-          sed -i 's/^          //' "$FORMULA_FILE" "$CASK_FILE"
           ruby -c "$FORMULA_FILE"
           ruby -c "$CASK_FILE"
 
