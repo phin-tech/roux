@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tick } from "svelte";
-import { fireEvent, render, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import type { WorktrunkDiagnostics } from "$lib/bindings";
 import type { Worktree, WorktrunkMetadata } from "$lib/types";
+
+// hoisted so the mock factory can close over it
+const invokeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: invokeMock,
+}));
 
 vi.mock("$lib/bindings", () => ({
   commands: {
@@ -50,7 +57,9 @@ import {
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import WorktrunkPanel from "../WorktrunkPanel.svelte";
 import { sessionState } from "$lib/stores/sessions";
+import { settings } from "$lib/stores/settings";
 import type { Session } from "$lib/types";
+import { DEFAULT_SETTINGS } from "$lib/types";
 import { _setWorktrunkDetectionForTests } from "$lib/stores/worktrunkDetection";
 import { _resetWorktreeMetadataForTests } from "$lib/stores/worktreeMetadata";
 
@@ -153,13 +162,14 @@ describe("WorktrunkPanel", () => {
     });
   });
 
-  it("shows an empty state when no session is active", () => {
-    const { getByText } = render(WorktrunkPanel, {
+  it("shows the repo picker area (not dead-end) when no session is active", () => {
+    // DEFAULT_SETTINGS has repoRoots: [] so no roots are configured.
+    invokeMock.mockResolvedValue([]);
+    const { getByTestId } = render(WorktrunkPanel, {
       props: { visible: true, onclose: () => {} },
     });
-    expect(
-      getByText(/Open a session to view its worktrunk state/i),
-    ).toBeDefined();
+    // Should show the repo picker area, not the old dead-end message.
+    expect(getByTestId("worktrunk-repo-picker")).toBeDefined();
   });
 
   it("renders Hooks rows after switching to the Hooks tab", async () => {
@@ -1750,6 +1760,222 @@ describe("WorktrunkPanel — right-click context menu", () => {
     await fireEvent.click(await r.findByTestId("worktrunk-context-terminal"));
     const err = await r.findByTestId("worktrunk-context-error");
     expect(err.textContent).toContain("no terminal found");
+  });
+});
+
+describe("WorktrunkPanel — no-session repo picker", () => {
+  beforeEach(() => {
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockReset();
+    vi.mocked(listWorktrees).mockReset().mockResolvedValue([]);
+    vi.mocked(createWorktree).mockReset();
+    invokeMock.mockReset();
+    sessionState.set({ sessions: [], activeSessionId: null });
+    settings.set(DEFAULT_SETTINGS);
+    _resetWorktreeMetadataForTests();
+    _setWorktrunkDetectionForTests({
+      binaryPath: "/opt/homebrew/bin/wt",
+      version: "0.44.0",
+      probed: true,
+    });
+  });
+
+  afterEach(() => {
+    sessionState.set({ sessions: [], activeSessionId: null });
+    settings.set(DEFAULT_SETTINGS);
+    _resetWorktreeMetadataForTests();
+  });
+
+  it("renders a repo picker (not dead-end) when no session is active and repo roots are configured", async () => {
+    // Set configured repo roots so RepoPickerField triggers the invoke call.
+    settings.update((s) => ({ ...s, repoRoots: ["/workspace/roux"] }));
+    invokeMock.mockResolvedValue(["/workspace/roux"]);
+    const { findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    // Should find the repo picker, not the old dead-end message.
+    expect(await findByTestId("worktrunk-repo-picker")).toBeDefined();
+    // The picker should have triggered a scan of configured roots.
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("list_git_repos_in_roots", expect.any(Object));
+    });
+  });
+
+  it("selecting a repo from the picker loads worktrees for that repo", async () => {
+    // Set configured repo roots so the autocomplete dropdown is available.
+    settings.update((s) => ({ ...s, repoRoots: ["/workspace/roux"] }));
+    invokeMock.mockResolvedValue(["/workspace/roux"]);
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValue([
+      makeWorktree({ path: "/workspace/roux", branch: "main", isMain: true }),
+    ]);
+
+    const { findByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    const pickerContainer = await findByTestId("worktrunk-repo-picker");
+
+    // RepoAutoComplete renders a Command.Input (<input role="combobox">)
+    const pickerInput = within(pickerContainer).getByRole("combobox") as HTMLInputElement;
+    await fireEvent.input(pickerInput, { target: { value: "/workspace/roux" } });
+    // Simulate Enter to trigger onenter (raw text path when no dropdown match).
+    await fireEvent.keyDown(pickerInput, { key: "Enter" });
+    await tick();
+
+    await waitFor(() => {
+      expect(listWorktrees).toHaveBeenCalledWith("/workspace/roux");
+    });
+  });
+
+  it("calls createWorktree with the picked repo path (not session repo)", async () => {
+    // Set configured repo roots so the picker can resolve the repo.
+    settings.update((s) => ({ ...s, repoRoots: ["/workspace/roux"] }));
+    invokeMock.mockResolvedValue(["/workspace/roux"]);
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValue([
+      makeWorktree({ path: "/workspace/roux", branch: "main", isMain: true }),
+    ]);
+    vi.mocked(createWorktree).mockResolvedValueOnce("/workspace/roux-feat-z");
+
+    const { findByTestId, getByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    const pickerContainer = await findByTestId("worktrunk-repo-picker");
+
+    const pickerInput = within(pickerContainer).getByRole("combobox") as HTMLInputElement;
+    await fireEvent.input(pickerInput, { target: { value: "/workspace/roux" } });
+    await fireEvent.keyDown(pickerInput, { key: "Enter" });
+    await tick();
+
+    // Wait for worktrees to load (which signals repo is selected)
+    await waitFor(() => expect(listWorktrees).toHaveBeenCalledWith("/workspace/roux"));
+
+    await fireEvent.click(await findByTestId("worktrunk-new-worktree-open"));
+    const branchInput = (await findByTestId("worktrunk-new-worktree-branch")) as HTMLInputElement;
+    await fireEvent.input(branchInput, { target: { value: "feat-z" } });
+    await fireEvent.click(getByTestId("worktrunk-new-worktree-submit"));
+
+    await waitFor(() =>
+      expect(createWorktree).toHaveBeenCalledWith("/workspace/roux", "feat-z", expect.any(Object)),
+    );
+  });
+
+  it("active session auto-selects its repo when no override is set", async () => {
+    const s = makeSession({ repoRoot: "/project" });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees).mockResolvedValue([
+      makeWorktree({ path: "/project", branch: "main", isMain: true }),
+    ]);
+
+    const { findByTestId, queryByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+    // Repo strip should show the session's repo, not the picker
+    expect(await findByTestId("worktrunk-repo-strip")).toBeDefined();
+    expect(queryByTestId("worktrunk-repo-picker")).toBeNull();
+    expect(listWorktrees).toHaveBeenCalledWith("/project");
+  });
+});
+
+describe("WorktrunkPanel — open-session-after-create", () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockReset();
+    vi.mocked(listWorktrees).mockReset().mockResolvedValue([]);
+    vi.mocked(createWorktree).mockReset();
+    vi.mocked(createSessionShell).mockReset();
+    invokeMock.mockReset();
+    sessionState.set({ sessions: [], activeSessionId: null });
+    _resetWorktreeMetadataForTests();
+    _setWorktrunkDetectionForTests({
+      binaryPath: "/opt/homebrew/bin/wt",
+      version: "0.44.0",
+      probed: true,
+    });
+    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    confirmSpy.mockRestore();
+    sessionState.set({ sessions: [], activeSessionId: null });
+  });
+
+  it("shows an open-session prompt after creating a worktree", async () => {
+    const s = makeSession({ repoRoot: "/project" });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees)
+      .mockResolvedValueOnce([
+        { path: "/project", branch: "main", isMain: true, worktrunk: null },
+      ])
+      .mockResolvedValueOnce([
+        { path: "/project", branch: "main", isMain: true, worktrunk: null },
+        { path: "/project-feat-new", branch: "feat-new", isMain: false, worktrunk: null },
+      ]);
+    vi.mocked(createWorktree).mockResolvedValueOnce("/project-feat-new");
+
+    const { findByTestId, getByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+
+    await fireEvent.click(await findByTestId("worktrunk-new-worktree-open"));
+    const branchInput = (await findByTestId("worktrunk-new-worktree-branch")) as HTMLInputElement;
+    await fireEvent.input(branchInput, { target: { value: "feat-new" } });
+    await fireEvent.click(getByTestId("worktrunk-new-worktree-submit"));
+
+    // After create, an "Open session" button should appear
+    expect(await findByTestId("worktrunk-open-session-after-create-btn")).toBeDefined();
+  });
+
+  it("clicking open-session-after-create calls createSessionShell with the new worktree", async () => {
+    const s = makeSession({ repoRoot: "/project" });
+    sessionState.set({ sessions: [s], activeSessionId: s.id });
+    vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
+      okDiagnostics(makeDiagnostics()),
+    );
+    vi.mocked(listWorktrees)
+      .mockResolvedValueOnce([
+        { path: "/project", branch: "main", isMain: true, worktrunk: null },
+      ])
+      .mockResolvedValueOnce([
+        { path: "/project", branch: "main", isMain: true, worktrunk: null },
+        { path: "/project-feat-new", branch: "feat-new", isMain: false, worktrunk: null },
+      ]);
+    vi.mocked(createWorktree).mockResolvedValueOnce("/project-feat-new");
+    vi.mocked(createSessionShell).mockResolvedValueOnce(
+      makeSession({ id: "new-sess", repoRoot: "/project", worktreePath: "/project-feat-new", branch: "feat-new", isWorktree: true }),
+    );
+
+    const { findByTestId, getByTestId } = render(WorktrunkPanel, {
+      props: { visible: true, onclose: () => {} },
+    });
+
+    await fireEvent.click(await findByTestId("worktrunk-new-worktree-open"));
+    const branchInput = (await findByTestId("worktrunk-new-worktree-branch")) as HTMLInputElement;
+    await fireEvent.input(branchInput, { target: { value: "feat-new" } });
+    await fireEvent.click(getByTestId("worktrunk-new-worktree-submit"));
+
+    const openBtn = await findByTestId("worktrunk-open-session-after-create-btn");
+    await fireEvent.click(openBtn);
+
+    await waitFor(() => {
+      expect(createSessionShell).toHaveBeenCalledWith(
+        "/project",
+        expect.any(String),
+        "/project-feat-new",
+        "feat-new",
+        expect.any(Object),
+      );
+    });
   });
 });
 
