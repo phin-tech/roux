@@ -91,6 +91,7 @@ jobs:
   release-cli:
     runs-on: ${{ matrix.os }}
     needs: release-macos
+    if: ${{ inputs.version != '' }}
     strategy:
       fail-fast: false
       matrix:

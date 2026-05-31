@@ -175,11 +175,9 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
     fs::create_dir_all(&bin_dir).map_err(|e| format!("Failed to create ~/.local/bin: {}", e))?;
 
     let target = bin_dir.join(platform::roux_cli_file_name());
-    // Find the bundled source binary next to the running desktop binary.
-    let source =
-        bundled_cli_source_path().ok_or("Could not find roux next to roux desktop binary")?;
-
-    if source.exists() {
+    // Prefer the bundled sidecar in packaged builds, but source/dev builds may
+    // only have roux on PATH or in Cargo's bin directory.
+    if let Some(source) = bundled_cli_source_path() {
         // Replace the installed CLI whenever its version differs from the
         // bundled one (or it's missing). See `should_install_cli` for why mtime
         // is deliberately not used here.
