@@ -50,7 +50,7 @@
   } from "$lib/stores/subscriptions";
   import { initPtyInventoryPolling } from "$lib/stores/ptyInventory";
   import { initSessionWithProfile, splitPane, closeSessionPanes } from "$lib/panes/actions";
-  import { hasSplitPanes } from "$lib/panes/layout";
+  import { findSessionForPane, hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { getTerminalController } from "$lib/panes/terminalRuntime";
   import { initPersistence, flushPaneState, loadPaneState } from "$lib/panes/persistence";
@@ -109,6 +109,12 @@
     closeWorkItemSessionStart,
     workItemSessionStart,
   } from "$lib/stores/ui";
+  import { closeMainView, mainViewRoute } from "$lib/stores/mainView";
+  import {
+    commandBlockedByMainView,
+    eventTargetIsEditable,
+    eventTargetIsInsideMainView,
+  } from "$lib/mainView/keyGate";
 
   let showNewSessionDialog = $state(false);
   let showSessionDialog = $derived(showNewSessionDialog || $workItemSessionStart !== null);
@@ -175,6 +181,7 @@
 
     const cmd = registry.get(commandId);
     if (!cmd) return;
+    if (get(mainViewRoute) && commandBlockedByMainView(cmd)) return;
 
     if (cmd.id === "session.new") {
       showNewSessionDialog = true;
@@ -238,6 +245,7 @@
   function isCommandAvailable(commandId: string): boolean {
     const cmd = registry.get(commandId);
     if (!cmd) return false;
+    if (get(mainViewRoute) && commandBlockedByMainView(cmd)) return false;
     return !cmd.available || cmd.available();
   }
 
@@ -267,6 +275,10 @@
     if (!surface.leaderPromptCommandId) return;
     const cmd = registry.get(surface.leaderPromptCommandId);
     if (!cmd?.onInput) return;
+    if (get(mainViewRoute) && commandBlockedByMainView(cmd)) {
+      closeCommandSurface();
+      return;
+    }
     const value = surface.leaderPromptValue;
     closeCommandSurface();
     void cmd.onInput(value);
@@ -350,6 +362,23 @@
       return;
     }
 
+    const mainRoute = get(mainViewRoute);
+    if (mainRoute) {
+      const target = e.target;
+      const mainViewOwnsKeyboard =
+        eventTargetIsInsideMainView(target) ||
+        target === document.body ||
+        target === document.documentElement;
+      if (mainViewOwnsKeyboard) {
+        if (e.key === "Escape" && !eventTargetIsEditable(target)) {
+          e.preventDefault();
+          closeMainView();
+          keymapExitTree();
+        }
+        return;
+      }
+    }
+
     // Keymap dispatch.
     const km = get(keymapState);
     const resolution = resolveKey(e, km, isCommandAvailable);
@@ -415,6 +444,29 @@
       });
     }
     prevSurfaceOpen = open;
+  });
+
+  let mainViewWasOpen = $state(false);
+  let paneFocusBeforeMainView = $state<string | null>(null);
+  $effect(() => {
+    const open = $mainViewRoute !== null;
+    if (open && !mainViewWasOpen) {
+      paneFocusBeforeMainView = get(focusedPaneId);
+      setLogicalFocus(null);
+    }
+    if (!open && mainViewWasOpen) {
+      const restorePaneId = paneFocusBeforeMainView;
+      paneFocusBeforeMainView = null;
+      queueMicrotask(() => {
+        const active = document.activeElement as HTMLElement | null;
+        if (active && active !== document.body && active.tagName !== "HTML") return;
+        if (!restorePaneId || get(focusedPaneId) !== null) return;
+        const activeSession = get(sessionState).activeSessionId;
+        if (!activeSession || findSessionForPane(restorePaneId) !== activeSession) return;
+        if (getTerminalController(restorePaneId)) setLogicalFocus(restorePaneId);
+      });
+    }
+    mainViewWasOpen = open;
   });
 
   $effect(() => {

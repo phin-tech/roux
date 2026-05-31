@@ -35,7 +35,9 @@
     openNewProjectDialog,
     openEditProjectDialog,
   } from "$lib/stores/newProjectDialog";
+  import { openMainView } from "$lib/stores/mainView";
 
+  import Info from "@lucide/svelte/icons/info";
   import PinButton from "./PinButton.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
   import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
@@ -295,6 +297,14 @@
   function handleContextMenu(e: MouseEvent, session: Session) {
     resetMenus();
     contextMenu = { x: e.clientX, y: e.clientY, session };
+  }
+
+  function handleOpenSessionDetails() {
+    if (!contextMenu) return;
+    const id = contextMenu.session.id;
+    setActiveSession(id);
+    openMainView({ kind: "sessionDetail", sessionId: id });
+    closeContextMenu();
   }
 
   function handleGroupHeaderContextMenu(e: MouseEvent, key: string) {
@@ -779,6 +789,13 @@
         </div>
       {/if}
     {:else if !worktreeInput}
+      <button
+        class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
+        onclick={handleOpenSessionDetails}
+      >
+        <Info size={12} class="text-text-secondary" />
+        Session Details
+      </button>
       <button
         class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-base"
         onclick={showProjectMenu}

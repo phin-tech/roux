@@ -4,8 +4,6 @@ import {
   activeSidebar,
   armPaneHints,
   armSessionHints,
-  boardFullscreen,
-  closeBoardFullscreen,
   editingWorkItemId,
   newWorkItemEditor,
   openNewWorkItemEditor,
@@ -16,14 +14,12 @@ import {
   hidePaneHints,
   hideSessionHints,
   isPinned,
-  openBoardFullscreen,
   openSidebar,
   pinnedSidebar,
   pinSidebar,
   PINNABLE_SIDEBARS,
   showPaneHints,
   showSessionHints,
-  toggleBoardFullscreen,
   toggleSidebar,
   unpinSidebar,
 } from "../ui";
@@ -294,42 +290,6 @@ describe("showPaneHints", () => {
     hideSessionHints();
     expect(get(showSessionHints)).toBe(false);
     expect(get(showPaneHints)).toBe(true);
-  });
-});
-
-describe("boardFullscreen", () => {
-  afterEach(() => {
-    closeBoardFullscreen();
-  });
-
-  it("starts closed", () => {
-    expect(get(boardFullscreen)).toBe(false);
-  });
-
-  it("opens, closes, and toggles", () => {
-    openBoardFullscreen();
-    expect(get(boardFullscreen)).toBe(true);
-    openBoardFullscreen();
-    expect(get(boardFullscreen)).toBe(true);
-
-    closeBoardFullscreen();
-    expect(get(boardFullscreen)).toBe(false);
-
-    toggleBoardFullscreen();
-    expect(get(boardFullscreen)).toBe(true);
-    toggleBoardFullscreen();
-    expect(get(boardFullscreen)).toBe(false);
-  });
-
-  it("is independent of the sidebar slots", () => {
-    pinSidebar("sessions");
-    openBoardFullscreen();
-    expect(get(boardFullscreen)).toBe(true);
-    expect(get(pinnedSidebar)).toBe("sessions");
-
-    closeBoardFullscreen();
-    expect(get(pinnedSidebar)).toBe("sessions");
-    unpinSidebar();
   });
 });
 

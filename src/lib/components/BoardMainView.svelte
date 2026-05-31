@@ -1,6 +1,5 @@
 <script lang="ts">
   import { derived } from "svelte/store";
-  import X from "@lucide/svelte/icons/x";
   import {
     itemsByColumn,
     WORK_ITEM_COLUMNS,
@@ -18,11 +17,11 @@
   import { sessionList } from "$lib/stores/sessions";
   import type { SessionStatus } from "$lib/types";
   import {
-    closeBoardFullscreen,
     openNewWorkItemEditor,
     openWorkItemEditor,
     openWorkItemSessionStart,
   } from "$lib/stores/ui";
+  import { closeMainView } from "$lib/stores/mainView";
   import { openSessionById } from "$lib/panes/openSession";
   import { formatWorkItemStartError } from "$lib/board/startErrors";
   import {
@@ -168,8 +167,8 @@
       console.error(`Session ${sessionId} is no longer running`);
       return;
     }
-    // Reveal the terminal we just focused — the board overlay covers it.
-    closeBoardFullscreen();
+    // Reveal the terminal we just focused — the main view covers it.
+    closeMainView();
   }
 
   function handleDragOver(event: DragEvent, col: WorkItemStatus) {
@@ -193,32 +192,9 @@
     await handleMove(payload.itemId, col);
   }
 
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeBoardFullscreen();
-    }
-  }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-<div class="absolute inset-0 z-30 flex flex-col bg-bg-deep">
-  <div
-    class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3"
-  >
-    <span class="text-sm font-semibold tracking-tight text-text-primary">Board</span>
-    <button
-      type="button"
-      class="flex h-6 w-6 items-center justify-center rounded text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
-      onclick={closeBoardFullscreen}
-      aria-label="Close board"
-      title="Close board (Esc)"
-    >
-      <X size={14} />
-    </button>
-  </div>
-
+<div class="flex h-full min-h-0 flex-col bg-bg-deep">
   <div class="flex min-h-0 flex-1 flex-row gap-3 overflow-x-auto p-4">
     {#each WORK_ITEM_COLUMNS as col (col)}
       {@const items = $itemsByColumn.get(col) ?? []}

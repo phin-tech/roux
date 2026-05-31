@@ -1,0 +1,169 @@
+import { fireEvent, render, screen } from "@testing-library/svelte";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { get } from "svelte/store";
+import SessionDetailView from "../SessionDetailView.svelte";
+import { sessionState } from "$lib/stores/sessions";
+import { projects } from "$lib/stores/projects";
+import { sessionLayouts } from "$lib/panes/layout";
+import { paneInstances, type PaneInstance } from "$lib/panes/instances";
+import { closeMainView } from "$lib/stores/mainView";
+import { continueSession } from "$lib/sessions/reconnect";
+import { getDocument, listDocuments } from "$lib/stores/workItems";
+import type { Attachment } from "$lib/types/workItems";
+import type { Session } from "$lib/types";
+
+vi.mock("$lib/stores/workItems", () => ({
+  listDocuments: vi.fn().mockResolvedValue([]),
+  getDocument: vi.fn(),
+}));
+
+vi.mock("$lib/stores/mainView", () => ({
+  closeMainView: vi.fn(),
+}));
+
+vi.mock("$lib/sessions/reconnect", () => ({
+  continueSession: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("$lib/tauri", () => ({
+  setSessionNameOverride: vi.fn().mockResolvedValue(undefined),
+}));
+
+function makeSession(overrides: Partial<Session> = {}): Session {
+  return {
+    id: "session-1",
+    name: "main",
+    repoRoot: "/repo",
+    worktreePath: "/repo/.worktrees/feature",
+    branch: "feature/main-view",
+    isWorktree: true,
+    status: "idle",
+    model: "claude-sonnet",
+    cost: 1.25,
+    createdAt: 1_700_000_000,
+    projectId: "project-1",
+    isGitRepo: true,
+    nameOverride: null,
+    primaryPtyId: "pty-primary",
+    archived: false,
+    endedAt: null,
+    pinnedPrUrl: "https://github.com/acme/repo/pull/123",
+    ...overrides,
+  };
+}
+
+function makePane(overrides: Partial<PaneInstance> = {}): PaneInstance {
+  return {
+    id: "pane-1",
+    type: "shell",
+    ptyId: "pty-primary",
+    unlisteners: [],
+    name: "main shell",
+    spawnProfileRef: { kind: "registered", id: "claude" },
+    sessionId: "session-1",
+    ...overrides,
+  };
+}
+
+function makeAttachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    id: "doc-1",
+    documentId: "session-1.doc-1",
+    targetKind: "session",
+    targetId: "session-1",
+    title: "Implementation notes",
+    contentKind: "text",
+    mimeType: "text/markdown",
+    sourcePath: null,
+    byteLen: 42,
+    sha256: "abc",
+    createdAt: 1_700_000_100,
+    updatedAt: 1_700_000_100,
+    ...overrides,
+  };
+}
+
+describe("SessionDetailView", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionState.set({ sessions: [], activeSessionId: null });
+    projects.set([]);
+    sessionLayouts.set(new Map());
+    paneInstances.set(new Map());
+    vi.mocked(listDocuments).mockResolvedValue([]);
+  });
+
+  it("renders live session metadata and read-only pane summary", async () => {
+    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
+    projects.set([{ id: "project-1", name: "Main Project", repoRoots: ["/repo"] }]);
+    sessionLayouts.set(new Map([
+      ["session-1", { kind: "leaf", paneId: "pane-1" }],
+    ]));
+    paneInstances.set(new Map([["pane-1", makePane()]]));
+
+    render(SessionDetailView, { sessionId: "session-1" });
+
+    expect(await screen.findByText("Main Project")).toBeTruthy();
+    expect(screen.getByText("/repo/.worktrees/feature")).toBeTruthy();
+    expect(screen.getAllByText("feature/main-view").length).toBeGreaterThan(0);
+    expect(screen.getByText("main shell")).toBeTruthy();
+    expect(screen.getByText("shell")).toBeTruthy();
+    expect(screen.getByText("claude")).toBeTruthy();
+    expect(listDocuments).toHaveBeenCalledWith("session", "session-1");
+  });
+
+  it("opens an attached document inline", async () => {
+    const attachment = makeAttachment();
+    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
+    vi.mocked(listDocuments).mockResolvedValue([attachment]);
+    vi.mocked(getDocument).mockResolvedValue({
+      attachment,
+      content: "These are the attached notes.",
+    });
+
+    render(SessionDetailView, { sessionId: "session-1" });
+
+    await fireEvent.click(await screen.findByRole("button", { name: "Implementation notes" }));
+
+    expect(getDocument).toHaveBeenCalledWith("session-1.doc-1");
+    expect(await screen.findByText("These are the attached notes.")).toBeTruthy();
+  });
+
+  it("renames the session inline", async () => {
+    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
+    render(SessionDetailView, { sessionId: "session-1" });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Rename session" }));
+    const input = screen.getByLabelText("Session name");
+    await fireEvent.input(input, { target: { value: "Renamed Session" } });
+    await fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(screen.getByText("Renamed Session")).toBeTruthy();
+  });
+
+  it("focuses the session and closes the main view when opening the terminal", async () => {
+    sessionState.set({ sessions: [makeSession()], activeSessionId: null });
+    render(SessionDetailView, { sessionId: "session-1" });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Open terminal" }));
+
+    expect(get(sessionState).activeSessionId).toBe("session-1");
+    expect(closeMainView).toHaveBeenCalled();
+  });
+
+  it("continues a disconnected session from the detail view", async () => {
+    const session = makeSession({ status: "disconnected" });
+    sessionState.set({ sessions: [session], activeSessionId: "session-1" });
+    render(SessionDetailView, { sessionId: "session-1" });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Continue session" }));
+
+    expect(continueSession).toHaveBeenCalledWith(session);
+  });
+
+  it("shows an empty state when the session no longer exists", () => {
+    render(SessionDetailView, { sessionId: "missing-session" });
+
+    expect(screen.getByText("Session no longer available")).toBeTruthy();
+  });
+});
