@@ -4,10 +4,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+MANIFEST_VERSION="$(python3 -c 'import re; print(re.search(r"(?m)^version = \"([^\"]+)\"", open("crates/roux-cli/Cargo.toml").read()).group(1))')"
+
 if [ -n "${ROUX_CLI_VERSION:-}" ]; then
   VERSION="$ROUX_CLI_VERSION"
+  EXPECTED_VERSION="${VERSION#v}"
+  if [ "$MANIFEST_VERSION" != "$EXPECTED_VERSION" ]; then
+    echo "roux-cli Cargo.toml version ${MANIFEST_VERSION} does not match requested CLI release ${VERSION}" >&2
+    exit 1
+  fi
 else
-  VERSION="v$(python3 -c 'import re; print(re.search(r"(?m)^version = \"([^\"]+)\"", open("crates/roux-cli/Cargo.toml").read()).group(1))')"
+  VERSION="v${MANIFEST_VERSION}"
 fi
 
 TARGET="${ROUX_CLI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
