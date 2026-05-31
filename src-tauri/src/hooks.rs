@@ -17,6 +17,13 @@ pub struct CliInstallation {
 }
 
 #[cfg(not(windows))]
+struct HomebrewPrefix {
+    bin_dir: PathBuf,
+    cellar_dir: PathBuf,
+    opt_dir: PathBuf,
+}
+
+#[cfg(not(windows))]
 fn unix_cli_install_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".local").join("bin").join(platform::roux_cli_file_name()))
 }
@@ -35,11 +42,6 @@ fn bundled_cli_source_path() -> Option<PathBuf> {
 
 fn first_existing_path(candidates: impl IntoIterator<Item = Option<PathBuf>>) -> Option<PathBuf> {
     candidates.into_iter().flatten().find(|path| path.is_file())
-}
-
-#[cfg(not(windows))]
-fn first_existing_concrete_path(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
-    candidates.into_iter().find(|path| path.is_file())
 }
 
 fn find_cli_on_path() -> Option<PathBuf> {
@@ -175,18 +177,47 @@ pub fn cli_is_installed() -> bool {
 }
 
 #[cfg(not(windows))]
-fn homebrew_cli_candidate_paths() -> Vec<PathBuf> {
-    let file_name = platform::roux_cli_file_name();
-    ["/opt/homebrew/bin", "/usr/local/bin", "/home/linuxbrew/.linuxbrew/bin"]
-        .into_iter()
-        .map(|prefix| Path::new(prefix).join(file_name))
-        .collect()
+fn homebrew_prefixes() -> Vec<HomebrewPrefix> {
+    [
+        HomebrewPrefix {
+            bin_dir: PathBuf::from("/opt/homebrew/bin"),
+            cellar_dir: PathBuf::from("/opt/homebrew/Cellar"),
+            opt_dir: PathBuf::from("/opt/homebrew/opt"),
+        },
+        HomebrewPrefix {
+            bin_dir: PathBuf::from("/usr/local/bin"),
+            cellar_dir: PathBuf::from("/usr/local/Cellar"),
+            opt_dir: PathBuf::from("/usr/local/opt"),
+        },
+        HomebrewPrefix {
+            bin_dir: PathBuf::from("/home/linuxbrew/.linuxbrew/bin"),
+            cellar_dir: PathBuf::from("/home/linuxbrew/.linuxbrew/Cellar"),
+            opt_dir: PathBuf::from("/home/linuxbrew/.linuxbrew/opt"),
+        },
+    ]
+    .into()
+}
+
+#[cfg(not(windows))]
+fn is_homebrew_link(path: &Path, prefix: &HomebrewPrefix) -> bool {
+    let Ok(resolved) = path.canonicalize() else {
+        return false;
+    };
+    let cellar_dir = prefix.cellar_dir.canonicalize().unwrap_or_else(|_| prefix.cellar_dir.clone());
+    let opt_dir = prefix.opt_dir.canonicalize().unwrap_or_else(|_| prefix.opt_dir.clone());
+    resolved.starts_with(cellar_dir) || resolved.starts_with(opt_dir)
 }
 
 #[cfg(not(windows))]
 pub fn homebrew_cli_installation() -> Option<CliInstallation> {
-    let path = first_existing_concrete_path(homebrew_cli_candidate_paths())?;
-    Some(CliInstallation { version: cli_version_at(&path), path })
+    let file_name = platform::roux_cli_file_name();
+    for prefix in homebrew_prefixes() {
+        let path = prefix.bin_dir.join(file_name);
+        if path.is_file() && is_homebrew_link(&path, &prefix) {
+            return Some(CliInstallation { version: cli_version_at(&path), path });
+        }
+    }
+    None
 }
 
 #[cfg(windows)]
@@ -198,21 +229,21 @@ fn stale_homebrew_cli_notice_for(
     installation: CliInstallation,
     bundled_version: &str,
 ) -> Option<String> {
-    if installation.version.as_deref() == Some(bundled_version) {
+    let installed_version = installation.version.as_deref()?;
+    let installed = semver::Version::parse(installed_version).ok()?;
+    let bundled = semver::Version::parse(bundled_version).ok()?;
+    if installed >= bundled {
         return None;
     }
 
-    let formula = if bundled_version.contains("-pre")
-        || installation.version.as_deref().is_some_and(|version| version.contains("-pre"))
-    {
+    let formula = if bundled_version.contains("-pre") || installed_version.contains("-pre") {
         "phin-tech/tap/roux-pre"
     } else {
         "phin-tech/tap/roux"
     };
-    let installed = installation.version.as_deref().unwrap_or("unknown version");
 
     Some(format!(
-        "Homebrew roux detected at {} ({installed}). Roux does not upgrade Homebrew formulae from the app; run `brew upgrade {formula}` to update that install.",
+        "Homebrew roux detected at {} ({installed_version}). Roux does not upgrade Homebrew formulae from the app; run `brew upgrade {formula}` to update that install.",
         installation.path.display()
     ))
 }
@@ -681,6 +712,61 @@ mod tests {
         assert!(notice.contains("/opt/homebrew/bin/roux"));
         assert!(notice.contains("0.5.3-pre.1"));
         assert!(notice.contains("brew upgrade phin-tech/tap/roux-pre"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn homebrew_notice_skips_unknown_or_current_or_newer_versions() {
+        let path = PathBuf::from("/opt/homebrew/bin/roux");
+
+        assert!(stale_homebrew_cli_notice_for(
+            CliInstallation { path: path.clone(), version: None },
+            "0.5.4"
+        )
+        .is_none());
+        assert!(stale_homebrew_cli_notice_for(
+            CliInstallation { path: path.clone(), version: Some("0.5.4".to_string()) },
+            "0.5.4"
+        )
+        .is_none());
+        assert!(stale_homebrew_cli_notice_for(
+            CliInstallation { path, version: Some("0.5.5".to_string()) },
+            "0.5.4"
+        )
+        .is_none());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn homebrew_link_detection_requires_cellar_or_opt_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        let cellar = dir.path().join("Cellar").join("roux").join("0.5.4").join("bin");
+        let opt = dir.path().join("opt").join("roux").join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&cellar).unwrap();
+        fs::create_dir_all(&opt).unwrap();
+
+        let prefix = HomebrewPrefix {
+            bin_dir: bin.clone(),
+            cellar_dir: dir.path().join("Cellar").canonicalize().unwrap(),
+            opt_dir: dir.path().join("opt").canonicalize().unwrap(),
+        };
+        let cellar_binary = cellar.join("roux");
+        let opt_binary = opt.join("roux");
+        let manual_binary = bin.join("manual-roux");
+        fs::write(&cellar_binary, b"binary").unwrap();
+        fs::write(&opt_binary, b"binary").unwrap();
+        fs::write(&manual_binary, b"binary").unwrap();
+
+        let linked_from_cellar = bin.join("roux-cellar");
+        let linked_from_opt = bin.join("roux-opt");
+        std::os::unix::fs::symlink(&cellar_binary, &linked_from_cellar).unwrap();
+        std::os::unix::fs::symlink(&opt_binary, &linked_from_opt).unwrap();
+
+        assert!(is_homebrew_link(&linked_from_cellar, &prefix));
+        assert!(is_homebrew_link(&linked_from_opt, &prefix));
+        assert!(!is_homebrew_link(&manual_binary, &prefix));
     }
 
     #[cfg(not(windows))]

@@ -78,7 +78,7 @@
   } from "$lib/stores/sessionPrLookup";
   import { installSessionBranchPoller } from "$lib/stores/sessionBranchPoller";
   import { clearPermissionInfo } from "$lib/panes/agentState";
-  import { listSessions, checkSetupStatus, checkSetupNeeded, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, onMailboxEvent, onAliasEvent, onWorkItemEvent, quitApp, submitRouxReply } from "$lib/tauri";
+  import { listSessions, checkSetupStatus, checkSetupNeeded, checkDoctorStatus, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, onMailboxEvent, onAliasEvent, onWorkItemEvent, quitApp, submitRouxReply } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
   import { profileRegistry } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -113,11 +113,45 @@
   let showNewSessionDialog = $state(false);
   let showSessionDialog = $derived(showNewSessionDialog || $workItemSessionStart !== null);
   let showSetupPrompt = $state(false);
+  let startupDoctorNotices = $state<string[]>([]);
   let showQuitDialog = $state(false);
+
+  const DISMISSED_STARTUP_DOCTOR_NOTICES_KEY = "roux:dismissed-startup-doctor-notices";
 
   function closeSessionDialog() {
     showNewSessionDialog = false;
     closeWorkItemSessionStart();
+  }
+
+  function dismissedStartupDoctorNotices(): Set<string> {
+    try {
+      const raw = localStorage.getItem(DISMISSED_STARTUP_DOCTOR_NOTICES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.filter((notice): notice is string => typeof notice === "string"));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function dismissStartupDoctorNotices(notices: string[]) {
+    if (notices.length === 0) return;
+    try {
+      const dismissed = dismissedStartupDoctorNotices();
+      for (const notice of notices) dismissed.add(notice);
+      localStorage.setItem(
+        DISMISSED_STARTUP_DOCTOR_NOTICES_KEY,
+        JSON.stringify([...dismissed]),
+      );
+    } catch {
+      // Best-effort: failure only means the startup notice can reappear later.
+    }
+  }
+
+  function handleSetupPromptDone() {
+    dismissStartupDoctorNotices(startupDoctorNotices);
+    startupDoctorNotices = [];
+    showSetupPrompt = false;
   }
 
   /** Returns true if a pane was closed, false if there was nothing to close */
@@ -567,6 +601,18 @@
     if (setupNeeded) {
       log("First-time setup needed");
       showSetupPrompt = true;
+    } else {
+      try {
+        const doctor = await checkDoctorStatus();
+        const dismissed = dismissedStartupDoctorNotices();
+        startupDoctorNotices = (doctor.notices ?? []).filter((notice) => !dismissed.has(notice));
+        if (startupDoctorNotices.length > 0) {
+          log("Startup Doctor notice available");
+          showSetupPrompt = true;
+        }
+      } catch (error) {
+        logError("Failed to check startup Doctor notices", error);
+      }
     }
 
     // Load projects (global, independent of session restore)
@@ -971,5 +1017,5 @@
 <DoctorPanel
   mode="onboarding"
   visible={showSetupPrompt}
-  ondone={() => (showSetupPrompt = false)}
+  ondone={handleSetupPromptDone}
 />

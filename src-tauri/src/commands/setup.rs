@@ -162,7 +162,6 @@ pub(crate) fn check_setup_needed() -> bool {
         || !svc::is_cli_current()
         || !svc::is_hooks_installed()
         || !svc::is_skill_installed()
-        || !svc::startup_notices().is_empty()
 }
 
 #[tauri::command]
