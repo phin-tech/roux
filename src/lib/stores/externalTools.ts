@@ -77,6 +77,10 @@ export async function restartExternalToolRun(runId: string): Promise<void> {
 export async function closeExternalToolRun(runId: string): Promise<void> {
   const run = get(externalToolRuns).get(runId);
   if (run) await killRunRuntime(run);
+  removeExternalToolRun(runId);
+}
+
+function removeExternalToolRun(runId: string): void {
   externalToolRuns.update((runs) => {
     const next = new Map(runs);
     next.delete(runId);
@@ -92,13 +96,10 @@ export function markExternalToolReady(runId: string): void {
   updateRun(runId, (run) => ({ ...run, status: "ready", error: null }));
 }
 
-export function markExternalToolExited(runId: string, exitCode: number | null): void {
-  updateRun(runId, (run) => ({
-    ...run,
-    status: "exited",
-    exitCode,
-    logsOpen: run.surface === "web" ? true : run.logsOpen,
-  }));
+export function markExternalToolExited(runId: string, _exitCode: number | null): void {
+  const run = get(externalToolRuns).get(runId);
+  if (run) void killRunRuntime(run);
+  removeExternalToolRun(runId);
 }
 
 export function setExternalToolRunError(runId: string, error: string): void {
