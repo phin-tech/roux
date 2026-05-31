@@ -469,23 +469,10 @@ tasks:
 
         echo "Bumping version: ${CURRENT} -> ${NEW}"
 
-        # Update package.json
-        sed -i '' "s/\"version\": \".*\"/\"version\": \"${NEW}\"/" package.json
+        # Keep the desktop app and bundled CLI on the same release version.
+        python3 scripts/stamp-version.py "${NEW}"
 
-        # Update tauri.conf.json
-        python3 -c "
-        import json
-        with open('src-tauri/tauri.conf.json') as f:
-            d = json.load(f)
-        d['version'] = '${NEW}'
-        with open('src-tauri/tauri.conf.json', 'w') as f:
-            json.dump(d, f, indent=2)
-        "
-
-        # Update Cargo.toml
-        sed -i '' "s/^version = \".*\"/version = \"${NEW}\"/" src-tauri/Cargo.toml
-
-        git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+        git add package.json package-lock.json Cargo.lock src-tauri/tauri.conf.json src-tauri/Cargo.toml crates/roux-cli/Cargo.toml
         git commit -m "${COMMIT_PREFIX}: v${NEW}"
         git tag "v${NEW}"
         git push origin main
