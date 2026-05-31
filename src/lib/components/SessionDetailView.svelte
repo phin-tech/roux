@@ -34,6 +34,7 @@
   let reconnecting = $state(false);
   let refreshGeneration = 0;
   let documentOpenGeneration = 0;
+  let documentTargetId: string | null = null;
 
   let session = $derived($sessionList.find((s) => s.id === sessionId) ?? null);
   let displayName = $derived(session ? sessionDisplayName(session) : "");
@@ -55,15 +56,18 @@
 
   $effect(() => {
     const currentSession = session;
-    const targetId = sessionId;
-    documentOpenGeneration += 1;
-    documentLoadingId = null;
-    selectedDocument = null;
+    const targetId = currentSession ? sessionId : null;
+    if (documentTargetId !== targetId) {
+      documentTargetId = targetId;
+      documentOpenGeneration += 1;
+      documentLoadingId = null;
+      selectedDocument = null;
+    }
     if (!currentSession) {
       documents = [];
       return;
     }
-    void refreshDocuments(targetId);
+    void refreshDocuments(sessionId);
   });
 
   function metadataRows(s: Session): Array<[string, string | null]> {

@@ -225,6 +225,39 @@ describe("SessionDetailView", () => {
     expect(screen.getByText("Select an attachment to read it.")).toBeTruthy();
   });
 
+  it("keeps pending attachment reads alive across same-session metadata updates", async () => {
+    const attachment = makeAttachment({
+      title: "Live session note",
+    });
+    let resolveDocument:
+      | ((value: { attachment: Attachment; content: string }) => void)
+      | undefined;
+
+    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
+    vi.mocked(listDocuments).mockResolvedValue([attachment]);
+    vi.mocked(getDocument).mockImplementation(() => {
+      return new Promise((resolve) => {
+        resolveDocument = resolve;
+      });
+    });
+
+    render(SessionDetailView, { sessionId: "session-1" });
+
+    await fireEvent.click(await screen.findByRole("button", { name: "Live session note" }));
+    sessionState.update((state) => ({
+      ...state,
+      sessions: state.sessions.map((session) =>
+        session.id === "session-1" ? { ...session, status: "generating" } : session,
+      ),
+    }));
+
+    resolveDocument?.({ attachment, content: "Still current content" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await tick();
+
+    expect(screen.getByText("Still current content")).toBeTruthy();
+  });
+
   it("renames the session inline", async () => {
     sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
     render(SessionDetailView, { sessionId: "session-1" });
