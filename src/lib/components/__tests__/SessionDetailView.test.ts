@@ -173,6 +173,58 @@ describe("SessionDetailView", () => {
     expect(screen.getByText("Second content")).toBeTruthy();
   });
 
+  it("ignores pending attachment reads after the session detail route changes", async () => {
+    const firstAttachment = makeAttachment({
+      id: "doc-1",
+      documentId: "session-1.doc-1",
+      targetId: "session-1",
+      title: "First session note",
+    });
+    const secondAttachment = makeAttachment({
+      id: "doc-2",
+      documentId: "session-2.doc-2",
+      targetId: "session-2",
+      title: "Second session note",
+    });
+    let resolveFirst:
+      | ((value: { attachment: Attachment; content: string }) => void)
+      | undefined;
+
+    sessionState.set({
+      sessions: [
+        makeSession(),
+        makeSession({
+          id: "session-2",
+          name: "second",
+          primaryPtyId: "pty-second",
+        }),
+      ],
+      activeSessionId: "session-1",
+    });
+    vi.mocked(listDocuments).mockImplementation((_, targetId) => {
+      if (targetId === "session-1") return Promise.resolve([firstAttachment]);
+      return Promise.resolve([secondAttachment]);
+    });
+    vi.mocked(getDocument).mockImplementation((documentId) => {
+      return new Promise((resolve) => {
+        if (documentId === firstAttachment.documentId) resolveFirst = resolve;
+      });
+    });
+
+    const view = render(SessionDetailView, { sessionId: "session-1" });
+
+    await fireEvent.click(await screen.findByRole("button", { name: "First session note" }));
+    await view.rerender({ sessionId: "session-2" });
+    expect(await screen.findByRole("button", { name: "Second session note" })).toBeTruthy();
+
+    resolveFirst?.({ attachment: firstAttachment, content: "First session stale content" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await tick();
+
+    expect(screen.queryByText("First session stale content")).toBeNull();
+    expect(screen.getByText("Select an attachment to read it.")).toBeTruthy();
+  });
+
   it("renames the session inline", async () => {
     sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
     render(SessionDetailView, { sessionId: "session-1" });

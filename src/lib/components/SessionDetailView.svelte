@@ -56,6 +56,8 @@
   $effect(() => {
     const currentSession = session;
     const targetId = sessionId;
+    documentOpenGeneration += 1;
+    documentLoadingId = null;
     selectedDocument = null;
     if (!currentSession) {
       documents = [];
