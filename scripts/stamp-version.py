@@ -38,7 +38,7 @@ def set_json_version(path: Path, version: str) -> None:
 
 def set_package_lock_version(path: Path, version: str) -> None:
     if not path.exists():
-        return
+        raise FileNotFoundError(f"{path} is required for release version stamping")
 
     data = read_json(path)
     if not isinstance(data, dict):
@@ -55,6 +55,7 @@ def set_cargo_package_version(path: Path, version: str) -> None:
     lines = path.read_text().splitlines()
     in_package = False
     changed = False
+    saw_workspace_inherited_version = False
 
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -67,8 +68,15 @@ def set_cargo_package_version(path: Path, version: str) -> None:
             lines[i] = f'version = "{version}"'
             changed = True
             break
+        if in_package and stripped == "version.workspace = true":
+            saw_workspace_inherited_version = True
 
     if not changed:
+        if saw_workspace_inherited_version:
+            raise ValueError(
+                f"{path} uses version.workspace = true; stamp-version.py requires a literal "
+                "[package] version so release tags can carry app and CLI versions independently"
+            )
         raise ValueError(f"did not find [package] version in {path}")
 
     path.write_text("\n".join(lines) + "\n")
@@ -76,7 +84,7 @@ def set_cargo_package_version(path: Path, version: str) -> None:
 
 def set_cargo_lock_versions(path: Path, version: str, package_names: set[str]) -> None:
     if not path.exists():
-        return
+        raise FileNotFoundError(f"{path} is required for release version stamping")
 
     lines = path.read_text().splitlines()
     current_package: str | None = None
