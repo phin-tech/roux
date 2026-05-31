@@ -11,10 +11,10 @@ import {
   pinnedSidebar,
   pinSidebar,
   PINNABLE_SIDEBARS,
-  toggleBoardFullscreen,
   toggleSidebar,
   unpinSidebar,
 } from "$lib/stores/ui";
+import { toggleMainView } from "$lib/stores/mainView";
 import {
   setRailSide,
   toggleRailSide,
@@ -140,9 +140,9 @@ export function registerUiCommands() {
 
   registry.register({
     id: "ui.toggle-board",
-    label: "Toggle Board (Fullscreen)",
+    label: "Toggle Board Main View",
     category: "App",
-    execute: () => toggleBoardFullscreen(),
+    execute: () => toggleMainView({ kind: "board" }),
   });
 
   registry.register({

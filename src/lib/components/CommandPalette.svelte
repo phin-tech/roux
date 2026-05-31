@@ -2,6 +2,8 @@
   import { fade, scale } from "svelte/transition";
   import { Command } from "bits-ui";
   import { registry, type Command as Cmd, type CommandItem as CmdItem } from "$lib/commands/registry";
+  import { mainViewRoute } from "$lib/stores/mainView";
+  import { commandBlockedByMainView } from "$lib/mainView/keyGate";
   import { formatShortcut } from "$lib/platform";
   import { shortcutFor, keymapState } from "$lib/keymap/store";
   import Bot from "@lucide/svelte/icons/bot";
@@ -46,7 +48,10 @@
 
   let availableCommands = $derived.by(() => {
     if (inDrillStep) return [];
-    const cmds = registry.getAvailable();
+    const mainViewOpen = $mainViewRoute !== null;
+    const cmds = registry.getAvailable().filter((cmd) =>
+      !mainViewOpen || !commandBlockedByMainView(cmd),
+    );
     const groups = new Map<string, Cmd[]>();
     for (const cmd of cmds) {
       if (!groups.has(cmd.category)) groups.set(cmd.category, []);
@@ -63,7 +68,7 @@
       stepStack = [];
       if (initialCommandId) {
         const cmd = registry.get(initialCommandId);
-        if (cmd?.getItems) {
+        if (cmd?.getItems && !($mainViewRoute !== null && commandBlockedByMainView(cmd))) {
           // Auto-drill into the command's picker. Run async so the effect
           // completes synchronously; the drill happens on next tick.
           void Promise.resolve(cmd.getItems()).then((items) => {
@@ -80,6 +85,8 @@
   });
 
   async function handleCommandSelect(cmd: Cmd) {
+    if ($mainViewRoute !== null && commandBlockedByMainView(cmd)) return;
+
     if (cmd.getItems) {
       const items = await cmd.getItems();
       stepStack = [...stepStack, { label: cmd.label, items, sourceCmd: cmd }];
@@ -151,6 +158,7 @@
     if (!inDrillStep || !inputValue.trim()) return;
     const cmd = currentStep?.sourceCmd;
     if (!cmd?.onInput) return;
+    if ($mainViewRoute !== null && commandBlockedByMainView(cmd)) return;
     const text = inputValue.trim();
     stepStack = [];
     inputValue = "";

@@ -3,12 +3,12 @@
   import SidebarDock from "./SidebarDock.svelte";
   import SplitPane from "./SplitPane.svelte";
   import StatusBar from "./StatusBar.svelte";
-  import BoardFullscreen from "./BoardFullscreen.svelte";
+  import MainViewHost from "./MainViewHost.svelte";
   import { activeSessionId, sessionList } from "$lib/stores/sessions";
   import { sessionLayouts } from "$lib/panes/layout";
   import { settings } from "$lib/stores/settings";
   import { sidebarLayout } from "$lib/stores/sidebarLayout";
-  import { boardFullscreen } from "$lib/stores/ui";
+  import { mainViewRoute } from "$lib/stores/mainView";
   import { openNewProjectDialog } from "$lib/stores/newProjectDialog";
   import type { Snippet } from "svelte";
 
@@ -97,8 +97,8 @@
           {/if}
         {/each}
       {/if}
-        {#if $boardFullscreen}
-          <BoardFullscreen />
+        {#if $mainViewRoute}
+          <MainViewHost />
         {/if}
       </div>
 

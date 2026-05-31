@@ -12,6 +12,7 @@ import {
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { openWorkItemSessionStart } from "$lib/stores/ui";
+import { openMainView } from "$lib/stores/mainView";
 import type { WorkItem } from "$lib/bindings";
 
 // jsdom lacks the Web Animations API that Svelte's transition:fade/scale use.
@@ -63,10 +64,13 @@ vi.mock("$lib/stores/sessions", async () => {
 });
 
 vi.mock("$lib/stores/ui", () => ({
-  openBoardFullscreen: vi.fn(),
   openNewWorkItemEditor: vi.fn(),
   openWorkItemEditor: vi.fn(),
   openWorkItemSessionStart: vi.fn(),
+}));
+
+vi.mock("$lib/stores/mainView", () => ({
+  openMainView: vi.fn(),
 }));
 
 vi.mock("$lib/panes/openSession", () => ({
@@ -126,6 +130,14 @@ describe("BoardPanel", () => {
 
     expect(startWorkItem).toHaveBeenCalledWith("wi-1");
     expect(moveWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("opens the board in the main view from the header", async () => {
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByLabelText("Open board in main view"));
+
+    expect(openMainView).toHaveBeenCalledWith({ kind: "board" });
   });
 
   it("shows an inline error when Start dispatch fails", async () => {

@@ -133,7 +133,6 @@ export type StartupSidebarPreference = "restore" | "sessions" | "kanban" | "none
 
 export function applyStartupSidebarPreference(preference: StartupSidebarPreference): void {
   if (preference === "restore") return;
-  boardFullscreen.set(false);
   if (preference === "none") {
     sidebarState.set({ pinned: null, active: null });
     clearNotesOverrideIfLeaving(null);
@@ -192,26 +191,6 @@ export function openNotesForSession(sessionId: string): void {
   showSidebar();
   notesOverrideSessionId.set(sessionId);
   sidebarState.update((s) => ({ ...s, active: "notes" }));
-}
-
-/**
- * The board has two surfaces: the lightweight dock panel (a pinnable
- * `SidebarId`) and a roomy full-screen view that overlays the main content
- * area. This flag drives the full-screen view only; it is independent of the
- * sidebar pinned/active slots so opening one never disturbs the other.
- */
-export const boardFullscreen = writable(false);
-
-export function openBoardFullscreen(): void {
-  boardFullscreen.set(true);
-}
-
-export function closeBoardFullscreen(): void {
-  boardFullscreen.set(false);
-}
-
-export function toggleBoardFullscreen(): void {
-  boardFullscreen.update((v) => !v);
 }
 
 /**

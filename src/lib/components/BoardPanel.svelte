@@ -16,9 +16,9 @@
   } from "$lib/stores/workItems";
   import { sessionList } from "$lib/stores/sessions";
   import type { SessionStatus } from "$lib/types";
-  import Maximize2 from "@lucide/svelte/icons/maximize-2";
+  import PanelTopOpen from "@lucide/svelte/icons/panel-top-open";
+  import { openMainView } from "$lib/stores/mainView";
   import {
-    openBoardFullscreen,
     openNewWorkItemEditor,
     openWorkItemEditor,
     openWorkItemSessionStart,
@@ -181,11 +181,11 @@
       <button
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
-        onclick={openBoardFullscreen}
-        aria-label="Open board fullscreen"
-        title="Open board fullscreen"
+        onclick={() => openMainView({ kind: "board" })}
+        aria-label="Open board in main view"
+        title="Open board in main view"
       >
-        <Maximize2 size={14} />
+        <PanelTopOpen size={14} />
       </button>
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />

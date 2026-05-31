@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import BoardFullscreen from "../BoardFullscreen.svelte";
+import BoardMainView from "../BoardMainView.svelte";
 import {
   itemsByColumn,
   acceptWorkItemReview,
@@ -12,11 +12,8 @@ import {
   runsByItem,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
-import {
-  closeBoardFullscreen,
-  openNewWorkItemEditor,
-  openWorkItemSessionStart,
-} from "$lib/stores/ui";
+import { openNewWorkItemEditor, openWorkItemSessionStart } from "$lib/stores/ui";
+import { closeMainView } from "$lib/stores/mainView";
 import { openSessionById } from "$lib/panes/openSession";
 import { WORK_ITEM_DRAG_MIME } from "$lib/board/drag";
 import type { WorkItem } from "$lib/bindings";
@@ -41,7 +38,7 @@ if (typeof Element !== "undefined" && !Element.prototype.animate) {
 }
 
 // itemsByColumn is replaced with a plain writable so the test can drive the
-// columns directly; moveWorkItem / closeBoardFullscreen become spies.
+// columns directly; moveWorkItem / closeMainView become spies.
 vi.mock("$lib/stores/workItems", async () => {
   const { writable } = await import("svelte/store");
   return {
@@ -75,10 +72,13 @@ vi.mock("$lib/stores/sessions", async () => {
 });
 
 vi.mock("$lib/stores/ui", () => ({
-  closeBoardFullscreen: vi.fn(),
   openNewWorkItemEditor: vi.fn(),
   openWorkItemEditor: vi.fn(),
   openWorkItemSessionStart: vi.fn(),
+}));
+
+vi.mock("$lib/stores/mainView", () => ({
+  closeMainView: vi.fn(),
 }));
 
 vi.mock("$lib/panes/openSession", () => ({
@@ -165,7 +165,7 @@ function dragData(payload: { itemId: string; fromStatus: string }): DataTransfer
   } as unknown as DataTransfer;
 }
 
-describe("BoardFullscreen", () => {
+describe("BoardMainView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     seedColumns([]);
@@ -176,7 +176,7 @@ describe("BoardFullscreen", () => {
   });
 
   it("renders one section per column with labels", () => {
-    render(BoardFullscreen);
+    render(BoardMainView);
     expect(screen.getAllByTestId("board-column")).toHaveLength(5);
     expect(screen.getByText("To Do")).toBeTruthy();
     expect(screen.getByText("Ready")).toBeTruthy();
@@ -187,7 +187,7 @@ describe("BoardFullscreen", () => {
 
   it("moves a card to the dropped-on column", async () => {
     seedColumns([workItem({ id: "wi-1", status: "todo" })]);
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     const doneColumn = document.querySelector('[data-column="done"]')!;
     await fireEvent.drop(doneColumn, {
@@ -199,7 +199,7 @@ describe("BoardFullscreen", () => {
 
   it("ignores a drop onto the card's current column", async () => {
     seedColumns([workItem({ id: "wi-1", status: "todo" })]);
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     const todoColumn = document.querySelector('[data-column="todo"]')!;
     await fireEvent.drop(todoColumn, {
@@ -209,17 +209,11 @@ describe("BoardFullscreen", () => {
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
-  it("closes via the header button", async () => {
-    render(BoardFullscreen);
-    await fireEvent.click(screen.getByLabelText("Close board"));
-    expect(closeBoardFullscreen).toHaveBeenCalled();
-  });
-
   it("Start delegates to daemon start without issuing a second move", async () => {
     seedColumns([
       workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
     ].map((item) => ({ ...item, agentProfile: "claude" } as WorkItem)));
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     await fireEvent.click(screen.getByLabelText("Start work item"));
 
@@ -234,7 +228,7 @@ describe("BoardFullscreen", () => {
     seedColumns([
       workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
     ].map((item) => ({ ...item, agentProfile: "claude" } as WorkItem)));
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     await fireEvent.click(screen.getByLabelText("Start work item"));
 
@@ -250,7 +244,7 @@ describe("BoardFullscreen", () => {
   it("opens the session prompt when Start is clicked on an unprojected card", async () => {
     const item = workItem({ id: "wi-1", title: "Wire task start", projectId: null, sessionId: null });
     seedColumns([item]);
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     expect(screen.getByText("Configure")).toBeTruthy();
     await fireEvent.click(screen.getByLabelText("Start work item"));
@@ -292,7 +286,7 @@ describe("BoardFullscreen", () => {
       notification({ id: "n-impl", sessionId: "impl-sess-1" }),
       notification({ id: "n-other", sessionId: "other-sess" }),
     ]);
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     const badge = screen.getByLabelText("Open session with unread activity");
     expect(badge.textContent).toBe("2");
@@ -301,12 +295,12 @@ describe("BoardFullscreen", () => {
     await fireEvent.click(badge);
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
-    await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
   });
 
   it("does not delete from the right-click menu when the delete dialog is canceled", async () => {
     seedColumns([workItem({ id: "wi-delete", title: "Keep me" })]);
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     await fireEvent.contextMenu(screen.getByTestId("work-item-card"), {
       clientX: 64,
@@ -322,14 +316,14 @@ describe("BoardFullscreen", () => {
     seedColumns([
       workItem({ id: "wi-1", status: "doing", sessionId: "sess-1" }),
     ]);
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     // Session-bound cards show Open terminal, not Start.
     expect(screen.queryByLabelText("Start work item")).toBeNull();
     await fireEvent.click(screen.getByLabelText("Open terminal"));
 
     expect(openSessionById).toHaveBeenCalledWith("sess-1");
-    await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
   });
 
   it("accepts review from the card actions menu without directly moving the card", async () => {
@@ -341,7 +335,7 @@ describe("BoardFullscreen", () => {
         sessionId: "sess-1",
       }),
     ]);
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
     await fireEvent.click(screen.getByText("Accept done"));
@@ -375,13 +369,13 @@ describe("BoardFullscreen", () => {
         ],
       ]),
     );
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     expect(screen.queryByLabelText("Start work item")).toBeNull();
     await fireEvent.click(screen.getByLabelText("Open planning terminal"));
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
-    await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
   });
 
   it("routes pending question attention to the planning session without rendering the question body", async () => {
@@ -430,13 +424,13 @@ describe("BoardFullscreen", () => {
         ],
       ]),
     );
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     expect(screen.queryByText("What should the report include?")).toBeNull();
     await fireEvent.click(screen.getByLabelText("Open session with pending question"));
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
-    await vi.waitFor(() => expect(closeBoardFullscreen).toHaveBeenCalled());
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
   });
 
   it("replans an active planning run from the card actions menu", async () => {
@@ -464,7 +458,7 @@ describe("BoardFullscreen", () => {
         ],
       ]),
     );
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
     await fireEvent.click(screen.getByText("Retry planning"));
@@ -473,7 +467,7 @@ describe("BoardFullscreen", () => {
   });
 
   it("opens the new card editor for the selected column", async () => {
-    render(BoardFullscreen);
+    render(BoardMainView);
 
     // The Review column's add button (4 columns → 4 add buttons).
     const reviewColumn = document.querySelector('[data-column="review"]')!;
