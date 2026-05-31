@@ -1,5 +1,6 @@
 <script lang="ts">
   import PinButton from "./PinButton.svelte";
+  import RepoPickerField from "./RepoPickerField.svelte";
   import { commands } from "$lib/bindings";
   import type {
     WorktrunkDiagnostics,
@@ -120,6 +121,10 @@
   let newBranch = $state("");
   let newBase = $state<WorktreeDefaultBase>("currentBranch");
   let creatingNew = $state(false);
+  // Branch name of the most-recently created worktree; drives the
+  // "Open session" prompt.  Cleared when the user acts on it or creates
+  // another worktree.
+  let justCreatedBranch = $state<string | null>(null);
 
   // Sync the base selector to the user's default whenever the form opens.
   $effect(() => {
@@ -152,12 +157,15 @@
     }
     creatingNew = true;
     worktreesError = null;
+    justCreatedBranch = null;
     try {
       const { startPoint, fetchFirst } = resolveNewWorktreeBase(newBase);
       await createWorktree(currentRepo, branch, { startPoint, fetchFirst });
       newBranch = "";
       newFormOpen = false;
       await loadWorktrees(currentRepo);
+      // Offer to open a session in the just-created worktree.
+      justCreatedBranch = branch;
     } catch (err) {
       const msg = typeof err === "string" ? err : String(err);
       worktreesError = `Failed to create worktree: ${msg}`;
@@ -174,7 +182,13 @@
   let readerError = $state<string | null>(null);
   let readerLoading = $state(false);
 
-  let currentRepo = $derived(visible ? ($activeSession?.repoRoot ?? null) : null);
+  // When there is no active session the user can pick a repo explicitly.
+  // Active session always wins by default; an explicit pick overrides it;
+  // clearing the override falls back to the active session.
+  let selectedRepoOverride = $state<string | null>(null);
+  let currentRepo = $derived(
+    visible ? (selectedRepoOverride ?? $activeSession?.repoRoot ?? null) : null,
+  );
 
   /**
    * Shorten a repo path for header display. Looks for a known forge
@@ -231,6 +245,7 @@
     contextMenuFor = null;
     contextBusy = false;
     contextError = null;
+    justCreatedBranch = null;
   }
 
   // Map of worktree path → first active (non-archived) session that
@@ -252,6 +267,14 @@
   function isRemovableWorktree(wt: Worktree): boolean {
     return !wt.isMain && !worktreePathsWithSession.has(wt.path);
   }
+
+  // Find the newly created worktree in the refreshed list so we can
+  // offer to open a session in it.
+  let justCreatedWorktree = $derived(
+    justCreatedBranch != null
+      ? (worktrees.find((wt) => wt.branch === justCreatedBranch) ?? null)
+      : null,
+  );
 
   let filteredWorktrees = $derived.by(() => {
     const q = filterText.trim().toLowerCase();
@@ -897,17 +920,39 @@
       >
       <span
         data-testid="worktrunk-repo-label"
-        class="truncate font-mono text-[10px] text-text-secondary"
+        class="min-w-0 flex-1 truncate font-mono text-[10px] text-text-secondary"
         >{currentRepoLabel}</span
       >
+      {#if selectedRepoOverride !== null && selectedRepoOverride !== $activeSession?.repoRoot}
+        <button
+          type="button"
+          data-testid="worktrunk-repo-clear"
+          class="shrink-0 cursor-pointer rounded px-1 text-[9px] text-text-muted hover:bg-bg-hover hover:text-text-primary"
+          title="Clear repo override and return to picker / active session"
+          onclick={() => { selectedRepoOverride = null; }}
+        >Change</button>
+      {/if}
     </div>
   {/if}
 
   {#if !currentRepo}
     <div
-      class="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary"
+      data-testid="worktrunk-repo-picker"
+      class="flex flex-1 flex-col gap-3 overflow-y-auto p-4"
     >
-      Open a session to view its worktrunk state.
+      <p class="text-[11px] text-text-muted">
+        Pick a repo to browse its worktrees, or open a session to auto-select one.
+      </p>
+      <RepoPickerField
+        value=""
+        label={null}
+        placeholder="Search repos…"
+        showRefresh={false}
+        showBrowse={false}
+        noReposText="No git repos found. Configure repo roots in Settings."
+        onselect={(path) => { selectedRepoOverride = path; }}
+        onenter={(text) => { if (text.trim()) selectedRepoOverride = text.trim(); }}
+      />
     </div>
   {:else}
     <div class="flex shrink-0 border-b border-hairline bg-bg-surface/20 text-[11px]">
@@ -1105,6 +1150,35 @@
                 onclick={handleCreateNew}
                 disabled={creatingNew || !newBranch.trim()}
               >{creatingNew ? "Creating…" : "Create"}</button>
+            </div>
+          </div>
+        {/if}
+
+        {#if justCreatedWorktree}
+          <div
+            data-testid="worktrunk-open-session-after-create"
+            class="mx-2 mb-2 flex items-center justify-between gap-2 rounded border border-accent-dim/40 bg-accent-dim/10 px-2 py-1.5 text-[11px] text-text-secondary"
+          >
+            <span class="min-w-0 truncate">
+              <span class="font-mono text-text-primary">{justCreatedWorktree.branch}</span> created.
+            </span>
+            <div class="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                data-testid="worktrunk-open-session-after-create-btn"
+                class="inline-flex h-5 cursor-pointer items-center rounded border border-accent-dim/60 bg-accent-dim/20 px-2 text-[10px] text-accent hover:bg-accent-dim/40 disabled:opacity-40"
+                disabled={spawning === justCreatedWorktree.path}
+                onclick={() => { void handleNewSessionHere(justCreatedWorktree!); justCreatedBranch = null; }}
+              >{spawning === justCreatedWorktree.path ? "Starting…" : "Open session"}</button>
+              <button
+                type="button"
+                class="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded text-text-muted hover:bg-bg-hover hover:text-text-primary"
+                aria-label="Dismiss"
+                title="Dismiss"
+                onclick={() => { justCreatedBranch = null; }}
+              >
+                <X size={11} />
+              </button>
             </div>
           </div>
         {/if}
