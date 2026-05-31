@@ -10,6 +10,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::platform;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliInstallation {
+    pub path: PathBuf,
+    pub version: Option<String>,
+}
+
 #[cfg(not(windows))]
 fn unix_cli_install_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".local").join("bin").join(platform::roux_cli_file_name()))
@@ -29,6 +35,11 @@ fn bundled_cli_source_path() -> Option<PathBuf> {
 
 fn first_existing_path(candidates: impl IntoIterator<Item = Option<PathBuf>>) -> Option<PathBuf> {
     candidates.into_iter().flatten().find(|path| path.is_file())
+}
+
+#[cfg(not(windows))]
+fn first_existing_concrete_path(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    candidates.into_iter().find(|path| path.is_file())
 }
 
 fn find_cli_on_path() -> Option<PathBuf> {
@@ -161,6 +172,53 @@ pub fn cli_is_installed() -> bool {
     let candidates = [unix_cli_install_path(), cargo_cli_install_path()];
 
     first_existing_path(candidates).or_else(find_cli_on_path).is_some()
+}
+
+#[cfg(not(windows))]
+fn homebrew_cli_candidate_paths() -> Vec<PathBuf> {
+    let file_name = platform::roux_cli_file_name();
+    ["/opt/homebrew/bin", "/usr/local/bin", "/home/linuxbrew/.linuxbrew/bin"]
+        .into_iter()
+        .map(|prefix| Path::new(prefix).join(file_name))
+        .collect()
+}
+
+#[cfg(not(windows))]
+pub fn homebrew_cli_installation() -> Option<CliInstallation> {
+    let path = first_existing_concrete_path(homebrew_cli_candidate_paths())?;
+    Some(CliInstallation { version: cli_version_at(&path), path })
+}
+
+#[cfg(windows)]
+pub fn homebrew_cli_installation() -> Option<CliInstallation> {
+    None
+}
+
+fn stale_homebrew_cli_notice_for(
+    installation: CliInstallation,
+    bundled_version: &str,
+) -> Option<String> {
+    if installation.version.as_deref() == Some(bundled_version) {
+        return None;
+    }
+
+    let formula = if bundled_version.contains("-pre")
+        || installation.version.as_deref().is_some_and(|version| version.contains("-pre"))
+    {
+        "phin-tech/tap/roux-pre"
+    } else {
+        "phin-tech/tap/roux"
+    };
+    let installed = installation.version.as_deref().unwrap_or("unknown version");
+
+    Some(format!(
+        "Homebrew roux detected at {} ({installed}). Roux does not upgrade Homebrew formulae from the app; run `brew upgrade {formula}` to update that install.",
+        installation.path.display()
+    ))
+}
+
+pub fn stale_homebrew_cli_notice() -> Option<String> {
+    stale_homebrew_cli_notice_for(homebrew_cli_installation()?, bundled_cli_version())
 }
 
 #[cfg(windows)]
@@ -608,6 +666,21 @@ mod tests {
     fn installs_cli_when_installed_version_unknown() {
         // Present but unrunnable / corrupt → reinstall to be safe.
         assert!(should_install_cli(true, None, "0.5.3"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn homebrew_notice_points_prereleases_at_prerelease_formula() {
+        let installation = CliInstallation {
+            path: PathBuf::from("/opt/homebrew/bin/roux"),
+            version: Some("0.5.3-pre.1".to_string()),
+        };
+
+        let notice = stale_homebrew_cli_notice_for(installation, "0.5.4-pre.2").unwrap();
+
+        assert!(notice.contains("/opt/homebrew/bin/roux"));
+        assert!(notice.contains("0.5.3-pre.1"));
+        assert!(notice.contains("brew upgrade phin-tech/tap/roux-pre"));
     }
 
     #[cfg(not(windows))]
