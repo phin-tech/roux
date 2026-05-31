@@ -6,6 +6,29 @@ A desktop terminal multiplexer for [Claude Code](https://docs.anthropic.com/en/d
 
 Roux lets you run multiple Claude Code sessions side-by-side with split panes, stacked tabs, shell terminals, and persistent layouts -- all in a single native window.
 
+## Install
+
+Install the macOS desktop app with Homebrew:
+
+```bash
+brew install --cask phin-tech/tap/roux
+```
+
+Install the standalone CLI with Homebrew:
+
+```bash
+brew install phin-tech/tap/roux
+```
+
+To install the latest prerelease builds:
+
+```bash
+brew install --cask phin-tech/tap/roux-pre
+brew install phin-tech/tap/roux-pre
+```
+
+The formula installs the `roux` CLI. The cask installs the desktop app. The desktop casks currently require Apple Silicon. Manual downloads are also available from the [GitHub releases page](https://github.com/phin-tech/roux/releases).
+
 ## Features
 
 - **Multi-session** -- Run independent Claude Code sessions, each with its own git worktree

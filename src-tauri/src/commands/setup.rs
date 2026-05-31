@@ -265,10 +265,7 @@ pub(crate) fn check_doctor_status() -> DoctorStatus {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn reinstall_cli() -> Result<(), String> {
-    // Reinstalling the CLI is a side effect of install_hooks (it copies the
-    // binary into ~/.local/bin before wiring up settings.json), so it's the
-    // cheapest way to get a fresh CLI on disk today.
-    svc::install_hooks().map_err(|e| e.to_string())
+    svc::install_cli().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -286,10 +283,11 @@ pub(crate) fn reinstall_skill() -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn install_all_missing() -> Result<(), String> {
-    // install_hooks copies the CLI to ~/.local/bin as a side effect, so this
-    // also covers "CLI is stale" (version mismatch with bundled).
-    if !svc::is_cli_installed() || !svc::is_cli_current() || !svc::is_hooks_installed() {
+    let cli_needs_install = !svc::is_cli_installed() || !svc::is_cli_current();
+    if !svc::is_hooks_installed() {
         svc::install_hooks().map_err(|e| e.to_string())?;
+    } else if cli_needs_install {
+        svc::install_cli().map_err(|e| e.to_string())?;
     }
     if !svc::is_skill_installed() {
         svc::install_skill().map_err(|e| e.to_string())?;

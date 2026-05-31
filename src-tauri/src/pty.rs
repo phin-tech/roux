@@ -967,19 +967,18 @@ pub fn ensure_roux_cli_shim() {
 
 /// Cached pair of (bin-dir-to-prepend-to-PATH, full-path-to-Roux-CLI).
 /// Set up once at first PTY spawn: creates `~/.config/roux/bin/` and places
-/// `roux` plus compatibility `roux-cli` symlinks there, both pointing at the
-/// bundled CLI binary built next to the currently running desktop exe. Returning
-/// `None` means we couldn't find the bundled CLI (e.g. a dev build where it wasn't
-/// compiled yet) — callers skip the PATH injection gracefully.
+/// a `roux` symlink pointing at the bundled CLI binary built next to the
+/// currently running desktop exe. Returning `None` means we couldn't find the
+/// bundled CLI (e.g. a dev build where it wasn't compiled yet) — callers skip
+/// the PATH injection gracefully.
 fn roux_cli_shim() -> Option<(String, String)> {
     use std::sync::OnceLock;
     static CACHE: OnceLock<Option<(String, String)>> = OnceLock::new();
     CACHE
         .get_or_init(|| {
             // 1. Find the bundled Roux CLI next to the currently running exe.
-            let source = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|d| d.join(platform::roux_cli_file_name())))?;
+            let source =
+                std::env::current_exe().ok().and_then(|p| platform::sibling_roux_cli_path(&p))?;
             if !source.exists() {
                 rlog!("roux_cli_shim: bundled CLI not found at {}", source.display());
                 return None;
@@ -992,53 +991,46 @@ fn roux_cli_shim() -> Option<(String, String)> {
                 return None;
             }
 
-            // 3. Install symlinks: `roux` and legacy alias `roux-cli` both
-            //    pointing at the bundled source. We re-create the links every
-            //    startup so the PTY always sees the freshest binary, even
-            //    after a version bump.
+            // 3. Install a `roux` symlink pointing at the bundled source. We
+            //    re-create the link every startup so the PTY always sees the
+            //    freshest binary, even after a version bump.
             #[cfg(unix)]
             {
                 use std::os::unix::fs as unix_fs;
-                for alias in ["roux", "roux-cli"] {
-                    let link = bin_dir.join(alias);
-                    // Remove any existing symlink/file so we can re-point it.
-                    let _ = std::fs::remove_file(&link);
-                    if let Err(e) = unix_fs::symlink(&source, &link) {
-                        rlog!(
-                            "roux_cli_shim: failed to symlink {} -> {}: {}",
-                            link.display(),
-                            source.display(),
-                            e
-                        );
-                        return None;
-                    }
+                let link = bin_dir.join("roux");
+                // Remove any existing symlink/file so we can re-point it.
+                let _ = std::fs::remove_file(&link);
+                if let Err(e) = unix_fs::symlink(&source, &link) {
+                    rlog!(
+                        "roux_cli_shim: failed to symlink {} -> {}: {}",
+                        link.display(),
+                        source.display(),
+                        e
+                    );
+                    return None;
                 }
             }
 
             #[cfg(windows)]
             {
-                for alias in ["roux.exe", "roux-cli.exe"] {
-                    let target = bin_dir.join(alias);
-                    let should_copy = if target.exists() {
-                        let src_modified =
-                            std::fs::metadata(&source).and_then(|m| m.modified()).ok();
-                        let dst_modified =
-                            std::fs::metadata(&target).and_then(|m| m.modified()).ok();
-                        match (src_modified, dst_modified) {
-                            (Some(src), Some(dst)) => src > dst,
-                            _ => true,
-                        }
-                    } else {
-                        true
-                    };
-                    if should_copy && std::fs::copy(&source, &target).is_err() {
-                        rlog!(
-                            "roux_cli_shim: failed to copy {} -> {}",
-                            source.display(),
-                            target.display()
-                        );
-                        return None;
+                let target = bin_dir.join("roux.exe");
+                let should_copy = if target.exists() {
+                    let src_modified = std::fs::metadata(&source).and_then(|m| m.modified()).ok();
+                    let dst_modified = std::fs::metadata(&target).and_then(|m| m.modified()).ok();
+                    match (src_modified, dst_modified) {
+                        (Some(src), Some(dst)) => src > dst,
+                        _ => true,
                     }
+                } else {
+                    true
+                };
+                if should_copy && std::fs::copy(&source, &target).is_err() {
+                    rlog!(
+                        "roux_cli_shim: failed to copy {} -> {}",
+                        source.display(),
+                        target.display()
+                    );
+                    return None;
                 }
             }
 

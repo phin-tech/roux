@@ -151,6 +151,11 @@ pub(crate) fn bundled_cli_version() -> &'static str {
     crate::hooks::bundled_cli_version()
 }
 
+pub(crate) fn install_cli() -> anyhow::Result<()> {
+    crate::hooks::install_cli().map_err(anyhow::Error::msg)?;
+    Ok(())
+}
+
 pub(crate) fn install_hooks() -> anyhow::Result<()> {
     crate::hooks::install_hooks().map_err(anyhow::Error::msg)?;
     Ok(())

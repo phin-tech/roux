@@ -9,7 +9,7 @@ This page tracks major shipped features across Roux's full history.
 - **Terminal + document workflows**: shell panes, markdown viewer/editor pane, command palette, pane rerun flow, and command panes for keep-open task output.
 - **Projects, themes, and notes**: project grouping, repo grouping, session UI polish, multi-theme support, and project notes sidebar.
 - **Task runner**: discover tasks from `package.json`, `Taskfile`, `Makefile`, and `Justfile`; run and manage tasks from sidebar and panes.
-- **CLI bridge**: shipped `roux-cli`, socket bridge, first-load install flow, and scripting entry points.
+- **CLI bridge**: shipped `roux`, socket bridge, first-load install flow, and scripting entry points.
 - **Watches**: long-running watch service with shell/HTTP/GitHub checks, PR watch kind, clickable PR/check/review links, and watch-focused UX.
 - **Platform + release tooling**: Windows support, macOS signing/notarization flow, release automation, and improved logging/runtime diagnostics.
 
@@ -19,7 +19,7 @@ This page tracks major shipped features across Roux's full history.
 - **Auto-updater**: in-app update checks/install flow with signed release verification and restart handling.
 - **Session restore upgrades**: reconnect restores full saved pane layouts (including shell panes/splits) and uses live shell cwd for better recovery.
 - **Shortcut upgrades**: session sidebar toggle (`cmd+\`) and quick-jump digits for sessions/panes with modifier overlays.
-- **Bundled PTY CLI aliases**: spawned shells expose `roux` / `roux-cli` directly.
+- **Bundled PTY CLI shim**: spawned shells expose `roux` directly.
 
 ## April 11, 2026
 
@@ -98,4 +98,4 @@ This page tracks major shipped features across Roux's full history.
 
 ## May 22, 2026
 
-- **Standalone CLI crate + daemon foundation**: `roux` now builds from the separate `crates/roux-cli` crate instead of the Tauri desktop package, while `roux-cli` remains as a compatibility alias for older hooks and scripts. The desktop app package/binary is `roux-desktop`, and bundles both CLI sidecar names. The new experimental `roux daemon` command starts the shared runtime service host, owns the Roux command socket when running, and exposes `roux daemon status` plus headless session/project metadata commands as a first step toward daemon-owned sessions; Roux.app still owns interactive PTYs today. See [CLI bridge](features/cli.md) and [V2 session daemon](v2/session-daemon.md).
+- **Standalone CLI crate + daemon foundation**: `roux` now builds from the separate `crates/roux-cli` crate instead of the Tauri desktop package. The desktop app package/binary is `roux-desktop`, and bundles the CLI sidecar as `roux`. The new experimental `roux daemon` command starts the shared runtime service host, owns the Roux command socket when running, and exposes `roux daemon status` plus headless session/project metadata commands as a first step toward daemon-owned sessions; Roux.app still owns interactive PTYs today. See [CLI bridge](features/cli.md) and [V2 session daemon](v2/session-daemon.md).

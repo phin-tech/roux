@@ -30,8 +30,7 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/roux",
-      "binaries/roux-cli"
+      "binaries/roux"
     ],
     "windows": {
       "nsis": {
@@ -41,8 +40,7 @@
     "createUpdaterArtifacts": true,
     "macOS": {
       "files": {
-        "MacOS/roux": "binaries/roux",
-        "MacOS/roux-cli": "binaries/roux-cli"
+        "MacOS/roux": "binaries/roux"
       },
       "hardenedRuntime": true
     },
