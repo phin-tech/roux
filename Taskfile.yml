@@ -56,13 +56,11 @@ tasks:
       - cmd: |
           TARGET="${TAURI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
           mkdir -p src-tauri/binaries
-          for NAME in roux roux-cli; do
-            if [ ! -f "src-tauri/binaries/${NAME}-${TARGET}" ]; then
-              touch "src-tauri/binaries/${NAME}-${TARGET}"
-              chmod +x "src-tauri/binaries/${NAME}-${TARGET}"
-              echo "Created placeholder for ${NAME}-${TARGET}"
-            fi
-          done
+          if [ ! -f "src-tauri/binaries/roux-${TARGET}" ]; then
+            touch "src-tauri/binaries/roux-${TARGET}"
+            chmod +x "src-tauri/binaries/roux-${TARGET}"
+            echo "Created placeholder for roux-${TARGET}"
+          fi
         platforms: [darwin, linux]
       # Task v3 runs `cmd:` blocks through bundled mvdan/sh on every
       # platform — including Windows — not through `cmd.exe`. Use POSIX
@@ -72,10 +70,8 @@ tasks:
           TARGET="${TAURI_TARGET:-$(rustc --print host-tuple)}"
           : "${TARGET:=x86_64-pc-windows-msvc}"
           mkdir -p src-tauri/binaries
-          for NAME in roux roux-cli; do
-            [ -f "src-tauri/binaries/${NAME}.exe" ] || : > "src-tauri/binaries/${NAME}.exe"
-            [ -f "src-tauri/binaries/${NAME}-${TARGET}.exe" ] || : > "src-tauri/binaries/${NAME}-${TARGET}.exe"
-          done
+          [ -f "src-tauri/binaries/roux.exe" ] || : > "src-tauri/binaries/roux.exe"
+          [ -f "src-tauri/binaries/roux-${TARGET}.exe" ] || : > "src-tauri/binaries/roux-${TARGET}.exe"
         platforms: [windows]
 
   cli:install:
@@ -89,7 +85,6 @@ tasks:
           mkdir -p ~/.local/bin
           cp target/debug/roux ~/.local/bin/roux
           chmod +x ~/.local/bin/roux
-          ln -sf ~/.local/bin/roux ~/.local/bin/roux-cli
           echo "Installed roux to ~/.local/bin/roux"
         platforms: [darwin, linux]
 
@@ -114,9 +109,7 @@ tasks:
           mkdir -p src-tauri/binaries
           cp target/debug/roux src-tauri/binaries/roux
           cp target/debug/roux "src-tauri/binaries/roux-${TARGET}"
-          cp target/debug/roux src-tauri/binaries/roux-cli
-          cp target/debug/roux "src-tauri/binaries/roux-cli-${TARGET}"
-          chmod +x src-tauri/binaries/roux src-tauri/binaries/roux-cli "src-tauri/binaries/roux-${TARGET}" "src-tauri/binaries/roux-cli-${TARGET}"
+          chmod +x src-tauri/binaries/roux "src-tauri/binaries/roux-${TARGET}"
           echo "Prepared dev Roux CLI binaries for ${TARGET}"
         platforms: [darwin, linux]
       # POSIX sh via bundled mvdan/sh — see comment on cli:ensure-placeholder.
@@ -129,8 +122,6 @@ tasks:
           mkdir -p src-tauri/binaries
           cp -f target/debug/roux.exe src-tauri/binaries/roux.exe
           cp -f target/debug/roux.exe "src-tauri/binaries/roux-${TARGET}.exe"
-          cp -f target/debug/roux.exe src-tauri/binaries/roux-cli.exe
-          cp -f target/debug/roux.exe "src-tauri/binaries/roux-cli-${TARGET}.exe"
           echo "Prepared dev Roux CLI binaries for ${TARGET}"
         platforms: [windows]
 
@@ -271,11 +262,14 @@ tasks:
           mkdir -p src-tauri/binaries
           cp target/release/roux src-tauri/binaries/roux
           cp target/release/roux "src-tauri/binaries/roux-${TARGET}"
-          cp target/release/roux src-tauri/binaries/roux-cli
-          cp target/release/roux "src-tauri/binaries/roux-cli-${TARGET}"
-          chmod +x src-tauri/binaries/roux src-tauri/binaries/roux-cli "src-tauri/binaries/roux-${TARGET}" "src-tauri/binaries/roux-cli-${TARGET}"
+          chmod +x src-tauri/binaries/roux "src-tauri/binaries/roux-${TARGET}"
           echo "Prepared bundled Roux CLI for ${TARGET}"
         platforms: [darwin, linux]
+
+  cli:package-release:
+    desc: "Build and package the standalone Roux CLI release tarball for this host"
+    cmds:
+      - ./scripts/package-cli-release.sh
 
   sign:
     desc: "Build, sign, notarize, and staple the macOS app"

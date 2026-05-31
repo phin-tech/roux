@@ -24,27 +24,21 @@ fn ensure_ci_external_bin_for_host() -> std::io::Result<()> {
     let bin_dir = manifest_dir.join("binaries");
     fs::create_dir_all(&bin_dir)?;
 
-    for name in ["roux", "roux-cli"] {
-        let expected = if triple.contains("windows") {
-            bin_dir.join(format!("{name}-{triple}.exe"))
-        } else {
-            bin_dir.join(format!("{name}-{triple}"))
-        };
-        if expected.exists() {
-            continue;
-        }
-
+    let expected = if triple.contains("windows") {
+        bin_dir.join(format!("roux-{triple}.exe"))
+    } else {
+        bin_dir.join(format!("roux-{triple}"))
+    };
+    if !expected.exists() {
         if triple.contains("windows") {
             fs::write(
                 &expected,
-                format!("@echo off\r\necho {name} placeholder for CI checks 1>&2\r\nexit /b 1\r\n"),
+                "@echo off\r\necho roux placeholder for CI checks 1>&2\r\nexit /b 1\r\n",
             )?;
         } else {
             fs::write(
                 &expected,
-                format!(
-                    "#!/usr/bin/env sh\nprintf '%s\\n' '{name} placeholder for CI checks' >&2\nexit 1\n"
-                ),
+                "#!/usr/bin/env sh\nprintf '%s\\n' 'roux placeholder for CI checks' >&2\nexit 1\n",
             )?;
             #[cfg(unix)]
             fs::set_permissions(&expected, fs::Permissions::from_mode(0o755))?;

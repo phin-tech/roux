@@ -22,9 +22,7 @@ tasks:
           mkdir -p src-tauri/binaries
           cp "${SOURCE}" src-tauri/binaries/roux
           cp "${SOURCE}" "src-tauri/binaries/roux-${TARGET}"
-          cp "${SOURCE}" src-tauri/binaries/roux-cli
-          cp "${SOURCE}" "src-tauri/binaries/roux-cli-${TARGET}"
-          chmod +x src-tauri/binaries/roux src-tauri/binaries/roux-cli "src-tauri/binaries/roux-${TARGET}" "src-tauri/binaries/roux-cli-${TARGET}"
+          chmod +x src-tauri/binaries/roux "src-tauri/binaries/roux-${TARGET}"
           echo "Prepared bundled Roux CLI from ${SOURCE}"
         platforms: [darwin]
 

@@ -15,29 +15,16 @@ fn unix_cli_install_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".local").join("bin").join(platform::roux_cli_file_name()))
 }
 
-#[cfg(not(windows))]
-fn unix_cli_compat_install_path() -> Option<PathBuf> {
-    dirs::home_dir()
-        .map(|h| h.join(".local").join("bin").join(platform::roux_cli_compat_file_name()))
-}
-
 fn cargo_cli_install_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".cargo").join("bin").join(platform::roux_cli_file_name()))
-}
-
-fn cargo_cli_compat_install_path() -> Option<PathBuf> {
-    dirs::home_dir()
-        .map(|h| h.join(".cargo").join("bin").join(platform::roux_cli_compat_file_name()))
 }
 
 fn sibling_cli_path() -> Option<PathBuf> {
     std::env::current_exe().ok().and_then(|p| platform::sibling_roux_cli_path(&p))
 }
 
-fn sibling_cli_compat_path() -> Option<PathBuf> {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|dir| dir.join(platform::roux_cli_compat_file_name())))
+fn bundled_cli_source_path() -> Option<PathBuf> {
+    sibling_cli_path().filter(|path| path.is_file())
 }
 
 fn first_existing_path(candidates: impl IntoIterator<Item = Option<PathBuf>>) -> Option<PathBuf> {
@@ -46,26 +33,13 @@ fn first_existing_path(candidates: impl IntoIterator<Item = Option<PathBuf>>) ->
 
 fn find_cli_on_path() -> Option<PathBuf> {
     platform::find_executable_on_path(platform::roux_cli_file_name())
-        .or_else(|| platform::find_executable_on_path(platform::roux_cli_compat_file_name()))
 }
 
 fn roux_cli_path() -> Result<PathBuf, String> {
     #[cfg(windows)]
-    let candidates = [
-        sibling_cli_path(),
-        sibling_cli_compat_path(),
-        cargo_cli_install_path(),
-        cargo_cli_compat_install_path(),
-    ];
+    let candidates = [sibling_cli_path(), cargo_cli_install_path()];
     #[cfg(not(windows))]
-    let candidates = [
-        unix_cli_install_path(),
-        sibling_cli_path(),
-        cargo_cli_install_path(),
-        unix_cli_compat_install_path(),
-        sibling_cli_compat_path(),
-        cargo_cli_compat_install_path(),
-    ];
+    let candidates = [unix_cli_install_path(), sibling_cli_path(), cargo_cli_install_path()];
 
     first_existing_path(candidates).or_else(find_cli_on_path).ok_or_else(|| {
         format!(
@@ -164,14 +138,9 @@ impl std::error::Error for CliInstallError {}
 /// [`cli_is_installed`] but returns the path so callers can exec it.
 fn installed_cli_path() -> Option<PathBuf> {
     #[cfg(windows)]
-    let candidates = [cargo_cli_install_path(), cargo_cli_compat_install_path()];
+    let candidates = [cargo_cli_install_path()];
     #[cfg(not(windows))]
-    let candidates = [
-        unix_cli_install_path(),
-        cargo_cli_install_path(),
-        unix_cli_compat_install_path(),
-        cargo_cli_compat_install_path(),
-    ];
+    let candidates = [unix_cli_install_path(), cargo_cli_install_path()];
 
     first_existing_path(candidates).or_else(find_cli_on_path)
 }
@@ -187,14 +156,9 @@ pub fn cli_is_current() -> bool {
 /// directory, or `PATH`.
 pub fn cli_is_installed() -> bool {
     #[cfg(windows)]
-    let candidates = [cargo_cli_install_path(), cargo_cli_compat_install_path()];
+    let candidates = [cargo_cli_install_path()];
     #[cfg(not(windows))]
-    let candidates = [
-        unix_cli_install_path(),
-        cargo_cli_install_path(),
-        unix_cli_compat_install_path(),
-        cargo_cli_compat_install_path(),
-    ];
+    let candidates = [unix_cli_install_path(), cargo_cli_install_path()];
 
     first_existing_path(candidates).or_else(find_cli_on_path).is_some()
 }
@@ -211,10 +175,9 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
     fs::create_dir_all(&bin_dir).map_err(|e| format!("Failed to create ~/.local/bin: {}", e))?;
 
     let target = bin_dir.join(platform::roux_cli_file_name());
-    let compat_target = bin_dir.join(platform::roux_cli_compat_file_name());
-
-    // Find the source binary (next to the running roux binary)
-    let source = sibling_cli_path().ok_or("Could not find roux next to roux desktop binary")?;
+    // Find the bundled source binary next to the running desktop binary.
+    let source =
+        bundled_cli_source_path().ok_or("Could not find roux next to roux desktop binary")?;
 
     if source.exists() {
         // Replace the installed CLI whenever its version differs from the
@@ -226,12 +189,15 @@ fn install_cli_binary_path() -> Result<PathBuf, String> {
             atomic_install_cli(&source, &target).map_err(|e| e.to_string())?;
             eprintln!("Installed roux CLI to {}", target.display());
         }
-        install_cli_compat_alias(&target, &compat_target)?;
         return Ok(target);
     }
 
     // Fallback: try to find it anywhere
     roux_cli_path()
+}
+
+pub fn install_cli() -> Result<(), String> {
+    install_cli_binary_path().map(|_| ())
 }
 
 /// Copy `source` over `target` atomically: stage a temp file next to the
@@ -274,15 +240,6 @@ fn unique_cli_stage_path(dir: &Path, target: &Path) -> Result<PathBuf, CliInstal
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
 
     Ok(dir.join(format!(".{target_name}.{}.{}.{}.tmp", std::process::id(), timestamp, nonce)))
-}
-
-#[cfg(not(windows))]
-fn install_cli_compat_alias(target: &Path, compat_target: &Path) -> Result<(), String> {
-    if compat_target.symlink_metadata().is_ok() {
-        let _ = fs::remove_file(compat_target);
-    }
-    std::os::unix::fs::symlink(target, compat_target)
-        .map_err(|e| format!("Failed to link roux-cli compatibility alias: {e}"))
 }
 
 fn claude_settings_path() -> Result<PathBuf, String> {
@@ -702,24 +659,6 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(first.parent(), Some(dir.path()));
         assert_eq!(second.parent(), Some(dir.path()));
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    fn install_cli_compat_alias_replaces_dangling_symlink() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("roux");
-        let missing = dir.path().join("missing-roux");
-        let compat = dir.path().join("roux-cli");
-
-        fs::write(&target, "").unwrap();
-        std::os::unix::fs::symlink(&missing, &compat).unwrap();
-        assert!(!compat.exists());
-        assert!(compat.symlink_metadata().is_ok());
-
-        install_cli_compat_alias(&target, &compat).unwrap();
-
-        assert_eq!(fs::read_link(&compat).unwrap(), target);
     }
 
     #[test]

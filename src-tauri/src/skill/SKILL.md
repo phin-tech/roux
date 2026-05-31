@@ -58,8 +58,7 @@ Always call the binary at `$ROUX_CLI`, e.g.:
 "$ROUX_CLI" session list
 ```
 
-This avoids PATH issues. `roux-cli` remains a compatibility alias, but new
-automation should use `$ROUX_CLI` / `roux`.
+This avoids PATH issues. New automation should use `$ROUX_CLI` / `roux`.
 
 ## CLI surface
 

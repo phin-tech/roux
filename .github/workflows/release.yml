@@ -88,6 +88,202 @@ jobs:
           RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
         run: task publish
 
+  release-cli:
+    runs-on: ${{ matrix.os }}
+    needs: release-macos
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-14
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-macos.outputs.release_version }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+      - name: Package CLI
+        env:
+          ROUX_CLI_VERSION: ${{ needs.release-macos.outputs.release_version }}
+          ROUX_CLI_TARGET: ${{ matrix.target }}
+        run: ./scripts/package-cli-release.sh
+      - name: Upload CLI assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ needs.release-macos.outputs.release_version }}" \
+            target/cli-release/roux-*.tar.gz \
+            target/cli-release/roux-*.tar.gz.sha256 \
+            --clobber
+
+  update-homebrew-tap:
+    runs-on: ubuntu-latest
+    needs:
+      - release-macos
+      - release-cli
+    if: ${{ inputs.version != '' }}
+    steps:
+      - name: Require Homebrew tap token
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${HOMEBREW_TAP_TOKEN}" ]]; then
+            echo "HOMEBREW_TAP_TOKEN must be a token with contents write access to phin-tech/homebrew-tap." >&2
+            exit 1
+          fi
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: phin-tech/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Homebrew formulae and casks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.release-macos.outputs.release_version }}
+          ROUX_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          TAG="${RELEASE_VERSION}"
+          if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+            echo "Refusing to update Homebrew tap for non-release version: $TAG" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+
+          RELEASE_JSON="$(gh release view "$TAG" --repo "$ROUX_REPO" --json assets,isPrerelease)"
+          IS_PRERELEASE="$(jq -r '.isPrerelease' <<< "$RELEASE_JSON")"
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            CHANNEL="prerelease"
+            FORMULA_PATH="Formula/roux-pre.rb"
+            FORMULA_CLASS="RouxPre"
+            FORMULA_CONFLICT="roux"
+            CASK_PATH="Casks/roux-pre.rb"
+            CASK_TOKEN="roux-pre"
+            CASK_CONFLICT="roux"
+          else
+            CHANNEL="stable"
+            FORMULA_PATH="Formula/roux.rb"
+            FORMULA_CLASS="Roux"
+            FORMULA_CONFLICT="roux-pre"
+            CASK_PATH="Casks/roux.rb"
+            CASK_TOKEN="roux"
+            CASK_CONFLICT="roux-pre"
+          fi
+          FORMULA_FILE="homebrew-tap/${FORMULA_PATH}"
+          CASK_FILE="homebrew-tap/${CASK_PATH}"
+
+          SOURCE_URL="https://github.com/${ROUX_REPO}/archive/refs/tags/${TAG}.tar.gz"
+          SOURCE_SHA="$(curl -fsSL "$SOURCE_URL" | shasum -a 256 | awk '{print $1}')"
+
+          DMG_ASSET="Roux_${VERSION}_aarch64.dmg"
+          DMG_SHA="$(jq -r --arg name "$DMG_ASSET" '.assets[] | select(.name == $name) | .digest // ""' <<< "$RELEASE_JSON")"
+          DMG_SHA="${DMG_SHA#sha256:}"
+          if [[ -z "$DMG_SHA" || "$DMG_SHA" == "null" ]]; then
+            echo "Missing release asset digest for ${DMG_ASSET}" >&2
+            exit 1
+          fi
+
+          mkdir -p homebrew-tap/Formula homebrew-tap/Casks
+
+          cat > "$FORMULA_FILE" <<EOF
+          class ${FORMULA_CLASS} < Formula
+            desc "Command-line client and daemon entrypoint for Roux"
+            homepage "https://github.com/${ROUX_REPO}"
+            url "${SOURCE_URL}"
+            sha256 "${SOURCE_SHA}"
+            license "MIT"
+            head "https://github.com/${ROUX_REPO}.git", branch: "main"
+
+            depends_on "pkgconf" => :build
+            depends_on "rust" => :build
+            depends_on "openssl@3"
+
+            conflicts_with "${FORMULA_CONFLICT}", because: "both install the roux executable"
+
+            def install
+              ENV["OPENSSL_DIR"] = Formula["openssl@3"].opt_prefix
+              system "cargo", "install", *std_cargo_args(path: "crates/roux-cli")
+            end
+
+            test do
+              assert_match "roux #{version}", shell_output("#{bin}/roux --version")
+              assert_match "Roux terminal manager CLI", shell_output("#{bin}/roux --help")
+            end
+          end
+          EOF
+
+          cat > "$CASK_FILE" <<EOF
+          cask "${CASK_TOKEN}" do
+            version "${VERSION}"
+            sha256 "${DMG_SHA}"
+
+            url "https://github.com/${ROUX_REPO}/releases/download/v#{version}/Roux_#{version}_aarch64.dmg"
+            name "Roux"
+            desc "Desktop terminal multiplexer for Claude Code"
+            homepage "https://github.com/${ROUX_REPO}"
+
+          EOF
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            cat >> "$CASK_FILE" <<'EOF'
+            livecheck do
+              url "https://github.com/phin-tech/roux/releases"
+              regex(/^v?(\d+(?:\.\d+)+-pre\.\d+)$/i)
+              strategy :github_releases
+            end
+          EOF
+          else
+            cat >> "$CASK_FILE" <<'EOF'
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+          EOF
+          fi
+
+          cat >> "$CASK_FILE" <<EOF
+
+            auto_updates true
+            conflicts_with cask: "${CASK_CONFLICT}"
+            depends_on arch: :arm64
+            depends_on :macos
+
+            app "Roux.app"
+
+            zap trash: "~/Library/Application Support/roux"
+          end
+          EOF
+
+          sed -i 's/^          //' "$FORMULA_FILE" "$CASK_FILE"
+          ruby -c "$FORMULA_FILE"
+          ruby -c "$CASK_FILE"
+
+          git -C homebrew-tap config user.name "github-actions[bot]"
+          git -C homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C homebrew-tap add "$FORMULA_PATH" "$CASK_PATH"
+
+          if git -C homebrew-tap diff --cached --quiet; then
+            echo "Homebrew tap already up to date for ${TAG}."
+            exit 0
+          fi
+
+          git -C homebrew-tap commit -m "Update Roux ${CHANNEL} to ${TAG}"
+          git -C homebrew-tap push
+
   build-windows:
     # Temporarily disabled; re-enable when Windows publishing is back.
     if: false

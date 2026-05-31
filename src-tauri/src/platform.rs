@@ -170,14 +170,6 @@ fn roux_cli_file_name_for_platform(is_windows: bool) -> &'static str {
     }
 }
 
-pub fn roux_cli_compat_file_name() -> &'static str {
-    if cfg!(windows) {
-        "roux-cli.exe"
-    } else {
-        "roux-cli"
-    }
-}
-
 pub fn sibling_roux_cli_path(exe_path: &Path) -> Option<PathBuf> {
     exe_path.parent().map(|dir| dir.join(roux_cli_file_name()))
 }
@@ -330,19 +322,15 @@ mod tests {
     fn roux_cli_file_name_uses_exe_extension_on_windows() {
         assert_eq!(roux_cli_file_name_for_platform(true), "roux.exe");
         assert_eq!(roux_cli_file_name_for_platform(false), "roux");
-        assert_eq!(
-            roux_cli_compat_file_name(),
-            if cfg!(windows) { "roux-cli.exe" } else { "roux-cli" }
-        );
     }
 
     #[test]
     fn quote_command_arg_quotes_spaces_and_quotes() {
-        assert_eq!(quote_command_arg("roux-cli"), "roux-cli");
+        assert_eq!(quote_command_arg("roux"), "roux");
         assert_eq!(quote_command_arg(""), "\"\"");
         assert_eq!(
-            quote_command_arg("C:\\Program Files\\Roux\\roux-cli.exe"),
-            "\"C:\\\\Program Files\\\\Roux\\\\roux-cli.exe\""
+            quote_command_arg("C:\\Program Files\\Roux\\roux.exe"),
+            "\"C:\\\\Program Files\\\\Roux\\\\roux.exe\""
         );
         assert_eq!(quote_command_arg("say \"hi\""), "\"say \\\"hi\\\"\"");
     }
@@ -350,13 +338,10 @@ mod tests {
     #[test]
     fn command_string_quotes_program_path_and_args() {
         let command = command_string(
-            Path::new("C:\\Users\\Sam\\App Data\\Roux\\roux-cli.exe"),
+            Path::new("C:\\Users\\Sam\\App Data\\Roux\\roux.exe"),
             &["hook", "working"],
         );
-        assert_eq!(
-            command,
-            "\"C:\\\\Users\\\\Sam\\\\App Data\\\\Roux\\\\roux-cli.exe\" hook working"
-        );
+        assert_eq!(command, "\"C:\\\\Users\\\\Sam\\\\App Data\\\\Roux\\\\roux.exe\" hook working");
     }
 
     #[test]

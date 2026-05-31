@@ -17,8 +17,6 @@ tasks:
           mkdir -p src-tauri/binaries
           cp -f target/release/roux.exe src-tauri/binaries/roux.exe
           cp -f target/release/roux.exe "src-tauri/binaries/roux-${TARGET}.exe"
-          cp -f target/release/roux.exe src-tauri/binaries/roux-cli.exe
-          cp -f target/release/roux.exe "src-tauri/binaries/roux-cli-${TARGET}.exe"
           echo "Prepared bundled Roux CLI for ${TARGET}"
         platforms: [windows]
 

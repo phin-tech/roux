@@ -1,14 +1,58 @@
 # Install
 
-Roux ships signed and notarized macOS builds. Native Windows x64 builds are also supported from source with an unsigned NSIS installer. Linux is not yet supported.
+Roux ships signed and notarized macOS desktop builds. Native Windows x64 desktop builds are also supported from source with an unsigned NSIS installer. The Linux desktop app is not yet supported, but standalone Linux CLI tarballs are published with releases.
 
 ## macOS
+
+Install the desktop app with Homebrew:
+
+```sh
+brew install --cask phin-tech/tap/roux
+```
+
+Or install manually:
 
 1. Download the latest `.dmg` from the [GitHub releases page](https://github.com/phin-tech/roux/releases).
 2. Open the `.dmg` and drag **Roux** into `/Applications`.
 3. Launch Roux from Launchpad or Spotlight.
 
 The app is code-signed and notarized, so Gatekeeper should not block the first launch.
+
+To install the latest prerelease desktop app:
+
+```sh
+brew install --cask phin-tech/tap/roux-pre
+```
+
+The Homebrew desktop casks currently require Apple Silicon.
+
+## Standalone CLI
+
+Release builds publish standalone `roux` CLI tarballs for macOS and Linux. To install the latest CLI into `~/.local/bin`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/phin-tech/roux/main/scripts/install-cli.sh | sh
+```
+
+Or install with Homebrew:
+
+```sh
+brew install phin-tech/tap/roux
+```
+
+To install the latest prerelease CLI with Homebrew:
+
+```sh
+brew install phin-tech/tap/roux-pre
+```
+
+To install a specific release, pass the tag:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/phin-tech/roux/main/scripts/install-cli.sh | ROUX_VERSION=v0.5.3 sh
+```
+
+Published CLI assets are named by target triple, for example `roux-aarch64-apple-darwin.tar.gz`, `roux-x86_64-apple-darwin.tar.gz`, and `roux-x86_64-unknown-linux-gnu.tar.gz`, each with a matching `.sha256` file.
 
 ## Windows
 

@@ -4,7 +4,33 @@ Roux ships with a command-line tool, `roux`, that talks to the running app over 
 
 ## Installing
 
-`roux` is bundled inside `Roux.app`. The easiest way to put it on your `PATH` is to symlink it:
+`roux` is bundled inside `Roux.app`, and release builds also publish standalone CLI tarballs for terminal-only installs.
+
+To install the latest standalone CLI on macOS or Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/phin-tech/roux/main/scripts/install-cli.sh | sh
+```
+
+Or install with Homebrew:
+
+```sh
+brew install phin-tech/tap/roux
+```
+
+To install the latest prerelease CLI with Homebrew:
+
+```sh
+brew install phin-tech/tap/roux-pre
+```
+
+To install a specific release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/phin-tech/roux/main/scripts/install-cli.sh | ROUX_VERSION=v0.5.3 sh
+```
+
+You can also symlink the copy inside the app bundle:
 
 ```sh
 ln -sf /Applications/Roux.app/Contents/MacOS/roux /usr/local/bin/roux
@@ -12,14 +38,11 @@ ln -sf /Applications/Roux.app/Contents/MacOS/roux /usr/local/bin/roux
 
 Then `roux --help` should work from any terminal.
 
-Inside Roux-managed panes, both `roux` and the legacy `roux-cli` alias are injected automatically, so you can call either without adding your own PATH shim.
+Inside Roux-managed panes, `roux` is injected automatically, so you can call it without adding your own PATH shim.
 
 ## Binary layout
 
-The CLI is built from the standalone `crates/roux-cli` workspace crate. That crate produces the `roux` binary and does not link the Tauri desktop app. The desktop package lives separately under `src-tauri` as `roux-desktop` and bundles two sidecars:
-
-- `roux` — the primary CLI binary
-- `roux-cli` — compatibility alias for older hooks, scripts, and spawned panes
+The CLI is built from the standalone `crates/roux-cli` workspace crate. That crate produces the `roux` binary and does not link the Tauri desktop app. The desktop package lives separately under `src-tauri` as `roux-desktop` and bundles one CLI sidecar: `roux`.
 
 For source builds, use:
 
@@ -27,7 +50,13 @@ For source builds, use:
 cargo build -p roux-cli --bin roux
 ```
 
-For local development, `task cli:install` builds the same binary, installs `~/.local/bin/roux`, and points `~/.local/bin/roux-cli` at it on macOS/Linux.
+For local development, `task cli:install` builds the same binary and installs `~/.local/bin/roux` on macOS/Linux.
+
+Release automation uploads standalone tarballs named `roux-<target>.tar.gz` with matching `.sha256` files. The initial targets are:
+
+- `aarch64-apple-darwin`
+- `x86_64-apple-darwin`
+- `x86_64-unknown-linux-gnu`
 
 ## How it talks to Roux
 
