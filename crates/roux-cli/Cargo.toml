@@ -1,6 +1,6 @@
 [package]
 name = "roux-cli"
-version = "0.5.3"
+version = "0.5.4-pre.16"
 description = "Command-line client and daemon entrypoint for Roux"
 authors = ["phin-tech"]
 edition = "2021"
