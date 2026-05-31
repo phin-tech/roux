@@ -18,6 +18,7 @@ function runWithStatus(status: ExternalToolRunStatus): ExternalToolRun {
     surface: "terminal",
     sessionId: "session-1",
     runtimeId: "pty-1",
+    runtimeGeneration: 1,
     rendered: null,
     status,
     error: null,
@@ -52,9 +53,31 @@ describe("externalTools store helpers", () => {
     externalToolRuns.set(new Map([[run.id, run]]));
     openMainView({ kind: "externalTool", runId: run.id });
 
-    markExternalToolExited(run.id, 0);
+    markExternalToolExited(run.id, run.runtimeId, 0, run.runtimeGeneration);
 
     expect(get(externalToolRuns).has(run.id)).toBe(false);
     expect(get(mainViewRoute)).toBeNull();
+  });
+
+  it("ignores stale exit events from an older runtime id", () => {
+    const run = { ...runWithStatus("running"), runtimeId: "pty-new", runtimeGeneration: 2 };
+    externalToolRuns.set(new Map([[run.id, run]]));
+    openMainView({ kind: "externalTool", runId: run.id });
+
+    markExternalToolExited(run.id, "pty-old", 0, 1);
+
+    expect(get(externalToolRuns).get(run.id)).toEqual(run);
+    expect(get(mainViewRoute)).toEqual({ kind: "externalTool", runId: run.id });
+  });
+
+  it("ignores stale exit events from an older PTY generation", () => {
+    const run = { ...runWithStatus("running"), runtimeGeneration: 2 };
+    externalToolRuns.set(new Map([[run.id, run]]));
+    openMainView({ kind: "externalTool", runId: run.id });
+
+    markExternalToolExited(run.id, run.runtimeId, 0, 1);
+
+    expect(get(externalToolRuns).get(run.id)).toEqual(run);
+    expect(get(mainViewRoute)).toEqual({ kind: "externalTool", runId: run.id });
   });
 });

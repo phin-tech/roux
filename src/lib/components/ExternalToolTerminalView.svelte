@@ -63,6 +63,7 @@
 
   $effect(() => {
     const ptyId = run.runtimeId;
+    const runtimeGeneration = run.runtimeGeneration;
     if (!ptyId || !controller) return;
 
     const outputChannel = createPtyOutputChannel((bytes) => {
@@ -72,7 +73,12 @@
       setExternalToolRunError(run.id, err instanceof Error ? err.message : String(err));
     });
     void onSessionExit(ptyId, (payload: SessionExitPayload) => {
-      markExternalToolExited(run.id, payload.code ?? null);
+      markExternalToolExited(
+        run.id,
+        ptyId,
+        payload.code ?? null,
+        payload.generation ?? runtimeGeneration,
+      );
     }).then((unlisten) => {
       cleanupExit?.();
       cleanupExit = unlisten;

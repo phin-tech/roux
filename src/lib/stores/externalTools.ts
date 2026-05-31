@@ -27,6 +27,7 @@ export interface ExternalToolRun {
   surface: ExternalToolSurface;
   sessionId: string | null;
   runtimeId: string | null;
+  runtimeGeneration: number | null;
   rendered: RenderedExternalTool | null;
   status: ExternalToolRunStatus;
   error: string | null;
@@ -96,9 +97,18 @@ export function markExternalToolReady(runId: string): void {
   updateRun(runId, (run) => ({ ...run, status: "ready", error: null }));
 }
 
-export function markExternalToolExited(runId: string, _exitCode: number | null): void {
+export function markExternalToolExited(
+  runId: string,
+  runtimeId: string | null | undefined,
+  _exitCode: number | null,
+  generation?: number | null,
+): void {
+  if (!runtimeId) return;
   const run = get(externalToolRuns).get(runId);
-  if (run) void killRunRuntime(run);
+  if (!run || run.runtimeId !== runtimeId) return;
+  if (generation != null && run.runtimeGeneration !== generation) return;
+
+  void killRunRuntime(run);
   removeExternalToolRun(runId);
 }
 
@@ -133,6 +143,7 @@ async function launchRun(
     surface,
     sessionId,
     runtimeId: null,
+    runtimeGeneration: null,
     rendered: null,
     status: "launching",
     error: null,
@@ -149,6 +160,7 @@ async function launchRun(
       ...run,
       surface: result.surface,
       runtimeId: result.runtimeId,
+      runtimeGeneration: result.runtimeGeneration ?? null,
       rendered: result.rendered,
       status: result.surface === "web" ? "starting" : "running",
       error: null,

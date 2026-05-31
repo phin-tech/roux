@@ -55,7 +55,7 @@
       } catch {
         const snapshot = await readExternalToolProcess(run).catch(() => null);
         if (snapshot && !snapshot.record.running) {
-          markExternalToolExited(run.id, snapshot.record.exitCode);
+          markExternalToolExited(run.id, snapshot.record.id, snapshot.record.exitCode);
           logs = snapshot.output;
           outputTruncated = snapshot.record.outputTruncated;
           return;
@@ -100,7 +100,7 @@
       outputTruncated = snapshot.record.outputTruncated;
     }
     if (!snapshot.record.running && run.status !== "exited") {
-      markExternalToolExited(run.id, snapshot.record.exitCode);
+      markExternalToolExited(run.id, snapshot.record.id, snapshot.record.exitCode);
     }
   }
 

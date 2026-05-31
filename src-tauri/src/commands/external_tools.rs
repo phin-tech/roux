@@ -15,7 +15,13 @@ pub(crate) struct ExternalToolLaunchResult {
     pub(crate) surface: ExternalToolSurface,
     pub(crate) session_id: Option<String>,
     pub(crate) runtime_id: String,
+    pub(crate) runtime_generation: Option<u64>,
     pub(crate) rendered: RenderedExternalTool,
+}
+
+struct ExternalToolRuntime {
+    id: String,
+    generation: Option<u64>,
 }
 
 #[tauri::command]
@@ -66,13 +72,13 @@ pub(crate) async fn launch_external_tool(
     let session = resolve_session(&state, session_id.as_deref()).await?;
     let port = match tool.surface {
         ExternalToolSurface::Terminal => None,
-        ExternalToolSurface::Web => Some(
-            allocate_localhost_port(tool.preferred_port).map_err(|err| err.to_string())?,
-        ),
+        ExternalToolSurface::Web => {
+            Some(allocate_localhost_port(tool.preferred_port).map_err(|err| err.to_string())?)
+        }
     };
     let rendered =
         render_external_tool(&tool, session.as_ref(), port).map_err(|err| err.to_string())?;
-    let runtime_id = match tool.surface {
+    let runtime = match tool.surface {
         ExternalToolSurface::Terminal => {
             launch_terminal_tool(&state, &tool, session.as_ref(), &rendered, initial_size).await?
         }
@@ -83,7 +89,8 @@ pub(crate) async fn launch_external_tool(
         tool_id: tool.id,
         surface: tool.surface,
         session_id,
-        runtime_id,
+        runtime_id: runtime.id,
+        runtime_generation: runtime.generation,
         rendered,
     })
 }
@@ -122,7 +129,7 @@ async fn launch_terminal_tool(
     session: Option<&Session>,
     rendered: &RenderedExternalTool,
     initial_size: Option<(u16, u16)>,
-) -> Result<String, String> {
+) -> Result<ExternalToolRuntime, String> {
     let pty_id = format!("external-tool-{}-{}", tool.id, uuid::Uuid::new_v4());
     let session_id = session.map(|s| s.id.clone());
     if let Some(client) = &state.daemon_client {
@@ -138,7 +145,7 @@ async fn launch_terminal_tool(
             )
             .await
             .map_err(|err| err.to_string())?;
-        return Ok(record.id);
+        return Ok(ExternalToolRuntime { id: record.id, generation: Some(record.generation) });
     }
 
     let record = state
@@ -158,19 +165,19 @@ async fn launch_terminal_tool(
         )
         .await
         .map_err(|err| err.to_string())?;
-    Ok(record.id)
+    Ok(ExternalToolRuntime { id: record.id, generation: Some(record.generation) })
 }
 
 async fn launch_web_tool(
     state: &tauri::State<'_, AppState>,
     rendered: &RenderedExternalTool,
-) -> Result<String, String> {
+) -> Result<ExternalToolRuntime, String> {
     if let Some(client) = &state.daemon_client {
         let record = client
             .start_daemon_process(rendered.command.clone(), Some(rendered.cwd.clone()))
             .await
             .map_err(|err| err.to_string())?;
-        return Ok(record.id);
+        return Ok(ExternalToolRuntime { id: record.id, generation: None });
     }
 
     let record = state
@@ -179,5 +186,5 @@ async fn launch_web_tool(
         .start(rendered.command.clone(), Some(PathBuf::from(&rendered.cwd)))
         .await
         .map_err(|err| err.to_string())?;
-    Ok(record.id)
+    Ok(ExternalToolRuntime { id: record.id, generation: None })
 }
