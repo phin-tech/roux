@@ -192,6 +192,7 @@ pub(crate) struct DoctorItem {
 #[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DoctorStatus {
+    notices: Vec<String>,
     items: Vec<DoctorItem>,
 }
 
@@ -225,6 +226,7 @@ pub(crate) fn check_doctor_status() -> DoctorStatus {
         .or_else(|| crate::skill::skill_install_path().map(|p| p.display().to_string()));
 
     DoctorStatus {
+        notices: svc::startup_notices(),
         items: vec![
             DoctorItem {
                 id: "cli".to_string(),

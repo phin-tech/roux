@@ -457,6 +457,7 @@ export type DoctorItem = {
 };
 
 export type DoctorStatus = {
+	notices: string[],
 	items: DoctorItem[],
 };
 

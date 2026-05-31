@@ -151,6 +151,10 @@ pub(crate) fn bundled_cli_version() -> &'static str {
     crate::hooks::bundled_cli_version()
 }
 
+pub(crate) fn startup_notices() -> Vec<String> {
+    crate::hooks::stale_homebrew_cli_notice().into_iter().collect()
+}
+
 pub(crate) fn install_cli() -> anyhow::Result<()> {
     crate::hooks::install_cli().map_err(anyhow::Error::msg)?;
     Ok(())
