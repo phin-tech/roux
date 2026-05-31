@@ -167,7 +167,7 @@
   }
 
   function formatEpochSeconds(epoch: number | null | undefined): string | null {
-    if (!epoch) return null;
+    if (epoch == null) return null;
     return new Date(epoch * 1000).toLocaleString();
   }
 

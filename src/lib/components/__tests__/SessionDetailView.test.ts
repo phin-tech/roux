@@ -113,6 +113,14 @@ describe("SessionDetailView", () => {
     expect(listDocuments).toHaveBeenCalledWith("session", "session-1");
   });
 
+  it("renders a Unix epoch createdAt value instead of treating it as missing", async () => {
+    sessionState.set({ sessions: [makeSession({ createdAt: 0 })], activeSessionId: "session-1" });
+
+    render(SessionDetailView, { sessionId: "session-1" });
+
+    expect(await screen.findByText(new Date(0).toLocaleString())).toBeTruthy();
+  });
+
   it("opens an attached document inline", async () => {
     const attachment = makeAttachment();
     sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
