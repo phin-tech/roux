@@ -401,7 +401,11 @@
     if (mainRoute) {
       const target = e.target;
       if (eventTargetIsMainViewKeyboardOwner(target)) {
-        if (e.key === "Escape" && !eventTargetIsEditable(target)) {
+        if (
+          e.key === "Escape" &&
+          mainRoute.kind !== "externalTool" &&
+          !eventTargetIsEditable(target)
+        ) {
           e.preventDefault();
           closeMainView();
           keymapExitTree();

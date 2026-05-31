@@ -7,10 +7,11 @@
     subtitle?: string | null;
     closeLabel: string;
     onclose: () => void;
+    actions?: Snippet;
     children?: Snippet;
   }
 
-  let { title, subtitle = null, closeLabel, onclose, children }: Props = $props();
+  let { title, subtitle = null, closeLabel, onclose, actions, children }: Props = $props();
   let root = $state<HTMLDivElement | null>(null);
 
   $effect(() => {
@@ -31,15 +32,18 @@
         <span class="truncate text-[11px] text-text-muted">{subtitle}</span>
       {/if}
     </div>
-    <button
-      type="button"
-      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-      onclick={onclose}
-      aria-label={closeLabel}
-      title={`${closeLabel} (Esc)`}
-    >
-      <X size={14} />
-    </button>
+    <div class="flex shrink-0 items-center gap-1">
+      {@render actions?.()}
+      <button
+        type="button"
+        class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+        onclick={onclose}
+        aria-label={closeLabel}
+        title={closeLabel}
+      >
+        <X size={14} />
+      </button>
+    </div>
   </div>
 
   <div class="min-h-0 flex-1 overflow-hidden">

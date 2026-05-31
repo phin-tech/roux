@@ -106,6 +106,63 @@ pub enum GroupBy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
+pub enum ExternalToolSurface {
+    #[default]
+    Terminal,
+    Web,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalTool {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub surface: ExternalToolSurface,
+    pub command_template: String,
+    #[serde(default)]
+    pub cwd_template: String,
+    #[serde(default)]
+    pub requires_session: bool,
+    #[serde(default)]
+    pub url_template: Option<String>,
+    #[serde(default)]
+    pub preferred_port: Option<u16>,
+}
+
+fn default_external_tools() -> Vec<ExternalTool> {
+    vec![
+        ExternalTool {
+            id: "lazygit".to_string(),
+            name: "Lazygit".to_string(),
+            enabled: true,
+            surface: ExternalToolSurface::Terminal,
+            command_template: "lazygit -p {{ session.worktree_path | shell_quote }}".to_string(),
+            cwd_template: "{{ session.worktree_path }}".to_string(),
+            requires_session: true,
+            url_template: None,
+            preferred_port: None,
+        },
+        ExternalTool {
+            id: "difit".to_string(),
+            name: "Difit".to_string(),
+            enabled: true,
+            surface: ExternalToolSurface::Web,
+            command_template:
+                "difit . --host 127.0.0.1 --port {{ port }} --no-open --keep-alive"
+                    .to_string(),
+            cwd_template: "{{ session.worktree_path }}".to_string(),
+            requires_session: true,
+            url_template: Some("http://127.0.0.1:{{ port }}".to_string()),
+            preferred_port: Some(4966),
+        },
+    ]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
 pub enum UpdateChannel {
     #[default]
     Stable,
@@ -444,6 +501,11 @@ pub struct RouxSettings {
     /// Unix epoch milliseconds for the last successful MCP host config write.
     #[serde(default)]
     pub mcp_last_configured_at_ms: Option<u64>,
+    /// User-configured external tools that Roux can launch into a main-view
+    /// surface. Terminal tools run in daemon PTYs; web tools run as daemon
+    /// processes and render a local URL in the app chrome.
+    #[serde(default = "default_external_tools")]
+    pub external_tools: Vec<ExternalTool>,
     #[serde(default)]
     pub kanban: KanbanSettings,
     /// Runtime feature flags. See `ExperimentsConfig`.
@@ -512,6 +574,7 @@ impl Default for RouxSettings {
             mcp_enabled: false,
             mcp_last_configured_host: None,
             mcp_last_configured_at_ms: None,
+            external_tools: default_external_tools(),
             kanban: KanbanSettings::default(),
             experiments: ExperimentsConfig::default(),
         }
@@ -568,8 +631,40 @@ impl RouxSettings {
             s.worktree_cleanup_on_close = WorktreeCleanupMode::Always;
         }
         s.cleanup_worktrees_on_close = s.worktree_cleanup_on_close == WorktreeCleanupMode::Always;
+        s.external_tools = normalize_external_tools(&s.external_tools);
         s
     }
+}
+
+fn normalize_external_tools(tools: &[ExternalTool]) -> Vec<ExternalTool> {
+    let mut seen = HashSet::new();
+    let mut cleaned = Vec::new();
+    for tool in tools {
+        let mut next = tool.clone();
+        next.id = next.id.trim().to_string();
+        next.name = next.name.trim().to_string();
+        next.command_template = next.command_template.trim().to_string();
+        next.cwd_template = next.cwd_template.trim().to_string();
+        next.url_template =
+            next.url_template.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        next.preferred_port = next.preferred_port.filter(|port| *port > 0);
+        if next.id.is_empty()
+            || next.name.is_empty()
+            || next.command_template.is_empty()
+            || !seen.insert(next.id.clone())
+        {
+            continue;
+        }
+        if next.surface == ExternalToolSurface::Web && next.url_template.is_none() {
+            continue;
+        }
+        if next.surface == ExternalToolSurface::Terminal {
+            next.url_template = None;
+            next.preferred_port = None;
+        }
+        cleaned.push(next);
+    }
+    cleaned
 }
 
 fn normalize_library_sources(sources: &[LibrarySource]) -> Vec<LibrarySource> {
@@ -760,8 +855,8 @@ mod theme_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        stable_source_id, LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode,
-        UpdateChannel,
+        stable_source_id, ExternalToolSurface, LibrarySource, LibrarySourceKind, RouxSettings,
+        SkillSyncMode, UpdateChannel,
     };
 
     #[test]
@@ -959,6 +1054,103 @@ mod tests {
     fn settings_default_skill_sync_is_off() {
         let settings = RouxSettings::default();
         assert_eq!(settings.library_skill_sync_default, SkillSyncMode::Off);
+    }
+
+    #[test]
+    fn settings_default_external_tools_seed_lazygit_and_difit() {
+        let settings = RouxSettings::default();
+        let ids: Vec<_> = settings.external_tools.iter().map(|tool| tool.id.as_str()).collect();
+        assert_eq!(ids, vec!["lazygit", "difit"]);
+
+        let lazygit = &settings.external_tools[0];
+        assert_eq!(lazygit.name, "Lazygit");
+        assert!(lazygit.enabled);
+        assert_eq!(lazygit.surface, ExternalToolSurface::Terminal);
+        assert!(lazygit.requires_session);
+        assert_eq!(
+            lazygit.command_template,
+            "lazygit -p {{ session.worktree_path | shell_quote }}"
+        );
+        assert_eq!(lazygit.cwd_template, "{{ session.worktree_path }}");
+
+        let difit = &settings.external_tools[1];
+        assert_eq!(difit.name, "Difit");
+        assert!(difit.enabled);
+        assert_eq!(difit.surface, ExternalToolSurface::Web);
+        assert!(difit.requires_session);
+        assert_eq!(difit.preferred_port, Some(4966));
+        assert_eq!(difit.url_template.as_deref(), Some("http://127.0.0.1:{{ port }}"));
+    }
+
+    #[test]
+    fn settings_without_external_tools_uses_seed_defaults() {
+        let json = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.4,
+            "taskPanelCollapsed": false
+        }"#;
+
+        let settings: RouxSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.external_tools.len(), 2);
+        assert_eq!(settings.external_tools[0].id, "lazygit");
+    }
+
+    #[test]
+    fn normalized_external_tools_trims_and_drops_invalid_rows() {
+        let settings = RouxSettings {
+            external_tools: vec![
+                super::ExternalTool {
+                    id: "  my-tool  ".to_string(),
+                    name: "  My Tool ".to_string(),
+                    enabled: true,
+                    surface: ExternalToolSurface::Web,
+                    command_template: "  serve --port {{ port }} ".to_string(),
+                    cwd_template: "  {{ session.worktree_path }} ".to_string(),
+                    requires_session: true,
+                    url_template: Some(" http://127.0.0.1:{{ port }} ".to_string()),
+                    preferred_port: Some(0),
+                },
+                super::ExternalTool {
+                    id: "blank-command".to_string(),
+                    name: "Blank".to_string(),
+                    enabled: true,
+                    surface: ExternalToolSurface::Terminal,
+                    command_template: " ".to_string(),
+                    cwd_template: "".to_string(),
+                    requires_session: false,
+                    url_template: None,
+                    preferred_port: None,
+                },
+            ],
+            ..RouxSettings::default()
+        };
+
+        let normalized = settings.normalized();
+        assert_eq!(normalized.external_tools.len(), 1);
+        assert_eq!(normalized.external_tools[0].id, "my-tool");
+        assert_eq!(normalized.external_tools[0].name, "My Tool");
+        assert_eq!(normalized.external_tools[0].command_template, "serve --port {{ port }}");
+        assert_eq!(normalized.external_tools[0].cwd_template, "{{ session.worktree_path }}");
+        assert_eq!(
+            normalized.external_tools[0].url_template.as_deref(),
+            Some("http://127.0.0.1:{{ port }}")
+        );
+        assert_eq!(normalized.external_tools[0].preferred_port, None);
     }
 
     #[test]

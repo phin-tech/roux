@@ -86,6 +86,7 @@
 
   async function handleCommandSelect(cmd: Cmd) {
     if ($mainViewRoute !== null && commandBlockedByMainView(cmd)) return;
+    if (cmd.disabledReason?.()) return;
 
     if (cmd.getItems) {
       const items = await cmd.getItems();
@@ -121,6 +122,8 @@
   }
 
   async function handleItemSelect(item: CmdItem) {
+    if (item.disabledReason) return;
+
     if (item.drillCommand) {
       const cmd = registry.get(item.drillCommand);
       if (cmd) {
@@ -270,7 +273,8 @@
                 value={item.id}
                 keywords={[item.label, item.description ?? ""].filter(Boolean)}
                 onSelect={() => handleItemSelect(item)}
-                class="cmd-item"
+                aria-disabled={item.disabledReason ? "true" : undefined}
+                class="cmd-item {item.disabledReason ? 'cmd-item-disabled' : ''}"
                 >
                   {#if item.icon && iconMap[item.icon]}
                     {@const IconComponent = iconMap[item.icon]}
@@ -278,8 +282,8 @@
                   {/if}
                   <div class="flex-1 min-w-0">
                     <div class="text-text-primary text-sm">{item.label}</div>
-                    {#if item.description}
-                      <div class="text-text-muted text-xs truncate mt-0.5">{item.description}</div>
+                    {#if item.disabledReason || item.description}
+                      <div class="text-text-muted text-xs truncate mt-0.5">{item.disabledReason ?? item.description}</div>
                     {/if}
                   </div>
                   {#if item.substeps}
@@ -296,13 +300,18 @@
                 </Command.GroupHeading>
                 <Command.GroupItems>
                   {#each commands as cmd (cmd.id)}
+                    {@const disabledReason = cmd.disabledReason?.() ?? null}
                     <Command.Item
                       value={cmd.label}
                       onSelect={() => handleCommandSelect(cmd)}
-                      class="cmd-item"
+                      aria-disabled={disabledReason ? "true" : undefined}
+                      class="cmd-item {disabledReason ? 'cmd-item-disabled' : ''}"
                     >
                       <div class="flex-1 min-w-0">
                         <span class="text-text-primary">{cmd.label}</span>
+                        {#if disabledReason}
+                          <div class="text-text-muted text-xs truncate mt-0.5">{disabledReason}</div>
+                        {/if}
                       </div>
                       {#if cmd.getItems}
                         <span class="text-text-muted text-xs shrink-0">&#8594;</span>
@@ -346,5 +355,15 @@
     border-color: var(--color-border);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
     transform: translateY(-1px);
+  }
+  :global(.cmd-item-disabled) {
+    cursor: default;
+    opacity: 0.55;
+  }
+  :global(.cmd-item-disabled[data-selected]),
+  :global(.cmd-item-disabled:hover) {
+    transform: none;
+    border-color: transparent;
+    background: transparent;
   }
 </style>

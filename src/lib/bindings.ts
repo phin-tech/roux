@@ -997,6 +997,20 @@ export type PtyStatus =
 // PTY process has exited.
 { type: "Exited"; code: number | null; at_ms: number };
 
+export type ExternalToolSurface = "terminal" | "web";
+
+export type ExternalTool = {
+	id: string,
+	name: string,
+	enabled?: boolean,
+	surface?: ExternalToolSurface,
+	commandTemplate: string,
+	cwdTemplate?: string,
+	requiresSession?: boolean,
+	urlTemplate?: string | null,
+	preferredPort?: number | null,
+};
+
 export type RouxSettings = {
 	tabPosition: TabPosition,
 	tabWidth: number,
@@ -1221,6 +1235,12 @@ export type RouxSettings = {
 	mcpLastConfiguredHost?: string | null,
 	// Unix epoch milliseconds for the last successful MCP host config write.
 	mcpLastConfiguredAtMs?: number | null,
+	/**
+	 *  User-configured external tools that Roux can launch into a main-view
+	 *  surface. Terminal tools run in daemon PTYs; web tools run as daemon
+	 *  processes and render a local URL in the app chrome.
+	 */
+	externalTools?: ExternalTool[],
 	kanban?: KanbanSettings,
 	// Runtime feature flags. See `ExperimentsConfig`.
 	experiments?: ExperimentsConfig,

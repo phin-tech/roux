@@ -29,6 +29,8 @@
     AgentNotificationSetupStatus,
     CodexNotificationConfigPreview,
     GpuAcceleration,
+    ExternalTool,
+    ExternalToolSurface,
     IntegrationDetection,
     KanbanSettings,
     KanbanStartupSidebar,
@@ -42,6 +44,9 @@
     WorktrunkDetection,
   } from "$lib/bindings";
   import { updateStatus, runManualCheck, performInstall } from "$lib/stores/updater";
+  import { activeSession } from "$lib/stores/sessions";
+  import { settingsFocus } from "$lib/stores/settingsFocus";
+  import { previewExternalToolConfig, type RenderedExternalTool } from "$lib/tauri";
   import { getVersion } from "@tauri-apps/api/app";
   import { onMount } from "svelte";
   import Settings from "@lucide/svelte/icons/settings";
@@ -111,6 +116,11 @@
   let runtimeStatusError = $state<string | null>(null);
   let runtimeStatusLoading = $state(false);
   let repoRootDraft = $state("");
+  let expandedExternalToolId = $state<string | null>(null);
+  let externalToolPreviewById = $state<
+    Record<string, { loading: boolean; rendered: RenderedExternalTool | null; error: string | null }>
+  >({});
+  let wasVisible = false;
   onMount(async () => {
     try { appVersion = await getVersion(); } catch { appVersion = "unknown"; }
   });
@@ -155,7 +165,19 @@
   let { visible, onclose }: Props = $props();
 
   $effect(() => {
-    if (visible) selected = "general";
+    const justOpened = visible && !wasVisible;
+    wasVisible = visible;
+    if (!visible) return;
+    const focus = $settingsFocus;
+    if (focus?.category) {
+      selected = focus.category as CategoryId;
+      if (focus.category === "integrations" && "externalToolId" in focus) {
+        expandedExternalToolId = focus.externalToolId ?? null;
+      }
+      settingsFocus.set(null);
+      return;
+    }
+    if (justOpened) selected = "general";
   });
 
   function handleKey(e: KeyboardEvent) {
@@ -192,6 +214,67 @@
     const w = Math.min(resizeStart.w + (e.clientX - resizeStart.x) * 2, maxW);
     const h = Math.min(resizeStart.h + (e.clientY - resizeStart.y) * 2, maxH);
     setSettingsModalSize(w, h);
+  }
+
+  function externalTools(): ExternalTool[] {
+    return $settings.externalTools ?? [];
+  }
+
+  function updateExternalTools(tools: ExternalTool[]): void {
+    updateSetting("externalTools", tools);
+  }
+
+  function updateExternalTool(id: string, patch: Partial<ExternalTool>): void {
+    updateExternalTools(externalTools().map((tool) => (tool.id === id ? { ...tool, ...patch } : tool)));
+  }
+
+  function addExternalTool(surface: ExternalToolSurface): void {
+    const id = `tool-${Date.now()}`;
+    const tool: ExternalTool = {
+      id,
+      name: surface === "web" ? "New Web Tool" : "New Terminal Tool",
+      enabled: true,
+      surface,
+      commandTemplate: surface === "web" ? "server --port {{ port }}" : "command",
+      cwdTemplate: "{{ session.worktree_path }}",
+      requiresSession: true,
+      urlTemplate: surface === "web" ? "http://127.0.0.1:{{ port }}" : null,
+      preferredPort: surface === "web" ? 4966 : null,
+    };
+    updateExternalTools([...externalTools(), tool]);
+    expandedExternalToolId = id;
+  }
+
+  function removeExternalTool(id: string): void {
+    updateExternalTools(externalTools().filter((tool) => tool.id !== id));
+    if (expandedExternalToolId === id) expandedExternalToolId = null;
+  }
+
+  async function previewTool(tool: ExternalTool): Promise<void> {
+    externalToolPreviewById = {
+      ...externalToolPreviewById,
+      [tool.id]: { loading: true, rendered: null, error: null },
+    };
+    try {
+      const rendered = await previewExternalToolConfig(
+        tool,
+        tool.requiresSession ? ($activeSession?.id ?? null) : null,
+        tool.surface === "web" ? (tool.preferredPort ?? 4966) : null,
+      );
+      externalToolPreviewById = {
+        ...externalToolPreviewById,
+        [tool.id]: { loading: false, rendered, error: null },
+      };
+    } catch (err) {
+      externalToolPreviewById = {
+        ...externalToolPreviewById,
+        [tool.id]: {
+          loading: false,
+          rendered: null,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
   }
 
   function onResizePointerUp(e: PointerEvent) {
@@ -1325,6 +1408,167 @@
                   </div>
                 {/each}
               {/if}
+            </div>
+
+            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <div class="text-[13px] font-semibold">External Tools</div>
+                  <div class="mt-0.5 text-[11px] text-text-muted">
+                    Launch terminal and local web tools into the main view.
+                  </div>
+                </div>
+                <div class="flex gap-1">
+                  <button
+                    type="button"
+                    class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover"
+                    onclick={() => addExternalTool("terminal")}
+                  >Add Terminal</button>
+                  <button
+                    type="button"
+                    class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover"
+                    onclick={() => addExternalTool("web")}
+                  >Add Web</button>
+                </div>
+              </div>
+
+              <div class="mt-3 flex flex-col gap-2">
+                {#each externalTools() as tool (tool.id)}
+                  {@const expanded = expandedExternalToolId === tool.id}
+                  {@const preview = externalToolPreviewById[tool.id]}
+                  <div class="rounded border border-border-subtle bg-bg-deep/60 p-2">
+                    <div class="flex items-center gap-2">
+                      <button
+                        type="button"
+                        class="min-w-0 flex-1 truncate text-left text-[12px] font-medium text-text-primary"
+                        onclick={() => (expandedExternalToolId = expanded ? null : tool.id)}
+                      >
+                        {tool.name}
+                      </button>
+                      <span class="rounded bg-bg-active px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-text-muted">
+                        {tool.surface ?? "terminal"}
+                      </span>
+                      <label class="flex items-center gap-1 text-[11px] text-text-muted">
+                        <input
+                          type="checkbox"
+                          class="h-3 w-3 accent-accent"
+                          checked={tool.enabled !== false}
+                          onchange={(e) => updateExternalTool(tool.id, { enabled: e.currentTarget.checked })}
+                        />
+                        Enabled
+                      </label>
+                      <button
+                        type="button"
+                        class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-red"
+                        onclick={() => removeExternalTool(tool.id)}
+                      >Remove</button>
+                    </div>
+
+                    {#if expanded}
+                      <div class="mt-3 grid gap-2">
+                        <label class="grid gap-1 text-[11px] text-text-muted">
+                          <span>Name</span>
+                          <input
+                            class="rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
+                            value={tool.name}
+                            oninput={(e) => updateExternalTool(tool.id, { name: e.currentTarget.value })}
+                          />
+                        </label>
+                        <div class="grid gap-2 md:grid-cols-[1fr_1fr]">
+                          <label class="grid gap-1 text-[11px] text-text-muted">
+                            <span>ID</span>
+                            <input
+                              class="rounded border border-border bg-bg-deep px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent-dim"
+                              value={tool.id}
+                              oninput={(e) => updateExternalTool(tool.id, { id: e.currentTarget.value })}
+                            />
+                          </label>
+                          <label class="grid gap-1 text-[11px] text-text-muted">
+                            <span>Surface</span>
+                            <input
+                              class="rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-secondary"
+                              value={tool.surface ?? "terminal"}
+                              readonly
+                            />
+                          </label>
+                        </div>
+                        <label class="grid gap-1 text-[11px] text-text-muted">
+                          <span>Command template</span>
+                          <textarea
+                            class="min-h-16 rounded border border-border bg-bg-deep px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent-dim"
+                            value={tool.commandTemplate}
+                            oninput={(e) => updateExternalTool(tool.id, { commandTemplate: e.currentTarget.value })}
+                          ></textarea>
+                        </label>
+                        <label class="grid gap-1 text-[11px] text-text-muted">
+                          <span>CWD template</span>
+                          <input
+                            class="rounded border border-border bg-bg-deep px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent-dim"
+                            value={tool.cwdTemplate ?? ""}
+                            oninput={(e) => updateExternalTool(tool.id, { cwdTemplate: e.currentTarget.value })}
+                          />
+                        </label>
+                        {#if (tool.surface ?? "terminal") === "web"}
+                          <div class="grid gap-2 md:grid-cols-[1fr_120px]">
+                            <label class="grid gap-1 text-[11px] text-text-muted">
+                              <span>URL template</span>
+                              <input
+                                class="rounded border border-border bg-bg-deep px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent-dim"
+                                value={tool.urlTemplate ?? ""}
+                                oninput={(e) => updateExternalTool(tool.id, { urlTemplate: e.currentTarget.value || null })}
+                              />
+                            </label>
+                            <label class="grid gap-1 text-[11px] text-text-muted">
+                              <span>Preferred port</span>
+                              <input
+                                type="number"
+                                min="1"
+                                max="65535"
+                                class="rounded border border-border bg-bg-deep px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent-dim"
+                                value={tool.preferredPort ?? ""}
+                                oninput={(e) => updateExternalTool(tool.id, { preferredPort: e.currentTarget.value ? Number(e.currentTarget.value) : null })}
+                              />
+                            </label>
+                          </div>
+                        {/if}
+                        <label class="flex items-center gap-2 text-[11px] text-text-secondary">
+                          <input
+                            type="checkbox"
+                            class="h-3 w-3 accent-accent"
+                            checked={tool.requiresSession ?? false}
+                            onchange={(e) => updateExternalTool(tool.id, { requiresSession: e.currentTarget.checked })}
+                          />
+                          Requires active session
+                        </label>
+                        <div class="flex items-center gap-2">
+                          <button
+                            type="button"
+                            class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                            disabled={preview?.loading}
+                            onclick={() => void previewTool(tool)}
+                          >{preview?.loading ? "Previewing" : "Preview Render"}</button>
+                          {#if tool.requiresSession && !$activeSession}
+                            <span class="text-[11px] text-amber">Preview needs an active session.</span>
+                          {/if}
+                        </div>
+                        {#if preview?.error}
+                          <div class="rounded border border-red/25 bg-red/10 p-2 text-[11px] text-red">
+                            {preview.error}
+                          </div>
+                        {:else if preview?.rendered}
+                          <div class="grid gap-1 rounded border border-border-subtle bg-bg-deep/70 p-2 font-mono text-[10px] text-text-secondary">
+                            <div><span class="text-text-muted">cmd</span> {preview.rendered.command}</div>
+                            <div><span class="text-text-muted">cwd</span> {preview.rendered.cwd}</div>
+                            {#if preview.rendered.url}
+                              <div><span class="text-text-muted">url</span> {preview.rendered.url}</div>
+                            {/if}
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
             </div>
 
             <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">

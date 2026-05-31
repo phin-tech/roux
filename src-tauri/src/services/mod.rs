@@ -1,5 +1,6 @@
 pub(crate) mod agent_notifications;
 pub(crate) mod docs;
+pub(crate) mod external_tools;
 pub(crate) mod library;
 pub(crate) mod library_sync;
 pub(crate) mod mcp_config;

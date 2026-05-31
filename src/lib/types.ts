@@ -52,6 +52,8 @@ export type {
   PtyInfo,
   PtyRole,
   PtyStatus,
+  ExternalTool,
+  ExternalToolSurface,
 } from "./bindings";
 
 // Frontend-only types (not defined in Rust)
@@ -128,6 +130,30 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   mcpEnabled: false,
   mcpLastConfiguredHost: null,
   mcpLastConfiguredAtMs: null,
+  externalTools: [
+    {
+      id: "lazygit",
+      name: "Lazygit",
+      enabled: true,
+      surface: "terminal",
+      commandTemplate: "lazygit -p {{ session.worktree_path | shell_quote }}",
+      cwdTemplate: "{{ session.worktree_path }}",
+      requiresSession: true,
+      urlTemplate: null,
+      preferredPort: null,
+    },
+    {
+      id: "difit",
+      name: "Difit",
+      enabled: true,
+      surface: "web",
+      commandTemplate: "difit . --host 127.0.0.1 --port {{ port }} --no-open --keep-alive",
+      cwdTemplate: "{{ session.worktree_path }}",
+      requiresSession: true,
+      urlTemplate: "http://127.0.0.1:{{ port }}",
+      preferredPort: 4966,
+    },
+  ],
   kanban: {
     defaultAgentProfile: "claude",
     planningPromptAppend: "",

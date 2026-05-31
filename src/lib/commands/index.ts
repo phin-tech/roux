@@ -5,6 +5,7 @@ import { registerWatchCommands } from "./watches";
 import { registerUiCommands } from "./ui";
 import { registerLibraryCommands } from "./library";
 import { registerProjectCommands } from "./projects";
+import { registerExternalToolCommands } from "./externalTools";
 
 export function registerCommands() {
   registerPaneCommands();
@@ -14,6 +15,7 @@ export function registerCommands() {
   registerUiCommands();
   registerLibraryCommands();
   registerProjectCommands();
+  registerExternalToolCommands();
 }
 
 export { registry } from "./registry";
