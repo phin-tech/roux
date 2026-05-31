@@ -33,6 +33,7 @@
   let documentError = $state<string | null>(null);
   let reconnecting = $state(false);
   let refreshGeneration = 0;
+  let documentOpenGeneration = 0;
 
   let session = $derived($sessionList.find((s) => s.id === sessionId) ?? null);
   let displayName = $derived(session ? sessionDisplayName(session) : "");
@@ -98,14 +99,20 @@
   }
 
   async function openDocument(attachment: Attachment): Promise<void> {
+    const generation = ++documentOpenGeneration;
     documentLoadingId = attachment.id;
     documentError = null;
     try {
-      selectedDocument = await getDocument(attachment.documentId);
+      const next = await getDocument(attachment.documentId);
+      if (generation !== documentOpenGeneration) return;
+      selectedDocument = next;
     } catch (err) {
+      if (generation !== documentOpenGeneration) return;
       documentError = formatError(err, "Failed to read attachment.");
     } finally {
-      documentLoadingId = null;
+      if (generation === documentOpenGeneration) {
+        documentLoadingId = null;
+      }
     }
   }
 

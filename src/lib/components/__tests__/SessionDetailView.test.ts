@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { tick } from "svelte";
 import { get } from "svelte/store";
 import SessionDetailView from "../SessionDetailView.svelte";
 import { sessionState } from "$lib/stores/sessions";
@@ -127,6 +128,49 @@ describe("SessionDetailView", () => {
 
     expect(getDocument).toHaveBeenCalledWith("session-1.doc-1");
     expect(await screen.findByText("These are the attached notes.")).toBeTruthy();
+  });
+
+  it("ignores stale attachment reads when a later selection resolves first", async () => {
+    const first = makeAttachment({
+      id: "doc-1",
+      documentId: "session-1.doc-1",
+      title: "First note",
+    });
+    const second = makeAttachment({
+      id: "doc-2",
+      documentId: "session-1.doc-2",
+      title: "Second note",
+    });
+    let resolveFirst:
+      | ((value: { attachment: Attachment; content: string }) => void)
+      | undefined;
+    let resolveSecond:
+      | ((value: { attachment: Attachment; content: string }) => void)
+      | undefined;
+
+    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
+    vi.mocked(listDocuments).mockResolvedValue([first, second]);
+    vi.mocked(getDocument).mockImplementation((documentId) => {
+      return new Promise((resolve) => {
+        if (documentId === first.documentId) resolveFirst = resolve;
+        if (documentId === second.documentId) resolveSecond = resolve;
+      });
+    });
+
+    render(SessionDetailView, { sessionId: "session-1" });
+
+    await fireEvent.click(await screen.findByRole("button", { name: "First note" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Second note" }));
+
+    resolveSecond?.({ attachment: second, content: "Second content" });
+    await tick();
+    expect(await screen.findByText("Second content")).toBeTruthy();
+
+    resolveFirst?.({ attachment: first, content: "First stale content" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await tick();
+    expect(screen.queryByText("First stale content")).toBeNull();
+    expect(screen.getByText("Second content")).toBeTruthy();
   });
 
   it("renames the session inline", async () => {

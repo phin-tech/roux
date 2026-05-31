@@ -9,6 +9,18 @@ export function eventTargetIsInsideMainView(target: EventTarget | null): boolean
   return target instanceof Element && target.closest("[data-main-view-root]") !== null;
 }
 
+export function eventTargetIsMainViewKeyboardOwner(target: EventTarget | null): boolean {
+  return (
+    eventTargetIsInsideMainView(target) ||
+    target === document.body ||
+    target === document.documentElement
+  );
+}
+
+export function mainViewTargetShouldBypassAppKeymap(target: EventTarget | null): boolean {
+  return eventTargetIsMainViewKeyboardOwner(target) && eventTargetIsEditable(target);
+}
+
 export function eventTargetIsEditable(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   const editable = target.closest("input, textarea, select, [contenteditable='true']");

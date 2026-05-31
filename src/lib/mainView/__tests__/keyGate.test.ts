@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   commandBlockedByMainView,
   eventTargetIsEditable,
+  eventTargetIsMainViewKeyboardOwner,
   eventTargetIsInsideMainView,
+  mainViewTargetShouldBypassAppKeymap,
 } from "../keyGate";
 import type { Command } from "$lib/commands/registry";
 
@@ -44,5 +46,17 @@ describe("main-view key gate", () => {
 
     expect(eventTargetIsInsideMainView(child)).toBe(true);
     expect(eventTargetIsInsideMainView(document.createElement("button"))).toBe(false);
+  });
+
+  it("lets non-editable main-view focus continue to app shortcut handling", () => {
+    const root = document.createElement("div");
+    root.dataset.mainViewRoot = "";
+    const button = document.createElement("button");
+    const input = document.createElement("input");
+    root.append(button, input);
+
+    expect(eventTargetIsMainViewKeyboardOwner(button)).toBe(true);
+    expect(mainViewTargetShouldBypassAppKeymap(button)).toBe(false);
+    expect(mainViewTargetShouldBypassAppKeymap(input)).toBe(true);
   });
 });

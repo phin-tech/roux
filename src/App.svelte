@@ -113,7 +113,8 @@
   import {
     commandBlockedByMainView,
     eventTargetIsEditable,
-    eventTargetIsInsideMainView,
+    eventTargetIsMainViewKeyboardOwner,
+    mainViewTargetShouldBypassAppKeymap,
   } from "$lib/mainView/keyGate";
 
   let showNewSessionDialog = $state(false);
@@ -365,17 +366,14 @@
     const mainRoute = get(mainViewRoute);
     if (mainRoute) {
       const target = e.target;
-      const mainViewOwnsKeyboard =
-        eventTargetIsInsideMainView(target) ||
-        target === document.body ||
-        target === document.documentElement;
-      if (mainViewOwnsKeyboard) {
+      if (eventTargetIsMainViewKeyboardOwner(target)) {
         if (e.key === "Escape" && !eventTargetIsEditable(target)) {
           e.preventDefault();
           closeMainView();
           keymapExitTree();
+          return;
         }
-        return;
+        if (mainViewTargetShouldBypassAppKeymap(target)) return;
       }
     }
 
