@@ -7,7 +7,6 @@ const webviewMock = vi.hoisted(() => {
     static instances: MockWebview[] = [];
 
     options: unknown;
-    setAutoResize = vi.fn().mockResolvedValue(undefined);
     setPosition = vi.fn().mockResolvedValue(undefined);
     setSize = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
@@ -29,6 +28,18 @@ const tauriMock = vi.hoisted(() => ({
   probeExternalToolUrl: vi.fn(),
 }));
 
+const windowMock = vi.hoisted(() => {
+  const state = {
+    resizeHandler: null as (() => void) | null,
+    unlistenResize: vi.fn(),
+    onResized: vi.fn(async (handler: () => void) => {
+      state.resizeHandler = handler;
+      return state.unlistenResize;
+    }),
+  };
+  return state;
+});
+
 const externalToolsMock = vi.hoisted(() => ({
   failExternalToolRun: vi.fn().mockResolvedValue(undefined),
   markExternalToolExited: vi.fn(),
@@ -43,7 +54,7 @@ vi.mock("@tauri-apps/api/webview", () => ({
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: vi.fn(() => ({ label: "main" })),
+  getCurrentWindow: vi.fn(() => ({ label: "main", onResized: windowMock.onResized })),
   LogicalPosition: class LogicalPosition {
     constructor(
       public x: number,
@@ -66,9 +77,16 @@ vi.mock("$lib/stores/externalTools", () => externalToolsMock);
 
 import ExternalToolWebView from "../ExternalToolWebView.svelte";
 
+let frameCallbacks: FrameRequestCallback[] = [];
+
 class ResizeObserverStub {
   observe = vi.fn();
   disconnect = vi.fn();
+}
+
+function flushAnimationFrames(): void {
+  const callbacks = frameCallbacks.splice(0);
+  for (const callback of callbacks) callback(0);
 }
 
 function makeRun(): ExternalToolRun {
@@ -97,8 +115,15 @@ function makeRun(): ExternalToolRun {
 describe("ExternalToolWebView", () => {
   beforeEach(() => {
     webviewMock.MockWebview.instances = [];
+    windowMock.resizeHandler = null;
+    frameCallbacks = [];
     tauriMock.probeExternalToolUrl.mockResolvedValue(true);
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frameCallbacks.push(callback);
+      return frameCallbacks.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
   });
 
   afterEach(() => {
@@ -106,17 +131,52 @@ describe("ExternalToolWebView", () => {
     vi.clearAllMocks();
   });
 
-  it("enables native auto-resize and syncs bounds after child webview creation", async () => {
+  it("marks the child webview ready and syncs bounds after creation", async () => {
     const { unmount } = render(ExternalToolWebView, { run: makeRun() });
 
     await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
     const webview = webviewMock.MockWebview.instances[0];
 
-    await waitFor(() => expect(webview.setAutoResize).toHaveBeenCalledWith(true));
     expect(webview.setPosition).toHaveBeenCalled();
     expect(webview.setSize).toHaveBeenCalled();
     expect(externalToolsMock.markExternalToolReady).toHaveBeenCalledWith("difit:session-1");
 
     unmount();
+  });
+
+  it("resyncs child webview bounds when the parent window resizes", async () => {
+    const { unmount } = render(ExternalToolWebView, { run: makeRun() });
+
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const webview = webviewMock.MockWebview.instances[0];
+    await waitFor(() => expect(webview.setSize).toHaveBeenCalled());
+    flushAnimationFrames();
+    const sizeCalls = webview.setSize.mock.calls.length;
+
+    windowMock.resizeHandler?.();
+    flushAnimationFrames();
+
+    await waitFor(() => expect(webview.setSize.mock.calls.length).toBeGreaterThan(sizeCalls));
+
+    unmount();
+    expect(windowMock.unlistenResize).toHaveBeenCalled();
+  });
+
+  it("removes the window resize listener if registration resolves after destroy", async () => {
+    let resolveResizeListener: (unlisten: typeof windowMock.unlistenResize) => void = () => {};
+    windowMock.onResized.mockImplementationOnce(async (handler: () => void) => {
+      windowMock.resizeHandler = handler;
+      return new Promise<typeof windowMock.unlistenResize>((resolve) => {
+        resolveResizeListener = resolve;
+      });
+    });
+
+    const { unmount } = render(ExternalToolWebView, { run: makeRun() });
+    await waitFor(() => expect(windowMock.onResized).toHaveBeenCalled());
+
+    unmount();
+    resolveResizeListener(windowMock.unlistenResize);
+
+    await waitFor(() => expect(windowMock.unlistenResize).toHaveBeenCalled());
   });
 });

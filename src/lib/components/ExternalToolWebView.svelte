@@ -24,14 +24,29 @@
   let outputTruncated = $state(false);
   let webview: Webview | null = null;
   let resizeObserver: ResizeObserver | null = null;
+  let cleanupWindowResize: UnlistenFn | null = null;
+  let resizeFrame: ReturnType<typeof requestAnimationFrame> | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let logTimer: ReturnType<typeof setInterval> | null = null;
   let creatingWebview = false;
+  let destroyed = false;
   let startedPollingAt = 0;
 
   onMount(() => {
-    resizeObserver = new ResizeObserver(() => void positionWebview());
+    destroyed = false;
+    resizeObserver = new ResizeObserver(() => schedulePositionWebview());
     if (host) resizeObserver.observe(host);
+    void getCurrentWindow()
+      .onResized(() => schedulePositionWebview())
+      .then((unlisten) => {
+        if (destroyed) {
+          unlisten();
+          return;
+        }
+        cleanupWindowResize?.();
+        cleanupWindowResize = unlisten;
+      })
+      .catch(() => {});
     startPolling();
     logTimer = setInterval(() => void refreshLogs(), 1500);
     void refreshLogs();
@@ -41,7 +56,7 @@
   $effect(() => {
     run.logsOpen;
     void refreshLogs();
-    void positionWebview();
+    schedulePositionWebview();
   });
 
   onDestroy(cleanup);
@@ -99,7 +114,6 @@
     webview = next;
     try {
       await waitForWebviewCreated(next);
-      await next.setAutoResize(true);
       markExternalToolReady(run.id);
       await positionWebview();
     } catch (err) {
@@ -172,6 +186,14 @@
     }
   }
 
+  function schedulePositionWebview(): void {
+    if (resizeFrame != null) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = null;
+      void positionWebview();
+    });
+  }
+
   async function refreshLogs(): Promise<void> {
     const snapshot = await readExternalToolProcess(run).catch(() => null);
     if (!snapshot) return;
@@ -190,11 +212,16 @@
   }
 
   function cleanup(): void {
+    destroyed = true;
     clearPoll();
     if (logTimer) clearInterval(logTimer);
     logTimer = null;
+    if (resizeFrame != null) cancelAnimationFrame(resizeFrame);
+    resizeFrame = null;
     resizeObserver?.disconnect();
     resizeObserver = null;
+    cleanupWindowResize?.();
+    cleanupWindowResize = null;
     const current = webview;
     webview = null;
     void current?.close();
