@@ -10,7 +10,12 @@ vi.mock("$lib/tauri", () => ({
   launchExternalTool: vi.fn(),
 }));
 
-import { daemonProcessKill, launchExternalTool, type ExternalToolLaunchResult } from "$lib/tauri";
+import {
+  daemonProcessKill,
+  killPty,
+  launchExternalTool,
+  type ExternalToolLaunchResult,
+} from "$lib/tauri";
 import {
   externalToolRuns,
   externalToolRunId,
@@ -74,6 +79,21 @@ function webTool(): ExternalTool {
   };
 }
 
+function terminalTool(): ExternalTool {
+  return {
+    id: "lazygit",
+    name: "Lazygit",
+    enabled: true,
+    surface: "terminal",
+    commandTemplate: "lazygit",
+    cwdTemplate: ".",
+    requiresSession: false,
+    urlTemplate: null,
+    preferredPort: null,
+    webEmbedder: "webview",
+  };
+}
+
 function webLaunchResult(runtimeId: string | null): ExternalToolLaunchResult {
   return {
     toolId: "difit",
@@ -86,6 +106,22 @@ function webLaunchResult(runtimeId: string | null): ExternalToolLaunchResult {
       cwd: "/repo",
       url: "http://127.0.0.1:4966",
       port: 4966,
+    },
+  };
+}
+
+function terminalLaunchResult(runtimeId: string | null): ExternalToolLaunchResult {
+  return {
+    toolId: "lazygit",
+    surface: "terminal",
+    sessionId: null,
+    runtimeId,
+    runtimeGeneration: 2,
+    rendered: {
+      command: "lazygit",
+      cwd: "/repo",
+      url: null,
+      port: null,
     },
   };
 }
@@ -208,6 +244,43 @@ describe("externalTools store helpers", () => {
     expect(get(externalToolRuns).get(runId)).toMatchObject({
       runtimeId: "process-new",
       status: "starting",
+    });
+  });
+
+  it("kills an errored terminal runtime before relaunching the tool", async () => {
+    const order: string[] = [];
+    vi.mocked(killPty).mockImplementationOnce(async (id) => {
+      order.push(`kill:${id}`);
+    });
+    vi.mocked(launchExternalTool).mockImplementationOnce(async () => {
+      order.push("launch");
+      return terminalLaunchResult("pty-new");
+    });
+    settings.update((current) => ({ ...current, externalTools: [terminalTool()] }));
+    const runId = externalToolRunId("lazygit", null);
+    externalToolRuns.set(
+      new Map([
+        [
+          runId,
+          {
+            ...runWithStatus("error"),
+            id: runId,
+            toolId: "lazygit",
+            toolName: "Lazygit",
+            sessionId: null,
+            runtimeId: "pty-old",
+            error: "attach failed",
+          },
+        ],
+      ]),
+    );
+
+    await openExternalTool("lazygit");
+
+    expect(order).toEqual(["kill:pty-old", "launch"]);
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      runtimeId: "pty-new",
+      status: "running",
     });
   });
 
