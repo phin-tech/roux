@@ -1,3 +1,18 @@
+<script module lang="ts">
+  let nextNativeWebviewLabelId = 0;
+
+  function nativeWebviewLabel(snapshot: {
+    runId: string;
+    runtimeId: string | null;
+    launchedAtMs: number;
+  }): string {
+    return `external-tool-${snapshot.runId}-${snapshot.runtimeId ?? snapshot.launchedAtMs}-${++nextNativeWebviewLabelId}`.replace(
+      /[^a-zA-Z0-9-/:_]/g,
+      "_",
+    );
+  }
+</script>
+
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
   import { Webview } from "@tauri-apps/api/webview";
@@ -183,10 +198,7 @@
       if (creatingWebviewKey === snapshot.key) creatingWebviewKey = null;
       return;
     }
-    const label = `external-tool-${snapshot.runId}-${snapshot.runtimeId ?? snapshot.launchedAtMs}`.replace(
-      /[^a-zA-Z0-9-/:_]/g,
-      "_",
-    );
+    const label = nativeWebviewLabel(snapshot);
     webviewLabel = label;
     const next = new Webview(getCurrentWindow(), label, {
       url: snapshot.url,

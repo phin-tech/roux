@@ -184,16 +184,24 @@ describe("ExternalToolWebView", () => {
     const first = render(ExternalToolWebView, { run: readyRun });
     await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
     const closed = webviewMock.MockWebview.instances[0];
+    let finishClose: () => void = () => {};
+    closed.close.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishClose = resolve;
+      }),
+    );
     first.unmount();
     expect(closed.close).toHaveBeenCalledOnce();
 
     const second = render(ExternalToolWebView, { run: readyRun });
     await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(2));
+    expect(webviewMock.MockWebview.instances[1].label).not.toBe(closed.label);
     expect(webviewMock.MockWebview.instances[1].options).toMatchObject({
       url: "http://127.0.0.1:4966",
     });
     expect(tauriMock.probeExternalToolUrl).not.toHaveBeenCalled();
 
+    finishClose();
     second.unmount();
   });
 
