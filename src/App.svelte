@@ -189,6 +189,16 @@
   }
 
   async function handleCloseRequested() {
+    const route = get(mainViewRoute);
+    if (route?.kind === "externalTool") {
+      await closeExternalToolRun(route.runId);
+      return;
+    }
+    if (route) {
+      closeMainView();
+      return;
+    }
+
     const state = get(sessionState);
     if (!state.activeSessionId) {
       quitApp();
