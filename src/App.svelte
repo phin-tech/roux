@@ -228,8 +228,12 @@
     const cmd = registry.get(commandId);
     if (!cmd) return;
     const route = get(mainViewRoute);
-    if (route?.kind === "externalTool" && cmd.id === "pane.close") {
-      void closeExternalToolRun(route.runId);
+    if (route && cmd.id === "pane.close") {
+      if (route.kind === "externalTool") {
+        void closeExternalToolRun(route.runId);
+      } else {
+        closeMainView();
+      }
       return;
     }
     if (get(mainViewRoute) && commandBlockedByMainView(cmd)) return;
@@ -297,7 +301,7 @@
     const cmd = registry.get(commandId);
     if (!cmd) return false;
     const route = get(mainViewRoute);
-    if (route?.kind === "externalTool" && cmd.id === "pane.close") return true;
+    if (route && cmd.id === "pane.close") return true;
     if (get(mainViewRoute) && commandBlockedByMainView(cmd)) return false;
     return !cmd.available || cmd.available();
   }
