@@ -226,7 +226,17 @@
   }
 
   function updateExternalTool(id: string, patch: Partial<ExternalTool>): void {
-    updateExternalTools(externalTools().map((tool) => (tool.id === id ? { ...tool, ...patch } : tool)));
+    const tools = externalTools();
+    if (
+      patch.id !== undefined &&
+      tools.some((tool) => tool.id !== id && tool.id === patch.id)
+    ) {
+      return;
+    }
+    updateExternalTools(tools.map((tool) => (tool.id === id ? { ...tool, ...patch } : tool)));
+    if (patch.id !== undefined && expandedExternalToolId === id) {
+      expandedExternalToolId = patch.id;
+    }
   }
 
   function addExternalTool(surface: ExternalToolSurface): void {
