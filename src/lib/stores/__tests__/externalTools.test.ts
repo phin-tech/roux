@@ -2,16 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
 
 vi.mock("$lib/tauri", () => ({
-  daemonProcessKill: vi.fn().mockResolvedValue({
-    id: "process-1",
-    command: "",
-    workingDir: "",
-    startedAtMs: 0,
-    running: false,
-    exitCode: null,
-    retainedOutputBytes: 0,
-    outputTruncated: false,
-  }),
+  daemonProcessKill: vi.fn().mockResolvedValue(processRecord("process-1")),
   daemonProcessOutput: vi.fn(),
   killPty: vi.fn().mockResolvedValue(undefined),
   launchExternalTool: vi.fn(),
@@ -28,6 +19,19 @@ import {
   type ExternalToolRunStatus,
 } from "../externalTools";
 import { closeMainView, mainViewRoute, openMainView } from "../mainView";
+
+function processRecord(id: string) {
+  return {
+    id,
+    command: "",
+    workingDir: "",
+    startedAtMs: 0,
+    running: false,
+    exitCode: null,
+    retainedOutputBytes: 0,
+    outputTruncated: false,
+  };
+}
 
 function runWithStatus(status: ExternalToolRunStatus): ExternalToolRun {
   return {
@@ -136,6 +140,35 @@ describe("externalTools store helpers", () => {
       error: "webview failed",
       logsOpen: true,
     });
+  });
+
+  it("marks a launched run errored before awaiting runtime cleanup", async () => {
+    let finishKill: (value: ReturnType<typeof processRecord>) => void = () => {};
+    vi.mocked(daemonProcessKill).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishKill = resolve;
+      }),
+    );
+    const run = {
+      ...runWithStatus("running"),
+      surface: "web" as const,
+      runtimeId: "process-1",
+      runtimeGeneration: null,
+    };
+    externalToolRuns.set(new Map([[run.id, run]]));
+
+    const failed = failExternalToolRun(run.id, run.runtimeId, "webview failed");
+
+    expect(get(externalToolRuns).get(run.id)).toMatchObject({
+      status: "error",
+      error: "webview failed",
+    });
+
+    markExternalToolExited(run.id, run.runtimeId, null);
+    expect(get(externalToolRuns).has(run.id)).toBe(true);
+
+    finishKill(processRecord("process-1"));
+    await failed;
   });
 
   it("ignores launched-run failures from a stale runtime id", async () => {

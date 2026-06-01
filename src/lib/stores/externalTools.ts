@@ -126,11 +126,8 @@ export async function failExternalToolRun(
   const run = get(externalToolRuns).get(runId);
   if (!run || run.runtimeId !== runtimeId) return;
 
-  await killRunRuntime(run);
-
-  const current = get(externalToolRuns).get(runId);
-  if (!current || current.runtimeId !== runtimeId) return;
   setExternalToolRunError(runId, error);
+  await killRunRuntime(run);
 }
 
 export function setExternalToolLogsOpen(runId: string, logsOpen: boolean): void {
