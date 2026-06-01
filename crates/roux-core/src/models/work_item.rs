@@ -123,6 +123,7 @@ pub struct WorkItemInputPresence {
 /// Input shape for creating / importing a work item. All fields except
 /// `title` are optional; the store fills defaults.
 #[derive(Debug, Clone, Default, specta::Type)]
+#[specta(type = WorkItemInputBinding)]
 pub struct WorkItemInput {
     pub title: String,
     pub body: Option<String>,
@@ -140,6 +141,38 @@ pub struct WorkItemInput {
     pub sort_order: Option<f64>,
     #[specta(skip)]
     pub field_presence: WorkItemInputPresence,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+struct WorkItemInputBinding {
+    title: String,
+    #[specta(optional)]
+    body: Option<String>,
+    #[specta(optional)]
+    status: Option<WorkItemStatus>,
+    #[specta(optional)]
+    repo_path: Option<String>,
+    #[specta(optional)]
+    agent_profile: Option<String>,
+    #[specta(optional)]
+    base_branch: Option<String>,
+    #[specta(optional)]
+    worktree_path: Option<String>,
+    #[specta(optional)]
+    branch: Option<String>,
+    #[specta(optional)]
+    fetch_first: Option<bool>,
+    #[specta(optional)]
+    start_error: Option<String>,
+    #[specta(optional)]
+    project_id: Option<String>,
+    #[specta(optional)]
+    parent_id: Option<String>,
+    #[specta(optional)]
+    external_ref: Option<ExternalRef>,
+    #[specta(optional)]
+    sort_order: Option<f64>,
 }
 
 impl WorkItemInput {

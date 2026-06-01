@@ -13,7 +13,6 @@
     readExternalToolProcess,
     registerExternalToolViewCloser,
     restartExternalToolRun,
-    setExternalToolRunError,
   } from "$lib/stores/externalTools";
 
   interface Props {
@@ -118,7 +117,11 @@
           return;
         }
       } catch (err) {
-        setExternalToolRunError(run.id, `Failed to check ${run.rendered.url}: ${formatError(err)}`);
+        await failExternalToolRun(
+          run.id,
+          run.runtimeId,
+          `Failed to check ${run.rendered.url}: ${formatError(err)}`,
+        );
         return;
       }
 
@@ -131,11 +134,15 @@
           return;
         }
         if (Date.now() - startedPollingAt > 15_000) {
-          setExternalToolRunError(run.id, `Timed out waiting for ${run.rendered.url}`);
+          await failExternalToolRun(
+            run.id,
+            run.runtimeId,
+            `Timed out waiting for ${run.rendered.url}`,
+          );
           return;
         }
       } catch (err) {
-        setExternalToolRunError(run.id, formatError(err));
+        await failExternalToolRun(run.id, run.runtimeId, formatError(err));
         return;
       }
       pollTimer = setTimeout(tick, 500);

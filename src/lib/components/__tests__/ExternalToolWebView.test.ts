@@ -199,6 +199,23 @@ describe("ExternalToolWebView", () => {
     expect(unregister).toHaveBeenCalledOnce();
   });
 
+  it("cleans up the runtime when startup probing fails", async () => {
+    tauriMock.probeExternalToolUrl.mockRejectedValueOnce(new Error("probe denied"));
+
+    const { unmount } = render(ExternalToolWebView, { run: makeRun() });
+
+    await waitFor(() =>
+      expect(externalToolsMock.failExternalToolRun).toHaveBeenCalledWith(
+        "difit:session-1",
+        "process-1",
+        "Failed to check http://127.0.0.1:4966: probe denied",
+      ),
+    );
+    expect(externalToolsMock.setExternalToolRunError).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
   it("resyncs child webview bounds when the parent window resizes", async () => {
     const { unmount } = render(ExternalToolWebView, { run: makeRun() });
 

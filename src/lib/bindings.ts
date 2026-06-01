@@ -1519,19 +1519,19 @@ export type WorkItem = {
  */
 export type WorkItemInput = {
 	title: string,
-	body: string | null,
-	status: WorkItemStatus | null,
-	repo_path: string | null,
-	agent_profile: string | null,
-	base_branch: string | null,
-	worktree_path: string | null,
-	branch: string | null,
-	fetch_first: boolean | null,
-	start_error: string | null,
-	project_id: string | null,
-	parent_id: string | null,
-	external_ref: ExternalRef | null,
-	sort_order: number | null,
+	body?: string | null,
+	status?: WorkItemStatus | null,
+	repoPath?: string | null,
+	agentProfile?: string | null,
+	baseBranch?: string | null,
+	worktreePath?: string | null,
+	branch?: string | null,
+	fetchFirst?: boolean | null,
+	startError?: string | null,
+	projectId?: string | null,
+	parentId?: string | null,
+	externalRef?: ExternalRef | null,
+	sortOrder?: number | null,
 };
 
 export type WorkItemPlanResult = {
