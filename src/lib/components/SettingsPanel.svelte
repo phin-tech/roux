@@ -227,15 +227,17 @@
 
   function updateExternalTool(id: string, patch: Partial<ExternalTool>): void {
     const tools = externalTools();
-    if (
-      patch.id !== undefined &&
-      tools.some((tool) => tool.id !== id && tool.id === patch.id)
-    ) {
-      return;
+    let nextPatch = patch;
+    if (patch.id !== undefined) {
+      const normalizedId = patch.id.trim();
+      if (!normalizedId || tools.some((tool) => tool.id !== id && tool.id.trim() === normalizedId)) {
+        return;
+      }
+      nextPatch = { ...patch, id: normalizedId };
     }
-    updateExternalTools(tools.map((tool) => (tool.id === id ? { ...tool, ...patch } : tool)));
-    if (patch.id !== undefined && expandedExternalToolId === id) {
-      expandedExternalToolId = patch.id;
+    updateExternalTools(tools.map((tool) => (tool.id === id ? { ...tool, ...nextPatch } : tool)));
+    if (nextPatch.id !== undefined && expandedExternalToolId === id) {
+      expandedExternalToolId = nextPatch.id;
     }
   }
 
