@@ -26,6 +26,16 @@
     height: number;
   }
 
+  interface PollSnapshot {
+    key: string;
+    run: ExternalToolRun;
+    runId: string;
+    runtimeId: string | null;
+    url: string;
+    webEmbedder: ExternalToolRun["webEmbedder"];
+    launchedAtMs: number;
+  }
+
   let { run }: Props = $props();
   let host = $state<HTMLDivElement | null>(null);
   let logs = $state("");
@@ -38,9 +48,8 @@
   let webviewLabel: string | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let logTimer: ReturnType<typeof setInterval> | null = null;
-  let creatingWebview = false;
+  let creatingWebviewKey: string | null = null;
   let destroyed = false;
-  let startedPollingAt = 0;
   let pollKey = "";
 
   onMount(() => {
@@ -94,7 +103,8 @@
     pollKey = key;
     closeWebview();
     if (run.status === "launching" || run.status === "starting") {
-      startPolling();
+      const snapshot = pollingSnapshot(key);
+      if (snapshot) startPolling(snapshot);
     } else {
       clearPoll();
     }
@@ -102,70 +112,80 @@
 
   onDestroy(cleanup);
 
-  function startPolling(): void {
+  function startPolling(snapshot: PollSnapshot): void {
     clearPoll();
-    startedPollingAt = Date.now();
+    const startedPollingAt = Date.now();
     const tick = async () => {
-      if (!run.rendered?.url) return;
+      if (!pollIsCurrent(snapshot)) return;
       try {
-        if (await probeExternalToolUrl(run.rendered.url)) {
-          if (run.webEmbedder === "webview") {
-            await createWebview();
+        if (await probeExternalToolUrl(snapshot.url)) {
+          if (!pollIsCurrent(snapshot)) return;
+          if (snapshot.webEmbedder === "webview") {
+            await createWebview(snapshot);
           } else {
-            markExternalToolReady(run.id);
+            markExternalToolReady(snapshot.runId);
           }
           return;
         }
       } catch (err) {
-        await failExternalToolRun(
-          run.id,
-          run.runtimeId,
-          `Failed to check ${run.rendered.url}: ${formatError(err)}`,
-        );
+        if (pollIsCurrent(snapshot)) {
+          await failExternalToolRun(
+            snapshot.runId,
+            snapshot.runtimeId,
+            `Failed to check ${snapshot.url}: ${formatError(err)}`,
+          );
+        }
         return;
       }
 
       try {
-        const snapshot = await readExternalToolProcess(run).catch(() => null);
-        if (snapshot && !snapshot.record.running) {
-          markExternalToolExited(run.id, snapshot.record.id, snapshot.record.exitCode);
-          logs = snapshot.output;
-          outputTruncated = snapshot.record.outputTruncated;
+        const processSnapshot = await readExternalToolProcess(snapshot.run).catch(() => null);
+        if (!pollIsCurrent(snapshot)) return;
+        if (processSnapshot && !processSnapshot.record.running) {
+          markExternalToolExited(
+            snapshot.runId,
+            processSnapshot.record.id,
+            processSnapshot.record.exitCode,
+            snapshot.run.runtimeGeneration,
+          );
+          logs = processSnapshot.output;
+          outputTruncated = processSnapshot.record.outputTruncated;
           return;
         }
         if (Date.now() - startedPollingAt > 15_000) {
           await failExternalToolRun(
-            run.id,
-            run.runtimeId,
-            `Timed out waiting for ${run.rendered.url}`,
+            snapshot.runId,
+            snapshot.runtimeId,
+            `Timed out waiting for ${snapshot.url}`,
           );
           return;
         }
       } catch (err) {
-        await failExternalToolRun(run.id, run.runtimeId, formatError(err));
+        if (pollIsCurrent(snapshot)) {
+          await failExternalToolRun(snapshot.runId, snapshot.runtimeId, formatError(err));
+        }
         return;
       }
-      pollTimer = setTimeout(tick, 500);
+      if (pollIsCurrent(snapshot)) pollTimer = setTimeout(tick, 500);
     };
     pollTimer = setTimeout(tick, 0);
   }
 
-  async function createWebview(): Promise<void> {
-    if (webview || creatingWebview || !host || !run.rendered?.url) return;
-    creatingWebview = true;
-    const runtimeId = run.runtimeId;
+  async function createWebview(snapshot: PollSnapshot): Promise<void> {
+    if (webview || creatingWebviewKey === snapshot.key || !host) return;
+    creatingWebviewKey = snapshot.key;
     const bounds = webviewBounds();
     if (!bounds) {
-      creatingWebview = false;
+      if (creatingWebviewKey === snapshot.key) creatingWebviewKey = null;
       return;
     }
-    const label = `external-tool-${run.id}-${run.runtimeId ?? run.launchedAtMs}`.replace(
+    const label = `external-tool-${snapshot.runId}-${snapshot.runtimeId ?? snapshot.launchedAtMs}`.replace(
       /[^a-zA-Z0-9-/:_]/g,
       "_",
     );
     webviewLabel = label;
     const next = new Webview(getCurrentWindow(), label, {
-      url: run.rendered.url,
+      url: snapshot.url,
       x: bounds.x,
       y: bounds.y,
       width: bounds.width,
@@ -175,19 +195,43 @@
     webview = next;
     try {
       await waitForWebviewCreated(next);
-      markExternalToolReady(run.id);
+      if (!pollIsCurrent(snapshot)) {
+        if (webview === next) webview = null;
+        closeNativeWebview(next);
+        return;
+      }
+      markExternalToolReady(snapshot.runId);
       await syncAfterLayout();
     } catch (err) {
       if (webview === next) webview = null;
-      void next.close();
-      await failExternalToolRun(
-        run.id,
-        runtimeId,
-        `Failed to open ${run.rendered.url}: ${formatError(err)}`,
-      );
+      closeNativeWebview(next);
+      if (pollIsCurrent(snapshot)) {
+        await failExternalToolRun(
+          snapshot.runId,
+          snapshot.runtimeId,
+          `Failed to open ${snapshot.url}: ${formatError(err)}`,
+        );
+      }
     } finally {
-      creatingWebview = false;
+      if (creatingWebviewKey === snapshot.key) creatingWebviewKey = null;
     }
+  }
+
+  function pollingSnapshot(key: string): PollSnapshot | null {
+    if (!run.rendered?.url) return null;
+    return {
+      key,
+      run: { ...run, rendered: { ...run.rendered } },
+      runId: run.id,
+      runtimeId: run.runtimeId,
+      url: run.rendered.url,
+      webEmbedder: run.webEmbedder,
+      launchedAtMs: run.launchedAtMs,
+    };
+  }
+
+  function pollIsCurrent(snapshot: PollSnapshot): boolean {
+    return !destroyed && pollKey === snapshot.key;
   }
 
   async function waitForWebviewCreated(next: Webview): Promise<void> {
@@ -286,6 +330,7 @@
     const label = webviewLabel ?? current?.label ?? null;
     webview = null;
     webviewLabel = null;
+    creatingWebviewKey = null;
     closeNativeWebview(current);
     if (label) {
       void Webview.getByLabel(label)

@@ -216,6 +216,84 @@ describe("ExternalToolWebView", () => {
     unmount();
   });
 
+  it("ignores stale startup probe failures after a run relaunch", async () => {
+    let rejectProbe: (err: Error) => void = () => {};
+    tauriMock.probeExternalToolUrl.mockReturnValueOnce(
+      new Promise<boolean>((_, reject) => {
+        rejectProbe = reject;
+      }),
+    );
+    const replacement = {
+      ...makeRun(),
+      runtimeId: "process-2",
+      launchedAtMs: 200,
+      rendered: {
+        ...makeRun().rendered!,
+        port: 4967,
+        url: "http://127.0.0.1:4967",
+      },
+    };
+    const { rerender, unmount } = render(ExternalToolWebView, { run: makeRun() });
+    await waitFor(() => expect(tauriMock.probeExternalToolUrl).toHaveBeenCalled());
+
+    await rerender({ run: replacement });
+    rejectProbe(new Error("stale probe"));
+
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    expect(externalToolsMock.failExternalToolRun).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it("adds the measured main-view toolbar inset to native webview bounds", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.hasAttribute("data-main-view-toolbar")) {
+        return {
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 800,
+          bottom: 36,
+          width: 800,
+          height: 36,
+          toJSON: () => ({}),
+        } as DOMRect;
+      }
+      return {
+        x: 12,
+        y: 44,
+        left: 12,
+        top: 44,
+        right: 812,
+        bottom: 644,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+    const root = document.createElement("div");
+    root.setAttribute("data-main-view-root", "");
+    const toolbar = document.createElement("div");
+    toolbar.setAttribute("data-main-view-toolbar", "");
+    const target = document.createElement("div");
+    root.append(toolbar, target);
+    document.body.appendChild(root);
+
+    const { unmount } = render(ExternalToolWebView, {
+      target,
+      props: { run: makeRun() },
+    });
+
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    expect(webviewMock.MockWebview.instances[0].options).toMatchObject({ y: 80 });
+
+    unmount();
+    root.remove();
+  });
+
   it("resyncs child webview bounds when the parent window resizes", async () => {
     const { unmount } = render(ExternalToolWebView, { run: makeRun() });
 

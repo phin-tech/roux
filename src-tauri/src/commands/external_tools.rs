@@ -221,6 +221,69 @@ fn launch_render_port(tool: &ExternalTool) -> Result<Option<u16>, String> {
 }
 
 fn tool_uses_port(tool: &ExternalTool) -> bool {
-    tool.command_template.contains("{{ port")
-        || tool.url_template.as_deref().is_some_and(|url| url.contains("{{ port"))
+    template_uses_port(&tool.command_template)
+        || tool.url_template.as_deref().is_some_and(template_uses_port)
+}
+
+fn template_uses_port(template: &str) -> bool {
+    let mut remaining = template;
+    while let Some(open) = remaining.find("{{") {
+        let after_open = &remaining[open + 2..];
+        let Some(close) = after_open.find("}}") else {
+            return false;
+        };
+        if expression_uses_port(after_open[..close].trim_start()) {
+            return true;
+        }
+        remaining = &after_open[close + 2..];
+    }
+    false
+}
+
+fn expression_uses_port(expression: &str) -> bool {
+    let Some(rest) = expression.strip_prefix("port") else {
+        return false;
+    };
+    rest.chars().next().is_none_or(|ch| !is_identifier_continue(ch))
+}
+
+fn is_identifier_continue(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use roux_core::ExternalToolWebEmbedder;
+
+    fn web_tool(command_template: &str, url_template: Option<&str>) -> ExternalTool {
+        ExternalTool {
+            id: "test".into(),
+            name: "Test".into(),
+            enabled: true,
+            surface: ExternalToolSurface::Web,
+            command_template: command_template.into(),
+            cwd_template: ".".into(),
+            requires_session: false,
+            url_template: url_template.map(str::to_string),
+            preferred_port: None,
+            web_embedder: ExternalToolWebEmbedder::Webview,
+        }
+    }
+
+    #[test]
+    fn tool_uses_port_detects_minijinja_port_without_spaces() {
+        assert!(tool_uses_port(&web_tool("serve --port {{port}}", None)));
+        assert!(tool_uses_port(&web_tool("", Some("http://127.0.0.1:{{port}}"))));
+    }
+
+    #[test]
+    fn tool_uses_port_detects_port_before_filter_expression() {
+        assert!(tool_uses_port(&web_tool("serve --port {{port | string}}", None)));
+    }
+
+    #[test]
+    fn tool_uses_port_ignores_other_identifiers() {
+        assert!(!tool_uses_port(&web_tool("echo {{airport}}", Some("https://github.com"))));
+    }
 }
