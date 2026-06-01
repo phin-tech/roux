@@ -241,10 +241,54 @@ fn template_uses_port(template: &str) -> bool {
 }
 
 fn expression_uses_port(expression: &str) -> bool {
-    let Some(rest) = expression.strip_prefix("port") else {
-        return false;
-    };
-    rest.chars().next().is_none_or(|ch| !is_identifier_continue(ch))
+    expression_uses_identifier(expression, "port")
+}
+
+fn expression_uses_identifier(expression: &str, identifier: &str) -> bool {
+    let mut chars = expression.char_indices().peekable();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+
+    while let Some((start, ch)) = chars.next() {
+        if let Some(active_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            quote = Some(ch);
+            continue;
+        }
+
+        if !is_identifier_start(ch) {
+            continue;
+        }
+
+        let mut end = start + ch.len_utf8();
+        while let Some((next_start, next_ch)) = chars.peek().copied() {
+            if !is_identifier_continue(next_ch) {
+                break;
+            }
+            chars.next();
+            end = next_start + next_ch.len_utf8();
+        }
+
+        if &expression[start..end] == identifier {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn is_identifier_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic()
 }
 
 fn is_identifier_continue(ch: char) -> bool {
@@ -283,7 +327,22 @@ mod tests {
     }
 
     #[test]
+    fn tool_uses_port_detects_whitespace_control_expression() {
+        assert!(tool_uses_port(&web_tool("serve --port {{- port }}", None)));
+    }
+
+    #[test]
+    fn tool_uses_port_detects_port_inside_larger_expression() {
+        assert!(tool_uses_port(&web_tool("", Some("{{ \"http://127.0.0.1:\" ~ port }}"))));
+    }
+
+    #[test]
     fn tool_uses_port_ignores_other_identifiers() {
         assert!(!tool_uses_port(&web_tool("echo {{airport}}", Some("https://github.com"))));
+    }
+
+    #[test]
+    fn tool_uses_port_ignores_port_inside_string_literals() {
+        assert!(!tool_uses_port(&web_tool("echo {{ \"port\" }}", Some("https://github.com"))));
     }
 }
