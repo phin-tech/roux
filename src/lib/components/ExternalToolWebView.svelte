@@ -99,6 +99,7 @@
     webview = next;
     try {
       await waitForWebviewCreated(next);
+      await next.setAutoResize(true);
       markExternalToolReady(run.id);
       await positionWebview();
     } catch (err) {
@@ -162,8 +163,13 @@
   async function positionWebview(): Promise<void> {
     if (!webview || !host) return;
     const rect = host.getBoundingClientRect();
-    await webview.setPosition(new LogicalPosition(rect.left, rect.top));
-    await webview.setSize(new LogicalSize(Math.max(1, rect.width), Math.max(1, rect.height)));
+    const current = webview;
+    try {
+      await current.setPosition(new LogicalPosition(rect.left, rect.top));
+      await current.setSize(new LogicalSize(Math.max(1, rect.width), Math.max(1, rect.height)));
+    } catch {
+      // The native child webview can be closed while a resize is already queued.
+    }
   }
 
   async function refreshLogs(): Promise<void> {
