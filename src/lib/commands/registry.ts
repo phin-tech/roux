@@ -3,6 +3,7 @@ export interface CommandItem {
   label: string;
   description?: string;
   icon?: string;
+  disabledReason?: string | null;
   action?: () => void | Promise<void>;
   /** If set, selecting this item drills into a sub-step instead of executing */
   substeps?: () => CommandItem[] | Promise<CommandItem[]>;
@@ -16,6 +17,8 @@ export interface Command {
   category: string;
   /** Whether this command is available in current context */
   available?: () => boolean;
+  /** If set, command remains visible but cannot be executed. */
+  disabledReason?: () => string | null;
   /** For simple commands: just execute */
   execute?: () => void | Promise<void>;
   /**

@@ -1,6 +1,7 @@
 pub(crate) mod aliases;
 pub(crate) mod daemon;
 pub(crate) mod docs;
+pub(crate) mod external_tools;
 pub(crate) mod layouts;
 pub(crate) mod mailbox;
 pub(crate) mod library;

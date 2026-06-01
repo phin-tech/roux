@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -260,9 +261,8 @@ impl ProcessEntry {
             self.reap_finished_readers();
             return Ok(());
         };
-        child.kill().map_err(|err| format!("kill daemon process {}: {err}", self.id))?;
-        let status =
-            child.wait().map_err(|err| format!("wait daemon process {}: {err}", self.id))?;
+        terminate_child(child, &self.id)?;
+        let status = wait_for_child_exit(child, &self.id)?;
         self.exit_code = status.code();
         self.child = None;
         self.reap_finished_readers();
@@ -407,13 +407,71 @@ fn shell_command(command: &str) -> Command {
 
     #[cfg(not(windows))]
     {
+        use std::os::unix::process::CommandExt;
+
         let shell = std::env::var("SHELL")
             .ok()
             .filter(|shell| !shell.trim().is_empty())
             .unwrap_or_else(|| "/bin/sh".to_string());
         let mut cmd = Command::new(shell);
         cmd.arg("-lc").arg(command);
+        cmd.process_group(0);
         cmd
+    }
+}
+
+#[cfg(not(windows))]
+fn terminate_child(child: &mut Child, id: &str) -> Result<(), String> {
+    signal_child_group(child, id, libc::SIGTERM, "terminate")
+}
+
+#[cfg(windows)]
+fn terminate_child(child: &mut Child, id: &str) -> Result<(), String> {
+    child.kill().map_err(|err| format!("kill daemon process {id}: {err}"))
+}
+
+#[cfg(not(windows))]
+fn force_terminate_child(child: &mut Child, id: &str) -> Result<(), String> {
+    signal_child_group(child, id, libc::SIGKILL, "force kill")
+}
+
+#[cfg(windows)]
+fn force_terminate_child(child: &mut Child, id: &str) -> Result<(), String> {
+    child.kill().map_err(|err| format!("force kill daemon process {id}: {err}"))
+}
+
+#[cfg(not(windows))]
+fn signal_child_group(
+    child: &Child,
+    id: &str,
+    signal: libc::c_int,
+    verb: &str,
+) -> Result<(), String> {
+    let pid = i32::try_from(child.id()).map_err(|_| format!("daemon process {id} pid overflow"))?;
+    let result = unsafe { libc::kill(-pid, signal) };
+    if result == -1 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() != Some(libc::ESRCH) {
+            return Err(format!("{verb} daemon process group {id}: {err}"));
+        }
+    }
+    Ok(())
+}
+
+fn wait_for_child_exit(child: &mut Child, id: &str) -> Result<std::process::ExitStatus, String> {
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) if started.elapsed() < Duration::from_millis(750) => {
+                thread::sleep(Duration::from_millis(25));
+            }
+            Ok(None) => {
+                force_terminate_child(child, id)?;
+                return child.wait().map_err(|err| format!("wait daemon process {id}: {err}"));
+            }
+            Err(err) => return Err(format!("wait daemon process {id}: {err}")),
+        }
     }
 }
 

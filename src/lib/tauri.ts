@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { SpawnProfileRef } from "$lib/panes/profiles";
 import type { ProjectPromptTemplateContext } from "$lib/projectPromptTemplates";
 import type {
+  ExternalTool,
   Session,
   Project,
   ProjectUpdate,
@@ -86,12 +87,97 @@ export interface RuntimeStatus {
   statusError?: string | null;
 }
 
+export type ExternalToolSurface = "terminal" | "web";
+
+export interface RenderedExternalTool {
+  command: string;
+  cwd: string;
+  url: string | null;
+  port: number | null;
+}
+
+export interface ExternalToolLaunchResult {
+  toolId: string;
+  surface: ExternalToolSurface;
+  sessionId: string | null;
+  runtimeId: string | null;
+  runtimeGeneration: number | null;
+  rendered: RenderedExternalTool;
+}
+
+export interface ProcessRecord {
+  id: string;
+  command: string;
+  workingDir: string;
+  startedAtMs: number;
+  running: boolean;
+  exitCode: number | null;
+  retainedOutputBytes: number;
+  outputTruncated: boolean;
+}
+
+export interface ProcessSnapshot {
+  record: ProcessRecord;
+  output: string;
+}
+
 export async function getDaemonStatus(): Promise<DaemonStatus | null> {
   return invoke("get_daemon_status");
 }
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   return invoke("get_runtime_status");
+}
+
+export async function previewExternalTool(
+  toolId: string,
+  sessionId?: string | null,
+  port?: number | null,
+): Promise<RenderedExternalTool> {
+  return invoke("preview_external_tool", {
+    toolId,
+    sessionId: sessionId ?? null,
+    port: port ?? null,
+  });
+}
+
+export async function previewExternalToolConfig(
+  tool: ExternalTool,
+  sessionId?: string | null,
+  port?: number | null,
+): Promise<RenderedExternalTool> {
+  return invoke("preview_external_tool_config", {
+    tool,
+    sessionId: sessionId ?? null,
+    port: port ?? null,
+  });
+}
+
+export async function launchExternalTool(
+  toolId: string,
+  sessionId?: string | null,
+  initialSize?: InitialPtySize | null,
+): Promise<ExternalToolLaunchResult> {
+  return invoke("launch_external_tool", {
+    toolId,
+    sessionId: sessionId ?? null,
+    initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
+  });
+}
+
+export async function probeExternalToolUrl(url: string): Promise<boolean> {
+  return invoke("probe_external_tool_url", { url });
+}
+
+export async function daemonProcessOutput(
+  id: string,
+  maxBytes?: number | null,
+): Promise<ProcessSnapshot> {
+  return invoke("daemon_process_output", { id, maxBytes: maxBytes ?? null });
+}
+
+export async function daemonProcessKill(id: string): Promise<ProcessRecord> {
+  return invoke("daemon_process_kill", { id });
 }
 
 /**

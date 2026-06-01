@@ -110,6 +110,7 @@
     workItemSessionStart,
   } from "$lib/stores/ui";
   import { closeMainView, mainViewRoute } from "$lib/stores/mainView";
+  import { closeExternalToolRun } from "$lib/stores/externalTools";
   import {
     commandBlockedByMainView,
     eventTargetIsEditable,
@@ -188,6 +189,16 @@
   }
 
   async function handleCloseRequested() {
+    const route = get(mainViewRoute);
+    if (route?.kind === "externalTool") {
+      await closeExternalToolRun(route.runId);
+      return;
+    }
+    if (route) {
+      closeMainView();
+      return;
+    }
+
     const state = get(sessionState);
     if (!state.activeSessionId) {
       quitApp();
@@ -216,6 +227,15 @@
 
     const cmd = registry.get(commandId);
     if (!cmd) return;
+    const route = get(mainViewRoute);
+    if (route && cmd.id === "pane.close") {
+      if (route.kind === "externalTool") {
+        void closeExternalToolRun(route.runId);
+      } else {
+        closeMainView();
+      }
+      return;
+    }
     if (get(mainViewRoute) && commandBlockedByMainView(cmd)) return;
 
     if (cmd.id === "session.new") {
@@ -280,6 +300,8 @@
   function isCommandAvailable(commandId: string): boolean {
     const cmd = registry.get(commandId);
     if (!cmd) return false;
+    const route = get(mainViewRoute);
+    if (route && cmd.id === "pane.close") return true;
     if (get(mainViewRoute) && commandBlockedByMainView(cmd)) return false;
     return !cmd.available || cmd.available();
   }
@@ -401,7 +423,11 @@
     if (mainRoute) {
       const target = e.target;
       if (eventTargetIsMainViewKeyboardOwner(target)) {
-        if (e.key === "Escape" && !eventTargetIsEditable(target)) {
+        if (
+          e.key === "Escape" &&
+          mainRoute.kind !== "externalTool" &&
+          !eventTargetIsEditable(target)
+        ) {
           e.preventDefault();
           closeMainView();
           keymapExitTree();

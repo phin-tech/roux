@@ -29,6 +29,12 @@ describe("mainViewRoute", () => {
       sessionId: "session-1",
     });
 
+    openMainView({ kind: "externalTool", runId: "lazygit:s1" });
+    expect(get(mainViewRoute)).toEqual({
+      kind: "externalTool",
+      runId: "lazygit:s1",
+    });
+
     closeMainView();
     expect(get(mainViewRoute)).toBeNull();
     expect(get(mainViewActive)).toBe(false);
@@ -50,7 +56,19 @@ describe("mainViewRoute", () => {
       sessionId: "session-2",
     });
 
-    toggleMainView({ kind: "sessionDetail", sessionId: "session-2" });
+    toggleMainView({ kind: "externalTool", runId: "tool:a" });
+    expect(get(mainViewRoute)).toEqual({
+      kind: "externalTool",
+      runId: "tool:a",
+    });
+
+    toggleMainView({ kind: "externalTool", runId: "tool:b" });
+    expect(get(mainViewRoute)).toEqual({
+      kind: "externalTool",
+      runId: "tool:b",
+    });
+
+    toggleMainView({ kind: "externalTool", runId: "tool:b" });
     expect(get(mainViewRoute)).toBeNull();
   });
 });
