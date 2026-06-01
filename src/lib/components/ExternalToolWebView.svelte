@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { Webview } from "@tauri-apps/api/webview";
+  import type { UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
+  import { probeExternalToolUrl } from "$lib/tauri";
   import type { ExternalToolRun } from "$lib/stores/externalTools";
   import {
     markExternalToolExited,
@@ -23,6 +25,7 @@
   let resizeObserver: ResizeObserver | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let logTimer: ReturnType<typeof setInterval> | null = null;
+  let creatingWebview = false;
   let startedPollingAt = 0;
 
   onMount(() => {
@@ -48,11 +51,16 @@
     const tick = async () => {
       if (!run.rendered?.url) return;
       try {
-        await fetch(run.rendered.url, { method: "GET", mode: "no-cors", cache: "no-store" });
-        markExternalToolReady(run.id);
-        await createWebview();
+        if (await probeExternalToolUrl(run.rendered.url)) {
+          await createWebview();
+          return;
+        }
+      } catch (err) {
+        setExternalToolRunError(run.id, `Failed to check ${run.rendered.url}: ${formatError(err)}`);
         return;
-      } catch {
+      }
+
+      try {
         const snapshot = await readExternalToolProcess(run).catch(() => null);
         if (snapshot && !snapshot.record.running) {
           markExternalToolExited(run.id, snapshot.record.id, snapshot.record.exitCode);
@@ -64,6 +72,9 @@
           setExternalToolRunError(run.id, `Timed out waiting for ${run.rendered.url}`);
           return;
         }
+      } catch (err) {
+        setExternalToolRunError(run.id, formatError(err));
+        return;
       }
       pollTimer = setTimeout(tick, 500);
     };
@@ -71,10 +82,11 @@
   }
 
   async function createWebview(): Promise<void> {
-    if (webview || !host || !run.rendered?.url) return;
+    if (webview || creatingWebview || !host || !run.rendered?.url) return;
+    creatingWebview = true;
     const rect = host.getBoundingClientRect();
     const label = `external-tool-${run.id.replace(/[^a-zA-Z0-9-/:_]/g, "_")}`;
-    webview = new Webview(getCurrentWindow(), label, {
+    const next = new Webview(getCurrentWindow(), label, {
       url: run.rendered.url,
       x: rect.left,
       y: rect.top,
@@ -82,7 +94,63 @@
       height: Math.max(1, rect.height),
       focus: true,
     });
-    await positionWebview();
+    webview = next;
+    try {
+      await waitForWebviewCreated(next);
+      markExternalToolReady(run.id);
+      await positionWebview();
+    } catch (err) {
+      if (webview === next) webview = null;
+      void next.close();
+      setExternalToolRunError(run.id, `Failed to open ${run.rendered.url}: ${formatError(err)}`);
+    } finally {
+      creatingWebview = false;
+    }
+  }
+
+  async function waitForWebviewCreated(next: Webview): Promise<void> {
+    const unlisteners: UnlistenFn[] = [];
+    let settled = false;
+
+    const cleanup = () => {
+      for (const unlisten of unlisteners.splice(0)) {
+        try {
+          unlisten();
+        } catch {
+          // best-effort listener cleanup
+        }
+      }
+    };
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const settle = (finish: () => void) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          finish();
+        };
+
+        void next
+          .once("tauri://created", () => settle(resolve))
+          .then((unlisten) => {
+            if (settled) unlisten();
+            else unlisteners.push(unlisten);
+          })
+          .catch((err) => settle(() => reject(err)));
+
+        void next
+          .once<unknown>("tauri://error", (event) => settle(() => reject(event.payload)))
+          .then((unlisten) => {
+            if (settled) unlisten();
+            else unlisteners.push(unlisten);
+          })
+          .catch((err) => settle(() => reject(err)));
+      });
+    } finally {
+      settled = true;
+      cleanup();
+    }
   }
 
   async function positionWebview(): Promise<void> {
@@ -118,6 +186,16 @@
     const current = webview;
     webview = null;
     void current?.close();
+  }
+
+  function formatError(err: unknown): string {
+    if (err instanceof Error && err.message) return err.message;
+    if (typeof err === "string" && err.trim()) return err;
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
   }
 </script>
 

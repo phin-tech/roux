@@ -165,6 +165,10 @@ export async function launchExternalTool(
   });
 }
 
+export async function probeExternalToolUrl(url: string): Promise<boolean> {
+  return invoke("probe_external_tool_url", { url });
+}
+
 export async function daemonProcessOutput(
   id: string,
   maxBytes?: number | null,

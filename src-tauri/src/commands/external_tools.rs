@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use crate::services::external_tools::{
     allocate_localhost_port, render_external_tool, RenderedExternalTool,
@@ -93,6 +94,24 @@ pub(crate) async fn launch_external_tool(
         runtime_generation: runtime.generation,
         rendered,
     })
+}
+
+#[tauri::command]
+pub(crate) async fn probe_external_tool_url(url: String) -> Result<bool, String> {
+    let url = reqwest::Url::parse(&url)
+        .map_err(|err| format!("invalid external tool URL: {err}"))?;
+    match url.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(format!("unsupported external tool URL scheme: {scheme}")),
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|err| format!("failed to build external tool URL probe: {err}"))?;
+
+    Ok(client.get(url).send().await.is_ok())
 }
 
 fn find_tool(tools: &[ExternalTool], tool_id: &str) -> Result<ExternalTool, String> {

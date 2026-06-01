@@ -318,6 +318,7 @@ fn main() {
             commands::external_tools::preview_external_tool,
             commands::external_tools::preview_external_tool_config,
             commands::external_tools::launch_external_tool,
+            commands::external_tools::probe_external_tool_url,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::mcp::cmd_mcp_status,
