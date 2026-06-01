@@ -70,18 +70,7 @@ export async function openExternalTool(toolId: string): Promise<void> {
     return;
   }
   if (existing) {
-    closeExternalToolView(runId);
-    cancelExternalToolLaunch(runId);
-    updateRun(runId, (run) => ({
-      ...run,
-      runtimeId: null,
-      runtimeGeneration: null,
-      rendered: null,
-      status: "launching",
-      error: null,
-      exitCode: null,
-      logsOpen: false,
-    }));
+    markExternalToolRelaunching(runId);
     await killRunRuntime(existing);
   }
   await launchRun(tool, boundSessionId, existing?.id);
@@ -90,11 +79,26 @@ export async function openExternalTool(toolId: string): Promise<void> {
 export async function restartExternalToolRun(runId: string): Promise<void> {
   const run = get(externalToolRuns).get(runId);
   if (!run) return;
+  if (run.status === "launching") return;
   const tool = findTool(run.toolId);
-  closeExternalToolView(runId);
-  cancelExternalToolLaunch(runId);
+  markExternalToolRelaunching(runId);
   await killRunRuntime(run);
   await launchRun(tool, run.sessionId, runId);
+}
+
+function markExternalToolRelaunching(runId: string): void {
+  closeExternalToolView(runId);
+  cancelExternalToolLaunch(runId);
+  updateRun(runId, (run) => ({
+    ...run,
+    runtimeId: null,
+    runtimeGeneration: null,
+    rendered: null,
+    status: "launching",
+    error: null,
+    exitCode: null,
+    logsOpen: false,
+  }));
 }
 
 export async function closeExternalToolRun(runId: string): Promise<void> {

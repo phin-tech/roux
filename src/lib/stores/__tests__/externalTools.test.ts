@@ -220,7 +220,7 @@ describe("externalTools store helpers", () => {
     expect(get(externalToolRuns).has(runId)).toBe(false);
   });
 
-  it("kills a stale web runtime instead of overwriting a replacement launch", async () => {
+  it("kills a stale web runtime instead of overwriting a reopened launch", async () => {
     const firstLaunch = deferred<ExternalToolLaunchResult>();
     const secondLaunch = deferred<ExternalToolLaunchResult>();
     vi.mocked(launchExternalTool)
@@ -232,8 +232,8 @@ describe("externalTools store helpers", () => {
     const runId = externalToolRunId("difit", null);
     expect(get(externalToolRuns).get(runId)).toMatchObject({ status: "launching" });
 
-    const restarted = restartExternalToolRun(runId);
-    await Promise.resolve();
+    await closeExternalToolRun(runId);
+    const reopened = openExternalTool("difit");
     expect(launchExternalTool).toHaveBeenCalledTimes(2);
 
     firstLaunch.resolve(webLaunchResult("process-old"));
@@ -241,7 +241,7 @@ describe("externalTools store helpers", () => {
     expect(daemonProcessKill).toHaveBeenCalledWith("process-old");
 
     secondLaunch.resolve(webLaunchResult("process-new"));
-    await restarted;
+    await reopened;
     expect(get(externalToolRuns).get(runId)).toMatchObject({
       runtimeId: "process-new",
       status: "starting",
@@ -279,6 +279,50 @@ describe("externalTools store helpers", () => {
     await openExternalTool("lazygit");
 
     expect(order).toEqual(["kill:pty-old", "launch"]);
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      runtimeId: "pty-new",
+      status: "running",
+    });
+  });
+
+  it("does not duplicate launches while a restart is retiring the old runtime", async () => {
+    const kill = deferred<void>();
+    vi.mocked(killPty).mockReturnValueOnce(kill.promise);
+    vi.mocked(launchExternalTool).mockResolvedValueOnce(terminalLaunchResult("pty-new"));
+    settings.update((current) => ({ ...current, externalTools: [terminalTool()] }));
+    const runId = externalToolRunId("lazygit", null);
+    externalToolRuns.set(
+      new Map([
+        [
+          runId,
+          {
+            ...runWithStatus("running"),
+            id: runId,
+            toolId: "lazygit",
+            toolName: "Lazygit",
+            sessionId: null,
+            runtimeId: "pty-old",
+          },
+        ],
+      ]),
+    );
+
+    const firstRestart = restartExternalToolRun(runId);
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      status: "launching",
+      runtimeId: null,
+      runtimeGeneration: null,
+      rendered: null,
+    });
+
+    await restartExternalToolRun(runId);
+    expect(killPty).toHaveBeenCalledTimes(1);
+    expect(launchExternalTool).not.toHaveBeenCalled();
+
+    kill.resolve();
+    await firstRestart;
+
+    expect(launchExternalTool).toHaveBeenCalledTimes(1);
     expect(get(externalToolRuns).get(runId)).toMatchObject({
       runtimeId: "pty-new",
       status: "running",
