@@ -308,7 +308,14 @@ describe("externalTools store helpers", () => {
     );
 
     const firstOpen = openExternalTool("lazygit");
-    expect(get(externalToolRuns).get(runId)).toMatchObject({ status: "launching" });
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      status: "launching",
+      runtimeId: null,
+      runtimeGeneration: null,
+      rendered: null,
+      error: null,
+      exitCode: null,
+    });
 
     await openExternalTool("lazygit");
     expect(killPty).toHaveBeenCalledTimes(1);
