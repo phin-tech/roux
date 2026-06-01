@@ -222,6 +222,20 @@ describe("SettingsPanel external tools", () => {
     expect(ids).not.toContain(" new-id ");
   });
 
+  it("keeps focus while editing an external tool ID", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+
+    const input = screen.getByDisplayValue("github");
+    input.focus();
+    await fireEvent.input(input, { target: { value: "n" } });
+
+    expect(document.activeElement).toBe(input);
+    expect(get(settings).externalTools?.some((tool) => tool.id === "n")).toBe(true);
+  });
+
   it("clamps preferred ports before saving external web tools", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 

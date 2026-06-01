@@ -167,7 +167,7 @@ export function markExternalToolReady(runId: string): void {
 export function markExternalToolExited(
   runId: string,
   runtimeId: string | null | undefined,
-  _exitCode: number | null,
+  exitCode: number | null,
   generation?: number | null,
 ): void {
   if (!runtimeId) return;
@@ -175,6 +175,10 @@ export function markExternalToolExited(
   if (!run || run.runtimeId !== runtimeId) return;
   if (run.status === "error") return;
   if (generation != null && run.runtimeGeneration !== generation) return;
+  if (run.surface === "web") {
+    setExternalToolRunError(runId, processExitMessage(exitCode), runtimeId, generation);
+    return;
+  }
 
   void killRunRuntime(run);
   removeExternalToolRun(runId);
@@ -348,4 +352,8 @@ async function killLaunchResultRuntime(result: ExternalToolLaunchResult): Promis
 
 function formatError(err: unknown): string {
   return err instanceof Error && err.message ? err.message : String(err);
+}
+
+function processExitMessage(exitCode: number | null): string {
+  return exitCode == null ? "Process exited" : `Process exited with code ${exitCode}`;
 }

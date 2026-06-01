@@ -121,6 +121,8 @@
   let externalToolPreviewById = $state<
     Record<string, { loading: boolean; rendered: RenderedExternalTool | null; error: string | null }>
   >({});
+  const externalToolRowKeys = new Map<string, string>();
+  let nextExternalToolRowKey = 0;
   let wasVisible = false;
   onMount(async () => {
     try { appVersion = await getVersion(); } catch { appVersion = "unknown"; }
@@ -221,7 +223,32 @@
     return $settings.externalTools ?? [];
   }
 
+  function externalToolRowKey(id: string): string {
+    let key = externalToolRowKeys.get(id);
+    if (!key) {
+      key = `external-tool-row-${++nextExternalToolRowKey}`;
+      externalToolRowKeys.set(id, key);
+    }
+    return key;
+  }
+
+  function retainExternalToolRowKey(previousId: string, nextId: string): void {
+    if (previousId === nextId) return;
+    const key = externalToolRowKeys.get(previousId);
+    if (!key) return;
+    externalToolRowKeys.delete(previousId);
+    externalToolRowKeys.set(nextId, key);
+  }
+
+  function pruneExternalToolRowKeys(tools: ExternalTool[]): void {
+    const ids = new Set(tools.map((tool) => tool.id));
+    for (const id of externalToolRowKeys.keys()) {
+      if (!ids.has(id)) externalToolRowKeys.delete(id);
+    }
+  }
+
   function updateExternalTools(tools: ExternalTool[]): void {
+    pruneExternalToolRowKeys(tools);
     updateSetting("externalTools", tools);
   }
 
@@ -235,10 +262,11 @@
       }
       nextPatch = { ...patch, id: normalizedId };
     }
-    updateExternalTools(tools.map((tool) => (tool.id === id ? { ...tool, ...nextPatch } : tool)));
-    if (nextPatch.id !== undefined && expandedExternalToolId === id) {
-      expandedExternalToolId = nextPatch.id;
+    if (nextPatch.id !== undefined) {
+      retainExternalToolRowKey(id, nextPatch.id);
+      if (expandedExternalToolId === id) expandedExternalToolId = nextPatch.id;
     }
+    updateExternalTools(tools.map((tool) => (tool.id === id ? { ...tool, ...nextPatch } : tool)));
   }
 
   function preferredPortFromInput(value: string): number | null {
@@ -1455,7 +1483,7 @@
               </div>
 
               <div class="mt-3 flex flex-col gap-2">
-                {#each externalTools() as tool (tool.id)}
+                {#each externalTools() as tool (externalToolRowKey(tool.id))}
                   {@const expanded = expandedExternalToolId === tool.id}
                   {@const preview = externalToolPreviewById[tool.id]}
                   <div class="rounded border border-border-subtle bg-bg-deep/60 p-2">
