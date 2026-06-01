@@ -206,6 +206,11 @@ impl ProcessEntry {
         }
 
         let working_dir = resolve_working_dir(working_dir)?;
+        let output = Arc::new(Mutex::new(ProcessOutputBuffer::new(PROCESS_OUTPUT_LIMIT_BYTES)));
+        if let Ok(mut output) = output.lock() {
+            output.append(process_startup_log(&command, &working_dir).as_bytes());
+        }
+
         let mut child = shell_command(&command)
             .current_dir(&working_dir)
             .stdout(Stdio::piped())
@@ -213,7 +218,6 @@ impl ProcessEntry {
             .spawn()
             .map_err(|err| format!("spawn daemon process: {err}"))?;
 
-        let output = Arc::new(Mutex::new(ProcessOutputBuffer::new(PROCESS_OUTPUT_LIMIT_BYTES)));
         let mut reader_threads = Vec::new();
         if let Some(stdout) = child.stdout.take() {
             reader_threads.push(spawn_output_reader(stdout, Arc::clone(&output)));
@@ -304,6 +308,10 @@ impl ProcessEntry {
         }
         self.reader_threads = pending;
     }
+}
+
+fn process_startup_log(command: &str, working_dir: &std::path::Path) -> String {
+    format!("command: {command}\ncwd: {}\n\n", working_dir.to_string_lossy())
 }
 
 struct ProcessOutputBuffer {
@@ -513,7 +521,9 @@ mod tests {
         let snapshot = snapshot.expect("process output and exit should become visible");
         assert_eq!(snapshot.record.id, record.id);
         assert_eq!(snapshot.record.exit_code, Some(0));
-        assert_eq!(snapshot.output, "daemon-runtime");
+        assert!(snapshot.output.contains("command: printf daemon-runtime"));
+        assert!(snapshot.output.contains(&format!("cwd: {}", dir.path().to_string_lossy())));
+        assert!(snapshot.output.ends_with("daemon-runtime"));
 
         handle.shutdown().await;
         join.await.unwrap();

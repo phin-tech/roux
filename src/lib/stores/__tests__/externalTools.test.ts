@@ -497,6 +497,32 @@ describe("externalTools store helpers", () => {
     expect(get(mainViewRoute)).toEqual({ kind: "externalTool", runId: run.id });
   });
 
+  it("keeps a web tool pane open with logs when its process exits", () => {
+    const run = {
+      ...runWithStatus("starting"),
+      id: "difit:global",
+      toolId: "difit",
+      toolName: "Difit",
+      surface: "web" as const,
+      sessionId: null,
+      runtimeId: "process-1",
+      runtimeGeneration: null,
+    };
+    externalToolRuns.set(new Map([[run.id, run]]));
+    openMainView({ kind: "externalTool", runId: run.id });
+
+    markExternalToolExited(run.id, run.runtimeId, 1, run.runtimeGeneration);
+
+    expect(get(externalToolRuns).get(run.id)).toMatchObject({
+      status: "error",
+      error: "Process exited with code 1",
+      logsOpen: true,
+      runtimeId: "process-1",
+    });
+    expect(get(mainViewRoute)).toEqual({ kind: "externalTool", runId: run.id });
+    expect(daemonProcessKill).not.toHaveBeenCalled();
+  });
+
   it("kills the matching web runtime before marking a launched run failed", async () => {
     const run = {
       ...runWithStatus("running"),

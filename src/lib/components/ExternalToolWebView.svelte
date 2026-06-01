@@ -383,6 +383,8 @@
       outputTruncated = snapshot.record.outputTruncated;
     }
     if (!snapshot.record.running && currentRun.status !== "error") {
+      logs = snapshot.output;
+      outputTruncated = snapshot.record.outputTruncated;
       markExternalToolExited(
         currentRun.id,
         snapshot.record.id,

@@ -242,6 +242,47 @@ describe("ExternalToolWebView", () => {
     unmount();
   });
 
+  it("shows process output when the periodic log refresh sees a crashed process", async () => {
+    tauriMock.probeExternalToolUrl.mockResolvedValue(false);
+    externalToolsMock.readExternalToolProcess.mockResolvedValue({
+      record: {
+        id: "process-1",
+        command: "npx difit",
+        workingDir: "/repo",
+        startedAtMs: 100,
+        running: false,
+        exitCode: 1,
+        retainedOutputBytes: 52,
+        outputTruncated: false,
+      },
+      output: "command: npx difit\ncwd: /repo\n\ncrashed on startup",
+    });
+
+    const initialRun = makeRun();
+    const { rerender, unmount } = render(ExternalToolWebView, { run: initialRun });
+
+    expect(await document.body.textContent).not.toContain("crashed on startup");
+    await waitFor(() =>
+      expect(externalToolsMock.markExternalToolExited).toHaveBeenCalledWith(
+        "difit:session-1",
+        "process-1",
+        1,
+        null,
+      ),
+    );
+    await rerender({
+      run: {
+        ...initialRun,
+        status: "error",
+        error: "Process exited with code 1",
+        logsOpen: true,
+      },
+    });
+    expect(document.body.textContent).toContain("crashed on startup");
+
+    unmount();
+  });
+
   it("ignores stale startup probe failures after a run relaunch", async () => {
     let rejectProbe: (err: Error) => void = () => {};
     tauriMock.probeExternalToolUrl.mockReturnValueOnce(
