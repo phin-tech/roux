@@ -41,6 +41,7 @@ export interface ExternalToolRun {
 export const externalToolRuns = writable<Map<string, ExternalToolRun>>(new Map());
 const externalToolViewClosers = new Map<string, () => void>();
 const externalToolLaunchTokens = new Map<string, number>();
+const externalToolRelaunchCleanups = new Set<string>();
 let nextExternalToolLaunchToken = 0;
 
 export function externalToolRunId(toolId: string, sessionId: string | null): string {
@@ -71,7 +72,12 @@ export async function openExternalTool(toolId: string): Promise<void> {
   }
   if (existing) {
     markExternalToolRelaunching(runId);
-    await killRunRuntime(existing);
+    try {
+      await killRunRuntime(existing);
+    } finally {
+      externalToolRelaunchCleanups.delete(runId);
+    }
+    if (!get(externalToolRuns).has(runId)) return;
   }
   await launchRun(tool, boundSessionId, existing?.id);
 }
@@ -79,16 +85,27 @@ export async function openExternalTool(toolId: string): Promise<void> {
 export async function restartExternalToolRun(runId: string): Promise<void> {
   const run = get(externalToolRuns).get(runId);
   if (!run) return;
-  if (run.status === "launching") return;
+  if (externalToolRelaunchCleanups.has(runId)) return;
   const tool = findTool(run.toolId);
-  markExternalToolRelaunching(runId);
-  await killRunRuntime(run);
+  if (run.runtimeId) {
+    markExternalToolRelaunching(runId);
+    try {
+      await killRunRuntime(run);
+    } finally {
+      externalToolRelaunchCleanups.delete(runId);
+    }
+  } else {
+    closeExternalToolView(runId);
+    cancelExternalToolLaunch(runId);
+  }
+  if (!get(externalToolRuns).has(runId)) return;
   await launchRun(tool, run.sessionId, runId);
 }
 
 function markExternalToolRelaunching(runId: string): void {
   closeExternalToolView(runId);
   cancelExternalToolLaunch(runId);
+  externalToolRelaunchCleanups.add(runId);
   updateRun(runId, (run) => ({
     ...run,
     runtimeId: null,
@@ -119,6 +136,7 @@ export function registerExternalToolViewCloser(runId: string, closeView: () => v
 function removeExternalToolRun(runId: string): void {
   closeExternalToolView(runId);
   cancelExternalToolLaunch(runId);
+  externalToolRelaunchCleanups.delete(runId);
   externalToolRuns.update((runs) => {
     const next = new Map(runs);
     next.delete(runId);

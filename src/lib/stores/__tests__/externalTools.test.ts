@@ -248,6 +248,36 @@ describe("externalTools store helpers", () => {
     });
   });
 
+  it("replaces an in-flight launch when restarting before a runtime exists", async () => {
+    const firstLaunch = deferred<ExternalToolLaunchResult>();
+    const secondLaunch = deferred<ExternalToolLaunchResult>();
+    vi.mocked(launchExternalTool)
+      .mockReturnValueOnce(firstLaunch.promise)
+      .mockReturnValueOnce(secondLaunch.promise);
+    settings.update((current) => ({ ...current, externalTools: [webTool()] }));
+
+    const opened = openExternalTool("difit");
+    const runId = externalToolRunId("difit", null);
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      status: "launching",
+      runtimeId: null,
+    });
+
+    const restarted = restartExternalToolRun(runId);
+    expect(launchExternalTool).toHaveBeenCalledTimes(2);
+
+    firstLaunch.resolve(webLaunchResult("process-old"));
+    await opened;
+    expect(daemonProcessKill).toHaveBeenCalledWith("process-old");
+
+    secondLaunch.resolve(webLaunchResult("process-new"));
+    await restarted;
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      runtimeId: "process-new",
+      status: "starting",
+    });
+  });
+
   it("kills an errored terminal runtime before relaunching the tool", async () => {
     const order: string[] = [];
     vi.mocked(killPty).mockImplementationOnce(async (id) => {
