@@ -26,6 +26,7 @@ import {
   openExternalTool,
   registerExternalToolViewCloser,
   restartExternalToolRun,
+  setExternalToolRunError,
   type ExternalToolRun,
   type ExternalToolRunStatus,
 } from "../externalTools";
@@ -316,6 +317,9 @@ describe("externalTools store helpers", () => {
       error: null,
       exitCode: null,
     });
+
+    setExternalToolRunError(runId, "stale attach failed", "pty-old", 1);
+    expect(get(externalToolRuns).get(runId)).toMatchObject({ status: "launching", error: null });
 
     await openExternalTool("lazygit");
     expect(killPty).toHaveBeenCalledTimes(1);

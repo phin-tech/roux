@@ -154,7 +154,17 @@ export function markExternalToolExited(
   removeExternalToolRun(runId);
 }
 
-export function setExternalToolRunError(runId: string, error: string): void {
+export function setExternalToolRunError(
+  runId: string,
+  error: string,
+  runtimeId?: string | null,
+  generation?: number | null,
+): void {
+  if (runtimeId !== undefined) {
+    const run = get(externalToolRuns).get(runId);
+    if (!run || run.runtimeId !== (runtimeId ?? null)) return;
+    if (generation != null && run.runtimeGeneration !== generation) return;
+  }
   updateRun(runId, (run) => ({ ...run, status: "error", error, logsOpen: true }));
 }
 

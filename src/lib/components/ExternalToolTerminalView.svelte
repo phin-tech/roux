@@ -34,8 +34,14 @@
     fit: () => controller?.fit() ?? null,
     getPtyId: () => run.runtimeId,
     onResize: (ptyId, cols, rows) => {
+      const runtimeGeneration = run.runtimeGeneration;
       resizeSession(ptyId, cols, rows).catch((err) => {
-        setExternalToolRunError(run.id, err instanceof Error ? err.message : String(err));
+        setExternalToolRunError(
+          run.id,
+          err instanceof Error ? err.message : String(err),
+          ptyId,
+          runtimeGeneration,
+        );
       });
     },
   });
@@ -49,9 +55,15 @@
     controller.setInputEnabled(true);
     cleanupInput = controller.onInput((data) => {
       const ptyId = run.runtimeId;
+      const runtimeGeneration = run.runtimeGeneration;
       if (!ptyId) return;
       writeToSession(ptyId, data).catch((err) => {
-        setExternalToolRunError(run.id, err instanceof Error ? err.message : String(err));
+        setExternalToolRunError(
+          run.id,
+          err instanceof Error ? err.message : String(err),
+          ptyId,
+          runtimeGeneration,
+        );
       });
     });
     resizeObserver = new ResizeObserver(() => scheduler.schedule());
@@ -70,7 +82,12 @@
       controller?.write(bytes);
     });
     void attachPtyOutput(ptyId, outputChannel).catch((err) => {
-      setExternalToolRunError(run.id, err instanceof Error ? err.message : String(err));
+      setExternalToolRunError(
+        run.id,
+        err instanceof Error ? err.message : String(err),
+        ptyId,
+        runtimeGeneration,
+      );
     });
     void onSessionExit(ptyId, (payload: SessionExitPayload) => {
       markExternalToolExited(
