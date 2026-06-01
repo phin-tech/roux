@@ -116,6 +116,22 @@ export function setExternalToolRunError(runId: string, error: string): void {
   updateRun(runId, (run) => ({ ...run, status: "error", error, logsOpen: true }));
 }
 
+export async function failExternalToolRun(
+  runId: string,
+  runtimeId: string | null | undefined,
+  error: string,
+): Promise<void> {
+  if (!runtimeId) return;
+  const run = get(externalToolRuns).get(runId);
+  if (!run || run.runtimeId !== runtimeId) return;
+
+  await killRunRuntime(run);
+
+  const current = get(externalToolRuns).get(runId);
+  if (!current || current.runtimeId !== runtimeId) return;
+  setExternalToolRunError(runId, error);
+}
+
 export function setExternalToolLogsOpen(runId: string, logsOpen: boolean): void {
   updateRun(runId, (run) => ({ ...run, logsOpen }));
 }

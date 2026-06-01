@@ -6,6 +6,7 @@
   import { probeExternalToolUrl } from "$lib/tauri";
   import type { ExternalToolRun } from "$lib/stores/externalTools";
   import {
+    failExternalToolRun,
     markExternalToolExited,
     markExternalToolReady,
     readExternalToolProcess,
@@ -84,6 +85,7 @@
   async function createWebview(): Promise<void> {
     if (webview || creatingWebview || !host || !run.rendered?.url) return;
     creatingWebview = true;
+    const runtimeId = run.runtimeId;
     const rect = host.getBoundingClientRect();
     const label = `external-tool-${run.id.replace(/[^a-zA-Z0-9-/:_]/g, "_")}`;
     const next = new Webview(getCurrentWindow(), label, {
@@ -102,7 +104,11 @@
     } catch (err) {
       if (webview === next) webview = null;
       void next.close();
-      setExternalToolRunError(run.id, `Failed to open ${run.rendered.url}: ${formatError(err)}`);
+      await failExternalToolRun(
+        run.id,
+        runtimeId,
+        `Failed to open ${run.rendered.url}: ${formatError(err)}`,
+      );
     } finally {
       creatingWebview = false;
     }

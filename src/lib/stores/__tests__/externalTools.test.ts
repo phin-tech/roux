@@ -1,9 +1,28 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
+
+vi.mock("$lib/tauri", () => ({
+  daemonProcessKill: vi.fn().mockResolvedValue({
+    id: "process-1",
+    command: "",
+    workingDir: "",
+    startedAtMs: 0,
+    running: false,
+    exitCode: null,
+    retainedOutputBytes: 0,
+    outputTruncated: false,
+  }),
+  daemonProcessOutput: vi.fn(),
+  killPty: vi.fn().mockResolvedValue(undefined),
+  launchExternalTool: vi.fn(),
+}));
+
+import { daemonProcessKill } from "$lib/tauri";
 import {
   externalToolRuns,
   externalToolRunId,
   externalToolRunIsLive,
+  failExternalToolRun,
   markExternalToolExited,
   type ExternalToolRun,
   type ExternalToolRunStatus,
@@ -32,6 +51,7 @@ describe("externalTools store helpers", () => {
   afterEach(() => {
     externalToolRuns.set(new Map());
     closeMainView();
+    vi.clearAllMocks();
   });
 
   it("keys runs by tool and bound session", () => {
@@ -79,5 +99,39 @@ describe("externalTools store helpers", () => {
 
     expect(get(externalToolRuns).get(run.id)).toEqual(run);
     expect(get(mainViewRoute)).toEqual({ kind: "externalTool", runId: run.id });
+  });
+
+  it("kills the matching web runtime before marking a launched run failed", async () => {
+    const run = {
+      ...runWithStatus("running"),
+      surface: "web" as const,
+      runtimeId: "process-1",
+      runtimeGeneration: null,
+    };
+    externalToolRuns.set(new Map([[run.id, run]]));
+
+    await failExternalToolRun(run.id, run.runtimeId, "webview failed");
+
+    expect(daemonProcessKill).toHaveBeenCalledWith("process-1");
+    expect(get(externalToolRuns).get(run.id)).toMatchObject({
+      status: "error",
+      error: "webview failed",
+      logsOpen: true,
+    });
+  });
+
+  it("ignores launched-run failures from a stale runtime id", async () => {
+    const run = {
+      ...runWithStatus("running"),
+      surface: "web" as const,
+      runtimeId: "process-new",
+      runtimeGeneration: null,
+    };
+    externalToolRuns.set(new Map([[run.id, run]]));
+
+    await failExternalToolRun(run.id, "process-old", "webview failed");
+
+    expect(daemonProcessKill).not.toHaveBeenCalled();
+    expect(get(externalToolRuns).get(run.id)).toEqual(run);
   });
 });
