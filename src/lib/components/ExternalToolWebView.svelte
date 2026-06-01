@@ -105,6 +105,10 @@
     if (run.status === "launching" || run.status === "starting") {
       const snapshot = pollingSnapshot(key);
       if (snapshot) startPolling(snapshot);
+    } else if (run.status === "ready" && run.webEmbedder === "webview") {
+      clearPoll();
+      const snapshot = pollingSnapshot(key);
+      if (snapshot) void createWebview(snapshot);
     } else {
       clearPoll();
     }

@@ -178,6 +178,25 @@ describe("ExternalToolWebView", () => {
     unmount();
   });
 
+  it("recreates a ready native webview when the component remounts", async () => {
+    const readyRun = { ...makeRun(), status: "ready" as const };
+
+    const first = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const closed = webviewMock.MockWebview.instances[0];
+    first.unmount();
+    expect(closed.close).toHaveBeenCalledOnce();
+
+    const second = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(2));
+    expect(webviewMock.MockWebview.instances[1].options).toMatchObject({
+      url: "http://127.0.0.1:4966",
+    });
+    expect(tauriMock.probeExternalToolUrl).not.toHaveBeenCalled();
+
+    second.unmount();
+  });
+
   it("registers a closer that closes the child webview", async () => {
     const closeView = { current: null as (() => void) | null };
     const unregister = vi.fn();
