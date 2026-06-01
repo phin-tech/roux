@@ -409,6 +409,57 @@ describe("externalTools store helpers", () => {
     });
   });
 
+  it("does not let stale relaunch cleanup overwrite a close and reopen", async () => {
+    const kill = deferred<void>();
+    const replacementLaunch = deferred<ExternalToolLaunchResult>();
+    vi.mocked(killPty).mockReturnValueOnce(kill.promise);
+    vi.mocked(launchExternalTool).mockReturnValueOnce(replacementLaunch.promise);
+    settings.update((current) => ({ ...current, externalTools: [terminalTool()] }));
+    const runId = externalToolRunId("lazygit", null);
+    externalToolRuns.set(
+      new Map([
+        [
+          runId,
+          {
+            ...runWithStatus("error"),
+            id: runId,
+            toolId: "lazygit",
+            toolName: "Lazygit",
+            sessionId: null,
+            runtimeId: "pty-old",
+            error: "attach failed",
+          },
+        ],
+      ]),
+    );
+
+    const staleRelaunch = openExternalTool("lazygit");
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      status: "launching",
+      runtimeId: null,
+    });
+
+    await closeExternalToolRun(runId);
+    const reopened = openExternalTool("lazygit");
+    expect(launchExternalTool).toHaveBeenCalledTimes(1);
+
+    replacementLaunch.resolve(terminalLaunchResult("pty-new"));
+    await reopened;
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      runtimeId: "pty-new",
+      status: "running",
+    });
+
+    kill.resolve();
+    await staleRelaunch;
+
+    expect(launchExternalTool).toHaveBeenCalledTimes(1);
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      runtimeId: "pty-new",
+      status: "running",
+    });
+  });
+
   it("ignores stale exit events from an older runtime id", () => {
     const run = { ...runWithStatus("running"), runtimeId: "pty-new", runtimeGeneration: 2 };
     externalToolRuns.set(new Map([[run.id, run]]));
