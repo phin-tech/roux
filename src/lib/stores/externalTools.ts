@@ -72,6 +72,12 @@ export async function openExternalTool(toolId: string): Promise<void> {
   if (existing) {
     closeExternalToolView(runId);
     cancelExternalToolLaunch(runId);
+    updateRun(runId, (run) => ({
+      ...run,
+      status: "launching",
+      error: null,
+      logsOpen: false,
+    }));
     await killRunRuntime(existing);
   }
   await launchRun(tool, boundSessionId, existing?.id);

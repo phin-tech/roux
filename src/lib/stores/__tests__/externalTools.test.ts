@@ -284,6 +284,46 @@ describe("externalTools store helpers", () => {
     });
   });
 
+  it("does not duplicate launches while an errored runtime is being retired", async () => {
+    const kill = deferred<void>();
+    vi.mocked(killPty).mockReturnValueOnce(kill.promise);
+    vi.mocked(launchExternalTool).mockResolvedValueOnce(terminalLaunchResult("pty-new"));
+    settings.update((current) => ({ ...current, externalTools: [terminalTool()] }));
+    const runId = externalToolRunId("lazygit", null);
+    externalToolRuns.set(
+      new Map([
+        [
+          runId,
+          {
+            ...runWithStatus("error"),
+            id: runId,
+            toolId: "lazygit",
+            toolName: "Lazygit",
+            sessionId: null,
+            runtimeId: "pty-old",
+            error: "attach failed",
+          },
+        ],
+      ]),
+    );
+
+    const firstOpen = openExternalTool("lazygit");
+    expect(get(externalToolRuns).get(runId)).toMatchObject({ status: "launching" });
+
+    await openExternalTool("lazygit");
+    expect(killPty).toHaveBeenCalledTimes(1);
+    expect(launchExternalTool).not.toHaveBeenCalled();
+
+    kill.resolve();
+    await firstOpen;
+
+    expect(launchExternalTool).toHaveBeenCalledTimes(1);
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      runtimeId: "pty-new",
+      status: "running",
+    });
+  });
+
   it("ignores stale exit events from an older runtime id", () => {
     const run = { ...runWithStatus("running"), runtimeId: "pty-new", runtimeGeneration: 2 };
     externalToolRuns.set(new Map([[run.id, run]]));
