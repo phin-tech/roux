@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { DEFAULT_SETTINGS } from "$lib/types";
 
@@ -183,6 +183,43 @@ describe("SettingsPanel MCP integration", () => {
       expect(commands.cmdPreviewMcpHostConfig).toHaveBeenCalledWith("claudeDesktop");
     });
     expect(await screen.findByText("Preview ready.")).toBeDefined();
+  });
+});
+
+describe("SettingsPanel external tools", () => {
+  beforeEach(() => {
+    settings.set({ ...DEFAULT_SETTINGS });
+    vi.mocked(updateSettings).mockClear();
+  });
+
+  it("rejects duplicate external tool IDs after trimming", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+
+    await fireEvent.input(screen.getByDisplayValue("github"), {
+      target: { value: " difit " },
+    });
+
+    const ids = get(settings).externalTools?.map((tool) => tool.id) ?? [];
+    expect(ids).toContain("github");
+    expect(ids.filter((id) => id.trim() === "difit")).toHaveLength(1);
+  });
+
+  it("trims accepted external tool IDs before saving", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+
+    await fireEvent.input(screen.getByDisplayValue("github"), {
+      target: { value: " new-id " },
+    });
+
+    const ids = get(settings).externalTools?.map((tool) => tool.id) ?? [];
+    expect(ids).toContain("new-id");
+    expect(ids).not.toContain(" new-id ");
   });
 });
 
