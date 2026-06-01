@@ -15,13 +15,13 @@ pub(crate) struct ExternalToolLaunchResult {
     pub(crate) tool_id: String,
     pub(crate) surface: ExternalToolSurface,
     pub(crate) session_id: Option<String>,
-    pub(crate) runtime_id: String,
+    pub(crate) runtime_id: Option<String>,
     pub(crate) runtime_generation: Option<u64>,
     pub(crate) rendered: RenderedExternalTool,
 }
 
 struct ExternalToolRuntime {
-    id: String,
+    id: Option<String>,
     generation: Option<u64>,
 }
 
@@ -35,10 +35,7 @@ pub(crate) async fn preview_external_tool(
     let settings = state.settings.lock().map_err(|e| e.to_string())?.clone().normalized();
     let tool = find_tool(&settings.external_tools, &tool_id)?;
     let session = resolve_session(&state, session_id.as_deref()).await?;
-    let render_port = match tool.surface {
-        ExternalToolSurface::Terminal => None,
-        ExternalToolSurface::Web => port.or(tool.preferred_port).or(Some(4966)),
-    };
+    let render_port = preview_render_port(&tool, port);
     render_external_tool(&tool, session.as_ref(), render_port).map_err(|err| err.to_string())
 }
 
@@ -50,10 +47,7 @@ pub(crate) async fn preview_external_tool_config(
     state: tauri::State<'_, AppState>,
 ) -> Result<RenderedExternalTool, String> {
     let session = resolve_session(&state, session_id.as_deref()).await?;
-    let render_port = match tool.surface {
-        ExternalToolSurface::Terminal => None,
-        ExternalToolSurface::Web => port.or(tool.preferred_port).or(Some(4966)),
-    };
+    let render_port = preview_render_port(&tool, port);
     render_external_tool(&tool, session.as_ref(), render_port).map_err(|err| err.to_string())
 }
 
@@ -71,12 +65,7 @@ pub(crate) async fn launch_external_tool(
     }
 
     let session = resolve_session(&state, session_id.as_deref()).await?;
-    let port = match tool.surface {
-        ExternalToolSurface::Terminal => None,
-        ExternalToolSurface::Web => {
-            Some(allocate_localhost_port(tool.preferred_port).map_err(|err| err.to_string())?)
-        }
-    };
+    let port = launch_render_port(&tool)?;
     let rendered =
         render_external_tool(&tool, session.as_ref(), port).map_err(|err| err.to_string())?;
     let runtime = match tool.surface {
@@ -98,8 +87,8 @@ pub(crate) async fn launch_external_tool(
 
 #[tauri::command]
 pub(crate) async fn probe_external_tool_url(url: String) -> Result<bool, String> {
-    let url = reqwest::Url::parse(&url)
-        .map_err(|err| format!("invalid external tool URL: {err}"))?;
+    let url =
+        reqwest::Url::parse(&url).map_err(|err| format!("invalid external tool URL: {err}"))?;
     match url.scheme() {
         "http" | "https" => {}
         scheme => return Err(format!("unsupported external tool URL scheme: {scheme}")),
@@ -164,7 +153,10 @@ async fn launch_terminal_tool(
             )
             .await
             .map_err(|err| err.to_string())?;
-        return Ok(ExternalToolRuntime { id: record.id, generation: Some(record.generation) });
+        return Ok(ExternalToolRuntime {
+            id: Some(record.id),
+            generation: Some(record.generation),
+        });
     }
 
     let record = state
@@ -184,19 +176,23 @@ async fn launch_terminal_tool(
         )
         .await
         .map_err(|err| err.to_string())?;
-    Ok(ExternalToolRuntime { id: record.id, generation: Some(record.generation) })
+    Ok(ExternalToolRuntime { id: Some(record.id), generation: Some(record.generation) })
 }
 
 async fn launch_web_tool(
     state: &tauri::State<'_, AppState>,
     rendered: &RenderedExternalTool,
 ) -> Result<ExternalToolRuntime, String> {
+    if rendered.command.trim().is_empty() {
+        return Ok(ExternalToolRuntime { id: None, generation: None });
+    }
+
     if let Some(client) = &state.daemon_client {
         let record = client
             .start_daemon_process(rendered.command.clone(), Some(rendered.cwd.clone()))
             .await
             .map_err(|err| err.to_string())?;
-        return Ok(ExternalToolRuntime { id: record.id, generation: None });
+        return Ok(ExternalToolRuntime { id: Some(record.id), generation: None });
     }
 
     let record = state
@@ -205,5 +201,26 @@ async fn launch_web_tool(
         .start(rendered.command.clone(), Some(PathBuf::from(&rendered.cwd)))
         .await
         .map_err(|err| err.to_string())?;
-    Ok(ExternalToolRuntime { id: record.id, generation: None })
+    Ok(ExternalToolRuntime { id: Some(record.id), generation: None })
+}
+
+fn preview_render_port(tool: &ExternalTool, requested_port: Option<u16>) -> Option<u16> {
+    if tool.surface == ExternalToolSurface::Web && tool_uses_port(tool) {
+        requested_port.or(tool.preferred_port).or(Some(4966))
+    } else {
+        None
+    }
+}
+
+fn launch_render_port(tool: &ExternalTool) -> Result<Option<u16>, String> {
+    if tool.surface == ExternalToolSurface::Web && tool_uses_port(tool) {
+        allocate_localhost_port(tool.preferred_port).map(Some).map_err(|err| err.to_string())
+    } else {
+        Ok(None)
+    }
+}
+
+fn tool_uses_port(tool: &ExternalTool) -> bool {
+    tool.command_template.contains("{{ port")
+        || tool.url_template.as_deref().is_some_and(|url| url.contains("{{ port"))
 }

@@ -84,8 +84,7 @@ fn render_template(
     env.set_auto_escape_callback(|_| AutoEscape::None);
     env.set_undefined_behavior(UndefinedBehavior::Strict);
     env.add_filter("shell_quote", shell_quote_filter);
-    env.render_str(template, context)
-        .map_err(|source| ExternalToolError::Render { field, source })
+    env.render_str(template, context).map_err(|source| ExternalToolError::Render { field, source })
 }
 
 fn shell_quote_filter(value: String) -> String {
@@ -134,7 +133,8 @@ fn last_path_segment(path: &str) -> String {
 }
 
 fn default_cwd() -> String {
-    home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    home_dir()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
         .to_string_lossy()
         .to_string()
 }
@@ -154,7 +154,9 @@ fn port_available(port: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use roux_core::{ExternalTool, ExternalToolSurface, Session, SessionStatus};
+    use roux_core::{
+        ExternalTool, ExternalToolSurface, ExternalToolWebEmbedder, Session, SessionStatus,
+    };
     use std::net::TcpListener;
 
     fn session() -> Session {
@@ -193,6 +195,7 @@ mod tests {
             requires_session: true,
             url_template: Some("http://127.0.0.1:{{ port }}/{{ session.worktree_name }}".into()),
             preferred_port: Some(4966),
+            web_embedder: ExternalToolWebEmbedder::Iframe,
         };
 
         let rendered = render_external_tool(&tool, Some(&session()), Some(4999)).unwrap();
@@ -214,6 +217,7 @@ mod tests {
             requires_session: true,
             url_template: None,
             preferred_port: None,
+            web_embedder: ExternalToolWebEmbedder::Webview,
         };
 
         let err = render_external_tool(&tool, None, None).unwrap_err();
@@ -232,6 +236,7 @@ mod tests {
             requires_session: false,
             url_template: None,
             preferred_port: Some(4966),
+            web_embedder: ExternalToolWebEmbedder::Iframe,
         };
 
         let err = render_external_tool(&tool, None, Some(4966)).unwrap_err();

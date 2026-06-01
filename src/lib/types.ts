@@ -54,6 +54,7 @@ export type {
   PtyStatus,
   ExternalTool,
   ExternalToolSurface,
+  ExternalToolWebEmbedder,
 } from "./bindings";
 
 // Frontend-only types (not defined in Rust)
@@ -141,6 +142,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
       requiresSession: true,
       urlTemplate: null,
       preferredPort: null,
+      webEmbedder: "webview",
     },
     {
       id: "difit",
@@ -152,6 +154,19 @@ export const DEFAULT_SETTINGS: RouxSettings = {
       requiresSession: true,
       urlTemplate: "http://127.0.0.1:{{ port }}",
       preferredPort: 4966,
+      webEmbedder: "iframe",
+    },
+    {
+      id: "github",
+      name: "GitHub",
+      enabled: true,
+      surface: "web",
+      commandTemplate: "",
+      cwdTemplate: "",
+      requiresSession: false,
+      urlTemplate: "https://github.com",
+      preferredPort: null,
+      webEmbedder: "webview",
     },
   ],
   kanban: {

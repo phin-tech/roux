@@ -31,6 +31,7 @@
     GpuAcceleration,
     ExternalTool,
     ExternalToolSurface,
+    ExternalToolWebEmbedder,
     IntegrationDetection,
     KanbanSettings,
     KanbanStartupSidebar,
@@ -240,6 +241,7 @@
       requiresSession: true,
       urlTemplate: surface === "web" ? "http://127.0.0.1:{{ port }}" : null,
       preferredPort: surface === "web" ? 4966 : null,
+      webEmbedder: "webview",
     };
     updateExternalTools([...externalTools(), tool]);
     expandedExternalToolId = id;
@@ -1493,7 +1495,7 @@
                           </label>
                         </div>
                         <label class="grid gap-1 text-[11px] text-text-muted">
-                          <span>Command template</span>
+                          <span>Command template{(tool.surface ?? "terminal") === "web" ? " (optional)" : ""}</span>
                           <textarea
                             class="min-h-16 rounded border border-border bg-bg-deep px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent-dim"
                             value={tool.commandTemplate}
@@ -1509,6 +1511,20 @@
                           />
                         </label>
                         {#if (tool.surface ?? "terminal") === "web"}
+                          <div class="grid gap-1 text-[11px] text-text-muted">
+                            <span>Embedder</span>
+                            <div class="inline-flex w-fit overflow-hidden rounded border border-border bg-bg-deep">
+                              {#each [{ value: "iframe", label: "Iframe" }, { value: "webview", label: "Webview" }] as option}
+                                <button
+                                  type="button"
+                                  class="px-2 py-1 text-[11px] transition-colors {tool.webEmbedder === option.value ? 'bg-bg-active text-text-primary' : 'text-text-muted hover:bg-bg-hover hover:text-text-secondary'}"
+                                  onclick={() => updateExternalTool(tool.id, { webEmbedder: option.value as ExternalToolWebEmbedder })}
+                                >
+                                  {option.label}
+                                </button>
+                              {/each}
+                            </div>
+                          </div>
                           <div class="grid gap-2 md:grid-cols-[1fr_120px]">
                             <label class="grid gap-1 text-[11px] text-text-muted">
                               <span>URL template</span>

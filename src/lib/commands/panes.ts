@@ -5,6 +5,8 @@ import { queries } from "$lib/queries";
 import { navigatePane, movePaneInDirection, resizePane, toggleStack } from "$lib/panes/layout";
 import { toggleFullscreen, setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
 import { paneSlotById } from "$lib/stores/ui";
+import { mainViewRoute } from "$lib/stores/mainView";
+import { closeExternalToolRun } from "$lib/stores/externalTools";
 import { paneInstances, updateInstance, getAttachedPtyId, getInstance, type PaneInstance } from "$lib/panes/instances";
 import { splitPane, closeFocusedPane } from "$lib/panes/actions";
 import {
@@ -116,6 +118,11 @@ async function spawnShellPaneWithProfile(
       logError("split-with-profile: notificationsPush failed", pushErr),
     );
   }
+}
+
+function activeExternalToolRunId(): string | null {
+  const route = get(mainViewRoute);
+  return route?.kind === "externalTool" ? route.runId : null;
 }
 
 /**
@@ -493,8 +500,13 @@ export function registerPaneCommands() {
     id: "pane.close",
     label: "Close Pane",
     category: "Panes",
-    available: () => queries.canClosePane(),
+    available: () => activeExternalToolRunId() !== null || queries.canClosePane(),
     execute: async () => {
+      const externalToolRunId = activeExternalToolRunId();
+      if (externalToolRunId) {
+        await closeExternalToolRun(externalToolRunId);
+        return;
+      }
       const activeId = queries.activeSessionId();
       if (activeId) {
         await closeFocusedPane(activeId);

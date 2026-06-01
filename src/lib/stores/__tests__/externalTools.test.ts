@@ -13,8 +13,10 @@ import {
   externalToolRuns,
   externalToolRunId,
   externalToolRunIsLive,
+  closeExternalToolRun,
   failExternalToolRun,
   markExternalToolExited,
+  registerExternalToolViewCloser,
   type ExternalToolRun,
   type ExternalToolRunStatus,
 } from "../externalTools";
@@ -39,6 +41,7 @@ function runWithStatus(status: ExternalToolRunStatus): ExternalToolRun {
     toolId: "lazygit",
     toolName: "Lazygit",
     surface: "terminal",
+    webEmbedder: "webview",
     sessionId: "session-1",
     runtimeId: "pty-1",
     runtimeGeneration: 1,
@@ -81,6 +84,36 @@ describe("externalTools store helpers", () => {
 
     expect(get(externalToolRuns).has(run.id)).toBe(false);
     expect(get(mainViewRoute)).toBeNull();
+  });
+
+  it("closes the registered view before waiting for runtime cleanup", async () => {
+    let finishKill: (value: ReturnType<typeof processRecord>) => void = () => {};
+    vi.mocked(daemonProcessKill).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishKill = resolve;
+      }),
+    );
+    const run = {
+      ...runWithStatus("running"),
+      surface: "web" as const,
+      runtimeId: "process-1",
+      runtimeGeneration: null,
+    };
+    const closeView = vi.fn();
+    const unregister = registerExternalToolViewCloser(run.id, closeView);
+    externalToolRuns.set(new Map([[run.id, run]]));
+    openMainView({ kind: "externalTool", runId: run.id });
+
+    const closed = closeExternalToolRun(run.id);
+
+    expect(closeView).toHaveBeenCalledOnce();
+    expect(get(externalToolRuns).has(run.id)).toBe(false);
+    expect(get(mainViewRoute)).toBeNull();
+    expect(daemonProcessKill).toHaveBeenCalledWith("process-1");
+
+    finishKill(processRecord("process-1"));
+    await closed;
+    unregister();
   });
 
   it("ignores stale exit events from an older runtime id", () => {
@@ -135,6 +168,25 @@ describe("externalTools store helpers", () => {
     await failExternalToolRun(run.id, run.runtimeId, "webview failed");
 
     expect(daemonProcessKill).toHaveBeenCalledWith("process-1");
+    expect(get(externalToolRuns).get(run.id)).toMatchObject({
+      status: "error",
+      error: "webview failed",
+      logsOpen: true,
+    });
+  });
+
+  it("marks a url-only web run failed without runtime cleanup", async () => {
+    const run = {
+      ...runWithStatus("running"),
+      surface: "web" as const,
+      runtimeId: null,
+      runtimeGeneration: null,
+    };
+    externalToolRuns.set(new Map([[run.id, run]]));
+
+    await failExternalToolRun(run.id, null, "webview failed");
+
+    expect(daemonProcessKill).not.toHaveBeenCalled();
     expect(get(externalToolRuns).get(run.id)).toMatchObject({
       status: "error",
       error: "webview failed",

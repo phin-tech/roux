@@ -480,6 +480,23 @@ export type ExternalRef = {
 	url: string | null,
 };
 
+export type ExternalTool = {
+	id: string,
+	name: string,
+	enabled?: boolean,
+	surface?: ExternalToolSurface,
+	commandTemplate: string,
+	cwdTemplate?: string,
+	requiresSession?: boolean,
+	urlTemplate?: string | null,
+	preferredPort?: number | null,
+	webEmbedder?: ExternalToolWebEmbedder,
+};
+
+export type ExternalToolSurface = "terminal" | "web";
+
+export type ExternalToolWebEmbedder = "iframe" | "webview";
+
 export type GithubJob = {
 	name: string,
 	status: string,
@@ -997,20 +1014,6 @@ export type PtyStatus =
 // PTY process has exited.
 { type: "Exited"; code: number | null; at_ms: number };
 
-export type ExternalToolSurface = "terminal" | "web";
-
-export type ExternalTool = {
-	id: string,
-	name: string,
-	enabled?: boolean,
-	surface?: ExternalToolSurface,
-	commandTemplate: string,
-	cwdTemplate?: string,
-	requiresSession?: boolean,
-	urlTemplate?: string | null,
-	preferredPort?: number | null,
-};
-
 export type RouxSettings = {
 	tabPosition: TabPosition,
 	tabWidth: number,
@@ -1516,19 +1519,19 @@ export type WorkItem = {
  */
 export type WorkItemInput = {
 	title: string,
-	body?: string | null,
-	status?: WorkItemStatus | null,
-	repoPath?: string | null,
-	agentProfile?: string | null,
-	baseBranch?: string | null,
-	worktreePath?: string | null,
-	branch?: string | null,
-	fetchFirst?: boolean | null,
-	startError?: string | null,
-	projectId?: string | null,
-	parentId?: string | null,
-	externalRef?: ExternalRef | null,
-	sortOrder?: number | null,
+	body: string | null,
+	status: WorkItemStatus | null,
+	repo_path: string | null,
+	agent_profile: string | null,
+	base_branch: string | null,
+	worktree_path: string | null,
+	branch: string | null,
+	fetch_first: boolean | null,
+	start_error: string | null,
+	project_id: string | null,
+	parent_id: string | null,
+	external_ref: ExternalRef | null,
+	sort_order: number | null,
 };
 
 export type WorkItemPlanResult = {

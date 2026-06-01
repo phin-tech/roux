@@ -100,7 +100,7 @@ export interface ExternalToolLaunchResult {
   toolId: string;
   surface: ExternalToolSurface;
   sessionId: string | null;
-  runtimeId: string;
+  runtimeId: string | null;
   runtimeGeneration: number | null;
   rendered: RenderedExternalTool;
 }

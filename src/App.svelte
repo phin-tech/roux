@@ -110,6 +110,7 @@
     workItemSessionStart,
   } from "$lib/stores/ui";
   import { closeMainView, mainViewRoute } from "$lib/stores/mainView";
+  import { closeExternalToolRun } from "$lib/stores/externalTools";
   import {
     commandBlockedByMainView,
     eventTargetIsEditable,
@@ -216,6 +217,11 @@
 
     const cmd = registry.get(commandId);
     if (!cmd) return;
+    const route = get(mainViewRoute);
+    if (route?.kind === "externalTool" && cmd.id === "pane.close") {
+      void closeExternalToolRun(route.runId);
+      return;
+    }
     if (get(mainViewRoute) && commandBlockedByMainView(cmd)) return;
 
     if (cmd.id === "session.new") {
@@ -280,6 +286,8 @@
   function isCommandAvailable(commandId: string): boolean {
     const cmd = registry.get(commandId);
     if (!cmd) return false;
+    const route = get(mainViewRoute);
+    if (route?.kind === "externalTool" && cmd.id === "pane.close") return true;
     if (get(mainViewRoute) && commandBlockedByMainView(cmd)) return false;
     return !cmd.available || cmd.available();
   }

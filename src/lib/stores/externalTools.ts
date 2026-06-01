@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import type { ExternalTool, ExternalToolSurface } from "$lib/bindings";
+import type { ExternalTool, ExternalToolSurface, ExternalToolWebEmbedder } from "$lib/bindings";
 import {
   daemonProcessKill,
   daemonProcessOutput,
@@ -25,6 +25,7 @@ export interface ExternalToolRun {
   toolId: string;
   toolName: string;
   surface: ExternalToolSurface;
+  webEmbedder: ExternalToolWebEmbedder;
   sessionId: string | null;
   runtimeId: string | null;
   runtimeGeneration: number | null;
@@ -37,6 +38,7 @@ export interface ExternalToolRun {
 }
 
 export const externalToolRuns = writable<Map<string, ExternalToolRun>>(new Map());
+const externalToolViewClosers = new Map<string, () => void>();
 
 export function externalToolRunId(toolId: string, sessionId: string | null): string {
   return `${toolId}:${sessionId ?? "global"}`;
@@ -71,17 +73,28 @@ export async function restartExternalToolRun(runId: string): Promise<void> {
   const run = get(externalToolRuns).get(runId);
   if (!run) return;
   const tool = findTool(run.toolId);
+  closeExternalToolView(runId);
   await killRunRuntime(run);
   await launchRun(tool, run.sessionId, runId);
 }
 
 export async function closeExternalToolRun(runId: string): Promise<void> {
   const run = get(externalToolRuns).get(runId);
-  if (run) await killRunRuntime(run);
   removeExternalToolRun(runId);
+  if (run) await killRunRuntime(run);
+}
+
+export function registerExternalToolViewCloser(runId: string, closeView: () => void): () => void {
+  externalToolViewClosers.set(runId, closeView);
+  return () => {
+    if (externalToolViewClosers.get(runId) === closeView) {
+      externalToolViewClosers.delete(runId);
+    }
+  };
 }
 
 function removeExternalToolRun(runId: string): void {
+  closeExternalToolView(runId);
   externalToolRuns.update((runs) => {
     const next = new Map(runs);
     next.delete(runId);
@@ -90,6 +103,14 @@ function removeExternalToolRun(runId: string): void {
   const route = get(mainViewRoute);
   if (route?.kind === "externalTool" && route.runId === runId) {
     closeMainView();
+  }
+}
+
+function closeExternalToolView(runId: string): void {
+  try {
+    externalToolViewClosers.get(runId)?.();
+  } catch {
+    // The component can already be mid-destroy; store cleanup should still continue.
   }
 }
 
@@ -122,9 +143,10 @@ export async function failExternalToolRun(
   runtimeId: string | null | undefined,
   error: string,
 ): Promise<void> {
-  if (!runtimeId) return;
   const run = get(externalToolRuns).get(runId);
-  if (!run || run.runtimeId !== runtimeId) return;
+  if (!run) return;
+  if (runtimeId && run.runtimeId !== runtimeId) return;
+  if (!runtimeId && run.runtimeId) return;
 
   setExternalToolRunError(runId, error);
   await killRunRuntime(run);
@@ -155,6 +177,7 @@ async function launchRun(
     toolId: tool.id,
     toolName: tool.name,
     surface,
+    webEmbedder: externalToolWebEmbedder(tool),
     sessionId,
     runtimeId: null,
     runtimeGeneration: null,
@@ -173,6 +196,7 @@ async function launchRun(
     updateRun(runId, (run) => ({
       ...run,
       surface: result.surface,
+      webEmbedder: externalToolWebEmbedder(tool),
       runtimeId: result.runtimeId,
       runtimeGeneration: result.runtimeGeneration ?? null,
       rendered: result.rendered,
@@ -191,6 +215,11 @@ function resolveBoundSessionId(tool: ExternalTool): string | null {
   const session = get(activeSession);
   if (!session) throw new Error("External tool requires an active session");
   return session.id;
+}
+
+function externalToolWebEmbedder(tool: ExternalTool): ExternalToolWebEmbedder {
+  if ((tool.surface ?? "terminal") !== "web") return "webview";
+  return tool.webEmbedder ?? "webview";
 }
 
 function findTool(toolId: string): ExternalTool {

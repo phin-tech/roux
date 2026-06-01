@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { Webview } from "@tauri-apps/api/webview";
   import type { UnlistenFn } from "@tauri-apps/api/event";
-  import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
+  import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { probeExternalToolUrl } from "$lib/tauri";
   import type { ExternalToolRun } from "$lib/stores/externalTools";
   import {
@@ -10,12 +11,20 @@
     markExternalToolExited,
     markExternalToolReady,
     readExternalToolProcess,
+    registerExternalToolViewCloser,
     restartExternalToolRun,
     setExternalToolRunError,
   } from "$lib/stores/externalTools";
 
   interface Props {
     run: ExternalToolRun;
+  }
+
+  interface WebviewBounds {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
   }
 
   let { run }: Props = $props();
@@ -25,18 +34,22 @@
   let webview: Webview | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let cleanupWindowResize: UnlistenFn | null = null;
+  let cleanupWindowScale: UnlistenFn | null = null;
   let resizeFrame: ReturnType<typeof requestAnimationFrame> | null = null;
+  let webviewLabel: string | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let logTimer: ReturnType<typeof setInterval> | null = null;
   let creatingWebview = false;
   let destroyed = false;
   let startedPollingAt = 0;
+  let pollKey = "";
 
   onMount(() => {
     destroyed = false;
     resizeObserver = new ResizeObserver(() => schedulePositionWebview());
     if (host) resizeObserver.observe(host);
-    void getCurrentWindow()
+    const appWindow = getCurrentWindow();
+    void appWindow
       .onResized(() => schedulePositionWebview())
       .then((unlisten) => {
         if (destroyed) {
@@ -47,16 +60,45 @@
         cleanupWindowResize = unlisten;
       })
       .catch(() => {});
-    startPolling();
+    void appWindow
+      .onScaleChanged(() => schedulePositionWebview())
+      .then((unlisten) => {
+        if (destroyed) {
+          unlisten();
+          return;
+        }
+        cleanupWindowScale?.();
+        cleanupWindowScale = unlisten;
+      })
+      .catch(() => {});
     logTimer = setInterval(() => void refreshLogs(), 1500);
     void refreshLogs();
+    void syncAfterLayout();
     return () => cleanup();
   });
 
   $effect(() => {
+    if (resizeObserver && host) resizeObserver.observe(host);
+    schedulePositionWebview();
+  });
+
+  $effect(() => registerExternalToolViewCloser(run.id, closeWebview));
+
+  $effect(() => {
     run.logsOpen;
     void refreshLogs();
-    schedulePositionWebview();
+  });
+
+  $effect(() => {
+    const key = `${run.id}:${run.runtimeId ?? ""}:${run.rendered?.url ?? ""}:${run.launchedAtMs}:${run.webEmbedder}`;
+    if (key === pollKey) return;
+    pollKey = key;
+    closeWebview();
+    if (run.status === "launching" || run.status === "starting") {
+      startPolling();
+    } else {
+      clearPoll();
+    }
   });
 
   onDestroy(cleanup);
@@ -68,7 +110,11 @@
       if (!run.rendered?.url) return;
       try {
         if (await probeExternalToolUrl(run.rendered.url)) {
-          await createWebview();
+          if (run.webEmbedder === "webview") {
+            await createWebview();
+          } else {
+            markExternalToolReady(run.id);
+          }
           return;
         }
       } catch (err) {
@@ -101,21 +147,29 @@
     if (webview || creatingWebview || !host || !run.rendered?.url) return;
     creatingWebview = true;
     const runtimeId = run.runtimeId;
-    const rect = host.getBoundingClientRect();
-    const label = `external-tool-${run.id.replace(/[^a-zA-Z0-9-/:_]/g, "_")}`;
+    const bounds = webviewBounds();
+    if (!bounds) {
+      creatingWebview = false;
+      return;
+    }
+    const label = `external-tool-${run.id}-${run.runtimeId ?? run.launchedAtMs}`.replace(
+      /[^a-zA-Z0-9-/:_]/g,
+      "_",
+    );
+    webviewLabel = label;
     const next = new Webview(getCurrentWindow(), label, {
       url: run.rendered.url,
-      x: rect.left,
-      y: rect.top,
-      width: Math.max(1, rect.width),
-      height: Math.max(1, rect.height),
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
       focus: true,
     });
     webview = next;
     try {
       await waitForWebviewCreated(next);
       markExternalToolReady(run.id);
-      await positionWebview();
+      await syncAfterLayout();
     } catch (err) {
       if (webview === next) webview = null;
       void next.close();
@@ -133,7 +187,7 @@
     const unlisteners: UnlistenFn[] = [];
     let settled = false;
 
-    const cleanup = () => {
+    const cleanupListeners = () => {
       for (const unlisten of unlisteners.splice(0)) {
         try {
           unlisten();
@@ -148,7 +202,7 @@
         const settle = (finish: () => void) => {
           if (settled) return;
           settled = true;
-          cleanup();
+          cleanupListeners();
           finish();
         };
 
@@ -170,20 +224,40 @@
       });
     } finally {
       settled = true;
-      cleanup();
+      cleanupListeners();
     }
   }
 
   async function positionWebview(): Promise<void> {
     if (!webview || !host) return;
-    const rect = host.getBoundingClientRect();
+    const bounds = webviewBounds();
+    if (!bounds) return;
     const current = webview;
     try {
-      await current.setPosition(new LogicalPosition(rect.left, rect.top));
-      await current.setSize(new LogicalSize(Math.max(1, rect.width), Math.max(1, rect.height)));
+      await current.setPosition(new LogicalPosition(bounds.x, bounds.y));
+      await current.setSize(new LogicalSize(bounds.width, bounds.height));
     } catch {
       // The native child webview can be closed while a resize is already queued.
     }
+  }
+
+  function webviewBounds(): WebviewBounds | null {
+    if (!host) return null;
+    const rect = host.getBoundingClientRect();
+    const toolbarInset = mainViewToolbarInset();
+    return {
+      x: rect.left,
+      y: rect.top + toolbarInset,
+      width: Math.max(1, rect.width),
+      height: Math.max(1, rect.height),
+    };
+  }
+
+  function mainViewToolbarInset(): number {
+    const toolbar = host
+      ?.closest("[data-main-view-root]")
+      ?.querySelector<HTMLElement>("[data-main-view-toolbar]");
+    return toolbar?.getBoundingClientRect().height ?? 0;
   }
 
   function schedulePositionWebview(): void {
@@ -192,6 +266,35 @@
       resizeFrame = null;
       void positionWebview();
     });
+  }
+
+  async function syncAfterLayout(): Promise<void> {
+    await tick();
+    await positionWebview();
+    requestAnimationFrame(() => schedulePositionWebview());
+  }
+
+  function closeWebview(): void {
+    const current = webview;
+    const label = webviewLabel ?? current?.label ?? null;
+    webview = null;
+    webviewLabel = null;
+    closeNativeWebview(current);
+    if (label) {
+      void Webview.getByLabel(label)
+        .then((found) => {
+          if (found && found !== current) closeNativeWebview(found);
+        })
+        .catch(() => {});
+    }
+  }
+
+  function closeNativeWebview(current: Webview | null): void {
+    if (!current) return;
+    void current.hide().catch(() => {});
+    void current.setSize(new LogicalSize(1, 1)).catch(() => {});
+    void current.setPosition(new LogicalPosition(-32000, -32000)).catch(() => {});
+    void current.close().catch(() => {});
   }
 
   async function refreshLogs(): Promise<void> {
@@ -222,9 +325,9 @@
     resizeObserver = null;
     cleanupWindowResize?.();
     cleanupWindowResize = null;
-    const current = webview;
-    webview = null;
-    void current?.close();
+    cleanupWindowScale?.();
+    cleanupWindowScale = null;
+    closeWebview();
   }
 
   function formatError(err: unknown): string {
@@ -258,7 +361,15 @@
         </div>
       </div>
     {/if}
-    <div bind:this={host} class="h-full w-full bg-bg-deep"></div>
+    {#if run.status === "ready" && run.rendered?.url && run.webEmbedder === "iframe"}
+      <iframe
+        src={run.rendered.url}
+        title={run.toolName}
+        class="h-full w-full border-0 bg-bg-deep"
+      ></iframe>
+    {:else}
+      <div bind:this={host} class="h-full w-full bg-bg-deep"></div>
+    {/if}
   </div>
 
   {#if run.logsOpen || run.status === "error" || run.status === "exited"}

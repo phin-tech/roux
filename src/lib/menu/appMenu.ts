@@ -23,6 +23,7 @@ import { paneInstances } from "$lib/panes/instances";
 import { focusedPaneId } from "$lib/panes/focus";
 import { paneSlotById } from "$lib/stores/ui";
 import { settings, updateSetting } from "$lib/stores/settings";
+import { mainViewRoute } from "$lib/stores/mainView";
 import { openCommandPaletteWithCommand } from "$lib/stores/commandSurface";
 import { toTauriAccelerator } from "./accelerators";
 import { logError } from "$lib/logging";
@@ -122,6 +123,7 @@ export async function setupAppMenu(dispatch: MenuDispatch): Promise<void> {
   disposers.push(paneInstances.subscribe(refresh));
   disposers.push(focusedPaneId.subscribe(refresh));
   disposers.push(settings.subscribe(refresh));
+  disposers.push(mainViewRoute.subscribe(refresh));
 }
 
 export function teardownAppMenu(): void {

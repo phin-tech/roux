@@ -46,6 +46,19 @@ The ++cmd+b++ notes panel writes to an Obsidian-compatible vault on disk.
 
 See [Notes](features/notes.md) for the panel UX, CLI surface, and env vars.
 
+## External tools
+
+The **Integrations** section includes configurable external tools that open in Roux's main view.
+
+- **Terminal tools** run as daemon-owned PTYs.
+- **Web tools** render their configured URL in Roux and can optionally run a daemon-owned local server process.
+- A web tool may leave **Command template** blank when the URL is remote and no local server process needs to be started.
+- **Embedder** (`externalTools[].webEmbedder`) is explicit per web tool:
+  - **Iframe** embeds the URL inside Roux's Svelte layout. Use this for local tools such as Difit when the app allows iframe embedding.
+  - **Webview** uses a native Tauri child webview. Use this for remote web apps such as GitHub, auth flows, or any site that blocks iframe embedding.
+
+The built-in Difit preset uses **Iframe**. The built-in GitHub preset uses **Webview** and no command. Newly added web tools default to **Webview**.
+
 ## Agent Integrations
 
 The **Agent Integrations** section configures Roux for MCP hosts such as Claude Desktop.

@@ -112,6 +112,14 @@ pub enum ExternalToolSurface {
     Web,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ExternalToolWebEmbedder {
+    Iframe,
+    #[default]
+    Webview,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalTool {
@@ -130,6 +138,8 @@ pub struct ExternalTool {
     pub url_template: Option<String>,
     #[serde(default)]
     pub preferred_port: Option<u16>,
+    #[serde(default)]
+    pub web_embedder: ExternalToolWebEmbedder,
 }
 
 fn default_external_tools() -> Vec<ExternalTool> {
@@ -144,19 +154,32 @@ fn default_external_tools() -> Vec<ExternalTool> {
             requires_session: true,
             url_template: None,
             preferred_port: None,
+            web_embedder: ExternalToolWebEmbedder::Webview,
         },
         ExternalTool {
             id: "difit".to_string(),
             name: "Difit".to_string(),
             enabled: true,
             surface: ExternalToolSurface::Web,
-            command_template:
-                "difit . --host 127.0.0.1 --port {{ port }} --no-open --keep-alive"
-                    .to_string(),
+            command_template: "difit . --host 127.0.0.1 --port {{ port }} --no-open --keep-alive"
+                .to_string(),
             cwd_template: "{{ session.worktree_path }}".to_string(),
             requires_session: true,
             url_template: Some("http://127.0.0.1:{{ port }}".to_string()),
             preferred_port: Some(4966),
+            web_embedder: ExternalToolWebEmbedder::Iframe,
+        },
+        ExternalTool {
+            id: "github".to_string(),
+            name: "GitHub".to_string(),
+            enabled: true,
+            surface: ExternalToolSurface::Web,
+            command_template: "".to_string(),
+            cwd_template: "".to_string(),
+            requires_session: false,
+            url_template: Some("https://github.com".to_string()),
+            preferred_port: None,
+            web_embedder: ExternalToolWebEmbedder::Webview,
         },
     ]
 }
@@ -648,11 +671,10 @@ fn normalize_external_tools(tools: &[ExternalTool]) -> Vec<ExternalTool> {
         next.url_template =
             next.url_template.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         next.preferred_port = next.preferred_port.filter(|port| *port > 0);
-        if next.id.is_empty()
-            || next.name.is_empty()
-            || next.command_template.is_empty()
-            || !seen.insert(next.id.clone())
-        {
+        if next.id.is_empty() || next.name.is_empty() || !seen.insert(next.id.clone()) {
+            continue;
+        }
+        if next.surface == ExternalToolSurface::Terminal && next.command_template.is_empty() {
             continue;
         }
         if next.surface == ExternalToolSurface::Web && next.url_template.is_none() {
@@ -661,6 +683,7 @@ fn normalize_external_tools(tools: &[ExternalTool]) -> Vec<ExternalTool> {
         if next.surface == ExternalToolSurface::Terminal {
             next.url_template = None;
             next.preferred_port = None;
+            next.web_embedder = ExternalToolWebEmbedder::Webview;
         }
         cleaned.push(next);
     }
@@ -855,8 +878,8 @@ mod theme_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        stable_source_id, ExternalToolSurface, LibrarySource, LibrarySourceKind, RouxSettings,
-        SkillSyncMode, UpdateChannel,
+        stable_source_id, ExternalToolSurface, ExternalToolWebEmbedder, LibrarySource,
+        LibrarySourceKind, RouxSettings, SkillSyncMode, UpdateChannel,
     };
 
     #[test]
@@ -1057,10 +1080,10 @@ mod tests {
     }
 
     #[test]
-    fn settings_default_external_tools_seed_lazygit_and_difit() {
+    fn settings_default_external_tools_seed_lazygit_difit_and_github() {
         let settings = RouxSettings::default();
         let ids: Vec<_> = settings.external_tools.iter().map(|tool| tool.id.as_str()).collect();
-        assert_eq!(ids, vec!["lazygit", "difit"]);
+        assert_eq!(ids, vec!["lazygit", "difit", "github"]);
 
         let lazygit = &settings.external_tools[0];
         assert_eq!(lazygit.name, "Lazygit");
@@ -1080,6 +1103,17 @@ mod tests {
         assert!(difit.requires_session);
         assert_eq!(difit.preferred_port, Some(4966));
         assert_eq!(difit.url_template.as_deref(), Some("http://127.0.0.1:{{ port }}"));
+        assert_eq!(difit.web_embedder, ExternalToolWebEmbedder::Iframe);
+
+        let github = &settings.external_tools[2];
+        assert_eq!(github.name, "GitHub");
+        assert!(github.enabled);
+        assert_eq!(github.surface, ExternalToolSurface::Web);
+        assert!(!github.requires_session);
+        assert_eq!(github.command_template, "");
+        assert_eq!(github.url_template.as_deref(), Some("https://github.com"));
+        assert_eq!(github.preferred_port, None);
+        assert_eq!(github.web_embedder, ExternalToolWebEmbedder::Webview);
     }
 
     #[test]
@@ -1106,7 +1140,7 @@ mod tests {
         }"#;
 
         let settings: RouxSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.external_tools.len(), 2);
+        assert_eq!(settings.external_tools.len(), 3);
         assert_eq!(settings.external_tools[0].id, "lazygit");
     }
 
@@ -1124,10 +1158,23 @@ mod tests {
                     requires_session: true,
                     url_template: Some(" http://127.0.0.1:{{ port }} ".to_string()),
                     preferred_port: Some(0),
+                    web_embedder: ExternalToolWebEmbedder::Iframe,
                 },
                 super::ExternalTool {
                     id: "blank-command".to_string(),
-                    name: "Blank".to_string(),
+                    name: "Remote".to_string(),
+                    enabled: true,
+                    surface: ExternalToolSurface::Web,
+                    command_template: " ".to_string(),
+                    cwd_template: "".to_string(),
+                    requires_session: false,
+                    url_template: Some(" https://github.com ".to_string()),
+                    preferred_port: None,
+                    web_embedder: ExternalToolWebEmbedder::Webview,
+                },
+                super::ExternalTool {
+                    id: "blank-terminal".to_string(),
+                    name: "Blank Terminal".to_string(),
                     enabled: true,
                     surface: ExternalToolSurface::Terminal,
                     command_template: " ".to_string(),
@@ -1135,13 +1182,14 @@ mod tests {
                     requires_session: false,
                     url_template: None,
                     preferred_port: None,
+                    web_embedder: ExternalToolWebEmbedder::Webview,
                 },
             ],
             ..RouxSettings::default()
         };
 
         let normalized = settings.normalized();
-        assert_eq!(normalized.external_tools.len(), 1);
+        assert_eq!(normalized.external_tools.len(), 2);
         assert_eq!(normalized.external_tools[0].id, "my-tool");
         assert_eq!(normalized.external_tools[0].name, "My Tool");
         assert_eq!(normalized.external_tools[0].command_template, "serve --port {{ port }}");
@@ -1151,6 +1199,13 @@ mod tests {
             Some("http://127.0.0.1:{{ port }}")
         );
         assert_eq!(normalized.external_tools[0].preferred_port, None);
+        assert_eq!(normalized.external_tools[0].web_embedder, ExternalToolWebEmbedder::Iframe);
+        assert_eq!(normalized.external_tools[1].id, "blank-command");
+        assert_eq!(normalized.external_tools[1].command_template, "");
+        assert_eq!(
+            normalized.external_tools[1].url_template.as_deref(),
+            Some("https://github.com")
+        );
     }
 
     #[test]
