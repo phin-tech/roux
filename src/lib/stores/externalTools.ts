@@ -5,6 +5,7 @@ import {
   daemonProcessOutput,
   killPty,
   launchExternalTool,
+  type ExternalToolLaunchResult,
   type ProcessSnapshot,
   type RenderedExternalTool,
 } from "$lib/tauri";
@@ -39,6 +40,8 @@ export interface ExternalToolRun {
 
 export const externalToolRuns = writable<Map<string, ExternalToolRun>>(new Map());
 const externalToolViewClosers = new Map<string, () => void>();
+const externalToolLaunchTokens = new Map<string, number>();
+let nextExternalToolLaunchToken = 0;
 
 export function externalToolRunId(toolId: string, sessionId: string | null): string {
   return `${toolId}:${sessionId ?? "global"}`;
@@ -74,6 +77,7 @@ export async function restartExternalToolRun(runId: string): Promise<void> {
   if (!run) return;
   const tool = findTool(run.toolId);
   closeExternalToolView(runId);
+  cancelExternalToolLaunch(runId);
   await killRunRuntime(run);
   await launchRun(tool, run.sessionId, runId);
 }
@@ -95,6 +99,7 @@ export function registerExternalToolViewCloser(runId: string, closeView: () => v
 
 function removeExternalToolRun(runId: string): void {
   closeExternalToolView(runId);
+  cancelExternalToolLaunch(runId);
   externalToolRuns.update((runs) => {
     const next = new Map(runs);
     next.delete(runId);
@@ -171,6 +176,7 @@ async function launchRun(
   existingRunId?: string,
 ): Promise<void> {
   const runId = existingRunId ?? externalToolRunId(tool.id, sessionId);
+  const launchToken = beginExternalToolLaunch(runId);
   const surface = tool.surface ?? "terminal";
   const base: ExternalToolRun = {
     id: runId,
@@ -193,6 +199,10 @@ async function launchRun(
 
   try {
     const result = await launchExternalTool(tool.id, sessionId);
+    if (!externalToolLaunchIsCurrent(runId, launchToken)) {
+      await killLaunchResultRuntime(result);
+      return;
+    }
     updateRun(runId, (run) => ({
       ...run,
       surface: result.surface,
@@ -206,8 +216,24 @@ async function launchRun(
       launchedAtMs: Date.now(),
     }));
   } catch (err) {
-    setExternalToolRunError(runId, formatError(err));
+    if (externalToolLaunchIsCurrent(runId, launchToken)) {
+      setExternalToolRunError(runId, formatError(err));
+    }
   }
+}
+
+function beginExternalToolLaunch(runId: string): number {
+  const token = ++nextExternalToolLaunchToken;
+  externalToolLaunchTokens.set(runId, token);
+  return token;
+}
+
+function cancelExternalToolLaunch(runId: string): void {
+  externalToolLaunchTokens.delete(runId);
+}
+
+function externalToolLaunchIsCurrent(runId: string, token: number): boolean {
+  return externalToolLaunchTokens.get(runId) === token;
 }
 
 function resolveBoundSessionId(tool: ExternalTool): string | null {
@@ -252,6 +278,19 @@ async function killRunRuntime(run: ExternalToolRun): Promise<void> {
       await killPty(run.runtimeId);
     } else {
       await daemonProcessKill(run.runtimeId);
+    }
+  } catch {
+    // The process may have already exited or been cleaned up by the daemon.
+  }
+}
+
+async function killLaunchResultRuntime(result: ExternalToolLaunchResult): Promise<void> {
+  if (!result.runtimeId) return;
+  try {
+    if (result.surface === "terminal") {
+      await killPty(result.runtimeId);
+    } else {
+      await daemonProcessKill(result.runtimeId);
     }
   } catch {
     // The process may have already exited or been cleaned up by the daemon.

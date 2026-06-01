@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
+import type { ExternalTool } from "$lib/bindings";
+import { DEFAULT_SETTINGS } from "$lib/types";
 
 vi.mock("$lib/tauri", () => ({
   daemonProcessKill: vi.fn().mockResolvedValue(processRecord("process-1")),
@@ -8,7 +10,7 @@ vi.mock("$lib/tauri", () => ({
   launchExternalTool: vi.fn(),
 }));
 
-import { daemonProcessKill } from "$lib/tauri";
+import { daemonProcessKill, launchExternalTool, type ExternalToolLaunchResult } from "$lib/tauri";
 import {
   externalToolRuns,
   externalToolRunId,
@@ -16,11 +18,14 @@ import {
   closeExternalToolRun,
   failExternalToolRun,
   markExternalToolExited,
+  openExternalTool,
   registerExternalToolViewCloser,
+  restartExternalToolRun,
   type ExternalToolRun,
   type ExternalToolRunStatus,
 } from "../externalTools";
 import { closeMainView, mainViewRoute, openMainView } from "../mainView";
+import { settings } from "../settings";
 
 function processRecord(id: string) {
   return {
@@ -54,10 +59,53 @@ function runWithStatus(status: ExternalToolRunStatus): ExternalToolRun {
   };
 }
 
+function webTool(): ExternalTool {
+  return {
+    id: "difit",
+    name: "Difit",
+    enabled: true,
+    surface: "web",
+    commandTemplate: "difit . --host 127.0.0.1 --port {{ port }} --no-open --keep-alive",
+    cwdTemplate: ".",
+    requiresSession: false,
+    urlTemplate: "http://127.0.0.1:4966",
+    preferredPort: 4966,
+    webEmbedder: "webview",
+  };
+}
+
+function webLaunchResult(runtimeId: string | null): ExternalToolLaunchResult {
+  return {
+    toolId: "difit",
+    surface: "web",
+    sessionId: null,
+    runtimeId,
+    runtimeGeneration: null,
+    rendered: {
+      command: "difit . --host 127.0.0.1 --port 4966 --no-open --keep-alive",
+      cwd: "/repo",
+      url: "http://127.0.0.1:4966",
+      port: 4966,
+    },
+  };
+}
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("externalTools store helpers", () => {
   afterEach(() => {
     externalToolRuns.set(new Map());
     closeMainView();
+    settings.set(DEFAULT_SETTINGS);
+    vi.mocked(launchExternalTool).mockReset();
     vi.clearAllMocks();
   });
 
@@ -114,6 +162,53 @@ describe("externalTools store helpers", () => {
     finishKill(processRecord("process-1"));
     await closed;
     unregister();
+  });
+
+  it("kills a web runtime that resolves after the run was closed while launching", async () => {
+    const launch = deferred<ExternalToolLaunchResult>();
+    vi.mocked(launchExternalTool).mockReturnValueOnce(launch.promise);
+    settings.update((current) => ({ ...current, externalTools: [webTool()] }));
+
+    const opened = openExternalTool("difit");
+    const runId = externalToolRunId("difit", null);
+    expect(get(externalToolRuns).get(runId)).toMatchObject({ status: "launching" });
+
+    await closeExternalToolRun(runId);
+    expect(get(externalToolRuns).has(runId)).toBe(false);
+
+    launch.resolve(webLaunchResult("process-late"));
+    await opened;
+
+    expect(daemonProcessKill).toHaveBeenCalledWith("process-late");
+    expect(get(externalToolRuns).has(runId)).toBe(false);
+  });
+
+  it("kills a stale web runtime instead of overwriting a replacement launch", async () => {
+    const firstLaunch = deferred<ExternalToolLaunchResult>();
+    const secondLaunch = deferred<ExternalToolLaunchResult>();
+    vi.mocked(launchExternalTool)
+      .mockReturnValueOnce(firstLaunch.promise)
+      .mockReturnValueOnce(secondLaunch.promise);
+    settings.update((current) => ({ ...current, externalTools: [webTool()] }));
+
+    const opened = openExternalTool("difit");
+    const runId = externalToolRunId("difit", null);
+    expect(get(externalToolRuns).get(runId)).toMatchObject({ status: "launching" });
+
+    const restarted = restartExternalToolRun(runId);
+    await Promise.resolve();
+    expect(launchExternalTool).toHaveBeenCalledTimes(2);
+
+    firstLaunch.resolve(webLaunchResult("process-old"));
+    await opened;
+    expect(daemonProcessKill).toHaveBeenCalledWith("process-old");
+
+    secondLaunch.resolve(webLaunchResult("process-new"));
+    await restarted;
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      runtimeId: "process-new",
+      status: "starting",
+    });
   });
 
   it("ignores stale exit events from an older runtime id", () => {
