@@ -142,6 +142,18 @@ describe("setupAppMenu", () => {
     ]);
   });
 
+  it("uses the native macOS Quit menu item", async () => {
+    const menu = await buildForPlatform(true);
+    const app = findSubmenu(menu, "Roux");
+    expect(app).not.toBeNull();
+    const items = app!.items ?? [];
+
+    expect(itemIds(app!)).not.toContain("cmd:app.quit");
+    expect(
+      items.some((n) => n.__type === "PredefinedMenuItem" && n.opts.item === "Quit"),
+    ).toBe(true);
+  });
+
   it("relocates Settings, Check for Updates, Quit to File on non-mac", async () => {
     const menu = await buildForPlatform(false);
     const topLevel = directChildSubmenus(menu).map((s) => s.opts.text);

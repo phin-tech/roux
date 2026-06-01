@@ -277,7 +277,7 @@ async function buildAppMenu(ctx: BuildContext): Promise<Submenu> {
       await PredefinedMenuItem.new({ item: "HideOthers" }),
       await PredefinedMenuItem.new({ item: "ShowAll" }),
       await sep(),
-      await cmdItem(ctx, "app.quit", "Quit Roux"),
+      await PredefinedMenuItem.new({ item: "Quit" }),
     ],
   });
 }
