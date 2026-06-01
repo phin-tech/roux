@@ -14,7 +14,7 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import { Webview } from "@tauri-apps/api/webview";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
@@ -27,7 +27,6 @@
     markExternalToolReady,
     readExternalToolProcess,
     registerExternalToolViewCloser,
-    restartExternalToolRun,
   } from "$lib/stores/externalTools";
 
   interface Props {
@@ -128,9 +127,6 @@
       clearPoll();
     }
   });
-
-  onDestroy(cleanup);
-
   function startPolling(snapshot: PollSnapshot): void {
     clearPoll();
     const startedPollingAt = Date.now();
@@ -366,14 +362,33 @@
   }
 
   async function refreshLogs(): Promise<void> {
+    const currentRun = {
+      id: run.id,
+      runtimeId: run.runtimeId,
+      runtimeGeneration: run.runtimeGeneration,
+      logsOpen: run.logsOpen,
+      status: run.status,
+    };
     const snapshot = await readExternalToolProcess(run).catch(() => null);
     if (!snapshot) return;
-    if (run.logsOpen || run.status === "error" || run.status === "exited") {
+    if (
+      run.id !== currentRun.id ||
+      run.runtimeId !== currentRun.runtimeId ||
+      run.runtimeGeneration !== currentRun.runtimeGeneration
+    ) {
+      return;
+    }
+    if (currentRun.logsOpen || currentRun.status === "error") {
       logs = snapshot.output;
       outputTruncated = snapshot.record.outputTruncated;
     }
-    if (!snapshot.record.running && run.status !== "exited") {
-      markExternalToolExited(run.id, snapshot.record.id, snapshot.record.exitCode);
+    if (!snapshot.record.running && currentRun.status !== "error") {
+      markExternalToolExited(
+        currentRun.id,
+        snapshot.record.id,
+        snapshot.record.exitCode,
+        currentRun.runtimeGeneration,
+      );
     }
   }
 
@@ -415,19 +430,6 @@
       <div class="absolute inset-0 z-10 flex items-center justify-center text-sm text-text-muted">
         Loading {run.rendered?.url ?? run.toolName}...
       </div>
-    {:else if run.status === "exited"}
-      <div class="absolute inset-0 z-10 flex items-center justify-center bg-bg-base/90 p-6">
-        <div class="rounded border border-border-subtle bg-bg-surface/80 p-4 text-sm text-text-secondary">
-          {run.toolName} exited{run.exitCode == null ? "" : ` with code ${run.exitCode}`}.
-          <button
-            type="button"
-            class="ml-3 rounded border border-border-subtle bg-bg-elevated px-3 py-1 text-xs text-text-primary hover:bg-bg-hover"
-            onclick={() => void restartExternalToolRun(run.id)}
-          >
-            Relaunch
-          </button>
-        </div>
-      </div>
     {/if}
     {#if run.status === "ready" && run.rendered?.url && run.webEmbedder === "iframe"}
       <iframe
@@ -440,7 +442,7 @@
     {/if}
   </div>
 
-  {#if run.logsOpen || run.status === "error" || run.status === "exited"}
+  {#if run.logsOpen || run.status === "error"}
     <div class="h-40 shrink-0 border-t border-border-subtle bg-bg-deep">
       <div class="flex h-7 items-center justify-between border-b border-hairline px-3 text-[11px] text-text-muted">
         <span>Process Logs</span>

@@ -52,7 +52,6 @@
       <button
         type="button"
         class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-        onpointerdown={requestClose}
         onclick={requestClose}
         aria-label={closeLabel}
         title={closeLabel}

@@ -11,6 +11,7 @@ import { logError } from "$lib/logging";
 
 const DIRECT_PREFIX = "external-tools.open.";
 let registeredDirect = new Set<string>();
+let syncedDirectSignature: string | null = null;
 let subscribed = false;
 
 export function registerExternalToolCommands(): void {
@@ -41,8 +42,12 @@ function externalToolItems(): CommandItem[] {
 }
 
 function syncDirectCommands(tools: ExternalTool[]): void {
+  const signature = directCommandSignature(tools);
+  if (signature === syncedDirectSignature) return;
+
   for (const id of registeredDirect) registry.unregister(id);
   registeredDirect = new Set();
+  syncedDirectSignature = signature;
 
   for (const tool of tools) {
     if (tool.enabled === false) continue;
@@ -56,6 +61,19 @@ function syncDirectCommands(tools: ExternalTool[]): void {
       execute: () => runTool(tool.id),
     });
   }
+}
+
+function directCommandSignature(tools: ExternalTool[]): string {
+  return JSON.stringify(
+    tools.map((tool) => [
+      tool.id,
+      tool.name,
+      tool.enabled,
+      tool.requiresSession,
+      tool.surface,
+      tool.urlTemplate,
+    ]),
+  );
 }
 
 async function runTool(toolId: string): Promise<void> {

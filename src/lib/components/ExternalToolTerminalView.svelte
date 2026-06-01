@@ -14,7 +14,6 @@
   import type { ExternalToolRun } from "$lib/stores/externalTools";
   import {
     markExternalToolExited,
-    restartExternalToolRun,
     setExternalToolRunError,
   } from "$lib/stores/externalTools";
   import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -29,6 +28,7 @@
   let cleanupInput: (() => void) | null = null;
   let cleanupExit: UnlistenFn | null = null;
   let resizeObserver: ResizeObserver | null = null;
+  let exitRegistrationToken = 0;
 
   const scheduler = createResizeScheduler({
     fit: () => controller?.fit() ?? null,
@@ -75,8 +75,10 @@
 
   $effect(() => {
     const ptyId = run.runtimeId;
+    const runId = run.id;
     const runtimeGeneration = run.runtimeGeneration;
     if (!ptyId || !controller) return;
+    const registrationToken = ++exitRegistrationToken;
 
     const outputChannel = createPtyOutputChannel((bytes) => {
       controller?.write(bytes);
@@ -91,18 +93,23 @@
     });
     void onSessionExit(ptyId, (payload: SessionExitPayload) => {
       markExternalToolExited(
-        run.id,
+        runId,
         ptyId,
         payload.code ?? null,
         payload.generation ?? runtimeGeneration,
       );
     }).then((unlisten) => {
+      if (exitRegistrationToken !== registrationToken || run.runtimeId !== ptyId) {
+        unlisten();
+        return;
+      }
       cleanupExit?.();
       cleanupExit = unlisten;
     });
     scheduler.schedule({ afterFit: () => controller?.focus() });
 
     return () => {
+      if (exitRegistrationToken === registrationToken) exitRegistrationToken++;
       cleanupExit?.();
       cleanupExit = null;
     };
@@ -125,17 +132,6 @@
   {#if run.status === "launching" || !run.runtimeId}
     <div class="absolute inset-0 flex items-center justify-center text-sm text-text-muted">
       Launching {run.toolName}...
-    </div>
-  {:else if run.status === "exited"}
-    <div class="absolute right-3 top-3 z-10 rounded border border-border-subtle bg-bg-surface/90 px-3 py-2 text-xs text-text-secondary shadow-lg">
-      Exited{run.exitCode == null ? "" : ` with code ${run.exitCode}`}
-      <button
-        type="button"
-        class="ml-2 rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-text-primary hover:bg-bg-hover"
-        onclick={() => void restartExternalToolRun(run.id)}
-      >
-        Relaunch
-      </button>
     </div>
   {/if}
   <div bind:this={container} class="h-full w-full overflow-hidden p-1"></div>

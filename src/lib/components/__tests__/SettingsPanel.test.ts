@@ -221,6 +221,25 @@ describe("SettingsPanel external tools", () => {
     expect(ids).toContain("new-id");
     expect(ids).not.toContain(" new-id ");
   });
+
+  it("clamps preferred ports before saving external web tools", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "Difit" }));
+
+    const input = screen.getByLabelText("Preferred port");
+    await fireEvent.input(input, { target: { value: "70000" } });
+    expect(get(settings).externalTools?.find((tool) => tool.id === "difit")?.preferredPort).toBe(
+      65535,
+    );
+
+    await fireEvent.input(input, { target: { value: "0" } });
+    expect(get(settings).externalTools?.find((tool) => tool.id === "difit")?.preferredPort).toBe(1);
+
+    await fireEvent.input(input, { target: { value: "" } });
+    expect(get(settings).externalTools?.find((tool) => tool.id === "difit")?.preferredPort).toBeNull();
+  });
 });
 
 describe("SettingsPanel agent notification setup", () => {

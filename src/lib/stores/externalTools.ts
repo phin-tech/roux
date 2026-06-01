@@ -18,7 +18,6 @@ export type ExternalToolRunStatus =
   | "starting"
   | "running"
   | "ready"
-  | "exited"
   | "error";
 
 export interface ExternalToolRun {
@@ -33,7 +32,6 @@ export interface ExternalToolRun {
   rendered: RenderedExternalTool | null;
   status: ExternalToolRunStatus;
   error: string | null;
-  exitCode: number | null;
   logsOpen: boolean;
   launchedAtMs: number;
 }
@@ -109,7 +107,6 @@ function markExternalToolRelaunching(runId: string): number {
     rendered: null,
     status: "launching",
     error: null,
-    exitCode: null,
     logsOpen: false,
   }));
   return relaunchToken;
@@ -221,7 +218,7 @@ export async function readExternalToolProcess(run: ExternalToolRun): Promise<Pro
 }
 
 export function externalToolRunIsLive(run: ExternalToolRun): boolean {
-  return run.status !== "exited" && run.status !== "error";
+  return run.status !== "error";
 }
 
 async function launchRun(
@@ -244,7 +241,6 @@ async function launchRun(
     rendered: null,
     status: "launching",
     error: null,
-    exitCode: null,
     logsOpen: false,
     launchedAtMs: Date.now(),
   };
@@ -266,7 +262,6 @@ async function launchRun(
       rendered: result.rendered,
       status: result.surface === "web" ? "starting" : "running",
       error: null,
-      exitCode: null,
       launchedAtMs: Date.now(),
     }));
   } catch (err) {

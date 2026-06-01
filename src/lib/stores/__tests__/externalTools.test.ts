@@ -59,7 +59,6 @@ function runWithStatus(status: ExternalToolRunStatus): ExternalToolRun {
     rendered: null,
     status,
     error: null,
-    exitCode: null,
     logsOpen: false,
     launchedAtMs: 100,
   };
@@ -151,12 +150,11 @@ describe("externalTools store helpers", () => {
     expect(externalToolRunId("difit", null)).toBe("difit:global");
   });
 
-  it("treats only exited and error runs as not live", () => {
+  it("treats only error runs as not live", () => {
     expect(externalToolRunIsLive(runWithStatus("launching"))).toBe(true);
     expect(externalToolRunIsLive(runWithStatus("starting"))).toBe(true);
     expect(externalToolRunIsLive(runWithStatus("running"))).toBe(true);
     expect(externalToolRunIsLive(runWithStatus("ready"))).toBe(true);
-    expect(externalToolRunIsLive(runWithStatus("exited"))).toBe(false);
     expect(externalToolRunIsLive(runWithStatus("error"))).toBe(false);
   });
 
@@ -389,7 +387,6 @@ describe("externalTools store helpers", () => {
       runtimeGeneration: null,
       rendered: null,
       error: null,
-      exitCode: null,
     });
 
     setExternalToolRunError(runId, "stale attach failed", "pty-old", 1);

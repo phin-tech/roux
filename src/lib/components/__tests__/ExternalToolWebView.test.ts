@@ -127,7 +127,6 @@ function makeRun(): ExternalToolRun {
     },
     status: "starting",
     error: null,
-    exitCode: null,
     logsOpen: false,
     launchedAtMs: 100,
   };

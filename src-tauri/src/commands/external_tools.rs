@@ -99,7 +99,7 @@ pub(crate) async fn probe_external_tool_url(url: String) -> Result<bool, String>
         .build()
         .map_err(|err| format!("failed to build external tool URL probe: {err}"))?;
 
-    Ok(client.get(url).send().await.is_ok())
+    Ok(client.get(url).send().await.is_ok_and(|response| response.status().is_success()))
 }
 
 fn find_tool(tools: &[ExternalTool], tool_id: &str) -> Result<ExternalTool, String> {
@@ -201,7 +201,6 @@ fn launch_render_port(tool: &ExternalTool) -> Result<Option<u16>, String> {
 
 fn tool_uses_port(tool: &ExternalTool) -> bool {
     template_uses_port(&tool.command_template)
-        || tool.url_template.as_deref().is_some_and(template_uses_port)
 }
 
 fn template_uses_port(template: &str) -> bool {
@@ -258,12 +257,16 @@ fn expression_uses_identifier(expression: &str, identifier: &str) -> bool {
             end = next_start + next_ch.len_utf8();
         }
 
-        if &expression[start..end] == identifier {
+        if &expression[start..end] == identifier && !is_dotted_member_access(expression, start) {
             return true;
         }
     }
 
     false
+}
+
+fn is_dotted_member_access(expression: &str, identifier_start: usize) -> bool {
+    expression[..identifier_start].trim_end().ends_with('.')
 }
 
 fn is_identifier_start(ch: char) -> bool {
@@ -278,6 +281,8 @@ fn is_identifier_continue(ch: char) -> bool {
 mod tests {
     use super::*;
     use roux_core::ExternalToolWebEmbedder;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
 
     fn web_tool(command_template: &str, url_template: Option<&str>) -> ExternalTool {
         ExternalTool {
@@ -297,7 +302,11 @@ mod tests {
     #[test]
     fn tool_uses_port_detects_minijinja_port_without_spaces() {
         assert!(tool_uses_port(&web_tool("serve --port {{port}}", None)));
-        assert!(tool_uses_port(&web_tool("", Some("http://127.0.0.1:{{port}}"))));
+    }
+
+    #[test]
+    fn tool_uses_port_ignores_url_only_port_templates() {
+        assert!(!tool_uses_port(&web_tool("", Some("http://127.0.0.1:{{port}}"))));
     }
 
     #[test]
@@ -312,7 +321,10 @@ mod tests {
 
     #[test]
     fn tool_uses_port_detects_port_inside_larger_expression() {
-        assert!(tool_uses_port(&web_tool("", Some("{{ \"http://127.0.0.1:\" ~ port }}"))));
+        assert!(tool_uses_port(&web_tool(
+            "serve {{ \"--port=\" ~ port }}",
+            Some("http://127.0.0.1:{{port}}")
+        )));
     }
 
     #[test]
@@ -323,5 +335,26 @@ mod tests {
     #[test]
     fn tool_uses_port_ignores_port_inside_string_literals() {
         assert!(!tool_uses_port(&web_tool("echo {{ \"port\" }}", Some("https://github.com"))));
+    }
+
+    #[test]
+    fn tool_uses_port_ignores_dotted_port_member_access() {
+        assert!(!tool_uses_port(&web_tool("echo {{ session.port }}", None)));
+        assert!(!tool_uses_port(&web_tool("echo {{ session . port }}", None)));
+    }
+
+    #[tokio::test]
+    async fn probe_external_tool_url_treats_non_success_as_not_ready() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0; 512];
+            let _ = stream.read(&mut buf);
+            stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").unwrap();
+        });
+
+        assert!(!probe_external_tool_url(url).await.unwrap());
+        handle.join().unwrap();
     }
 }

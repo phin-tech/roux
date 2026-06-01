@@ -34,7 +34,9 @@ pub(crate) fn render_external_tool(
     if tool.requires_session && session.is_none() {
         return Err(ExternalToolError::RequiresSession(tool.name.clone()));
     }
-    if tool.surface == ExternalToolSurface::Web && tool.url_template.as_deref().is_none() {
+    if tool.surface == ExternalToolSurface::Web
+        && tool.url_template.as_deref().is_none_or(|url| url.trim().is_empty())
+    {
         return Err(ExternalToolError::MissingUrlTemplate(tool.name.clone()));
     }
 
@@ -235,6 +237,25 @@ mod tests {
             cwd_template: "".to_string(),
             requires_session: false,
             url_template: None,
+            preferred_port: Some(4966),
+            web_embedder: ExternalToolWebEmbedder::Iframe,
+        };
+
+        let err = render_external_tool(&tool, None, Some(4966)).unwrap_err();
+        assert!(err.to_string().contains("url template"));
+    }
+
+    #[test]
+    fn web_tool_rejects_blank_url_template() {
+        let tool = ExternalTool {
+            id: "bad-web".to_string(),
+            name: "Bad Web".to_string(),
+            enabled: true,
+            surface: ExternalToolSurface::Web,
+            command_template: "serve".to_string(),
+            cwd_template: "".to_string(),
+            requires_session: false,
+            url_template: Some("   ".to_string()),
             preferred_port: Some(4966),
             web_embedder: ExternalToolWebEmbedder::Iframe,
         };

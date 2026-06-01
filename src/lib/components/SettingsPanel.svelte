@@ -241,6 +241,14 @@
     }
   }
 
+  function preferredPortFromInput(value: string): number | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isNaN(parsed)) return null;
+    return Math.min(65535, Math.max(1, parsed));
+  }
+
   function addExternalTool(surface: ExternalToolSurface): void {
     const id = `tool-${Date.now()}`;
     const tool: ExternalTool = {
@@ -1554,7 +1562,7 @@
                                 max="65535"
                                 class="rounded border border-border bg-bg-deep px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent-dim"
                                 value={tool.preferredPort ?? ""}
-                                oninput={(e) => updateExternalTool(tool.id, { preferredPort: e.currentTarget.value ? Number(e.currentTarget.value) : null })}
+                                oninput={(e) => updateExternalTool(tool.id, { preferredPort: preferredPortFromInput(e.currentTarget.value) })}
                               />
                             </label>
                           </div>
