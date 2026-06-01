@@ -6,7 +6,6 @@ use crate::services::external_tools::{
 };
 use crate::state::AppState;
 use roux_core::{ExternalTool, ExternalToolSurface, Session};
-use roux_runtime::pty_service::PtySpawnRequest;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -140,39 +139,19 @@ async fn launch_terminal_tool(
 ) -> Result<ExternalToolRuntime, String> {
     let pty_id = format!("external-tool-{}-{}", tool.id, uuid::Uuid::new_v4());
     let session_id = session.map(|s| s.id.clone());
-    if let Some(client) = &state.daemon_client {
-        let record = client
-            .spawn_daemon_pty_task(
-                rendered.command.clone(),
-                Some(pty_id),
-                Some(rendered.cwd.clone()),
-                session_id,
-                None,
-                None,
-                initial_size,
-            )
-            .await
-            .map_err(|err| err.to_string())?;
-        return Ok(ExternalToolRuntime {
-            id: Some(record.id),
-            generation: Some(record.generation),
-        });
-    }
+    let Some(client) = &state.daemon_client else {
+        return Err(format!("Terminal external tool \"{}\" requires the Roux daemon", tool.name));
+    };
 
-    let record = state
-        .runtime
-        .pty_handle
-        .spawn_task(
+    let record = client
+        .spawn_daemon_pty_task(
             rendered.command.clone(),
-            PtySpawnRequest {
-                id: Some(pty_id),
-                working_dir: Some(PathBuf::from(&rendered.cwd)),
-                session_id,
-                project_id: session.and_then(|s| s.project_id.clone()),
-                worktree_path: session.map(|s| s.worktree_path.clone()),
-                initial_size,
-                ..PtySpawnRequest::default()
-            },
+            Some(pty_id),
+            Some(rendered.cwd.clone()),
+            session_id,
+            None,
+            None,
+            initial_size,
         )
         .await
         .map_err(|err| err.to_string())?;
