@@ -101,6 +101,24 @@ describe("externalTools store helpers", () => {
     expect(get(mainViewRoute)).toEqual({ kind: "externalTool", runId: run.id });
   });
 
+  it("keeps errored runs visible when their cleaned-up runtime exits", () => {
+    const run = {
+      ...runWithStatus("error"),
+      surface: "web" as const,
+      runtimeId: "process-1",
+      runtimeGeneration: null,
+      error: "webview failed",
+      logsOpen: true,
+    };
+    externalToolRuns.set(new Map([[run.id, run]]));
+    openMainView({ kind: "externalTool", runId: run.id });
+
+    markExternalToolExited(run.id, run.runtimeId, null);
+
+    expect(get(externalToolRuns).get(run.id)).toEqual(run);
+    expect(get(mainViewRoute)).toEqual({ kind: "externalTool", runId: run.id });
+  });
+
   it("kills the matching web runtime before marking a launched run failed", async () => {
     const run = {
       ...runWithStatus("running"),

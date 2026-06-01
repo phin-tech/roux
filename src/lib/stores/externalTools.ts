@@ -106,6 +106,7 @@ export function markExternalToolExited(
   if (!runtimeId) return;
   const run = get(externalToolRuns).get(runId);
   if (!run || run.runtimeId !== runtimeId) return;
+  if (run.status === "error") return;
   if (generation != null && run.runtimeGeneration !== generation) return;
 
   void killRunRuntime(run);
