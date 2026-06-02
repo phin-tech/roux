@@ -27,6 +27,7 @@
     markExternalToolReady,
     readExternalToolProcess,
     registerExternalToolViewCloser,
+    restartExternalToolRun,
   } from "$lib/stores/externalTools";
 
   interface Props {
@@ -109,6 +110,13 @@
   $effect(() => {
     run.logsOpen;
     void refreshLogs();
+  });
+
+  $effect(() => {
+    if (run.status === "error") {
+      clearPoll();
+      closeWebview();
+    }
   });
 
   $effect(() => {
@@ -428,7 +436,23 @@
 
 <div class="flex h-full min-h-0 flex-col bg-bg-base">
   <div class="relative min-h-0 flex-1">
-    {#if run.status === "starting" || run.status === "launching"}
+    {#if run.status === "error"}
+      <div class="absolute inset-0 z-10 flex items-center justify-center bg-bg-deep p-6">
+        <div class="w-full max-w-2xl rounded border border-red/30 bg-red/10 p-4">
+          <div class="text-sm font-semibold text-red">Failed to launch {run.toolName}</div>
+          <div class="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] text-text-secondary">
+            {run.error}
+          </div>
+          <button
+            type="button"
+            class="mt-4 rounded border border-border-subtle bg-bg-elevated px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover"
+            onclick={() => void restartExternalToolRun(run.id)}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    {:else if run.status === "starting" || run.status === "launching"}
       <div class="absolute inset-0 z-10 flex items-center justify-center text-sm text-text-muted">
         Loading {run.rendered?.url ?? run.toolName}...
       </div>
