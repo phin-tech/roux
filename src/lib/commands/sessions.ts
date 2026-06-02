@@ -4,6 +4,7 @@ import { queries } from "$lib/queries";
 import { addSession, setActiveSession, triggerRename, setSessionProject, sessionState } from "$lib/stores/sessions";
 import { projects } from "$lib/stores/projects";
 import { settings } from "$lib/stores/settings";
+import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
 import { getVisualSessionOrder } from "$lib/sessions/order";
 import { initSessionWithProfile } from "$lib/panes/actions";
 import { createSessionShell, openInEditor, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
@@ -27,12 +28,13 @@ async function createWorktreeClaudeSession(
 ) {
   const { resolveProfileRef } = await import("$lib/panes/profiles");
   const { runProfileInPane } = await import("$lib/panes/profileRunner");
-  const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
+  const profileId = defaultAgentProfileId();
+  const profileRef: SpawnProfileRef = { kind: "registered", id: profileId };
   const profile = resolveProfileRef(profileRef);
 
   const newSession = await createSessionShell(
     repo, name, null, branch,
-    { profile: "claude", base, fetchFirst },
+    { profile: profileId, base, fetchFirst },
   );
   addSession(newSession);
   const mainPaneId = initSessionWithProfile(newSession.id, profileRef);

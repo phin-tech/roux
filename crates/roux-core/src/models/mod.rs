@@ -45,8 +45,8 @@ pub use session::{map_hook_status, Session, SessionStatus, SessionStatusEvent};
 pub use settings::{
     CursorStyle, ExperimentsConfig, ExternalTool, ExternalToolSurface, ExternalToolWebEmbedder,
     GroupBy, KanbanSettings, KanbanStartupSidebar, LibrarySource, LibrarySourceKind, RouxSettings,
-    SkillSyncMode, StatusBarPosition, TabPosition, UpdateChannel, WorktreeCleanupMode,
-    WorktreeDefaultBase, WorktreeProvider,
+    SkillSyncMode, StartupTarget, StatusBarPosition, TabPosition, UpdateChannel,
+    WorktreeCleanupMode, WorktreeDefaultBase, WorktreeProvider,
 };
 pub use subscription::{BusSubscription, BusSubscriptionEvent};
 pub use task::{KeepOpen, TaskDefinition, TaskGroup};

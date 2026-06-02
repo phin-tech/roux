@@ -292,14 +292,26 @@ pub enum KanbanStartupSidebar {
     None,
 }
 
-fn default_kanban_agent_profile() -> String {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum StartupTarget {
+    #[default]
+    Restore,
+    SessionsSidebar,
+    LastSession,
+    KanbanWide,
+    ExternalTool,
+    None,
+}
+
+fn default_agent_profile() -> String {
     "claude".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct KanbanSettings {
-    #[serde(default = "default_kanban_agent_profile")]
+    #[serde(default = "default_agent_profile")]
     pub default_agent_profile: String,
     #[serde(default)]
     pub planning_prompt_append: String,
@@ -314,7 +326,7 @@ pub struct KanbanSettings {
 impl Default for KanbanSettings {
     fn default() -> Self {
         Self {
-            default_agent_profile: default_kanban_agent_profile(),
+            default_agent_profile: default_agent_profile(),
             planning_prompt_append: String::new(),
             implementation_prompt_append: String::new(),
             review_prompt_append: String::new(),
@@ -453,6 +465,17 @@ pub struct RouxSettings {
     /// the file says, so users can't forge a `"builtin"` marker.
     #[serde(default)]
     pub spawn_profiles: Vec<SpawnProfile>,
+    /// Default autonomous agent profile used by agent-starting surfaces.
+    /// Card-level/profile-specific overrides still win.
+    #[serde(default = "default_agent_profile")]
+    pub default_agent_profile: String,
+    /// Main UI destination to show after app startup settings are loaded.
+    #[serde(default)]
+    pub startup_target: StartupTarget,
+    /// External tool id used when `startup_target` is `ExternalTool`.
+    /// Only enabled global tools are accepted.
+    #[serde(default)]
+    pub startup_external_tool_id: Option<String>,
     /// Absolute paths of workspaces the user has marked trusted for the
     /// future project-profile loader (`.roux/profiles.json`). Reserved in
     /// phase 3; the loader that consumes this list ships later. Storing the
@@ -587,6 +610,9 @@ impl Default for RouxSettings {
             notes_migrated_v1: false,
             update_channel: UpdateChannel::default(),
             spawn_profiles: Vec::new(),
+            default_agent_profile: default_agent_profile(),
+            startup_target: StartupTarget::Restore,
+            startup_external_tool_id: None,
             trusted_workspaces: Vec::new(),
             library_pinned_repos: Vec::new(),
             library_sources: Vec::new(),
@@ -619,10 +645,21 @@ impl RouxSettings {
         for profile in &mut s.spawn_profiles {
             profile.source = ProfileSource::User;
         }
+        s.default_agent_profile = s.default_agent_profile.trim().to_string();
         s.kanban.default_agent_profile = s.kanban.default_agent_profile.trim().to_string();
-        if s.kanban.default_agent_profile.is_empty() {
-            s.kanban.default_agent_profile = default_kanban_agent_profile();
+        if s.default_agent_profile.is_empty() {
+            s.default_agent_profile = default_agent_profile();
         }
+        // Migration bridge for settings files written before the global
+        // default existed. If Kanban carried the only non-default agent
+        // preference, promote it and then keep both readers in sync.
+        if s.default_agent_profile == default_agent_profile()
+            && !s.kanban.default_agent_profile.is_empty()
+            && s.kanban.default_agent_profile != default_agent_profile()
+        {
+            s.default_agent_profile = s.kanban.default_agent_profile.clone();
+        }
+        s.kanban.default_agent_profile = s.default_agent_profile.clone();
         s.kanban.planning_prompt_append = s.kanban.planning_prompt_append.trim().to_string();
         s.kanban.implementation_prompt_append =
             s.kanban.implementation_prompt_append.trim().to_string();
@@ -660,6 +697,34 @@ impl RouxSettings {
         }
         s.cleanup_worktrees_on_close = s.worktree_cleanup_on_close == WorktreeCleanupMode::Always;
         s.external_tools = normalize_external_tools(&s.external_tools);
+        if s.startup_target == StartupTarget::Restore {
+            s.startup_target = match s.kanban.startup_sidebar {
+                KanbanStartupSidebar::Restore => StartupTarget::Restore,
+                KanbanStartupSidebar::Sessions => StartupTarget::SessionsSidebar,
+                KanbanStartupSidebar::Kanban => StartupTarget::KanbanWide,
+                KanbanStartupSidebar::None => StartupTarget::None,
+            };
+        }
+        s.startup_external_tool_id =
+            s.startup_external_tool_id.as_ref().map(|id| id.trim().to_string()).filter(|id| {
+                !id.is_empty()
+                    && s.external_tools.iter().any(|tool| {
+                        tool.id == *id && tool.enabled && !tool.requires_session
+                    })
+            });
+        if s.startup_target == StartupTarget::ExternalTool
+            && s.startup_external_tool_id.is_none()
+        {
+            s.startup_target = StartupTarget::Restore;
+        }
+        s.kanban.startup_sidebar = match s.startup_target {
+            StartupTarget::Restore | StartupTarget::LastSession | StartupTarget::ExternalTool => {
+                KanbanStartupSidebar::Restore
+            }
+            StartupTarget::SessionsSidebar => KanbanStartupSidebar::Sessions,
+            StartupTarget::KanbanWide => KanbanStartupSidebar::Kanban,
+            StartupTarget::None => KanbanStartupSidebar::None,
+        };
         s
     }
 }
@@ -994,6 +1059,86 @@ mod tests {
         assert!(parsed.kanban.planning_prompt_append.is_empty());
         assert!(parsed.kanban.implementation_prompt_append.is_empty());
         assert!(parsed.kanban.review_prompt_append.is_empty());
+    }
+
+    #[test]
+    fn legacy_kanban_agent_profile_promotes_to_global_default_agent() {
+        let json = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.5,
+            "taskPanelCollapsed": true,
+            "kanban": {
+                "defaultAgentProfile": "codex",
+                "startupSidebar": "restore"
+            }
+        }"#;
+
+        let settings: RouxSettings = serde_json::from_str(json).unwrap();
+        let normalized = settings.normalized();
+
+        assert_eq!(normalized.default_agent_profile, "codex");
+        assert_eq!(normalized.kanban.default_agent_profile, "codex");
+    }
+
+    #[test]
+    fn legacy_kanban_startup_sidebar_promotes_to_global_startup_target() {
+        let json = r#"{
+            "tabPosition": "left",
+            "tabWidth": 260,
+            "fontSize": 14,
+            "fontFamily": "monospace",
+            "lineHeight": 1.2,
+            "scrollback": 5000,
+            "cursorStyle": "block",
+            "cursorBlink": true,
+            "defaultProjectPath": null,
+            "confirmOnClose": true,
+            "restoreSessionsOnLaunch": true,
+            "worktreeBasePath": null,
+            "cleanupWorktreesOnClose": false,
+            "theme": "deep-blue",
+            "defaultModel": null,
+            "additionalFlags": [],
+            "taskPanelSplit": 0.5,
+            "taskPanelCollapsed": true,
+            "kanban": {
+                "startupSidebar": "kanban"
+            }
+        }"#;
+
+        let settings: RouxSettings = serde_json::from_str(json).unwrap();
+        let normalized = settings.normalized();
+
+        assert_eq!(normalized.startup_target, super::StartupTarget::KanbanWide);
+        assert_eq!(normalized.kanban.startup_sidebar, super::KanbanStartupSidebar::Kanban);
+    }
+
+    #[test]
+    fn empty_global_default_agent_normalizes_to_claude() {
+        let settings = RouxSettings {
+            default_agent_profile: "   ".to_string(),
+            ..RouxSettings::default()
+        };
+
+        let normalized = settings.normalized();
+
+        assert_eq!(normalized.default_agent_profile, "claude");
+        assert_eq!(normalized.kanban.default_agent_profile, "claude");
     }
 
     #[test]

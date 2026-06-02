@@ -1,7 +1,10 @@
 import { derived, get, writable, type Readable } from "svelte/store";
 import { sessionLayouts, collectVisibleLeafIds } from "$lib/panes/layout";
-import { activeSessionId } from "$lib/stores/sessions";
+import { activeSessionId, sessionState, setActiveSession } from "$lib/stores/sessions";
 import { showSidebar } from "$lib/stores/sidebarLayout";
+import { closeMainView, openMainView } from "$lib/stores/mainView";
+import { openExternalTool } from "$lib/stores/externalTools";
+import type { StartupTarget } from "$lib/bindings";
 import type { WorkItemStatus } from "$lib/stores/workItems";
 
 /**
@@ -142,6 +145,36 @@ export function applyStartupSidebarPreference(preference: StartupSidebarPreferen
   showSidebar();
   sidebarState.set({ pinned, active: null });
   clearNotesOverrideIfLeaving(pinned);
+}
+
+export async function applyStartupTargetPreference(
+  preference: StartupTarget | undefined,
+  externalToolId?: string | null,
+): Promise<void> {
+  switch (preference ?? "restore") {
+    case "restore":
+      return;
+    case "none":
+      closeMainView();
+      sidebarState.set({ pinned: null, active: null });
+      clearNotesOverrideIfLeaving(null);
+      return;
+    case "sessionsSidebar":
+      applyStartupSidebarPreference("sessions");
+      return;
+    case "kanbanWide":
+      closeSidebar();
+      openMainView({ kind: "board" });
+      return;
+    case "lastSession": {
+      const newest = [...get(sessionState).sessions].sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (newest) setActiveSession(newest.id);
+      return;
+    }
+    case "externalTool":
+      if (externalToolId) await openExternalTool(externalToolId);
+      return;
+  }
 }
 
 export function pinSidebar(id: SidebarId): void {

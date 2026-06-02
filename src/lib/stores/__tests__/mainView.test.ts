@@ -35,6 +35,13 @@ describe("mainViewRoute", () => {
       runId: "lazygit:s1",
     });
 
+    openMainView({ kind: "preferences", category: "externalTools", externalToolId: "github" });
+    expect(get(mainViewRoute)).toEqual({
+      kind: "preferences",
+      category: "externalTools",
+      externalToolId: "github",
+    });
+
     closeMainView();
     expect(get(mainViewRoute)).toBeNull();
     expect(get(mainViewActive)).toBe(false);
@@ -70,5 +77,11 @@ describe("mainViewRoute", () => {
 
     toggleMainView({ kind: "externalTool", runId: "tool:b" });
     expect(get(mainViewRoute)).toBeNull();
+
+    toggleMainView({ kind: "preferences", category: "general" });
+    expect(get(mainViewRoute)).toEqual({
+      kind: "preferences",
+      category: "general",
+    });
   });
 });

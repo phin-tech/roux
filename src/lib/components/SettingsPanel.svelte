@@ -5,12 +5,6 @@
     setRailSide,
     type Side,
   } from "$lib/stores/sidebarLayout";
-  import {
-    settingsModalSize,
-    setSettingsModalSize,
-    SETTINGS_MODAL_MAX_WIDTH,
-    SETTINGS_MODAL_MAX_HEIGHT,
-  } from "$lib/stores/settingsModalSize";
   import { open } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { THEME_DEFINITIONS, getAllTerminalThemeDefinitions } from "$lib/themes";
@@ -34,10 +28,10 @@
     ExternalToolWebEmbedder,
     IntegrationDetection,
     KanbanSettings,
-    KanbanStartupSidebar,
     McpHostConfigPreview,
     McpStatus,
     OnPaneCloseMode,
+    StartupTarget,
     UpdateChannel,
     WorktreeCleanupMode,
     WorktreeDefaultBase,
@@ -69,14 +63,15 @@
     withExperimentValue,
   } from "$lib/experiments";
 
-  type CategoryId = "general" | "sessions" | "terminal" | "kanban" | "claude" | "notes" | "integrations" | "notifications" | "keyboard" | "experiments" | "advanced";
+  type CategoryId = "general" | "sessions" | "terminal" | "agents" | "kanban" | "externalTools" | "notes" | "integrations" | "notifications" | "keyboard" | "experiments" | "advanced";
 
   const CATEGORIES: { id: CategoryId; label: string; icon: typeof Settings }[] = [
     { id: "general", label: "General", icon: Settings },
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "terminal", label: "Terminal", icon: TerminalIcon },
+    { id: "agents", label: "Agents", icon: Sparkles },
     { id: "kanban", label: "Kanban", icon: ClipboardList },
-    { id: "claude", label: "Claude", icon: Sparkles },
+    { id: "externalTools", label: "External Tools", icon: Wrench },
     { id: "notes", label: "Notes", icon: NotebookPen },
     { id: "integrations", label: "Integrations", icon: Plug },
     { id: "notifications", label: "Notifications", icon: Bell },
@@ -98,8 +93,26 @@
     startupSidebar: "restore",
   };
 
+  const STARTUP_TARGET_OPTIONS: { id: StartupTarget; label: string }[] = [
+    { id: "restore", label: "Restore previous" },
+    { id: "sessionsSidebar", label: "Sessions sidebar" },
+    { id: "lastSession", label: "Last session" },
+    { id: "kanbanWide", label: "Kanban wide view" },
+    { id: "externalTool", label: "External tool" },
+    { id: "none", label: "None" },
+  ];
+
+  const availableProfiles = $derived.by<SpawnProfile[]>(() => {
+    const byId = new Map<string, SpawnProfile>();
+    for (const profile of $profileList) byId.set(profile.id, profile);
+    for (const profile of $settings.spawnProfiles ?? []) {
+      byId.set(profile.id, { ...profile, source: "user" });
+    }
+    return Array.from(byId.values());
+  });
+
   const autonomousProfiles = $derived(
-    $profileList.filter((profile: SpawnProfile) => {
+    availableProfiles.filter((profile: SpawnProfile) => {
       const provider = profile.provider ?? null;
       const command = profile.startupCommand?.trim() ?? "";
       return (
@@ -163,9 +176,11 @@
   interface Props {
     visible: boolean;
     onclose: () => void;
+    initialCategory?: string | null;
+    externalToolId?: string | null;
   }
 
-  let { visible, onclose }: Props = $props();
+  let { visible, onclose, initialCategory = null, externalToolId = null }: Props = $props();
 
   $effect(() => {
     const justOpened = visible && !wasVisible;
@@ -174,10 +189,17 @@
     const focus = $settingsFocus;
     if (focus?.category) {
       selected = focus.category as CategoryId;
-      if (focus.category === "integrations" && "externalToolId" in focus) {
+      if (focus.category === "externalTools" && "externalToolId" in focus) {
         expandedExternalToolId = focus.externalToolId ?? null;
       }
       settingsFocus.set(null);
+      return;
+    }
+    if (initialCategory) {
+      selected = initialCategory as CategoryId;
+      if (initialCategory === "externalTools") {
+        expandedExternalToolId = externalToolId ?? null;
+      }
       return;
     }
     if (justOpened) selected = "general";
@@ -186,37 +208,9 @@
   function handleKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       onclose();
     }
-  }
-
-  // Drag-to-resize. The modal stays centered, so each edge moves by half the
-  // size delta; doubling the cursor delta keeps the bottom-right corner under
-  // the pointer. Persisted size is clamped to absolute bounds by the store and
-  // to the live viewport here so it can't grow off-screen.
-  let resizing = $state(false);
-  let resizeStart = { x: 0, y: 0, w: 0, h: 0 };
-
-  function onResizePointerDown(e: PointerEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    resizing = true;
-    resizeStart = {
-      x: e.clientX,
-      y: e.clientY,
-      w: $settingsModalSize.width,
-      h: $settingsModalSize.height,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-
-  function onResizePointerMove(e: PointerEvent) {
-    if (!resizing) return;
-    const maxW = Math.min(SETTINGS_MODAL_MAX_WIDTH, window.innerWidth - 32);
-    const maxH = Math.min(SETTINGS_MODAL_MAX_HEIGHT, window.innerHeight - 32);
-    const w = Math.min(resizeStart.w + (e.clientX - resizeStart.x) * 2, maxW);
-    const h = Math.min(resizeStart.h + (e.clientY - resizeStart.y) * 2, maxH);
-    setSettingsModalSize(w, h);
   }
 
   function externalTools(): ExternalTool[] {
@@ -328,14 +322,6 @@
     }
   }
 
-  function onResizePointerUp(e: PointerEvent) {
-    if (!resizing) return;
-    resizing = false;
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {}
-  }
-
   async function browseClaudeBinary() {
     const selected = await open({ directory: false, title: "Select Claude Binary" });
     if (selected) updateSetting("claudeBinaryPath", selected as string);
@@ -369,6 +355,32 @@
 
   function kanbanSettings(): KanbanSettings {
     return { ...KANBAN_DEFAULTS, ...($settings.kanban ?? {}) };
+  }
+
+  function defaultAgentProfile(): string {
+    const id = ($settings.defaultAgentProfile ?? $settings.kanban?.defaultAgentProfile ?? "claude").trim();
+    return id || "claude";
+  }
+
+  function updateDefaultAgentProfile(profileId: string): void {
+    updateSetting("defaultAgentProfile", profileId);
+    updateSetting("kanban", { ...kanbanSettings(), defaultAgentProfile: profileId });
+  }
+
+  function globalExternalTools(): ExternalTool[] {
+    return externalTools().filter((tool) => tool.enabled !== false && !(tool.requiresSession ?? false));
+  }
+
+  function updateStartupTarget(target: StartupTarget): void {
+    updateSetting("startupTarget", target);
+    if (target === "externalTool") {
+      const current = $settings.startupExternalToolId;
+      const tools = globalExternalTools();
+      const nextId = tools.some((tool) => tool.id === current) ? current : (tools[0]?.id ?? null);
+      updateSetting("startupExternalToolId", nextId);
+      return;
+    }
+    updateSetting("startupExternalToolId", null);
   }
 
   function updateKanban<K extends keyof KanbanSettings>(
@@ -808,21 +820,14 @@
 <svelte:window onkeydown={visible ? handleKey : undefined} />
 
 {#if visible}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-    role="presentation"
-    onclick={onclose}
+    class="flex h-full min-h-0 overflow-hidden bg-bg-deep"
+    role="region"
+    aria-label="Preferences"
+    onkeydown={handleKey}
+    tabindex="-1"
   >
-    <div
-      class="relative flex max-h-[90vh] max-w-[95vw] overflow-hidden rounded-2xl border border-hairline bg-bg-deep shadow-[0_24px_64px_rgba(2,6,23,0.6),0_0_0_1px_rgba(255,255,255,0.04)]"
-      style="width: {$settingsModalSize.width}px; height: {$settingsModalSize.height}px;"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Settings"
-      onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => e.stopPropagation()}
-      tabindex="-1"
-      >
         <!-- Sidebar -->
         <aside class="flex w-[180px] shrink-0 flex-col border-r border-hairline bg-bg-surface/30 py-3">
         <div class="flex items-center gap-2 px-3 pb-2">
@@ -833,7 +838,7 @@
           >
             <X size={14} />
           </button>
-          <div class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Settings</div>
+          <div class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Preferences</div>
         </div>
         <nav class="flex flex-col gap-0.5 px-2">
           {#each CATEGORIES as cat}
@@ -881,6 +886,143 @@
               <p class="mt-2 text-[11px] text-text-muted">
                 {THEME_DEFINITIONS.find((theme) => theme.id === $settings.theme)?.description}
               </p>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between py-2">
+              <span class="text-[13px]">UI font</span>
+              <input
+                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-56 text-right focus:border-accent-dim"
+                value={$settings.uiFontFamily}
+                oninput={(e) => updateSetting("uiFontFamily", e.currentTarget.value)}
+              />
+            </div>
+
+            <div class="mt-4 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <label for="settings-startup-target" class="text-[13px]">Open on launch</label>
+                  <div class="mt-0.5 text-[11px] text-text-muted">Choose the initial Roux surface after startup.</div>
+                </div>
+                <select
+                  id="settings-startup-target"
+                  aria-label="Open on launch"
+                  class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                  value={$settings.startupTarget ?? "restore"}
+                  onchange={(e) => updateStartupTarget(e.currentTarget.value as StartupTarget)}
+                >
+                  {#each STARTUP_TARGET_OPTIONS as option}
+                    <option value={option.id}>{option.label}</option>
+                  {/each}
+                </select>
+              </div>
+              {#if ($settings.startupTarget ?? "restore") === "externalTool"}
+                <div class="mt-3 flex items-center justify-between gap-3">
+                  <label for="settings-startup-external-tool" class="text-[13px]">Launch external tool</label>
+                  <select
+                    id="settings-startup-external-tool"
+                    aria-label="Launch external tool"
+                    class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                    value={$settings.startupExternalToolId ?? ""}
+                    onchange={(e) => updateSetting("startupExternalToolId", e.currentTarget.value || null)}
+                  >
+                    {#each globalExternalTools() as tool (tool.id)}
+                      <option value={tool.id}>{tool.name}</option>
+                    {/each}
+                  </select>
+                </div>
+                {#if globalExternalTools().length === 0}
+                  <div class="mt-2 text-[11px] text-amber">No enabled global external tools are available.</div>
+                {/if}
+              {/if}
+            </div>
+
+            <div class="mt-4 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-center justify-between py-1">
+                <div>
+                  <div class="text-[13px] font-semibold">Version</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">{appVersion}</div>
+                </div>
+                <button
+                  class="rounded border border-border px-2.5 py-1 text-[11px] text-text-primary hover:bg-bg-hover disabled:opacity-50"
+                  disabled={$updateStatus.kind === "checking" || $updateStatus.kind === "downloading"}
+                  onclick={() => void runManualCheck()}
+                >
+                  {$updateStatus.kind === "checking" ? "Checking…" : "Check for updates"}
+                </button>
+              </div>
+
+              {#if $updateStatus.kind === "no-update"}
+                <div class="mt-2 text-[11px] text-text-secondary">You're on the latest version.</div>
+              {:else if $updateStatus.kind === "available"}
+                <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
+                  <div class="text-[12px] font-semibold text-text-primary">Update available: {$updateStatus.version}</div>
+                  {#if $updateStatus.notes}
+                    <pre class="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] text-text-secondary">{$updateStatus.notes}</pre>
+                  {/if}
+                  <button
+                    class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
+                    onclick={() => void performInstall()}
+                  >
+                    Install and restart
+                  </button>
+                </div>
+              {:else if $updateStatus.kind === "downloading"}
+                <div class="mt-3 rounded-lg border border-border-subtle bg-bg-surface/35 p-3">
+                  <div class="text-[11px] text-text-secondary">
+                    Downloading update{$updateStatus.progress !== null ? ` (${Math.round($updateStatus.progress * 100)}%)` : "…"}
+                  </div>
+                  <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-bg-deep">
+                    <div
+                      class="h-full bg-accent transition-[width] duration-200"
+                      style="width: {$updateStatus.progress !== null ? Math.round($updateStatus.progress * 100) : 30}%"
+                    ></div>
+                  </div>
+                </div>
+              {:else if $updateStatus.kind === "installed-restart-required"}
+                <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
+                  <div class="text-[12px] font-semibold text-text-primary">Update installed</div>
+                  <div class="text-[11px] text-text-secondary mt-0.5">Quit and reopen Roux to finish.</div>
+                  <button
+                    class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
+                    onclick={() => void quitApp()}
+                  >
+                    Quit Roux
+                  </button>
+                </div>
+              {:else if $updateStatus.kind === "error"}
+                <div class="mt-2 text-[11px] text-red">{describeError($updateStatus.reason)}</div>
+              {/if}
+
+              <div class="mt-4 flex items-center justify-between py-2">
+                <div>
+                  <div class="text-[13px]">Update channel</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">Switching to Stable takes effect on the next stable release at or above your current version.</div>
+                </div>
+                <select
+                  class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+                  value={$settings.updateChannel ?? "stable"}
+                  onchange={(e) => updateSetting("updateChannel", e.currentTarget.value as UpdateChannel)}
+                >
+                  <option value="stable">Stable</option>
+                  <option value="preRelease">Pre-release (Alpha)</option>
+                </select>
+              </div>
+
+              <div class="mt-4 flex items-center justify-between py-2">
+                <div>
+                  <div class="text-[13px]">Check for updates on launch</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">Silently check in the background when Roux starts</div>
+                </div>
+                <button
+                  aria-label="Toggle auto-check on launch"
+                  class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
+                    {($settings.updateCheckOnLaunch ?? true) ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+                  onclick={() => updateSetting('updateCheckOnLaunch', !($settings.updateCheckOnLaunch ?? true))}
+                >
+                  <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+                    {($settings.updateCheckOnLaunch ?? true) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+                </button>
+              </div>
             </div>
 
             <div class="mt-4 flex items-center justify-between py-2">
@@ -1088,18 +1230,19 @@
                 <option value="originMain">origin/main</option>
               </select>
             </div>
-          {:else if selected === "kanban"}
-            {@const kanban = kanbanSettings()}
+          {:else if selected === "agents"}
             <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
               <div class="flex items-start justify-between gap-3">
                 <div>
-                  <div class="text-[13px]">Default agent</div>
-                  <div class="mt-0.5 text-[11px] text-text-muted">Used when a card has no agent profile. Card settings and command arguments still win.</div>
+                  <label for="settings-default-agent" class="text-[13px] font-semibold">Default agent</label>
+                  <div class="mt-0.5 text-[11px] text-text-muted">Used by new sessions, worktree starts, and Kanban cards unless a more specific profile is selected.</div>
                 </div>
                 <select
+                  id="settings-default-agent"
+                  aria-label="Default agent"
                   class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6 max-w-[14rem]"
-                  value={kanban.defaultAgentProfile}
-                  onchange={(e) => updateKanban("defaultAgentProfile", e.currentTarget.value)}
+                  value={defaultAgentProfile()}
+                  onchange={(e) => updateDefaultAgentProfile(e.currentTarget.value)}
                 >
                   {#if autonomousProfiles.length === 0}
                     <option value="claude">Claude</option>
@@ -1112,23 +1255,47 @@
               </div>
             </div>
 
-            <div class="mt-4 flex items-center justify-between py-2">
-              <div>
-                <div class="text-[13px]">Open on launch</div>
-                <div class="mt-0.5 text-[11px] text-text-muted">Choose which sidebar Roux shows after settings load.</div>
+            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="text-[13px] font-semibold">Claude</div>
+              <div class="mt-3 flex items-center justify-between py-2">
+                <div>
+                  <div class="text-[13px]">Binary path</div>
+                  <div class="text-[11px] text-text-muted mt-0.5">Leave blank to auto-detect from PATH</div>
+                </div>
+                <div class="flex gap-1">
+                  <input
+                    class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-48 text-right focus:border-accent-dim"
+                    value={$settings.claudeBinaryPath ?? ""}
+                    oninput={(e) => updateSetting("claudeBinaryPath", e.currentTarget.value || null)}
+                    placeholder="/usr/local/bin/claude"
+                  />
+                  <button
+                    class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
+                    onclick={browseClaudeBinary}
+                  >...</button>
+                </div>
               </div>
-              <select
-                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
-                value={kanban.startupSidebar}
-                onchange={(e) => updateKanban("startupSidebar", e.currentTarget.value as KanbanStartupSidebar)}
-              >
-                <option value="restore">Restore previous</option>
-                <option value="sessions">Sessions</option>
-                <option value="kanban">Kanban</option>
-                <option value="none">None</option>
-              </select>
+              <div class="flex items-center justify-between py-2">
+                <span class="text-[13px]">Default model</span>
+                <input
+                  class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-40 text-right focus:border-accent-dim"
+                  value={$settings.defaultModel ?? ""}
+                  oninput={(e) => updateSetting("defaultModel", e.currentTarget.value || null)}
+                  placeholder="opus"
+                />
+              </div>
+              <div class="flex items-center justify-between py-2">
+                <span class="text-[13px]">Additional flags</span>
+                <input
+                  class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-56 text-right focus:border-accent-dim"
+                  value={$settings.additionalFlags.join(" ")}
+                  oninput={(e) => updateSetting("additionalFlags", e.currentTarget.value.split(" ").filter(Boolean))}
+                  placeholder="--verbose"
+                />
+              </div>
             </div>
-
+          {:else if selected === "kanban"}
+            {@const kanban = kanbanSettings()}
             <div class="py-2">
               <div class="text-[13px]">Planning instructions</div>
               <div class="mt-0.5 text-[11px] text-text-muted">Appended after Roux's required planning prompt.</div>
@@ -1253,14 +1420,6 @@
               />
             </div>
             <div class="flex items-center justify-between py-2">
-              <span class="text-[13px]">UI font</span>
-              <input
-                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-56 text-right focus:border-accent-dim"
-                value={$settings.uiFontFamily}
-                oninput={(e) => updateSetting("uiFontFamily", e.currentTarget.value)}
-              />
-            </div>
-            <div class="flex items-center justify-between py-2">
               <span class="text-[13px]">Scrollback lines</span>
               <input
                 class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-24 text-right focus:border-accent-dim"
@@ -1283,43 +1442,6 @@
                 <option value="on">On (WebGL)</option>
                 <option value="off">Off (DOM)</option>
               </select>
-            </div>
-          {:else if selected === "claude"}
-            <div class="flex items-center justify-between py-2">
-              <div>
-                <div class="text-[13px]">Binary path</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Leave blank to auto-detect from PATH</div>
-              </div>
-              <div class="flex gap-1">
-                <input
-                  class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-48 text-right focus:border-accent-dim"
-                  value={$settings.claudeBinaryPath ?? ""}
-                  oninput={(e) => updateSetting("claudeBinaryPath", e.currentTarget.value || null)}
-                  placeholder="/usr/local/bin/claude"
-                />
-                <button
-                  class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
-                  onclick={browseClaudeBinary}
-                >...</button>
-              </div>
-            </div>
-            <div class="flex items-center justify-between py-2">
-              <span class="text-[13px]">Default model</span>
-              <input
-                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-40 text-right focus:border-accent-dim"
-                value={$settings.defaultModel ?? ""}
-                oninput={(e) => updateSetting("defaultModel", e.currentTarget.value || null)}
-                placeholder="opus"
-              />
-            </div>
-            <div class="flex items-center justify-between py-2">
-              <span class="text-[13px]">Additional flags</span>
-              <input
-                class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-56 text-right focus:border-accent-dim"
-                value={$settings.additionalFlags.join(" ")}
-                oninput={(e) => updateSetting("additionalFlags", e.currentTarget.value.split(" ").filter(Boolean))}
-                placeholder="--verbose"
-              />
             </div>
           {:else if selected === "notes"}
             <div class="py-2">
@@ -1360,7 +1482,8 @@
                   {($settings.notesIncludeWebAnchors ?? true) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
               </button>
             </div>
-          {:else if selected === "integrations"}
+          {:else if selected === "integrations" || selected === "externalTools"}
+            {#if selected === "integrations"}
             <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
               <div class="flex items-center justify-between">
                 <div class="text-[13px] font-semibold">Roux MCP</div>
@@ -1460,7 +1583,9 @@
                 {/each}
               {/if}
             </div>
+            {/if}
 
+            {#if selected === "externalTools"}
             <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
               <div class="flex items-center justify-between gap-2">
                 <div>
@@ -1649,7 +1774,9 @@
                 {/each}
               </div>
             </div>
+            {/if}
 
+            {#if selected === "integrations"}
             <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
               <div class="flex items-center justify-between">
                 <div class="text-[13px] font-semibold">Shell</div>
@@ -1887,6 +2014,7 @@
                 </div>
               </div>
             </div>
+            {/if}
           {:else if selected === "notifications"}
             <div class="flex items-center justify-between py-2">
               <div>
@@ -2210,93 +2338,6 @@
               {/if}
             </div>
 
-            <div class="flex items-center justify-between py-2">
-              <div>
-                <div class="text-[13px]">Current version</div>
-                <div class="text-[11px] text-text-muted mt-0.5">{appVersion}</div>
-              </div>
-              <button
-                class="rounded border border-border px-2.5 py-1 text-[11px] text-text-primary hover:bg-bg-hover disabled:opacity-50"
-                disabled={$updateStatus.kind === "checking" || $updateStatus.kind === "downloading"}
-                onclick={() => void runManualCheck()}
-              >
-                {$updateStatus.kind === "checking" ? "Checking…" : "Check for updates"}
-              </button>
-            </div>
-
-            {#if $updateStatus.kind === "no-update"}
-              <div class="mt-2 text-[11px] text-text-secondary">You're on the latest version.</div>
-            {:else if $updateStatus.kind === "available"}
-              <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
-                <div class="text-[12px] font-semibold text-text-primary">Update available: {$updateStatus.version}</div>
-                {#if $updateStatus.notes}
-                  <pre class="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] text-text-secondary">{$updateStatus.notes}</pre>
-                {/if}
-                <button
-                  class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
-                  onclick={() => void performInstall()}
-                >
-                  Install and restart
-                </button>
-              </div>
-            {:else if $updateStatus.kind === "downloading"}
-              <div class="mt-3 rounded-lg border border-border-subtle bg-bg-surface/35 p-3">
-                <div class="text-[11px] text-text-secondary">
-                  Downloading update{$updateStatus.progress !== null ? ` (${Math.round($updateStatus.progress * 100)}%)` : "…"}
-                </div>
-                <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-bg-deep">
-                  <div
-                    class="h-full bg-accent transition-[width] duration-200"
-                    style="width: {$updateStatus.progress !== null ? Math.round($updateStatus.progress * 100) : 30}%"
-                  ></div>
-                </div>
-              </div>
-            {:else if $updateStatus.kind === "installed-restart-required"}
-              <div class="mt-3 rounded-lg border border-accent/30 bg-accent/5 p-3">
-                <div class="text-[12px] font-semibold text-text-primary">Update installed</div>
-                <div class="text-[11px] text-text-secondary mt-0.5">Quit and reopen Roux to finish.</div>
-                <button
-                  class="mt-3 rounded border border-accent bg-accent-dim px-3 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
-                  onclick={() => void quitApp()}
-                >
-                  Quit Roux
-                </button>
-              </div>
-            {:else if $updateStatus.kind === "error"}
-              <div class="mt-2 text-[11px] text-red">{describeError($updateStatus.reason)}</div>
-            {/if}
-
-            <div class="mt-4 flex items-center justify-between py-2">
-              <div>
-                <div class="text-[13px]">Update channel</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Switching to Stable takes effect on the next stable release at or above your current version.</div>
-              </div>
-              <select
-                class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
-                value={$settings.updateChannel ?? "stable"}
-                onchange={(e) => updateSetting("updateChannel", e.currentTarget.value as UpdateChannel)}
-              >
-                <option value="stable">Stable</option>
-                <option value="preRelease">Pre-release (Alpha)</option>
-              </select>
-            </div>
-
-            <div class="mt-4 flex items-center justify-between py-2">
-              <div>
-                <div class="text-[13px]">Check for updates on launch</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Silently check in the background when Roux starts</div>
-              </div>
-              <button
-                aria-label="Toggle auto-check on launch"
-                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-                  {($settings.updateCheckOnLaunch ?? true) ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
-                onclick={() => updateSetting('updateCheckOnLaunch', !($settings.updateCheckOnLaunch ?? true))}
-              >
-                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-                  {($settings.updateCheckOnLaunch ?? true) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
-              </button>
-            </div>
-
             <div class="mt-4 flex items-center justify-between py-2">
               <div>
                 <div class="text-[13px]">Enable logging</div>
@@ -2327,21 +2368,5 @@
         </div>
       </div>
 
-      <!-- Drag-to-resize grip, anchored to the dialog's bottom-right corner. -->
-      <div
-        class="group absolute bottom-0 right-0 z-10 flex h-5 w-5 cursor-nwse-resize items-end justify-end p-1"
-        role="separator"
-        aria-label="Resize settings window"
-        aria-orientation="horizontal"
-        title="Drag to resize"
-        onpointerdown={onResizePointerDown}
-        onpointermove={onResizePointerMove}
-        onpointerup={onResizePointerUp}
-      >
-        <span
-          class="pointer-events-none h-2 w-2 border-b-2 border-r-2 border-text-muted/40 transition-colors group-hover:border-text-muted/80"
-        ></span>
-      </div>
-    </div>
   </div>
 {/if}

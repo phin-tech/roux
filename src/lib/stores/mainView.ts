@@ -3,7 +3,8 @@ import { derived, get, writable } from "svelte/store";
 export type MainViewRoute =
   | { kind: "board" }
   | { kind: "sessionDetail"; sessionId: string }
-  | { kind: "externalTool"; runId: string };
+  | { kind: "externalTool"; runId: string }
+  | { kind: "preferences"; category?: string; externalToolId?: string | null };
 
 export const mainViewRoute = writable<MainViewRoute | null>(null);
 export const mainViewActive = derived(mainViewRoute, ($route) => $route !== null);
@@ -33,6 +34,12 @@ function routesEqual(a: MainViewRoute, b: MainViewRoute): boolean {
   }
   if (a.kind === "externalTool" && b.kind === "externalTool") {
     return a.runId === b.runId;
+  }
+  if (a.kind === "preferences" && b.kind === "preferences") {
+    return (
+      (a.category ?? null) === (b.category ?? null) &&
+      (a.externalToolId ?? null) === (b.externalToolId ?? null)
+    );
   }
   return false;
 }

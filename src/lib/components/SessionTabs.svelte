@@ -15,6 +15,7 @@
     setSessionProject,
   } from "$lib/stores/sessions";
   import { initSessionWithProfile } from "$lib/panes/actions";
+  import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import {
     createSessionShell,
     openInEditor,
@@ -450,7 +451,8 @@
       const name = repo.split("/").pop() + "-" + branch;
       log(`Creating worktree session: repo=${repo}, branch=${branch}`);
 
-      const profileRef: SpawnProfileRef = { kind: "registered", id: "claude" };
+      const profileId = defaultAgentProfileId();
+      const profileRef: SpawnProfileRef = { kind: "registered", id: profileId };
       const { resolveProfileRef } = await import("$lib/panes/profiles");
       const { runProfileInPane } = await import("$lib/panes/profileRunner");
       const profile = resolveProfileRef(profileRef);
@@ -458,7 +460,7 @@
       const session = await createSessionShell(
         repo, name, null, branch,
         {
-          profile: "claude",
+          profile: profileId,
           base: worktreeBase,
           fetchFirst: worktreeFetchFirst,
         },

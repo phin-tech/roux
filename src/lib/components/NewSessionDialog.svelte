@@ -19,6 +19,7 @@
   import { layoutList, type LayoutSpec } from "$lib/panes/layouts";
   import { applyLayoutToSession, resolveFirstLeafInfo, type LayoutApplyError } from "$lib/panes/layoutRunner";
   import { initSessionWithProfile } from "$lib/panes/actions";
+  import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import { settings } from "$lib/stores/settings";
   import { startWorkItem } from "$lib/stores/workItems";
   import {
@@ -204,10 +205,9 @@
     }
   });
 
-  // Spawn profile selection. Defaults to the claude built-in so first-time
-  // users see familiar behavior. An inline profile from the Custom… editor
+  // Spawn profile selection. Defaults to the configured agent profile. An inline profile from the Custom… editor
   // sets `inlineProfile` and picks a synthetic id ("__inline__").
-  let selectedProfileId = $state<string>("claude");
+  let selectedProfileId = $state<string>(defaultAgentProfileId());
   let inlineProfile = $state<SpawnProfile | null>(null);
   let showCustomEditor = $state(false);
 
@@ -272,7 +272,7 @@
         selectedLayoutId = "";
         layoutPickOpen = false;
         if (selectedProfileId === "__inline__" || selectedProfileId === "__custom__") {
-          selectedProfileId = "claude";
+          selectedProfileId = defaultAgentProfileId();
           inlineProfile = null;
         }
       }
@@ -829,7 +829,7 @@
     isGitRepo = false;
     error = "";
     selectedLayoutId = "";
-    selectedProfileId = "claude";
+    selectedProfileId = defaultAgentProfileId();
     inlineProfile = null;
     showCustomEditor = false;
     prUrl = "";

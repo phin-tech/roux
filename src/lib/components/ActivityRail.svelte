@@ -22,10 +22,10 @@
     PINNABLE_SIDEBARS,
     pinSidebar,
     unpinSidebar,
-    toggleSidebar,
     type SidebarId,
   } from "$lib/stores/ui";
   import { sidebarLayout } from "$lib/stores/sidebarLayout";
+  import { mainViewRoute, openMainView, closeMainView } from "$lib/stores/mainView";
   import { unreadTotal } from "$lib/stores/notifications";
   import { meUnread } from "$lib/stores/mailbox";
 
@@ -96,7 +96,11 @@
 
   function handleSettingsClick(event: MouseEvent): void {
     event.preventDefault();
-    toggleSidebar("settings");
+    if ($mainViewRoute?.kind === "preferences") {
+      closeMainView();
+      return;
+    }
+    openMainView({ kind: "preferences", category: "general" });
   }
 
   function buttonTitle(item: Item): string {
@@ -154,8 +158,8 @@
   <button
     type="button"
     aria-label={settingsItem.label}
-    aria-pressed={$activeSidebar === "settings"}
-    class="group relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {$activeSidebar === 'settings' ? 'bg-white/10 text-text-primary' : ''}"
+    aria-pressed={$mainViewRoute?.kind === "preferences"}
+    class="group relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {$mainViewRoute?.kind === 'preferences' ? 'bg-white/10 text-text-primary' : ''}"
     onclick={handleSettingsClick}
   >
     <settingsItem.icon size={16} />

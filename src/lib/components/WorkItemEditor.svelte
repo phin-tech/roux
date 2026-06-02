@@ -16,6 +16,7 @@
   } from "$lib/stores/workItems";
   import { projects } from "$lib/stores/projects";
   import { settings } from "$lib/stores/settings";
+  import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import { profileList } from "$lib/panes/profiles";
   import { listWorktrees } from "$lib/tauri";
   import {
@@ -48,7 +49,7 @@
   let projectId = $state<string | null>(null);
   let repoPath = $state("");
   let repoOverride = $state(true);
-  let profileId = $state("claude");
+  let profileId = $state(defaultAgentProfileId());
   let worktreeTarget = $state("");
   let branchBase = $state<BranchBase>("main");
   let worktrees = $state<Worktree[]>([]);
@@ -103,7 +104,7 @@
         : null;
       repoOverride = !item.projectId || !!item.repoPath;
       repoPath = item.repoPath ?? projectRoot ?? $settings.defaultProjectPath ?? "";
-      profileId = item.agentProfile ?? "claude";
+      profileId = item.agentProfile ?? defaultAgentProfileId();
       worktreeTarget = item.worktreePath ?? item.branch ?? "";
       branchBase = item.fetchFirst || item.baseBranch === "origin/main" ? "originMain" : "main";
       resetTransientState();
@@ -115,7 +116,7 @@
       projectId = null;
       repoOverride = true;
       repoPath = $settings.defaultProjectPath ?? "";
-      profileId = "claude";
+      profileId = defaultAgentProfileId();
       worktreeTarget = "";
       branchBase = "main";
       resetTransientState();
@@ -176,7 +177,7 @@
 
   function applyTargetFields(payload: WorkItemInput): WorkItemInput {
     payload.repoPath = repoPathForSave();
-    payload.agentProfile = profileId || "claude";
+    payload.agentProfile = profileId || defaultAgentProfileId();
     const target = worktreeTarget.trim();
     const exactWorktree = worktrees.find((wt) => wt.path === target || wt.branch === target);
     if (!target) {

@@ -142,13 +142,10 @@ describe("SettingsPanel Kanban tab", () => {
     vi.mocked(updateSettings).mockClear();
   });
 
-  it("persists Kanban prompt and startup settings", async () => {
+  it("persists Kanban prompt settings", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
-    await fireEvent.change(screen.getByDisplayValue("Restore previous"), {
-      target: { value: "kanban" },
-    });
     await fireEvent.input(screen.getByText("Planning instructions").parentElement!.querySelector("textarea")!, {
       target: { value: "Ask for acceptance criteria." },
     });
@@ -157,8 +154,73 @@ describe("SettingsPanel Kanban tab", () => {
       expect(updateSettings).toHaveBeenCalled();
     });
     const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
-    expect(lastCall[0].kanban?.startupSidebar).toBe("kanban");
     expect(lastCall[0].kanban?.planningPromptAppend).toBe("Ask for acceptance criteria.");
+  });
+});
+
+describe("SettingsPanel General launch settings", () => {
+  beforeEach(() => {
+    settings.set({ ...DEFAULT_SETTINGS });
+    vi.mocked(updateSettings).mockClear();
+  });
+
+  it("persists the launch destination and startup external tool", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.change(screen.getByLabelText("Open on launch"), {
+      target: { value: "externalTool" },
+    });
+    await fireEvent.change(await screen.findByLabelText("Launch external tool"), {
+      target: { value: "github" },
+    });
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalled();
+    });
+    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
+    expect(lastCall[0].startupTarget).toBe("externalTool");
+    expect(lastCall[0].startupExternalToolId).toBe("github");
+  });
+});
+
+describe("SettingsPanel Agents tab", () => {
+  beforeEach(() => {
+    settings.set({ ...DEFAULT_SETTINGS });
+    vi.mocked(updateSettings).mockClear();
+  });
+
+  it("persists the global default agent profile", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      defaultAgentProfile: "claude",
+      spawnProfiles: [
+        {
+          id: "codex-auto",
+          name: "Codex Auto",
+          setupCommand: null,
+          startupCommand: "codex",
+          startupBehavior: "autoRun",
+          env: null,
+          cwdOverride: null,
+          icon: null,
+          provider: "codex",
+          source: "user",
+        },
+      ],
+    });
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    await fireEvent.change(screen.getByLabelText("Default agent"), {
+      target: { value: "codex-auto" },
+    });
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalled();
+    });
+    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
+    expect(lastCall[0].defaultAgentProfile).toBe("codex-auto");
+    expect(lastCall[0].kanban?.defaultAgentProfile).toBe("codex-auto");
   });
 });
 
@@ -195,7 +257,7 @@ describe("SettingsPanel external tools", () => {
   it("rejects duplicate external tool IDs after trimming", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
     await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
 
     await fireEvent.input(screen.getByDisplayValue("github"), {
@@ -210,7 +272,7 @@ describe("SettingsPanel external tools", () => {
   it("trims accepted external tool IDs before saving", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
     await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
 
     await fireEvent.input(screen.getByDisplayValue("github"), {
@@ -225,7 +287,7 @@ describe("SettingsPanel external tools", () => {
   it("keeps focus while editing an external tool ID", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
     await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
 
     const input = screen.getByDisplayValue("github");
@@ -239,7 +301,7 @@ describe("SettingsPanel external tools", () => {
   it("clamps preferred ports before saving external web tools", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
     await fireEvent.click(await screen.findByRole("button", { name: "Difit" }));
 
     const input = screen.getByLabelText("Preferred port");
@@ -258,7 +320,7 @@ describe("SettingsPanel external tools", () => {
   it("toggles keep-active mode for native webview tools", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
     await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
 
     const checkbox = screen.getByLabelText("Keep webview active") as HTMLInputElement;
@@ -268,6 +330,23 @@ describe("SettingsPanel external tools", () => {
 
     expect(get(settings).externalTools?.find((tool) => tool.id === "github")?.keepWebviewAlive)
       .toBe(true);
+  });
+});
+
+describe("SettingsPanel keyboard behavior", () => {
+  beforeEach(() => {
+    settings.set({ ...DEFAULT_SETTINGS });
+  });
+
+  it("closes on Escape while a field is focused", async () => {
+    const onclose = vi.fn();
+    render(SettingsPanel, { visible: true, onclose });
+
+    const fontInput = screen.getByDisplayValue(DEFAULT_SETTINGS.uiFontFamily ?? "");
+    fontInput.focus();
+    await fireEvent.keyDown(fontInput, { key: "Escape" });
+
+    expect(onclose).toHaveBeenCalledTimes(1);
   });
 });
 

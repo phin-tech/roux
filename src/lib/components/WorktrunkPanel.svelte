@@ -21,6 +21,7 @@
     listWorktrees,
     removeWorktree,
   } from "$lib/tauri";
+  import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import type { Session, Worktree, WorktreeDefaultBase } from "$lib/types";
   import { upsertWorktreeMetadata } from "$lib/stores/worktreeMetadata";
   import WorktreeRowContent from "./WorktreeRowContent.svelte";
@@ -420,7 +421,8 @@
       const { runProfileInPane } = await import("$lib/panes/profileRunner");
       const { initSessionWithProfile } = await import("$lib/panes/actions");
       const { connectPaneTerminal } = await import("$lib/panes/terminals");
-      const profileRef = { kind: "registered" as const, id: "claude" };
+      const profileId = defaultAgentProfileId();
+      const profileRef = { kind: "registered" as const, id: profileId };
       const profile = resolveProfileRef(profileRef);
 
       const name = wt.branch || currentRepo.split("/").pop() || "shell";
@@ -429,7 +431,7 @@
         name,
         wt.path,
         wt.branch,
-        { profile: "claude" },
+        { profile: profileId },
       );
       addSession(newSession);
       const mainPaneId = initSessionWithProfile(newSession.id, profileRef);

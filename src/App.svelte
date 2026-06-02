@@ -5,7 +5,6 @@
   import NewSessionDialog from "$lib/components/NewSessionDialog.svelte";
   import ProfileCustomEditor from "$lib/components/ProfileCustomEditor.svelte";
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
-  import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import LibraryWindow from "$lib/components/LibraryWindow.svelte";
   import LibraryVariablePrompt from "$lib/components/LibraryVariablePrompt.svelte";
@@ -101,15 +100,12 @@
     hideSessionHints,
     armPaneHints,
     hidePaneHints,
-    activeSidebar,
-    applyStartupSidebarPreference,
-    openSidebar,
-    closeSidebar,
+    applyStartupTargetPreference,
     toggleSidebar,
     closeWorkItemSessionStart,
     workItemSessionStart,
   } from "$lib/stores/ui";
-  import { closeMainView, mainViewRoute } from "$lib/stores/mainView";
+  import { closeMainView, mainViewRoute, openMainView } from "$lib/stores/mainView";
   import { closeExternalToolRun } from "$lib/stores/externalTools";
   import {
     commandBlockedByMainView,
@@ -243,7 +239,7 @@
       return;
     }
     if (cmd.id === "app.settings") {
-      toggleSidebar("settings");
+      openPreferences();
       return;
     }
     if (cmd.id === "ui.toggle-notes") {
@@ -634,7 +630,6 @@
     });
 
     const loadedSettings = await initSettings();
-    applyStartupSidebarPreference(loadedSettings.kanban?.startupSidebar ?? "restore");
     void loadUserTerminalThemes();
     await initLogging(loadedSettings.enableLogging ?? false);
     log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
@@ -737,6 +732,10 @@
         });
       }
     }
+    void applyStartupTargetPreference(
+      loadedSettings.startupTarget,
+      loadedSettings.startupExternalToolId,
+    ).catch((error) => logError("Failed to apply startup target", error));
 
     stopPtyInventoryPolling = initPtyInventoryPolling();
 
@@ -1025,15 +1024,15 @@
       clearPermissionInfo(paneId);
     }));
   });
+
+  function openPreferences(): void {
+    openMainView({ kind: "preferences", category: "general" });
+  }
 </script>
 
 <Layout
   onNewSession={() => (showNewSessionDialog = true)}
->
-  {#snippet settingsPanel()}
-    <SettingsPanel visible={$activeSidebar === "settings"} onclose={closeSidebar} />
-  {/snippet}
-</Layout>
+/>
 
 <NewSessionDialog
   visible={showSessionDialog}
@@ -1062,8 +1061,8 @@
   open={$commandSurface.open && $commandSurface.mode === "palette"}
   onclose={closeCommandSurface}
   onNewSession={() => (showNewSessionDialog = true)}
-  onSettings={() => toggleSidebar("settings")}
-  onCheckForUpdates={() => { openSidebar("settings"); void runManualCheck(); }}
+  onSettings={openPreferences}
+  onCheckForUpdates={() => { openPreferences(); void runManualCheck(); }}
   initialCommandId={$commandSurface.initialCommandId}
 />
 

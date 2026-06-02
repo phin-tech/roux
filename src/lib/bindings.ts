@@ -589,6 +589,8 @@ export type KanbanStartupSidebar = "restore" | "sessions" | "kanban" | "none";
 
 export type KeepOpen = "always" | "on-error" | "never";
 
+export type StartupTarget = "restore" | "sessionsSidebar" | "lastSession" | "kanbanWide" | "externalTool" | "none";
+
 // How a bound key is matched against a `KeyboardEvent`.
 export type KeyRef =
 /**
@@ -1152,6 +1154,20 @@ export type RouxSettings = {
 	 *  the file says, so users can't forge a `"builtin"` marker.
 	 */
 	spawnProfiles?: SpawnProfile[],
+	/**
+	 *  Default autonomous agent profile used by agent-starting surfaces.
+	 *  Card-level/profile-specific overrides still win.
+	 */
+	defaultAgentProfile?: string,
+	/**
+	 *  Main UI destination to show after app startup settings are loaded.
+	 */
+	startupTarget?: StartupTarget,
+	/**
+	 *  External tool id used when `startup_target` is `ExternalTool`.
+	 *  Only enabled global tools are accepted.
+	 */
+	startupExternalToolId?: string | null,
 	/**
 	 *  Absolute paths of workspaces the user has marked trusted for the
 	 *  future project-profile loader (`.roux/profiles.json`). Reserved in
