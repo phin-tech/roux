@@ -20,6 +20,7 @@ const webviewMock = vi.hoisted(() => {
     setSize = vi.fn().mockResolvedValue(undefined);
     hide = vi.fn().mockResolvedValue(undefined);
     show = vi.fn().mockResolvedValue(undefined);
+    setFocus = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
     once = vi.fn((event: string, handler: () => void) => {
       if (event === "tauri://created") queueMicrotask(handler);
@@ -179,9 +180,25 @@ describe("ExternalToolWebView", () => {
 
     expect(webview.setPosition).toHaveBeenCalled();
     expect(webview.setSize).toHaveBeenCalled();
+    expect(webview.setFocus).toHaveBeenCalled();
     expect(externalToolsMock.markExternalToolReady).toHaveBeenCalledWith("difit:session-1");
 
     unmount();
+  });
+
+  it("focuses iframe web tools when they are ready", async () => {
+    const focus = vi.spyOn(HTMLIFrameElement.prototype, "focus").mockImplementation(() => {});
+    const { unmount } = render(ExternalToolWebView, {
+      run: { ...makeRun(), status: "ready", webEmbedder: "iframe" },
+    });
+
+    try {
+      flushAnimationFrames();
+      await waitFor(() => expect(focus).toHaveBeenCalled());
+    } finally {
+      unmount();
+      focus.mockRestore();
+    }
   });
 
   it("recreates a ready native webview when the component remounts", async () => {

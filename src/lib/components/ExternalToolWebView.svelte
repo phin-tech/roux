@@ -54,6 +54,7 @@
 
   let { run }: Props = $props();
   let host = $state<HTMLDivElement | null>(null);
+  let iframe = $state<HTMLIFrameElement | null>(null);
   let logs = $state("");
   let outputTruncated = $state(false);
   let webview: Webview | null = null;
@@ -114,6 +115,12 @@
   $effect(() => {
     run.logsOpen;
     void refreshLogs();
+  });
+
+  $effect(() => {
+    if (run.status !== "ready" || run.webEmbedder !== "iframe" || !run.rendered?.url) return;
+    const frame = requestAnimationFrame(() => iframe?.focus());
+    return () => cancelAnimationFrame(frame);
   });
 
   $effect(() => {
@@ -228,11 +235,12 @@
         closeNativeWebview(next);
         return;
       }
-      markExternalToolReady(snapshot.runId);
       await syncWebviewPaletteVisibility(
         $commandSurface.open && $commandSurface.mode === "palette",
       );
       await syncAfterLayout();
+      void focusNativeWebview(next);
+      markExternalToolReady(snapshot.runId);
     } catch (err) {
       if (webview === next) webview = null;
       closeNativeWebview(next);
@@ -391,8 +399,18 @@
       await current.show();
       webviewHiddenForPalette = false;
       await syncAfterLayout();
+      void focusNativeWebview(current);
     } catch {
       // Palette visibility is best-effort; the native child webview may close mid-sync.
+    }
+  }
+
+  async function focusNativeWebview(current: Webview): Promise<void> {
+    if (current !== webview || webviewHiddenForPalette) return;
+    try {
+      await current.setFocus();
+    } catch {
+      // Focus is best-effort; some platforms can reject if the child webview is closing.
     }
   }
 
@@ -511,6 +529,7 @@
     {/if}
     {#if run.status === "ready" && run.rendered?.url && run.webEmbedder === "iframe"}
       <iframe
+        bind:this={iframe}
         src={run.rendered.url}
         title={run.toolName}
         class="h-full w-full border-0 bg-bg-deep"
