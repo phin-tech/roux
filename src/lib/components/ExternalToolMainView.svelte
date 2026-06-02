@@ -15,6 +15,8 @@
   <div class="flex h-full items-center justify-center text-sm text-text-muted">
     External tool run no longer available
   </div>
+{:else if run.surface === "web"}
+  <ExternalToolWebView {run} />
 {:else if run.status === "error"}
   <div class="flex h-full items-center justify-center bg-bg-deep p-6">
     <div class="w-full max-w-2xl rounded border border-red/30 bg-red/10 p-4">
@@ -31,8 +33,6 @@
       </button>
     </div>
   </div>
-{:else if run.surface === "terminal"}
-  <ExternalToolTerminalView {run} />
 {:else}
-  <ExternalToolWebView {run} />
+  <ExternalToolTerminalView {run} />
 {/if}

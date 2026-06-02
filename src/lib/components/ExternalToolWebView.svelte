@@ -20,6 +20,7 @@
   import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { probeExternalToolUrl } from "$lib/tauri";
+  import { commandSurface } from "$lib/stores/commandSurface";
   import type { ExternalToolRun } from "$lib/stores/externalTools";
   import {
     failExternalToolRun,
@@ -27,6 +28,7 @@
     markExternalToolReady,
     readExternalToolProcess,
     registerExternalToolViewCloser,
+    restartExternalToolRun,
   } from "$lib/stores/externalTools";
 
   interface Props {
@@ -65,6 +67,9 @@
   let creatingWebviewKey: string | null = null;
   let destroyed = false;
   let pollKey = "";
+  let webviewHiddenForPalette = false;
+  let syncingPaletteVisibility = false;
+  let pendingPaletteHidden: boolean | null = null;
 
   onMount(() => {
     destroyed = false;
@@ -112,7 +117,18 @@
   });
 
   $effect(() => {
-    const key = `${run.id}:${run.runtimeId ?? ""}:${run.rendered?.url ?? ""}:${run.launchedAtMs}:${run.webEmbedder}`;
+    void syncWebviewPaletteVisibility($commandSurface.open && $commandSurface.mode === "palette");
+  });
+
+  $effect(() => {
+    if (run.status === "error") {
+      clearPoll();
+      closeWebview();
+    }
+  });
+
+  $effect(() => {
+    const key = `${run.id}:${run.runtimeId ?? ""}:${run.rendered?.url ?? ""}:${run.launchedAtMs}:${run.webEmbedder}:${run.status}`;
     if (key === pollKey) return;
     pollKey = key;
     closeWebview();
@@ -213,6 +229,9 @@
         return;
       }
       markExternalToolReady(snapshot.runId);
+      await syncWebviewPaletteVisibility(
+        $commandSurface.open && $commandSurface.mode === "palette",
+      );
       await syncAfterLayout();
     } catch (err) {
       if (webview === next) webview = null;
@@ -292,7 +311,7 @@
   }
 
   async function positionWebview(): Promise<void> {
-    if (!webview || !host) return;
+    if (!webview || !host || webviewHiddenForPalette) return;
     const bounds = webviewBounds();
     if (!bounds) return;
     const current = webview;
@@ -337,12 +356,53 @@
     requestAnimationFrame(() => schedulePositionWebview());
   }
 
+  async function syncWebviewPaletteVisibility(hidden: boolean): Promise<void> {
+    if (syncingPaletteVisibility) {
+      pendingPaletteHidden = hidden;
+      return;
+    }
+    syncingPaletteVisibility = true;
+    try {
+      let nextHidden = hidden;
+      do {
+        pendingPaletteHidden = null;
+        await applyWebviewPaletteVisibility(nextHidden);
+        if (pendingPaletteHidden == null || pendingPaletteHidden === nextHidden) break;
+        nextHidden = pendingPaletteHidden;
+      } while (true);
+    } finally {
+      syncingPaletteVisibility = false;
+    }
+  }
+
+  async function applyWebviewPaletteVisibility(hidden: boolean): Promise<void> {
+    const current = webview;
+    if (!current) {
+      return;
+    }
+    try {
+      if (hidden) {
+        if (webviewHiddenForPalette) return;
+        webviewHiddenForPalette = true;
+        await current.hide();
+        return;
+      }
+      if (!webviewHiddenForPalette) return;
+      await current.show();
+      webviewHiddenForPalette = false;
+      await syncAfterLayout();
+    } catch {
+      // Palette visibility is best-effort; the native child webview may close mid-sync.
+    }
+  }
+
   function closeWebview(): void {
     const current = webview;
     const label = webviewLabel ?? current?.label ?? null;
     webview = null;
     webviewLabel = null;
     creatingWebviewKey = null;
+    webviewHiddenForPalette = false;
     closeNativeWebview(current);
     if (label) {
       void Webview.getByLabel(label)
@@ -428,7 +488,23 @@
 
 <div class="flex h-full min-h-0 flex-col bg-bg-base">
   <div class="relative min-h-0 flex-1">
-    {#if run.status === "starting" || run.status === "launching"}
+    {#if run.status === "error"}
+      <div class="absolute inset-0 z-10 flex items-center justify-center bg-bg-deep p-6">
+        <div class="w-full max-w-2xl rounded border border-red/30 bg-red/10 p-4">
+          <div class="text-sm font-semibold text-red">Failed to launch {run.toolName}</div>
+          <div class="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] text-text-secondary">
+            {run.error}
+          </div>
+          <button
+            type="button"
+            class="mt-4 rounded border border-border-subtle bg-bg-elevated px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover"
+            onclick={() => void restartExternalToolRun(run.id)}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    {:else if run.status === "starting" || run.status === "launching"}
       <div class="absolute inset-0 z-10 flex items-center justify-center text-sm text-text-muted">
         Loading {run.rendered?.url ?? run.toolName}...
       </div>

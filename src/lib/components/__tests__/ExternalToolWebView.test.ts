@@ -1,6 +1,11 @@
 import { render, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExternalToolRun } from "$lib/stores/externalTools";
+import {
+  closeCommandSurface,
+  openCommandPalette,
+  resetCommandSurface,
+} from "$lib/stores/commandSurface";
 
 const webviewMock = vi.hoisted(() => {
   class MockWebview {
@@ -14,6 +19,7 @@ const webviewMock = vi.hoisted(() => {
     setPosition = vi.fn().mockResolvedValue(undefined);
     setSize = vi.fn().mockResolvedValue(undefined);
     hide = vi.fn().mockResolvedValue(undefined);
+    show = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
     once = vi.fn((event: string, handler: () => void) => {
       if (event === "tauri://created") queueMicrotask(handler);
@@ -160,6 +166,7 @@ describe("ExternalToolWebView", () => {
   });
 
   afterEach(() => {
+    resetCommandSurface();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -411,6 +418,64 @@ describe("ExternalToolWebView", () => {
     flushAnimationFrames();
 
     await waitFor(() => expect(webview.setSize.mock.calls.length).toBeGreaterThan(sizeCalls));
+
+    unmount();
+  });
+
+  it("hides the native child webview while the command palette is open", async () => {
+    const { unmount } = render(ExternalToolWebView, {
+      run: { ...makeRun(), status: "ready" },
+    });
+
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const webview = webviewMock.MockWebview.instances[0];
+    await waitFor(() => expect(webview.setSize).toHaveBeenCalled());
+    flushAnimationFrames();
+    const sizeCallsBeforeClose = webview.setSize.mock.calls.length;
+
+    openCommandPalette();
+    await waitFor(() => expect(webview.hide).toHaveBeenCalledOnce());
+
+    closeCommandSurface();
+    await waitFor(() => expect(webview.show).toHaveBeenCalledOnce());
+    flushAnimationFrames();
+    await waitFor(() =>
+      expect(webview.setSize.mock.calls.length).toBeGreaterThan(sizeCallsBeforeClose),
+    );
+
+    unmount();
+  });
+
+  it("hides a native child webview created while the command palette is already open", async () => {
+    openCommandPalette();
+
+    const { unmount } = render(ExternalToolWebView, {
+      run: { ...makeRun(), status: "ready" },
+    });
+
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const webview = webviewMock.MockWebview.instances[0];
+    await waitFor(() => expect(webview.hide).toHaveBeenCalledOnce());
+    expect(webview.show).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it("hides a native child webview that becomes ready after the command palette opened", async () => {
+    tauriMock.probeExternalToolUrl.mockResolvedValue(false);
+    openCommandPalette();
+
+    const initialRun = makeRun();
+    const { rerender, unmount } = render(ExternalToolWebView, { run: initialRun });
+
+    await waitFor(() => expect(tauriMock.probeExternalToolUrl).toHaveBeenCalled());
+    expect(webviewMock.MockWebview.instances).toHaveLength(0);
+
+    await rerender({ run: { ...initialRun, status: "ready" } });
+
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const webview = webviewMock.MockWebview.instances[0];
+    await waitFor(() => expect(webview.hide).toHaveBeenCalledOnce());
 
     unmount();
   });
