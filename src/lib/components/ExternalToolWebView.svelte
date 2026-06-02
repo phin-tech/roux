@@ -20,6 +20,7 @@
   import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { probeExternalToolUrl } from "$lib/tauri";
+  import { commandSurface } from "$lib/stores/commandSurface";
   import type { ExternalToolRun } from "$lib/stores/externalTools";
   import {
     failExternalToolRun,
@@ -66,6 +67,9 @@
   let creatingWebviewKey: string | null = null;
   let destroyed = false;
   let pollKey = "";
+  let webviewHiddenForPalette = false;
+  let syncingPaletteVisibility = false;
+  let pendingPaletteHidden: boolean | null = null;
 
   onMount(() => {
     destroyed = false;
@@ -113,6 +117,10 @@
   });
 
   $effect(() => {
+    void syncWebviewPaletteVisibility($commandSurface.open && $commandSurface.mode === "palette");
+  });
+
+  $effect(() => {
     if (run.status === "error") {
       clearPoll();
       closeWebview();
@@ -120,7 +128,7 @@
   });
 
   $effect(() => {
-    const key = `${run.id}:${run.runtimeId ?? ""}:${run.rendered?.url ?? ""}:${run.launchedAtMs}:${run.webEmbedder}`;
+    const key = `${run.id}:${run.runtimeId ?? ""}:${run.rendered?.url ?? ""}:${run.launchedAtMs}:${run.webEmbedder}:${run.status}`;
     if (key === pollKey) return;
     pollKey = key;
     closeWebview();
@@ -221,6 +229,9 @@
         return;
       }
       markExternalToolReady(snapshot.runId);
+      await syncWebviewPaletteVisibility(
+        $commandSurface.open && $commandSurface.mode === "palette",
+      );
       await syncAfterLayout();
     } catch (err) {
       if (webview === next) webview = null;
@@ -300,7 +311,7 @@
   }
 
   async function positionWebview(): Promise<void> {
-    if (!webview || !host) return;
+    if (!webview || !host || webviewHiddenForPalette) return;
     const bounds = webviewBounds();
     if (!bounds) return;
     const current = webview;
@@ -345,12 +356,53 @@
     requestAnimationFrame(() => schedulePositionWebview());
   }
 
+  async function syncWebviewPaletteVisibility(hidden: boolean): Promise<void> {
+    if (syncingPaletteVisibility) {
+      pendingPaletteHidden = hidden;
+      return;
+    }
+    syncingPaletteVisibility = true;
+    try {
+      let nextHidden = hidden;
+      do {
+        pendingPaletteHidden = null;
+        await applyWebviewPaletteVisibility(nextHidden);
+        if (pendingPaletteHidden == null || pendingPaletteHidden === nextHidden) break;
+        nextHidden = pendingPaletteHidden;
+      } while (true);
+    } finally {
+      syncingPaletteVisibility = false;
+    }
+  }
+
+  async function applyWebviewPaletteVisibility(hidden: boolean): Promise<void> {
+    const current = webview;
+    if (!current) {
+      return;
+    }
+    try {
+      if (hidden) {
+        if (webviewHiddenForPalette) return;
+        webviewHiddenForPalette = true;
+        await current.hide();
+        return;
+      }
+      if (!webviewHiddenForPalette) return;
+      await current.show();
+      webviewHiddenForPalette = false;
+      await syncAfterLayout();
+    } catch {
+      // Palette visibility is best-effort; the native child webview may close mid-sync.
+    }
+  }
+
   function closeWebview(): void {
     const current = webview;
     const label = webviewLabel ?? current?.label ?? null;
     webview = null;
     webviewLabel = null;
     creatingWebviewKey = null;
+    webviewHiddenForPalette = false;
     closeNativeWebview(current);
     if (label) {
       void Webview.getByLabel(label)
