@@ -274,6 +274,58 @@ describe("ExternalToolWebView", () => {
     second.unmount();
   });
 
+  it("reports retained native webview reuse failures", async () => {
+    const readyRun = makeRun({ status: "ready", keepWebviewAlive: true });
+
+    const first = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const retained = webviewMock.MockWebview.instances[0];
+    first.unmount();
+
+    retained.show.mockRejectedValueOnce(new Error("webview gone"));
+    const second = render(ExternalToolWebView, { run: readyRun });
+
+    await waitFor(() =>
+      expect(externalToolsMock.failExternalToolRun).toHaveBeenCalledWith(
+        "difit:session-1",
+        "process-1",
+        "Failed to open http://127.0.0.1:4966: webview gone",
+      ),
+    );
+    expect(retained.close).toHaveBeenCalled();
+
+    second.unmount();
+  });
+
+  it("does not mark stale retained native webviews ready", async () => {
+    const readyRun = makeRun({ status: "ready", keepWebviewAlive: true });
+
+    const first = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const retained = webviewMock.MockWebview.instances[0];
+    first.unmount();
+    externalToolsMock.markExternalToolReady.mockClear();
+    retained.close.mockClear();
+
+    let finishShow: () => void = () => {};
+    retained.show.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishShow = resolve;
+      }),
+    );
+    const second = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(retained.show).toHaveBeenCalled());
+
+    await second.rerender({ run: { ...readyRun, status: "error", error: "failed" } });
+    finishShow();
+
+    await waitFor(() => expect(retained.close).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(externalToolsMock.markExternalToolReady).not.toHaveBeenCalled();
+
+    second.unmount();
+  });
+
   it("registers a closer that closes the child webview", async () => {
     const closeView = { current: null as (() => void) | null };
     const unregister = vi.fn();

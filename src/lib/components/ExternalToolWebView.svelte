@@ -241,17 +241,38 @@
       ? takeRetainedExternalToolWebview(snapshot.runId, nativeWebviewCacheKey(snapshot))
       : null;
     if (retained) {
-      webview = retained.webview;
+      const current = retained.webview;
+      webview = current;
       webviewLabel = retained.label;
       const hiddenForPalette = $commandSurface.open && $commandSurface.mode === "palette";
       webviewHiddenForPalette = hiddenForPalette;
-      if (!hiddenForPalette) {
-        await retained.webview.show();
+      try {
+        if (!hiddenForPalette) {
+          await current.show();
+        }
+        if (!webviewSnapshotIsCurrent(snapshot)) {
+          discardCurrentWebview(current);
+          return;
+        }
+        await syncAfterLayout();
+        if (!webviewSnapshotIsCurrent(snapshot)) {
+          discardCurrentWebview(current);
+          return;
+        }
+        void focusNativeWebview(current);
+        markExternalToolReady(snapshot.runId);
+      } catch (err) {
+        discardCurrentWebview(current);
+        if (webviewSnapshotIsCurrent(snapshot)) {
+          await failExternalToolRun(
+            snapshot.runId,
+            snapshot.runtimeId,
+            `Failed to open ${snapshot.url}: ${formatError(err)}`,
+          );
+        }
+      } finally {
+        if (creatingWebviewKey === snapshot.key) creatingWebviewKey = null;
       }
-      await syncAfterLayout();
-      void focusNativeWebview(retained.webview);
-      markExternalToolReady(snapshot.runId);
-      if (creatingWebviewKey === snapshot.key) creatingWebviewKey = null;
       return;
     }
     const label = nativeWebviewLabel(snapshot);
@@ -270,21 +291,23 @@
     webview = next;
     try {
       await waitForWebviewCreated(next);
-      if (!pollIsCurrent(snapshot)) {
-        if (webview === next) webview = null;
-        closeNativeWebview(next);
+      if (!webviewSnapshotIsCurrent(snapshot)) {
+        discardCurrentWebview(next);
         return;
       }
       await syncWebviewPaletteVisibility(
         $commandSurface.open && $commandSurface.mode === "palette",
       );
       await syncAfterLayout();
+      if (!webviewSnapshotIsCurrent(snapshot)) {
+        discardCurrentWebview(next);
+        return;
+      }
       void focusNativeWebview(next);
       markExternalToolReady(snapshot.runId);
     } catch (err) {
-      if (webview === next) webview = null;
-      closeNativeWebview(next);
-      if (pollIsCurrent(snapshot)) {
+      discardCurrentWebview(next);
+      if (webviewSnapshotIsCurrent(snapshot)) {
         await failExternalToolRun(
           snapshot.runId,
           snapshot.runtimeId,
@@ -311,6 +334,18 @@
 
   function pollIsCurrent(snapshot: PollSnapshot): boolean {
     return !destroyed && pollKey === snapshot.key;
+  }
+
+  function webviewSnapshotIsCurrent(snapshot: PollSnapshot): boolean {
+    return (
+      pollIsCurrent(snapshot) &&
+      run.id === snapshot.runId &&
+      run.runtimeId === snapshot.runtimeId &&
+      run.rendered?.url === snapshot.url &&
+      run.webEmbedder === snapshot.webEmbedder &&
+      run.launchedAtMs === snapshot.launchedAtMs &&
+      run.status !== "error"
+    );
   }
 
   function nativeWebviewCacheKey(
@@ -476,6 +511,15 @@
         })
         .catch(() => {});
     }
+  }
+
+  function discardCurrentWebview(current: Webview): void {
+    if (webview === current) {
+      webview = null;
+      webviewLabel = null;
+      webviewHiddenForPalette = false;
+    }
+    closeNativeWebview(current);
   }
 
   async function refreshLogs(): Promise<void> {

@@ -1200,12 +1200,25 @@ mod tests {
                     web_embedder: ExternalToolWebEmbedder::Webview,
                     keep_webview_alive: true,
                 },
+                super::ExternalTool {
+                    id: "terminal-tool".to_string(),
+                    name: "Terminal Tool".to_string(),
+                    enabled: true,
+                    surface: ExternalToolSurface::Terminal,
+                    command_template: " lazygit ".to_string(),
+                    cwd_template: " {{ session.worktree_path }} ".to_string(),
+                    requires_session: true,
+                    url_template: Some(" http://127.0.0.1:{{ port }} ".to_string()),
+                    preferred_port: Some(4966),
+                    web_embedder: ExternalToolWebEmbedder::Iframe,
+                    keep_webview_alive: true,
+                },
             ],
             ..RouxSettings::default()
         };
 
         let normalized = settings.normalized();
-        assert_eq!(normalized.external_tools.len(), 2);
+        assert_eq!(normalized.external_tools.len(), 3);
         assert_eq!(normalized.external_tools[0].id, "my-tool");
         assert_eq!(normalized.external_tools[0].name, "My Tool");
         assert_eq!(normalized.external_tools[0].command_template, "serve --port {{ port }}");
@@ -1224,6 +1237,19 @@ mod tests {
             Some("https://github.com")
         );
         assert!(normalized.external_tools[1].keep_webview_alive);
+        assert_eq!(normalized.external_tools[2].id, "terminal-tool");
+        assert_eq!(normalized.external_tools[2].command_template, "lazygit");
+        assert_eq!(
+            normalized.external_tools[2].cwd_template,
+            "{{ session.worktree_path }}"
+        );
+        assert_eq!(normalized.external_tools[2].url_template, None);
+        assert_eq!(normalized.external_tools[2].preferred_port, None);
+        assert_eq!(
+            normalized.external_tools[2].web_embedder,
+            ExternalToolWebEmbedder::Webview
+        );
+        assert!(!normalized.external_tools[2].keep_webview_alive);
     }
 
     #[test]
