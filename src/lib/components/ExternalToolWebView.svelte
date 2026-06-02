@@ -19,8 +19,15 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import type { BackgroundThrottlingPolicy } from "@tauri-apps/api/window";
   import { probeExternalToolUrl } from "$lib/tauri";
   import { commandSurface } from "$lib/stores/commandSurface";
+  import {
+    closeNativeWebview,
+    closeRetainedExternalToolWebview,
+    retainExternalToolWebview,
+    takeRetainedExternalToolWebview,
+  } from "$lib/externalTools/nativeWebviews";
   import type { ExternalToolRun } from "$lib/stores/externalTools";
   import {
     failExternalToolRun,
@@ -51,6 +58,8 @@
     webEmbedder: ExternalToolRun["webEmbedder"];
     launchedAtMs: number;
   }
+
+  const KEEP_ACTIVE_BACKGROUND_THROTTLING = "disabled" as BackgroundThrottlingPolicy;
 
   let { run }: Props = $props();
   let host = $state<HTMLDivElement | null>(null);
@@ -110,7 +119,7 @@
     schedulePositionWebview();
   });
 
-  $effect(() => registerExternalToolViewCloser(run.id, closeWebview));
+  $effect(() => registerExternalToolViewCloser(run.id, () => closeWebview()));
 
   $effect(() => {
     run.logsOpen;
@@ -135,21 +144,32 @@
   });
 
   $effect(() => {
-    const key = `${run.id}:${run.runtimeId ?? ""}:${run.rendered?.url ?? ""}:${run.launchedAtMs}:${run.webEmbedder}:${run.status}`;
-    if (key === pollKey) return;
+    const key = `${run.id}:${run.runtimeId ?? ""}:${run.rendered?.url ?? ""}:${run.launchedAtMs}:${run.webEmbedder}`;
+    if (key === pollKey) {
+      ensureReadyWebview(key);
+      return;
+    }
     pollKey = key;
-    closeWebview();
+    closeWebview({ closeRetained: false });
     if (run.status === "launching" || run.status === "starting") {
       const snapshot = pollingSnapshot(key);
       if (snapshot) startPolling(snapshot);
     } else if (run.status === "ready" && run.webEmbedder === "webview") {
       clearPoll();
-      const snapshot = pollingSnapshot(key);
-      if (snapshot) void createWebview(snapshot);
+      ensureReadyWebview(key);
     } else {
       clearPoll();
     }
   });
+
+  function ensureReadyWebview(key: string): void {
+    if (run.status !== "ready" || run.webEmbedder !== "webview" || webview || creatingWebviewKey) {
+      return;
+    }
+    const snapshot = pollingSnapshot(key);
+    if (snapshot) void createWebview(snapshot);
+  }
+
   function startPolling(snapshot: PollSnapshot): void {
     clearPoll();
     const startedPollingAt = Date.now();
@@ -217,6 +237,23 @@
       if (creatingWebviewKey === snapshot.key) creatingWebviewKey = null;
       return;
     }
+    const retained = snapshot.run.keepWebviewAlive
+      ? takeRetainedExternalToolWebview(snapshot.runId, nativeWebviewCacheKey(snapshot))
+      : null;
+    if (retained) {
+      webview = retained.webview;
+      webviewLabel = retained.label;
+      const hiddenForPalette = $commandSurface.open && $commandSurface.mode === "palette";
+      webviewHiddenForPalette = hiddenForPalette;
+      if (!hiddenForPalette) {
+        await retained.webview.show();
+      }
+      await syncAfterLayout();
+      void focusNativeWebview(retained.webview);
+      markExternalToolReady(snapshot.runId);
+      if (creatingWebviewKey === snapshot.key) creatingWebviewKey = null;
+      return;
+    }
     const label = nativeWebviewLabel(snapshot);
     webviewLabel = label;
     const next = new Webview(getCurrentWindow(), label, {
@@ -226,6 +263,9 @@
       width: bounds.width,
       height: bounds.height,
       focus: true,
+      backgroundThrottling: snapshot.run.keepWebviewAlive
+        ? KEEP_ACTIVE_BACKGROUND_THROTTLING
+        : undefined,
     });
     webview = next;
     try {
@@ -271,6 +311,12 @@
 
   function pollIsCurrent(snapshot: PollSnapshot): boolean {
     return !destroyed && pollKey === snapshot.key;
+  }
+
+  function nativeWebviewCacheKey(
+    snapshot: Pick<PollSnapshot, "runId" | "runtimeId" | "url" | "launchedAtMs">,
+  ): string {
+    return `${snapshot.runId}:${snapshot.runtimeId ?? ""}:${snapshot.url}:${snapshot.launchedAtMs}`;
   }
 
   async function waitForWebviewCreated(next: Webview): Promise<void> {
@@ -414,13 +460,14 @@
     }
   }
 
-  function closeWebview(): void {
+  function closeWebview({ closeRetained = true }: { closeRetained?: boolean } = {}): void {
     const current = webview;
     const label = webviewLabel ?? current?.label ?? null;
     webview = null;
     webviewLabel = null;
     creatingWebviewKey = null;
     webviewHiddenForPalette = false;
+    if (closeRetained) closeRetainedExternalToolWebview(run.id);
     closeNativeWebview(current);
     if (label) {
       void Webview.getByLabel(label)
@@ -429,14 +476,6 @@
         })
         .catch(() => {});
     }
-  }
-
-  function closeNativeWebview(current: Webview | null): void {
-    if (!current) return;
-    void current.hide().catch(() => {});
-    void current.setSize(new LogicalSize(1, 1)).catch(() => {});
-    void current.setPosition(new LogicalPosition(-32000, -32000)).catch(() => {});
-    void current.close().catch(() => {});
   }
 
   async function refreshLogs(): Promise<void> {
@@ -490,6 +529,36 @@
     cleanupWindowResize = null;
     cleanupWindowScale?.();
     cleanupWindowScale = null;
+    retainOrCloseWebview();
+  }
+
+  function retainOrCloseWebview(): void {
+    const current = webview;
+    if (
+      current &&
+      run.keepWebviewAlive &&
+      run.status === "ready" &&
+      run.webEmbedder === "webview" &&
+      run.rendered?.url
+    ) {
+      const label = webviewLabel ?? current.label;
+      webview = null;
+      webviewLabel = null;
+      creatingWebviewKey = null;
+      webviewHiddenForPalette = false;
+      retainExternalToolWebview({
+        runId: run.id,
+        key: nativeWebviewCacheKey({
+          runId: run.id,
+          runtimeId: run.runtimeId,
+          url: run.rendered.url,
+          launchedAtMs: run.launchedAtMs,
+        }),
+        label,
+        webview: current,
+      });
+      return;
+    }
     closeWebview();
   }
 

@@ -198,6 +198,7 @@ mod tests {
             url_template: Some("http://127.0.0.1:{{ port }}/{{ session.worktree_name }}".into()),
             preferred_port: Some(4966),
             web_embedder: ExternalToolWebEmbedder::Iframe,
+            keep_webview_alive: false,
         };
 
         let rendered = render_external_tool(&tool, Some(&session()), Some(4999)).unwrap();
@@ -220,6 +221,7 @@ mod tests {
             url_template: None,
             preferred_port: None,
             web_embedder: ExternalToolWebEmbedder::Webview,
+            keep_webview_alive: false,
         };
 
         let err = render_external_tool(&tool, None, None).unwrap_err();
@@ -239,6 +241,7 @@ mod tests {
             url_template: None,
             preferred_port: Some(4966),
             web_embedder: ExternalToolWebEmbedder::Iframe,
+            keep_webview_alive: false,
         };
 
         let err = render_external_tool(&tool, None, Some(4966)).unwrap_err();
@@ -258,6 +261,7 @@ mod tests {
             url_template: Some("   ".to_string()),
             preferred_port: Some(4966),
             web_embedder: ExternalToolWebEmbedder::Iframe,
+            keep_webview_alive: false,
         };
 
         let err = render_external_tool(&tool, None, Some(4966)).unwrap_err();

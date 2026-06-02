@@ -53,6 +53,7 @@ function runWithStatus(status: ExternalToolRunStatus): ExternalToolRun {
     toolName: "Lazygit",
     surface: "terminal",
     webEmbedder: "webview",
+    keepWebviewAlive: false,
     sessionId: "session-1",
     runtimeId: "pty-1",
     runtimeGeneration: 1,
@@ -76,6 +77,7 @@ function webTool(): ExternalTool {
     urlTemplate: "http://127.0.0.1:4966",
     preferredPort: 4966,
     webEmbedder: "webview",
+    keepWebviewAlive: false,
   };
 }
 
@@ -91,6 +93,7 @@ function terminalTool(): ExternalTool {
     urlTemplate: null,
     preferredPort: null,
     webEmbedder: "webview",
+    keepWebviewAlive: false,
   };
 }
 

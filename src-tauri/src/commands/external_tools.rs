@@ -296,6 +296,7 @@ mod tests {
             url_template: url_template.map(str::to_string),
             preferred_port: None,
             web_embedder: ExternalToolWebEmbedder::Webview,
+            keep_webview_alive: false,
         }
     }
 

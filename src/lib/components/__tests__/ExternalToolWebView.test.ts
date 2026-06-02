@@ -6,6 +6,7 @@ import {
   openCommandPalette,
   resetCommandSurface,
 } from "$lib/stores/commandSurface";
+import { closeRetainedExternalToolWebview } from "$lib/externalTools/nativeWebviews";
 
 const webviewMock = vi.hoisted(() => {
   class MockWebview {
@@ -74,6 +75,9 @@ vi.mock("@tauri-apps/api/webview", () => ({
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
+  BackgroundThrottlingPolicy: {
+    Disabled: "disabled",
+  },
   getCurrentWindow: vi.fn(() => ({
     label: "main",
     onResized: windowMock.onResized,
@@ -116,13 +120,16 @@ function flushAnimationFrames(): void {
   for (const callback of callbacks) callback(0);
 }
 
-function makeRun(): ExternalToolRun {
+function makeRun(
+  overrides: Partial<ExternalToolRun> & { keepWebviewAlive?: boolean } = {},
+): ExternalToolRun {
   return {
     id: "difit:session-1",
     toolId: "difit",
     toolName: "Difit",
     surface: "web",
     webEmbedder: "webview",
+    keepWebviewAlive: false,
     sessionId: "session-1",
     runtimeId: "process-1",
     runtimeGeneration: null,
@@ -136,7 +143,8 @@ function makeRun(): ExternalToolRun {
     error: null,
     logsOpen: false,
     launchedAtMs: 100,
-  };
+    ...overrides,
+  } as ExternalToolRun;
 }
 
 describe("ExternalToolWebView", () => {
@@ -167,6 +175,7 @@ describe("ExternalToolWebView", () => {
   });
 
   afterEach(() => {
+    closeRetainedExternalToolWebview("difit:session-1");
     resetCommandSurface();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
@@ -225,6 +234,43 @@ describe("ExternalToolWebView", () => {
     expect(tauriMock.probeExternalToolUrl).not.toHaveBeenCalled();
 
     finishClose();
+    second.unmount();
+  });
+
+  it("does not recreate the native webview when startup marks the same run ready", async () => {
+    const initialRun = makeRun({ status: "starting" });
+    const { rerender, unmount } = render(ExternalToolWebView, { run: initialRun });
+
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const webview = webviewMock.MockWebview.instances[0];
+
+    await rerender({ run: { ...initialRun, status: "ready" } });
+
+    expect(webviewMock.MockWebview.instances).toHaveLength(1);
+    expect(webview.close).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it("keeps active native webviews hidden across main-view remounts", async () => {
+    const readyRun = makeRun({ status: "ready", keepWebviewAlive: true });
+
+    const first = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const retained = webviewMock.MockWebview.instances[0];
+    expect(retained.options).toMatchObject({ backgroundThrottling: "disabled" });
+
+    first.unmount();
+    expect(retained.hide).toHaveBeenCalled();
+    expect(retained.close).not.toHaveBeenCalled();
+
+    const second = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(retained.show).toHaveBeenCalled());
+
+    expect(webviewMock.MockWebview.instances).toHaveLength(1);
+    expect(retained.setPosition).toHaveBeenCalled();
+    expect(retained.setSize).toHaveBeenCalled();
+
     second.unmount();
   });
 
