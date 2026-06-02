@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
+
+const externalToolsMock = vi.hoisted(() => ({
+  openExternalTool: vi.fn(),
+}));
+
+vi.mock("$lib/stores/externalTools", () => externalToolsMock);
+
 import {
   activeSidebar,
+  applyStartupTargetPreference,
   armPaneHints,
   armSessionHints,
   editingWorkItemId,
@@ -23,6 +31,8 @@ import {
   toggleSidebar,
   unpinSidebar,
 } from "../ui";
+import { closeMainView, mainViewRoute } from "../mainView";
+import { sessionState } from "../sessions";
 
 describe("showSessionHints", () => {
   beforeEach(() => {
@@ -267,6 +277,56 @@ describe("sidebar pin-slot state", () => {
       expect(get(sidebarLayout).hidden).toBe(false);
       expect(get(pinnedSidebar)).toBe("notes");
     });
+  });
+});
+
+describe("startup target preference", () => {
+  beforeEach(() => {
+    closeMainView();
+    closeSidebar();
+    unpinSidebar();
+    sessionState.set({ sessions: [], activeSessionId: null });
+    externalToolsMock.openExternalTool.mockReset();
+  });
+
+  afterEach(() => {
+    closeMainView();
+    closeSidebar();
+    unpinSidebar();
+    sessionState.set({ sessions: [], activeSessionId: null });
+  });
+
+  it("opens Kanban in the wide main view", async () => {
+    await applyStartupTargetPreference("kanbanWide");
+
+    expect(get(mainViewRoute)).toEqual({ kind: "board" });
+  });
+
+  it("pins the sessions sidebar", async () => {
+    await applyStartupTargetPreference("sessionsSidebar");
+
+    expect(get(pinnedSidebar)).toBe("sessions");
+    expect(get(activeSidebar)).toBeNull();
+  });
+
+  it("selects the newest restored session for lastSession", async () => {
+    sessionState.set({
+      activeSessionId: null,
+      sessions: [
+        { id: "old", createdAt: 100, name: "old" } as any,
+        { id: "new", createdAt: 200, name: "new" } as any,
+      ],
+    });
+
+    await applyStartupTargetPreference("lastSession");
+
+    expect(get(sessionState).activeSessionId).toBe("new");
+  });
+
+  it("opens a configured global external tool", async () => {
+    await applyStartupTargetPreference("externalTool", "github");
+
+    expect(externalToolsMock.openExternalTool).toHaveBeenCalledWith("github");
   });
 });
 
