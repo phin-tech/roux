@@ -140,6 +140,8 @@ pub struct ExternalTool {
     pub preferred_port: Option<u16>,
     #[serde(default)]
     pub web_embedder: ExternalToolWebEmbedder,
+    #[serde(default)]
+    pub keep_webview_alive: bool,
 }
 
 fn default_external_tools() -> Vec<ExternalTool> {
@@ -155,6 +157,7 @@ fn default_external_tools() -> Vec<ExternalTool> {
             url_template: None,
             preferred_port: None,
             web_embedder: ExternalToolWebEmbedder::Webview,
+            keep_webview_alive: false,
         },
         ExternalTool {
             id: "difit".to_string(),
@@ -168,6 +171,7 @@ fn default_external_tools() -> Vec<ExternalTool> {
             url_template: Some("http://127.0.0.1:{{ port }}".to_string()),
             preferred_port: Some(4966),
             web_embedder: ExternalToolWebEmbedder::Iframe,
+            keep_webview_alive: false,
         },
         ExternalTool {
             id: "github".to_string(),
@@ -180,6 +184,7 @@ fn default_external_tools() -> Vec<ExternalTool> {
             url_template: Some("https://github.com".to_string()),
             preferred_port: None,
             web_embedder: ExternalToolWebEmbedder::Webview,
+            keep_webview_alive: false,
         },
     ]
 }
@@ -684,6 +689,12 @@ fn normalize_external_tools(tools: &[ExternalTool]) -> Vec<ExternalTool> {
             next.url_template = None;
             next.preferred_port = None;
             next.web_embedder = ExternalToolWebEmbedder::Webview;
+            next.keep_webview_alive = false;
+        }
+        if next.surface == ExternalToolSurface::Web
+            && next.web_embedder != ExternalToolWebEmbedder::Webview
+        {
+            next.keep_webview_alive = false;
         }
         cleaned.push(next);
     }
@@ -1104,6 +1115,7 @@ mod tests {
         assert_eq!(difit.preferred_port, Some(4966));
         assert_eq!(difit.url_template.as_deref(), Some("http://127.0.0.1:{{ port }}"));
         assert_eq!(difit.web_embedder, ExternalToolWebEmbedder::Iframe);
+        assert!(!difit.keep_webview_alive);
 
         let github = &settings.external_tools[2];
         assert_eq!(github.name, "GitHub");
@@ -1114,6 +1126,7 @@ mod tests {
         assert_eq!(github.url_template.as_deref(), Some("https://github.com"));
         assert_eq!(github.preferred_port, None);
         assert_eq!(github.web_embedder, ExternalToolWebEmbedder::Webview);
+        assert!(!github.keep_webview_alive);
     }
 
     #[test]
@@ -1159,6 +1172,7 @@ mod tests {
                     url_template: Some(" http://127.0.0.1:{{ port }} ".to_string()),
                     preferred_port: Some(0),
                     web_embedder: ExternalToolWebEmbedder::Iframe,
+                    keep_webview_alive: true,
                 },
                 super::ExternalTool {
                     id: "blank-command".to_string(),
@@ -1171,6 +1185,7 @@ mod tests {
                     url_template: Some(" https://github.com ".to_string()),
                     preferred_port: None,
                     web_embedder: ExternalToolWebEmbedder::Webview,
+                    keep_webview_alive: true,
                 },
                 super::ExternalTool {
                     id: "blank-terminal".to_string(),
@@ -1183,13 +1198,27 @@ mod tests {
                     url_template: None,
                     preferred_port: None,
                     web_embedder: ExternalToolWebEmbedder::Webview,
+                    keep_webview_alive: true,
+                },
+                super::ExternalTool {
+                    id: "terminal-tool".to_string(),
+                    name: "Terminal Tool".to_string(),
+                    enabled: true,
+                    surface: ExternalToolSurface::Terminal,
+                    command_template: " lazygit ".to_string(),
+                    cwd_template: " {{ session.worktree_path }} ".to_string(),
+                    requires_session: true,
+                    url_template: Some(" http://127.0.0.1:{{ port }} ".to_string()),
+                    preferred_port: Some(4966),
+                    web_embedder: ExternalToolWebEmbedder::Iframe,
+                    keep_webview_alive: true,
                 },
             ],
             ..RouxSettings::default()
         };
 
         let normalized = settings.normalized();
-        assert_eq!(normalized.external_tools.len(), 2);
+        assert_eq!(normalized.external_tools.len(), 3);
         assert_eq!(normalized.external_tools[0].id, "my-tool");
         assert_eq!(normalized.external_tools[0].name, "My Tool");
         assert_eq!(normalized.external_tools[0].command_template, "serve --port {{ port }}");
@@ -1200,12 +1229,27 @@ mod tests {
         );
         assert_eq!(normalized.external_tools[0].preferred_port, None);
         assert_eq!(normalized.external_tools[0].web_embedder, ExternalToolWebEmbedder::Iframe);
+        assert!(!normalized.external_tools[0].keep_webview_alive);
         assert_eq!(normalized.external_tools[1].id, "blank-command");
         assert_eq!(normalized.external_tools[1].command_template, "");
         assert_eq!(
             normalized.external_tools[1].url_template.as_deref(),
             Some("https://github.com")
         );
+        assert!(normalized.external_tools[1].keep_webview_alive);
+        assert_eq!(normalized.external_tools[2].id, "terminal-tool");
+        assert_eq!(normalized.external_tools[2].command_template, "lazygit");
+        assert_eq!(
+            normalized.external_tools[2].cwd_template,
+            "{{ session.worktree_path }}"
+        );
+        assert_eq!(normalized.external_tools[2].url_template, None);
+        assert_eq!(normalized.external_tools[2].preferred_port, None);
+        assert_eq!(
+            normalized.external_tools[2].web_embedder,
+            ExternalToolWebEmbedder::Webview
+        );
+        assert!(!normalized.external_tools[2].keep_webview_alive);
     }
 
     #[test]

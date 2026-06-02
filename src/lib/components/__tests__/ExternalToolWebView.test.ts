@@ -6,6 +6,7 @@ import {
   openCommandPalette,
   resetCommandSurface,
 } from "$lib/stores/commandSurface";
+import { closeRetainedExternalToolWebview } from "$lib/externalTools/nativeWebviews";
 
 const webviewMock = vi.hoisted(() => {
   class MockWebview {
@@ -20,6 +21,7 @@ const webviewMock = vi.hoisted(() => {
     setSize = vi.fn().mockResolvedValue(undefined);
     hide = vi.fn().mockResolvedValue(undefined);
     show = vi.fn().mockResolvedValue(undefined);
+    setFocus = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
     once = vi.fn((event: string, handler: () => void) => {
       if (event === "tauri://created") queueMicrotask(handler);
@@ -73,6 +75,9 @@ vi.mock("@tauri-apps/api/webview", () => ({
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
+  BackgroundThrottlingPolicy: {
+    Disabled: "disabled",
+  },
   getCurrentWindow: vi.fn(() => ({
     label: "main",
     onResized: windowMock.onResized,
@@ -115,13 +120,16 @@ function flushAnimationFrames(): void {
   for (const callback of callbacks) callback(0);
 }
 
-function makeRun(): ExternalToolRun {
+function makeRun(
+  overrides: Partial<ExternalToolRun> & { keepWebviewAlive?: boolean } = {},
+): ExternalToolRun {
   return {
     id: "difit:session-1",
     toolId: "difit",
     toolName: "Difit",
     surface: "web",
     webEmbedder: "webview",
+    keepWebviewAlive: false,
     sessionId: "session-1",
     runtimeId: "process-1",
     runtimeGeneration: null,
@@ -135,7 +143,8 @@ function makeRun(): ExternalToolRun {
     error: null,
     logsOpen: false,
     launchedAtMs: 100,
-  };
+    ...overrides,
+  } as ExternalToolRun;
 }
 
 describe("ExternalToolWebView", () => {
@@ -166,6 +175,7 @@ describe("ExternalToolWebView", () => {
   });
 
   afterEach(() => {
+    closeRetainedExternalToolWebview("difit:session-1");
     resetCommandSurface();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
@@ -179,9 +189,25 @@ describe("ExternalToolWebView", () => {
 
     expect(webview.setPosition).toHaveBeenCalled();
     expect(webview.setSize).toHaveBeenCalled();
+    expect(webview.setFocus).toHaveBeenCalled();
     expect(externalToolsMock.markExternalToolReady).toHaveBeenCalledWith("difit:session-1");
 
     unmount();
+  });
+
+  it("focuses iframe web tools when they are ready", async () => {
+    const focus = vi.spyOn(HTMLIFrameElement.prototype, "focus").mockImplementation(() => {});
+    const { unmount } = render(ExternalToolWebView, {
+      run: { ...makeRun(), status: "ready", webEmbedder: "iframe" },
+    });
+
+    try {
+      flushAnimationFrames();
+      await waitFor(() => expect(focus).toHaveBeenCalled());
+    } finally {
+      unmount();
+      focus.mockRestore();
+    }
   });
 
   it("recreates a ready native webview when the component remounts", async () => {
@@ -208,6 +234,95 @@ describe("ExternalToolWebView", () => {
     expect(tauriMock.probeExternalToolUrl).not.toHaveBeenCalled();
 
     finishClose();
+    second.unmount();
+  });
+
+  it("does not recreate the native webview when startup marks the same run ready", async () => {
+    const initialRun = makeRun({ status: "starting" });
+    const { rerender, unmount } = render(ExternalToolWebView, { run: initialRun });
+
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const webview = webviewMock.MockWebview.instances[0];
+
+    await rerender({ run: { ...initialRun, status: "ready" } });
+
+    expect(webviewMock.MockWebview.instances).toHaveLength(1);
+    expect(webview.close).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it("keeps active native webviews hidden across main-view remounts", async () => {
+    const readyRun = makeRun({ status: "ready", keepWebviewAlive: true });
+
+    const first = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const retained = webviewMock.MockWebview.instances[0];
+    expect(retained.options).toMatchObject({ backgroundThrottling: "disabled" });
+
+    first.unmount();
+    expect(retained.hide).toHaveBeenCalled();
+    expect(retained.close).not.toHaveBeenCalled();
+
+    const second = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(retained.show).toHaveBeenCalled());
+
+    expect(webviewMock.MockWebview.instances).toHaveLength(1);
+    expect(retained.setPosition).toHaveBeenCalled();
+    expect(retained.setSize).toHaveBeenCalled();
+
+    second.unmount();
+  });
+
+  it("reports retained native webview reuse failures", async () => {
+    const readyRun = makeRun({ status: "ready", keepWebviewAlive: true });
+
+    const first = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const retained = webviewMock.MockWebview.instances[0];
+    first.unmount();
+
+    retained.show.mockRejectedValueOnce(new Error("webview gone"));
+    const second = render(ExternalToolWebView, { run: readyRun });
+
+    await waitFor(() =>
+      expect(externalToolsMock.failExternalToolRun).toHaveBeenCalledWith(
+        "difit:session-1",
+        "process-1",
+        "Failed to open http://127.0.0.1:4966: webview gone",
+      ),
+    );
+    expect(retained.close).toHaveBeenCalled();
+
+    second.unmount();
+  });
+
+  it("does not mark stale retained native webviews ready", async () => {
+    const readyRun = makeRun({ status: "ready", keepWebviewAlive: true });
+
+    const first = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    const retained = webviewMock.MockWebview.instances[0];
+    first.unmount();
+    externalToolsMock.markExternalToolReady.mockClear();
+    retained.close.mockClear();
+
+    let finishShow: () => void = () => {};
+    retained.show.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishShow = resolve;
+      }),
+    );
+    const second = render(ExternalToolWebView, { run: readyRun });
+    await waitFor(() => expect(retained.show).toHaveBeenCalled());
+
+    await second.rerender({ run: { ...readyRun, status: "error", error: "failed" } });
+    finishShow();
+
+    await waitFor(() => expect(retained.close).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(externalToolsMock.markExternalToolReady).not.toHaveBeenCalled();
+
     second.unmount();
   });
 

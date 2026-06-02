@@ -65,6 +65,7 @@ function makeWebErrorRun(): ExternalToolRun {
     toolName: "Difit",
     surface: "web",
     webEmbedder: "webview",
+    keepWebviewAlive: false,
     sessionId: null,
     runtimeId: "process-1",
     runtimeGeneration: null,

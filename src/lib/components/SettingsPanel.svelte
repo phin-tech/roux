@@ -290,6 +290,7 @@
       urlTemplate: surface === "web" ? "http://127.0.0.1:{{ port }}" : null,
       preferredPort: surface === "web" ? 4966 : null,
       webEmbedder: "webview",
+      keepWebviewAlive: false,
     };
     updateExternalTools([...externalTools(), tool]);
     expandedExternalToolId = id;
@@ -1566,13 +1567,27 @@
                                 <button
                                   type="button"
                                   class="px-2 py-1 text-[11px] transition-colors {tool.webEmbedder === option.value ? 'bg-bg-active text-text-primary' : 'text-text-muted hover:bg-bg-hover hover:text-text-secondary'}"
-                                  onclick={() => updateExternalTool(tool.id, { webEmbedder: option.value as ExternalToolWebEmbedder })}
+                                  onclick={() => updateExternalTool(tool.id, {
+                                    webEmbedder: option.value as ExternalToolWebEmbedder,
+                                    keepWebviewAlive: option.value === "webview" ? (tool.keepWebviewAlive ?? false) : false,
+                                  })}
                                 >
                                   {option.label}
                                 </button>
                               {/each}
                             </div>
                           </div>
+                          {#if tool.webEmbedder === "webview"}
+                            <label class="flex items-center gap-2 text-[11px] text-text-secondary">
+                              <input
+                                type="checkbox"
+                                class="h-3 w-3 accent-accent"
+                                checked={tool.keepWebviewAlive === true}
+                                onchange={(e) => updateExternalTool(tool.id, { keepWebviewAlive: e.currentTarget.checked })}
+                              />
+                              Keep webview active
+                            </label>
+                          {/if}
                           <div class="grid gap-2 md:grid-cols-[1fr_120px]">
                             <label class="grid gap-1 text-[11px] text-text-muted">
                               <span>URL template</span>

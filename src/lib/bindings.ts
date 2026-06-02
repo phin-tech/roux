@@ -491,6 +491,7 @@ export type ExternalTool = {
 	urlTemplate?: string | null,
 	preferredPort?: number | null,
 	webEmbedder?: ExternalToolWebEmbedder,
+	keepWebviewAlive?: boolean,
 };
 
 export type ExternalToolSurface = "terminal" | "web";

@@ -143,6 +143,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
       urlTemplate: null,
       preferredPort: null,
       webEmbedder: "webview",
+      keepWebviewAlive: false,
     },
     {
       id: "difit",
@@ -155,6 +156,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
       urlTemplate: "http://127.0.0.1:{{ port }}",
       preferredPort: 4966,
       webEmbedder: "iframe",
+      keepWebviewAlive: false,
     },
     {
       id: "github",
@@ -167,6 +169,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
       urlTemplate: "https://github.com",
       preferredPort: null,
       webEmbedder: "webview",
+      keepWebviewAlive: false,
     },
   ],
   kanban: {

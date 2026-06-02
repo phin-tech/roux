@@ -12,6 +12,7 @@ import {
 import { activeSession, sessionList } from "$lib/stores/sessions";
 import { settings } from "$lib/stores/settings";
 import { closeMainView, mainViewRoute, openMainView } from "$lib/stores/mainView";
+import { closeRetainedExternalToolWebview } from "$lib/externalTools/nativeWebviews";
 
 export type ExternalToolRunStatus =
   | "launching"
@@ -26,6 +27,7 @@ export interface ExternalToolRun {
   toolName: string;
   surface: ExternalToolSurface;
   webEmbedder: ExternalToolWebEmbedder;
+  keepWebviewAlive: boolean;
   sessionId: string | null;
   runtimeId: string | null;
   runtimeGeneration: number | null;
@@ -98,6 +100,7 @@ export async function restartExternalToolRun(runId: string): Promise<void> {
 function markExternalToolRelaunching(runId: string): number {
   const relaunchToken = ++nextExternalToolRelaunchCleanupToken;
   closeExternalToolView(runId);
+  closeRetainedExternalToolWebview(runId);
   cancelExternalToolLaunch(runId);
   externalToolRelaunchCleanupTokens.set(runId, relaunchToken);
   updateRun(runId, (run) => ({
@@ -139,6 +142,7 @@ export function registerExternalToolViewCloser(runId: string, closeView: () => v
 
 function removeExternalToolRun(runId: string): void {
   closeExternalToolView(runId);
+  closeRetainedExternalToolWebview(runId);
   cancelExternalToolLaunch(runId);
   externalToolRelaunchCleanupTokens.delete(runId);
   externalToolRuns.update((runs) => {
@@ -239,6 +243,7 @@ async function launchRun(
     toolName: tool.name,
     surface,
     webEmbedder: externalToolWebEmbedder(tool),
+    keepWebviewAlive: externalToolKeepsWebviewAlive(tool),
     sessionId,
     runtimeId: null,
     runtimeGeneration: null,
@@ -261,6 +266,7 @@ async function launchRun(
       ...run,
       surface: result.surface,
       webEmbedder: externalToolWebEmbedder(tool),
+      keepWebviewAlive: externalToolKeepsWebviewAlive(tool),
       runtimeId: result.runtimeId,
       runtimeGeneration: result.runtimeGeneration ?? null,
       rendered: result.rendered,
@@ -299,6 +305,14 @@ function resolveBoundSessionId(tool: ExternalTool): string | null {
 function externalToolWebEmbedder(tool: ExternalTool): ExternalToolWebEmbedder {
   if ((tool.surface ?? "terminal") !== "web") return "webview";
   return tool.webEmbedder ?? "webview";
+}
+
+function externalToolKeepsWebviewAlive(tool: ExternalTool): boolean {
+  return (
+    (tool.surface ?? "terminal") === "web" &&
+    externalToolWebEmbedder(tool) === "webview" &&
+    tool.keepWebviewAlive === true
+  );
 }
 
 function findTool(toolId: string): ExternalTool {

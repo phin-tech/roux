@@ -254,6 +254,21 @@ describe("SettingsPanel external tools", () => {
     await fireEvent.input(input, { target: { value: "" } });
     expect(get(settings).externalTools?.find((tool) => tool.id === "difit")?.preferredPort).toBeNull();
   });
+
+  it("toggles keep-active mode for native webview tools", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+
+    const checkbox = screen.getByLabelText("Keep webview active") as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+
+    await fireEvent.click(checkbox);
+
+    expect(get(settings).externalTools?.find((tool) => tool.id === "github")?.keepWebviewAlive)
+      .toBe(true);
+  });
 });
 
 describe("SettingsPanel agent notification setup", () => {
