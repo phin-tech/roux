@@ -371,8 +371,24 @@
     return externalTools().filter((tool) => tool.enabled !== false && !(tool.requiresSession ?? false));
   }
 
+  function legacyKanbanStartupForTarget(target: StartupTarget): KanbanSettings["startupSidebar"] {
+    switch (target) {
+      case "sessionsSidebar":
+        return "sessions";
+      case "kanbanWide":
+        return "kanban";
+      case "none":
+        return "none";
+      case "restore":
+      case "lastSession":
+      case "externalTool":
+        return "restore";
+    }
+  }
+
   function updateStartupTarget(target: StartupTarget): void {
     updateSetting("startupTarget", target);
+    updateSetting("kanban", { ...kanbanSettings(), startupSidebar: legacyKanbanStartupForTarget(target) });
     if (target === "externalTool") {
       const current = $settings.startupExternalToolId;
       const tools = globalExternalTools();

@@ -210,6 +210,7 @@
   let selectedProfileId = $state<string>(defaultAgentProfileId());
   let inlineProfile = $state<SpawnProfile | null>(null);
   let showCustomEditor = $state(false);
+  let wasVisible = false;
 
   // Layout selection
   let selectedLayoutId = $state<string>("");
@@ -265,7 +266,12 @@
 
   // Detect git repo for default path
   $effect(() => {
+    const justOpened = visible && !wasVisible;
+    wasVisible = visible;
     if (visible) {
+      if (justOpened && selectedProfileId !== "__inline__" && selectedProfileId !== "__custom__") {
+        selectedProfileId = defaultAgentProfileId();
+      }
       if (workItemStart && seededWorkItemStartId !== workItemStart.itemId) {
         seededWorkItemStartId = workItemStart.itemId;
         sessionName = workItemStart.title;

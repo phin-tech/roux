@@ -181,6 +181,26 @@ describe("SettingsPanel General launch settings", () => {
     expect(lastCall[0].startupTarget).toBe("externalTool");
     expect(lastCall[0].startupExternalToolId).toBe("github");
   });
+
+  it("syncs the legacy Kanban launch setting when restoring startup behavior", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      startupTarget: "kanbanWide",
+      kanban: { ...DEFAULT_SETTINGS.kanban, startupSidebar: "kanban" },
+    });
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.change(screen.getByLabelText("Open on launch"), {
+      target: { value: "restore" },
+    });
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalled();
+    });
+    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
+    expect(lastCall[0].startupTarget).toBe("restore");
+    expect(lastCall[0].kanban?.startupSidebar).toBe("restore");
+  });
 });
 
 describe("SettingsPanel Agents tab", () => {
