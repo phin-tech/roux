@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "svelte/store";
+
+const externalToolsMock = vi.hoisted(() => ({
+  openExternalTool: vi.fn(),
+}));
+
+vi.mock("$lib/stores/externalTools", () => externalToolsMock);
+
 import {
   activeSidebar,
+  applyStartupTargetPreference,
   armPaneHints,
   armSessionHints,
   editingWorkItemId,
@@ -14,6 +22,7 @@ import {
   hidePaneHints,
   hideSessionHints,
   isPinned,
+  notesOverrideSessionId,
   openSidebar,
   pinnedSidebar,
   pinSidebar,
@@ -23,6 +32,8 @@ import {
   toggleSidebar,
   unpinSidebar,
 } from "../ui";
+import { closeMainView, mainViewRoute } from "../mainView";
+import { sessionState } from "../sessions";
 
 describe("showSessionHints", () => {
   beforeEach(() => {
@@ -127,11 +138,6 @@ describe("sidebar pin-slot state", () => {
       expect(isPinned("notes")).toBe(true);
     });
 
-    it("pinSidebar is a no-op for non-pinnable panels (settings)", () => {
-      pinSidebar("settings");
-      expect(get(pinnedSidebar)).toBeNull();
-    });
-
     it("pinSidebar is a no-op for non-pinnable panels (docs)", () => {
       pinSidebar("docs");
       expect(get(pinnedSidebar)).toBeNull();
@@ -165,14 +171,6 @@ describe("sidebar pin-slot state", () => {
       expect(get(activeSidebar)).toBe("docs");
     });
 
-    it("unpinSidebar preserves a settings takeover (doesn't close settings)", () => {
-      pinSidebar("notes");
-      openSidebar("settings");
-      unpinSidebar();
-      expect(get(pinnedSidebar)).toBeNull();
-      expect(get(activeSidebar)).toBe("settings");
-    });
-
     it("closePinned clears only the pinned slot, leaving active untouched", () => {
       pinSidebar("notes");
       openSidebar("watches");
@@ -203,19 +201,11 @@ describe("sidebar pin-slot state", () => {
     });
 
     it("PINNABLE_SIDEBARS excludes heavy panels", () => {
-      expect(PINNABLE_SIDEBARS.has("settings")).toBe(false);
       expect(PINNABLE_SIDEBARS.has("docs")).toBe(false);
     });
   });
 
-  describe("takeover behavior for Settings / Docs", () => {
-    it("opening settings while another panel is pinned leaves pinned state intact", () => {
-      pinSidebar("notes");
-      openSidebar("settings");
-      expect(get(pinnedSidebar)).toBe("notes");
-      expect(get(activeSidebar)).toBe("settings");
-    });
-
+  describe("takeover behavior for Docs", () => {
     it("opening docs while another panel is pinned leaves pinned state intact", () => {
       pinSidebar("watches");
       openSidebar("docs");
@@ -267,6 +257,71 @@ describe("sidebar pin-slot state", () => {
       expect(get(sidebarLayout).hidden).toBe(false);
       expect(get(pinnedSidebar)).toBe("notes");
     });
+  });
+});
+
+describe("startup target preference", () => {
+  beforeEach(() => {
+    closeMainView();
+    closeSidebar();
+    unpinSidebar();
+    sessionState.set({ sessions: [], activeSessionId: null });
+    externalToolsMock.openExternalTool.mockReset();
+  });
+
+  afterEach(() => {
+    closeMainView();
+    closeSidebar();
+    unpinSidebar();
+    sessionState.set({ sessions: [], activeSessionId: null });
+  });
+
+  it("opens Kanban in the wide main view", async () => {
+    pinSidebar("sessions");
+    openSidebar("watches");
+    notesOverrideSessionId.set("archived-session");
+
+    await applyStartupTargetPreference("kanbanWide");
+
+    expect(get(mainViewRoute)).toEqual({ kind: "board" });
+    expect(get(pinnedSidebar)).toBeNull();
+    expect(get(activeSidebar)).toBeNull();
+    expect(get(notesOverrideSessionId)).toBeNull();
+  });
+
+  it("pins the sessions sidebar", async () => {
+    await applyStartupTargetPreference("sessionsSidebar");
+
+    expect(get(pinnedSidebar)).toBe("sessions");
+    expect(get(activeSidebar)).toBeNull();
+  });
+
+  it("selects the newest restored session for lastSession", async () => {
+    sessionState.set({
+      activeSessionId: null,
+      sessions: [
+        { id: "old", createdAt: 100, name: "old" } as any,
+        { id: "new", createdAt: 200, name: "new" } as any,
+      ],
+    });
+
+    await applyStartupTargetPreference("lastSession");
+
+    expect(get(sessionState).activeSessionId).toBe("new");
+  });
+
+  it("opens the sessions sidebar when lastSession has no restored sessions", async () => {
+    await applyStartupTargetPreference("lastSession");
+
+    expect(get(sessionState).activeSessionId).toBeNull();
+    expect(get(pinnedSidebar)).toBe("sessions");
+    expect(get(activeSidebar)).toBeNull();
+  });
+
+  it("opens a configured global external tool", async () => {
+    await applyStartupTargetPreference("externalTool", "github");
+
+    expect(externalToolsMock.openExternalTool).toHaveBeenCalledWith("github");
   });
 });
 

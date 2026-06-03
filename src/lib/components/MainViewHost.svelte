@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { mainViewRoute, closeMainView } from "$lib/stores/mainView";
-  import { openSidebar } from "$lib/stores/ui";
+  import { mainViewRoute, closeMainView, openMainView } from "$lib/stores/mainView";
   import { sessionDisplayName, sessionList } from "$lib/stores/sessions";
   import {
     closeExternalToolRun,
@@ -12,6 +11,7 @@
   import BoardMainView from "./BoardMainView.svelte";
   import ExternalToolMainView from "./ExternalToolMainView.svelte";
   import MainViewShell from "./MainViewShell.svelte";
+  import SettingsPanel from "./SettingsPanel.svelte";
   import SessionDetailView from "./SessionDetailView.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SettingsIcon from "@lucide/svelte/icons/settings";
@@ -35,6 +35,8 @@
         return session ? sessionDisplayName(session) : "Session Details";
       case "externalTool":
         return externalToolRun?.toolName ?? "External Tool";
+      case "preferences":
+        return "Preferences";
     }
   });
   let subtitle = $derived.by(() => {
@@ -54,6 +56,8 @@
           externalToolRun.sessionId ? `session ${externalToolRun.sessionId.slice(0, 8)}` : "global",
           externalToolRun.status,
         ].join(" · ");
+      case "preferences":
+        return null;
     }
   });
   let closeLabel = $derived.by(() => {
@@ -65,6 +69,8 @@
         return "Close Session Details";
       case "externalTool":
         return `Close ${externalToolRun?.toolName ?? "External Tool"}`;
+      case "preferences":
+        return "Close Preferences";
     }
   });
 
@@ -79,7 +85,11 @@
   function editExternalTool(): void {
     if (!externalToolRun) return;
     focusExternalToolSettings(externalToolRun.toolId);
-    openSidebar("settings");
+    openMainView({
+      kind: "preferences",
+      category: "externalTools",
+      externalToolId: externalToolRun.toolId,
+    });
   }
 </script>
 
@@ -125,6 +135,13 @@
       <SessionDetailView sessionId={route.sessionId} />
     {:else if route.kind === "externalTool"}
       <ExternalToolMainView runId={route.runId} />
+    {:else if route.kind === "preferences"}
+      <SettingsPanel
+        visible={true}
+        onclose={closeMainView}
+        initialCategory={route.category ?? "general"}
+        externalToolId={route.externalToolId ?? null}
+      />
     {/if}
   </MainViewShell>
 {/if}

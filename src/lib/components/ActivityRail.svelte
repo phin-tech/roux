@@ -22,22 +22,27 @@
     PINNABLE_SIDEBARS,
     pinSidebar,
     unpinSidebar,
-    toggleSidebar,
     type SidebarId,
   } from "$lib/stores/ui";
   import { sidebarLayout } from "$lib/stores/sidebarLayout";
+  import { mainViewRoute, openMainView, closeMainView } from "$lib/stores/mainView";
   import { unreadTotal } from "$lib/stores/notifications";
   import { meUnread } from "$lib/stores/mailbox";
 
-  interface Item {
+  interface DockItem {
     id: SidebarId;
+    label: string;
+    icon: Component<{ size?: number; class?: string }>;
+  }
+
+  interface RailActionItem {
     label: string;
     icon: Component<{ size?: number; class?: string }>;
   }
 
   // Static rail items. The Worktrunk icon is appended dynamically below
   // only when its binary is detected.
-  const baseDockItems: Item[] = [
+  const baseDockItems: DockItem[] = [
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "notes", label: "Notes", icon: StickyNote },
     { id: "watches", label: "Watches", icon: Eye },
@@ -48,19 +53,19 @@
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "mailbox", label: "Mailbox", icon: Inbox },
   ];
-  const worktrunkItem: Item = {
+  const worktrunkItem: DockItem = {
     id: "worktrunk",
     label: "Worktrunk",
     icon: Trees,
   };
 
-  let dockItems = $derived.by<Item[]>(() => {
+  let dockItems = $derived.by<DockItem[]>(() => {
     const items = [...baseDockItems];
     if ($worktrunkDetection.binaryPath) items.push(worktrunkItem);
     return items;
   });
 
-  const settingsItem: Item = { id: "settings", label: "Settings", icon: SettingsIcon };
+  const settingsItem: RailActionItem = { label: "Settings", icon: SettingsIcon };
 
   function handleClick(event: MouseEvent, id: SidebarId): void {
     event.preventDefault();
@@ -96,10 +101,14 @@
 
   function handleSettingsClick(event: MouseEvent): void {
     event.preventDefault();
-    toggleSidebar("settings");
+    if ($mainViewRoute?.kind === "preferences") {
+      closeMainView();
+      return;
+    }
+    openMainView({ kind: "preferences", category: "general" });
   }
 
-  function buttonTitle(item: Item): string {
+  function buttonTitle(item: DockItem): string {
     return item.label;
   }
 
@@ -154,8 +163,8 @@
   <button
     type="button"
     aria-label={settingsItem.label}
-    aria-pressed={$activeSidebar === "settings"}
-    class="group relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {$activeSidebar === 'settings' ? 'bg-white/10 text-text-primary' : ''}"
+    aria-pressed={$mainViewRoute?.kind === "preferences"}
+    class="group relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {$mainViewRoute?.kind === 'preferences' ? 'bg-white/10 text-text-primary' : ''}"
     onclick={handleSettingsClick}
   >
     <settingsItem.icon size={16} />

@@ -21,6 +21,7 @@ import {
 import { focusedPaneId, fullscreenPaneId, setLogicalFocus } from "./focus";
 import { disposeAgentState } from "./agentState";
 import { forgetLastStatus } from "./agentNotifications";
+import { defaultAgentProfileId } from "./defaultAgent";
 import type { SpawnProfileRef } from "./profiles";
 import { killPty, detachPty } from "$lib/tauri";
 import { settings } from "$lib/stores/settings";
@@ -42,7 +43,7 @@ registerDisposeHook((paneId) => {
 });
 
 export function initSession(sessionId: string): string {
-  return initSessionWithProfile(sessionId, { kind: "registered", id: "claude" });
+  return initSessionWithProfile(sessionId, { kind: "registered", id: defaultAgentProfileId() });
 }
 
 /**
