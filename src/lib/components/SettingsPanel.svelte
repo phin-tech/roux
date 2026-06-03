@@ -33,7 +33,6 @@
     ExternalToolSurface,
     ExternalToolWebEmbedder,
     IntegrationDetection,
-    KanbanSettings,
     McpHostConfigPreview,
     McpStatus,
     OnPaneCloseMode,
@@ -63,11 +62,10 @@
   import FlaskConical from "@lucide/svelte/icons/flask-conical";
   import X from "@lucide/svelte/icons/x";
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
-  import {
-    EXPERIMENTS,
-    currentExperimentValue,
-    withExperimentValue,
-  } from "$lib/experiments";
+  import SettingsKanbanSection from "$lib/components/settings/SettingsKanbanSection.svelte";
+  import SettingsNotesSection from "$lib/components/settings/SettingsNotesSection.svelte";
+  import SettingsKeyboardSection from "$lib/components/settings/SettingsKeyboardSection.svelte";
+  import SettingsExperimentsSection from "$lib/components/settings/SettingsExperimentsSection.svelte";
   import {
     normalizeSettingsCategoryId,
     type SettingsCategoryId,
@@ -92,14 +90,6 @@
     { id: "kill", label: "Kill" },
     { id: "detach", label: "Detach" },
   ] as const;
-
-  const KANBAN_DEFAULTS: KanbanSettings = {
-    defaultAgentProfile: "claude",
-    planningPromptAppend: "",
-    implementationPromptAppend: "",
-    reviewPromptAppend: "",
-    startupSidebar: "restore",
-  };
 
   const STARTUP_TARGET_OPTIONS: { id: StartupTarget; label: string }[] = [
     { id: "restore", label: "Restore previous" },
@@ -361,10 +351,6 @@
     if (selected) updateSetting("shellBinaryPath", selected as string);
   }
 
-  function kanbanSettings(): KanbanSettings {
-    return { ...KANBAN_DEFAULTS, ...($settings.kanban ?? {}) };
-  }
-
   function defaultAgentProfile(): string {
     return effectiveDefaultAgentProfileId($settings);
   }
@@ -379,13 +365,6 @@
 
   function updateStartupTarget(target: StartupTarget): void {
     setStartupTarget(target);
-  }
-
-  function updateKanban<K extends keyof KanbanSettings>(
-    key: K,
-    value: KanbanSettings[K],
-  ): void {
-    updateSetting("kanban", { ...kanbanSettings(), [key]: value });
   }
 
   let ghDetection = $state<IntegrationDetection | null>(null);
@@ -809,10 +788,6 @@
     if (selected) addRepoRoot(selected as string);
   }
 
-  async function browseNotesVault() {
-    const selected = await open({ directory: true, title: "Select Notes Vault Location" });
-    if (selected) updateSetting("notesVaultRoot", selected as string);
-  }
 </script>
 
 <svelte:window onkeydown={visible ? handleKey : undefined} />
@@ -1389,36 +1364,7 @@
               {/if}
             </div>
           {:else if selected === "kanban"}
-            {@const kanban = kanbanSettings()}
-            <div class="py-2">
-              <div class="text-[13px]">Planning instructions</div>
-              <div class="mt-0.5 text-[11px] text-text-muted">Appended after Roux's required planning prompt.</div>
-              <textarea
-                class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
-                value={kanban.planningPromptAppend}
-                oninput={(e) => updateKanban("planningPromptAppend", e.currentTarget.value)}
-              ></textarea>
-            </div>
-
-            <div class="py-2">
-              <div class="text-[13px]">Implementation instructions</div>
-              <div class="mt-0.5 text-[11px] text-text-muted">Appended after Roux's required Start prompt.</div>
-              <textarea
-                class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
-                value={kanban.implementationPromptAppend}
-                oninput={(e) => updateKanban("implementationPromptAppend", e.currentTarget.value)}
-              ></textarea>
-            </div>
-
-            <div class="py-2">
-              <div class="text-[13px]">Review handoff instructions</div>
-              <div class="mt-0.5 text-[11px] text-text-muted">Included in the implementation prompt until automated review runs exist.</div>
-              <textarea
-                class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
-                value={kanban.reviewPromptAppend}
-                oninput={(e) => updateKanban("reviewPromptAppend", e.currentTarget.value)}
-              ></textarea>
-            </div>
+            <SettingsKanbanSection />
           {:else if selected === "terminal"}
             {@const allTerminalThemes = getAllTerminalThemeDefinitions($userTerminalThemes)}
             {@const currentTerminalThemeId = $settings.terminalTheme ?? "match-gui"}
@@ -1566,44 +1512,7 @@
               </div>
             </div>
           {:else if selected === "notes"}
-            <div class="py-2">
-              <div class="flex items-center justify-between">
-                <div>
-                  <div class="text-[13px]">Vault location</div>
-                  <div class="text-[11px] text-text-muted mt-0.5">Where Roux stores notes. Works as a standalone folder or a subdirectory inside an Obsidian vault.</div>
-                </div>
-              </div>
-              <div class="mt-2 flex gap-1">
-                <input
-                  class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none flex-1 focus:border-accent-dim"
-                  value={$settings.notesVaultRoot ?? ""}
-                  oninput={(e) => updateSetting("notesVaultRoot", e.currentTarget.value || null)}
-                  placeholder="~/Documents/Roux"
-                />
-                <button
-                  class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
-                  onclick={browseNotesVault}
-                >...</button>
-              </div>
-              <div class="mt-1.5 text-[11px] text-text-muted">
-                Leave blank to use the default location. Changing this does not move existing notes.
-              </div>
-            </div>
-            <div class="flex items-center justify-between py-2 mt-2">
-              <div>
-                <div class="text-[13px]">Include web anchors</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Add HTML anchor tags for compatibility with static site generators. Disable for cleaner markdown in Obsidian.</div>
-              </div>
-              <button
-                aria-label="Toggle web anchors in notes"
-                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-                  {($settings.notesIncludeWebAnchors ?? true) ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
-                onclick={() => updateSetting("notesIncludeWebAnchors", !($settings.notesIncludeWebAnchors ?? true))}
-              >
-                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-                  {($settings.notesIncludeWebAnchors ?? true) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
-              </button>
-            </div>
+            <SettingsNotesSection />
           {:else if selected === "integrations" || selected === "externalTools"}
             {#if selected === "integrations"}
             <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
@@ -2169,86 +2078,9 @@
               </button>
             </div>
           {:else if selected === "keyboard"}
-            <div class="flex items-center justify-between py-2">
-              <div>
-                <div class="text-[13px]">Show pane hint overlay when holding Option</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Reveals pane numbers while ⌥ is held. Option+digit shortcuts still work either way.</div>
-              </div>
-              <button
-                aria-label="Toggle pane hint overlay on Option"
-                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-                  {$settings.showPaneHintsOnOption ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
-                onclick={() => updateSetting("showPaneHintsOnOption", !$settings.showPaneHintsOnOption)}
-              >
-                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-                  {$settings.showPaneHintsOnOption ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
-              </button>
-            </div>
-            <div class="flex items-center justify-between py-2">
-              <div>
-                <div class="text-[13px]">Show session hint overlay when holding Command</div>
-                <div class="text-[11px] text-text-muted mt-0.5">Reveals session shortcuts while ⌘ is held. Command chord shortcuts still work either way.</div>
-              </div>
-              <button
-                aria-label="Toggle session hint overlay on Command"
-                class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-                  {$settings.showSessionHintsOnCommand !== false ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
-                onclick={() => updateSetting("showSessionHintsOnCommand", !($settings.showSessionHintsOnCommand !== false))}
-              >
-                <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-                  {$settings.showSessionHintsOnCommand !== false ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
-              </button>
-            </div>
+            <SettingsKeyboardSection />
           {:else if selected === "experiments"}
-            <p class="text-[11px] text-text-muted mb-3">
-              Toggle in-progress features. Experiments default to off and may change behavior, persistence, or performance. Disable if you hit issues.
-            </p>
-            {#each EXPERIMENTS as exp (exp.id)}
-              <div class="flex items-start justify-between gap-3 py-2">
-                <div>
-                  <div class="text-[13px]">{exp.label}</div>
-                  <div class="text-[11px] text-text-muted mt-0.5">{exp.description}</div>
-                </div>
-                {#if exp.kind === "boolean"}
-                  {@const current = currentExperimentValue($settings.experiments, exp.id) as boolean}
-                  <button
-                    aria-label="Toggle {exp.label}"
-                    class="w-9 h-5 rounded-full relative cursor-pointer transition-all border shrink-0
-                      {current ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
-                    onclick={() =>
-                      updateSetting(
-                        "experiments",
-                        withExperimentValue($settings.experiments, exp.id, !current),
-                      )}
-                  >
-                    <div
-                      class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-                        {current ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"
-                    ></div>
-                  </button>
-                {:else}
-                  {@const current = currentExperimentValue($settings.experiments, exp.id) as string}
-                  <select
-                    aria-label="Select {exp.label}"
-                    class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6 shrink-0"
-                    value={current}
-                    onchange={(e) =>
-                      updateSetting(
-                        "experiments",
-                        withExperimentValue(
-                          $settings.experiments,
-                          exp.id,
-                          e.currentTarget.value,
-                        ),
-                      )}
-                  >
-                    {#each exp.options as opt}
-                      <option value={opt.value}>{opt.label}</option>
-                    {/each}
-                  </select>
-                {/if}
-              </div>
-            {/each}
+            <SettingsExperimentsSection />
           {:else if selected === "advanced"}
             <div
               data-testid="runtime-debug-panel"
