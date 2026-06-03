@@ -1378,6 +1378,9 @@ fn print_daemon_lifecycle_line(prefix: &str, status: &Value) {
     println!("{}", parts.join(" "));
 }
 
+const TCP_CONNECT_AUTH_WARNING: &str =
+    "Warning: TCP daemon endpoints require an auth token; pass --auth-token or set ROUX_AUTH_TOKEN.";
+
 fn connect_daemon_socket(socket: &str, auth_token: Option<&str>) -> Result<(), String> {
     let endpoint = parse_daemon_connect_endpoint(socket)?;
     write_private_config_file(&platform::socket_addr_file_path(), &endpoint.display_value())?;
@@ -1385,6 +1388,13 @@ fn connect_daemon_socket(socket: &str, auth_token: Option<&str>) -> Result<(), S
         write_private_config_file(&platform::socket_auth_token_file_path(), auth_token)?;
     } else {
         remove_config_file_if_exists(&platform::socket_auth_token_file_path())?;
+    }
+    if let Some(warning) = daemon_connect_auth_warning(
+        &endpoint,
+        auth_token.is_some(),
+        daemon_connect_env_auth_token_present(),
+    ) {
+        eprintln!("{warning}");
     }
     println!("Connected roux CLI to {}", endpoint.display_value());
     Ok(())
@@ -1406,6 +1416,25 @@ fn parse_daemon_connect_endpoint(socket: &str) -> Result<platform::SocketEndpoin
         return Ok(endpoint);
     }
     Err(format!("invalid daemon socket endpoint: {socket}"))
+}
+
+fn daemon_connect_auth_warning(
+    endpoint: &platform::SocketEndpoint,
+    has_cli_auth_token: bool,
+    has_env_auth_token: bool,
+) -> Option<&'static str> {
+    match endpoint {
+        platform::SocketEndpoint::Tcp(_) if !has_cli_auth_token && !has_env_auth_token => {
+            Some(TCP_CONNECT_AUTH_WARNING)
+        }
+        _ => None,
+    }
+}
+
+fn daemon_connect_env_auth_token_present() -> bool {
+    ["ROUX_DAEMON_TOKEN", "ROUX_AUTH_TOKEN"]
+        .iter()
+        .any(|key| std::env::var(key).ok().map(|value| !value.trim().is_empty()).unwrap_or(false))
 }
 
 fn write_private_config_file(path: &PathBuf, contents: &str) -> Result<(), String> {
@@ -1432,6 +1461,9 @@ fn write_private_config_file(path: &PathBuf, contents: &str) -> Result<(), Strin
                 .map_err(|err| format!("write config file {}: {err}", tmp_path.display()))?;
             file.write_all(contents.as_bytes())
                 .map_err(|err| format!("write config file {}: {err}", tmp_path.display()))?;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(|err| {
+                format!("set permissions on config file {}: {err}", tmp_path.display())
+            })?;
             drop(file);
             std::fs::rename(&tmp_path, path).map_err(|err| {
                 format!("replace config file {} with {}: {err}", path.display(), tmp_path.display())
@@ -1442,9 +1474,6 @@ fn write_private_config_file(path: &PathBuf, contents: &str) -> Result<(), Strin
             let _ = std::fs::remove_file(&tmp_path);
         }
         result?;
-
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|err| format!("set permissions on config file {}: {err}", path.display()))?;
     }
 
     #[cfg(not(unix))]
@@ -3987,6 +4016,32 @@ mod tests {
             }
             _ => panic!("expected Daemon::Connect"),
         }
+    }
+
+    #[test]
+    fn daemon_connect_warns_when_tcp_endpoint_has_no_auth_token_source() {
+        let endpoint = platform::SocketEndpoint::Tcp("127.0.0.1:7777".to_string());
+
+        assert_eq!(
+            daemon_connect_auth_warning(&endpoint, false, false),
+            Some(TCP_CONNECT_AUTH_WARNING)
+        );
+    }
+
+    #[test]
+    fn daemon_connect_does_not_warn_when_tcp_auth_token_source_exists() {
+        let endpoint = platform::SocketEndpoint::Tcp("127.0.0.1:7777".to_string());
+
+        assert_eq!(daemon_connect_auth_warning(&endpoint, true, false), None);
+        assert_eq!(daemon_connect_auth_warning(&endpoint, false, true), None);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn daemon_connect_does_not_warn_for_unix_endpoint_without_auth_token() {
+        let endpoint = platform::SocketEndpoint::Unix("/tmp/roux.sock".into());
+
+        assert_eq!(daemon_connect_auth_warning(&endpoint, false, false), None);
     }
 
     #[test]
