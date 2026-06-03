@@ -712,6 +712,7 @@
           {
             initialSize,
             profile: firstLeafInfo.profileId ?? undefined,
+            profileData: firstLeafInfo.profileData,
             base: defaultBase.base,
             fetchFirst: defaultBase.fetchFirst,
           },

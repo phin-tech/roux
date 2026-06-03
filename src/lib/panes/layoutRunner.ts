@@ -295,6 +295,7 @@ function node(layout: LayoutSpec): LayoutPaneNode {
 
 export interface FirstLeafInfo {
   profileId: string | undefined;
+  profileData: SpawnProfile | null;
 }
 
 export function resolveFirstLeafInfo(layout: LayoutSpec): FirstLeafInfo {
@@ -309,10 +310,13 @@ export function resolveFirstLeafInfo(layout: LayoutSpec): FirstLeafInfo {
 
   const leaf = findFirstLeaf(layout.root);
   if (!leaf || leaf.kind !== "leaf") {
-    return { profileId: undefined };
+    return { profileId: undefined, profileData: null };
   }
 
   const ref = leaf.profile_ref;
   const profileId = ref.kind === "registered" ? ref.id : ref.profile.id;
-  return { profileId };
+  return {
+    profileId,
+    profileData: ref.kind === "inline" ? ref.profile : null,
+  };
 }
