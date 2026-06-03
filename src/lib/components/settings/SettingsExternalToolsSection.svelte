@@ -5,7 +5,7 @@
     ExternalToolWebEmbedder,
   } from "$lib/bindings";
   import { activeSession } from "$lib/stores/sessions";
-  import { settings, updateSetting } from "$lib/stores/settings";
+  import { settings, updateSettingsDraft } from "$lib/stores/settings";
   import { previewExternalToolConfig, type RenderedExternalTool } from "$lib/tauri";
 
   interface Props {
@@ -63,9 +63,19 @@
     }
   }
 
-  function updateExternalTools(tools: ExternalTool[]): void {
+  function updateExternalTools(
+    tools: ExternalTool[],
+    startupToolRename: { previousId: string; nextId: string } | null = null,
+  ): void {
     pruneExternalToolRowKeys(tools);
-    updateSetting("externalTools", tools);
+    updateSettingsDraft((current) => ({
+      ...current,
+      externalTools: tools,
+      startupExternalToolId:
+        startupToolRename && current.startupExternalToolId === startupToolRename.previousId
+          ? startupToolRename.nextId
+          : current.startupExternalToolId,
+    }));
   }
 
   function updateExternalTool(id: string, patch: Partial<ExternalTool>): void {
@@ -82,7 +92,10 @@
       retainExternalToolRowKey(id, nextPatch.id);
       if (expandedExternalToolId === id) expandedExternalToolId = nextPatch.id;
     }
-    updateExternalTools(tools.map((tool) => (tool.id === id ? { ...tool, ...nextPatch } : tool)));
+    updateExternalTools(
+      tools.map((tool) => (tool.id === id ? { ...tool, ...nextPatch } : tool)),
+      nextPatch.id !== undefined ? { previousId: id, nextId: nextPatch.id } : null,
+    );
   }
 
   function preferredPortFromInput(value: string): number | null {

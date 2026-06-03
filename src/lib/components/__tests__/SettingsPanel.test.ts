@@ -304,6 +304,30 @@ describe("SettingsPanel external tools", () => {
     expect(ids).not.toContain(" new-id ");
   });
 
+  it("keeps the startup external tool selection in sync when renaming that tool", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      startupTarget: "externalTool",
+      startupExternalToolId: "github",
+    });
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
+    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+
+    await fireEvent.input(screen.getByDisplayValue("github"), {
+      target: { value: " git-hub " },
+    });
+
+    expect(get(settings).startupExternalToolId).toBe("git-hub");
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalled();
+    });
+    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
+    expect(lastCall[0].startupExternalToolId).toBe("git-hub");
+    expect(lastCall[0].externalTools?.some((tool) => tool.id === "git-hub")).toBe(true);
+  });
+
   it("keeps focus while editing an external tool ID", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
