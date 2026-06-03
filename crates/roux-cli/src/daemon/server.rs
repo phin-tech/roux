@@ -206,7 +206,7 @@ async fn bind_tcp_listener(addr: &str, identity: &DaemonIdentity) -> Result<TcpL
         .to_string();
     write_private_file(
         &platform::socket_addr_file_path(),
-        local_addr.as_bytes(),
+        format!("tcp://{local_addr}").as_bytes(),
         "daemon socket endpoint",
     )?;
     let token = identity.auth_token.as_deref().unwrap_or_default();

@@ -323,6 +323,16 @@ enum DaemonAction {
         #[arg(short, long)]
         follow: bool,
     },
+    /// Persist a daemon socket endpoint for future CLI commands
+    Connect {
+        /// Socket endpoint, e.g. tcp://100.73.57.24:7777
+        socket: String,
+        /// Auth token for TCP daemon endpoints
+        #[arg(long)]
+        auth_token: Option<String>,
+    },
+    /// Clear a persisted daemon socket endpoint
+    Disconnect,
     /// Start a daemon-owned shell command and return its process id
     Run {
         /// Shell command to run inside the daemon
@@ -1368,6 +1378,62 @@ fn print_daemon_lifecycle_line(prefix: &str, status: &Value) {
     println!("{}", parts.join(" "));
 }
 
+fn connect_daemon_socket(socket: &str, auth_token: Option<&str>) -> Result<(), String> {
+    let endpoint = parse_daemon_connect_endpoint(socket)?;
+    write_private_config_file(&platform::socket_addr_file_path(), &endpoint.display_value())?;
+    if let Some(auth_token) = auth_token {
+        write_private_config_file(&platform::socket_auth_token_file_path(), auth_token)?;
+    } else {
+        remove_config_file_if_exists(&platform::socket_auth_token_file_path())?;
+    }
+    println!("Connected roux CLI to {}", endpoint.display_value());
+    Ok(())
+}
+
+fn disconnect_daemon_socket() -> Result<(), String> {
+    remove_config_file_if_exists(&platform::socket_addr_file_path())?;
+    remove_config_file_if_exists(&platform::socket_auth_token_file_path())?;
+    println!("Disconnected roux CLI daemon socket config");
+    Ok(())
+}
+
+fn parse_daemon_connect_endpoint(socket: &str) -> Result<platform::SocketEndpoint, String> {
+    let trimmed = socket.trim();
+    if trimmed.is_empty() {
+        return Err("daemon socket endpoint cannot be empty".to_string());
+    }
+    if let Some(endpoint) = platform::parse_socket_endpoint(trimmed) {
+        return Ok(endpoint);
+    }
+    Err(format!("invalid daemon socket endpoint: {socket}"))
+}
+
+fn write_private_config_file(path: &PathBuf, contents: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("create config directory {}: {err}", parent.display()))?;
+    }
+    std::fs::write(path, contents)
+        .map_err(|err| format!("write config file {}: {err}", path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|err| format!("set permissions on config file {}: {err}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn remove_config_file_if_exists(path: &PathBuf) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("remove config file {}: {err}", path.display())),
+    }
+}
+
 fn show_daemon_logs(lines: usize, follow: bool) -> Result<(), String> {
     let path = platform::log_dir().join("roux-daemon.log");
     if follow {
@@ -2123,6 +2189,18 @@ fn main() {
             }
             Some(DaemonAction::Logs { lines, follow }) => {
                 if let Err(e) = show_daemon_logs(lines, follow) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Some(DaemonAction::Connect { socket, auth_token }) => {
+                if let Err(e) = connect_daemon_socket(&socket, auth_token.as_deref()) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Some(DaemonAction::Disconnect) => {
+                if let Err(e) = disconnect_daemon_socket() {
                     eprintln!("Error: {e}");
                     std::process::exit(1);
                 }
@@ -3856,6 +3934,36 @@ mod tests {
             }
             _ => panic!("expected Daemon::Logs"),
         }
+    }
+
+    #[test]
+    fn cli_parses_daemon_connect_command() {
+        let cli = Cli::try_parse_from([
+            "roux",
+            "daemon",
+            "connect",
+            "tcp://100.73.57.24:7777",
+            "--auth-token",
+            "secret-token",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Daemon {
+                action: Some(DaemonAction::Connect { socket, auth_token: Some(auth_token) }),
+            } => {
+                assert_eq!(socket, "tcp://100.73.57.24:7777");
+                assert_eq!(auth_token, "secret-token");
+            }
+            _ => panic!("expected Daemon::Connect"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_daemon_disconnect_command() {
+        let cli = Cli::try_parse_from(["roux", "daemon", "disconnect"]).unwrap();
+
+        assert!(matches!(cli.command, Commands::Daemon { action: Some(DaemonAction::Disconnect) }));
     }
 
     #[test]

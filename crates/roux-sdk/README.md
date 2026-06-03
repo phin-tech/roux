@@ -36,7 +36,9 @@ The default endpoint resolution matches the CLI:
 - `ROUX_SOCKET=tcp://127.0.0.1:7777` uses TCP.
 - `ROUX_SOCKET=unix:///path/to/roux.sock` uses a Unix socket.
 - `ROUX_SOCKET=/path/to/roux.sock` uses a Unix socket on Unix/macOS.
-- Without `ROUX_SOCKET`, Unix/macOS uses `~/.config/roux/roux.sock`.
+- Without `ROUX_SOCKET`, a persisted `roux-socket-addr` endpoint is used when
+  present.
+- Otherwise, Unix/macOS uses `~/.config/roux/roux.sock`.
 - Windows reads the daemon TCP endpoint and token files from `~/.config/roux`.
 
 TCP requests require an auth token. The SDK uses an explicit builder token

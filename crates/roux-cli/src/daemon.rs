@@ -2047,20 +2047,12 @@ fn unix_now_ms() -> u64 {
 fn daemon_auth_token(endpoint: &platform::SocketEndpoint) -> Result<Option<String>, String> {
     match endpoint {
         platform::SocketEndpoint::Unix(_) => Ok(None),
-        platform::SocketEndpoint::Tcp(addr) => {
+        platform::SocketEndpoint::Tcp(_) => {
             if let Some(token) = daemon_env_auth_token() {
                 return Ok(Some(token));
             }
 
-            #[cfg(windows)]
-            {
-                Ok(Some(format!("{}-{}", std::process::id(), unix_now_ms())))
-            }
-
-            #[cfg(not(windows))]
-            {
-                Err(format!("TCP daemon bind tcp://{addr} requires ROUX_DAEMON_TOKEN"))
-            }
+            Ok(Some(format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())))
         }
     }
 }

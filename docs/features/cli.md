@@ -251,7 +251,16 @@ roux daemon status
 
 When `roux daemon` owns the endpoint, `roux daemon status` returns the daemon PID, uptime, socket endpoint, log path, loaded session/project/process counts, and daemon capabilities. The daemon also answers headless session, project, PTY, process, worktree, alias, mailbox, and bus commands over the socket.
 
-The default endpoint is the local Unix socket on Unix/macOS. For remote-development experiments, start a TCP daemon with `ROUX_DAEMON_TOKEN=... ROUX_DAEMON_BIND=tcp://127.0.0.1:7777 roux daemon`, then point a client at it with `ROUX_SOCKET=tcp://127.0.0.1:7777 ROUX_AUTH_TOKEN=... roux daemon status`.
+The default endpoint is the local Unix socket on Unix/macOS. For remote-development experiments, start a TCP daemon with `ROUX_DAEMON_BIND=tcp://100.73.57.24:7777 roux daemon`; if no token is supplied, the daemon generates one and writes it to `~/.config/roux/roux-socket-token`.
+
+On the client, persist the endpoint and token once:
+
+```sh
+roux daemon connect tcp://100.73.57.24:7777 --auth-token <token>
+roux daemon status
+```
+
+After `connect`, normal first-class commands such as `roux session list`, `roux daemon ptys`, and `roux work-item runs` use that daemon until `roux daemon disconnect`. `ROUX_SOCKET` and `ROUX_AUTH_TOKEN` still override persisted client config for one-off commands.
 
 The implemented socket protocol is documented in [`../v2/daemon-protocol.md`](../v2/daemon-protocol.md).
 

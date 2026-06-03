@@ -35,6 +35,33 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    static ENDPOINT_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_endpoint_env<T>(base_path: &std::path::Path, f: impl FnOnce() -> T) -> T {
+        let _guard = ENDPOINT_ENV_LOCK.lock().unwrap();
+        let previous_base = std::env::var_os("ROUX_BASE_PATH");
+        let previous_socket = std::env::var_os("ROUX_SOCKET");
+
+        std::env::set_var("ROUX_BASE_PATH", base_path);
+        std::env::remove_var("ROUX_SOCKET");
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+
+        match previous_base {
+            Some(value) => std::env::set_var("ROUX_BASE_PATH", value),
+            None => std::env::remove_var("ROUX_BASE_PATH"),
+        }
+        match previous_socket {
+            Some(value) => std::env::set_var("ROUX_SOCKET", value),
+            None => std::env::remove_var("ROUX_SOCKET"),
+        }
+
+        match result {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+
     #[test]
     fn parses_socket_endpoints() {
         assert_eq!(
@@ -50,6 +77,16 @@ mod tests {
             parse_socket_endpoint("/tmp/roux.sock"),
             Some(SocketEndpoint::Unix("/tmp/roux.sock".into()))
         );
+    }
+
+    #[test]
+    fn resolves_persisted_tcp_socket_endpoint_when_env_socket_is_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("roux-socket-addr"), "tcp://100.73.57.24:7777").unwrap();
+
+        let endpoint = with_endpoint_env(dir.path(), resolve_socket_endpoint);
+
+        assert_eq!(endpoint, Some(SocketEndpoint::Tcp("100.73.57.24:7777".to_string())));
     }
 
     #[test]

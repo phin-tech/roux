@@ -46,16 +46,44 @@ pub fn resolve_socket_endpoint() -> Option<SocketEndpoint> {
         }
     }
 
-    #[cfg(windows)]
+    if let Some(endpoint) = std::fs::read_to_string(socket_addr_file_path())
+        .ok()
+        .and_then(|value| parse_persisted_socket_endpoint(&value))
     {
-        std::fs::read_to_string(socket_addr_file_path())
-            .ok()
-            .and_then(|value| parse_socket_endpoint(&value))
+        return Some(endpoint);
     }
 
     #[cfg(not(windows))]
     {
         Some(SocketEndpoint::Unix(socket_path()))
+    }
+
+    #[cfg(windows)]
+    {
+        None
+    }
+}
+
+fn parse_persisted_socket_endpoint(raw: &str) -> Option<SocketEndpoint> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.starts_with("tcp://") || trimmed.starts_with("unix://") {
+        return parse_socket_endpoint(trimmed);
+    }
+
+    #[cfg(windows)]
+    {
+        Some(SocketEndpoint::Tcp(trimmed.to_string()))
+    }
+    #[cfg(not(windows))]
+    {
+        if PathBuf::from(trimmed).is_absolute() {
+            Some(SocketEndpoint::Unix(PathBuf::from(trimmed)))
+        } else {
+            Some(SocketEndpoint::Tcp(trimmed.to_string()))
+        }
     }
 }
 
@@ -79,7 +107,6 @@ fn socket_path() -> PathBuf {
     roux_core::paths::roux_config_dir().join("roux.sock")
 }
 
-#[cfg(windows)]
 fn socket_addr_file_path() -> PathBuf {
     roux_core::paths::roux_config_dir().join("roux-socket-addr")
 }
