@@ -24,6 +24,16 @@ env:
     libgtk-3-dev
     libsoup-3.0-dev
     libjavascriptcoregtk-4.1-dev
+  #
+  # Each Rust compile job (rust-clippy, rust-test, worktrunk-integration)
+  # additionally sets a job-level `env:` enabling sccache:
+  #   RUSTC_WRAPPER: sccache
+  #   SCCACHE_GHA_ENABLED: "true"
+  #   CARGO_INCREMENTAL: "0"      # sccache can't cache incremental builds
+  # Compilation is the bottleneck there (tests run in ~10s; the build is
+  # ~3min); sccache caches compiler output across runs via the Actions
+  # cache. It's scoped per-job so non-Rust jobs (e.g. format's `cargo fmt`)
+  # never reference a wrapper they didn't install.
 
 jobs:
   changes:
@@ -91,6 +101,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true'
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
@@ -102,6 +116,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
@@ -109,11 +124,18 @@ jobs:
       - name: Clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
 
   rust-test:
     runs-on: ubuntu-latest
     needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true'
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
@@ -124,6 +146,7 @@ jobs:
           version: 1
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@nextest
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
@@ -131,6 +154,9 @@ jobs:
       - name: Test
         working-directory: src-tauri
         run: cargo nextest run --workspace
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
 
   # Exhaustive integration tests for the `roux-worktrunk` wrapper that
   # exercise the real `wt` binary against real temp git repositories.
@@ -140,9 +166,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true'
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
@@ -155,3 +186,6 @@ jobs:
           git config --global user.name  "Test"
       - name: Run real-wt integration tests
         run: cargo test -p roux-worktrunk --features real-wt-integration --test real_wt
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
