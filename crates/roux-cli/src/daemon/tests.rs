@@ -43,6 +43,45 @@ fn make_watch_config() -> roux_core::CreateWatchConfig {
     }
 }
 
+static DAEMON_AUTH_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_daemon_auth_env<T>(
+    daemon_token: Option<&str>,
+    auth_token: Option<&str>,
+    f: impl FnOnce() -> T,
+) -> T {
+    let _guard = DAEMON_AUTH_ENV_LOCK.lock().unwrap();
+    let previous_daemon_token = std::env::var_os("ROUX_DAEMON_TOKEN");
+    let previous_auth_token = std::env::var_os("ROUX_AUTH_TOKEN");
+
+    set_env_var("ROUX_DAEMON_TOKEN", daemon_token);
+    set_env_var("ROUX_AUTH_TOKEN", auth_token);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+
+    restore_env_var("ROUX_DAEMON_TOKEN", previous_daemon_token);
+    restore_env_var("ROUX_AUTH_TOKEN", previous_auth_token);
+
+    match result {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+fn set_env_var(key: &str, value: Option<&str>) {
+    match value {
+        Some(value) => std::env::set_var(key, value),
+        None => std::env::remove_var(key),
+    }
+}
+
+fn restore_env_var(key: &str, value: Option<std::ffi::OsString>) {
+    match value {
+        Some(value) => std::env::set_var(key, value),
+        None => std::env::remove_var(key),
+    }
+}
+
 #[test]
 fn spawn_profile_data_rejects_malformed_inline_payload() {
     let settings = roux_core::RouxSettings::default();
@@ -3000,4 +3039,30 @@ fn request_authorized_requires_identity_token() {
     assert!(!request_authorized(&request(None), &identity));
     assert!(!request_authorized(&request(Some("wrong-token")), &identity));
     assert!(request_authorized(&request(Some("secret-token")), &identity));
+}
+
+#[test]
+fn daemon_auth_token_generates_token_for_tcp_bind_without_env_token() {
+    with_daemon_auth_env(None, None, || {
+        let endpoint = platform::SocketEndpoint::Tcp("100.73.57.24:7777".to_string());
+
+        let token = daemon_auth_token(&endpoint)
+            .expect("tcp bind without env token should generate token")
+            .expect("tcp bind should require an auth token");
+
+        assert!(!token.trim().is_empty());
+    });
+}
+
+#[test]
+fn daemon_auth_token_prefers_env_token_for_tcp_bind() {
+    with_daemon_auth_env(Some("stable-token"), None, || {
+        let endpoint = platform::SocketEndpoint::Tcp("100.73.57.24:7777".to_string());
+
+        let token = daemon_auth_token(&endpoint)
+            .expect("env token should be accepted")
+            .expect("tcp bind should require an auth token");
+
+        assert_eq!(token, "stable-token");
+    });
 }

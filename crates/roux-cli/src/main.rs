@@ -323,6 +323,16 @@ enum DaemonAction {
         #[arg(short, long)]
         follow: bool,
     },
+    /// Persist a daemon socket endpoint for future CLI commands
+    Connect {
+        /// Socket endpoint, e.g. tcp://100.73.57.24:7777
+        socket: String,
+        /// Auth token for TCP daemon endpoints
+        #[arg(long)]
+        auth_token: Option<String>,
+    },
+    /// Clear a persisted daemon socket endpoint
+    Disconnect,
     /// Start a daemon-owned shell command and return its process id
     Run {
         /// Shell command to run inside the daemon
@@ -1368,6 +1378,121 @@ fn print_daemon_lifecycle_line(prefix: &str, status: &Value) {
     println!("{}", parts.join(" "));
 }
 
+const TCP_CONNECT_AUTH_WARNING: &str =
+    "Warning: TCP daemon endpoints require an auth token; pass --auth-token or set ROUX_AUTH_TOKEN.";
+
+fn connect_daemon_socket(socket: &str, auth_token: Option<&str>) -> Result<(), String> {
+    let endpoint = parse_daemon_connect_endpoint(socket)?;
+    write_private_config_file(&platform::socket_addr_file_path(), &endpoint.display_value())?;
+    if let Some(auth_token) = auth_token {
+        write_private_config_file(&platform::socket_auth_token_file_path(), auth_token)?;
+    } else {
+        remove_config_file_if_exists(&platform::socket_auth_token_file_path())?;
+    }
+    if let Some(warning) = daemon_connect_auth_warning(
+        &endpoint,
+        auth_token.is_some(),
+        daemon_connect_env_auth_token_present(),
+    ) {
+        eprintln!("{warning}");
+    }
+    println!("Connected roux CLI to {}", endpoint.display_value());
+    Ok(())
+}
+
+fn disconnect_daemon_socket() -> Result<(), String> {
+    remove_config_file_if_exists(&platform::socket_addr_file_path())?;
+    remove_config_file_if_exists(&platform::socket_auth_token_file_path())?;
+    println!("Disconnected roux CLI daemon socket config");
+    Ok(())
+}
+
+fn parse_daemon_connect_endpoint(socket: &str) -> Result<platform::SocketEndpoint, String> {
+    let trimmed = socket.trim();
+    if trimmed.is_empty() {
+        return Err("daemon socket endpoint cannot be empty".to_string());
+    }
+    if let Some(endpoint) = platform::parse_socket_endpoint(trimmed) {
+        return Ok(endpoint);
+    }
+    Err(format!("invalid daemon socket endpoint: {socket}"))
+}
+
+fn daemon_connect_auth_warning(
+    endpoint: &platform::SocketEndpoint,
+    has_cli_auth_token: bool,
+    has_env_auth_token: bool,
+) -> Option<&'static str> {
+    match endpoint {
+        platform::SocketEndpoint::Tcp(_) if !has_cli_auth_token && !has_env_auth_token => {
+            Some(TCP_CONNECT_AUTH_WARNING)
+        }
+        _ => None,
+    }
+}
+
+fn daemon_connect_env_auth_token_present() -> bool {
+    ["ROUX_DAEMON_TOKEN", "ROUX_AUTH_TOKEN"]
+        .iter()
+        .any(|key| std::env::var(key).ok().map(|value| !value.trim().is_empty()).unwrap_or(false))
+}
+
+fn write_private_config_file(path: &PathBuf, contents: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("create config directory {}: {err}", parent.display()))?;
+    }
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("roux-config");
+        let tmp_path =
+            path.with_file_name(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4().simple()));
+
+        let result = (|| {
+            let mut file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .open(&tmp_path)
+                .map_err(|err| format!("write config file {}: {err}", tmp_path.display()))?;
+            file.write_all(contents.as_bytes())
+                .map_err(|err| format!("write config file {}: {err}", tmp_path.display()))?;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(|err| {
+                format!("set permissions on config file {}: {err}", tmp_path.display())
+            })?;
+            drop(file);
+            std::fs::rename(&tmp_path, path).map_err(|err| {
+                format!("replace config file {} with {}: {err}", path.display(), tmp_path.display())
+            })?;
+            Ok::<(), String>(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp_path);
+        }
+        result?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, contents)
+            .map_err(|err| format!("write config file {}: {err}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn remove_config_file_if_exists(path: &PathBuf) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("remove config file {}: {err}", path.display())),
+    }
+}
+
 fn show_daemon_logs(lines: usize, follow: bool) -> Result<(), String> {
     let path = platform::log_dir().join("roux-daemon.log");
     if follow {
@@ -2123,6 +2248,18 @@ fn main() {
             }
             Some(DaemonAction::Logs { lines, follow }) => {
                 if let Err(e) = show_daemon_logs(lines, follow) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Some(DaemonAction::Connect { socket, auth_token }) => {
+                if let Err(e) = connect_daemon_socket(&socket, auth_token.as_deref()) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Some(DaemonAction::Disconnect) => {
+                if let Err(e) = disconnect_daemon_socket() {
                     eprintln!("Error: {e}");
                     std::process::exit(1);
                 }
@@ -3856,6 +3993,94 @@ mod tests {
             }
             _ => panic!("expected Daemon::Logs"),
         }
+    }
+
+    #[test]
+    fn cli_parses_daemon_connect_command() {
+        let cli = Cli::try_parse_from([
+            "roux",
+            "daemon",
+            "connect",
+            "tcp://100.73.57.24:7777",
+            "--auth-token",
+            "secret-token",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Daemon {
+                action: Some(DaemonAction::Connect { socket, auth_token: Some(auth_token) }),
+            } => {
+                assert_eq!(socket, "tcp://100.73.57.24:7777");
+                assert_eq!(auth_token, "secret-token");
+            }
+            _ => panic!("expected Daemon::Connect"),
+        }
+    }
+
+    #[test]
+    fn daemon_connect_warns_when_tcp_endpoint_has_no_auth_token_source() {
+        let endpoint = platform::SocketEndpoint::Tcp("127.0.0.1:7777".to_string());
+
+        assert_eq!(
+            daemon_connect_auth_warning(&endpoint, false, false),
+            Some(TCP_CONNECT_AUTH_WARNING)
+        );
+    }
+
+    #[test]
+    fn daemon_connect_does_not_warn_when_tcp_auth_token_source_exists() {
+        let endpoint = platform::SocketEndpoint::Tcp("127.0.0.1:7777".to_string());
+
+        assert_eq!(daemon_connect_auth_warning(&endpoint, true, false), None);
+        assert_eq!(daemon_connect_auth_warning(&endpoint, false, true), None);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn daemon_connect_does_not_warn_for_unix_endpoint_without_auth_token() {
+        let endpoint = platform::SocketEndpoint::Unix("/tmp/roux.sock".into());
+
+        assert_eq!(daemon_connect_auth_warning(&endpoint, false, false), None);
+    }
+
+    #[test]
+    fn cli_parses_daemon_disconnect_command() {
+        let cli = Cli::try_parse_from(["roux", "daemon", "disconnect"]).unwrap();
+
+        assert!(matches!(cli.command, Commands::Daemon { action: Some(DaemonAction::Disconnect) }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_config_file_is_created_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("roux-socket-token");
+
+        write_private_config_file(&path, "secret-token").unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "secret-token");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_config_file_replaces_permissive_existing_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("roux-socket-token");
+        std::fs::write(&path, "old-token").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_private_config_file(&path, "new-token").unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "new-token");
     }
 
     #[test]

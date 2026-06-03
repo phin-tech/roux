@@ -46,17 +46,60 @@ pub fn resolve_socket_endpoint() -> Option<SocketEndpoint> {
         }
     }
 
-    #[cfg(windows)]
+    if let Some(endpoint) = std::fs::read_to_string(socket_addr_file_path())
+        .ok()
+        .and_then(|value| parse_persisted_socket_endpoint(&value))
     {
-        std::fs::read_to_string(socket_addr_file_path())
-            .ok()
-            .and_then(|value| parse_socket_endpoint(&value))
+        return Some(endpoint);
     }
 
     #[cfg(not(windows))]
     {
         Some(SocketEndpoint::Unix(socket_path()))
     }
+
+    #[cfg(windows)]
+    {
+        None
+    }
+}
+
+fn parse_persisted_socket_endpoint(raw: &str) -> Option<SocketEndpoint> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.starts_with("tcp://") || trimmed.starts_with("unix://") {
+        return parse_socket_endpoint(trimmed);
+    }
+
+    #[cfg(windows)]
+    {
+        Some(SocketEndpoint::Tcp(trimmed.to_string()))
+    }
+    #[cfg(not(windows))]
+    {
+        let path = PathBuf::from(trimmed);
+        if path.is_absolute() {
+            Some(SocketEndpoint::Unix(path))
+        } else if is_legacy_tcp_addr(trimmed) {
+            Some(SocketEndpoint::Tcp(trimmed.to_string()))
+        } else {
+            Some(SocketEndpoint::Unix(path))
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn is_legacy_tcp_addr(value: &str) -> bool {
+    let Some((host, port)) = value.rsplit_once(':') else {
+        return false;
+    };
+
+    !host.is_empty()
+        && !port.is_empty()
+        && port.chars().all(|ch| ch.is_ascii_digit())
+        && !host.contains(std::path::MAIN_SEPARATOR)
 }
 
 pub(crate) fn load_socket_auth_token() -> Option<String> {
@@ -79,7 +122,6 @@ fn socket_path() -> PathBuf {
     roux_core::paths::roux_config_dir().join("roux.sock")
 }
 
-#[cfg(windows)]
 fn socket_addr_file_path() -> PathBuf {
     roux_core::paths::roux_config_dir().join("roux-socket-addr")
 }

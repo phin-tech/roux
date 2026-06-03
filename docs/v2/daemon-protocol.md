@@ -16,13 +16,15 @@ Requests are JSON objects written to the Roux command endpoint.
   `0` to let the OS choose a local port; `daemon-status.socket` reports the
   actual `tcp://HOST:PORT` endpoint.
 - Clients override discovery with `ROUX_SOCKET=tcp://HOST:PORT` or
-  `ROUX_SOCKET=unix:///path/to/roux.sock`. Plain `ROUX_SOCKET` values remain
+  `ROUX_SOCKET=unix:///path/to/roux.sock`, or persist a default endpoint with
+  `roux daemon connect SOCKET`. Plain `ROUX_SOCKET` values remain
   platform-native: Unix paths on Unix/macOS, TCP addresses on Windows.
 - TCP requests include `auth_token`. Clients load it from `ROUX_DAEMON_TOKEN`,
   `ROUX_AUTH_TOKEN`, or the local token file written by a locally-started TCP
-  daemon. On Unix/macOS, explicit TCP daemon binds require
-  `ROUX_DAEMON_TOKEN`; Windows local TCP binds generate and write a token when
-  one is not supplied.
+  daemon or by `roux daemon connect --auth-token`. TCP daemon binds use
+  `ROUX_DAEMON_TOKEN` / `ROUX_AUTH_TOKEN` when supplied; otherwise the daemon
+  generates a token and writes it to the token file with owner-only
+  permissions.
 - Normal commands return one JSON response and close the connection.
 - `daemon-pty-attach` switches to a line-delimited JSON streaming response.
 

@@ -120,21 +120,23 @@ async fn daemon_process_resolves_terminal_defaults_profiles_and_launch_env() {
 }
 
 fn write_settings(base_path: &Path, marker: &Path) {
-    let mut settings = RouxSettings::default();
-    settings.shell_binary_path = Some("/bin/sh".to_string());
-    settings.terminal_defaults = TerminalDefaults {
-        env: Some(BTreeMap::from([
-            ("GLOBAL_ONLY".to_string(), TerminalEnvRule::value("global")),
-            ("SHARED".to_string(), TerminalEnvRule::value("global")),
-            ("UNSET_ME".to_string(), TerminalEnvRule::value("global")),
-        ])),
-        before_shell_starts: Some(format!(
-            "printf 'global-preflight\n' >> {}",
-            shell_quote_path(marker)
-        )),
-        split_profile_behavior: SplitProfileBehavior::PlainShell,
+    let settings = RouxSettings {
+        shell_binary_path: Some("/bin/sh".to_string()),
+        terminal_defaults: TerminalDefaults {
+            env: Some(BTreeMap::from([
+                ("GLOBAL_ONLY".to_string(), TerminalEnvRule::value("global")),
+                ("SHARED".to_string(), TerminalEnvRule::value("global")),
+                ("UNSET_ME".to_string(), TerminalEnvRule::value("global")),
+            ])),
+            before_shell_starts: Some(format!(
+                "printf 'global-preflight\n' >> {}",
+                shell_quote_path(marker)
+            )),
+            split_profile_behavior: SplitProfileBehavior::PlainShell,
+        },
+        spawn_profiles: vec![registered_profile(marker)],
+        ..Default::default()
     };
-    settings.spawn_profiles = vec![registered_profile(marker)];
 
     std::fs::create_dir_all(base_path).unwrap();
     std::fs::write(
