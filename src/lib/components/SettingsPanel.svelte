@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { settings, updateSetting } from "$lib/stores/settings";
+  import {
+    settings,
+    setDefaultAgentProfile,
+    setStartupTarget,
+    updateSetting,
+  } from "$lib/stores/settings";
   import {
     sidebarLayout,
     setRailSide,
@@ -62,10 +67,12 @@
     currentExperimentValue,
     withExperimentValue,
   } from "$lib/experiments";
+  import {
+    normalizeSettingsCategoryId,
+    type SettingsCategoryId,
+  } from "$lib/settings/categories";
 
-  type CategoryId = "general" | "sessions" | "terminal" | "agents" | "kanban" | "externalTools" | "notes" | "integrations" | "notifications" | "keyboard" | "experiments" | "advanced";
-
-  const CATEGORIES: { id: CategoryId; label: string; icon: typeof Settings }[] = [
+  const CATEGORIES: { id: SettingsCategoryId; label: string; icon: typeof Settings }[] = [
     { id: "general", label: "General", icon: Settings },
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "terminal", label: "Terminal", icon: TerminalIcon },
@@ -123,7 +130,7 @@
     }),
   );
 
-  let selected = $state<CategoryId>("general");
+  let selected = $state<SettingsCategoryId>("general");
 
   let appVersion = $state<string>("…");
   let runtimeStatus = $state<RuntimeStatus | null>(null);
@@ -176,7 +183,7 @@
   interface Props {
     visible: boolean;
     onclose: () => void;
-    initialCategory?: string | null;
+    initialCategory?: SettingsCategoryId | null;
     externalToolId?: string | null;
   }
 
@@ -188,7 +195,7 @@
     if (!visible) return;
     const focus = $settingsFocus;
     if (focus?.category) {
-      selected = focus.category as CategoryId;
+      selected = normalizeSettingsCategoryId(focus.category);
       if (focus.category === "externalTools" && "externalToolId" in focus) {
         expandedExternalToolId = focus.externalToolId ?? null;
       }
@@ -196,7 +203,7 @@
       return;
     }
     if (initialCategory) {
-      selected = initialCategory as CategoryId;
+      selected = normalizeSettingsCategoryId(initialCategory);
       if (initialCategory === "externalTools") {
         expandedExternalToolId = externalToolId ?? null;
       }
@@ -363,40 +370,15 @@
   }
 
   function updateDefaultAgentProfile(profileId: string): void {
-    updateSetting("defaultAgentProfile", profileId);
-    updateSetting("kanban", { ...kanbanSettings(), defaultAgentProfile: profileId });
+    setDefaultAgentProfile(profileId);
   }
 
   function globalExternalTools(): ExternalTool[] {
     return externalTools().filter((tool) => tool.enabled !== false && !(tool.requiresSession ?? false));
   }
 
-  function legacyKanbanStartupForTarget(target: StartupTarget): KanbanSettings["startupSidebar"] {
-    switch (target) {
-      case "sessionsSidebar":
-        return "sessions";
-      case "kanbanWide":
-        return "kanban";
-      case "none":
-        return "none";
-      case "restore":
-      case "lastSession":
-      case "externalTool":
-        return "restore";
-    }
-  }
-
   function updateStartupTarget(target: StartupTarget): void {
-    updateSetting("startupTarget", target);
-    updateSetting("kanban", { ...kanbanSettings(), startupSidebar: legacyKanbanStartupForTarget(target) });
-    if (target === "externalTool") {
-      const current = $settings.startupExternalToolId;
-      const tools = globalExternalTools();
-      const nextId = tools.some((tool) => tool.id === current) ? current : (tools[0]?.id ?? null);
-      updateSetting("startupExternalToolId", nextId);
-      return;
-    }
-    updateSetting("startupExternalToolId", null);
+    setStartupTarget(target);
   }
 
   function updateKanban<K extends keyof KanbanSettings>(

@@ -1,10 +1,11 @@
 import { derived, get, writable } from "svelte/store";
+import type { SettingsCategoryId } from "$lib/settings/categories";
 
 export type MainViewRoute =
   | { kind: "board" }
   | { kind: "sessionDetail"; sessionId: string }
   | { kind: "externalTool"; runId: string }
-  | { kind: "preferences"; category?: string; externalToolId?: string | null };
+  | { kind: "preferences"; category?: SettingsCategoryId; externalToolId?: string | null };
 
 export const mainViewRoute = writable<MainViewRoute | null>(null);
 export const mainViewActive = derived(mainViewRoute, ($route) => $route !== null);

@@ -1,8 +1,9 @@
 import { writable } from "svelte/store";
+import type { SettingsCategoryId } from "$lib/settings/categories";
 
 export type SettingsFocus =
   | { category: "externalTools"; externalToolId?: string | null }
-  | { category: string };
+  | { category: SettingsCategoryId };
 
 export const settingsFocus = writable<SettingsFocus | null>(null);
 
